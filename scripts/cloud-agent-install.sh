@@ -87,3 +87,18 @@ npm ci
 npm run setup:python
 npm run setup:electron
 npm run init:runtime
+
+# `npm run test:kernel` is `python -m pytest`. The venv interpreter is a
+# symlink to /usr/local/bin/python3, so that path stays the real Python.
+# `python` is a wrapper that executes the venv without that loop.
+echo "[friday] installing kernel test runner"
+.venv/bin/python -m pip install -r kernel/requirements-dev.txt
+python_wrapper="$(mktemp)"
+cat > "$python_wrapper" << EOF
+#!/bin/sh
+exec "${PWD}/.venv/bin/python" "\$@"
+EOF
+friday_sudo install -m 0755 "$python_wrapper" /usr/local/bin/python
+rm -f "$python_wrapper"
+hash -r || true
+echo "[friday] python for tests: $(command -v python)"
