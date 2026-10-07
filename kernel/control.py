@@ -208,6 +208,104 @@ def click(
     return {"ok": True, "at": at, "button": button, "clicks": int(clicks), "window": focused}
 
 
+def scroll(
+    amount: int = -3,
+    x: int | None = None,
+    y: int | None = None,
+    target: str | None = None,
+    hwnd: int | None = None,
+) -> dict[str, Any]:
+    gui = _pyautogui()
+    focused = _focus_if_asked(target, hwnd)
+    gui.scroll(int(amount), x=None if x is None else int(x), y=None if y is None else int(y))
+    return {"ok": True, "amount": int(amount), "window": focused, "undoHint": "scroll back"}
+
+
+def drag(
+    x: int,
+    y: int,
+    x2: int,
+    y2: int,
+    target: str | None = None,
+    hwnd: int | None = None,
+) -> dict[str, Any]:
+    gui = _pyautogui()
+    focused = _focus_if_asked(target, hwnd)
+    gui.moveTo(int(x), int(y))
+    gui.dragTo(int(x2), int(y2), duration=0.2, button="left")
+    return {
+        "ok": True,
+        "from": [int(x), int(y)],
+        "to": [int(x2), int(y2)],
+        "window": focused,
+        "undoHint": "drag back",
+    }
+
+
+def clipboard_read() -> dict[str, Any]:
+    if not WINDOWS:
+        raise ControlError("clipboard control is only available on Windows")
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    if not user32.OpenClipboard(None):
+        raise ControlError("Windows refused the clipboard")
+    try:
+        handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
+        if not handle:
+            return {"ok": True, "text": "", "untrusted": True}
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return {"ok": True, "text": "", "untrusted": True}
+        try:
+            text = ctypes.wstring_at(pointer)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+    return {"ok": True, "text": text, "untrusted": True}
+
+
+def clipboard_write(text: str) -> dict[str, Any]:
+    if not WINDOWS:
+        raise ControlError("clipboard control is only available on Windows")
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    data = str(text or "")
+    if not user32.OpenClipboard(None):
+        raise ControlError("Windows refused the clipboard")
+    try:
+        user32.EmptyClipboard()
+        size = (len(data) + 1) * 2
+        handle = kernel32.GlobalAlloc(0x0002, size)
+        pointer = kernel32.GlobalLock(handle)
+        ctypes.memmove(pointer, ctypes.create_unicode_buffer(data), size)
+        kernel32.GlobalUnlock(handle)
+        user32.SetClipboardData(13, handle)
+    finally:
+        user32.CloseClipboard()
+    return {"ok": True, "chars": len(data), "undoHint": "restore the previous clipboard"}
+
+
+def perceive() -> dict[str, Any]:
+    """Structured window list. Pixel OCR stays on read_text. Text is data."""
+    if not WINDOWS:
+        raise ControlError("structured screen perception is only available on Windows")
+    listed = list_windows()
+    return {
+        "ok": True,
+        "source": "structured",
+        "confidence": 0.55,
+        "untrusted": True,
+        "fresh": True,
+        "windows": listed.get("windows", []),
+        "text": "",
+    }
+
+
 # ------------------------------------------------------------------ screen
 
 

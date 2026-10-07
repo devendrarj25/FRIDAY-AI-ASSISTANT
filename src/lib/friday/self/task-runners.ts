@@ -13,8 +13,10 @@
 
 import kernelApi from "../kernel-api";
 import { autonomousCore } from "./autonomous-core";
+import { autonomy } from "./autonomy";
 import { taskGraph } from "./task-graph";
 import { extractDeadline, looksLikeHorizonGoal } from "./horizon-goals";
+import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
 
 let wired = false;
 
@@ -35,6 +37,29 @@ export function registerTaskRunners(): void {
       ok: done,
       result: done ? `kernel completed: ${node.title}` : "kernel did not report completion",
       tools: ["kernel.task.run"],
+    };
+  });
+
+  taskGraph.registerRunner("desktop", async ({ node, signal, log }) => {
+    const settings = autonomy.getSnapshot();
+    log(`desktop step "${node.title}"`);
+    const report = await runComputerUse({
+      request: node.instruction,
+      source: "task",
+      level: settings.approvalLevel,
+      halted: settings.halted || signal.aborted,
+      signal,
+      budget: { timeMs: 120_000, maxSteps: 4, spend: 0, tokens: 0 },
+    });
+    const evidenceId = report.evidence[0]?.evidenceId;
+    return {
+      ok: report.ok,
+      waiting: report.needsOwner,
+      result: report.summary,
+      tools: ["desktop"],
+      checked: report.ok,
+      postcondition: report.evidence[0]?.postcondition ?? "",
+      ...(evidenceId ? { evidenceId } : {}),
     };
   });
 
@@ -66,6 +91,49 @@ export type Intake = { id: string; message: string; position: number; queued: bo
  * blocked: a normal question or small talk always returns null and flows on to
  * the usual brain-engine path.
  */
+/**
+ * A desktop sentence becomes a checkpointed graph on the same engine as any
+ * other long task. Ordinary chat does not match `desktopAsk`.
+ */
+export function considerDesktopTask(text: string): Intake {
+  const message = text.trim();
+  if (!desktopAsk(message)) return null;
+  const planned = planDesktop(message);
+  if (!planned.actions.length) return null;
+  registerTaskRunners();
+  const { id, position, queued } = taskGraph.submit(message, {
+    kind: "desktop",
+    maxAttempts: 3,
+    budget: { timeMs: 120_000, maxSteps: planned.actions.length, spend: 0, tokens: 0 },
+    nodes: planned.actions.map((step) => ({
+      title: `${step.kind} ${step.target}`,
+      instruction: instructionFor(step),
+      kind: "desktop",
+    })),
+  });
+  const count = planned.actions.length;
+  return {
+    id,
+    position,
+    queued,
+    message: queued
+      ? `Queued on the desktop — ${count} step(s), number ${position} in line.`
+      : `Started on the desktop — ${count} step(s), checkpointed after each one.`,
+  };
+}
+
+function instructionFor(step: { kind: string; target: string; payload: string }): string {
+  if (step.kind === "type") return `type ${step.payload} into ${step.target}`;
+  if (step.kind === "drag") return `drag ${step.target} to ${step.payload}`;
+  if (step.kind === "copy") return `copy ${step.payload}`;
+  if (step.kind === "file-read") return `read file ${step.target}`;
+  if (step.kind === "file-write") return `write file ${step.target} ${step.payload}`;
+  if (step.kind === "hotkey") return `press ${step.target}`;
+  if (step.kind === "clipboard-write") return `copy ${step.payload}`;
+  if (step.kind === "clipboard-read") return "paste";
+  return `${step.kind} ${step.target}`.trim();
+}
+
 export function considerLongTask(text: string): Intake {
   const message = text.trim();
   if (message.length < 24) return null;
