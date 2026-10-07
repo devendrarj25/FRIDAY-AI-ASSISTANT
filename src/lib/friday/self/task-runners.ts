@@ -17,6 +17,7 @@ import { autonomy } from "./autonomy";
 import { taskGraph } from "./task-graph";
 import { extractDeadline, looksLikeHorizonGoal } from "./horizon-goals";
 import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
+import { timelineFromEvidence } from "./run-receipt";
 
 let wired = false;
 
@@ -52,6 +53,7 @@ export function registerTaskRunners(): void {
       budget: { timeMs: 120_000, maxSteps: 4, spend: 0, tokens: 0 },
     });
     const evidenceId = report.evidence[0]?.evidenceId;
+    const timeline = timelineFromEvidence(report.evidence);
     return {
       ok: report.ok,
       waiting: report.needsOwner,
@@ -60,6 +62,7 @@ export function registerTaskRunners(): void {
       checked: report.ok,
       postcondition: report.evidence[0]?.postcondition ?? "",
       ...(evidenceId ? { evidenceId } : {}),
+      ...(timeline.length ? { timeline } : {}),
     };
   });
 

@@ -11,6 +11,7 @@ import {
   setDesktopPort,
   type DeskWindow,
 } from "../../src/lib/friday/self/computer-use";
+import { redactRunText, timelineFromEvidence } from "../../src/lib/friday/self/run-receipt";
 
 const notes = (): DeskWindow => ({
   id: "notes",
@@ -82,6 +83,7 @@ describe("desktop loop on a fake desktop", () => {
     });
     const injected = await runComputerUse({ ...base, request: "click Save", desktop: hostile });
     expect(injected.stoppedReason).toBe("injection");
+    expect(JSON.stringify(injected.evidence)).not.toContain("ignore previous instructions");
     expect(
       hostile.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
     ).toBe(undefined);
@@ -109,6 +111,8 @@ describe("desktop loop on a fake desktop", () => {
       desktop: secret,
     });
     expect(handed.stoppedReason).toBe("handoff:credential");
+    expect(handed.evidence[0]?.perception?.handoff).toBe("credential");
+    expect(JSON.stringify(handed.evidence)).not.toContain("hunter2");
     expect(secret.state.windows[0]?.controls[0]?.value).toBe("");
 
     const stopped = await runComputerUse({
@@ -279,6 +283,8 @@ describe("desktop loop on a fake desktop", () => {
     expect(report.stoppedReason).toBe("handoff:uac");
     expect(report.summary.includes("s3cret-value")).toBe(false);
     expect(report.lines.join(" ").includes("s3cret-value")).toBe(false);
+    expect(JSON.stringify(report.evidence).includes("s3cret-value")).toBe(false);
+    expect(report.evidence[0]?.perception?.handoff).toBe("uac");
     expect(desktop.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
   });
 
@@ -361,6 +367,21 @@ describe("desktop loop on a fake desktop", () => {
     });
     const guard = await runComputerUse({ ...base, request: "click Save", desktop: other });
     expect(guard.evidence[0]?.result).toBe("wrong window");
+    const saved = report.evidence[0];
+    expect(saved?.perception?.source).toBe("uia");
+    expect(saved?.perception?.confidence).toBe(0.92);
+    expect(saved?.perception?.ageMs).toBe(0);
+    expect(saved?.undoHint).toContain("cannot be undone");
+    const rows = timelineFromEvidence([
+      {
+        ...saved!,
+        result: "password=hunter2 data:image/png;base64,aaaa",
+      },
+    ]);
+    expect(rows[0]?.result).toBe("[redacted] [image omitted]");
+    expect(rows[0]?.source).toBe("uia");
+    expect("screenshot" in (rows[0] ?? {})).toBe(false);
+    expect(redactRunText("token: abcdef")).toBe("[redacted]");
     expect(
       other.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
     ).toBe(undefined);

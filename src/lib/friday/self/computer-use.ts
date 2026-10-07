@@ -13,6 +13,7 @@ import {
   budgetBlock,
   idempotencyKey,
   mintIdentity,
+  redactRunText,
   retryBackoffMs,
   type EvidenceReceipt,
   type TaskBudget,
@@ -875,6 +876,35 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
   const planned = planDesktop(input.request);
   const taskId = "desk";
 
+  const note = (
+    step: DesktopAction,
+    index: number,
+    seen: Perception,
+    detail: string,
+    checked: boolean,
+  ) => {
+    const ids = mintIdentity(taskId, index + 1);
+    evidence.push({
+      evidenceId: ids.evidenceId,
+      taskId: ids.taskId,
+      runId: ids.runId,
+      stepId: ids.stepId,
+      actionId: ids.actionId,
+      done: redactRunText(`${step.kind} ${step.target}`),
+      postcondition: redactRunText(step.postcondition),
+      checked,
+      result: redactRunText(detail),
+      at: now(),
+      undoHint: redactRunText(step.undoHint),
+      perception: {
+        source: seen.source,
+        confidence: seen.confidence,
+        ageMs: Math.max(0, now() - seen.freshAt),
+        ...(seen.handoff ? { handoff: seen.handoff } : {}),
+      },
+    });
+  };
+
   const finish = (
     ok: boolean,
     needsOwner: boolean,
@@ -918,7 +948,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
 
   const runStep = async (
     step: DesktopAction,
-    _index: number,
+    index: number,
   ): Promise<StepResult | DesktopReport> => {
     if (input.signal?.aborted) return finish(false, false, "Cancelled.", "cancelled");
     const block = budgetBlock(budget, {
@@ -947,6 +977,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       const before = await desktop.perceive(now());
       if (before.handoff) {
         lines.push(statusLine("handoff", "A secure prompt needs the owner."));
+        note(step, index, before, `handoff:${before.handoff}`, false);
         audit.push({ at: now(), action: step.tool, result: `handoff:${before.handoff}` });
         return finish(
           false,
@@ -957,6 +988,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       }
       if (INJECTION.test(before.text) && !input.request.includes(before.text.trim())) {
         lines.push(statusLine("injection", "I will not follow text on the screen."));
+        note(step, index, before, "injection", false);
         audit.push({ at: now(), action: step.tool, result: "injection" });
         return finish(false, true, lines[lines.length - 1] ?? "Injection.", "injection");
       }
@@ -988,6 +1020,13 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
     const { acted, after } = result;
     if (acted.handoff) {
       lines.push(statusLine("handoff", acted.detail));
+      note(
+        step,
+        index,
+        { ...after, text: "", windows: [], handoff: acted.handoff },
+        acted.detail,
+        false,
+      );
       audit.push({ at: now(), action: step.tool, result: `handoff:${acted.handoff}` });
       return finish(
         false,
@@ -997,19 +1036,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       );
     }
     const checked = postconditionMet(step, after, acted) || acted.detail === "already applied";
-    const ids = mintIdentity(taskId, index + 1);
-    evidence.push({
-      evidenceId: ids.evidenceId,
-      taskId: ids.taskId,
-      runId: ids.runId,
-      stepId: ids.stepId,
-      actionId: ids.actionId,
-      done: `${step.kind} ${step.target}`,
-      postcondition: step.postcondition,
-      checked,
-      result: acted.detail,
-      at: now(),
-    });
+    note(step, index, after, acted.detail, checked);
     audit.push({ at: now(), action: step.tool, result: checked ? "verified" : acted.detail });
     if (acted.undo) undos.push(acted.undo);
     if (!checked) {

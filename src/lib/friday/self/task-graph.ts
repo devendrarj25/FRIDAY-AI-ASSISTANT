@@ -28,6 +28,7 @@ import {
   retryBackoffMs,
   shouldReplay,
   type TaskBudget,
+  type TimelineRow,
 } from "./run-receipt";
 
 export type NodeState =
@@ -66,6 +67,8 @@ export type Checkpoint = {
   worldChanged?: boolean;
   /** Set when a resume must re-check the postcondition before trusting the step. */
   reverify?: boolean;
+  /** Redacted step notes for the Tasks page. Never a screenshot. */
+  timeline?: TimelineRow[];
 };
 
 export type GraphNode = {

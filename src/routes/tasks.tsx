@@ -29,6 +29,7 @@ import { isDesktopApp } from "@/lib/friday/desktop";
 import { ledger, type TaskRecord, type TaskStatus } from "@/lib/friday/self/task-ledger";
 import { useBackgroundTasks, useLedger, useTaskGraph } from "@/lib/friday/self/use-self";
 import { graphProgress, taskGraph, type TaskGraph } from "@/lib/friday/self/task-graph";
+import type { TimelineRow } from "@/lib/friday/self/run-receipt";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { registerTaskRunners } from "@/lib/friday/self/task-runners";
 import { extractDeadline, looksLikeHorizonGoal } from "@/lib/friday/self/horizon-goals";
@@ -153,6 +154,36 @@ function TaskPanel({ task, question }: { task: TaskRecord; question: string | un
         ))}
       </ol>
     </Panel>
+  );
+}
+
+function RunTimeline({ rows }: { rows: TimelineRow[] | undefined }) {
+  if (!rows?.length) return null;
+  return (
+    <ol className="mt-1 space-y-1 text-muted-foreground">
+      {rows.map((row) => (
+        <li key={row.stepId}>
+          <span className="text-foreground">{row.action}</span>
+          {" · "}
+          <Badge variant="outline" className="label-xs">
+            {row.source}
+            {row.confidence == null ? "" : ` ${row.confidence.toFixed(2)}`}
+            {row.ageMs == null ? "" : ` · ${row.ageMs} ms`}
+          </Badge>
+          {row.handoff ? (
+            <Badge variant="outline" className="label-xs">
+              {row.handoff}
+            </Badge>
+          ) : null}
+          <span className="block">
+            {row.checked ? "postcondition held" : "postcondition missed"}
+            {row.postcondition ? `: ${row.postcondition}` : ""}
+            {row.result ? ` · ${row.result}` : ""}
+          </span>
+          {row.undoHint ? <span className="block">undo · {row.undoHint}</span> : null}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -292,6 +323,7 @@ function GraphRow({
                     {node.purpose === "outcome" ? " · outcome" : ""}
                   </span>
                   {node.error ? <span className="block text-destructive">{node.error}</span> : null}
+                  <RunTimeline rows={node.checkpoint?.timeline} />
                 </span>
               </li>
             ))}
