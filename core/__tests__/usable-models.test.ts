@@ -513,4 +513,45 @@ describe("test chat stays on the router path", () => {
     expect(result.display).toContain("Groq ·");
     expect(JSON.stringify(result)).not.toContain("test-key");
   });
+
+  it("lists what is free now with source and age", () => {
+    const now = 1_700_000_000_000;
+    const board = router.freeNowBoard(
+      [
+        cloud("openai", "gpt-4o"),
+        local,
+        {
+          id: "groq:cool",
+          type: "cloud",
+          access: "free",
+          capabilities: { chat: true, tools: true },
+          connected: true,
+          providerId: "groq",
+          displayName: "cool",
+          coolingDown: true,
+          cooldownUntil: now + 60_000,
+          accessRecord: {
+            evidence: {
+              source: "provider_free_plan",
+              checkedAt: now - 5000,
+              url: "https://console.groq.com/docs/models",
+            },
+          },
+        },
+      ],
+      { now, policy: "free-preferred" },
+    ) as Array<{
+      id: string;
+      cooling?: boolean;
+      source?: string;
+      ageMs?: number;
+      marks?: string[];
+    }>;
+    expect(board.some((row) => row.id.includes("gpt-4o"))).toBe(false);
+    expect(board.find((row) => row.id === "ollama:llama3.2")?.marks).toContain("local");
+    const cool = board.find((row) => row.id === "groq:cool");
+    expect(cool?.cooling).toBe(true);
+    expect(cool?.source).toBe("provider_free_plan");
+    expect(cool?.ageMs).toBe(5000);
+  });
 });

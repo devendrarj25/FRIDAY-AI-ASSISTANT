@@ -338,6 +338,57 @@ def is_local_model(model: "Model") -> bool:
     return any(host in endpoint for host in _LOCAL_HOSTS)
 
 
+def capability_tags(model: "Model") -> list[str]:
+    """Tags the router already understands. A name alone does not add one."""
+    options = model.options if isinstance(model.options, dict) else {}
+    caps = options.get("capabilities") if isinstance(options.get("capabilities"), dict) else {}
+    tags: list[str] = []
+    if caps.get("vision"):
+        tags.append("vision")
+    if caps.get("tools"):
+        tags.append("tools")
+    context = int(model.context_k or 0)
+    if caps.get("longContext") or context >= 100:
+        tags.append("long context")
+    if caps.get("fast") or model.role == "fast":
+        tags.append("speed")
+    if is_local_model(model):
+        tags.append("local")
+    return tags
+
+
+def free_now_entry(model: "Model", now_ms: int) -> dict | None:
+    """A model that is free right now, with the source and age of that fact.
+
+    Paid and unknown-cost models stay off the board. A cooldown stays visible.
+    """
+    options = model.options if isinstance(model.options, dict) else {}
+    local = is_local_model(model)
+    access = str(options.get("access") or "").lower()
+    if not local and access != "free":
+        return None
+    record = options.get("accessRecord") if isinstance(options.get("accessRecord"), dict) else {}
+    evidence = record.get("evidence") if isinstance(record.get("evidence"), dict) else {}
+    checked = evidence.get("checkedAt")
+    checked_at = int(checked) if isinstance(checked, (int, float)) else None
+    cooldown = int(options.get("cooldownUntil") or 0)
+    return {
+        "id": model.id,
+        "source": str(evidence.get("source") or ("local_runtime" if local else "unknown")),
+        "ageMs": None if checked_at is None else max(0, int(now_ms) - checked_at),
+        "cooling": cooldown > int(now_ms),
+        "tags": capability_tags(model),
+    }
+
+
+def model_view(messages: list[dict], limit: int = 8) -> list[dict]:
+    """What this turn sends. The caller keeps the full transcript."""
+    system = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
+    turns = [m for m in messages if isinstance(m, dict) and m.get("role") != "system"]
+    keep = max(1, int(limit))
+    return [*system, *turns[-keep:]]
+
+
 def is_network_error(text: str) -> bool:
     """True when a failure is transport-level, not the model refusing to answer."""
     low = str(text or "").lower()
@@ -1063,7 +1114,8 @@ class ModelRouter:
             "anthropic": self._stream_anthropic,
             "openai": self._stream_openai,
         }[wire]
-        async for chunk in handler(model, messages):
+        # Firewalls already saw the full transcript. The model gets the tail.
+        async for chunk in handler(model, model_view(messages)):
             yield chunk
 
 

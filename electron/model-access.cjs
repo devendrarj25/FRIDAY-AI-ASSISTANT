@@ -1879,6 +1879,41 @@ function planKnowledgeRefresh(now = Date.now()) {
     .filter((row) => row.due);
 }
 
+function parsedPriceUsable(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.priced && typeof parsed.priced === "object" && Object.keys(parsed.priced).length)
+    return true;
+  if (Array.isArray(parsed.freeTierPrefixes) && parsed.freeTierPrefixes.length) return true;
+  return false;
+}
+
+/**
+ * Apply a pricing page only after it parses. A miss leaves the last table,
+ * which still fails closed when that table is older than its TTL.
+ */
+function commitParsedKnowledge({ id, pageText, parsed, now, sourceUrl } = {}) {
+  const decision = acceptPageEvidence({ id, pageText, parsed, now, sourceUrl });
+  if (!decision.ok) return { applied: false, reason: decision.reason };
+  if (!parsedPriceUsable(parsed)) return { applied: false, reason: "no-price" };
+  const current = id === "groq" ? groqTable(now) : id === "gemini" ? geminiTable(now) : null;
+  if (!current) return { applied: false, reason: "no-price-table" };
+  const row = {
+    checkedAt: decision.staged.checkedAt,
+    source: decision.staged.source,
+    ttlMs: decision.staged.ttlMs,
+  };
+  if (parsed.priced && typeof parsed.priced === "object") {
+    row.priced = { ...(current.priced || {}), ...parsed.priced };
+  }
+  if (Array.isArray(parsed.freeTierPrefixes)) {
+    row.freeTierPrefixes = Array.from(
+      new Set([...(current.freeTierPrefixes || []), ...parsed.freeTierPrefixes]),
+    );
+  }
+  applyKnowledgeOverlay({ [id]: row });
+  return { applied: true, reason: "parsed", checkedAt: row.checkedAt };
+}
+
 function acceptPageEvidence({ id, pageText, parsed, now, sourceUrl } = {}) {
   const text = String(pageText || "").trim();
   if (text.length < 40) return { ok: false, reason: "empty" };
@@ -1923,6 +1958,7 @@ module.exports = {
   knowledgeCatalogue,
   planKnowledgeRefresh,
   acceptPageEvidence,
+  commitParsedKnowledge,
   applyKnowledgeOverlay,
   clearKnowledgeOverlay,
   looksFreeName,

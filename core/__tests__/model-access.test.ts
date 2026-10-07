@@ -643,4 +643,41 @@ describe("model access classification", () => {
     expect(due.some((row) => row.id === "mistral" && row.due && !row.expired)).toBe(true);
     expect(due.some((row) => row.id === "groq" && row.due && !row.expired)).toBe(true);
   });
+
+  it("changes a price only when the page parses", () => {
+    const now = Date.parse("2026-10-08T00:00:00Z");
+    const before = (
+      access.knowledgeCatalogue(now) as Array<{ id: string; checkedAt: number }>
+    ).find((row) => row.id === "groq");
+    const refused = access.commitParsedKnowledge({
+      id: "groq",
+      pageText: "not a pricing page",
+      parsed: { priced: { "openai/gpt-oss-20b": { input: 0, output: 0 } } },
+      now,
+      sourceUrl: "https://console.groq.com/docs/models",
+    });
+    expect(refused.applied).toBe(false);
+    const stayed = (
+      access.knowledgeCatalogue(now) as Array<{ id: string; checkedAt: number }>
+    ).find((row) => row.id === "groq");
+    expect(stayed?.checkedAt).toBe(before?.checkedAt);
+    try {
+      const applied = access.commitParsedKnowledge({
+        id: "groq",
+        pageText: "Supported models. Price per 1M tokens for each listed chat model.",
+        parsed: {
+          priced: { "openai/gpt-oss-20b": { input: 0, output: 0, unit: "per_1m_tokens" } },
+        },
+        now,
+        sourceUrl: "https://console.groq.com/docs/models",
+      });
+      expect(applied.applied).toBe(true);
+      const next = (
+        access.knowledgeCatalogue(now) as Array<{ id: string; checkedAt: number }>
+      ).find((row) => row.id === "groq");
+      expect(next?.checkedAt).toBe(now);
+    } finally {
+      access.clearKnowledgeOverlay();
+    }
+  });
 });
