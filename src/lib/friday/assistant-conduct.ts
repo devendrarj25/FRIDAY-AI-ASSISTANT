@@ -7,6 +7,9 @@
  * existing approval policy still own those.
  */
 
+import { redactRunText } from "./self/run-receipt";
+import type { SenseEvent, SenseId } from "./senses";
+
 export type TrustTier = "read" | "reversible" | "exec" | "spend" | "message" | "destructive";
 
 export type ConductOrder = { id: string; text: string; enabled: boolean };
@@ -489,5 +492,111 @@ export function considerLifeTrigger(input: {
     reason: run ? "run" : "offer",
     offeredAt: input.solicited ? recent : [...recent, input.now],
     spoken,
+  };
+}
+
+const SENSE_KIND: Record<SenseId, LifeKind> = {
+  foreground: "window",
+  folder: "file",
+  idle: "reminder",
+  lock: "reminder",
+  power: "reminder",
+  network: "reminder",
+  calendar: "calendar",
+};
+
+/** Overnight quiet hours. 22 to 7 means 22, 23, 0, 1, 2, 3, 4, 5, 6. */
+export function inQuietHours(hour: number, start = 22, end = 7): boolean {
+  const h = Math.floor(Number(hour));
+  if (!Number.isFinite(h)) return false;
+  const from = Math.floor(start);
+  const to = Math.floor(end);
+  if (from === to) return false;
+  if (from < to) return h >= from && h < to;
+  return h >= from || h < to;
+}
+
+/**
+ * A morning or evening line from orders, calendar titles, and open tasks
+ * already on this PC. It does not fetch anything.
+ */
+export function dailyBrief(input: {
+  hour: number;
+  orders: string[];
+  events: string[];
+  openTasks: number;
+}): { slot: "morning" | "evening" | "none"; text: string } {
+  const slot = briefSlot(input.hour);
+  if (slot === "none") return { slot, text: "" };
+  const orders = input.orders
+    .map((line) => redactRunText(line))
+    .filter(Boolean)
+    .slice(0, 3);
+  const events = input.events
+    .map((line) => redactRunText(line))
+    .filter(Boolean)
+    .slice(0, 3);
+  const tasks = Math.max(0, Math.floor(Number(input.openTasks) || 0));
+  const head = slot === "morning" ? "Morning." : "Evening.";
+  const bits = [
+    orders.length ? `Standing orders: ${orders.join("; ")}.` : "No standing orders.",
+    events.length ? `Calendar: ${events.join("; ")}.` : "Nothing on the calendar.",
+    `${tasks} open task${tasks === 1 ? "" : "s"}.`,
+  ];
+  return { slot, text: `${head} ${bits.join(" ")}` };
+}
+
+/**
+ * A sense becomes an offer only through the life-offer gate.
+ * The same text is not offered twice. Quiet hours hold it.
+ * The spoken line is FRIDAY's, not the text of the event.
+ */
+export function offerSense(input: {
+  event: SenseEvent;
+  now: number;
+  offeredAt: number[];
+  seenKeys: string[];
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted: boolean;
+  hour: number;
+  quietStart?: number;
+  quietEnd?: number;
+  windowMs?: number;
+  budget?: number;
+}): {
+  offer: boolean;
+  reason: string;
+  spoken: string;
+  offeredAt: number[];
+  seenKeys: string[];
+} {
+  const key = `${input.event.sense}|${input.event.text.trim().toLowerCase().slice(0, 80)}`;
+  if (input.seenKeys.includes(key)) {
+    return {
+      offer: false,
+      reason: "deduped",
+      spoken: "",
+      offeredAt: input.offeredAt,
+      seenKeys: input.seenKeys,
+    };
+  }
+  const decision = considerLifeTrigger({
+    kind: SENSE_KIND[input.event.sense],
+    now: input.now,
+    offeredAt: input.offeredAt,
+    level: input.level,
+    halted: input.halted,
+    quiet: inQuietHours(input.hour, input.quietStart ?? 22, input.quietEnd ?? 7),
+    text: input.event.text,
+    hour: input.hour,
+    ...(input.windowMs != null ? { windowMs: input.windowMs } : {}),
+    ...(input.budget != null ? { budget: input.budget } : {}),
+  });
+  return {
+    offer: decision.offer,
+    reason: decision.reason,
+    spoken: decision.spoken,
+    offeredAt: decision.offeredAt,
+    seenKeys: decision.offer ? [...input.seenKeys, key] : input.seenKeys,
   };
 }
