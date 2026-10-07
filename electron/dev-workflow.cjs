@@ -19,7 +19,33 @@ const { spawn } = require("node:child_process");
 
 const sync = require("./github-sync.cjs");
 const contract = require("./friday-contract.cjs");
-const IDENTITY = require("../scripts/identity.cjs");
+
+/**
+ * Identity ships beside the app as an extra resource, not inside app.asar.
+ * The checkout path works in development. The resources path is what the
+ * installed EXE can actually open.
+ */
+function loadFirstExisting(candidates) {
+  const tried = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    tried.push(candidate);
+    try {
+      if (fs.existsSync(candidate)) return require(candidate);
+    } catch (error) {
+      console.error(`[friday] identity unavailable at ${candidate}: ${error.message}`);
+    }
+  }
+  const error = new Error("Cannot find module '../scripts/identity.cjs'");
+  error.code = "MODULE_NOT_FOUND";
+  error.tried = tried;
+  throw error;
+}
+
+const IDENTITY = loadFirstExisting([
+  path.join(__dirname, "..", "scripts", "identity.cjs"),
+  path.join(process.resourcesPath || "", "scripts", "identity.cjs"),
+]);
 
 /** Hub GitHub identity — selected connection, not the Updates self-repo unless that is selected. */
 function hubCfg(root) {
@@ -1110,4 +1136,5 @@ module.exports = {
   ensureCheckout,
   bootstrapFromSource,
   DEFAULT_HUB_GITIGNORE,
+  loadFirstExisting,
 };
