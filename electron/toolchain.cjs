@@ -13,6 +13,7 @@ const { execFile, spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const voiceInstall = require("./voice-install.cjs");
 const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
@@ -2060,7 +2061,9 @@ async function commandFor(tool, action, opts = {}) {
       ["install", "-g", action === "update" ? `${tool.npm}@latest` : tool.npm],
     ];
   if (tool.pip) {
-    const python = opts.python || (await resolvePython(path.join(__dirname, "..")));
+    if (voiceInstall.blockedPip(tool.manual)) return null;
+    let python = opts.python || (await resolvePython(path.join(__dirname, "..")));
+    if (!python) python = await ensureManagedPython("3.12");
     if (!python) return null;
     const args = [...python.prefix, "-m", "pip", "install", "--prefer-binary"];
     if (action === "update") args.push("--upgrade");
@@ -2420,24 +2423,27 @@ function runJob({ id, action, root }, emit) {
     const fallback = action === "uninstall" ? null : directInstaller(tool);
 
     if (!pmCmd && !fallback) {
-      // Nothing here is broken: the component simply has no unattended installer
-      // on this platform. Reporting it as "Manual" keeps the row honest instead
-      // of showing a failure the user cannot act on.
-      const manual = Boolean(tool.manual) || !tool.pip;
-      const message = tool.manual
-        ? `manual step required — ${tool.manual} (${tool.url})`
-        : tool.pip
-          ? `FRIDAY's isolated Python 3.12 runtime was not found — run Setup, then retry`
-          : `no automated ${action} available — download ${tool.name || id} yourself from ${tool.url}`;
+      const vendorOnly = Boolean(tool.manual) && !tool.pip;
+      const outcome = voiceInstall.installOutcome({
+        pythonFound: false,
+        vendorOnly: vendorOnly || voiceInstall.blockedPip(tool.manual),
+        vendorStep: tool.manual
+          ? `${tool.manual} (${tool.url})`
+          : `no automated ${action} for ${tool.name || id} — ${tool.url}`,
+        log: "",
+        importOk: false,
+        cause: tool.pip && !voiceInstall.blockedPip(tool.manual) ? "no-python" : "vendor-manual",
+      });
       emit({
         id,
         action,
-        manual,
+        manual: outcome.manual,
         ok: false,
-        phase: manual ? "Manual" : "Failed",
-        ...(manual ? { line: message } : { error: message }),
+        phase: outcome.phase,
+        cause: outcome.cause,
+        ...(outcome.manual ? { line: outcome.error } : { error: outcome.error }),
       });
-      return { ok: false, manual, error: manual ? undefined : message };
+      return { ok: false, manual: outcome.manual, error: outcome.error, cause: outcome.cause };
     }
 
     /** Run one attempt to completion and report its raw exit code. */
