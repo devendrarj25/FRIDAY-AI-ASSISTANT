@@ -658,6 +658,17 @@ async function ensureInteractWindow(url, session) {
  * The renderer must gate submit / login / purchase through governance first.
  */
 async function interact({ action, url, selector, text, value, session } = {}) {
+  const handoff = live.handoffSelector(selector);
+  if (handoff) {
+    return note({
+      kind: "interact",
+      action,
+      url,
+      ok: false,
+      handoff,
+      error: `handoff:${handoff}`,
+    });
+  }
   const script = interactScript(action, { selector, text, value });
   if (!script) {
     return note({
