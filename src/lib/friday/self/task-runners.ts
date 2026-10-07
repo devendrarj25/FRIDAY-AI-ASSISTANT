@@ -255,7 +255,10 @@ export function handleQueueCommand(text: string): string | null {
 
   if (statusAsk) {
     if (!running && !snapshot.queue.length) {
-      const recent = graphs.find((graph) => graph.state === "paused" || graph.state === "failed");
+      const recent = graphs.find(
+        (graph) =>
+          graph.state === "paused" || graph.state === "interrupted" || graph.state === "failed",
+      );
       if (recent) return describeGraph(recent);
       return "No background task is running, and nothing is queued.";
     }
@@ -329,7 +332,7 @@ export function handleQueueCommand(text: string): string | null {
 
   if (/^(resume all( the)?( tasks?)?|resume every task)\b/.test(message)) {
     const n = taskGraph.resumeAllPaused();
-    return n ? `Resumed ${n} paused graph(s).` : "Nothing is paused.";
+    return n ? `Resumed ${n} held graph(s).` : "Nothing is waiting to resume.";
   }
 
   if (
@@ -337,12 +340,12 @@ export function handleQueueCommand(text: string): string | null {
     /\bcontinue (that|the|this) task\b/.test(message) ||
     /^keep going\b/.test(message)
   ) {
-    const paused = graphs.find((graph) => graph.state === "paused");
-    if (!paused) return "Nothing is paused.";
-    taskGraph.resume(paused.id);
-    const next = paused.nodes.find((node) => !DONE_NODE.has(node.state));
+    const held = graphs.find((graph) => graph.state === "paused" || graph.state === "interrupted");
+    if (!held) return "Nothing is waiting to resume.";
+    taskGraph.resume(held.id);
+    const next = held.nodes.find((node) => !DONE_NODE.has(node.state));
     const from = next?.checkpoint?.nextAction || next?.title || "the last checkpoint";
-    return `Resuming from ${from}: ${paused.request.slice(0, 140)}`;
+    return `Resuming from ${from}: ${held.request.slice(0, 140)}`;
   }
 
   return null;

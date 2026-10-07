@@ -13,7 +13,14 @@ import { domainsForTask } from "../brain/confidence";
 import { similarity } from "../brain/reconciler";
 
 export type TaskStatus =
-  "queued" | "running" | "awaiting-approval" | "done" | "failed" | "cancelled" | "timeout";
+  | "queued"
+  | "running"
+  | "awaiting-approval"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "timeout"
+  | "interrupted";
 
 export type TaskLog = { at: number; level: "info" | "ok" | "warn" | "error"; line: string };
 
@@ -35,7 +42,24 @@ export type TaskRecord = {
   success?: boolean;
   verified?: boolean;
   feedback?: string;
+  /** Last safe point. A reload keeps this and marks the row interrupted. */
+  checkpoint?: {
+    at: number;
+    done: string;
+    nextAction: string;
+    idempotencyKey?: string;
+    checked?: boolean;
+  };
 };
+
+/** A reload keeps the checkpoint and offers the run again. It does not cancel it. */
+export function settleInterrupted(tasks: TaskRecord[]): TaskRecord[] {
+  return tasks.map((task) =>
+    task.status === "running" || task.status === "queued" || task.status === "awaiting-approval"
+      ? { ...task, status: "interrupted" }
+      : task,
+  );
+}
 
 export type TaskContext = {
   id: string;
@@ -96,12 +120,7 @@ class TaskLedger {
     if (this.loaded) return;
     this.loaded = true;
     if (typeof window === "undefined") return;
-    const settle = (parsed: TaskRecord[]): TaskRecord[] =>
-      parsed.map((t) =>
-        t.status === "running" || t.status === "queued" || t.status === "awaiting-approval"
-          ? { ...t, status: "cancelled", endedAt: t.endedAt ?? Date.now() }
-          : t,
-      );
+    const settle = (parsed: TaskRecord[]): TaskRecord[] => settleInterrupted(parsed);
     const local = readLocalState<TaskRecord[]>(STORAGE_KEY);
     if (Array.isArray(local)) this.tasks = settle(local);
     restoreFromDisk<TaskRecord[]>(STORAGE_KEY, (disk) => {

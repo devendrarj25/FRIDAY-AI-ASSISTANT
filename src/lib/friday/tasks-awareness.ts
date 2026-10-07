@@ -106,7 +106,7 @@ export function requestTasksAsk(prompt: string): boolean {
 }
 
 export function graphIsLive(state: GraphState): boolean {
-  return state === "queued" || state === "running" || state === "paused";
+  return state === "queued" || state === "running" || state === "paused" || state === "interrupted";
 }
 
 export function filterGraphs(

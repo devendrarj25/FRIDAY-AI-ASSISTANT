@@ -177,11 +177,15 @@ function GraphRow({
       n.state === "running" ||
       n.state === "ready" ||
       n.state === "retrying" ||
-      n.state === "waiting",
+      n.state === "waiting" ||
+      n.state === "interrupted",
   );
   const queued = graph.state === "queued";
   const openGraph =
-    graph.state === "queued" || graph.state === "running" || graph.state === "paused";
+    graph.state === "queued" ||
+    graph.state === "running" ||
+    graph.state === "paused" ||
+    graph.state === "interrupted";
   const finished =
     graph.state === "completed" || graph.state === "failed" || graph.state === "cancelled";
   return (
@@ -231,15 +235,17 @@ function GraphRow({
               Pause
             </Button>
           ) : null}
-          {graph.state === "paused" || queued ? (
+          {graph.state === "paused" || graph.state === "interrupted" || queued ? (
             <Button
               size="sm"
               variant="outline"
               onClick={() =>
-                graph.state === "paused" ? taskGraph.resume(graph.id) : void taskGraph.pump()
+                graph.state === "paused" || graph.state === "interrupted"
+                  ? taskGraph.resume(graph.id)
+                  : void taskGraph.pump()
               }
             >
-              {graph.state === "paused" ? "Resume" : "Run next"}
+              {graph.state === "paused" || graph.state === "interrupted" ? "Resume" : "Run next"}
             </Button>
           ) : null}
           {graph.state === "failed" || graph.state === "cancelled" ? (
@@ -444,7 +450,12 @@ function TasksPage() {
     if (!window.confirm("Cancel every live ledger task and open graph?")) return;
     ledger.cancelAll();
     for (const graph of graphs) {
-      if (graph.state === "queued" || graph.state === "running" || graph.state === "paused") {
+      if (
+        graph.state === "queued" ||
+        graph.state === "running" ||
+        graph.state === "paused" ||
+        graph.state === "interrupted"
+      ) {
         taskGraph.cancel(graph.id);
       }
     }
@@ -458,8 +469,8 @@ function TasksPage() {
 
   const onResumePaused = () => {
     const n = taskGraph.resumeAllPaused();
-    if (n) toast.success(`Resumed ${n} paused graph(s).`);
-    else toast.message("Nothing is paused.");
+    if (n) toast.success(`Resumed ${n} held graph(s).`);
+    else toast.message("Nothing is waiting to resume.");
   };
 
   const onApproveAll = () => {

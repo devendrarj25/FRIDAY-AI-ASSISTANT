@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { TaskGraphEngine, planNodes, type TaskGraph } from "../../src/lib/friday/self/task-graph";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  TaskGraphEngine,
+  planNodes,
+  type GraphNode,
+  type TaskGraph,
+} from "../../src/lib/friday/self/task-graph";
 import { taskGraph } from "../../src/lib/friday/self/task-graph";
 import { considerLongTask, handleQueueCommand } from "../../src/lib/friday/self/task-runners";
 import { looksLikeHorizonGoal } from "../../src/lib/friday/self/horizon-goals";
+import { autonomy } from "../../src/lib/friday/self/autonomy";
+import { resumeOffer, shouldReplay } from "../../src/lib/friday/self/run-receipt";
+import { settleInterrupted, type TaskRecord } from "../../src/lib/friday/self/task-ledger";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -330,5 +338,297 @@ describe("long-horizon goals", () => {
       true,
     );
     engine.cancel(id);
+  });
+});
+
+const point = (
+  id: string,
+  state: GraphNode["state"],
+  extra: Partial<GraphNode> = {},
+): GraphNode => ({
+  id,
+  title: id,
+  instruction: id,
+  kind: "goal",
+  dependsOn: [],
+  state,
+  attempts: state === "pending" ? 0 : 1,
+  maxAttempts: 2,
+  idempotencyKey: `key-${id}`,
+  checkpoint: {
+    at: 1,
+    done: id,
+    remaining: "",
+    files: [],
+    models: [],
+    tools: [],
+    result: state === "verified" ? "done" : "",
+    nextAction: "save",
+    idempotencyKey: `key-${id}`,
+    checked: state === "verified",
+  },
+  ...extra,
+});
+
+function crashed(nodes: GraphNode[], extra: Partial<TaskGraph> = {}): TaskGraph {
+  return {
+    id: "graph-crash",
+    request: "write the notes",
+    priority: "owner",
+    state: "running",
+    createdAt: 5_000,
+    updatedAt: 5_000,
+    nodes,
+    logs: [],
+    runId: "graph-crash-run",
+    ...extra,
+  };
+}
+
+describe("durable resume after a killed step", () => {
+  afterEach(() => {
+    autonomy.update({ approvalLevel: "balanced", halted: false });
+  });
+
+  it("asks unless the owner set Full, and a halted Full dial still waits", async () => {
+    expect(resumeOffer("full")).toBe("resume");
+    expect(resumeOffer("balanced")).toBe("ask");
+    expect(resumeOffer("strict")).toBe("ask");
+    expect(resumeOffer("trusted")).toBe("ask");
+    expect(shouldReplay(undefined)).toBe(true);
+    expect(shouldReplay({ checked: true })).toBe(false);
+    expect(shouldReplay({ checked: false })).toBe(true);
+    expect(shouldReplay({ checked: true, worldChanged: true })).toBe(true);
+
+    const first = new TaskGraphEngine();
+    let release: () => void = () => {};
+    first.registerRunner("goal", async ({ checkpoint, node }) => {
+      checkpoint({ done: node.title, nextAction: "save", checked: false });
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { result: `done ${node.title}`, checked: true };
+    });
+    const { id } = first.submit("write the notes", {
+      nodes: [{ title: "write the notes", instruction: "write" }],
+    });
+    await sleep(40);
+    const live = first.get(id)!;
+    expect(live.nodes[0]?.state).toBe("running");
+    expect(live.nodes[0]?.checkpoint?.idempotencyKey).toBeTruthy();
+    const stored = clone(first.list());
+    release();
+    await settle(first);
+
+    const calls: string[] = [];
+    const balanced = new TaskGraphEngine();
+    balanced.registerRunner("goal", async ({ node }) => {
+      calls.push(`${node.title}:${node.checkpoint?.reverify === true}`);
+      return { result: "saved", checked: true };
+    });
+    balanced.hydrateFrom(clone(stored), "balanced");
+    await sleep(30);
+    expect(balanced.get(id)!.state).toBe("interrupted");
+    expect(balanced.get(id)!.resumeOffer).toBe("ask");
+    expect(calls).toEqual([]);
+
+    for (const level of ["strict", "trusted"] as const) {
+      const engine = new TaskGraphEngine();
+      engine.registerRunner("goal", async () => ({ result: "saved", checked: true }));
+      engine.hydrateFrom(clone(stored), level);
+      expect(engine.get(id)!.state).toBe("interrupted");
+    }
+
+    const full = new TaskGraphEngine();
+    full.registerRunner("goal", async () => {
+      calls.push("full");
+      return { result: "saved", checked: true };
+    });
+    full.hydrateFrom(clone(stored), "full");
+    await settle(full);
+    expect(calls).toEqual(["full"]);
+    expect(full.get(id)!.state).toBe("completed");
+
+    autonomy.update({ halted: true });
+    const halted = new TaskGraphEngine();
+    let haltedCalls = 0;
+    halted.registerRunner("goal", async () => {
+      haltedCalls += 1;
+      return { result: "saved", checked: true };
+    });
+    halted.hydrateFrom(clone(stored), "full");
+    await sleep(40);
+    expect(haltedCalls).toBe(0);
+    expect(halted.get(id)!.state).toBe("interrupted");
+    expect(halted.get(id)!.resumeOffer).toBe("ask");
+  });
+
+  it("resumes once, skips a checked step, and replays when the world changed", async () => {
+    const engine = new TaskGraphEngine();
+    const ran: string[] = [];
+    engine.registerRunner("goal", async ({ node }) => {
+      ran.push(node.id);
+      expect(node.checkpoint?.reverify).toBe(true);
+      return { result: `done ${node.id}`, checked: true, worldChanged: false };
+    });
+    const open = crashed([
+      point("write", "running", {
+        checkpoint: {
+          at: 1,
+          done: "write",
+          remaining: "save",
+          files: [],
+          models: [],
+          tools: [],
+          result: "",
+          nextAction: "save",
+          idempotencyKey: "key-write",
+          checked: false,
+        },
+      }),
+    ]);
+    engine.hydrateFrom([open], "balanced");
+    engine.resume(open.id);
+    engine.resume(open.id);
+    await settle(engine);
+    expect(ran).toEqual(["write"]);
+    expect(engine.get(open.id)!.state).toBe("completed");
+    engine.resume(open.id);
+    expect(ran).toEqual(["write"]);
+
+    const changed = new TaskGraphEngine();
+    const again: string[] = [];
+    changed.registerRunner("goal", async ({ node }) => {
+      again.push(node.id);
+      return { result: "rechecked", checked: true };
+    });
+    changed.hydrateFrom(
+      [
+        crashed([
+          point("write", "running", {
+            checkpoint: {
+              at: 1,
+              done: "write",
+              remaining: "",
+              files: [],
+              models: [],
+              tools: [],
+              result: "saved once",
+              nextAction: "finish",
+              checked: true,
+              worldChanged: true,
+              idempotencyKey: "key-write",
+            },
+          }),
+        ]),
+      ],
+      "balanced",
+    );
+    expect(changed.get("graph-crash")!.state).toBe("interrupted");
+    changed.resume("graph-crash");
+    await settle(changed);
+    expect(again).toEqual(["write"]);
+
+    const held = new TaskGraphEngine();
+    let skipped = 0;
+    held.registerRunner("goal", async () => {
+      skipped += 1;
+      return { result: "should not run", checked: true };
+    });
+    held.hydrateFrom(
+      [
+        crashed([
+          point("write", "running", {
+            checkpoint: {
+              at: 1,
+              done: "write",
+              remaining: "",
+              files: [],
+              models: [],
+              tools: [],
+              result: "saved once",
+              nextAction: "finish",
+              checked: true,
+              idempotencyKey: "key-write",
+            },
+          }),
+        ]),
+      ],
+      "balanced",
+    );
+    expect(skipped).toBe(0);
+    expect(held.get("graph-crash")!.state).toBe("completed");
+    expect(held.get("graph-crash")!.nodes[0]?.state).toBe("verified");
+  });
+
+  it("cancels an interrupted run and refuses another step after the budget", async () => {
+    const engine = new TaskGraphEngine();
+    let ran = 0;
+    engine.registerRunner("goal", async () => {
+      ran += 1;
+      return { result: "done", checked: true };
+    });
+    const graph = crashed([point("write", "running")]);
+    engine.hydrateFrom([graph], "balanced");
+    engine.cancel(graph.id);
+    expect(engine.get(graph.id)!.state).toBe("cancelled");
+    engine.resume(graph.id);
+    await sleep(20);
+    expect(ran).toBe(0);
+    expect(engine.get(graph.id)!.state).toBe("cancelled");
+
+    const limited = new TaskGraphEngine();
+    limited.registerRunner("goal", async () => {
+      ran += 1;
+      return { result: "done", checked: true };
+    });
+    const over = crashed(
+      [point("one", "verified"), point("two", "running", { dependsOn: ["one"] })],
+      { budget: { timeMs: 60_000_000, maxSteps: 1, spend: 0, tokens: 0 }, createdAt: Date.now() },
+    );
+    limited.hydrateFrom([over], "full");
+    await sleep(40);
+    expect(ran).toBe(0);
+    expect(limited.get(over.id)!.state).toBe("paused");
+    expect(limited.get(over.id)!.logs.some((line) => line.line.includes("step budget"))).toBe(true);
+    limited.clearFinished();
+    expect(limited.get(over.id)).toBeTruthy();
+  });
+
+  it("keeps the ledger checkpoint when a reload interrupts the row", () => {
+    const checkpoint = {
+      at: 10,
+      done: "opened",
+      nextAction: "save",
+      idempotencyKey: "file|notes|save",
+      checked: false,
+    };
+    const row = (id: string, status: TaskRecord["status"], endedAt?: number): TaskRecord => ({
+      id,
+      key: id,
+      kind: "goal",
+      title: id,
+      status,
+      progress: 0,
+      startedAt: 1,
+      logs: [],
+      ...(endedAt != null ? { endedAt } : {}),
+      ...(id === "running" ? { checkpoint } : {}),
+    });
+    const next = settleInterrupted([
+      row("running", "running"),
+      row("queued", "queued"),
+      row("ask", "awaiting-approval"),
+      row("done", "done", 9),
+    ]);
+    expect(next.map((task) => task.status)).toEqual([
+      "interrupted",
+      "interrupted",
+      "interrupted",
+      "done",
+    ]);
+    expect(next[0]?.checkpoint).toEqual(checkpoint);
+    expect(next[0]?.endedAt).toBeUndefined();
+    expect(next[3]?.endedAt).toBe(9);
   });
 });

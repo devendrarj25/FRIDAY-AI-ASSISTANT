@@ -6,6 +6,7 @@
  */
 
 import { nextRetryDelayMs } from "../bounded-retry";
+import type { ApprovalLevel } from "./autonomy";
 
 export type RunIdentity = {
   taskId: string;
@@ -71,6 +72,21 @@ export function retryBackoffMs(attemptIndex: number): number | null {
  * Why this run must stop, or null when another step is still allowed.
  * Time, steps, spend and tokens are all hard caps.
  */
+/** Ask and Balanced wait. Full continues only when the owner chose Full. */
+export function resumeOffer(level: ApprovalLevel): "ask" | "resume" {
+  return level === "full" ? "resume" : "ask";
+}
+
+/**
+ * A verified step is not replayed. A changed world, or a step that never
+ * checked its postcondition, runs again so the check happens on fresh state.
+ */
+export function shouldReplay(checkpoint?: { checked?: boolean; worldChanged?: boolean }): boolean {
+  if (!checkpoint) return true;
+  if (checkpoint.worldChanged) return true;
+  return checkpoint.checked !== true;
+}
+
 export function budgetBlock(budget: TaskBudget, used: BudgetUse): string | null {
   if (used.steps >= budget.maxSteps) return "step budget reached";
   if (used.ms > budget.timeMs) return "time budget reached";
