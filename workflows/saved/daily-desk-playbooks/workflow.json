@@ -1,0 +1,72 @@
+{
+  "id": "daily-desk-playbooks",
+  "name": "Daily desk playbooks",
+  "version": "1.0.0",
+  "description": "Organize Downloads and the Desktop by moving files, summarise a folder, prep a meeting, draft a message, plan the day, and add one hisab line. Nothing is deleted. A send waits for approval.",
+  "category": "office",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Move Downloads and Desktop files into a dated folder",
+      "kind": "note",
+      "ref": "move-dated-folder",
+      "risk": "write",
+      "postcondition": "Each file is in the dated folder and still exists.",
+      "undo": "Move the files back to the folder they came from."
+    },
+    {
+      "id": "s2",
+      "label": "Summarise the folder and propose renames",
+      "kind": "note",
+      "ref": "summarise-folder",
+      "risk": "safe",
+      "postcondition": "A list of names is written and no file is removed."
+    },
+    {
+      "id": "s3",
+      "label": "Prepare meeting notes from the next event",
+      "kind": "note",
+      "ref": "meeting-notes",
+      "risk": "safe",
+      "postcondition": "The note names the next event and stays local."
+    },
+    {
+      "id": "s4",
+      "label": "Draft the message and do not send it",
+      "kind": "note",
+      "ref": "draft-message",
+      "risk": "write",
+      "postcondition": "A draft exists and was not sent."
+    },
+    {
+      "id": "s5",
+      "label": "Send the draft after approval",
+      "kind": "note",
+      "ref": "send-after-approval",
+      "risk": "write",
+      "postcondition": "The draft was sent only after the owner approved it."
+    },
+    {
+      "id": "s6",
+      "label": "Write reminders and the day plan",
+      "kind": "note",
+      "ref": "day-plan",
+      "risk": "safe",
+      "postcondition": "The plan lists the open tasks for the day."
+    },
+    {
+      "id": "s7",
+      "label": "Add one hisab line from the receipt",
+      "kind": "note",
+      "ref": "hisab-line",
+      "risk": "write",
+      "postcondition": "One ledger line was added and the receipt text stays data."
+    }
+  ]
+}

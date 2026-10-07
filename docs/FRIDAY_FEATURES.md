@@ -6,7 +6,7 @@
 
 Discovery: `listCapabilities()` in `src/lib/friday/capability-trees.ts`. Disk trees: `electron/friday-contract.cjs` `TREES`. Landing path: `resolveLandingPath()` in `src/lib/friday/navigation.ts`. Root folders: `ensureStructure()` in `electron/friday-paths.cjs`. Public identity: `readCanonicalIdentity()` in `scripts/release-engine.cjs`.
 
-Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **116** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **32** in `kernel/tools.py`.
+Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **117** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **32** in `kernel/tools.py`.
 
 ## 1. Shell and routes
 
@@ -256,3 +256,4 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 | Demonstration into the existing canvas | ADOPT | Consent is required. A password, payment, or secret step is omitted. The remaining steps are one untrusted graph and replay through the desktop loop. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html (read 2026-10-07). A live Windows recording was not run here. |
 | Page tree before pixels | ADOPT | A page is read as DOM or accessibility nodes. Text is data. A password, payment, or captcha control is a handoff with no content. A site acts only when its host is on the allow list. Source: chromedevtools.github.io/devtools-protocol/tot/Accessibility/ (read 2026-10-07). A live page was not driven here. |
 | Pixel-first browsing | REJECT | A screenshot is not the first way to see a page, and it is not stored. |
+| Daily playbooks as workflow packs | ADOPT | Organize, summarise, meeting notes, a draft, a send, a day plan, and one hisab line live in the existing workflow pack. A move has an undo. A send is a write and does not approve itself. Nothing deletes. Source: the workflow.json pack shape already used by `workflows/saved` (checked 2026-10-07). |
