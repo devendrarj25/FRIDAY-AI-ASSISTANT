@@ -146,10 +146,7 @@ describe("commit provenance", () => {
       DEPENDABOT,
       { name: "dependabot[bot]", email: DEPENDABOT_EMAIL },
     );
-    commit(
-      dir,
-      `chore: record the same account\n\nCo-authored-by: ${DEPENDABOT}`,
-    );
+    commit(dir, `chore: record the same account\n\nCo-authored-by: ${DEPENDABOT}`);
     const result = check(dir);
     expect(result.status, result.out).toBe(0);
     fs.rmSync(dir, { recursive: true, force: true });

@@ -36,11 +36,15 @@ const DEPENDABOT_EMAIL = "49699333+dependabot[bot]@users.noreply.github.com";
 const DEPENDABOT_SIGNOFF = "dependabot[bot] <support@github.com>";
 
 function exactDependabot(name, email) {
-  return String(name || "").trim() === DEPENDABOT_NAME && String(email || "").trim() === DEPENDABOT_EMAIL;
+  return (
+    String(name || "").trim() === DEPENDABOT_NAME && String(email || "").trim() === DEPENDABOT_EMAIL
+  );
 }
 
 function allowedDependencyTrailer(line) {
-  const match = String(line || "").trim().match(/^(co-authored-by|signed-off-by):\s*(.*)$/i);
+  const match = String(line || "")
+    .trim()
+    .match(/^(co-authored-by|signed-off-by):\s*(.*)$/i);
   if (!match) return false;
   const kind = match[1].toLowerCase();
   const rest = match[2];

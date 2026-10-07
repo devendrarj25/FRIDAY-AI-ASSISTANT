@@ -137,8 +137,7 @@ function requiresCursorFolder(source: string): string[] {
     const match = pattern.exec(code);
     if (match) hits.push(match[0]);
   }
-  const binding =
-    /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*path\.join\(([^;]*?\.cursor[^;]*)\)/g;
+  const binding = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*path\.join\(([^;]*?\.cursor[^;]*)\)/g;
   for (const match of code.matchAll(binding)) {
     const name = match[1];
     const readOf = new RegExp(
