@@ -196,9 +196,9 @@ def perform_pattern(selector: str, pattern: str, value: str = "") -> dict[str, A
     if unknown is None:
         raise RuntimeError("no pattern")
     target = unknown.QueryInterface(interface)
-    if method == "SetValue":
+    if pattern == "Value":
         target.SetValue(value)
-    elif method == "Scroll":
+    elif pattern == "Scroll":
         target.Scroll(0, -1)
     else:
         getattr(target, method)()
