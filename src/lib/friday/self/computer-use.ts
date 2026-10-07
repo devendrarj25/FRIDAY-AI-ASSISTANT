@@ -608,7 +608,8 @@ function click(state: DeskState, step: DesktopAction, key: string): ActOutcome {
     ok: true,
     detail: `clicked ${found.control.name} via ${choice.pattern}`,
     undo: () => {
-      found.control.pressed = was;
+      if (was === undefined) delete found.control.pressed;
+      else found.control.pressed = was;
     },
   };
 }
