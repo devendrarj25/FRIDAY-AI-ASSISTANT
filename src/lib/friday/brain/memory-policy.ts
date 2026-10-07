@@ -173,7 +173,7 @@ export function packTurnContext(input: {
         return null;
       }
       const overlap = tokenJaccard(askTerms, memoryContentTokens(text));
-      const ageMs = Number.isFinite(fact.at) ? Math.max(0, input.now - fact.at) : null;
+      const ageMs = fact.at > 0 ? Math.max(0, input.now - fact.at) : null;
       return { fact: { ...fact, text, ageMs }, overlap };
     })
     .filter((row): row is { fact: TurnFact & { ageMs: number | null }; overlap: number } =>
@@ -193,4 +193,52 @@ export function packTurnContext(input: {
     forModel: { turns: transcript.slice(-Math.max(1, maxTurns)), facts: ranked },
     withheld,
   };
+}
+
+/** Profile fields the owner already saved. Age is unknown until a fact has a time. */
+export function profileFacts(profile: {
+  preferredName?: string;
+  occupation?: string;
+  location?: string;
+  languages?: string;
+  notes?: string;
+}): TurnFact[] {
+  const rows: Array<[string, string, string]> = [
+    ["name", "preferred name", profile.preferredName || ""],
+    ["occupation", "occupation", profile.occupation || ""],
+    ["location", "location", profile.location || ""],
+    ["languages", "languages", profile.languages || ""],
+    ["notes", "note", profile.notes || ""],
+  ];
+  return rows
+    .filter(([, , text]) => text.trim().length > 0)
+    .map(([id, label, text]) => ({
+      id: `profile:${id}`,
+      text: id === "notes" ? text.trim() : `${label} is ${text.trim()}`,
+      source: "profile",
+      at: 0,
+    }));
+}
+
+/** Backup copy. Credential text is blank. Each row keeps its source and age. */
+export function redactForExport<
+  T extends {
+    title: string;
+    text: string;
+    source: string;
+    createdAt: number;
+    freshnessAt?: number;
+  },
+>(items: T[], now: number): Array<T & { ageMs: number | null }> {
+  return items.map((item) => {
+    const at = item.freshnessAt ?? item.createdAt;
+    const sensitive = looksSensitive(item.text) || looksSensitive(item.title);
+    return {
+      ...item,
+      title: sensitive ? "withheld" : item.title,
+      text: sensitive ? "" : item.text,
+      source: item.source || "unknown",
+      ageMs: at > 0 ? Math.max(0, now - at) : null,
+    };
+  });
 }
