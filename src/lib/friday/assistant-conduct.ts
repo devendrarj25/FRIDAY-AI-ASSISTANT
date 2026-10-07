@@ -694,3 +694,233 @@ export function deliverSenses(input: {
     state: { memory: ingested.memory, offeredAt, offerSeen },
   };
 }
+
+export type DayReceipt = {
+  title: string;
+  outcome: "done" | "waiting" | "undone";
+  undo: string;
+};
+
+export type DayCursor = {
+  dayKey: string;
+  briefed: "none" | "morning" | "evening";
+  offeredAt: number[];
+  seenKeys: string[];
+  locked: boolean;
+  memory: SenseMemory;
+};
+
+export function emptyDayCursor(dayKey: string): DayCursor {
+  return {
+    dayKey,
+    briefed: "none",
+    offeredAt: [],
+    seenKeys: [],
+    locked: false,
+    memory: emptySenseMemory(),
+  };
+}
+
+/** Local civil day for the Tasks page. Tests pass start and end instead. */
+export function localDayWindow(now: number): { dayKey: string; start: number; end: number } {
+  const date = new Date(now);
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return { dayKey: `${date.getFullYear()}-${month}-${day}`, start, end: start + 86_400_000 };
+}
+
+function keepFact(line: string): string {
+  const clean = redactRunText(line).trim();
+  if (!clean || LIFE_DATA.test(clean)) return "";
+  return clean;
+}
+
+export function outcomeForStatus(status: string): DayReceipt["outcome"] | null {
+  if (status === "done" || status === "completed" || status === "verified") return "done";
+  if (
+    status === "awaiting-approval" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "interrupted" ||
+    status === "waiting" ||
+    status === "paused"
+  ) {
+    return "waiting";
+  }
+  if (status === "cancelled" || status === "failed" || status === "timeout") return "undone";
+  return null;
+}
+
+/** Ledger rows for one civil day. The page does not keep a second list. */
+export function receiptsFromWork(input: {
+  tasks: { title: string; status: string; startedAt: number }[];
+  start: number;
+  end: number;
+}): DayReceipt[] {
+  const rows: DayReceipt[] = [];
+  for (const task of input.tasks) {
+    if (task.startedAt < input.start || task.startedAt >= input.end) continue;
+    const outcome = outcomeForStatus(task.status);
+    if (!outcome) continue;
+    rows.push({ title: task.title, outcome, undo: "" });
+  }
+  return rows;
+}
+
+export function summarizeDay(input: { dayKey: string; receipts: DayReceipt[]; orders: string[] }): {
+  done: string[];
+  waiting: string[];
+  undone: string[];
+  tomorrow: string[];
+  digest: string;
+  evening: string;
+} {
+  const title = (row: DayReceipt) => keepFact(row.title);
+  const done = input.receipts
+    .filter((row) => row.outcome === "done")
+    .map(title)
+    .filter(Boolean);
+  const waiting = input.receipts
+    .filter((row) => row.outcome === "waiting")
+    .map(title)
+    .filter(Boolean);
+  const undone = input.receipts
+    .filter((row) => row.outcome === "undone")
+    .map((row) => {
+      const name = title(row);
+      const undo = keepFact(row.undo);
+      if (!name) return "";
+      return undo ? `${name} (${undo})` : name;
+    })
+    .filter(Boolean);
+  const tomorrow = input.orders.map(keepFact).filter(Boolean).slice(0, 3);
+  const join = (rows: string[]) => (rows.length ? rows.join("; ") : "nothing");
+  const evening = `Evening. Done: ${join(done)}. Waiting: ${join(waiting)}. Undone: ${join(undone)}. Tomorrow: ${join(tomorrow)}.`;
+  const digest = [
+    `What FRIDAY did · ${input.dayKey}`,
+    `Done: ${join(done)}.`,
+    `Waiting: ${join(waiting)}.`,
+    `Undone: ${join(undone)}.`,
+    `Tomorrow: ${join(tomorrow)}.`,
+  ].join("\n");
+  return { done, waiting, undone, tomorrow, digest, evening };
+}
+
+/**
+ * One pass: morning brief, sense offers, then the evening line.
+ * A new day, a lock, or a saved cursor does not repeat a brief already given.
+ * Nothing here starts a tool.
+ */
+export function runDayLoop(input: {
+  now: number;
+  hour: number;
+  dayKey: string;
+  orders: string[];
+  events: string[];
+  openTasks: number;
+  raw: RawSense[];
+  switches: SenseSwitches;
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted: boolean;
+  locked: boolean;
+  receipts: DayReceipt[];
+  cursor: DayCursor | null;
+  minGapMs?: Partial<Record<SenseId, number>>;
+}): {
+  cursor: DayCursor;
+  morning: string;
+  offers: { spoken: string; reason: string; ran: false }[];
+  evening: string;
+  digest: string;
+  resumed: boolean;
+} {
+  const previous = input.cursor;
+  const missed = !previous || previous.dayKey !== input.dayKey;
+  const resumed = missed || Boolean(previous && previous.locked && !input.locked);
+  let cursor: DayCursor = missed
+    ? emptyDayCursor(input.dayKey)
+    : {
+        dayKey: previous.dayKey,
+        briefed: previous.briefed,
+        offeredAt: [...previous.offeredAt],
+        seenKeys: [...previous.seenKeys],
+        locked: previous.locked,
+        memory: previous.memory,
+      };
+  const summary = summarizeDay({
+    dayKey: input.dayKey,
+    receipts: input.receipts,
+    orders: input.orders,
+  });
+  if (input.locked || input.halted) {
+    return {
+      cursor: { ...cursor, locked: input.locked },
+      morning: "",
+      offers: [],
+      evening: "",
+      digest: summary.digest,
+      resumed,
+    };
+  }
+  let morning = "";
+  if (briefSlot(input.hour) === "morning" && cursor.briefed === "none") {
+    const gate = considerLifeTrigger({
+      kind: "schedule",
+      now: input.now,
+      offeredAt: cursor.offeredAt,
+      level: input.level,
+      halted: false,
+      hour: input.hour,
+      quiet: inQuietHours(input.hour),
+    });
+    cursor = { ...cursor, offeredAt: gate.offeredAt, locked: false };
+    if (gate.offer) {
+      morning = dailyBrief({
+        hour: input.hour,
+        orders: input.orders.map(keepFact).filter(Boolean),
+        events: input.events.map(keepFact).filter(Boolean),
+        openTasks: input.openTasks,
+      }).text;
+      cursor = { ...cursor, briefed: "morning" };
+    }
+  }
+  const delivered = deliverSenses({
+    switches: input.switches,
+    raw: input.raw,
+    now: input.now,
+    hour: input.hour,
+    level: input.level,
+    halted: false,
+    state: { memory: cursor.memory, offeredAt: cursor.offeredAt, offerSeen: cursor.seenKeys },
+    ...(input.minGapMs ? { minGapMs: input.minGapMs } : {}),
+  });
+  cursor = {
+    ...cursor,
+    memory: delivered.state.memory,
+    offeredAt: delivered.state.offeredAt,
+    seenKeys: delivered.state.offerSeen,
+    locked: false,
+  };
+  const offers = delivered.decisions
+    .filter((row) => row.offer)
+    .map((row) => ({ spoken: row.spoken, reason: row.reason, ran: false as const }));
+  let evening = "";
+  if (briefSlot(input.hour) === "evening" && cursor.briefed !== "evening") {
+    const gate = considerLifeTrigger({
+      kind: "schedule",
+      now: input.now,
+      offeredAt: cursor.offeredAt,
+      level: input.level,
+      halted: false,
+      hour: input.hour,
+      quiet: inQuietHours(input.hour),
+    });
+    cursor = { ...cursor, offeredAt: gate.offeredAt };
+    if (gate.offer) {
+      evening = summary.evening;
+      cursor = { ...cursor, briefed: "evening" };
+    }
+  }
+  return { cursor, morning, offers, evening, digest: summary.digest, resumed };
+}

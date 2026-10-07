@@ -43,6 +43,7 @@ import {
   summarizeTaskErrors,
   type TasksFilter,
 } from "@/lib/friday/tasks-awareness";
+import { localDayWindow, receiptsFromWork, summarizeDay } from "@/lib/friday/assistant-conduct";
 
 export const Route = createFileRoute("/tasks")({
   head: () => ({
@@ -523,6 +524,14 @@ function TasksPage() {
     brain.send(prompt, { extra: formatTasksExtra() });
   };
 
+  const latest = tasks.reduce((max, task) => Math.max(max, task.startedAt || 0), 0);
+  const day = latest > 0 ? localDayWindow(latest) : null;
+  const digest = summarizeDay({
+    dayKey: day?.dayKey ?? "no receipts yet",
+    orders: [],
+    receipts: day ? receiptsFromWork({ tasks, start: day.start, end: day.end }) : [],
+  });
+
   return (
     <AppShell
       title="Tasks"
@@ -555,6 +564,9 @@ function TasksPage() {
       }
     >
       <div className="space-y-4">
+        <Panel title="What FRIDAY did" hint={day?.dayKey ?? "no receipts yet"}>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{digest.digest}</p>
+        </Panel>
         <Panel
           title="Queue"
           hint={`${visibleGraphs.length}/${graphs.length} graphs · ${queue.length} in line · ${graphs.filter((graph) => graphIsLive(graph.state)).length} live · ${approvals.length} waiting${idlePaused ? " · idle paused" : ""}`}
