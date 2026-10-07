@@ -10,6 +10,41 @@ const path = require("node:path");
 
 const MAX = 50;
 
+const PASSWORD_SOURCE =
+  /1password|bitwarden|keepass|lastpass|dashlane|keeper|nordpass|enpass|roboform|credential manager/i;
+
+function blockedSource(name) {
+  return PASSWORD_SOURCE.test(String(name || ""));
+}
+
+function redactClip(text) {
+  const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
+  return String(text || "")
+    .replace(secret, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+/** A redacted snippet, or null when the front app is a password manager. */
+function peek(input = {}) {
+  if (blockedSource(input.sourceApp)) return null;
+  const text = redactClip(input.text);
+  if (!text) return null;
+  return { text };
+}
+
+/** Stores the redacted snippet only. A password-manager read never reaches here. */
+function note(root, text, at) {
+  const clean = redactClip(text);
+  if (!root || !clean) return { ok: false, stored: false };
+  const items = load(root);
+  items.unshift({ at: Number(at) || 0, chars: clean.length, text: clean });
+  const saved = save(root, items);
+  if (!saved.ok) return saved;
+  return { ok: true, stored: true, count: saved.count };
+}
+
 function storePath(root) {
   if (!root) return null;
   return path.join(root, "memory", "clipboard-history.json");
@@ -72,4 +107,4 @@ function run(input = {}) {
   return { ok: false, error: `Unknown clipboard action: ${action}` };
 }
 
-module.exports = { run, load, storePath };
+module.exports = { run, load, storePath, peek, note, blockedSource, redactClip };

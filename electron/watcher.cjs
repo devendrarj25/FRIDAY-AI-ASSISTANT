@@ -203,6 +203,7 @@ class WorkspaceWatcher {
       file: filename,
       relative,
       restartRequired: dataOnly ? false : needsRestart(relative),
+      dataOnly,
       untrusted: true,
       instruction: false,
       at: Date.now(),

@@ -267,6 +267,15 @@ type DesktopApi = {
   extractDocument?: (payload: unknown) => Promise<unknown>;
   onWorkspaceScan?: (cb: (s: WorkspaceScanResult) => void) => () => void;
   onWorkspaceChange?: (cb: (c: WorkspaceChange) => void) => () => void;
+  onSenseEvent?: (
+    cb: (event: {
+      sense?: string;
+      at?: number;
+      text?: string;
+      path?: string;
+      hour?: number;
+    }) => void,
+  ) => () => void;
   onWorkspaceMigrate?: (
     cb: (e: {
       phase: "start" | "copy" | "done" | "failed";

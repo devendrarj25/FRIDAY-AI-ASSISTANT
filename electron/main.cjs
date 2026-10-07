@@ -667,7 +667,7 @@ function scheduleRescan(root, delay = 1200) {
   }, delay);
 }
 
-function startWatching(root) {
+function startWatching(root, approvedFolders) {
   if (ownerPrefToggle("repoWatch", true) === false) {
     if (watcher) {
       watcher.stop();
@@ -686,6 +686,15 @@ function startWatching(root) {
     const restartRequired = Boolean(change.restartRequired);
     if (restartRequired) noteRestartRequired(change.relative || change.component);
     send("workspace:changed", { ...change, area, hot, restartRequired });
+    if (change.dataOnly) {
+      send("senses:event", {
+        sense: "folder",
+        at: change.at || Date.now(),
+        text: String(change.file || "changed").slice(0, 120),
+        path: String(change.relative || ""),
+        hour: new Date().getHours(),
+      });
+    }
     void plugins
       .dispatch(
         capabilityRoots(),
@@ -712,7 +721,8 @@ function startWatching(root) {
     // what keeps every section's list connected after a future upgrade.
     scheduleConnectivityRefresh();
   });
-  watcher.start(root);
+  const folders = Array.isArray(approvedFolders) ? approvedFolders : [];
+  watcher.start(root, { approvedFolders: folders });
 }
 
 /**
@@ -3476,6 +3486,94 @@ function ownerPrefToggle(key, fallback) {
   }
 }
 
+let senseFeed = null;
+
+function ensureSenses() {
+  if (senseFeed) return senseFeed;
+  const { createSenseFeed, readForegroundTitle } = require("./sense-feed.cjs");
+  const clips = require("./clipboard-history.cjs");
+  let power = null;
+  try {
+    power = require("electron").powerMonitor || null;
+  } catch {
+    power = null;
+  }
+  senseFeed = createSenseFeed({
+    powerMonitor: power,
+    now: () => Date.now(),
+    foregroundTitle: () => readForegroundTitle(),
+    readClipboard: () => {
+      try {
+        const { clipboard } = require("electron");
+        return clipboard && typeof clipboard.readText === "function" ? clipboard.readText() : "";
+      } catch {
+        return "";
+      }
+    },
+    online: () => {
+      try {
+        const { net } = require("electron");
+        if (net && typeof net.isOnline === "function") return Boolean(net.isOnline());
+        return Boolean(net && net.online);
+      } catch {
+        return false;
+      }
+    },
+    idle: () => {
+      try {
+        const monitor = require("electron").powerMonitor;
+        const idleFn = monitor && monitor.getSystemIdleTime;
+        return typeof idleFn === "function" && idleFn() >= 60;
+      } catch {
+        return false;
+      }
+    },
+    calendarTitles: () => {
+      try {
+        const root = getWorkspaceRoot();
+        if (!root) return [];
+        const file = path.join(root, "memory", "calendar-cache.txt");
+        if (!fs.existsSync(file)) return [];
+        return String(fs.readFileSync(file, "utf8"))
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .slice(0, 5);
+      } catch {
+        return [];
+      }
+    },
+    noteClip: (text, at) => {
+      try {
+        const root = getWorkspaceRoot();
+        if (!root) return;
+        clips.note(root, text, at);
+      } catch (error) {
+        log(`clipboard sense: ${error?.message || error}`);
+      }
+    },
+    watchFolders: (folders) => {
+      try {
+        const root = getWorkspaceRoot();
+        if (!root) return;
+        if (ownerPrefToggle("repoWatch", true) === false) return;
+        if (!watcher && (!folders || folders.length === 0)) return;
+        startWatching(root, folders);
+      } catch (error) {
+        log(`sense folders: ${error?.message || error}`);
+      }
+    },
+    emit: (raw) => {
+      try {
+        send("senses:event", { ...raw, hour: new Date().getHours() });
+      } catch (error) {
+        log(`sense emit: ${error?.message || error}`);
+      }
+    },
+  });
+  return senseFeed;
+}
+
 function applyOwnerPreferenceEffects(value) {
   try {
     const toggles =
@@ -3499,6 +3597,7 @@ function applyOwnerPreferenceEffects(value) {
     if (fields.sampleSeconds != null && fields.sampleSeconds !== "") {
       systemMonitor.setSampleMs(Number(fields.sampleSeconds) * 1000);
     }
+    ensureSenses().apply(toggles, fields);
   } catch (error) {
     log(`preference side effects: ${error?.message || error}`);
   }
@@ -6872,6 +6971,12 @@ app
           })
           .catch((error) => boot("Scanning folders", "warn", error.message));
         startWatching(root);
+        try {
+          const saved = JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+          applyOwnerPreferenceEffects(saved);
+        } catch {
+          /* no saved preferences — senses stay off */
+        }
         initSelfMaintenance(root);
         boot("Watching for changes", "ok");
       }

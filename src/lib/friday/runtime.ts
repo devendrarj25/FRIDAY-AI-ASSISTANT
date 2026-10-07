@@ -45,7 +45,11 @@ import { hub, type HubKind } from "./hub-engine";
 import { watchStartup } from "./startup";
 import { ensureEssentialCapabilities } from "./capability-seed";
 import { buildCapabilityGroups, type CapabilityKind } from "./capabilities";
+import { deliverSenses, emptySenseGate } from "./assistant-conduct";
 import { desktopApi, getWorkspaceScan, onWorkspaceScanChange } from "./desktop";
+import { preferences } from "./preferences";
+import { approvedFolderList, isSenseId, switchesFromToggles } from "./senses";
+import { autonomy } from "./self/autonomy";
 import { listCapabilities, type CapabilityItem } from "./capability-trees";
 import { type ModelsState } from "./models-engine";
 import { listConnectors } from "./connectors";
@@ -487,6 +491,54 @@ async function reloadInstalledCapabilities(): Promise<void> {
  * models that are really installed, and leaves everything else to the stores
  * that already hydrate themselves.
  */
+/** A sense event is offered through the life-offer gate and does not run a tool. */
+function bindSenseOffers(): void {
+  const api = desktopApi() as {
+    onSenseEvent?: (
+      cb: (raw: {
+        sense?: string;
+        at?: number;
+        text?: string;
+        path?: string;
+        hour?: number;
+      }) => void,
+    ) => () => void;
+  } | null;
+  if (!api?.onSenseEvent) return;
+  let state = emptySenseGate();
+  api.onSenseEvent((raw) => {
+    try {
+      if (!raw || typeof raw.sense !== "string" || !isSenseId(raw.sense)) return;
+      const prefs = preferences.getSnapshot();
+      const dial = autonomy.getSnapshot();
+      const hourValue = raw.hour;
+      const hour =
+        typeof hourValue === "number" && Number.isFinite(hourValue) ? Math.floor(hourValue) : 12;
+      const at = Number.isFinite(raw.at) ? Number(raw.at) : 0;
+      const next = deliverSenses({
+        switches: switchesFromToggles(prefs.toggles),
+        raw: [
+          {
+            sense: raw.sense,
+            at,
+            text: typeof raw.text === "string" ? raw.text : "",
+            path: typeof raw.path === "string" ? raw.path : "",
+            approvedFolders: approvedFolderList(prefs.fields["senseFolders"]),
+          },
+        ],
+        now: at,
+        hour,
+        level: dial.approvalLevel,
+        halted: dial.halted,
+        state,
+      });
+      state = next.state;
+    } catch {
+      /* a sense must never take the UI down */
+    }
+  });
+}
+
 export function bootRuntime(): void {
   if (booted || typeof window === "undefined") return;
   booted = true;
@@ -647,6 +699,7 @@ export function bootRuntime(): void {
     // Ship-with-FRIDAY starter kit: install any missing preinstalled skill,
     // tool, agent, module, plugin or workflow into the workspace once, in the
     // background. Idempotent — existing capabilities are never touched.
+    bindSenseOffers();
     void ensureEssentialCapabilities()
       .then((result) => {
         if (result.installed.length) capabilityRegistry.refresh();

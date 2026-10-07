@@ -75,7 +75,12 @@ describe("workspace watcher restart detection", () => {
     expect(isApproved("notes/a.txt", ["notes"])).toBe(true);
     expect(isApproved("config/kernel.yaml", ["notes"])).toBe(false);
 
-    const events: { restartRequired: boolean; untrusted: boolean; instruction: boolean }[] = [];
+    const events: {
+      restartRequired: boolean;
+      untrusted: boolean;
+      instruction: boolean;
+      dataOnly?: boolean;
+    }[] = [];
     const watcher = new Watcher((event) => events.push(event));
     watcher.root = root;
     watcher.approved = ["notes"];
@@ -85,6 +90,7 @@ describe("workspace watcher restart detection", () => {
     expect(events[0]?.restartRequired).toBe(false);
     expect(events[0]?.untrusted).toBe(true);
     expect(events[0]?.instruction).toBe(false);
+    expect(events[0]?.dataOnly).toBe(true);
     watcher.stop();
   });
 });

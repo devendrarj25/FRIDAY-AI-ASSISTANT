@@ -8,7 +8,15 @@
  */
 
 import { redactRunText } from "./self/run-receipt";
-import type { SenseEvent, SenseId } from "./senses";
+import {
+  emptySenseMemory,
+  ingestSenses,
+  type RawSense,
+  type SenseEvent,
+  type SenseId,
+  type SenseMemory,
+  type SenseSwitches,
+} from "./senses";
 
 export type TrustTier = "read" | "reversible" | "exec" | "spend" | "message" | "destructive";
 
@@ -503,6 +511,7 @@ const SENSE_KIND: Record<SenseId, LifeKind> = {
   power: "reminder",
   network: "reminder",
   calendar: "calendar",
+  clipboard: "clipboard",
 };
 
 /** Overnight quiet hours. 22 to 7 means 22, 23, 0, 1, 2, 3, 4, 5, 6. */
@@ -598,5 +607,90 @@ export function offerSense(input: {
     spoken: decision.spoken,
     offeredAt: decision.offeredAt,
     seenKeys: decision.offer ? [...input.seenKeys, key] : input.seenKeys,
+  };
+}
+
+export type SenseGateState = {
+  memory: SenseMemory;
+  offeredAt: number[];
+  offerSeen: string[];
+};
+
+export function emptySenseGate(): SenseGateState {
+  return { memory: emptySenseMemory(), offeredAt: [], offerSeen: [] };
+}
+
+/**
+ * Ingest a batch and offer it only through the life-offer gate.
+ * Nothing here runs a tool. The spoken line is FRIDAY's, not the event text.
+ */
+export function deliverSenses(input: {
+  switches: SenseSwitches;
+  raw: RawSense[];
+  now: number;
+  hour: number;
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted: boolean;
+  state: SenseGateState;
+  quietStart?: number;
+  quietEnd?: number;
+  windowMs?: number;
+  budget?: number;
+  minGapMs?: Partial<Record<SenseId, number>>;
+}): {
+  events: SenseEvent[];
+  decisions: {
+    sense: SenseId;
+    offer: boolean;
+    reason: string;
+    spoken: string;
+    ran: false;
+  }[];
+  state: SenseGateState;
+} {
+  const ingested = ingestSenses({
+    switches: input.switches,
+    raw: input.raw,
+    now: input.now,
+    memory: input.state.memory,
+    ...(input.minGapMs ? { minGapMs: input.minGapMs } : {}),
+  });
+  let offeredAt = input.state.offeredAt;
+  let offerSeen = input.state.offerSeen;
+  const decisions: {
+    sense: SenseId;
+    offer: boolean;
+    reason: string;
+    spoken: string;
+    ran: false;
+  }[] = [];
+  for (const event of ingested.events) {
+    const decision = offerSense({
+      event,
+      now: input.now,
+      offeredAt,
+      seenKeys: offerSeen,
+      level: input.level,
+      halted: input.halted,
+      hour: input.hour,
+      ...(input.quietStart != null ? { quietStart: input.quietStart } : {}),
+      ...(input.quietEnd != null ? { quietEnd: input.quietEnd } : {}),
+      ...(input.windowMs != null ? { windowMs: input.windowMs } : {}),
+      ...(input.budget != null ? { budget: input.budget } : {}),
+    });
+    offeredAt = decision.offeredAt;
+    offerSeen = decision.seenKeys;
+    decisions.push({
+      sense: event.sense,
+      offer: decision.offer,
+      reason: decision.reason,
+      spoken: decision.spoken,
+      ran: false,
+    });
+  }
+  return {
+    events: ingested.events,
+    decisions,
+    state: { memory: ingested.memory, offeredAt, offerSeen },
   };
 }

@@ -11,8 +11,11 @@ import { desktopApi, revealWorkspaceFolder } from "@/lib/friday/desktop";
 import { preferences } from "@/lib/friday/preferences";
 import {
   SENSE_IDS,
+  SENSE_LABEL,
   SENSE_TOGGLE,
   approvedFolderList,
+  senseHint,
+  stopAllPatch,
   switchesFromToggles,
   watchingLine,
 } from "@/lib/friday/senses";
@@ -106,22 +109,8 @@ export function SystemSettings() {
         {SENSE_IDS.map((id) => (
           <ToggleRow
             key={id}
-            label={
-              id === "foreground"
-                ? "Foreground window"
-                : id === "folder"
-                  ? "Approved folders"
-                  : id === "idle"
-                    ? "Idle"
-                    : id === "lock"
-                      ? "Lock and unlock"
-                      : id === "power"
-                        ? "Power"
-                        : id === "network"
-                          ? "Network"
-                          : "Calendar"
-            }
-            hint={id === "folder" ? "Only folders you list below" : "Off until you turn it on"}
+            label={SENSE_LABEL[id]}
+            hint={senseHint(id)}
             on={prefs.toggles[SENSE_TOGGLE[id]] === true}
             onToggle={() =>
               preferences.setToggle(SENSE_TOGGLE[id], prefs.toggles[SENSE_TOGGLE[id]] !== true)
@@ -137,6 +126,15 @@ export function SystemSettings() {
             className="mt-1 h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-xs text-foreground"
           />
         </label>
+        <div className="mt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => preferences.update({ toggles: stopAllPatch() })}
+          >
+            Stop all watching
+          </Button>
+        </div>
       </HudPanel>
 
       <HudPanel title="Performance">
