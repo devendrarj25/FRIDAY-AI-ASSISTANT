@@ -12,6 +12,7 @@
 
 import { analyseIntent } from "../brain-catalog";
 import { parseWhen } from "../speech-parse";
+import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
 import { resolveContext, type ChatTurn, type ResolvedContext } from "./context-engine";
 import { ownerContextDigest } from "./identity";
@@ -283,6 +284,11 @@ export function understand(text: string): UnderstoodIntent {
   const constraints = CONSTRAINT.test(trimmed) ? ["owner named a constraint — honour it"] : [];
   const urgency = URGENCY.test(trimmed) ? 0.85 : 0.2;
   const needsClarification = kind === "ambiguous" || (kind === "follow-up" && trimmed.length < 8);
+  const choice = clarificationChoice({
+    confidence: needsClarification ? 0.2 : 0.9,
+    costWrong: needsClarification ? 5 : 1,
+    costAsk: 1,
+  });
   const result: UnderstoodIntent = {
     kind,
     catalogId: catalog.rule.id,
@@ -294,9 +300,7 @@ export function understand(text: string): UnderstoodIntent {
     entities: found,
     urgency,
     needsClarification,
-    ask: needsClarification
-      ? "Which thing should I continue — the last task, or something else?"
-      : null,
+    ask: needsClarification ? choice.question : null,
     text: trimmed,
     conversationalMove: conversationalMove(trimmed),
     timeReferences: [
