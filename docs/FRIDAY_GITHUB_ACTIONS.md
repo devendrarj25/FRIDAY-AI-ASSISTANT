@@ -78,6 +78,14 @@ TypeScript. A major is a planned upgrade. Nothing auto-merges. Dependabot runs u
 read-only token and cannot publish the `PR Validation` status: run **PR Validation**
 from the Actions tab with that commit's SHA.
 
+Commit provenance allows that dependency-update account only when the author
+or committer name is `dependabot[bot]` and the email is
+`49699333+dependabot[bot]@users.noreply.github.com`, both exact. The same pair
+may appear on a co-author trailer. A sign-off of `dependabot[bot]` with
+`support@github.com` is allowed. The same name with any other email, and every
+other bot, still fails. Assistant authors, assistant trailers, and a message
+that says the change was generated still fail.
+
 **One open draft, then one validation.** `main` stays protected, so every change
 is still a pull request. Any assistant continues on the latest open draft into
 `main` and opens a new draft only when none exists. The owner marks that draft

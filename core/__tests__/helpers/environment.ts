@@ -6,6 +6,7 @@
 // without .git). The weekly health workflow runs on a full runner, so they are
 // exercised there.
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 
 /** True when https://example.com answers within 4 seconds. */
 export async function isOnline(url = "https://example.com/"): Promise<boolean> {
@@ -21,4 +22,18 @@ export async function isOnline(url = "https://example.com/"): Promise<boolean> {
 export function hasCommand(command: string): boolean {
   const probe = spawnSync(command, ["-h"], { stdio: "ignore", timeout: 4000 });
   return !(probe.error && (probe.error as NodeJS.ErrnoException).code === "ENOENT");
+}
+
+/**
+ * True when `filePath` exists and is a regular file.
+ * Callers run the check when this is true and record a visible skip when it is false.
+ */
+export function hasFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
 }

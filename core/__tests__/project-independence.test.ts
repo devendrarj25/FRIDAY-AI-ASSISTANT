@@ -95,6 +95,65 @@ function marked(text: string): boolean {
   });
 }
 
+/** Product trees that must boot when this folder is absent. */
+const CURSOR_SCAN_ROOTS = [
+  "src",
+  "electron",
+  "kernel",
+  "core/__tests__",
+  "scripts",
+  "config",
+  ".github",
+];
+
+/** Skip lists may name the folder. They do not open it. */
+const CURSOR_SKIP_LISTS = [
+  "electron/source-access.cjs",
+  "electron/plugins.cjs",
+  "scripts/docs-engine.cjs",
+];
+
+const CURSOR_SCANNER = "core/__tests__/project-independence.test.ts";
+
+function stripCodeComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+/** Lines that open `.cursor/` without checking that the file exists first. */
+function requiresCursorFolder(source: string): string[] {
+  const code = stripCodeComments(source);
+  const hits: string[] = [];
+  const direct = [
+    /readFileSync\s*\(\s*["'`][^"'`]*\.cursor[^"'`]*["'`]/,
+    /readFile\s*\(\s*["'`][^"'`]*\.cursor[^"'`]*["'`]/,
+    /openSync\s*\(\s*["'`][^"'`]*\.cursor[^"'`]*["'`]/,
+    /createReadStream\s*\(\s*["'`][^"'`]*\.cursor[^"'`]*["'`]/,
+    /\bread\s*\(\s*["'`][^"'`]*\.cursor[^"'`]*["'`]/,
+    /JSON\.parse\s*\(\s*read\s*\(\s*["'`][^"'`]*\.cursor/,
+    /require\s*\(\s*["'`][^"'`]*\.cursor/,
+    /from\s+["'`][^"'`]*\.cursor/,
+  ];
+  for (const pattern of direct) {
+    const match = pattern.exec(code);
+    if (match) hits.push(match[0]);
+  }
+  const binding = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*path\.join\(([^;]*?\.cursor[^;]*)\)/g;
+  for (const match of code.matchAll(binding)) {
+    const name = match[1];
+    const readOf = new RegExp(
+      `(?:readFileSync|readFile|openSync|createReadStream|\\bread)\\s*\\(\\s*${name}\\b`,
+    );
+    const readAt = code.search(readOf);
+    if (readAt < 0) continue;
+    const guard = new RegExp(`(?:existsSync|hasFile)\\s*\\(\\s*${name}\\b`);
+    const guardAt = code.search(guard);
+    if (guardAt < 0 || guardAt > readAt) {
+      hits.push(`${name} reads .cursor without an existence check`);
+    }
+  }
+  return hits;
+}
+
 function walk(rel: string, out: string[] = []): string[] {
   const full = path.join(ROOT, rel);
   const st = fs.statSync(full);
@@ -199,6 +258,40 @@ describe("project independence", () => {
     ];
     for (const sample of caught) expect(marked(sample), sample).toBe(true);
     for (const sample of clean) expect(marked(sample), sample).toBe(false);
+  });
+
+  it("does not require a .cursor folder in product code", () => {
+    expect(requiresCursorFolder('JSON.parse(read(".cursor/environment.json"))')).not.toEqual([]);
+    expect(
+      requiresCursorFolder(`
+        const desk = path.join(root, ".cursor", "environment.json");
+        JSON.parse(fs.readFileSync(desk, "utf8"));
+      `),
+    ).not.toEqual([]);
+    expect(
+      requiresCursorFolder(`
+        const desk = path.join(root, ".cursor", "environment.json");
+        if (hasFile(desk)) JSON.parse(fs.readFileSync(desk, "utf8"));
+      `),
+    ).toEqual([]);
+    expect(requiresCursorFolder('const skip = [".cursor", ".cursor/"];')).toEqual([]);
+
+    for (const file of CURSOR_SKIP_LISTS) {
+      const body = read(file);
+      expect(body, file).toMatch(/\.cursor/);
+      expect(requiresCursorFolder(body), file).toEqual([]);
+    }
+
+    const hits: string[] = [];
+    for (const rel of CURSOR_SCAN_ROOTS) {
+      if (!fs.existsSync(path.join(ROOT, rel))) continue;
+      for (const file of walk(rel)) {
+        if (file === CURSOR_SCANNER || CURSOR_SKIP_LISTS.includes(file)) continue;
+        if (!/\.(ts|tsx|js|mjs|cjs|py|sh|yml|yaml|json|cmd|ps1)$/i.test(file)) continue;
+        for (const hit of requiresCursorFolder(read(file))) hits.push(`${file}: ${hit}`);
+      }
+    }
+    expect(hits).toEqual([]);
   });
 
   it("vite preview config is owned by FRIDAY, not a builder wrapper", () => {

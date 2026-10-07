@@ -32,13 +32,25 @@ function repo(): string {
   return dir;
 }
 
-function commit(dir: string, message: string, author?: string) {
+function commit(
+  dir: string,
+  message: string,
+  author?: string,
+  committer?: { name: string; email: string },
+) {
   fs.appendFileSync(path.join(dir, "README.md"), `${message}\n`);
   git(dir, ["add", "README.md"]);
   const args = ["commit", "-m", message];
+  if (committer) {
+    args.unshift("-c", `user.email=${committer.email}`);
+    args.unshift("-c", `user.name=${committer.name}`);
+  }
   if (author) args.push(`--author=${author}`);
   git(dir, args);
 }
+
+const DEPENDABOT_EMAIL = "49699333+dependabot[bot]@users.noreply.github.com";
+const DEPENDABOT = `dependabot[bot] <${DEPENDABOT_EMAIL}>`;
 
 function check(dir: string): { status: number; out: string } {
   try {
@@ -71,7 +83,11 @@ describe("commit provenance", () => {
   });
 
   it("rejects an assistant author, co-author, generated mark, or other bot", () => {
-    const cases = [
+    const cases: {
+      message: string;
+      author?: string;
+      committer?: { name: string; email: string };
+    }[] = [
       {
         message: "feat: desk",
         author: "Cursor Agent <cursoragent@cursor.com>",
@@ -86,13 +102,53 @@ describe("commit provenance", () => {
         message: "feat: desk",
         author: "dependabot[bot] <dependabot[bot]@users.noreply.github.com>",
       },
+      {
+        message: "feat: desk",
+        author: "dependabot[bot] <support@github.com>",
+        committer: { name: "dependabot[bot]", email: "support@github.com" },
+      },
+      {
+        message: "feat: desk\n\nCo-authored-by: dependabot[bot] <other@example.com>",
+      },
+      {
+        message: `feat: desk\n\nCo-authored-by: dependabot[bot] <${DEPENDABOT_EMAIL}.evil>`,
+      },
+      {
+        message: `feat: desk\n\nCo-authored-by: Someone <${DEPENDABOT_EMAIL}>`,
+      },
+      {
+        message: "feat: desk",
+        author: "copilot[bot] <49699333+copilot[bot]@users.noreply.github.com>",
+      },
+      {
+        message: "feat: desk",
+        author: "cursor[bot] <cursor[bot]@users.noreply.github.com>",
+      },
+      {
+        message: "feat: desk",
+        author: "claude[bot] <claude[bot]@users.noreply.github.com>",
+      },
     ];
     for (const row of cases) {
       const dir = repo();
-      commit(dir, row.message, row.author);
+      commit(dir, row.message, row.author, row.committer);
       const result = check(dir);
       expect(result.status, row.message).toBe(1);
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("accepts the dependency-update account only with its exact email", () => {
+    const dir = repo();
+    commit(
+      dir,
+      "chore: bump a dev package\n\nSigned-off-by: dependabot[bot] <support@github.com>",
+      DEPENDABOT,
+      { name: "dependabot[bot]", email: DEPENDABOT_EMAIL },
+    );
+    commit(dir, `chore: record the same account\n\nCo-authored-by: ${DEPENDABOT}`);
+    const result = check(dir);
+    expect(result.status, result.out).toBe(0);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
