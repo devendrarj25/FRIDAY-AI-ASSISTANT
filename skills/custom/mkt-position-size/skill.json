@@ -1,0 +1,19 @@
+{
+  "id": "mkt-position-size",
+  "name": "Position size calculator",
+  "summary": "Compute a share/unit count from account capital, percent risked, entry, and stop — no order is sent.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "capital",
+    "riskPct",
+    "entry",
+    "stop"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Uses riskAmount = capital × riskPct/100 and size = floor(riskAmount / |entry − stop|). Output is a number for study, not a live ticket."
+}

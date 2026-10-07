@@ -1,0 +1,2182 @@
+[
+  {
+    "id": "feature.communication.smart_inbox_triage",
+    "domain": "Communication",
+    "name": "smart inbox triage",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.email_drafting",
+    "domain": "Communication",
+    "name": "email drafting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.email_send_with_approval",
+    "domain": "Communication",
+    "name": "email send with approval",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.thread_summarization",
+    "domain": "Communication",
+    "name": "thread summarization",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.follow_up_detection",
+    "domain": "Communication",
+    "name": "follow-up detection",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.calendar_scheduling",
+    "domain": "Communication",
+    "name": "calendar scheduling",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.meeting_preparation",
+    "domain": "Communication",
+    "name": "meeting preparation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.meeting_notes",
+    "domain": "Communication",
+    "name": "meeting notes",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.action_item_tracking",
+    "domain": "Communication",
+    "name": "action-item tracking",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.contact_lookup",
+    "domain": "Communication",
+    "name": "contact lookup",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.message_translation",
+    "domain": "Communication",
+    "name": "message translation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.notification_digest",
+    "domain": "Communication",
+    "name": "notification digest",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.cross_channel_conversation_search",
+    "domain": "Communication",
+    "name": "cross-channel conversation search",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.communication_tone_control",
+    "domain": "Communication",
+    "name": "communication tone control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.communication.outbound_campaign_drafting",
+    "domain": "Communication",
+    "name": "outbound campaign drafting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.web_research",
+    "domain": "Research",
+    "name": "web research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.deep_research",
+    "domain": "Research",
+    "name": "deep research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.multi_source_comparison",
+    "domain": "Research",
+    "name": "multi-source comparison",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.fact_checking",
+    "domain": "Research",
+    "name": "fact checking",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.citation_validation",
+    "domain": "Research",
+    "name": "citation validation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.source_credibility_scoring",
+    "domain": "Research",
+    "name": "source credibility scoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.literature_review",
+    "domain": "Research",
+    "name": "literature review",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.competitive_intelligence",
+    "domain": "Research",
+    "name": "competitive intelligence",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.price_monitoring",
+    "domain": "Research",
+    "name": "price monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.change_monitoring",
+    "domain": "Research",
+    "name": "change monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.site_monitoring",
+    "domain": "Research",
+    "name": "site monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.research_report",
+    "domain": "Research",
+    "name": "research report",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.brief_generation",
+    "domain": "Research",
+    "name": "brief generation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.claim_extraction",
+    "domain": "Research",
+    "name": "claim extraction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.evidence_matrix",
+    "domain": "Research",
+    "name": "evidence matrix",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.research_workspace",
+    "domain": "Research",
+    "name": "research workspace",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.research.scheduled_research_refresh",
+    "domain": "Research",
+    "name": "scheduled research refresh",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.browser_navigation",
+    "domain": "Browser",
+    "name": "browser navigation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.tab_management",
+    "domain": "Browser",
+    "name": "tab management",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.form_filling",
+    "domain": "Browser",
+    "name": "form filling",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.authenticated_browsing",
+    "domain": "Browser",
+    "name": "authenticated browsing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.file_upload_download",
+    "domain": "Browser",
+    "name": "file upload/download",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.multi_tab_research",
+    "domain": "Browser",
+    "name": "multi-tab research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.structured_extraction",
+    "domain": "Browser",
+    "name": "structured extraction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.page_comparison",
+    "domain": "Browser",
+    "name": "page comparison",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.page_change_detection",
+    "domain": "Browser",
+    "name": "page change detection",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.web_workflow",
+    "domain": "Browser",
+    "name": "web workflow",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.browser_screenshots",
+    "domain": "Browser",
+    "name": "browser screenshots",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.browser_session_handoff",
+    "domain": "Browser",
+    "name": "browser session handoff",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.human_takeover",
+    "domain": "Browser",
+    "name": "human takeover",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.site_specific_skill_learning",
+    "domain": "Browser",
+    "name": "site-specific skill learning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.browser.browser_task_replay",
+    "domain": "Browser",
+    "name": "browser task replay",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.window_management",
+    "domain": "Desktop",
+    "name": "window management",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.application_launch_control",
+    "domain": "Desktop",
+    "name": "application launch/control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.process_inspection",
+    "domain": "Desktop",
+    "name": "process inspection",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.clipboard_automation",
+    "domain": "Desktop",
+    "name": "clipboard automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.file_dialog_control",
+    "domain": "Desktop",
+    "name": "file dialog control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.windows_settings_control",
+    "domain": "Desktop",
+    "name": "Windows settings control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.ui_automation",
+    "domain": "Desktop",
+    "name": "UI Automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.win32_automation",
+    "domain": "Desktop",
+    "name": "Win32 automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.wincom_automation",
+    "domain": "Desktop",
+    "name": "WinCOM automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.powershell_task_execution",
+    "domain": "Desktop",
+    "name": "PowerShell task execution",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.office_automation",
+    "domain": "Desktop",
+    "name": "Office automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.multi_monitor_awareness",
+    "domain": "Desktop",
+    "name": "multi-monitor awareness",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.desktop_screenshots",
+    "domain": "Desktop",
+    "name": "desktop screenshots",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.desktop_state_verification",
+    "domain": "Desktop",
+    "name": "desktop state verification",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.desktop.desktop_task_replay",
+    "domain": "Desktop",
+    "name": "desktop task replay",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.repository_exploration",
+    "domain": "Coding",
+    "name": "repository exploration",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.code_generation",
+    "domain": "Coding",
+    "name": "code generation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.patch_application",
+    "domain": "Coding",
+    "name": "patch application",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.test_execution",
+    "domain": "Coding",
+    "name": "test execution",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.debugging",
+    "domain": "Coding",
+    "name": "debugging",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.refactoring",
+    "domain": "Coding",
+    "name": "refactoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.code_review",
+    "domain": "Coding",
+    "name": "code review",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.dependency_analysis",
+    "domain": "Coding",
+    "name": "dependency analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.security_scan_orchestration",
+    "domain": "Coding",
+    "name": "security scan orchestration",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.ci_monitoring",
+    "domain": "Coding",
+    "name": "CI monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.release_preparation",
+    "domain": "Coding",
+    "name": "release preparation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.migration_planning",
+    "domain": "Coding",
+    "name": "migration planning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.issue_triage",
+    "domain": "Coding",
+    "name": "issue triage",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.pr_preparation",
+    "domain": "Coding",
+    "name": "PR preparation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.repo_wide_search",
+    "domain": "Coding",
+    "name": "repo-wide search",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.coding.workspace_memory",
+    "domain": "Coding",
+    "name": "workspace memory",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.pdf_extraction",
+    "domain": "Documents",
+    "name": "PDF extraction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.pdf_comparison",
+    "domain": "Documents",
+    "name": "PDF comparison",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.ocr",
+    "domain": "Documents",
+    "name": "OCR",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.docx_creation_editing",
+    "domain": "Documents",
+    "name": "DOCX creation/editing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.xlsx_analysis",
+    "domain": "Documents",
+    "name": "XLSX analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.pptx_generation",
+    "domain": "Documents",
+    "name": "PPTX generation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.csv_transformation",
+    "domain": "Documents",
+    "name": "CSV transformation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.document_classification",
+    "domain": "Documents",
+    "name": "document classification",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.table_extraction",
+    "domain": "Documents",
+    "name": "table extraction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.document_q_a",
+    "domain": "Documents",
+    "name": "document Q&A",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.redaction",
+    "domain": "Documents",
+    "name": "redaction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.conversion",
+    "domain": "Documents",
+    "name": "conversion",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.batch_document_processing",
+    "domain": "Documents",
+    "name": "batch document processing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.document_provenance",
+    "domain": "Documents",
+    "name": "document provenance",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.documents.document_quality_assurance",
+    "domain": "Documents",
+    "name": "document quality assurance",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.python_analysis",
+    "domain": "Data",
+    "name": "Python analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.sql_analysis",
+    "domain": "Data",
+    "name": "SQL analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.data_profiling",
+    "domain": "Data",
+    "name": "data profiling",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.data_cleaning",
+    "domain": "Data",
+    "name": "data cleaning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.schema_inference",
+    "domain": "Data",
+    "name": "schema inference",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.join_planning",
+    "domain": "Data",
+    "name": "join planning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.statistical_analysis",
+    "domain": "Data",
+    "name": "statistical analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.visualization",
+    "domain": "Data",
+    "name": "visualization",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.forecasting",
+    "domain": "Data",
+    "name": "forecasting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.anomaly_detection",
+    "domain": "Data",
+    "name": "anomaly detection",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.kpi_reporting",
+    "domain": "Data",
+    "name": "KPI reporting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.spreadsheet_analytics",
+    "domain": "Data",
+    "name": "spreadsheet analytics",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.dataset_comparison",
+    "domain": "Data",
+    "name": "dataset comparison",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.data_quality_audit",
+    "domain": "Data",
+    "name": "data quality audit",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.data.experiment_analysis",
+    "domain": "Data",
+    "name": "experiment analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.image_understanding",
+    "domain": "Media",
+    "name": "image understanding",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.image_generation",
+    "domain": "Media",
+    "name": "image generation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.ocr",
+    "domain": "Media",
+    "name": "OCR",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.speech_to_text",
+    "domain": "Media",
+    "name": "speech-to-text",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.text_to_speech",
+    "domain": "Media",
+    "name": "text-to-speech",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.audio_analysis",
+    "domain": "Media",
+    "name": "audio analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.speaker_timeline_analysis",
+    "domain": "Media",
+    "name": "speaker/timeline analysis",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.video_understanding",
+    "domain": "Media",
+    "name": "video understanding",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.video_scene_extraction",
+    "domain": "Media",
+    "name": "video scene extraction",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.media_summarization",
+    "domain": "Media",
+    "name": "media summarization",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.multimodal_search",
+    "domain": "Media",
+    "name": "multimodal search",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.cross_modal_reasoning",
+    "domain": "Media",
+    "name": "cross-modal reasoning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.media.media_transformation",
+    "domain": "Media",
+    "name": "media transformation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.cron_automation",
+    "domain": "Automation",
+    "name": "cron automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.interval_automation",
+    "domain": "Automation",
+    "name": "interval automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.webhook_automation",
+    "domain": "Automation",
+    "name": "webhook automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.file_watcher",
+    "domain": "Automation",
+    "name": "file watcher",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.email_trigger",
+    "domain": "Automation",
+    "name": "email trigger",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.application_event_trigger",
+    "domain": "Automation",
+    "name": "application event trigger",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.condition_trigger",
+    "domain": "Automation",
+    "name": "condition trigger",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.threshold_alert",
+    "domain": "Automation",
+    "name": "threshold alert",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.workflow_builder",
+    "domain": "Automation",
+    "name": "workflow builder",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.background_jobs",
+    "domain": "Automation",
+    "name": "background jobs",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.retrying_jobs",
+    "domain": "Automation",
+    "name": "retrying jobs",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.approval_gated_automation",
+    "domain": "Automation",
+    "name": "approval-gated automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.automation_templates",
+    "domain": "Automation",
+    "name": "automation templates",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.automation.automation_monitoring",
+    "domain": "Automation",
+    "name": "automation monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.windows_device_control",
+    "domain": "Devices",
+    "name": "Windows device control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.linux_worker_control",
+    "domain": "Devices",
+    "name": "Linux worker control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.browser_worker_control",
+    "domain": "Devices",
+    "name": "browser worker control",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.android_worker_integration",
+    "domain": "Devices",
+    "name": "Android worker integration",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.remote_worker_routing",
+    "domain": "Devices",
+    "name": "remote worker routing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.device_health",
+    "domain": "Devices",
+    "name": "device health",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.device_discovery",
+    "domain": "Devices",
+    "name": "device discovery",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.device_capability_matching",
+    "domain": "Devices",
+    "name": "device capability matching",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.device_handoff",
+    "domain": "Devices",
+    "name": "device handoff",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.multi_device_workflow",
+    "domain": "Devices",
+    "name": "multi-device workflow",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.devices.resource_aware_routing",
+    "domain": "Devices",
+    "name": "resource-aware routing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.preferences",
+    "domain": "Personal AI",
+    "name": "preferences",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.routines",
+    "domain": "Personal AI",
+    "name": "routines",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.goals",
+    "domain": "Personal AI",
+    "name": "goals",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.personal_knowledge",
+    "domain": "Personal AI",
+    "name": "personal knowledge",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.long_term_memory",
+    "domain": "Personal AI",
+    "name": "long-term memory",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.procedural_memory",
+    "domain": "Personal AI",
+    "name": "procedural memory",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.life_administration",
+    "domain": "Personal AI",
+    "name": "life administration",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.personal_research",
+    "domain": "Personal AI",
+    "name": "personal research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.proactive_assistance",
+    "domain": "Personal AI",
+    "name": "proactive assistance",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.habit_routine_automation",
+    "domain": "Personal AI",
+    "name": "habit/routine automation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.context_aware_suggestions",
+    "domain": "Personal AI",
+    "name": "context-aware suggestions",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.personal_ai.personal_dashboards",
+    "domain": "Personal AI",
+    "name": "personal dashboards",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.crm_research",
+    "domain": "Business",
+    "name": "CRM research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.lead_enrichment",
+    "domain": "Business",
+    "name": "lead enrichment",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.support_triage",
+    "domain": "Business",
+    "name": "support triage",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.customer_research",
+    "domain": "Business",
+    "name": "customer research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.operations_workflows",
+    "domain": "Business",
+    "name": "operations workflows",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.procurement_research",
+    "domain": "Business",
+    "name": "procurement research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.report_generation",
+    "domain": "Business",
+    "name": "report generation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.customer_communication",
+    "domain": "Business",
+    "name": "customer communication",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.business_monitoring",
+    "domain": "Business",
+    "name": "business monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.document_operations",
+    "domain": "Business",
+    "name": "document operations",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.meeting_operations",
+    "domain": "Business",
+    "name": "meeting operations",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.business.sales_research",
+    "domain": "Business",
+    "name": "sales research",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.health_center",
+    "domain": "System",
+    "name": "health center",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.diagnostics",
+    "domain": "System",
+    "name": "diagnostics",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.logs",
+    "domain": "System",
+    "name": "logs",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.backups",
+    "domain": "System",
+    "name": "backups",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.restore",
+    "domain": "System",
+    "name": "restore",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.update_management",
+    "domain": "System",
+    "name": "update management",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.package_management",
+    "domain": "System",
+    "name": "package management",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.security_audit",
+    "domain": "System",
+    "name": "security audit",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.dependency_audit",
+    "domain": "System",
+    "name": "dependency audit",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.resource_monitoring",
+    "domain": "System",
+    "name": "resource monitoring",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.crash_recovery",
+    "domain": "System",
+    "name": "crash recovery",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.system.runtime_self_test",
+    "domain": "System",
+    "name": "runtime self-test",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.model_capability_discovery",
+    "domain": "AI Runtime",
+    "name": "model capability discovery",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.tool_search",
+    "domain": "AI Runtime",
+    "name": "tool search",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.agent_delegation",
+    "domain": "AI Runtime",
+    "name": "agent delegation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.parallel_agents",
+    "domain": "AI Runtime",
+    "name": "parallel agents",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.specialist_panel",
+    "domain": "AI Runtime",
+    "name": "specialist panel",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.critic_verifier",
+    "domain": "AI Runtime",
+    "name": "critic/verifier",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.model_escalation",
+    "domain": "AI Runtime",
+    "name": "model escalation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.fallback_routing",
+    "domain": "AI Runtime",
+    "name": "fallback routing",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.context_management",
+    "domain": "AI Runtime",
+    "name": "context management",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.token_budgeting",
+    "domain": "AI Runtime",
+    "name": "token budgeting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.execution_budgeting",
+    "domain": "AI Runtime",
+    "name": "execution budgeting",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.response_streaming",
+    "domain": "AI Runtime",
+    "name": "response streaming",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.artifact_streaming",
+    "domain": "AI Runtime",
+    "name": "artifact streaming",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.ai_runtime.trajectory_verification",
+    "domain": "AI Runtime",
+    "name": "trajectory verification",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.mcp_tools",
+    "domain": "Interop",
+    "name": "MCP tools",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.mcp_resources",
+    "domain": "Interop",
+    "name": "MCP resources",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.mcp_prompts",
+    "domain": "Interop",
+    "name": "MCP prompts",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.a2a_delegation",
+    "domain": "Interop",
+    "name": "A2A delegation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.plugin_packages",
+    "domain": "Interop",
+    "name": "plugin packages",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.skill_packages",
+    "domain": "Interop",
+    "name": "skill packages",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.authenticated_connectors",
+    "domain": "Interop",
+    "name": "authenticated connectors",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.openapi_services",
+    "domain": "Interop",
+    "name": "OpenAPI services",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.webhooks",
+    "domain": "Interop",
+    "name": "webhooks",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.websocket_workers",
+    "domain": "Interop",
+    "name": "WebSocket workers",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.remote_agents",
+    "domain": "Interop",
+    "name": "remote agents",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.device_agents",
+    "domain": "Interop",
+    "name": "device agents",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.interop.future_protocol_adapters",
+    "domain": "Interop",
+    "name": "future protocol adapters",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.artifact_graph",
+    "domain": "Multimodal",
+    "name": "artifact graph",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.document_vision",
+    "domain": "Multimodal",
+    "name": "document vision",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.image_vision",
+    "domain": "Multimodal",
+    "name": "image vision",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.audio_timeline",
+    "domain": "Multimodal",
+    "name": "audio timeline",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.video_timeline",
+    "domain": "Multimodal",
+    "name": "video timeline",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.cross_modal_retrieval",
+    "domain": "Multimodal",
+    "name": "cross-modal retrieval",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.multimodal_task_planning",
+    "domain": "Multimodal",
+    "name": "multimodal task planning",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.artifact_transformation",
+    "domain": "Multimodal",
+    "name": "artifact transformation",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  },
+  {
+    "id": "feature.multimodal.provenance_graph",
+    "domain": "Multimodal",
+    "name": "provenance graph",
+    "lifecycle": "discovered",
+    "requires_capability_contract": true,
+    "requires_policy": true,
+    "requires_success_predicate": true,
+    "requires_verification": true
+  }
+]

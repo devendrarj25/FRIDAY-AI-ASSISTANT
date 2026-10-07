@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950">
+<title>Multi-model cognition patterns</title><desc>FRIDAY models, provider federation and routing architecture</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/></marker><filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity=".15"/></filter></defs>
+<rect width="100%" height="100%" fill="#f8fafc"/><text x="60" y="55" font-family="Inter,Arial" font-size="30" font-weight="700" fill="#0f172a">Multi-model cognition patterns</text>
+<line x1="170.0" y1="415.0" x2="500.0" y2="165.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="170.0" y1="415.0" x2="500.0" y2="315.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="170.0" y1="415.0" x2="500.0" y2="465.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="170.0" y1="415.0" x2="500.0" y2="615.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="170.0" y1="415.0" x2="500.0" y2="765.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="165.0" x2="905.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="315.0" x2="905.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="465.0" x2="905.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="615.0" x2="905.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="500.0" y1="765.0" x2="905.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="905.0" y1="415.0" x2="1315.0" y2="415.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="70" y="370" width="200" height="90" rx="18" fill="#dbeafe" stroke="#0f172a" stroke-width="2"/>
+<text x="170.0" y="412" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Task</text>
+<rect x="390" y="120" width="220" height="90" rx="18" fill="#dcfce7" stroke="#0f172a" stroke-width="2"/>
+<text x="500.0" y="162" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Parallel</text>
+<text x="500.0" y="189" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Candidates</text>
+<rect x="390" y="270" width="220" height="90" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="500.0" y="312" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Primary +</text>
+<text x="500.0" y="339" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Critic</text>
+<rect x="390" y="420" width="220" height="90" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="500.0" y="462" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Primary +</text>
+<text x="500.0" y="489" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Verifier</text>
+<rect x="390" y="570" width="220" height="90" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="500.0" y="612" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Specialist</text>
+<text x="500.0" y="639" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Panel</text>
+<rect x="390" y="720" width="220" height="90" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="500.0" y="762" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Candidate +</text>
+<text x="500.0" y="789" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Judge</text>
+<rect x="780" y="370" width="250" height="90" rx="18" fill="#fef3c7" stroke="#0f172a" stroke-width="2"/>
+<text x="905.0" y="412" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Evidence-Aware</text>
+<text x="905.0" y="439" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Aggregator</text>
+<rect x="1190" y="370" width="250" height="90" rx="18" fill="#fce7f3" stroke="#0f172a" stroke-width="2"/>
+<text x="1315.0" y="412" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Canonical Result</text>
+<text x="1315.0" y="439" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">+ Confidence</text>
+</svg>

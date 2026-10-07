@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Credential vault",
+  "description": "Read or write a named secret in FRIDAY's credential store (electron/credentials.cjs). List returns ids only — never values. Never auto-enabled.",
+  "category": "system",
+  "inputs": ["action", "id", "value", "root"],
+  "permissions": ["fs.write"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to USE the credential vault ({action} “{id}”). Secret values can be read or overwritten. Allow this?"
+}

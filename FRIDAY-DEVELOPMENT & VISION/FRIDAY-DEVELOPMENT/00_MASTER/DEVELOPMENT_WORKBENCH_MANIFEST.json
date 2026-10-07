@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "baseline_file": "FRIDAY-DEVELOPMENT-WORKING.zip",
+  "baseline_documents": [
+    "Agents.md",
+    "PRD.md",
+    "Audit.md",
+    "README.md",
+    "Friday_status.md",
+    "Backend-Schema.md",
+    "TRD.md",
+    "UI-UX-Design-Document.md"
+  ],
+  "current_documents_note": "Sibling docs were later renamed from the baseline list above: Agents.md -> AGENTS.md, Audit.md -> AUDIT.md, Friday_status.md -> FRIDAY_STATE.md (case/name corrected, content evolved). See ../../INDEX.md for the current file list.",
+  "legacy_archives_embedded": false,
+  "vision_archive_embedded": false,
+  "new_contract_areas": [],
+  "source_reference_policy": "Reference paths to FRIDAY source; source repository is not duplicated into this package.",
+  "context_routing": "01_SOURCE_ROUTING",
+  "implementation": "12_MIGRATION_ROADMAP",
+  "research": "13_RESEARCH"
+}

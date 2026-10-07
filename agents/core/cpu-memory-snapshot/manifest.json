@@ -1,0 +1,16 @@
+{
+  "name": "CPU and memory snapshot",
+  "version": "1.0.0",
+  "description": "Takes a read-only snapshot of CPU count, load averages, total RAM and free RAM using Node os. Never changes process priority.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY captured CPU/RAM snapshot (load {count}). Read-only. Allow to keep it. No process will be changed."
+}

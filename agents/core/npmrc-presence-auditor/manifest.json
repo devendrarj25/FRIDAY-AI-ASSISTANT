@@ -1,0 +1,17 @@
+{
+  "name": "npmrc presence auditor",
+  "version": "1.0.0",
+  "description": "Reports whether .npmrc files exist (they may hold tokens). Existence only \u2014 file contents are never printed.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} .npmrc file(s) under \u201c{folder}\u201d. Existence only; tokens are not read. Allow to keep the alert."
+}

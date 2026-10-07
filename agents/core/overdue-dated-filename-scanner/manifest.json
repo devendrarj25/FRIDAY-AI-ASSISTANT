@@ -1,0 +1,17 @@
+{
+  "name": "Overdue dated-filename scanner",
+  "version": "1.0.0",
+  "description": "Finds filenames containing YYYY-MM-DD or DD-MM-YYYY dates that are already in the past so missed tender/bill dates on disk are visible.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} past-dated filename(s) under \u201c{folder}\u201d. Read-only. Allow to keep the nudge list."
+}

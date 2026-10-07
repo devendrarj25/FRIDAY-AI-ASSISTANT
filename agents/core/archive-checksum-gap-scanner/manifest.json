@@ -1,0 +1,17 @@
+{
+  "name": "Archive checksum gap scanner",
+  "version": "1.0.0",
+  "description": "Lists archives that have no sibling .sha256/.md5 file so a backup set without checksums is visible.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} archive(s) without a sibling checksum under \u201c{folder}\u201d. Read-only."
+}

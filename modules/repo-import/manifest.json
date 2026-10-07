@@ -1,0 +1,13 @@
+{
+  "name": "repo-import",
+  "version": "0.2.0",
+  "description": "Clone a Git repo, detect its stack and prepare a working environment.",
+  "category": "developer",
+  "permissions": ["fs.read", "fs.write", "git", "shell.cmd"],
+  "entry": "main.py",
+  "enabled": true,
+  "ui": {
+    "page": "Repo import",
+    "icon": "git-branch"
+  }
+}

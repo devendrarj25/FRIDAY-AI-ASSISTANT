@@ -1,0 +1,98 @@
+# FRIDAY — Project State
+
+FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.0.1.2) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+
+This briefing is for a new session and describes the tree as it is now, not how it got here. Evidence tables live in [AUDIT.md](AUDIT.md). Feature implementation map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Session protocol: [AGENTS.md](AGENTS.md). Repo map: [READMEFIRST.md](READMEFIRST.md). Version history: [CHANGELOG.md](CHANGELOG.md) (starts at 1.0.0.0; the newest section is the current public line).
+
+## Snapshot
+
+| Item | Live value |
+| --- | --- |
+| Public version | `1.0.1.2` (`config/friday-version.json`) |
+| npm encoding | `1.0.1` (`package.json`) — never compared as an update identity |
+| Epoch | 2 / `friday-2` |
+| Written product line | `1.0.0.0` (base) → `1.0.0.1` → `1.0.0.2` → `1.0.1.2` (latest, declared, no git tag yet). Test numbers `1.0.1.0` and `1.0.1.1` are not in this history. |
+
+Stack (from `package.json` / toolchain file): Electron ^43.6.0, React 19, TanStack Router, Vite 8.2.2, Tailwind 4, TypeScript 5.9.3, Vitest 4.1.11, Node `>=22.19.0`, Python floor 3.12.10.
+
+## Coming back after a gap
+
+`git switch main && git pull`, `git switch -c dev/<task>`, `npm ci`, then **`npm run resume`**: one command that reports typecheck, docs and version sync, kernel tests, the full test suite and pricing-knowledge freshness. The weekly Health workflow runs the same script and keeps a single GitHub issue open while anything is broken. `npm run test:fast` runs only the tests related to what you changed. `npm run pricing:status` says whether the provider pricing snapshot is still fresh.
+
+## Architecture (code, not a second copy of ARCHITECTURE.md)
+
+Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py` (`GET /health`, WebSocket `/bridge`). `kernel/router.py` is the model router. `core/` is Vitest/contracts only. Navigation: 28 sidebar paths + Settings footer + `/character` + `/workflow-visual` (Visual Builder; not a sidebar row). IPC examples: `app:version`, `chat:send`, `workspace:get`.
+
+## Capability counts (this checkout)
+
+| Kind | Count | How counted |
+| --- | --- | --- |
+| Skills | 214 `skill.json` + 9 builtins | disk + `electron/skills.cjs` `BUILTIN` |
+| Tools | 177 `tool.json` | disk |
+| Agents | 98 `manifest.json` | `agents/` |
+| Plugins | 78 `plugin.json` | disk |
+| Workflows | 116 `workflow.json` | disk |
+| Modules | 76 `manifest.json` | disk |
+| Connectors | 113 | `electron/connectors.cjs` |
+| Kernel tools | 27 | `kernel/tools.py` `RISK` |
+| Cloud providers | 20 | `electron/models.cjs` `CLOUD` |
+| Local engines | Ollama + LM Studio + llama.cpp + vLLM + LocalAI + Jan (MLX-LM live on darwin only) | `LOCAL_ENGINES` + Ollama |
+| Workflows (GitHub) | 12 YAML files | `.github/workflows` |
+| `FOLDERS` | 40 | `electron/friday-contract.cjs` |
+
+Python: `kernel/requirements.txt` = FastAPI + `faster-whisper` + `edge-tts`. Test runner in `kernel/requirements-dev.txt`. Extras in `kernel/requirements-capabilities.txt` (numpy, chromadb, bleak, …, supertonic, moonshine-voice, pyrnnoise, soundfile, pywin32). The voice-stack rule in that file refuses torch, vLLM, vosk, piper-tts, kokoro-onnx, sherpa-onnx, and the silero-vad pip package. Voice weights stay on demand. NSIS fail-closed stays startup+voice; extras best-effort. The kernel boots with no voice model.
+
+## GitHub automation
+
+Nine release and repository workflows plus three automatic-health ones (Health Weekly, Auto Recover, Security Scan). Pull-request checks, scans and the Windows installer are one workflow: **PR Validation**. Dependabot opens at most one version pull request per ecosystem per month. Test EXE Build and Official Publish reuse a green PR Validation on the same commit from the last 7 days. Catalog: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Edits follow the standing permission in [AGENTS.md](AGENTS.md): keep them working, fix any break in that same change, and do not dispatch a workflow. Assistants keep one draft pull request and leave it draft until the owner opens it.
+
+## Deliberate design decisions
+
+These look like bugs; they are not. Do not "fix" them.
+
+- `core/` is not imported by the shipped EXE.
+- The `handsFree` field initializes **false**. Auto (voice) mode is the hands-free listen-and-speak session. Manual and chat do not open the microphone and do not speak. Turning Hands-free off requires the wake word again and is remembered. `automation.auto_approve_exec` stays false.
+- `automation.auto_approve_exec: false` in `config/kernel.yaml`. Full autonomy is the owner's dial in the app (Ask every time, Balanced, Full). A fresh install stays Balanced. Stop everything still halts her.
+- Privacy firewall: SENSITIVE hard-stop; other content may use an already-connected provider.
+- Billing firewall: no silent paid spend.
+- Pricing / free-plan knowledge in `electron/model-access.cjs` **fails closed** once older than its TTL (14 days): the model becomes "unknown", never silently free. Refreshing it means re-reading the provider pages and bumping `KNOWLEDGE_CHECKED_AT`; tests do not depend on today's date.
+- Publisher identity locked (`scripts/identity.cjs` / `lockedIdentityFields`). The public id is the owner name and the GitHub username `devendrarj25`. A package does not carry an email, a phone number, or a street address.
+- `PROTECTED_POLICY_FILES` in `src/lib/friday/self/governance.ts` are off-limits to self-dev auto-apply.
+- One feature = one implementation (`config/project-structure.json`).
+- Requirements are **floors**, not pins. numpy/chromadb optional at FastAPI boot.
+- The look of the app stays outside the Flow Studio canvas. Inside that canvas the drawing uses canvas tokens on the same theme. Which areas are locked, and when a task may change one, is the rule in [AGENTS.md](AGENTS.md). A change that is not re-checked on the owner's PC stays unverified until the owner re-checks.
+- The twelve GitHub workflows and `.github/actions` keep today's triggers, permissions, and guarantees. Do not add a thirteenth. Do not dispatch a workflow from an assistant session. Hosted Actions stay unverified until a run exists.
+- Windows CMD pack (`scripts\build-windows.cmd` / `npm run build:win`), NSIS Setup + Portable, install, boot, open, uninstall, reinstall, and in-app update/rollback were owner-verified on an earlier tree. After a later change they are unverified until the owner re-checks. Do not wrap `build:win` for Linux. Do not invent a second pack or installer. A task that breaks any of these has failed.
+- `electron-builder.yml`: `perMachine: false`, `signExecutable: false`, `nsis.deleteAppDataOnUninstall: false`.
+- TEST uses `dev.friday.desk.test` so it can sit beside Official.
+- Assistants never bump `config/friday-version.json` by hand. A four-part publish moves only the chosen counter. From `1.0.1.2`, patch is `1.0.1.3`, minor is `1.0.2.2`, major is `1.1.1.2`, and extreme is `2.0.1.2`. The other places stay. `mode` auto with `release_type` auto does not move the number. `release_type` auto on an update chooses patch, minor, or major from the changes and never extreme. `revision` is a rebuild of the same version. The release workflow applies the number and heals the docs.
+- Session `media` is allowed at Chromium so Windows OS privacy can prompt; it is not a silent skip of the OS prompt.
+- Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
+
+## Known gaps (honest)
+
+- **Pricing knowledge is per source.** `KNOWLEDGE_CHECKED_AT` stays 2026-09-30 for a page that was not re-read. OpenAI, Anthropic, Gemini, Groq, DeepSeek, Perplexity, and Mistral were re-read on 2026-10-07. `npm run pricing:status` on this machine was FRESH, oldest of those seven still 2026-10-07, expiry 2026-10-21. Groq `freeRows` ids are `FREE_QUOTA` unless the account is declared developer or paid. `llama-3.3-70b-versatile` is not in that list. Gemini 2.0 and 1.5 were not on the pricing page. Mistral Moderation 2 is shown as Free and has no API id, so it was not marked free. Sync now lists sources inside a two-day lead and does not download the pages. A source still fails closed 14 days after its own checkedAt.
+- This GitHub repository is **public**. The twelve workflows use the same files if it is made private again. Making it private does not add Actions minutes: a private free plan can still refuse to start a run. A public repository disables scheduled workflows after 60 days without activity. The Actions allow-list only permits actions owned by `devendrarj25`. Checkout, Node, and Python live in `.github/actions`. CodeQL does not scan until `github/codeql-action` is allowed: the public job warns and exits 0, and a private repository skips that job. Ruleset **Main Protection** blocks deleting the default branch and force-pushing it while the repository is public on the free plan. A private free personal repository does not have that ruleset. It does not require a review or a status check. The owner has run these workflows successfully on an earlier tree. Hosted Actions for a later change stay unverified until a run exists. The written product line is `1.0.0.0` (base), `1.0.0.1`, `1.0.0.2`, and `1.0.1.2` (latest). Remote tags for test publishes that are not in that line were not deleted. The owner's PC install of the written line is unverified. Workflow edits follow the standing permission in [AGENTS.md](AGENTS.md).
+- Windows paths (CMD pack, EXE install, mic / wake word, real EXE open) are owner-verified on an earlier tree only; they are **unverified** on this Linux-checked tree.
+- Declared public line **1.0.1.2** has no git tag. The written product line is `1.0.0.0` (base), then `1.0.0.1`, then `1.0.0.2`, then `1.0.1.2` (latest, a minor from `1.0.0.2`). Test numbers `1.0.1.0` and `1.0.1.1` are not in the written history. Remote tags for those test publishes were not deleted here. Until the owner removes them, a publish that reads tags can still treat `v1.0.1.1` as the last successful tag, and a major counted from that tag is `1.1.1.1`. The next Official Publish that asks for the same release type reuses 1.0.1.2. `mode` auto with `release_type` auto does not invent a newer number. A changelog heading is not a successful publish.
+- Scratch files in tests use `os.tmpdir()`. A path joined from `/tmp` is not a Windows temp directory, so a Windows run can fail there. The twelve workflow files were not that failure. A hosted re-run was not dispatched.
+- Live keyed cloud chat and free-model probes against real provider APIs are **unverified** (no owner keys in the check environment). Classification and fail-closed routing are covered by unit tests.
+- Groq's free plan is the `freeRows` table (10 ids, 3 of them chat). Gemini free-tier families come from the pricing page; a missing project tier does not block them, and a paid project does. NVIDIA's free trial applies to a catalogue row with no positive price, not to an id that was never listed. Cerebras has no permanent free tier. Hugging Face's $0.10 monthly credit is not a per-model free price. SambaNova's pricing URL returned 404 on 2026-10-07. GitHub Models was retired on 2026-07-30. Cloudflare Workers AI needs an account id in the URL and was not added. Cohere `next_page_token` is not followed. Live keyed checks were not run.
+- `npm run lint` reports 0 errors. Five React Compiler advisory rules from `eslint-plugin-react-hooks` v7 (`set-state-in-effect`, `refs`, `immutability`, `purity`, `preserve-manual-memoization`) are set to `warn` in `eslint.config.js` because FRIDAY does not ship the React Compiler and fixing them means rewriting locked UI logic. Converting them is an owner decision.
+- `src/routeTree.gen.ts` is generated by two tools that disagree on one trailing `declare module` block: Vitest / `vite dev` / `vite build` write it (this is the committed form), `npm run build:desktop` removes it. After a desktop build run `git checkout src/routeTree.gen.ts`; never commit that one-block difference by itself.
+- Flow Studio reads a photograph from boxes and lines, and names them when Tesseract is installed. A picture with no rectangles stays unread. A cloud vision call was not made. The owner's Windows window, the packaged EXE, a live cloud vision call, a hardware Auto session, and Tesseract on the owner's PC are unverified. Graphviz and D2 compilers are not installed here. Their Windows installers are pinned in Install Manager. The canvas draws without them.
+- Computer use is not in the product yet. Perception, actions, the agent loop, learn-by-watching, MCP, life automation, multimodal voice, and the fake-desktop harness are still next. Screen text must stay data. UAC and captchas are not auto-clicked. Those Windows paths are unverified.
+- Unsigned EXE is the local/CI default unless signing secrets exist.
+- On a stock Ubuntu machine `check:env` / `doctor` can fail two toolchain **floors** (SQLite 3.45.3, Git 2.49.0 in `config/toolchain-versions.json`); the floors are not lowered.
+- Hosted GitHub Actions for the provenance step are **unverified** until the owner marks the draft ready. Windows CMD, install, and publish are **unverified** on this Linux check.
+- The owner must verify GitHub branch protection and rulesets manually. This change does not touch those settings.
+
+## Next priorities
+
+1. Owner Windows re-check once **1.0.1.2** is published (install, boot, Auto mode microphone and speech). Chat does not use the microphone. Remote test tags that are not in the written product line were not deleted. The owner's PC install is unverified.
+2. The twelve workflows keep their triggers and guarantees. An edit follows the standing permission in [AGENTS.md](AGENTS.md). Do not add a thirteenth workflow and do not dispatch one.
+3. Do not open another pull request while one into `main` is open or draft. After merge, the remote should list only `main`, or a `recovery/*` branch.
+4. Model source and age are shown for the seven re-read official pages. A model without that page still says age unknown. The next step is a startup fetch that changes a price only when the page parses. The five React Compiler lint rules stay an owner decision.
+5. Voice and Auto still to build: a scored speaker model (WeSpeaker ECAPA, CC-BY-4.0, not downloaded), native echo cancellation, DirectML installed only when it does not replace the CPU wheel, camera or screen context during voice, file/folder/calendar triggers, and a live Windows check of calls, Bluetooth, wake word, and first-audio latency. Standing orders and the undo journal already persist. Mobile and remote sessions stay in the interaction plan.
+6. The chat selector and the router share `usableModels()`. Auto uses official free models from every connected provider. Paid and unknown-cost models stay hidden until paid access is on. A cooldown stays visible and disabled. The answer records `Provider · Model`. Providers shows usable and hidden counts and Test chat. `npm run models:check` prints that report offline. `npm run models:check --live` with the owner's keys is still unverified. Still out: a Free-now board, live quota meters, Hugging Face Hub browse, and extra local-engine installers.
+7. Computer use is next, in this order: research record, packaging for native helpers, perception and action, the agent loop, the live canvas, learn-by-watching, MCP and OpenAPI, life automation and multimodal voice, then the fake-desktop harness. A side-by-side compare of two runs is not a second canvas. Per-box autonomy is the global dial plus the box marks. Open internals reports a count and does not replace the canvas.

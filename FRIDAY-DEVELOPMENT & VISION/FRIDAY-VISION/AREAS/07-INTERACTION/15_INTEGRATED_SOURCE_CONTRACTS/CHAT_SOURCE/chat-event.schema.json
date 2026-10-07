@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Chat Event",
+  "type": "object",
+  "required": [
+    "type",
+    "conversationId",
+    "turnId",
+    "generationId",
+    "seq",
+    "at"
+  ],
+  "properties": {
+    "type": {
+      "type": "string"
+    },
+    "conversationId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "generationId": {
+      "type": "string"
+    },
+    "taskId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "at": {
+      "type": "integer"
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

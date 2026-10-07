@@ -1,0 +1,50 @@
+{
+  "id": "browser-profile-size",
+  "name": "Browser profile size chain",
+  "version": "1.0.0",
+  "description": "Audit browser profile size, extension names, cache trim plan — no cookie dump.",
+  "category": "maintenance",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Audit browser profile size",
+      "kind": "agent",
+      "ref": "agents/core/browser-profile-size-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory browser extensions (names)",
+      "kind": "agent",
+      "ref": "agents/core/browser-extension-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Plan cache trim",
+      "kind": "agent",
+      "ref": "agents/core/cache-trim",
+      "risk": "write"
+    },
+    {
+      "id": "s4",
+      "label": "Draft the size note",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "No cookie or password dump",
+      "kind": "note",
+      "ref": "browser-size",
+      "risk": "safe"
+    }
+  ]
+}

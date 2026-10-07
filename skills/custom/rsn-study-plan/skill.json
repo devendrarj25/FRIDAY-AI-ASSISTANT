@@ -1,0 +1,18 @@
+{
+  "id": "rsn-study-plan",
+  "name": "Study plan builder",
+  "summary": "Spread pasted topics across a day count with a minutes-per-day budget.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "days",
+    "minutesPerDay"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Equal slices plus a recap day if days > topics. A plan on paper, not a tutor session."
+}

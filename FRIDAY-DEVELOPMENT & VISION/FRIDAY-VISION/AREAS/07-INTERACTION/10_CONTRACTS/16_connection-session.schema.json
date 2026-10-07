@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://contracts/connection-session/v1",
+  "title": "FRIDAY Remote Connection Session",
+  "type": "object",
+  "required": [
+    "session_id",
+    "device_id",
+    "state",
+    "expires_at"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string"
+    },
+    "device_id": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "pairing",
+        "authenticating",
+        "connected",
+        "degraded",
+        "reconnecting",
+        "revoked",
+        "expired",
+        "closed"
+      ]
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "capability_scope_version": {
+      "type": "string"
+    },
+    "network_path": {
+      "enum": [
+        "lan",
+        "private_overlay",
+        "relay",
+        "unknown"
+      ]
+    }
+  }
+}

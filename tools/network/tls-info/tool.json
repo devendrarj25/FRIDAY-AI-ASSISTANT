@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "TLS certificate info",
+  "description": "Connect to one host:443 and report the peer certificate subject, issuer and expiry. Not a vulnerability scanner.",
+  "category": "network",
+  "inputs": [
+    "host",
+    "port"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read the TLS certificate of “{host}”. Allow this?"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "large-files",
+  "version": "1.0.0",
+  "description": "List the largest files under a folder with path and byte size. Default floor 1 KiB. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Large files",
+    "icon": "hard-drive"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://voice/audio-frame",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "generationId",
+    "timestampMs",
+    "sampleRate",
+    "channels",
+    "format",
+    "samples"
+  ],
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "generationId": {
+      "type": "integer"
+    },
+    "timestampMs": {
+      "type": "number"
+    },
+    "sampleRate": {
+      "enum": [
+        8000,
+        16000,
+        24000,
+        48000
+      ]
+    },
+    "channels": {
+      "const": 1
+    },
+    "format": {
+      "const": "pcm_s16le"
+    },
+    "samples": {
+      "type": "string",
+      "contentEncoding": "base64"
+    }
+  }
+}

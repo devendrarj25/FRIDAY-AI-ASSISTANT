@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Find duplicate files",
+  "description": "SHA-1 content hashes of files under a folder inside the FRIDAY root, reporting groups that share the same hash. Read-only; nothing is deleted.",
+  "category": "filesystem",
+  "inputs": [
+    "folder",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to HASH files under “{folder}” to find duplicates. Nothing is deleted. Allow this?"
+}

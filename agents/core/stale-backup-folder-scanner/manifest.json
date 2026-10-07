@@ -1,0 +1,18 @@
+{
+  "name": "Stale backup folder scanner",
+  "version": "1.0.0",
+  "description": "Finds folders named backup/backups/bak whose newest file is older than a retention window.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "olderThanDays",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} stale backup folder(s) under \u201c{folder}\u201d. Read-only. Nothing will be deleted."
+}

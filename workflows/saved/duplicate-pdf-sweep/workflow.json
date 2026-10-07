@@ -1,0 +1,64 @@
+{
+  "id": "duplicate-pdf-sweep",
+  "name": "Duplicate PDF sweep",
+  "version": "1.0.0",
+  "description": "Find duplicate PDFs, inventory PDFs, plan copies, and list zip archives that may hold extra copies.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find duplicate PDFs",
+      "kind": "agent",
+      "ref": "agents/core/duplicate-pdf-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory PDF files",
+      "kind": "agent",
+      "ref": "agents/core/pdf-inventory-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Plan PDF copies",
+      "kind": "agent",
+      "ref": "agents/core/pdf-copy-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory zip archives",
+      "kind": "agent",
+      "ref": "agents/core/zip-archive-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "List duplicate basenames",
+      "kind": "tool",
+      "ref": "tools/filesystem/find-duplicates",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft a keep-or-archive note",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the sweep report local",
+      "kind": "note",
+      "ref": "pdf-sweep",
+      "risk": "safe"
+    }
+  ]
+}

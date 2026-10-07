@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "last-error-preview",
+  "name": "Last error preview",
+  "description": "Keep a 200-character preview of the latest on-error payload for later diagnosis.",
+  "category": "diagnostics",
+  "permissions": [],
+  "hooks": [
+    "on-error"
+  ]
+}

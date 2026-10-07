@@ -1,0 +1,17 @@
+{
+  "name": "Env file presence auditor",
+  "version": "1.0.0",
+  "description": "Lists .env / .env.* filenames only (never values) so you can see where secrets files live. Report only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} env-named file(s) under \u201c{folder}\u201d. Names only \u2014 values are not read. Allow to keep the inventory."
+}

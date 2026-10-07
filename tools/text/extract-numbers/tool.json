@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract numbers",
+  "description": "Find numbers in text and return them as parsed values.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to EXTRACT NUMBERS from text. Allow this?",
+  "keywords": [
+    "numbers",
+    "extract",
+    "digits"
+  ]
+}

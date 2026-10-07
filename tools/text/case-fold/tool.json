@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Change case",
+  "description": "upper, lower, or title case a string.",
+  "category": "text",
+  "inputs": [
+    "text",
+    "mode"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to CHANGE CASE of text in memory. Allow this?"
+}

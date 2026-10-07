@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [
+    "mode",
+    "allowed_autonomy",
+    "governance_profile"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "manual",
+        "auto"
+      ]
+    },
+    "allowed_autonomy": {
+      "enum": [
+        "user_step",
+        "assigned_background",
+        "permitted_autonomous"
+      ]
+    },
+    "governance_profile": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "idle-temp-census",
+  "name": "Idle temp census",
+  "description": "On idle, inspect-lists the workspace temporary/ folder (names only) and writes a count into this plugin's data/census.json. Needs fs.read; never deletes files.",
+  "category": "housekeeping",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

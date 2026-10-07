@@ -1,0 +1,19 @@
+{
+  "name": "license-files",
+  "version": "1.0.0",
+  "description": "Find LICENSE/LICENCE/COPYING/NOTICE files and classify a short SPDX-ish hint from the first lines (MIT, Apache-2.0, GPL, BSD, UNLICENSED). Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "License files",
+    "icon": "scale"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Pictures year-folder planner",
+  "version": "1.0.0",
+  "description": "Plans moving image files into YYYY folders based on last-modified year so a Pictures dump becomes browsable. Preview first.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dest",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to MOVE {count} image(s) from \u201c{folder}\u201d into year folders. Review destinations before allowing."
+}

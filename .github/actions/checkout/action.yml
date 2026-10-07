@@ -1,0 +1,154 @@
+# Checkout this repository without actions/checkout.
+#
+# This repository only allows actions owned by devendrarj25. The workflow
+# calls this file as devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout
+# so the runner can download it before any checkout step exists.
+
+name: Checkout
+description: Fetch this repository with git. No external action.
+
+inputs:
+  ref:
+    description: Branch, tag, or commit to check out. Empty uses the triggering SHA.
+    required: false
+    default: ""
+  fetch-depth:
+    description: Number of commits to fetch. 0 fetches the full history.
+    required: false
+    default: "1"
+  fetch-tags:
+    description: Also fetch tags.
+    required: false
+    default: "false"
+  sparse-checkout:
+    description: When set, check out only this path.
+    required: false
+    default: ""
+  sparse-checkout-cone-mode:
+    description: Use cone-mode sparse checkout. false matches a single file.
+    required: false
+    default: "true"
+  submodules:
+    description: Pass recursive to initialise submodules.
+    required: false
+    default: ""
+  lfs:
+    description: Pull Git LFS objects when git-lfs is installed.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch the repository
+      shell: bash
+      env:
+        INPUT_REF: ${{ inputs.ref }}
+        INPUT_DEPTH: ${{ inputs.fetch-depth }}
+        INPUT_TAGS: ${{ inputs.fetch-tags }}
+        INPUT_SPARSE: ${{ inputs.sparse-checkout }}
+        INPUT_CONE: ${{ inputs.sparse-checkout-cone-mode }}
+        INPUT_SUBMODULES: ${{ inputs.submodules }}
+        INPUT_LFS: ${{ inputs.lfs }}
+        TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        SERVER: ${{ github.server_url }}
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE"
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        if [ ! -d .git ]; then
+          git init .
+        fi
+        if ! git remote get-url origin >/dev/null 2>&1; then
+          git remote add origin "${SERVER}/${REPO}.git"
+        fi
+        # GitHub git HTTPS rejects Authorization: bearer (HTTP 401). It accepts
+        # basic auth for the user x-access-token. A 401 makes git ask for a
+        # username, and the runner has no terminal. Scope the header to this
+        # server, and clear other credential helpers so they cannot replace it.
+        if [ -z "${TOKEN}" ]; then
+          echo "checkout has no token" >&2
+          exit 1
+        fi
+        auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n\r')
+        # One header only. Writing the same header into the repo config and
+        # into GIT_CONFIG makes GitHub answer 400 Duplicate header.
+        export GIT_TERMINAL_PROMPT=0
+        export GIT_CONFIG_COUNT=2
+        export GIT_CONFIG_KEY_0="http.${SERVER}/.extraheader"
+        export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+        export GIT_CONFIG_KEY_1="credential.helper"
+        export GIT_CONFIG_VALUE_1=""
+        ref="${INPUT_REF:-$GITHUB_SHA}"
+        if [ -n "$INPUT_SPARSE" ]; then
+          git config core.sparseCheckout true
+          mkdir -p .git/info
+          if [ "$INPUT_CONE" = "false" ]; then
+            git config core.sparseCheckoutCone false
+            printf '%s\n' "$INPUT_SPARSE" > .git/info/sparse-checkout
+          else
+            git config core.sparseCheckoutCone true
+            printf '%s\n' "$INPUT_SPARSE" > .git/info/sparse-checkout
+          fi
+        fi
+        if [ "$INPUT_DEPTH" = "0" ]; then
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          if [ "$INPUT_TAGS" = "true" ]; then
+            git fetch --tags --force origin
+          fi
+          # A full history of branches is not enough for every ref this
+          # repository builds. A public fork pull request is not a branch
+          # here, and a tag is not origin/<name>. Both still have to check out.
+          if printf '%s' "$ref" | grep -Eq '^refs/pull/[0-9]+/(merge|head)$'; then
+            git fetch --force origin "+${ref}:${ref}"
+            git checkout --force "$ref"
+          elif printf '%s' "$ref" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+            # pull_request sets GITHUB_SHA to refs/pull/N/merge. That commit is
+            # not a branch tip, so the heads fetch above does not contain it.
+            # Checkout then exits 128: unable to read tree (<sha>). A commit
+            # object without its tree fails the same way. Fetch the advertised
+            # pull ref first (public and private), then the raw SHA.
+            if ! git cat-file -e "${ref}^{tree}" 2>/dev/null; then
+              if printf '%s' "${GITHUB_REF:-}" | grep -Eq '^refs/pull/[0-9]+/(merge|head)$'; then
+                # The pull ref is advertised to the workflow token during the
+                # run. A later or narrower token may not see it; the SHA fetch
+                # below still has to run.
+                git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}" || true
+              fi
+            fi
+            if ! git cat-file -e "${ref}^{tree}" 2>/dev/null; then
+              git fetch --force origin "$ref"
+            fi
+            git checkout --force "$ref"
+          else
+            branch="${ref#refs/heads/}"
+            if git show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
+              git checkout --force -B "$branch" "origin/$branch"
+            elif git show-ref --verify --quiet "refs/tags/${branch}"; then
+              git checkout --force "refs/tags/${branch}"
+            else
+              git fetch --force origin "$ref"
+              git checkout --force FETCH_HEAD
+            fi
+          fi
+        else
+          git fetch --prune --depth "$INPUT_DEPTH" origin "$ref"
+          git checkout --force FETCH_HEAD
+        fi
+        if [ "$INPUT_SUBMODULES" = "recursive" ]; then
+          git submodule update --init --recursive
+        fi
+        if [ "$INPUT_LFS" = "true" ] && command -v git-lfs >/dev/null 2>&1; then
+          git lfs install --local
+          git lfs pull
+        fi
+        # Later steps in this job do not inherit GIT_CONFIG_*. Keep one header
+        # in the repo config, then drop the env copy so this process does not
+        # send both.
+        unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1
+        git config --local "http.${SERVER}/.extraheader" "AUTHORIZATION: basic ${auth}"
+        git config --local --unset-all credential.helper || true
+        git config --local credential.helper ""
+        unset auth
+        echo "checked out $(git rev-parse HEAD)"

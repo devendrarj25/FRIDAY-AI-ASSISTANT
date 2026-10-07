@@ -1,0 +1,19 @@
+{
+  "name": "go-mod-line",
+  "version": "1.0.0",
+  "description": "Read go.mod for the module path, go version, and require block count. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Go mod line",
+    "icon": "file"
+  }
+}

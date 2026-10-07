@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git stash list",
+  "description": "List git stashes (read-only). Does not apply or drop stashes.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to list git stashes (read-only). Allow this?"
+}

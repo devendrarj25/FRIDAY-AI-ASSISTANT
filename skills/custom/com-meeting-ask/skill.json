@@ -1,0 +1,18 @@
+{
+  "id": "com-meeting-ask",
+  "name": "Meeting request draft",
+  "summary": "Draft a meeting-request email with purpose, length, and two time options you type.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "purpose",
+    "minutes",
+    "options"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. It does not create a calendar event."
+}

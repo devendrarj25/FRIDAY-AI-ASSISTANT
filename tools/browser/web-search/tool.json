@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Web search",
+  "description": "Search the public web through FRIDAY's own browser engine (DuckDuckGo HTML, no API key). Returns real titles, URLs and snippets, or an honest failure when the network is down.",
+  "category": "browser",
+  "inputs": [
+    "query",
+    "limit"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to search the public web for “{query}” using her built-in browser. The query is sent to the search engine. Allow this search?"
+}

@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Format local date",
+  "description": "Format a timestamp (ms or ISO) in the machine local timezone via Intl.",
+  "category": "time",
+  "inputs": [
+    "text",
+    "locale"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to FORMAT a DATE in the local timezone. Allow this?",
+  "keywords": [
+    "format",
+    "local",
+    "timezone"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "JSON path get",
+  "description": "Read a dotted path (a.b.0) from JSON text. No jq binary — plain property walk.",
+  "category": "data",
+  "inputs": [
+    "text",
+    "path"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ a path from JSON text in memory. Allow this?"
+}

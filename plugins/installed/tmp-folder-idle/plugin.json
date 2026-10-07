@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "tmp-folder-idle",
+  "name": "Temp folder idle",
+  "description": "On idle, check tmp / temp / temporary / .cache folder presence at the root.",
+  "category": "housekeeping",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

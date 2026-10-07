@@ -1,0 +1,317 @@
+# FRIDAY — Manual Repository Control
+#
+# The single manually-dispatched control surface for owner-driven repository
+# operations that GitHub's automatic workflows deliberately do NOT perform.
+# Nothing here runs automatically: every action requires an explicit
+# workflow_dispatch with typed inputs, and the destructive ones additionally
+# require a confirmation string.
+#
+# This workflow NEVER force-pushes, NEVER rewrites history, NEVER resets main
+# and NEVER auto-merges — the only merge that can happen is the explicit
+# MERGE PR action after confirmation. Recovery branches stay untouched as
+# independent backups.
+#
+# It does not replace or duplicate pr-validation.yml, test-build.yml,
+# release.yml, branch-cleanup.yml or main-safety-recovery.yml.
+
+name: Repository Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        required: true
+        type: choice
+        options:
+          - create-pr
+          - merge-pr
+          - revert-commit
+          - restore-commit
+          - delete-branch
+      source_branch:
+        description: "CREATE PR: source branch"
+        required: false
+        type: string
+      target_branch:
+        description: "CREATE PR: target branch"
+        required: false
+        default: main
+        type: string
+      pr_number:
+        description: "MERGE PR: pull request number"
+        required: false
+        type: string
+      commit_sha:
+        description: "REVERT / RESTORE: commit SHA"
+        required: false
+        type: string
+      branch_name:
+        description: "DELETE BRANCH: branch to delete"
+        required: false
+        type: string
+      delete_branch_after_merge:
+        description: "MERGE PR: delete the merged temporary branch"
+        required: false
+        default: false
+        type: boolean
+      confirm:
+        description: "Confirmation — type MERGE / REVERT / RESTORE / DELETE"
+        required: false
+        type: string
+
+# One control run at a time, so two dispatches cannot race on the same repo.
+concurrency:
+  group: friday-repository-control
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+  # Required for `--json statusCheckRollup` (it resolves the producing
+  # workflow run); without it GitHub refuses the field outright.
+  actions: read
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ACTION: ${{ inputs.action }}
+      SOURCE_BRANCH: ${{ inputs.source_branch }}
+      TARGET_BRANCH: ${{ inputs.target_branch }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+      BRANCH_NAME: ${{ inputs.branch_name }}
+      DELETE_AFTER_MERGE: ${{ inputs.delete_branch_after_merge }}
+      CONFIRM: ${{ inputs.confirm }}
+
+    steps:
+      - name: Fetch full history
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Identity for any commit this workflow creates
+        shell: bash
+        run: |
+          git config user.name "FRIDAY Repository Control"
+          git config user.email "actions@users.noreply.github.com"
+
+      # ---------------------------------------------------------------- 1 ---
+      - name: CREATE PR
+        if: inputs.action == 'create-pr'
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="${SOURCE_BRANCH:-}"
+          dst="${TARGET_BRANCH:-main}"
+          [ -n "$src" ] || { echo "::error::source branch is required"; exit 1; }
+          [ "$src" != "$dst" ] || { echo "::error::source and target are the same"; exit 1; }
+          git ls-remote --exit-code --heads origin "$src" >/dev/null 2>&1 \
+            || { echo "::error::source branch '$src' does not exist"; exit 1; }
+          git ls-remote --exit-code --heads origin "$dst" >/dev/null 2>&1 \
+            || { echo "::error::target branch '$dst' does not exist"; exit 1; }
+
+          existing=$(gh pr list --repo "$REPO" --head "$src" --base "$dst" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "pull request #$existing is already open for $src → $dst — not duplicated"
+            echo "PR already open: #$existing ($src → $dst)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if git diff --quiet "origin/$dst" "origin/$src"; then
+            echo "::error::'$src' has no changes against '$dst'"; exit 1
+          fi
+
+          url=$(gh pr create --repo "$REPO" --head "$src" --base "$dst" \
+            --title "$src → $dst" \
+            --body "Opened by FRIDAY Repository Control (manual dispatch). Review and merge manually; this workflow never auto-merges.")
+          echo "opened: $url"
+          echo "Created pull request: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------- 2 ---
+      - name: MERGE PR
+        if: inputs.action == 'merge-pr'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${PR_NUMBER:-}" ] || { echo "::error::PR number is required"; exit 1; }
+          [ "$CONFIRM" = "MERGE" ] || { echo "::error::type MERGE in the confirmation input"; exit 1; }
+
+          info=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+            --json number,title,state,isDraft,mergeable,headRefName,baseRefName,headRefOid,files,statusCheckRollup)
+          state=$(jq -r '.state' <<<"$info")
+          draft=$(jq -r '.isDraft' <<<"$info")
+          head=$(jq -r '.headRefName' <<<"$info")
+          base=$(jq -r '.baseRefName' <<<"$info")
+          {
+            echo "## Pull request #$(jq -r '.number' <<<"$info")"
+            echo "- Title: $(jq -r '.title' <<<"$info")"
+            echo "- $head → $base (state: $state, draft: $draft, mergeable: $(jq -r '.mergeable' <<<"$info"))"
+            echo "### Changed files"
+            jq -r '.files[] | "- \(.path) (+\(.additions)/-\(.deletions))"' <<<"$info"
+            echo "### Checks"
+            jq -r '(.statusCheckRollup // [])[] | "- \(.name // .context): \(.conclusion // .state // "pending")"' <<<"$info"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [ "$state" = "OPEN" ] || { echo "::error::pull request is $state"; exit 1; }
+          [ "$draft" = "false" ] || { echo "::error::pull request is a draft"; exit 1; }
+
+          # A merge here may only land a non-main development branch INTO main.
+          [ "$base" = "main" ] || { echo "::error::target branch must be main (got '$base')"; exit 1; }
+          [ "$head" != "main" ] || { echo "::error::source branch must not be main"; exit 1; }
+          case "$head" in
+            recovery/*)
+              echo "::error::recovery branches are independent backups and are never merged"; exit 1 ;;
+          esac
+
+          # Same contract as Safe Merge. statusCheckRollup has no commit and
+          # its in-progress check runs have status, not state, so it cannot
+          # prove PR Validation passed on this head.
+          head_sha=$(jq -r '.headRefOid' <<<"$info")
+          [ -n "$head_sha" ] && [ "$head_sha" != "null" ] || {
+            echo "::error::pull request has no head commit"; exit 1;
+          }
+          gh api "repos/$REPO/commits/$head_sha/check-runs" --paginate \
+            --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
+            | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json
+          gh api "repos/$REPO/commits/$head_sha/status" \
+            --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+            > statuses.json 2>/dev/null || echo '[]' > statuses.json
+          jq -n --arg sha "$head_sha" --slurpfile a runs.json --slurpfile b statuses.json \
+            '(($a[0] // []) + (($b[0] // []) | map(. + {head_sha: $sha})))' > rollup.json
+          node scripts/check-contract.cjs --head "$head_sha" --checks rollup.json --required "PR Validation" || {
+            echo "::error::refusing to merge #$PR_NUMBER until PR Validation has passed on $head_sha"
+            exit 1
+          }
+
+          # No force-push, no reset: a normal merge commit on the PR's own base.
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --merge
+          echo "merged #$PR_NUMBER ($head → $base)"
+
+          case "$head" in
+            main|master|develop|development|release|recovery/*)
+              echo "branch '$head' is protected — not deleted" ;;
+            *)
+              if [ "$DELETE_AFTER_MERGE" = "true" ]; then
+                gh api -X DELETE "repos/$REPO/git/refs/heads/$head" >/dev/null 2>&1 \
+                  && echo "deleted merged branch $head" \
+                  || echo "branch $head was already removed"
+              else
+                echo "branch $head kept (delete not requested)"
+              fi ;;
+          esac
+
+      # Revert/restore install dependencies and run typecheck + tests.
+      # `.npmrc` is engine-strict and package.json requires Node >= 22.19.0;
+      # the runner's preinstalled Node is often below that floor. Same
+      # composite every other Node-using workflow already calls.
+      - name: Node toolchain (from package.json engines)
+        if: inputs.action == 'revert-commit' || inputs.action == 'restore-commit'
+        uses: ./.github/actions/friday-node
+
+      # ---------------------------------------------------------------- 3 ---
+      - name: REVERT COMMIT
+        if: inputs.action == 'revert-commit'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${COMMIT_SHA:-}" ] || { echo "::error::commit SHA is required"; exit 1; }
+          [ "$CONFIRM" = "REVERT" ] || { echo "::error::type REVERT in the confirmation input"; exit 1; }
+          sha=$(git rev-parse --verify "${COMMIT_SHA}^{commit}")
+          short=$(git rev-parse --short=8 "$sha")
+          {
+            echo "## Reverting commit $short"
+            git show -s --format='- Author: %an%n- Date: %aI%n- Subject: %s' "$sha"
+            echo "### Changed files"
+            git show --pretty=format: --name-status "$sha" | sed '/^$/d;s/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          branch="revert/$(date -u +%Y%m%dT%H%M%SZ)-$short"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "revert branch $branch already exists — nothing duplicated"; exit 0
+          fi
+
+          git switch -c "$branch" origin/main
+          # -m 1 keeps merge commits revertible; no history is rewritten.
+          if git rev-list --parents -n 1 "$sha" | awk '{exit NF>2?0:1}'; then
+            git revert --no-edit -m 1 "$sha"
+          else
+            git revert --no-edit "$sha"
+          fi
+
+          node -v && npm ci && npm run typecheck && npm test
+
+          git push origin "HEAD:refs/heads/$branch"
+          url=$(gh pr create --repo "$REPO" --head "$branch" --base main \
+            --title "revert: $short" \
+            --body "Manual revert of \`$sha\` created by FRIDAY Repository Control. History was not rewritten and main was not reset. Merge manually after review.")
+          echo "Revert pull request: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------- 4 ---
+      - name: RESTORE HISTORICAL COMMIT
+        if: inputs.action == 'restore-commit'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${COMMIT_SHA:-}" ] || { echo "::error::commit SHA is required"; exit 1; }
+          [ "$CONFIRM" = "RESTORE" ] || { echo "::error::type RESTORE in the confirmation input"; exit 1; }
+          sha=$(git rev-parse --verify "${COMMIT_SHA}^{commit}")
+          short=$(git rev-parse --short=8 "$sha")
+          head=$(git rev-parse origin/main)
+          {
+            echo "## Restoring repository content to $short"
+            git show -s --format='- Selected: %h %s (%aI)' "$sha"
+            git show -s --format='- Current main: %h %s (%aI)' "$head"
+            echo "### Commits between selected and main"
+            git log --oneline "$sha..$head" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          branch="restore/$(date -u +%Y%m%dT%H%M%SZ)-$short"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "restore branch $branch already exists — nothing duplicated"; exit 0
+          fi
+
+          git switch -c "$branch" origin/main
+          # Content-only restore that moves history FORWARD: the historical tree
+          # is applied as one new commit. No reset, no force-push, no rewrite.
+          git read-tree --reset -u "$sha"
+          if git diff --cached --quiet; then
+            echo "main content already matches $short — nothing to restore"; exit 0
+          fi
+          git commit -m "restore: repository content to $short"
+
+          node -v && npm ci && npm run typecheck && npm test
+
+          git push origin "HEAD:refs/heads/$branch"
+          url=$(gh pr create --repo "$REPO" --head "$branch" --base main \
+            --title "restore: content of $short" \
+            --body "Restores repository content to \`$sha\` as one new commit on top of main. Git history was not rewritten and main was not reset. Merge manually after review.")
+          echo "Restore pull request: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------- 5 ---
+      - name: DELETE BRANCH
+        if: inputs.action == 'delete-branch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${BRANCH_NAME:-}"
+          [ -n "$branch" ] || { echo "::error::branch name is required"; exit 1; }
+          [ "$CONFIRM" = "DELETE" ] || { echo "::error::type DELETE in the confirmation input"; exit 1; }
+          case "$branch" in
+            main|master|develop|development|release)
+              echo "::error::'$branch' is protected and can never be deleted here"; exit 1 ;;
+            recovery/*)
+              echo "::error::recovery branches are independent backups and are never deleted here"; exit 1 ;;
+          esac
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 \
+            || { echo "branch '$branch' does not exist — nothing to delete"; exit 0; }
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$branch"
+          echo "Deleted branch: \`$branch\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,78 @@
+{
+  "id": "incident-self-health-week",
+  "name": "Incident self-health week",
+  "version": "1.0.0",
+  "description": "Machine health from local signals: process snapshot, disk hotspot, large logs, cache trim plan, startup programs, hosts file, world-writable paths, then a local incident note.",
+  "category": "maintenance",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Wednesday 09:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Snapshot process health",
+      "kind": "agent",
+      "ref": "agents/core/process-health-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Measure disk hotspot",
+      "kind": "agent",
+      "ref": "agents/core/disk-hotspot-walker",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Watch large log files",
+      "kind": "agent",
+      "ref": "agents/core/large-log-watcher",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Plan cache trim (approval to write)",
+      "kind": "agent",
+      "ref": "agents/core/cache-trim",
+      "risk": "write"
+    },
+    {
+      "id": "s5",
+      "label": "Audit startup programs",
+      "kind": "agent",
+      "ref": "agents/core/startup-program-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Snapshot hosts file",
+      "kind": "agent",
+      "ref": "agents/core/hosts-file-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Scan world-writable paths",
+      "kind": "agent",
+      "ref": "agents/core/world-writable-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Measure node_modules size",
+      "kind": "agent",
+      "ref": "agents/core/node-modules-size-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the incident note local",
+      "kind": "note",
+      "ref": "incident-health",
+      "risk": "safe"
+    }
+  ]
+}

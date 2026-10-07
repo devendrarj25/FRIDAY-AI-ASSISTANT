@@ -1,0 +1,160 @@
+{
+  "researched_at": "2026-09-15",
+  "sources": [
+    {
+      "topic": "AIOS",
+      "finding": "LLM agent operating system: scheduling, context/memory/storage/tool management, resource isolation",
+      "url": "https://arxiv.org/abs/2403.16971"
+    },
+    {
+      "topic": "Microsoft Foundry Model Router",
+      "finding": "trained real-time model selection for quality/cost; router is a first-class model",
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router"
+    },
+    {
+      "topic": "AWS Bedrock Intelligent Prompt Routing",
+      "finding": "predict response quality per request and route within model family",
+      "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-routing.html"
+    },
+    {
+      "topic": "OpenRouter provider selection",
+      "finding": "endpoint-level sorting by price/throughput/latency; model fallback",
+      "url": "https://openrouter.ai/docs/guides/routing/provider-selection"
+    },
+    {
+      "topic": "OpenRouter model fallback",
+      "finding": "fallback across models when providers fail/rate-limit/refuse",
+      "url": "https://openrouter.ai/docs/guides/routing/model-fallbacks"
+    },
+    {
+      "topic": "OpenRouter Auto Router",
+      "finding": "automated model selection with allowed model/provider constraints",
+      "url": "https://openrouter.ai/docs/guides/routing/routers/auto-router"
+    },
+    {
+      "topic": "Hugging Face Inference Providers",
+      "finding": "automatic provider selection, provider-specific request formatting and failover",
+      "url": "https://huggingface.co/docs/inference-providers/en/index"
+    },
+    {
+      "topic": "LiteLLM",
+      "finding": "gateway routing, fallbacks, routing strategies and operational endpoints",
+      "url": "https://docs.litellm.ai/"
+    },
+    {
+      "topic": "Portkey",
+      "finding": "conditional routing, load balancing and nested fallback strategies",
+      "url": "https://docs.portkey.ai/docs/guides/use-cases/combining-routing-strategies"
+    },
+    {
+      "topic": "Recent routing research",
+      "finding": "task type can explain much of routing benefit; learned router is not automatically better",
+      "url": "https://arxiv.org/abs/2608.23023"
+    },
+    {
+      "topic": "Pandora Router research",
+      "finding": "value-of-information for deciding when expensive candidate evaluation is worth it",
+      "url": "https://arxiv.org/abs/2608.20316"
+    },
+    {
+      "topic": "OpenAI models",
+      "finding": "current model selection and model metadata surface",
+      "url": "https://platform.openai.com/docs/models"
+    },
+    {
+      "topic": "Anthropic models",
+      "finding": "official model catalogue/lifecycle surface",
+      "url": "https://docs.anthropic.com/en/api/models"
+    },
+    {
+      "topic": "Gemini models",
+      "finding": "model list includes stable/preview/latest/experimental and specialized modalities/agents",
+      "url": "https://ai.google.dev/gemini-api/docs/models"
+    },
+    {
+      "topic": "Gemini model API",
+      "finding": "programmatic list/get with metadata such as capabilities/context",
+      "url": "https://ai.google.dev/api/models"
+    },
+    {
+      "topic": "Cohere models",
+      "finding": "Chat/Rerank/Embed/Parse/Transcribe are distinct model classes/endpoints",
+      "url": "https://docs.cohere.com/docs/models"
+    },
+    {
+      "topic": "Mistral models",
+      "finding": "model selection by use case/latency/cost plus dedicated OCR/transcription models",
+      "url": "https://docs.mistral.ai/models"
+    },
+    {
+      "topic": "Mistral Models API",
+      "finding": "GET /v1/models and model detail/delete endpoints",
+      "url": "https://docs.mistral.ai/api/endpoint/models"
+    },
+    {
+      "topic": "AWS Bedrock model list",
+      "finding": "foundation model metadata includes modalities, lifecycle and streaming support",
+      "url": "https://docs.aws.amazon.com/bedrock/latest/APIReference/API_ListFoundationModels.html"
+    },
+    {
+      "topic": "AWS Bedrock endpoints",
+      "finding": "model access can differ by runtime/Mantle endpoint and region",
+      "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/models.html"
+    },
+    {
+      "topic": "Microsoft Foundry deployments",
+      "finding": "deployment list gives deployed model inventory and filtering",
+      "url": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/aiproject"
+    },
+    {
+      "topic": "Vertex AI Model Garden",
+      "finding": "model discovery/deployment surface for Google and partner models",
+      "url": "https://cloud.google.com/vertex-ai/docs"
+    },
+    {
+      "topic": "Replicate models API",
+      "finding": "model/versions plus per-version OpenAPI input schema",
+      "url": "https://replicate.com/docs/reference/http"
+    },
+    {
+      "topic": "Ollama API",
+      "finding": "native tags/show/pull/chat operations",
+      "url": "https://docs.ollama.com/api"
+    },
+    {
+      "topic": "LM Studio",
+      "finding": "local server and model management APIs",
+      "url": "https://lmstudio.ai/docs/developer/rest"
+    },
+    {
+      "topic": "vLLM",
+      "finding": "OpenAI-compatible serving",
+      "url": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/"
+    },
+    {
+      "topic": "SGLang",
+      "finding": "OpenAI-compatible serving and high-throughput runtime",
+      "url": "https://docs.sglang.ai/basic_usage/openai_api.html"
+    },
+    {
+      "topic": "LocalAI",
+      "finding": "local OpenAI-compatible multimodal inference runtime",
+      "url": "https://localai.io/"
+    },
+    {
+      "topic": "llama.cpp",
+      "finding": "llama-server local inference server",
+      "url": "https://github.com/ggml-org/llama.cpp/tree/master/tools/server"
+    },
+    {
+      "topic": "Jan",
+      "finding": "local API/server docs",
+      "url": "https://jan.ai/docs/api"
+    },
+    {
+      "topic": "MLX-LM",
+      "finding": "Apple Silicon local model runtime",
+      "url": "https://github.com/ml-explore/mlx-lm"
+    }
+  ]
+}

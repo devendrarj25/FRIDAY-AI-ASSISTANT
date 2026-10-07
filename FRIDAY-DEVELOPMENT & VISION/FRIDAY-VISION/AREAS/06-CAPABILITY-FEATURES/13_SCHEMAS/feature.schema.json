@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Feature Manifest v2",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "name",
+    "intentTags",
+    "composition",
+    "readinessChecks",
+    "successCriteria",
+    "lifecycle"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "intentTags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requirements": {
+      "type": "object"
+    },
+    "composition": {
+      "type": "object"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risk": {
+      "type": "string"
+    },
+    "readinessChecks": {
+      "type": "array"
+    },
+    "successCriteria": {
+      "type": "array"
+    },
+    "evalSuite": {
+      "type": "string"
+    },
+    "lifecycle": {
+      "type": "string"
+    },
+    "rollout": {
+      "type": "object"
+    },
+    "telemetry": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Chat Presentation Model",
+  "type": "object",
+  "required": [
+    "turnId",
+    "status",
+    "text"
+  ],
+  "properties": {
+    "turnId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "working",
+        "waiting",
+        "streaming",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "text": {
+      "type": "string"
+    },
+    "progress": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "approval": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}

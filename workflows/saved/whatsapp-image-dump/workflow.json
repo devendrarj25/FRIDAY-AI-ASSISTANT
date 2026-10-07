@@ -1,0 +1,50 @@
+{
+  "id": "whatsapp-image-dump",
+  "name": "WhatsApp image dump chain",
+  "version": "1.0.0",
+  "description": "Scan WhatsApp image dumps, Pictures plan, duplicate photos — inspect / plan only.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan WhatsApp image dumps",
+      "kind": "agent",
+      "ref": "agents/core/whatsapp-image-dump-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Plan Pictures year folders",
+      "kind": "agent",
+      "ref": "agents/core/pictures-year-folder-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find duplicate photos",
+      "kind": "agent",
+      "ref": "agents/core/duplicate-photo-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory camera bursts",
+      "kind": "agent",
+      "ref": "agents/core/camera-burst-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the dump plan local",
+      "kind": "note",
+      "ref": "wa-images",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Feature Contract",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "intent",
+    "requires",
+    "success_criteria",
+    "policy",
+    "lifecycle"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "object"
+    },
+    "requires": {
+      "type": "array"
+    },
+    "optional": {
+      "type": "array"
+    },
+    "triggers": {
+      "type": "array"
+    },
+    "success_criteria": {
+      "type": "array"
+    },
+    "verification": {
+      "type": "object"
+    },
+    "policy": {
+      "type": "object"
+    },
+    "degradation": {
+      "type": "array"
+    },
+    "ui": {
+      "type": "object"
+    },
+    "telemetry": {
+      "type": "object"
+    },
+    "lifecycle": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Component Manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "type",
+    "owner",
+    "version",
+    "source",
+    "compatibility"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "enum": [
+        "agent",
+        "skill",
+        "tool",
+        "plugin",
+        "workflow",
+        "runtime",
+        "model",
+        "package"
+      ]
+    },
+    "owner": {
+      "enum": [
+        "official",
+        "user",
+        "generated",
+        "cache",
+        "recovery",
+        "external"
+      ]
+    },
+    "version": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object"
+    },
+    "compatibility": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array"
+    },
+    "install": {
+      "type": "object"
+    },
+    "uninstall": {
+      "type": "object"
+    },
+    "security": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

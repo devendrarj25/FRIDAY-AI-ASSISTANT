@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Model Task Request",
+  "type": "object",
+  "required": [
+    "taskId",
+    "mode",
+    "input",
+    "constraints"
+  ],
+  "properties": {
+    "taskId": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "auto",
+        "local-only",
+        "cloud-only",
+        "multi",
+        "manual"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "text",
+            "vision",
+            "audio",
+            "video",
+            "document",
+            "mixed"
+          ]
+        },
+        "estimatedTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "privacy": {
+          "enum": [
+            "local",
+            "private-cloud",
+            "standard-cloud",
+            "public"
+          ]
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "minContext": {
+          "type": "integer"
+        },
+        "maxLatencyMs": {
+          "type": "integer"
+        },
+        "maxCost": {
+          "type": "number"
+        },
+        "toolsRequired": {
+          "type": "boolean"
+        },
+        "freshnessRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "manualModelIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "multiStrategy": {
+      "enum": [
+        "parallel",
+        "primary-critic",
+        "primary-verifier",
+        "specialist-panel",
+        "candidate-judge",
+        "pipeline"
+      ]
+    }
+  }
+}

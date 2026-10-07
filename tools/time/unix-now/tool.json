@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Unix now",
+  "description": "Return the current Unix epoch in seconds and milliseconds, plus ISO-8601 UTC.",
+  "category": "time",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ the CURRENT UNIX TIME. Allow this?",
+  "keywords": [
+    "unix",
+    "epoch",
+    "now",
+    "timestamp"
+  ]
+}

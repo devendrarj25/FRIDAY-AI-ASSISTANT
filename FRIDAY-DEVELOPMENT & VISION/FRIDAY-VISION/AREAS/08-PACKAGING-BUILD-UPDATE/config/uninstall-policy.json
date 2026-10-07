@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "rootOwnershipRequired": true,
+  "modes": {
+    "keepData": {
+      "removeApplication": true,
+      "removeUserData": false
+    },
+    "removeAll": {
+      "removeApplication": true,
+      "removeUserData": true,
+      "removeManagedDownloads": true,
+      "removeManagedRuntimes": true,
+      "removeManagedComponents": true
+    }
+  },
+  "neverDeleteOutsideVerifiedRoot": true
+}

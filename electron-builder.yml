@@ -1,0 +1,148 @@
+appId: dev.friday.desk
+productName: FRIDAY
+copyright: Copyright © 2026 Devendra Singh Meena (devendrarj25)
+directories:
+  output: release
+  buildResources: installer/build
+afterPack: scripts/brand-windows.cjs
+# electron-builder 26 still runs signAndEditResources after afterPack even
+# when signExecutable is false. That pass writes npm FileVersion
+# (1.0.0 / 1.0.0-test.1) and can set FILEVERSION 1.0.0.1 for TEST builds.
+# signApp still returns true in that configuration, so afterSign runs after
+# the overwrite and before NSIS/portable consume win-unpacked. Do not set
+# signAndEditExecutable: false — that previously shipped electron.exe.
+afterSign: scripts/brand-windows.cjs
+# The renderer bundle, the Electron main process and the app manifest.
+# node_modules is added by electron-builder automatically.
+# dist-desktop/** is what the main process loads at runtime through
+# app.getAppPath()/dist-desktop/index.html — it must always be inside app.asar.
+files:
+  - dist-desktop/**
+  - electron/**
+  - package.json
+  # The single semver/changelog implementation shared by the release workflow
+  # and the desktop release panel — the main process requires it at runtime.
+  - scripts/release-engine.cjs
+
+
+
+extraResources:
+  - from: kernel
+    to: kernel
+    # Never ship a build machine's compiled Python cache.
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      # Test-runner requirements are a source-checkout concern only.
+      - "!requirements-dev.txt"
+      - "!tests/**"
+  - from: config/toolchain-versions.json
+    to: config/toolchain-versions.json
+  - from: modules
+    to: modules
+  - from: skills
+    to: skills
+  - from: tools
+    to: tools
+  - from: agents
+    to: agents
+  - from: plugins
+    to: plugins
+  - from: workflows
+    to: workflows
+  - from: config
+    to: config
+  # Product What's New for the phone companion — the same CHANGELOG.md the
+  # updater already publishes. Not a second notes store.
+  - from: CHANGELOG.md
+    to: CHANGELOG.md
+  - from: resources
+    to: resources
+  # Second copy of the 2D companion artwork outside app.asar so the character
+  # runtime can repair itself even if the renderer bundle is replaced.
+  - from: public/character
+    to: character
+
+  - from: installer
+    to: installer
+  # Setup / repair / readiness helpers, so the installed app can verify and
+  # repair its own environment exactly like the development checkout does.
+  # Cloud Agent / CI-only helpers stay in the git checkout; they are not part
+  # of the installed Windows product.
+  - from: scripts
+    to: scripts
+    filter:
+      - "**/*"
+      - "!cloud-agent-*"
+      - "!ci-workflow-run.sh"
+  - from: updater
+    to: updater
+  - from: builder
+    to: builder
+win:
+  target:
+    - nsis
+    - portable
+  icon: installer/build/icon.ico
+  executableName: FRIDAY
+  # Default filename uses the npm SemVer encoding. scripts/electron-pack.cjs
+  # overrides this with the live public four-part FRIDAY version from
+  # config/friday-version.json (FRIDAY-Setup-<releaseVersion>.exe).
+  artifactName: FRIDAY-Setup-${version}.exe
+  legalTrademarks: FRIDAY — Personal AI Assistant
+  # FRIDAY runs as the signed-in user. Elevated Electron windows lose input to
+  # Windows' Text Services Framework on PCs with extra keyboard layouts/IMEs,
+  # which froze the chat box on click. Use right-click > "Run as administrator"
+  # only for the rare machine-level repair; normal use needs no elevation.
+  requestedExecutionLevel: asInvoker
+  # Code signing is disabled (see signtoolOptions below): electron-builder's
+  # signing step downloads the winCodeSign archive whose macOS symlinks fail on
+  # standard Windows accounts. Executable RESOURCE editing must stay enabled —
+  # that same phase renames electron.exe to FRIDAY.exe and writes the asar
+  # integrity resource. Disabling it entirely shipped an app called
+  # "electron.exe". scripts/brand-windows.cjs adds the publisher identity and
+  # re-checks the executable name after packaging.
+  signExecutable: false
+
+  # NSIS and portable targets still call electron-builder's signing phase even
+  # when executable editing is disabled. Route that phase through our local
+  # Windows SDK hook so electron-builder never downloads winCodeSign.
+  # electron-builder 26 removed the top-level `win.sign`; it lives under
+  # `win.signtoolOptions` (also accepted by 25.x), so this works on both.
+  signtoolOptions:
+    sign: scripts/no-sign.cjs
+    publisherName: Devendra Singh Meena (devendrarj25)
+  # Self-signed certificates are not chained to a public CA; skip the check.
+  verifyUpdateCodeSignature: false
+portable:
+  artifactName: FRIDAY-Portable-${version}.exe
+  # electron-builder 26 accepts only "user" | "highest" | "admin" here.
+  # "user" is the portable equivalent of the NSIS build's asInvoker: FRIDAY runs
+  # as the signed-in user so elevated windows never break the chat text input.
+  requestExecutionLevel: user
+nsis:
+  oneClick: false
+  # FRIDAY's workspace choice, Python runtime and settings are user-scoped.
+  # Keeping Setup per-user avoids elevated-HKCU mismatches and makes Python
+  # discovery, repair, first launch and uninstall run as the same Windows user.
+  perMachine: false
+  allowElevation: true
+  # ONE folder page only. FRIDAY's own page (installer/build/installer.nsh)
+  # asks for the single root and derives $INSTDIR = <root>\App from it, so the
+  # stock directory page would be a confusing second, conflicting question.
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: FRIDAY
+  menuCategory: FRIDAY
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  displayLanguageSelector: false
+  uninstallDisplayName: FRIDAY - Personal AI Assistant
+  license: installer/build/license.txt
+  include: installer/build/installer.nsh
+  installerIcon: installer/build/icon.ico
+  uninstallerIcon: installer/build/icon.ico
+  installerHeaderIcon: installer/build/icon.ico
+  # Uninstaller written next to the app and registered in Apps & Features.

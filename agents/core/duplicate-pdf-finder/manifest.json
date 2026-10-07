@@ -1,0 +1,19 @@
+{
+  "name": "Duplicate PDF finder",
+  "version": "1.0.0",
+  "description": "Finds duplicate PDFs by size plus a partial SHA-1 so a documents dump can reclaim space. Deletes extras only after you approve.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "maxDepth",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} duplicate PDF(s) under \u201c{folder}\u201d (keeps the first of each hash). Review the list before allowing."
+}

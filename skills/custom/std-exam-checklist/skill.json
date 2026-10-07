@@ -1,0 +1,16 @@
+{
+  "id": "std-exam-checklist",
+  "name": "Exam-week checklist",
+  "summary": "Static exam-week checklist (sleep, materials, logistics) plus your subject list.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Logistics template, not a grade prediction."
+}

@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract an archive",
+  "description": "Extract a zip/tar archive into a folder inside the FRIDAY root using electron/importer.cjs extractZip — the same unpacker Hub import uses.",
+  "category": "filesystem",
+  "inputs": [
+    "archive",
+    "dest",
+    "root"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to EXTRACT “{archive}” into “{dest}” inside the FRIDAY folder. Files will be written. Allow this?"
+}

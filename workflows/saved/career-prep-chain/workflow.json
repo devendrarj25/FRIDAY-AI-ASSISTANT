@@ -1,0 +1,57 @@
+{
+  "id": "career-prep-chain",
+  "name": "Career prep chain",
+  "version": "1.0.0",
+  "description": "Resume bullet, STAR story, interview prep, cover letter — local drafts only.",
+  "category": "office",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Resume bullet skill",
+      "kind": "skill",
+      "ref": "skills/custom/car-resume-bullet",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "STAR story skill",
+      "kind": "skill",
+      "ref": "skills/custom/car-star-story",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Interview prep skill",
+      "kind": "skill",
+      "ref": "skills/custom/car-interview-prep",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Cover letter skill",
+      "kind": "skill",
+      "ref": "skills/custom/car-cover-letter",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "30-60-90 plan skill",
+      "kind": "skill",
+      "ref": "skills/custom/car-30-60-90",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the packet local",
+      "kind": "note",
+      "ref": "career-packet",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "JSON config inventory",
+  "version": "1.0.0",
+  "description": "Lists *.json config-like files (config, settings, manifest) so a backup set can be planned from real paths.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} JSON config-like file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

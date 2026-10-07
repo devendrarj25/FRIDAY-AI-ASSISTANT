@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Net snapshot",
+  "description": "Return the cached internet-reachability snapshot from net-status.cjs (no new probe).",
+  "category": "network",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ the CACHED NETWORK SNAPSHOT. Allow this?",
+  "keywords": [
+    "network",
+    "online",
+    "offline",
+    "snapshot"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "06_capability.schema.json",
+  "type": "object",
+  "x-friday-note": "Illustrative canonical contract; implement against current source owners and evolve compatibly.",
+  "properties": {
+    "capability_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "health": {
+      "type": "object"
+    }
+  }
+}

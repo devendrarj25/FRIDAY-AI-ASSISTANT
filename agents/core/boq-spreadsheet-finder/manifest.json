@@ -1,0 +1,17 @@
+{
+  "name": "BOQ spreadsheet finder",
+  "version": "1.0.0",
+  "description": "Finds spreadsheets whose names look like BOQ / bill of quantities / abstract sheets for construction estimating.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} BOQ-like spreadsheet(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

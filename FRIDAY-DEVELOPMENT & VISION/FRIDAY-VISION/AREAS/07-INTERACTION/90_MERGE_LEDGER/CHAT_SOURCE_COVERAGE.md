@@ -1,0 +1,145 @@
+# CHAT Source Coverage Ledger
+
+This ledger proves that the supplied source package was inspected and reconciled into the integrated Interaction System. It is not a copied archive of the source package.
+
+- `00_START/00_READ_FIRST.md` → `02_CHAT/` — FRIDAY Chat / Manual Mode — GOD MODE Final Architecture Package; Non-negotiable intent; Golden rule
+- `00_START/01_PACKAGE_MAP.md` → `01_SHARED_SYSTEM/` — Package Map
+- `01_SCOPE/01_CHAT_MODE_BOUNDARY.md` → `02_CHAT/` — Chat / Manual Mode Boundary
+- `01_SCOPE/02_NON_GOALS.md` → `01_SHARED_SYSTEM/` — Non-goals
+- `01_SCOPE/03_DEFINITION_OF_DONE.md` → `01_SHARED_SYSTEM/` — Definition of Done
+- `02_CURRENT_STATE/01_CHECKOUT_AUDIT.md` → `01_SHARED_SYSTEM/` — Current Checkout Audit — 2026-09-14
+- `02_CURRENT_STATE/02_CHAT_DOCK_AUDIT.md` → `02_CHAT/` — ChatDock Audit
+- `02_CURRENT_STATE/03_EXISTING_LIVE_OWNERS.md` → `02_CHAT/` — Existing Live Owners; Conversation/brain; Routing; Execution/authority; Durable/background; Memory/knowledge; Model/provider; Presentation/observability
+- `02_CURRENT_STATE/04_EXISTING_ROUTER_GAPS.md` → `01_SHARED_SYSTEM/` — Existing Router Gap Map
+- `02_CURRENT_STATE/05_CURRENT_FALLBACK_STATUS.md` → `01_SHARED_SYSTEM/` — Existing Fallback Strengths and Missing Guarantees
+- `02_CURRENT_STATE/06_EXISTING_TESTING_REALITY.md` → `01_SHARED_SYSTEM/` — Testing Reality
+- `02_CURRENT_STATE/07_ARCHITECTURAL_RISKS.md` → `01_SHARED_SYSTEM/` — Architectural Risks
+- `03_RESEARCH/01_RESEARCH_DECISIONS.md` → `09_RESEARCH/` — Research Decisions; Adopt; Do not automatically adopt
+- `03_RESEARCH/02_OPENAI_AGENT_PATTERNS.md` → `09_RESEARCH/` — OpenAI Agent Patterns
+- `03_RESEARCH/03_DURABLE_EXECUTION_PATTERNS.md` → `02_CHAT/` — Durable Execution Patterns
+- `03_RESEARCH/04_LANGGRAPH_PATTERNS.md` → `09_RESEARCH/` — LangGraph Patterns
+- `03_RESEARCH/05_MCP_A2A.md` → `09_RESEARCH/` — MCP and A2A
+- `03_RESEARCH/06_RETRIEVAL.md` → `09_RESEARCH/` — Retrieval Research
+- `03_RESEARCH/07_OBSERVABILITY.md` → `09_RESEARCH/` — Observability Research
+- `03_RESEARCH/08_RESILIENCE_PATTERNS.md` → `09_RESEARCH/` — Resilience Patterns
+- `03_RESEARCH/09_SOURCE_INDEX.md` → `09_RESEARCH/` — Research Source Index
+- `04_ARCHITECTURE/01_SYSTEM_ARCHITECTURE.md` → `02_CHAT/` — Target Chat Architecture
+- `04_ARCHITECTURE/02_OWNERSHIP_BOUNDARIES.md` → `01_SHARED_SYSTEM/` — Ownership Boundaries
+- `04_ARCHITECTURE/03_EVENT_DRIVEN_RUNTIME.md` → `01_SHARED_SYSTEM/` — Event-Driven Runtime
+- `04_ARCHITECTURE/04_DURABILITY_AND_RESTART.md` → `01_SHARED_SYSTEM/` — Durability and Restart
+- `04_ARCHITECTURE/05_CONCURRENCY_MODEL.md` → `01_SHARED_SYSTEM/` — Concurrency Model
+- `04_ARCHITECTURE/06_CONTEXT_BUDGET.md` → `02_CHAT/` — Context Budget
+- `04_ARCHITECTURE/07_MEMORY_LIFETIMES.md` → `01_SHARED_SYSTEM/` — Memory Lifetimes
+- `04_ARCHITECTURE/08_MANUAL_MODALITY.md` → `01_SHARED_SYSTEM/` — Manual Modality Contract
+- `04_ARCHITECTURE/09_BACKGROUND_INTERACTION.md` → `01_SHARED_SYSTEM/` — Background Interaction
+- `04_ARCHITECTURE/10_ARCHITECTURE_INVARIANTS.md` → `01_SHARED_SYSTEM/` — Architecture Invariants
+- `05_PIPELINE/01_TURN_GATEWAY.md` → `02_CHAT/` — Turn Gateway; Required contract
+- `05_PIPELINE/02_INPUT_NORMALIZATION.md` → `02_CHAT/` — Input Normalization; Required contract
+- `05_PIPELINE/03_SESSION_REHYDRATION.md` → `02_CHAT/` — Session Rehydration; Required contract
+- `05_PIPELINE/04_CONTEXT_ASSEMBLY.md` → `02_CHAT/` — Context Assembly; Required contract
+- `05_PIPELINE/05_INTENT_UNDERSTANDING.md` → `02_CHAT/` — Intent Understanding; Required contract
+- `05_PIPELINE/06_REQUEST_CLASSIFICATION.md` → `02_CHAT/` — Request Classification; Required contract
+- `05_PIPELINE/07_PLANNING.md` → `02_CHAT/` — Planning; Required contract
+- `05_PIPELINE/08_CAPABILITY_RESOLUTION.md` → `02_CHAT/` — Capability Resolution; Required contract
+- `05_PIPELINE/09_FALLBACK_PLANNING.md` → `02_CHAT/` — Fallback Planning; Required contract
+- `05_PIPELINE/10_GOVERNANCE.md` → `08_SECURITY/` — Governance; Required contract
+- `05_PIPELINE/11_EXECUTION.md` → `02_CHAT/` — Execution; Required contract
+- `05_PIPELINE/12_OBSERVATION.md` → `02_CHAT/` — Observation; Required contract
+- `05_PIPELINE/13_VERIFICATION.md` → `02_CHAT/` — Verification; Required contract
+- `05_PIPELINE/14_MEMORY_LEARNING.md` → `02_CHAT/` — Memory and Learning; Required contract
+- `05_PIPELINE/15_RESPONSE_COMPOSITION.md` → `02_CHAT/` — Response Composition; Required contract
+- `05_PIPELINE/16_PRESENTATION.md` → `02_CHAT/` — Visual Presentation; Required contract
+- `05_PIPELINE/17_STREAMING.md` → `02_CHAT/` — Streaming Lifecycle; Required contract
+- `05_PIPELINE/18_CANCELLATION.md` → `02_CHAT/` — Cancellation; Required contract
+- `05_PIPELINE/19_RECOVERY_REPLAN.md` → `02_CHAT/` — Recovery and Replanning; Required contract
+- `05_PIPELINE/20_COMPLETION.md` → `02_CHAT/` — Completion; Required contract
+- `05_PIPELINE/21_ERROR_TAXONOMY.md` → `02_CHAT/` — Error Taxonomy; Required contract
+- `05_PIPELINE/22_PARALLELISM.md` → `02_CHAT/` — Parallelism; Required contract
+- `05_PIPELINE/23_PROGRESS.md` → `02_CHAT/` — Progress UX Contract; Required contract
+- `05_PIPELINE/24_RESULT_REUSE.md` → `02_CHAT/` — Verified Result Reuse; Required contract
+- `06_ROUTING/01_UNIFIED_CAPABILITY_RESOLVER.md` → `02_CHAT/` — Unified Capability Resolver; Design rule
+- `06_ROUTING/02_MODEL_ROUTING.md` → `02_CHAT/` — Model Routing; Design rule
+- `06_ROUTING/03_SKILL_ROUTING.md` → `02_CHAT/` — Skill Routing; Design rule
+- `06_ROUTING/04_TOOL_ROUTING.md` → `02_CHAT/` — Tool Routing; Design rule
+- `06_ROUTING/05_PLUGIN_ROUTING.md` → `02_CHAT/` — Plugin Routing; Design rule
+- `06_ROUTING/06_MODULE_ROUTING.md` → `02_CHAT/` — Module Routing; Design rule
+- `06_ROUTING/07_WORKFLOW_ROUTING.md` → `02_CHAT/` — Workflow Routing; Design rule
+- `06_ROUTING/08_AGENT_ROUTING.md` → `02_CHAT/` — Agent Routing; Design rule
+- `06_ROUTING/09_CONNECTOR_ROUTING.md` → `02_CHAT/` — Connector Routing; Design rule
+- `06_ROUTING/10_BROWSER_PC_DEVICE_ROUTING.md` → `02_CHAT/` — Browser / PC / Device Routing; Design rule
+- `06_ROUTING/11_MCP_API_EXTERNAL_ROUTING.md` → `02_CHAT/` — MCP / API / External Routing; Design rule
+- `06_ROUTING/12_FALLBACK_ENGINE.md` → `02_CHAT/` — Fallback Engine; Design rule
+- `06_ROUTING/13_HEALTH_CIRCUIT_BREAKER.md` → `02_CHAT/` — Health and Circuit Breaker; Design rule
+- `06_ROUTING/14_RETRY_IDEMPOTENCY.md` → `02_CHAT/` — Retry and Idempotency; Design rule
+- `06_ROUTING/15_ROUTING_SCORE.md` → `02_CHAT/` — Routing Score; Design rule
+- `07_COMPONENTS/01_chat_surface.md` → `02_CHAT/` — Chat Surface; Inputs; Outputs; Must not do
+- `07_COMPONENTS/02_turn_controller.md` → `02_CHAT/` — Turn Controller; Inputs; Outputs; Must not do
+- `07_COMPONENTS/03_context_manager.md` → `02_CHAT/` — Context Manager; Inputs; Outputs; Must not do
+- `07_COMPONENTS/04_intent_classifier.md` → `01_SHARED_SYSTEM/` — Intent Classifier; Inputs; Outputs; Must not do
+- `07_COMPONENTS/05_plan_engine.md` → `01_SHARED_SYSTEM/` — Plan Engine; Inputs; Outputs; Must not do
+- `07_COMPONENTS/06_capability_bus.md` → `01_SHARED_SYSTEM/` — Capability Bus; Inputs; Outputs; Must not do
+- `07_COMPONENTS/07_fallback_engine.md` → `01_SHARED_SYSTEM/` — Fallback Engine; Inputs; Outputs; Must not do
+- `07_COMPONENTS/08_provider_health.md` → `01_SHARED_SYSTEM/` — Provider Health; Inputs; Outputs; Must not do
+- `07_COMPONENTS/09_execution_runtime.md` → `02_CHAT/` — Execution Runtime; Inputs; Outputs; Must not do
+- `07_COMPONENTS/10_observation_engine.md` → `01_SHARED_SYSTEM/` — Observation Engine; Inputs; Outputs; Must not do
+- `07_COMPONENTS/11_verification_engine.md` → `01_SHARED_SYSTEM/` — Verification Engine; Inputs; Outputs; Must not do
+- `07_COMPONENTS/12_task_bridge.md` → `01_SHARED_SYSTEM/` — Task Bridge; Inputs; Outputs; Must not do
+- `07_COMPONENTS/13_memory_fabric.md` → `01_SHARED_SYSTEM/` — Memory Fabric; Inputs; Outputs; Must not do
+- `07_COMPONENTS/14_response_composer.md` → `01_SHARED_SYSTEM/` — Response Composer; Inputs; Outputs; Must not do
+- `07_COMPONENTS/15_event_bus.md` → `01_SHARED_SYSTEM/` — Event Bus; Inputs; Outputs; Must not do
+- `07_COMPONENTS/16_stream_manager.md` → `01_SHARED_SYSTEM/` — Stream Manager; Inputs; Outputs; Must not do
+- `07_COMPONENTS/17_resource_governor.md` → `08_SECURITY/` — Resource Governor; Inputs; Outputs; Must not do
+- `07_COMPONENTS/18_artifact_bridge.md` → `11_IMPLEMENTATION/` — Artifact Bridge; Inputs; Outputs; Must not do
+- `07_COMPONENTS/19_error_runtime.md` → `01_SHARED_SYSTEM/` — Error Runtime; Inputs; Outputs; Must not do
+- `07_COMPONENTS/20_observability.md` → `01_SHARED_SYSTEM/` — Observability; Inputs; Outputs; Must not do
+- `07_COMPONENTS/21_session_rehydration.md` → `01_SHARED_SYSTEM/` — Session Rehydration; Inputs; Outputs; Must not do
+- `07_COMPONENTS/22_background_bridge.md` → `01_SHARED_SYSTEM/` — Background Bridge; Inputs; Outputs; Must not do
+- `07_COMPONENTS/23_learning_bridge.md` → `01_SHARED_SYSTEM/` — Learning Bridge; Inputs; Outputs; Must not do
+- `07_COMPONENTS/24_attachment_intake.md` → `01_SHARED_SYSTEM/` — Attachment Intake; Inputs; Outputs; Must not do
+- `07_COMPONENTS/25_security_boundary.md` → `08_SECURITY/` — Security Boundary; Inputs; Outputs; Must not do
+- `07_COMPONENTS/26_completion_guard.md` → `01_SHARED_SYSTEM/` — Completion Guard; Inputs; Outputs; Must not do
+- `07_COMPONENTS/27_cache_result_reuse.md` → `01_SHARED_SYSTEM/` — Result Reuse Cache; Inputs; Outputs; Must not do
+- `07_COMPONENTS/28_context_compactor.md` → `02_CHAT/` — Context Compactor; Inputs; Outputs; Must not do
+- `07_COMPONENTS/29_recovery_coordinator.md` → `01_SHARED_SYSTEM/` — Recovery Coordinator; Inputs; Outputs; Must not do
+- `07_COMPONENTS/30_manual_mode_guard.md` → `01_SHARED_SYSTEM/` — Manual Mode Guard; Inputs; Outputs; Must not do
+- `08_RUNTIME/01_RUNTIME_TOPOLOGY.md` → `01_SHARED_SYSTEM/` — Runtime Topology; Principle
+- `08_RUNTIME/02_IPC_CONTRACT.md` → `01_SHARED_SYSTEM/` — IPC Contract; Principle
+- `08_RUNTIME/03_STORAGE.md` → `01_SHARED_SYSTEM/` — Storage; Principle
+- `08_RUNTIME/04_MODEL_RUNTIME.md` → `01_SHARED_SYSTEM/` — Model Runtime; Principle
+- `08_RUNTIME/05_LOCAL_ACCELERATION.md` → `01_SHARED_SYSTEM/` — Local Acceleration; Principle
+- `08_RUNTIME/06_RESOURCE_BUDGETS.md` → `09_RESEARCH/` — Resource Budgets; Principle
+- `08_RUNTIME/07_REALTIME_PERFORMANCE.md` → `12_ACCEPTANCE/` — Realtime Performance; Principle
+- `08_RUNTIME/08_BACKPRESSURE.md` → `01_SHARED_SYSTEM/` — Backpressure; Principle
+- `08_RUNTIME/09_NETWORK_PROVIDER_RECOVERY.md` → `01_SHARED_SYSTEM/` — Network/Provider Recovery; Principle
+- `08_RUNTIME/10_WINDOWS_RUNTIME.md` → `01_SHARED_SYSTEM/` — Windows Runtime; Principle
+- `09_CONTRACTS/01_EVENT_CATALOG.md` → `01_SHARED_SYSTEM/` — Event Catalog
+- `09_CONTRACTS/02_IDEMPOTENCY.md` → `01_SHARED_SYSTEM/` — Idempotency Rules
+- `09_CONTRACTS/03_FAILURE_CODES.md` → `12_ACCEPTANCE/` — Failure Codes
+- `09_CONTRACTS/04_HEALTH_STATE.md` → `01_SHARED_SYSTEM/` — Health State
+- `09_CONTRACTS/05_RESPONSE_TRUTH.md` → `01_SHARED_SYSTEM/` — Response Truth Contract
+- `09_CONTRACTS/capability-candidate.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/chat-event.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/chat-turn.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/fallback-decision.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/presentation-model.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/task-checkpoint.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `09_CONTRACTS/verification-result.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `10_IMPLEMENTATION/01_FILE_BY_FILE_MAP.md` → `01_SHARED_SYSTEM/` — File-by-File Implementation Map; Primary touch points; New modules only if the inspected code proves there is no owner
+- `10_IMPLEMENTATION/02_PHASED_EXECUTION.md` → `02_CHAT/` — Phased Execution; Phase 0 — inspect and baseline; Phase 1 — lifecycle foundation; Phase 2 — unified capability resolution; Phase 3 — resilience; Phase 4 — context + memory; Phase 5 — durable tasks; Phase 6 — response/presentation
+- `10_IMPLEMENTATION/03_DO_NOT_TOUCH.md` → `01_SHARED_SYSTEM/` — Do Not Touch Unless Proven Necessary
+- `10_IMPLEMENTATION/04_MIGRATION_SAFETY.md` → `01_SHARED_SYSTEM/` — Migration Safety
+- `10_IMPLEMENTATION/05_DEPENDENCY_RULES.md` → `01_SHARED_SYSTEM/` — Dependency Rules
+- `10_IMPLEMENTATION/06_IMPLEMENTATION_CHECKLIST.md` → `01_SHARED_SYSTEM/` — Implementation Checklist
+- `11_ACCEPTANCE/01_ACCEPTANCE_MATRIX.md` → `12_ACCEPTANCE/` — Acceptance Matrix
+- `11_ACCEPTANCE/02_FAILURE_MATRIX.md` → `12_ACCEPTANCE/` — Failure / Recovery Matrix
+- `11_ACCEPTANCE/03_PERFORMANCE.md` → `12_ACCEPTANCE/` — Performance Targets
+- `11_ACCEPTANCE/04_REGRESSION.md` → `12_ACCEPTANCE/` — Regression Checklist
+- `11_ACCEPTANCE/05_REAL_EVIDENCE.md` → `12_ACCEPTANCE/` — Evidence Rule
+- `12_HANDOFF/01_MASTER_CURSOR_PROMPT.md` → `02_CHAT/` — Master Implementation Prompt — FRIDAY Chat/Manual GOD MODE
+- `12_HANDOFF/02_COMPONENT_PROMPT.md` → `01_SHARED_SYSTEM/` — Component Prompt Template
+- `12_HANDOFF/03_REPAIR_PROMPT.md` → `01_SHARED_SYSTEM/` — Repair Prompt
+- `13_DIAGRAMS/README.md` → `01_SHARED_SYSTEM/` — Diagram Set
+- `13_DIAGRAMS/chat-end-to-end.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `13_DIAGRAMS/realtime-durable-loop.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `13_DIAGRAMS/routing-fallback.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `PACKAGE_MANIFEST.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.

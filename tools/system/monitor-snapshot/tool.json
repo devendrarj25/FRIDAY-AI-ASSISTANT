@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "System monitor snapshot",
+  "description": "Latest CPU/memory sample from electron/system-monitor.cjs snapshot() — the same counters the live HUD uses.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read the live CPU/memory monitor sample. Allow this?"
+}

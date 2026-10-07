@@ -1,0 +1,46 @@
+name: Feature request
+description: A new capability or an improvement to an existing one
+title: "[feature] "
+labels: ["feature", "needs-triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - UI / renderer
+        - Chat / brain / memory
+        - Models / providers
+        - Tools / agents / skills / plugins
+        - Windows integration
+        - Build / release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem this solves
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Existing behaviour that must not change
+      description: Features, UI, storage or workflows this change must preserve.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Project rules
+      options:
+        - label: This does not duplicate an existing implementation
+          required: true
+        - label: This does not remove an existing working feature
+          required: true

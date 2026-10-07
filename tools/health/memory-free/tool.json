@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Memory free",
+  "description": "Return os.freemem() and os.totalmem() in bytes and mebibytes.",
+  "category": "health",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ FREE MEMORY. Allow this?",
+  "keywords": [
+    "memory",
+    "ram",
+    "freemem"
+  ]
+}

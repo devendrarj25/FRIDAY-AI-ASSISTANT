@@ -1,0 +1,17 @@
+{
+  "name": "FRIDAY root age auditor",
+  "version": "1.0.0",
+  "description": "Reports mtime of FRIDAY_ROOT (or the chosen folder) config/database files so a backup reminder has real ages.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} FRIDAY-root file(s) with ages. Read-only. Allow to keep the age report."
+}

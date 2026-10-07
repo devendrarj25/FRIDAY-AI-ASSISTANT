@@ -1,0 +1,19 @@
+{
+  "name": "loc-by-extension",
+  "version": "1.0.0",
+  "description": "Count lines of text files grouped by extension (skips node_modules/.git). Read-only approximation, not scc/cloc.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "LOC by extension",
+    "icon": "bar-chart"
+  }
+}

@@ -1,0 +1,28 @@
+# Python 3.12 for kernel tests, without actions/setup-python.
+# This repository only allows actions owned by devendrarj25.
+
+name: Python 3.12
+description: Put Python 3.12 on PATH from the runner image.
+
+runs:
+  using: composite
+  steps:
+    - name: Select Python 3.12
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v python3.12 >/dev/null 2>&1; then
+          bin=$(command -v python3.12)
+        elif command -v py >/dev/null 2>&1; then
+          bin=$(py -3.12 -c "import sys; print(sys.executable)")
+        else
+          echo "::error::Python 3.12 is not on this runner"
+          exit 1
+        fi
+        mkdir -p "$RUNNER_TEMP/pybin"
+        case "$bin" in
+          *.exe) cp "$bin" "$RUNNER_TEMP/pybin/python.exe" ;;
+          *) ln -sfn "$bin" "$RUNNER_TEMP/pybin/python" ;;
+        esac
+        echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+        echo "python 3.12 -> $bin"

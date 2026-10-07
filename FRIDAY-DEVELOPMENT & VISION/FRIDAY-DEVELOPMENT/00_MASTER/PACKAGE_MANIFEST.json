@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "package": "FRIDAY-DEVELOPMENT-WORKING-VISION-ALIGNED",
+  "baseline": "FRIDAY-DEVELOPMENT-WORKING.zip",
+  "baseline_status": "HISTORICAL -- provenance of how this workbench was originally assembled, not a description of current FRIDAY source. For current source truth, see FRIDAY-VISION/AREAS/01-SYSTEM/01_CURRENT_SOURCE_TRUTH/CURRENT_SOURCE_INVENTORY.json's 'current' section.",
+  "embedded_legacy_archives": false,
+  "embedded_vision_archive": false,
+  "purpose": "Vision-aligned development workbench",
+  "rules": [
+    "preserve baseline docs",
+    "extend contracts",
+    "route tasks to canonical owners",
+    "minimize context",
+    "verify changes"
+  ],
+  "research_date": "2026-09-16"
+}

@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Interact with a page",
+  "description": "Click, scroll, fill, read or submit a rendered page in FRIDAY's shared Chromium session via electron/browser.cjs interact(). Submit/login/purchase still need owner approval. Outside Electron this fails honestly.",
+  "category": "browser",
+  "inputs": [
+    "action",
+    "url",
+    "selector",
+    "text",
+    "value"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to {action} on the page “{url}” (selector “{selector}”). This can click buttons, fill fields or submit a form in her browser. Allow this page action?"
+}

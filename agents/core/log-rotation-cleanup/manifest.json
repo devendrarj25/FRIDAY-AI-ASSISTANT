@@ -1,0 +1,12 @@
+{
+  "name": "Log rotation cleanup",
+  "version": "1.0.0",
+  "description": "Finds .log files older than a cutoff in a folder you name and proposes deleting them. Always previews the exact file list first (dry run) and only deletes after you approve.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": ["folder", "olderThanDays", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} old log file(s) ({size}) from “{folder}” older than {olderThanDays} days. This is permanent. Review the previewed list before allowing."
+}

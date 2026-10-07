@@ -1,0 +1,145 @@
+# FRIDAY — canonical Node/npm toolchain for every CI job.
+#
+# ONE place decides which Node/npm every workflow uses: PR validation, the
+# branch test EXE build and the official release build all call this action.
+# The source of truth is package.json "engines" — nothing here hard-codes a
+# Node major. Raising engines.node in package.json automatically moves CI to
+# that line on the next run, with no workflow edits.
+
+name: FRIDAY Node toolchain
+description: Install and validate the Node/npm versions declared in package.json engines.
+
+outputs:
+  node_req:
+    description: Declared minimum Node version
+    value: ${{ steps.engines.outputs.node_req }}
+  npm_req:
+    description: Declared minimum npm version
+    value: ${{ steps.engines.outputs.npm_req }}
+  node_major:
+    description: Node major line selected from engines
+    value: ${{ steps.engines.outputs.node_major }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read declared Node/npm engine requirements
+      id: engines
+      shell: bash
+      run: |
+        node_min=$(node -e "process.stdout.write(require('./package.json').engines.node)")
+        npm_min=$(node -e "process.stdout.write(require('./package.json').engines.npm)")
+        node_major=$(node -e "const m = '$node_min'.match(/(\\d+)/); process.stdout.write(m ? m[1] : '')")
+        if [ -z "$node_major" ]; then
+          echo "::error::package.json engines.node does not declare a usable version"
+          exit 1
+        fi
+        echo "node_req=$node_min" >> "$GITHUB_OUTPUT"
+        echo "npm_req=$npm_min" >> "$GITHUB_OUTPUT"
+        echo "node_major=$node_major" >> "$GITHUB_OUTPUT"
+        echo "declared engines: node $node_min, npm $npm_min (line: $node_major.x)"
+
+    # Replaces whatever Node the runner image happens to preinstall (the old
+    # Node 20.20.2 / npm 10.8.2 failure) with the latest patch of the declared
+    # major line. The official setup-node action is not used: this repository
+    # only allows actions owned by devendrarj25.
+    - name: Install compatible Node LTS
+      shell: bash
+      env:
+        NODE_MAJOR: ${{ steps.engines.outputs.node_major }}
+      run: |
+        set -euo pipefail
+        echo "node-version: ${{ steps.engines.outputs.node_major }}.x"
+        echo "check-latest: true"
+        case "$(uname -s)" in
+          Linux) plat=linux; ext=tar.gz ;;
+          Darwin) plat=darwin; ext=tar.gz ;;
+          MINGW*|MSYS*|CYGWIN*) plat=win; ext=zip ;;
+          *) echo "::error::unsupported OS $(uname -s)"; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64) arch=x64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) echo "::error::unsupported arch $(uname -m)"; exit 1 ;;
+        esac
+        sums=$(curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/SHASUMS256.txt")
+        file=$(printf '%s\n' "$sums" | awk -v plat="$plat" -v arch="$arch" -v ext="$ext" '$2 ~ ("-" plat "-" arch "\\." ext "$") { print $2; exit }')
+        [ -n "$file" ] || { echo "::error::no Node $NODE_MAJOR build for $plat-$arch"; exit 1; }
+        want=$(printf '%s\n' "$sums" | awk -v f="$file" '$2 == f { print $1; exit }')
+        curl -fsSL -o "$RUNNER_TEMP/$file" "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
+        got=$(node -e "const fs=require('fs');const c=require('crypto');process.stdout.write(c.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'))" "$RUNNER_TEMP/$file")
+        [ "$got" = "$want" ] || { echo "::error::Node checksum mismatch"; exit 1; }
+        dest="$RUNNER_TEMP/friday-node"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        if [ "$ext" = "zip" ]; then
+          unzip -q "$RUNNER_TEMP/$file" -d "$dest"
+        else
+          tar -xzf "$RUNNER_TEMP/$file" -C "$dest"
+        fi
+        extracted=$(echo "$dest"/*)
+        if [ -d "$extracted/bin" ]; then
+          echo "$extracted/bin" >> "$GITHUB_PATH"
+        else
+          echo "$extracted" >> "$GITHUB_PATH"
+        fi
+
+    # The runner image preinstalls its own Node (Node 20 at time of writing).
+    # If setup-node ever silently no-ops, the job must fail here rather than
+    # run npm ci / electron-builder on an unsupported line.
+    - name: Refuse the runner's preinstalled Node
+      shell: bash
+      run: |
+        actual_major=$(node -p "process.versions.node.split('.')[0]")
+        want_major="${{ steps.engines.outputs.node_major }}"
+        echo "active node major: $actual_major (declared line: $want_major.x)"
+        if [ "$actual_major" != "$want_major" ]; then
+          echo "::error::Active Node $(node --version) is not on the declared $want_major.x line"
+          exit 1
+        fi
+
+
+    - name: Ensure npm meets declared minimum
+      shell: bash
+      run: |
+        current=$(npm --version)
+        node -e "
+          const parse = v => v.replace(/^[^0-9]*/, '').split('.').map(Number);
+          const gte = (a, b) => {
+            for (let i = 0; i < Math.max(a.length, b.length); i++) {
+              const x = a[i] || 0, y = b[i] || 0;
+              if (x > y) return true; if (x < y) return false;
+            }
+            return true;
+          };
+          process.exit(gte(parse('$current'), parse('${{ steps.engines.outputs.npm_req }}')) ? 0 : 1);
+        " || npm install -g "npm@>=${{ steps.engines.outputs.npm_req }}"
+
+    - name: Print and validate Node/npm versions
+      shell: bash
+      run: |
+        echo "node --version -> $(node --version)   (required ${{ steps.engines.outputs.node_req }})"
+        echo "npm --version  -> $(npm --version)    (required ${{ steps.engines.outputs.npm_req }})"
+        node -e "
+          const cp = require('child_process');
+          const parse = v => v.replace(/^[^0-9]*/, '').split('.').map(Number);
+          const gte = (a, b) => {
+            for (let i = 0; i < Math.max(a.length, b.length); i++) {
+              const x = a[i] || 0, y = b[i] || 0;
+              if (x > y) return true; if (x < y) return false;
+            }
+            return true;
+          };
+          const nodeReq = parse('${{ steps.engines.outputs.node_req }}');
+          const npmReq  = parse('${{ steps.engines.outputs.npm_req }}');
+          if (!gte(parse(process.version), nodeReq)) {
+            console.error('Node ' + process.version + ' does not satisfy engines.node');
+            process.exit(1);
+          }
+          const npmVer = cp.execSync('npm --version').toString().trim();
+          if (!gte(parse(npmVer), npmReq)) {
+            console.error('npm ' + npmVer + ' does not satisfy engines.npm');
+            process.exit(1);
+          }
+          console.log('Engine requirements satisfied');
+        "

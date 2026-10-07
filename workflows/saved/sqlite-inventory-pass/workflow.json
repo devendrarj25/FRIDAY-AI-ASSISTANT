@@ -1,0 +1,50 @@
+{
+  "id": "sqlite-inventory-pass",
+  "name": "SQLite inventory pass",
+  "version": "1.0.0",
+  "description": "Inventory SQLite files, JSON configs, old SQL dumps — inspect only, no DB rewrite.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Inventory SQLite files",
+      "kind": "agent",
+      "ref": "agents/core/sqlite-inventory-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory JSON configs",
+      "kind": "agent",
+      "ref": "agents/core/json-config-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find old SQL dumps",
+      "kind": "agent",
+      "ref": "agents/core/old-sql-dump-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "SQLite inspect via module",
+      "kind": "module",
+      "ref": "modules/developer/sqlite-inspect",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the DB census local",
+      "kind": "note",
+      "ref": "sqlite-census",
+      "risk": "safe"
+    }
+  ]
+}

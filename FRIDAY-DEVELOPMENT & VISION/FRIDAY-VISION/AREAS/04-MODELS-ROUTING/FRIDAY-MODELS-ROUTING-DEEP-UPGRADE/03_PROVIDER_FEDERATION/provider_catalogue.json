@@ -1,0 +1,236 @@
+{
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "class": "cloud",
+      "primary_method": "Responses API + Models API",
+      "official_docs": "https://platform.openai.com/docs/models",
+      "official_reference": "https://platform.openai.com/docs/api-reference/models"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "class": "cloud",
+      "primary_method": "Messages API + Models API",
+      "official_docs": "https://docs.anthropic.com/en/api/messages",
+      "official_reference": "https://docs.anthropic.com/en/api/models"
+    },
+    {
+      "id": "google-gemini",
+      "name": "Google Gemini",
+      "class": "cloud",
+      "primary_method": "Gemini native API + official OpenAI compatibility",
+      "official_docs": "https://ai.google.dev/gemini-api/docs",
+      "official_reference": "https://ai.google.dev/api/models"
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "class": "cloud",
+      "primary_method": "Mistral API + Models endpoint",
+      "official_docs": "https://docs.mistral.ai/",
+      "official_reference": "https://docs.mistral.ai/api/endpoint/models"
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "class": "cloud",
+      "primary_method": "Chat/Rerank/Embed/Parse/Transcribe + Models",
+      "official_docs": "https://docs.cohere.com/",
+      "official_reference": "https://docs.cohere.com/reference/list-models"
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "class": "cloud",
+      "primary_method": "xAI API / Files / model surfaces",
+      "official_docs": "https://docs.x.ai/",
+      "official_reference": "https://docs.x.ai/developers/rest-api-reference/files"
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "class": "cloud",
+      "primary_method": "Perplexity API",
+      "official_docs": "https://docs.perplexity.ai/",
+      "official_reference": "https://docs.perplexity.ai/"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "class": "cloud",
+      "primary_method": "OpenAI-compatible inference + model catalogue",
+      "official_docs": "https://console.groq.com/docs/models",
+      "official_reference": "https://console.groq.com/docs/api-reference"
+    },
+    {
+      "id": "together-ai",
+      "name": "Together AI",
+      "class": "cloud",
+      "primary_method": "OpenAI-compatible API + models",
+      "official_docs": "https://docs.together.ai/",
+      "official_reference": "https://docs.together.ai/docs/models"
+    },
+    {
+      "id": "fireworks-ai",
+      "name": "Fireworks AI",
+      "class": "cloud",
+      "primary_method": "OpenAI-compatible inference + model catalogue",
+      "official_docs": "https://docs.fireworks.ai/",
+      "official_reference": "https://docs.fireworks.ai/"
+    },
+    {
+      "id": "deepinfra",
+      "name": "DeepInfra",
+      "class": "cloud",
+      "primary_method": "OpenAI-compatible inference + model catalogue",
+      "official_docs": "https://deepinfra.com/docs",
+      "official_reference": "https://deepinfra.com/models"
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "class": "cloud",
+      "primary_method": "Inference API + model catalogue",
+      "official_docs": "https://inference-docs.cerebras.ai/",
+      "official_reference": "https://inference-docs.cerebras.ai/"
+    },
+    {
+      "id": "sambanova",
+      "name": "SambaNova",
+      "class": "cloud",
+      "primary_method": "SambaNova Cloud API",
+      "official_docs": "https://docs.sambanova.ai/",
+      "official_reference": "https://docs.sambanova.ai/"
+    },
+    {
+      "id": "nvidia-nim",
+      "name": "NVIDIA NIM",
+      "class": "cloud",
+      "primary_method": "NIM OpenAI-compatible API + NGC/catalogue/health",
+      "official_docs": "https://docs.nvidia.com/nim/",
+      "official_reference": "https://docs.nvidia.com/nim/large-language-models/latest/"
+    },
+    {
+      "id": "replicate",
+      "name": "Replicate",
+      "class": "cloud",
+      "primary_method": "Models/versions + per-version OpenAPI schema",
+      "official_docs": "https://replicate.com/docs/reference/http",
+      "official_reference": "https://replicate.com/docs/reference/http"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "class": "gateway",
+      "primary_method": "Unified API + provider routing + model fallbacks",
+      "official_docs": "https://openrouter.ai/docs/",
+      "official_reference": "https://openrouter.ai/docs/guides/routing/provider-selection"
+    },
+    {
+      "id": "hugging-face-inference-providers",
+      "name": "Hugging Face Inference Providers",
+      "class": "gateway",
+      "primary_method": "Provider auto-selection + provider-specific routing",
+      "official_docs": "https://huggingface.co/docs/inference-providers/en/index",
+      "official_reference": "https://huggingface.co/docs/inference-providers/en/guides/first-api-call"
+    },
+    {
+      "id": "aws-bedrock",
+      "name": "AWS Bedrock",
+      "class": "cloud/gateway",
+      "primary_method": "Native runtime + model catalogue + Mantle OpenAI-compatible surface",
+      "official_docs": "https://docs.aws.amazon.com/bedrock/latest/userguide/models.html",
+      "official_reference": "https://docs.aws.amazon.com/bedrock/latest/APIReference/API_ListFoundationModels.html"
+    },
+    {
+      "id": "microsoft-foundry",
+      "name": "Microsoft Foundry",
+      "class": "cloud/gateway",
+      "primary_method": "Deployments + Model Router",
+      "official_docs": "https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/model-router",
+      "official_reference": "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/aiproject"
+    },
+    {
+      "id": "google-vertex-ai",
+      "name": "Google Vertex AI",
+      "class": "cloud/gateway",
+      "primary_method": "Model Garden + Gemini/partner model deployments",
+      "official_docs": "https://cloud.google.com/vertex-ai/docs",
+      "official_reference": "https://cloud.google.com/vertex-ai/docs"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "class": "local",
+      "primary_method": "Native /api/tags /api/show /api/pull /api/chat",
+      "official_docs": "https://docs.ollama.com/api",
+      "official_reference": "https://docs.ollama.com/api/tags"
+    },
+    {
+      "id": "lm-studio",
+      "name": "LM Studio",
+      "class": "local",
+      "primary_method": "Native local server + model management",
+      "official_docs": "https://lmstudio.ai/docs/developer/core/server",
+      "official_reference": "https://lmstudio.ai/docs/developer/rest"
+    },
+    {
+      "id": "llama-cpp",
+      "name": "llama.cpp",
+      "class": "local",
+      "primary_method": "llama-server API / OpenAI-compatible server",
+      "official_docs": "https://github.com/ggml-org/llama.cpp",
+      "official_reference": "https://github.com/ggml-org/llama.cpp/tree/master/tools/server"
+    },
+    {
+      "id": "vllm",
+      "name": "vLLM",
+      "class": "local",
+      "primary_method": "OpenAI-compatible serving + model serving",
+      "official_docs": "https://docs.vllm.ai/en/latest/",
+      "official_reference": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/"
+    },
+    {
+      "id": "sglang",
+      "name": "SGLang",
+      "class": "local",
+      "primary_method": "High-throughput serving + OpenAI-compatible APIs",
+      "official_docs": "https://docs.sglang.ai/",
+      "official_reference": "https://docs.sglang.ai/basic_usage/openai_api.html"
+    },
+    {
+      "id": "localai",
+      "name": "LocalAI",
+      "class": "local",
+      "primary_method": "OpenAI-compatible multi-modal local inference",
+      "official_docs": "https://localai.io/",
+      "official_reference": "https://localai.io/basics/getting_started/"
+    },
+    {
+      "id": "jan",
+      "name": "Jan",
+      "class": "local",
+      "primary_method": "Local server / OpenAI-compatible API",
+      "official_docs": "https://jan.ai/docs",
+      "official_reference": "https://jan.ai/docs/api"
+    },
+    {
+      "id": "mlx-lm",
+      "name": "MLX-LM",
+      "class": "local",
+      "primary_method": "Apple Silicon local inference/server",
+      "official_docs": "https://github.com/ml-explore/mlx-lm",
+      "official_reference": "https://github.com/ml-explore/mlx-lm"
+    },
+    {
+      "id": "litellm-gateway",
+      "name": "LiteLLM Gateway",
+      "class": "gateway/local",
+      "primary_method": "Unified gateway/router/fallback/load balancing",
+      "official_docs": "https://docs.litellm.ai/",
+      "official_reference": "https://docs.litellm.ai/"
+    }
+  ]
+}

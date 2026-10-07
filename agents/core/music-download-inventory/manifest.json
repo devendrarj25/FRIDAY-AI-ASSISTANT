@@ -1,0 +1,17 @@
+{
+  "name": "Music download inventory",
+  "version": "1.0.0",
+  "description": "Lists audio files (mp3/wav/flac/m4a) with size so a music dump is countable.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} audio file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

@@ -1,0 +1,78 @@
+{
+  "id": "meeting-week-prep",
+  "name": "Meeting week prep",
+  "version": "1.0.0",
+  "description": "Week-ahead meetings from ICS plus Google/Outlook calendars when connected, agenda headings, meeting-ask drafts, follow-ups, then a local prep pack. No invites are sent.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Monday 08:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read upcoming .ics event titles",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Summarise ICS files",
+      "kind": "module",
+      "ref": "modules/communication/ics-summary",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Google Calendar if connected",
+      "kind": "connector",
+      "ref": "google-calendar",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Outlook week if connected",
+      "kind": "connector",
+      "ref": "outlook",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Build agenda headings",
+      "kind": "skill",
+      "ref": "skills/custom/off-agenda-builder",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Load meeting-notes headings",
+      "kind": "skill",
+      "ref": "skills/custom/meeting-notes",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Draft a meeting ask",
+      "kind": "skill",
+      "ref": "skills/custom/com-meeting-ask",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Draft a follow-up",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the meeting pack local",
+      "kind": "note",
+      "ref": "meeting-week",
+      "risk": "safe"
+    }
+  ]
+}

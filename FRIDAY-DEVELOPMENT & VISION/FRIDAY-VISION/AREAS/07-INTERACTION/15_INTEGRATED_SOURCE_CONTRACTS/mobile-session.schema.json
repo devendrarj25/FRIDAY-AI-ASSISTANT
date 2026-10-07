@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "sessionId",
+    "deviceId",
+    "fridayInstanceId",
+    "protocolVersion",
+    "policyVersion",
+    "state"
+  ],
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "deviceId": {
+      "type": "string"
+    },
+    "fridayInstanceId": {
+      "type": "string"
+    },
+    "protocolVersion": {
+      "type": "string"
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "authenticated",
+        "scoped",
+        "active",
+        "expiring",
+        "reauth_required",
+        "revoked",
+        "expired"
+      ]
+    },
+    "capabilityCatalogVersion": {
+      "type": "string"
+    },
+    "eventCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

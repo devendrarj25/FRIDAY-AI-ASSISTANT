@@ -1,0 +1,18 @@
+{
+  "id": "dat-join-keys",
+  "name": "Join-key compare",
+  "summary": "Compare two id lists and report keys only in A, only in B, and in both.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "left",
+    "right",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Set comparison on pasted lists. It does not run SQL."
+}

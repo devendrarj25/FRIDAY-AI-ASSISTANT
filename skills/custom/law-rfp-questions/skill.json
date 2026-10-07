@@ -1,0 +1,16 @@
+{
+  "id": "law-rfp-questions",
+  "name": "RFP clarifying questions",
+  "summary": "Turn TBD / missing fields in an RFP paste into a clarifying-question list.",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

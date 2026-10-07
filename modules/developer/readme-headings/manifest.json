@@ -1,0 +1,19 @@
+{
+  "name": "readme-headings",
+  "version": "1.0.0",
+  "description": "Extract ATX headings from README.md to sketch the document outline. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Readme headings",
+    "icon": "heading"
+  }
+}

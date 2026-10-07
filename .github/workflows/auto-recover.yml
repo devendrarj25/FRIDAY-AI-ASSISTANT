@@ -1,0 +1,90 @@
+# FRIDAY - Auto Recover
+#
+# When Actions minutes run out (or the spending limit is hit) GitHub fails a
+# run WITHOUT starting a single step. Nothing is wrong with the code; the run
+# just never got a runner. Once the limit resets, this workflow re-runs exactly
+# those runs, so nobody has to notice and click "Re-run".
+#
+# It re-runs a run only when ALL of these hold:
+#   - the workflow is a validation workflow (PR Validation, Health Weekly,
+#     Security Scan) - never a release, publish, merge or cleanup one
+#   - it failed and it is still the first attempt
+#   - no step recorded a conclusion (a real run, including a timeout, is left
+#     alone); only the jobs that never started are re-run, so nothing is billed twice
+#   - it belongs to an open pull request head, or is a scheduled run from the
+#     last 35 days (one billing cycle)
+#
+# It runs every 12 hours (about 60 billed minutes a month). It changes no code and merges nothing.
+
+name: Auto Recover
+
+on:
+  schedule:
+    - cron: "41 */12 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: friday-auto-recover
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Re-run validation runs that never started
+        shell: bash
+        run: |
+          set -uo pipefail
+          # A full billing cycle: minutes can stay exhausted for weeks, and a pull
+          # request opened on day 2 must still be recovered on day 30. Only
+          # runs on a CURRENT open pull-request head are re-run, so old runs
+          # of moved or closed heads are skipped below regardless of this window.
+          since=$(date -u -d '35 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          open_heads=$(gh pr list --repo "$REPO" --state open --limit 200 --json headRefOid --jq '.[].headRefOid')
+          allowed='PR Validation|Health Weekly|Security Scan'
+          reran=0
+
+          gh api --paginate -X GET "repos/$REPO/actions/runs" \
+            -f status=failure -f created=">=$since" -f per_page=100 \
+            --jq '.workflow_runs[] | [.id, .name, .event, .run_attempt, .head_sha] | @tsv' |
+          while IFS=$'\t' read -r id name event attempt sha; do
+            [ "$reran" -ge 5 ] && break
+            echo "$name" | grep -Eq "^($allowed)$" || continue
+            [ "$attempt" = "1" ] || continue
+
+            if [ "$event" = "pull_request" ]; then
+              echo "$open_heads" | grep -qx "$sha" || { echo "skip $id: PR head moved or PR closed"; continue; }
+            elif [ "$event" != "schedule" ] && [ "$event" != "workflow_dispatch" ]; then
+              continue
+            fi
+
+            # A step that recorded any conclusion (success, failure, or cancelled
+            # after a timeout) means a runner started the job. That is a real
+            # failure and is left alone. A job with no step conclusions never
+            # got a runner (minutes or spending limit). Jobs that already
+            # succeeded are not in this failed-run list.
+            executed=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+              --jq '[.jobs[] | select(any(.steps[]?; .conclusion != null))] | length')
+            if [ "${executed:-1}" != "0" ]; then
+              echo "skip $id ($name): a step ran, this is a real failure"
+              continue
+            fi
+
+            echo "re-running the jobs of $id ($name) that never started"
+            # Only the failed jobs: what already passed is not billed a second time.
+            if gh api -X POST "repos/$REPO/actions/runs/$id/rerun-failed-jobs" >/dev/null 2>&1; then
+              reran=$((reran + 1))
+            else
+              echo "::warning::could not re-run $id (limit may still be active) - will try again next time"
+            fi
+          done
+          echo "done"

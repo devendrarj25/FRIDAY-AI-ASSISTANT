@@ -1,0 +1,12 @@
+{
+  "name": "Workspace change scanner",
+  "version": "1.0.0",
+  "description": "Lists files in a folder that changed recently (mtime). Read-only research report; never edits or deletes. Does not invent files that are not on disk.",
+  "category": "research",
+  "entry": "index.cjs",
+  "inputs": ["folder", "sinceHours", "maxDepth"],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} recently changed file(s) under “{folder}”. This is a read-only research report — allow to keep it in the approval queue. No file will be modified."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "email-harvest",
+  "version": "1.0.0",
+  "description": "Collect email addresses from text files. Unique list, no send. Read-only.",
+  "category": "communication",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Email harvest",
+    "icon": "mail"
+  }
+}

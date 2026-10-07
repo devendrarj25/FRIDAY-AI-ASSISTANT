@@ -1,0 +1,18 @@
+{
+  "id": "mkt-cagr",
+  "name": "CAGR calculator",
+  "summary": "Compound annual growth rate from a start value, end value, and year count.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "startValue",
+    "endValue",
+    "years"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. CAGR = (end/start)^(1/years) − 1. Backward-looking math on numbers you type; not a forecast service."
+}

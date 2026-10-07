@@ -1,0 +1,78 @@
+{
+  "id": "release-readiness-chain",
+  "name": "Release readiness chain",
+  "version": "1.0.0",
+  "description": "Ship checklist from the repo: changelog head, TODOs, coverage artifacts, license files, package scripts, missing README, git dirty names, then a local go/no-go. No tag is created.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read changelog head",
+      "kind": "module",
+      "ref": "modules/developer/changelog-head",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Harvest TODO comments",
+      "kind": "agent",
+      "ref": "agents/core/workspace-todo-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan coverage artifacts",
+      "kind": "agent",
+      "ref": "agents/core/coverage-artifact-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Find license files",
+      "kind": "agent",
+      "ref": "agents/core/license-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Inventory package scripts",
+      "kind": "agent",
+      "ref": "agents/core/package-script-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Scan git dirty files (names only)",
+      "kind": "agent",
+      "ref": "agents/core/git-dirty-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Load code-review skill",
+      "kind": "skill",
+      "ref": "skills/custom/code-review",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the release checklist local",
+      "kind": "note",
+      "ref": "release-readiness",
+      "risk": "safe"
+    }
+  ]
+}

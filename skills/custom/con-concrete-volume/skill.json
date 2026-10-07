@@ -1,0 +1,19 @@
+{
+  "id": "con-concrete-volume",
+  "name": "Concrete volume estimator",
+  "summary": "Rectangular slab/footing volume from length, width, and depth, with a unit tag.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "length",
+    "width",
+    "depth",
+    "units"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Volume = L×W×D in the units you name (default metres). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Order extra for waste with con-waste-factor; this skill does not design mix or rebar."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "hom-chore-roster",
+  "name": "Weekly chore roster",
+  "summary": "Spread chore names across seven days so each day has a short list.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Household planning helper. It does not control devices or place orders."
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Secret filename scanner",
+  "version": "1.0.0",
+  "description": "Lists files named like secrets (credentials.json, secrets.yml, .netrc, id_rsa, service-account.json). Names only \u2014 contents are not read.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} secret-named file(s) under \u201c{folder}\u201d. Names only. Allow to keep the hygiene list."
+}

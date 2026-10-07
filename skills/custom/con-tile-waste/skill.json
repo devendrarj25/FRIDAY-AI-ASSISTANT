@@ -1,0 +1,18 @@
+{
+  "id": "con-tile-waste",
+  "name": "Tile quantity with waste",
+  "summary": "Tile count from room area, one tile's area, and a waste factor for cuts.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "area",
+    "tileArea",
+    "wastePct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "count = ceil(area / tileArea × (1+wastePct/100)). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "python-requires-list",
+  "version": "1.0.0",
+  "description": "Collect requirement pins from requirements.txt / requirements-dev.txt (name only, no extras after ; or #) and pyproject.toml dependency lines. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Python requires list",
+    "icon": "list"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "rsn-tradeoff-table",
+  "name": "Trade-off table",
+  "summary": "Build an option × criterion table from option lines and a comma-separated criteria list.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "criteria"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Cells start empty unless a line mentions both option and criterion. Scoring stays yours."
+}

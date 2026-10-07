@@ -1,0 +1,50 @@
+{
+  "id": "scanned-image-finder",
+  "name": "Scanned image finder chain",
+  "version": "1.0.0",
+  "description": "Find scanned images, PDFs, site photos — useful before a tender scan.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find scanned images",
+      "kind": "agent",
+      "ref": "agents/core/scanned-image-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory PDFs",
+      "kind": "agent",
+      "ref": "agents/core/pdf-inventory-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Inventory site photos",
+      "kind": "agent",
+      "ref": "agents/core/site-photo-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Camera bursts",
+      "kind": "agent",
+      "ref": "agents/core/camera-burst-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the scan list local",
+      "kind": "note",
+      "ref": "scans",
+      "risk": "safe"
+    }
+  ]
+}

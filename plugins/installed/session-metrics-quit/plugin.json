@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "session-metrics-quit",
+  "name": "Session metrics quit",
+  "description": "On quit, stamp os uptime, memory, and load as a session-end snapshot.",
+  "category": "session",
+  "permissions": [],
+  "hooks": [
+    "on-app-quit"
+  ]
+}

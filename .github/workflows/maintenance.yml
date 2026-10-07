@@ -1,0 +1,128 @@
+name: Maintenance Cleanup
+
+# Storage hygiene only. It removes nothing that is current, protected,
+# unmerged or still referenced:
+#
+#   * merged, non-protected work branches (never main/master/develop/
+#     development/release and never recovery/*)
+#   * old TEST prereleases, always keeping the latest TEST release
+#   * old OFFICIAL releases, always keeping the latest 3
+#   * workflow runs and their artifacts older than the last 15 per workflow
+#
+# The plan is computed by scripts/merge-engine.cjs and printed first. A dry run
+# is the default; deletion happens only when apply = true (or on the weekly
+# schedule, which uses exactly the same safe policy).
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually delete (unchecked = dry run report only)"
+        type: boolean
+        default: false
+      keep_official:
+        description: "OFFICIAL releases to keep"
+        type: string
+        default: "3"
+      keep_runs:
+        description: "Workflow runs to keep per workflow"
+        type: string
+        default: "15"
+  schedule:
+    - cron: "17 3 * * 1" # Mondays, 03:17 UTC
+
+concurrency: friday-maintenance
+permissions:
+  contents: write
+  actions: write
+  # `gh pr list` resolves open pull requests through GraphQL. Without
+  # `pull-requests: read` GitHub refuses it with "Resource not accessible by
+  # integration" and cleanup can never see which branches are still pinned.
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APPLY: ${{ github.event_name == 'schedule' && 'true' || inputs.apply }}
+      KEEP_OFFICIAL: ${{ inputs.keep_official || '3' }}
+      KEEP_RUNS: ${{ inputs.keep_runs || '15' }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Collect the current repository state
+        shell: bash
+        run: |
+          set -o pipefail
+          # Merged work branches only: a branch that is not an ancestor of main
+          # is still live work and is never listed.
+          git fetch origin --prune
+          : > branches.json
+          {
+            echo "["
+            first=1
+            for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin | sed 's|^origin/||'); do
+              [ "$ref" = "HEAD" ] && continue
+              merged=false
+              git merge-base --is-ancestor "origin/$ref" origin/main 2>/dev/null && merged=true
+              [ $first -eq 1 ] || echo ","
+              first=0
+              printf '{"name":"%s","merged":%s}' "$ref" "$merged"
+            done
+            echo "]"
+          } > branches.json
+          # Open pull requests pin their head branch: cleanup must never delete a
+          # branch Safe Merge / Official Publish is still working on.
+          gh pr list --state open --limit 200 --json headRefName > open-prs.json
+          gh release list --limit 100 --json tagName,isPrerelease,isDraft,createdAt > releases.json
+          gh run list --limit 300 --json databaseId,workflowName,status,createdAt > runs.json
+          current=$(gh release view --json tagName --jq .tagName 2>/dev/null || echo "")
+          echo "current=$current" >> "$GITHUB_ENV"
+
+      - name: Plan the safe cleanup
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/merge-engine.cjs cleanup \
+            --branches branches.json --releases releases.json --runs runs.json \
+            --open-prs open-prs.json \
+            --keep-official "$KEEP_OFFICIAL" --keep-test 1 --keep-runs "$KEEP_RUNS" \
+            --current "$current" > plan.json
+          cat plan.json
+          {
+            echo "### Cleanup plan (apply = $APPLY)"
+            echo ""
+            echo "- branches: $(jq -r '.branches|join(", ") // ""' plan.json)"
+            echo "- test releases: $(jq -r '.testReleases|join(", ") // ""' plan.json)"
+            echo "- official releases: $(jq -r '.officialReleases|join(", ") // ""' plan.json)"
+            echo "- runs: $(jq -r '.runs|length' plan.json)"
+            echo "- kept official: $(jq -r '.kept.official|join(", ") // ""' plan.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply the plan
+        if: env.APPLY == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          for branch in $(jq -r '.branches[]' plan.json); do
+            case "$branch" in
+              main|master|develop|development|release|recovery/*) continue ;;
+            esac
+            git push origin --delete "$branch" && echo "deleted branch $branch"
+          done
+          for tag in $(jq -r '.testReleases[], .officialReleases[]' plan.json); do
+            [ -n "$tag" ] || continue
+            gh release delete "$tag" --yes --cleanup-tag && echo "deleted release $tag"
+          done
+          for id in $(jq -r '.runs[]' plan.json); do
+            gh run delete "$id" >/dev/null 2>&1 && echo "deleted run $id"
+          done
+          echo "cleanup applied." >> "$GITHUB_STEP_SUMMARY"

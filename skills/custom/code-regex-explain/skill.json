@@ -1,0 +1,17 @@
+{
+  "id": "code-regex-explain",
+  "name": "Regex explainer",
+  "summary": "Break a regex into tokens and optionally test it against a sample string in the sandbox.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "pattern",
+    "sample"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Token walk plus RegExp.test on the sample. Invalid patterns fail honestly."
+}

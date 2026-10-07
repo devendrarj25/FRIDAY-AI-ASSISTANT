@@ -1,0 +1,16 @@
+{
+  "id": "rsn-stakeholder-map",
+  "name": "Stakeholder map",
+  "summary": "Parse `name, interest, influence` rows into a low/high influence–interest grid.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "influence/interest may be high|low or 1–5. Mapping aid only."
+}

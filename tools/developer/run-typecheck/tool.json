@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Run typecheck",
+  "description": "Run npm run typecheck via sandbox.runCommand, the same command sandbox.verify uses for TypeScript.",
+  "category": "developer",
+  "inputs": [
+    "root",
+    "probe"
+  ],
+  "permissions": [
+    "process.exec"
+  ],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to RUN npm run typecheck in this project. Allow this?"
+}

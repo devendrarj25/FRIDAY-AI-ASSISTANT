@@ -1,0 +1,100 @@
+# FRIDAY - Health Weekly
+#
+# For a project that is worked on in bursts. Once a week (and on demand) it runs
+# the very same script as `npm run resume` - typecheck, docs and version sync,
+# kernel tests, the full test suite, the pricing-knowledge freshness check and an
+# informational dependency audit - on the default branch.
+#
+# It keeps ONE issue up to date instead of spamming red runs:
+#   - something is broken   -> opens the issue "FRIDAY health check failing"
+#                              (or updates it with the latest result)
+#   - everything is healthy -> closes that issue with a note
+#
+# The run itself stays green: the issue (and the step summary) is the alert, so
+# one broken week is one issue, not a wall of red runs.
+# It never changes code, never commits, never merges.
+
+name: Health Weekly
+
+on:
+  schedule:
+    - cron: "23 4 * * 1" # Mondays 04:23 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: friday-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Python for the kernel tests
+        uses: ./.github/actions/python
+
+      - name: Install dependencies (npm ci, retried on network errors)
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "::warning::npm ci failed (attempt $attempt of 3) - retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+
+      - name: Install kernel test dependencies
+        # resume.cjs calls python3 on Linux. Install into that same interpreter.
+        run: python3 -m pip install -r kernel/requirements-dev.txt
+
+      - name: Run the health check
+        id: health
+        continue-on-error: true
+        run: node scripts/resume.cjs --ci --report health-report.md
+
+      - name: Show the report
+        if: always()
+        run: |
+          [ -f health-report.md ] && cat health-report.md >> "$GITHUB_STEP_SUMMARY" || echo "no report was produced"
+
+      - name: Open, update or close the single health issue
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="FRIDAY health check failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" \
+            --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+
+          if [ "${{ steps.health.outcome }}" = "success" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --comment "Healthy again on the latest weekly run: $run_url"
+            fi
+            echo "healthy"
+            exit 0
+          fi
+
+          if [ ! -f health-report.md ]; then
+            printf 'The health check could not produce a report (setup failed before the checks ran).\n' > health-report.md
+          fi
+          body=$(printf 'Latest weekly health run: %s\n\n%s\n\nRun `npm run resume` locally for the same check.' "$run_url" "$(cat health-report.md)")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

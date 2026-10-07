@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "required": [
+    "objective",
+    "candidates",
+    "selected"
+  ],
+  "properties": {
+    "objective": {
+      "type": "string"
+    },
+    "candidates": {
+      "type": "array"
+    },
+    "selected": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "fallbacks": {
+      "type": "array"
+    }
+  }
+}

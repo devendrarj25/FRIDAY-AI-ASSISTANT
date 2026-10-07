@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Run tests",
+  "description": "Run this project's npm test script using the same sandbox.runCommand spawn path electron/sandbox.cjs uses for verification. Default extraArgs include --run so Vitest does not watch. probe: true only reports whether a test script exists.",
+  "category": "developer",
+  "inputs": [
+    "root",
+    "extraArgs",
+    "probe"
+  ],
+  "permissions": [
+    "process.exec"
+  ],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to RUN this project's test suite (npm test). That executes project code on this machine. Allow this?"
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "env-key-names-boot",
+  "name": "Env key names boot",
+  "description": "List process.env *keys* at start (never values) so missing toolchains are visible.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-app-start"
+  ]
+}

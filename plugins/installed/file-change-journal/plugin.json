@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "file-change-journal",
+  "name": "File change journal",
+  "description": "Appends each workspace file-change event FRIDAY's watcher already emits (component/file) to this plugin's data/changes.ndjson.",
+  "category": "logging",
+  "permissions": [],
+  "hooks": [
+    "on-file-change"
+  ]
+}

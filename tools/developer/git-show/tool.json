@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git show",
+  "description": "Show one commit (metadata + patch, truncated). Read-only; default is HEAD.",
+  "category": "developer",
+  "inputs": [
+    "root",
+    "rev"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to run git show on “{rev}” (read-only). Allow this?"
+}

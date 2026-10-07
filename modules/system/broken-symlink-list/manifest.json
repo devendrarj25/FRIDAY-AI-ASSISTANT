@@ -1,0 +1,19 @@
+{
+  "name": "broken-symlink-list",
+  "version": "1.0.0",
+  "description": "List symbolic links whose target does not exist. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Broken symlink list",
+    "icon": "unlink"
+  }
+}

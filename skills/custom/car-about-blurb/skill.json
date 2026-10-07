@@ -1,0 +1,18 @@
+{
+  "id": "car-about-blurb",
+  "name": "About-section blurb",
+  "summary": "Write a 40–60 word about blurb from role, years, and focus you type.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "role",
+    "years",
+    "focus"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft for a profile. It does not post to LinkedIn (no connector)."
+}

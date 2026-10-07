@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Move a file",
+  "description": "Move/rename a path inside the FRIDAY folder using fs.renameSync, the same primitive file.organise uses when it is not a dry run.",
+  "category": "filesystem",
+  "inputs": [
+    "from",
+    "to",
+    "root"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to MOVE “{from}” to “{to}” inside the FRIDAY folder. The original path will no longer exist. Allow this?"
+}

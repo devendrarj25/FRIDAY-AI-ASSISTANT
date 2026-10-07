@@ -1,0 +1,50 @@
+{
+  "id": "license-file-finder",
+  "name": "License file finder chain",
+  "version": "1.0.0",
+  "description": "Find license files, missing README, changelog, then a local compliance note — not legal advice.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find license files",
+      "kind": "agent",
+      "ref": "agents/core/license-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Changelog head",
+      "kind": "module",
+      "ref": "modules/developer/changelog-head",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "License header skill",
+      "kind": "skill",
+      "ref": "skills/custom/code-license-header",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the note local — not legal advice",
+      "kind": "note",
+      "ref": "license-note",
+      "risk": "safe"
+    }
+  ]
+}

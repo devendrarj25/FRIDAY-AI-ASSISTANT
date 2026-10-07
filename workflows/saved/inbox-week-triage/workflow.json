@@ -1,0 +1,78 @@
+{
+  "id": "inbox-week-triage",
+  "name": "Inbox week triage",
+  "version": "1.0.0",
+  "description": "Monday mail desk: Gmail and Outlook only if connected (honest miss otherwise), follow-up drafts, meeting asks, overdue filenames, recurring nudges, then a local triage list. No auto-send.",
+  "category": "office",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Monday 08:30",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Gmail if connected",
+      "kind": "connector",
+      "ref": "google-gmail",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Outlook week if connected",
+      "kind": "connector",
+      "ref": "outlook",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a follow-up",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft a meeting ask",
+      "kind": "skill",
+      "ref": "skills/custom/com-meeting-ask",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Draft an email skeleton",
+      "kind": "skill",
+      "ref": "skills/custom/com-email-draft",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Load action-tracker headings",
+      "kind": "skill",
+      "ref": "skills/custom/off-action-tracker",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the triage list local — no send",
+      "kind": "note",
+      "ref": "inbox-week",
+      "risk": "safe"
+    }
+  ]
+}

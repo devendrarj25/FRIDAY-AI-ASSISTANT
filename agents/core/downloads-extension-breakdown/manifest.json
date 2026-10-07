@@ -1,0 +1,17 @@
+{
+  "name": "Downloads extension breakdown",
+  "version": "1.0.0",
+  "description": "Totals Downloads (or chosen folder) by file extension so you can see what kind of clutter dominates.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY measured {count} extension group(s) under \u201c{folder}\u201d. Read-only. Allow to keep the breakdown."
+}

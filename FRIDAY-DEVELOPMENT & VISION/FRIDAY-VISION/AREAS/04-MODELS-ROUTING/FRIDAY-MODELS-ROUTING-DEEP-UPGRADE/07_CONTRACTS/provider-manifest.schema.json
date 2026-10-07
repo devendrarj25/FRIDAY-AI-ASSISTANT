@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Provider Manifest",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "class",
+    "sources",
+    "discovery",
+    "transports"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "class": {
+      "enum": [
+        "cloud",
+        "local",
+        "gateway"
+      ]
+    },
+    "sources": {
+      "type": "object"
+    },
+    "auth": {
+      "type": "array"
+    },
+    "discovery": {
+      "type": "object"
+    },
+    "transports": {
+      "type": "array"
+    },
+    "operations": {
+      "type": "object"
+    },
+    "health": {
+      "type": "object"
+    },
+    "install": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "MIME from name",
+  "description": "Guess a MIME type from a filename extension. Local map, no network.",
+  "category": "documents",
+  "inputs": [
+    "name"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to GUESS a MIME TYPE from a filename. Allow this?",
+  "keywords": [
+    "mime",
+    "extension",
+    "type"
+  ]
+}

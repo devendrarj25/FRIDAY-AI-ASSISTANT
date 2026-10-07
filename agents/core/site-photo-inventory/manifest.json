@@ -1,0 +1,17 @@
+{
+  "name": "Site photo inventory",
+  "version": "1.0.0",
+  "description": "Inventories image files in a site/progress photos folder with age and size so a project photo dump is countable.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} site/progress image(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "std-concept-map",
+  "name": "Text concept map",
+  "summary": "Indent pasted links (A -> B) into a text concept map.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Text diagram only. It does not draw an image file."
+}

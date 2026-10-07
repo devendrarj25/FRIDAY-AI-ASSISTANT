@@ -1,0 +1,125 @@
+{
+  "generated": "2026-09-15",
+  "files": [
+    {
+      "path": "electron/models.cjs",
+      "bytes": 89759,
+      "lines": 2570,
+      "role": "cloud/local catalogue discovery, validation, real model operations"
+    },
+    {
+      "path": "electron/providers.cjs",
+      "bytes": 8662,
+      "lines": 277,
+      "role": "runtime/provider presence detection; does not install"
+    },
+    {
+      "path": "electron/provider-registry.cjs",
+      "bytes": 8691,
+      "lines": 247,
+      "role": "canonical provider state and modes"
+    },
+    {
+      "path": "electron/model-router.cjs",
+      "bytes": 35737,
+      "lines": 924,
+      "role": "selection, fallback, health, access and routing policy"
+    },
+    {
+      "path": "electron/model-capabilities.cjs",
+      "bytes": 13161,
+      "lines": 355,
+      "role": "capability resolution and evidence source"
+    },
+    {
+      "path": "electron/model-access.cjs",
+      "bytes": 46440,
+      "lines": 1543,
+      "role": "access/free/paid classification and validation state"
+    },
+    {
+      "path": "electron/model-download.cjs",
+      "bytes": 15642,
+      "lines": 435,
+      "role": "local model download/install operations"
+    },
+    {
+      "path": "core/ai/contracts.ts",
+      "bytes": 1486,
+      "lines": 53,
+      "role": "AI contracts"
+    },
+    {
+      "path": "core/ai/model-router/index.ts",
+      "bytes": 3754,
+      "lines": 113,
+      "role": "core model router facade"
+    },
+    {
+      "path": "core/ai/model-manager/index.ts",
+      "bytes": 2934,
+      "lines": 99,
+      "role": "core model manager"
+    },
+    {
+      "path": "core/ai/providers/index.ts",
+      "bytes": 2442,
+      "lines": 75,
+      "role": "provider abstraction"
+    },
+    {
+      "path": "src/lib/friday/model-catalog.ts",
+      "bytes": 53037,
+      "lines": 2735,
+      "role": "renderer model catalogue"
+    },
+    {
+      "path": "src/lib/friday/models-engine.ts",
+      "bytes": 53776,
+      "lines": 1575,
+      "role": "renderer model orchestration"
+    },
+    {
+      "path": "src/lib/friday/model-routing-contract.ts",
+      "bytes": 5272,
+      "lines": 148,
+      "role": "renderer routing contract"
+    },
+    {
+      "path": "src/lib/friday/model-registry.ts",
+      "bytes": 12724,
+      "lines": 382,
+      "role": "renderer registry"
+    },
+    {
+      "path": "src/lib/friday/model-sources.ts",
+      "bytes": 5674,
+      "lines": 144,
+      "role": "renderer model sources"
+    },
+    {
+      "path": "config/models.yaml",
+      "bytes": 1034,
+      "lines": 43,
+      "role": "legacy/static model declarations"
+    },
+    {
+      "path": "kernel/router.py",
+      "bytes": 53862,
+      "lines": 1274,
+      "role": "Python streaming/router backend and provider surfaces"
+    },
+    {
+      "path": "src/routes/models.tsx",
+      "bytes": 55198,
+      "lines": 1352,
+      "role": "Models UI route"
+    },
+    {
+      "path": "src/components/friday/settings/AISettings.tsx",
+      "bytes": 19774,
+      "lines": 507,
+      "role": "AI/provider settings UI"
+    }
+  ]
+}

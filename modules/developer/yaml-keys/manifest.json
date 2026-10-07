@@ -1,0 +1,19 @@
+{
+  "name": "yaml-keys",
+  "version": "1.0.0",
+  "description": "Naive first-level YAML key: scanner (no PyYAML). Useful for compose/workflow-adjacent files. Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "YAML keys",
+    "icon": "file"
+  }
+}

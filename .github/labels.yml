@@ -1,0 +1,67 @@
+# FRIDAY - canonical issue/PR labels.
+#
+# One label set for the whole project, shared by issue forms, the pull request
+# template and the project board. Create/refresh them once with the GitHub CLI:
+#
+#   gh label create "<name>" --color <color> --description "<description>" --force
+#
+# Keep this file the single source of truth: add a label here first, then create
+# it. Nothing in CI depends on a label existing, so a missing label never blocks
+# a build.
+
+# --- type ---------------------------------------------------------------
+- name: bug
+  color: d73a4a
+  description: Something that works incorrectly or crashes
+- name: feature
+  color: 0e8a16
+  description: New capability or section
+- name: enhancement
+  color: 1d76db
+  description: Improvement to an existing capability
+- name: regression
+  color: b60205
+  description: Previously working behaviour broke
+
+# --- area ---------------------------------------------------------------
+- name: build
+  color: 5319e7
+  description: CMD build, packaging, electron-builder, CI build steps
+- name: installer
+  color: 6f42c1
+  description: NSIS installer, uninstaller, install lifecycle
+- name: update
+  color: 0052cc
+  description: Update channels, update detection, download and rollback
+- name: release
+  color: 0366d6
+  description: Prepare/publish flow, versioning, tags, release assets
+- name: security
+  color: e11d21
+  description: Secrets, permissions, sandbox, credential storage
+- name: performance
+  color: fbca04
+  description: Startup time, freezes, memory/CPU usage, responsiveness
+- name: documentation
+  color: 0075ca
+  description: README, INSTALL, docs/, CHANGELOG accuracy
+- name: ui
+  color: c2e0c6
+  description: Renderer, layout, visuals (no behaviour change)
+- name: core
+  color: bfd4f2
+  description: core/, brain, memory, orchestration, kernel
+- name: dependencies
+  color: 8a8a8a
+  description: Dependency and toolchain updates
+
+# --- workflow -----------------------------------------------------------
+- name: needs-triage
+  color: ededed
+  description: Not yet reviewed by the owner
+- name: blocked
+  color: 000000
+  description: Waiting on something else
+- name: wontfix
+  color: ffffff
+  description: Deliberately not being changed

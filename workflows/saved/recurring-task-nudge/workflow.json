@@ -1,0 +1,50 @@
+{
+  "id": "recurring-task-nudge",
+  "name": "Recurring task nudge",
+  "version": "1.0.0",
+  "description": "Recurring nudger, ICS titles, workspace TODOs — local list.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 08:30",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Read ICS titles",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan TODOs",
+      "kind": "agent",
+      "ref": "agents/core/workspace-todo-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft a status line",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the nudge list local",
+      "kind": "note",
+      "ref": "recurring",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "version": "1.6.5",
+  "generatedFor": "production-e2e-verify",
+  "taskArchitecture": "one-owner-graph-plus-queue-nonblocking-chat",
+  "wakeWord": {
+    "bundledOnnx": true,
+    "livePath": "electron/wake-engine.cjs copies resources/wake/friday.onnx into <FRIDAY_ROOT>/models/wake; transcript-fallback if copy or probe fails",
+    "source": ["src/lib/friday/wake-word.ts", "electron/wake-engine.cjs", "kernel/wake_word.py"]
+  },
+  "capabilities": {
+    "A": {
+      "feature": "Desktop UI",
+      "source": ["src/renderer/App.tsx", "src/routes", "src/components/friday"],
+      "entry": "src/renderer/App.tsx"
+    },
+    "B": {
+      "feature": "Electron main process",
+      "source": ["electron/main.cjs"],
+      "entry": "electron/main.cjs"
+    },
+    "C": {
+      "feature": "preload/IPC",
+      "source": ["electron/preload.cjs"],
+      "entry": "electron/preload.cjs"
+    },
+    "D": {
+      "feature": "frontend ↔ kernel bridge",
+      "source": ["src/lib/friday/desktop.ts", "src/lib/friday/kernel-api.ts", "electron/kernel-methods.cjs"],
+      "entry": "src/lib/friday/desktop.ts"
+    },
+    "E": {
+      "feature": "Python kernel",
+      "source": ["kernel/main.py", "kernel/router.py"],
+      "entry": "kernel/main.py"
+    },
+    "F": {
+      "feature": "Voice input",
+      "source": ["src/lib/friday/voice-audio.ts", "src/lib/friday/assistant-mode.ts"],
+      "entry": "src/lib/friday/assistant-mode.ts"
+    },
+    "G": {
+      "feature": "Wake word",
+      "source": ["src/lib/friday/wake-word.ts", "electron/wake-engine.cjs", "kernel/wake_word.py"],
+      "entry": "src/lib/friday/wake-word.ts"
+    },
+    "H": {
+      "feature": "STT",
+      "source": ["src/lib/friday/voice-stt.ts", "electron/stt.cjs", "kernel/stt.py"],
+      "entry": "electron/stt.cjs"
+    },
+    "I": {
+      "feature": "TTS",
+      "source": ["electron/neural-voice.cjs", "src/lib/friday/assistant-mode.ts"],
+      "entry": "electron/preload.cjs speakNeural"
+    },
+    "J": {
+      "feature": "Chat",
+      "source": ["src/lib/friday/brain-engine.ts", "src/components/friday/ChatDock.tsx"],
+      "entry": "brain.send"
+    },
+    "K": {
+      "feature": "Model routing",
+      "source": ["electron/model-router.cjs", "electron/model-access.cjs", "src/lib/friday/brain/orchestrator.ts"],
+      "entry": "electron/model-router.cjs"
+    },
+    "L": {
+      "feature": "Local models",
+      "source": ["electron/models.cjs", "src/lib/friday/model-catalog.ts"],
+      "entry": "electron/models.cjs"
+    },
+    "M": {
+      "feature": "Cloud/free models",
+      "source": ["electron/providers.cjs", "electron/provider-registry.cjs", "electron/model-access.cjs"],
+      "entry": "electron/providers.cjs"
+    },
+    "N": {
+      "feature": "Paid model protection",
+      "source": ["electron/billing-firewall.cjs", "electron/billing-policy.cjs", "kernel/billing.py"],
+      "entry": "electron/billing-firewall.cjs"
+    },
+    "O": {
+      "feature": "Memory",
+      "source": ["src/lib/friday/self/memory-engine.ts"],
+      "entry": "src/lib/friday/self/memory-engine.ts"
+    },
+    "P": {
+      "feature": "RAG",
+      "source": ["src/lib/friday/brain/vector-index.ts", "kernel/memory.py"],
+      "entry": "src/lib/friday/brain/vector-index.ts"
+    },
+    "Q": {
+      "feature": "Task management",
+      "source": ["src/lib/friday/self/task-graph.ts", "src/lib/friday/self/task-runners.ts"],
+      "entry": "src/lib/friday/self/task-graph.ts"
+    },
+    "R": {
+      "feature": "Background tasks",
+      "source": ["src/lib/friday/self/task-graph.ts"],
+      "entry": "one owner graph + queue; chat never blocked"
+    },
+    "S": {
+      "feature": "Tools",
+      "source": ["kernel/tools.py", "src/lib/friday/capability-trees.ts"],
+      "entry": "kernel/tools.py"
+    },
+    "T": {
+      "feature": "Plugins",
+      "source": ["electron/plugins.cjs", "src/routes/modules.tsx"],
+      "entry": "electron/plugins.cjs"
+    },
+    "U": {
+      "feature": "Modules",
+      "source": ["kernel/modules.py", "src/routes/modules.tsx"],
+      "entry": "kernel/modules.py"
+    },
+    "V": {
+      "feature": "Workflows",
+      "source": ["src/routes/workflows.tsx"],
+      "entry": "src/routes/workflows.tsx"
+    },
+    "W": {
+      "feature": "Self-development",
+      "source": ["src/lib/friday/self/governance.ts", "src/lib/friday/brain/action-risk.ts"],
+      "entry": "src/lib/friday/self/governance.ts"
+    },
+    "X": {
+      "feature": "Updater",
+      "source": ["updater/index.ts", "electron/github-sync.cjs", "electron/github-release.cjs"],
+      "entry": "updates:check / github:check"
+    },
+    "Y": {
+      "feature": "Windows packaging",
+      "source": ["electron-builder.yml", "scripts/build-windows.cmd", "scripts/windows-installer-smoke.ps1"],
+      "entry": "scripts/build-windows.cmd"
+    },
+    "Z": {
+      "feature": "GitHub CI/CD/release",
+      "source": [".github/workflows/pr-validation.yml", ".github/workflows/test-build.yml", ".github/workflows/release.yml", ".github/workflows/official-publish.yml"],
+      "entry": ".github/workflows/release.yml"
+    }
+  }
+}

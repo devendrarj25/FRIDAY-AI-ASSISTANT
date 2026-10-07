@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-desktop
+.output
+.vinxi
+.venv
+.pytest_cache
+release
+.friday-dev
+.cache
+updates
+.tanstack
+pnpm-lock.yaml
+package-lock.json
+bun.lock
+routeTree.gen.ts

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "DOCX text",
+  "description": "Extract text from a DOCX inside the FRIDAY folder via electron/document-extract.cjs parseDocx.",
+  "category": "documents",
+  "inputs": [
+    "path",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ DOCX “{path}” inside the FRIDAY folder. Allow this?"
+}

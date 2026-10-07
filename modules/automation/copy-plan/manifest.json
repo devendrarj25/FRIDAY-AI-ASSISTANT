@@ -1,0 +1,20 @@
+{
+  "name": "copy-plan",
+  "version": "1.0.0",
+  "description": "Plan copying files matching an extension into a destination folder. Dry-run by default; apply writes .friday-copy-plan.json only \u2014 it does not copy bytes.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Copy plan",
+    "icon": "copy"
+  }
+}

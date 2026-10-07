@@ -1,0 +1,16 @@
+{
+  "id": "wrt-thesis-split",
+  "name": "Thesis split",
+  "summary": "Split a paragraph into claim, evidence lines, and a so-what closer.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A thinking scaffold. It does not fact-check the claim."
+}

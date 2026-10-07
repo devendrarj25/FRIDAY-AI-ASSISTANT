@@ -1,0 +1,16 @@
+{
+  "id": "rsn-risk-register",
+  "name": "Risk register template",
+  "summary": "Parse `risk | likelihood | impact | mitigation` rows into a register with L×I when numeric.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Likelihood×impact if both are numbers 1–5. Not an ISO audit."
+}

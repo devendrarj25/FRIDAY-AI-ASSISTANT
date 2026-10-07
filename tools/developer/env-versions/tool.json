@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Toolchain versions",
+  "description": "Probe node, npm, git and python on PATH through electron/toolchain.cjs which() and run() — the same detectors the Install Manager uses. Does not install anything.",
+  "category": "developer",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read installed toolchain versions (node, npm, git, python) on this PC. Allow this?"
+}

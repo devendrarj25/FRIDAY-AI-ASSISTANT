@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "HTTP HEAD",
+  "description": "Issue an HTTPS HEAD request and return status + latency. Does not download the body.",
+  "category": "network",
+  "inputs": [
+    "host",
+    "path"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to send an HTTPS HEAD request to “{host}”. Allow this?"
+}

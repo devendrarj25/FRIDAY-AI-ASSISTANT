@@ -1,0 +1,16 @@
+{
+  "id": "std-cite-list",
+  "name": "Citation list stub",
+  "summary": "Normalise pasted source lines into a plain bibliography list (author-year-ish).",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Formatting aid, not a citation-style authority (APA/MLA)."
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Python cache cleaner",
+  "version": "1.0.0",
+  "description": "Finds __pycache__ directories and .pyc/.pyo files and can remove those generated caches after you approve. Source .py files stay.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} Python cache item(s) under \u201c{folder}\u201d. Only __pycache__ / .pyc / .pyo. Review before allowing."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "tar-contents",
+  "version": "1.0.0",
+  "description": "List tar/tar.gz member names and sizes without extracting. Opens the local file after fs.read confirms it exists.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "TAR contents",
+    "icon": "archive"
+  }
+}

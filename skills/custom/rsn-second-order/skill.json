@@ -1,0 +1,16 @@
+{
+  "id": "rsn-second-order",
+  "name": "Second-order effects",
+  "summary": "For each pasted action line, prompt a first-order and second-order consequence slot.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "If lines look like `action => effect => then`, they are parsed; otherwise empty slots are returned."
+}

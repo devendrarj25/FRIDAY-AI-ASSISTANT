@@ -1,0 +1,19 @@
+{
+  "name": "Folder growth snapshot",
+  "version": "1.0.0",
+  "description": "Compares a folder\u2019s file count and bytes to a previous snapshot file and can write a new snapshot after you approve. First run is baseline-only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "snapshot",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to WRITE a growth snapshot for \u201c{folder}\u201d ({count} files). Allow to save the baseline/delta file. No other files are changed."
+}

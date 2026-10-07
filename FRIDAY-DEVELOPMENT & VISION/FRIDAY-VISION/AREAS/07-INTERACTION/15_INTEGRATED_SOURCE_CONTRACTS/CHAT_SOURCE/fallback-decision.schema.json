@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fallback Decision",
+  "type": "object",
+  "required": [
+    "action",
+    "reason",
+    "budgetRemaining"
+  ],
+  "properties": {
+    "action": {
+      "enum": [
+        "retry",
+        "alternate",
+        "replan",
+        "clarify",
+        "stop",
+        "reconcile"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "nextCandidateId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "budgetRemaining": {
+      "type": "integer"
+    },
+    "requiresApproval": {
+      "type": "boolean"
+    },
+    "unknownOutcome": {
+      "type": "boolean"
+    }
+  }
+}

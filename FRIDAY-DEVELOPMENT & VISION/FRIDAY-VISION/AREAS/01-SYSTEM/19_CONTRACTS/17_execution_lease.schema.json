@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "17_execution_lease.schema.json",
+  "type": "object",
+  "x-friday-note": "Illustrative canonical contract; implement against current source owners and evolve compatibly.",
+  "properties": {
+    "lease_id": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "yield_policy": {
+      "type": "object"
+    }
+  }
+}

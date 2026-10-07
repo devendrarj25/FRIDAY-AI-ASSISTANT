@@ -1,0 +1,19 @@
+{
+  "name": "duplicate-hash",
+  "version": "1.0.0",
+  "description": "SHA-256 hash files in a folder (skipping .git/node_modules) and report groups that share the same digest. Read-only; does not delete.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Duplicate hash",
+    "icon": "copy"
+  }
+}

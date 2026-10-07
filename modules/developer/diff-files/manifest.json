@@ -1,0 +1,19 @@
+{
+  "name": "diff-files",
+  "version": "1.0.0",
+  "description": "Unified diff of two text files via stdlib difflib. Read-only; does not apply patches.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Diff files",
+    "icon": "git-compare"
+  }
+}

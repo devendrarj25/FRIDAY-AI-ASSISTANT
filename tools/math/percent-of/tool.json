@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Percent of",
+  "description": "Compute (part / whole) * 100. Fails honestly on a zero whole.",
+  "category": "math",
+  "inputs": [
+    "part",
+    "whole"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to COMPUTE a PERCENTAGE from two numbers. Allow this?",
+  "keywords": [
+    "percent",
+    "percentage",
+    "ratio"
+  ]
+}

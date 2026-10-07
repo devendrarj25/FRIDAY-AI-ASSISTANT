@@ -1,0 +1,12 @@
+{
+  "name": "File organizer",
+  "version": "1.0.0",
+  "description": "Group loose files in a folder into typed subfolders (documents, images, code, archives…). Supports a dry run that previews every move before anything is touched.",
+  "category": "automation",
+  "entry": "index.cjs",
+  "inputs": ["folder", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to MOVE files inside “{folder}” into typed subfolders. Files are moved, not copied or deleted. Run the dry run first to see the exact list. Allow this?"
+}

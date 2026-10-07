@@ -1,0 +1,14 @@
+{
+  "id": "meeting-notes",
+  "name": "Meeting notes summariser",
+  "summary": "Turn a raw transcript or rough notes into a structured summary: decisions, action items with owners, open questions and follow-up dates.",
+  "category": "productivity",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["text", "title"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Structures a meeting transcript into decisions, owners and action items. Runs entirely inside FRIDAY's sandbox; nothing leaves the machine."
+}

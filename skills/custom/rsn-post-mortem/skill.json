@@ -1,0 +1,16 @@
+{
+  "id": "rsn-post-mortem",
+  "name": "Incident post-mortem template",
+  "summary": "Bucket incident notes into timeline, impact, root cause, fix, and follow-up.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Keyword buckets. Blameless phrasing is on you; this does not page anyone."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "sec-share-link",
+  "name": "Sharing-link review",
+  "summary": "Questions to ask before sending a share link (who, expiry, edit vs view).",
+  "category": "security-hygiene",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "car-30-60-90",
+  "name": "30-60-90 outline",
+  "summary": "Outline a 30/60/90 plan with learn / deliver / improve buckets.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "role"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning template for a role you already have or are discussing."
+}

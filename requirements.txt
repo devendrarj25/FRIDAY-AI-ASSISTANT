@@ -1,0 +1,10 @@
+# FRIDAY — Python requirements (project root entry point)
+#
+# The canonical startup + voice list lives in kernel/requirements.txt so
+# there is exactly ONE fail-closed set for the kernel and NSIS repair.
+# Capability extras (memory, devices, OCR, Windows control) are the second
+# include; setup-python installs both into the live venv. `pip install -r
+# requirements.txt` from the project root therefore matches what CMD setup
+# tries to put in that venv.
+-r kernel/requirements.txt
+-r kernel/requirements-capabilities.txt

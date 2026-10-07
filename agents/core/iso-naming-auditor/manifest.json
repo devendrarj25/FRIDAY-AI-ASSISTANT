@@ -1,0 +1,17 @@
+{
+  "name": "ISO naming auditor",
+  "version": "1.0.0",
+  "description": "Flags files whose names break simple document-control rules: spaces-only chaos, Copy of, FINAL, (1) duplicates. Report only; does not rename until you approve a later move pack.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY flagged {count} poorly named file(s) under \u201c{folder}\u201d (Copy of / FINAL / (1) / messy spaces). Read-only. Nothing will be renamed."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "car-star-story",
+  "name": "STAR story expander",
+  "summary": "Expand four short lines into a spoken STAR story with suggested timing.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Interview prep. Not a guarantee of an offer."
+}

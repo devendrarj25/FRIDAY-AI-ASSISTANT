@@ -1,0 +1,79 @@
+# VOICE Source Coverage Ledger
+
+This ledger proves that the supplied source package was inspected and reconciled into the integrated Interaction System. It is not a copied archive of the source package.
+
+- `00_START/00_READ_FIRST.md` → `03_VOICE/` — FRIDAY Voice Mode — Complete Deep Upgrade V3; Purpose; Non-negotiable FRIDAY rules; Source reality this package was designed against; What this package adds over a shallow plan; Important implementation principle
+- `00_START/01_SCOPE_AND_DEFINITION_OF_DONE.md` → `01_SHARED_SYSTEM/` — Scope and Definition of Done; In scope; Out of scope; Done means
+- `00_START/02_PACKAGE_NAVIGATION.md` → `01_SHARED_SYSTEM/` — Package Navigation for an Implementation AI
+- `00_START/03_FINAL_AI_HANDOFF.md` → `01_SHARED_SYSTEM/` — Final AI Handoff
+- `01_AUDIT/01_CURRENT_REPOSITORY_AUDIT.md` → `03_VOICE/` — Current Repository Voice Audit; Existing voice owners; Known architectural mismatch; Required rule
+- `01_AUDIT/02_GAP_REGISTER.md` → `03_VOICE/` — Voice Gap Register; P0 — required for the target experience; P1; P2; Do not solve by adding parallel systems
+- `02_ARCHITECTURE/01_VOICE_SYSTEM_ARCHITECTURE.md` → `08_SECURITY/` — Voice System Architecture; Layer A — Media plane; Layer B — Voice session controller; Layer C — Conversation/event normalization; Layer D — Existing FRIDAY brain; Layer E — Governance; Layer F — Task/event runtime; Layer G — Presentation
+- `02_ARCHITECTURE/02_COMPONENT_BOUNDARIES.md` → `01_SHARED_SYSTEM/` — Component Boundaries; Inter-process rule
+- `03_MEDIA/01_REALTIME_AUDIO_PIPELINE.md` → `03_VOICE/` — Real-Time Audio Pipeline; Canonical audio format; Frame policy; Capture; Conditioning; Playback; Never do
+- `03_MEDIA/02_AEC_NS_AGC_VAD.md` → `12_ACCEPTANCE/` — AEC / Noise Suppression / AGC / VAD; Preferred strategy; VAD state; Failure behavior
+- `03_MEDIA/03_FULL_DUPLEX_BARGE_IN.md` → `01_SHARED_SYSTEM/` — Full-Duplex and Barge-In; Generation model; Interruption sequence; Important; No stale output rule
+- `03_MEDIA/04_STREAMING_ASR.md` → `01_SHARED_SYSTEM/` — Streaming ASR Contract; Required events; Partial transcript rules; Provider targets; Primary local candidates; Existing compatible fallback
+- `03_MEDIA/05_STREAMING_TTS.md` → `03_VOICE/` — Streaming TTS Contract; TTS must not wait for the entire answer; Requirements; Candidate local engines
+- `03_MEDIA/06_AUDIO_DEVICE_AND_CLOCK.md` → `03_VOICE/` — Audio Device and Clock Contract; Single clock; Device lifecycle; Windows
+- `04_RUNTIME/01_VOICE_SESSION_STATE_MACHINE.md` → `03_VOICE/` — Voice Session State Machine; States; Events; Invariants
+- `04_RUNTIME/02_TURN_AND_GENERATION_CONTRACT.md` → `02_CHAT/` — Turn and Generation Contract
+- `04_RUNTIME/03_CONTEXT_MEMORY_SESSION.md` → `03_VOICE/` — Voice Context, Memory and Session
+- `05_PROVIDERS/01_PROVIDER_MATRIX.md` → `03_VOICE/` — Voice Provider Matrix; Selection policy
+- `05_PROVIDERS/02_PROVIDER_INTERFACE_CONTRACT.md` → `01_SHARED_SYSTEM/` — Provider Interface Contract
+- `05_PROVIDERS/03_LOCAL_FIRST_POLICY.md` → `03_VOICE/` — Local-First Voice Policy; Baseline; Network fallback; Fallback order
+- `05_PROVIDERS/04_LANGUAGE_HINGLISH_POLICY.md` → `03_VOICE/` — Hindi / English / Hinglish Policy; Goals; Detection; TTS; Acceptance
+- `06_INSTALL_MANAGER/01_INSTALL_MANAGER_INTEGRATION.md` → `03_VOICE/` — Voice Integration with Existing Install Manager; Do not create another installer; Artifact classes; Lifecycle; Atomic activation; Model storage
+- `06_INSTALL_MANAGER/02_ARTIFACT_MANIFEST_SPEC.md` → `11_IMPLEMENTATION/` — Artifact Manifest Specification
+- `06_INSTALL_MANAGER/03_RUNTIME_DEPENDENCY_GRAPH.md` → `03_VOICE/` — Runtime Dependency Graph; Baseline local voice graph; Example local STT branch; Existing fallback branch; Local TTS branch; Network fallback branch
+- `06_INSTALL_MANAGER/04_HEALTH_REPAIR_ROLLBACK.md` → `03_VOICE/` — Voice Health, Repair and Rollback; Health levels; Repair; Rollback; Evidence
+- `06_INSTALL_MANAGER/05_VOICE_RUNTIME_CATALOG_ENTRIES.md` → `03_VOICE/` — Required Catalog Entries
+- `07_GOVERNANCE/01_VOICE_GOVERNANCE.md` → `08_SECURITY/` — Voice Governance; Examples
+- `07_GOVERNANCE/02_CAMERA_SCREEN_PRIVACY.md` → `08_SECURITY/` — Camera and Screen Privacy; Camera; Screen; Voice notification
+- `08_SHARED_BRAIN_PARITY/01_CHAT_VOICE_PARITY.md` → `03_VOICE/` — Chat and Voice Modality Parity; Canonical request; Canonical result; Capability parity; Tool execution parity
+- `08_SHARED_BRAIN_PARITY/02_ARTIFACT_PRESENTATION_CONTRACT.md` → `11_IMPLEMENTATION/` — Artifact Presentation Contract
+- `09_DEVICES_VISION/01_CAMERA_HOME_DEVICE_VOICE.md` → `03_VOICE/` — Camera and Home Device Voice Integration; Device control; Cameras; Smart speakers
+- `09_DEVICES_VISION/02_MULTIDISPLAY_PRESENTATION.md` → `03_VOICE/` — Multi-Display Presentation; Policy; Resolver inputs; Voice behavior
+- `10_DIAGNOSTICS/01_OBSERVABILITY.md` → `03_VOICE/` — Voice Observability; Correlation IDs; Metrics; Logs
+- `10_DIAGNOSTICS/02_PERFORMANCE_BUDGETS.md` → `12_ACCEPTANCE/` — Performance Budgets
+- `10_DIAGNOSTICS/03_FAILURE_RECOVERY.md` → `12_ACCEPTANCE/` — Failure Recovery
+- `11_SECURITY/01_THREAT_MODEL.md` → `08_SECURITY/` — Voice Threat Model; Threats; Controls
+- `11_SECURITY/02_LICENSE_POLICY.md` → `08_SECURITY/` — Voice License Policy; Required distinction; Important current findings; Gate
+- `12_IMPLEMENTATION/01_FILE_BY_FILE_MAP.md` → `03_VOICE/` — File-by-File Implementation Map; Existing files to extend; `src/lib/friday/voice-audio.ts`; `src/lib/friday/voice-stt.ts`; `src/lib/friday/voice-state.ts`; `src/lib/friday/wake-engine.ts` / `wake-word.ts`; `electron/stt.cjs`; `kernel/stt.py`
+- `12_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md` → `03_VOICE/` — Phased Execution Plan; Phase 0 — repository mapping; Phase 1 — contracts; Phase 2 — audio plane; Phase 3 — conditioning; Phase 4 — streaming STT; Phase 5 — streaming TTS; Phase 6 — full duplex
+- `12_IMPLEMENTATION/03_IMPLEMENTATION_MASTER_PROMPT.md` → `01_SHARED_SYSTEM/` — Master Prompt for the Implementation AI; Mandatory operating procedure; Required target behavior; Completion gate
+- `13_ACCEPTANCE/01_ACCEPTANCE_MATRIX.md` → `12_ACCEPTANCE/` — Acceptance Matrix
+- `13_ACCEPTANCE/02_END_TO_END_SCENARIOS.md` → `12_ACCEPTANCE/` — End-to-End Scenarios
+- `13_ACCEPTANCE/03_REGRESSION_CHECKLIST.md` → `12_ACCEPTANCE/` — Regression Checklist
+- `14_REFERENCE/01_OPEN_SOURCE_AND_RUNTIME_RESEARCH.md` → `03_VOICE/` — Open-Source Runtime Research — 2026-09; whisper.cpp; sherpa-onnx; Silero VAD; Kokoro-82M; Piper; openWakeWord; WebRTC Audio Processing
+- `14_REFERENCE/02_LICENSE_ARTIFACT_REGISTER.md` → `11_IMPLEMENTATION/` — License Artifact Register Template
+- `14_REFERENCE/03_TERMINOLOGY.md` → `01_SHARED_SYSTEM/` — Terminology
+- `14_REFERENCE/04_SOURCE_INDEX.md` → `09_RESEARCH/` — Source Index
+- `14_REFERENCE/05_PACKAGE_FILE_HASHES.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/artifact.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/audio-frame.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/capability-parity.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/provider.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/voice-event.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/contracts/voice-session.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/implementation-checklist.md` → `01_SHARED_SYSTEM/` — Implementation Checklist
+- `14_REFERENCE/install-manifest.example.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `14_REFERENCE/provider-registry.example.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `PACKAGE_MANIFEST.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- `diagrams/01_end_to_end.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/02_full_duplex.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/03_install_manager.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/04_provider_graph.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/05_chat_voice_parity.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/06_camera_device_events.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/07_multidisplay.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/08_audio_clock.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/09_failure_recovery.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/10_session_state.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/11_generation.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/12_security.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/13_model_lifecycle.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/14_language.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/15_diagnostics.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/16_privacy.svg` → `13_DIAGRAMS/` — visual architecture reconciled.
+- `diagrams/README.md` → `01_SHARED_SYSTEM/` — Diagram Index

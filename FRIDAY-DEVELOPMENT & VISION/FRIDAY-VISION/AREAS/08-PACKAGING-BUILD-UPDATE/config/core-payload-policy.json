@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "principle": "baseline-required-and-reasonably-sized",
+  "heavyResources": "install-manager",
+  "examples": [
+    "large AI models",
+    "large embedding models",
+    "optional GPU runtimes",
+    "extra component packs"
+  ]
+}

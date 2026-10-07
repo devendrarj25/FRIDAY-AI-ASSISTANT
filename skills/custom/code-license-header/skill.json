@@ -1,0 +1,17 @@
+{
+  "id": "code-license-header",
+  "name": "License header check",
+  "summary": "See whether the first 15 lines of a paste contain a copyright/license needle.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code",
+    "needle"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Default needle is Copyright. Does not relicense files."
+}

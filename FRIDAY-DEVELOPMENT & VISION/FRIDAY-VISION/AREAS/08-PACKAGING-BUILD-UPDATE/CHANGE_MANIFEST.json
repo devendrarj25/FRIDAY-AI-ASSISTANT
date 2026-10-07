@@ -1,0 +1,25 @@
+{
+  "schema": 2,
+  "package": "FRIDAY Packaging Build Update Future-Proof V2",
+  "basedOn": [
+    "FRIDAY-main.zip",
+    "FRIDAY-PACKAGING-BUILD-UPDATE-FUTURE-PROOF-UPGRADE-FINAL-COMPLETE.zip"
+  ],
+  "decisions": [
+    "Extreme.Major.Minor.Patch only",
+    "REBUILD keeps same public version",
+    "ownership-aware components",
+    "FRIDAY-managed root",
+    "transactional update",
+    "two-mode uninstall",
+    "CMD/GitHub single contract",
+    "core vs optional payload"
+  ],
+  "webResearch": [
+    "Microsoft MSIX",
+    "electron-builder/electron-updater",
+    "GitHub immutable releases and attestations",
+    "npm ci/package-lock"
+  ],
+  "artifacts": "architecture-only; not applied to source"
+}

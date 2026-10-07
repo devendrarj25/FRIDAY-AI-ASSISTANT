@@ -1,0 +1,50 @@
+{
+  "id": "video-stash-inventory",
+  "name": "Video stash inventory",
+  "version": "1.0.0",
+  "description": "Inventory video stash, music downloads, huge files — inspect only.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Inventory video stash",
+      "kind": "agent",
+      "ref": "agents/core/video-stash-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory music downloads",
+      "kind": "agent",
+      "ref": "agents/core/music-download-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find huge files",
+      "kind": "agent",
+      "ref": "agents/core/huge-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Walk disk hotspots",
+      "kind": "agent",
+      "ref": "agents/core/disk-hotspot-walker",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the media census local",
+      "kind": "note",
+      "ref": "video-stash",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "todo-comment-scan",
+  "version": "1.0.0",
+  "description": "Walk a folder for TODO/FIXME/HACK/XXX comments in source files (.py .ts .tsx .js .jsx .go .rs .c .h). Returns path + line + tag. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "TODO comment scan",
+    "icon": "check-square"
+  }
+}

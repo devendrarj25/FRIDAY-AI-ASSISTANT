@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Cookie count (no values)",
+  "description": "Report how many cookies are in FRIDAY's Chromium session. Cookie names and values are never returned — count only, the session-safe check the browser engine already exposes.",
+  "category": "browser",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to count cookies in her own browser session. Names and values are not read. Allow this?"
+}

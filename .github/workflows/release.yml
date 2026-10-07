@@ -1,0 +1,1045 @@
+# FRIDAY — Release / Build
+#
+# The ONLY thing in this repository that may create a version, a tag, an EXE or
+# a GitHub Release. Normal commits and pushes build nothing: this workflow runs
+# on workflow_dispatch only, either from the Actions tab or from FRIDAY herself
+# (Settings → Updates → Build & Release triggers this same workflow through the
+# GitHub API — there is no second release system).
+#
+# main is PR-only and protected: this workflow NEVER pushes to main. The
+# release happens in two manual stages of this one workflow.
+#
+# Stage 1 — prepare (default, also what FRIDAY triggers):
+#   fetch main → previous release → version plan → refuse reused versions →
+#   apply version/changelog + store release notes → tests → typecheck →
+#   layout/dependency checks → architecture audit →
+#   push branch release/vX.Y.Z → open the release Pull Request
+#   Nothing is built, tagged, published or deleted in this stage.
+#
+#   The owner reviews and merges that PR through the normal protected-main
+#   rules (PR validation + Code Owner approval).
+#
+# Stage 2 — publish (run after the release PR is merged):
+#   fetch main → clean-main gate → read public version from friday-version.json →
+#   prove the release PR is MERGED and its merge commit is on main →
+#   refuse reused versions → ONE production build (npm run release:package) →
+#   checksums + update manifest → final artifact/version/checksum validation →
+#   tag vX.Y.Z on the merged main commit → GitHub Release from that tag →
+#   upload assets → confirm release, assets and tag commit →
+#   ONE cleanup step keeping only the last 3 releases
+#
+# Source commit on main, tag, public friday-version.json, CHANGELOG and the
+# built EXE always carry the same public version (package.json stays the npm
+# encoding). A stable release can only ever come from a merged main commit;
+# an unmerged branch cannot publish.
+
+name: Release / Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "prepare = open the release PR · publish = release the merged main"
+        type: choice
+        default: prepare
+        options: [prepare, publish]
+      mode:
+        # rebuild = keep the current application version and rebuild/replace its
+        #           assets; no version bump, no invented changelog entry.
+        # update  = the next number. release_type auto follows the changes
+        #           (patch, minor, or major — never extreme). An explicit level
+        #           moves only that counter.
+        # auto    = do not invent the next number. An unpublished line is
+        #           finished as it stands. An explicit release_type still moves
+        #           that one counter.
+        description: "auto = keep the number unless release_type names a level · update = next number · rebuild = pack this number again"
+        type: choice
+        default: auto
+        options: [auto, rebuild, update]
+      release_type:
+        description: "Only the chosen counter moves. auto on update = patch, minor, or major from the changes, never extreme. patch = fourth +1. minor = third +1. major = second +1. extreme = first +1, manual only. revision = rebuild, same number."
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major, extreme, revision]
+
+      title:
+        description: "Release title (optional)"
+        type: string
+        default: ""
+      notes:
+        description: "Release notes override (optional — replaces the generated notes)"
+        type: string
+        default: ""
+
+# Never let two releases race for the same version.
+concurrency:
+  group: friday-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # release branch, tags, releases (never a push to main)
+  pull-requests: write # the release PR — main stays PR-only
+  actions: read
+
+jobs:
+  # ---------------------------------------------------------------- stage 1 --
+  prepare:
+    if: inputs.stage == 'prepare'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Refuse to prepare a release from anything but main
+        shell: bash
+        run: |
+          [ '${{ github.ref_name }}' = 'main' ] || {
+            echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
+            exit 1
+          }
+          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+            echo "::error::Releases are manual only (workflow_dispatch)."
+            exit 1
+          }
+
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0 # full history — the changelog is built from real commits
+          fetch-tags: true
+
+      # Same canonical Node/npm toolchain used by PR validation and the branch
+      # test EXE build — derived from package.json engines, never hard-coded.
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Validate clean main
+        # First gate: main must be exactly what is on the remote, with nothing
+        # uncommitted. If this fails nothing is versioned, no PR is opened and
+        # the previous stable release stays the valid one.
+        shell: bash
+        run: |
+          head=$(git rev-parse HEAD)
+          git fetch origin main --quiet
+          remote=$(git rev-parse origin/main)
+          [ "$head" = "$remote" ] || {
+            echo "::error::main moved (HEAD $head vs origin/main $remote) — release stopped, nothing changed."
+            exit 1
+          }
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "::error::working tree is not clean — release stopped, nothing changed."
+            exit 1
+          fi
+          echo "clean main at $head"
+
+      - name: Detect previous release
+        id: previous
+        # The baseline is the real current stable version of this project, and
+        # - just as importantly - the real COMMIT it was released from. A
+        # published release that is also tagged wins; then a tag; then a
+        # published release whose tag is not in this clone; and only when
+        # nothing has ever been released, the declared package.json version.
+        # FRIDAY never falls back to 0.0.0/0.0.1 while a version is declared.
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force --quiet || true
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > published.txt 2>/dev/null || true
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' > tags.txt || true
+          node scripts/release-engine.cjs baseline \
+            --releases published.txt --tags tags.txt > baseline.json
+          cat baseline.json
+          baseline=$(node -e "process.stdout.write(require('./baseline.json').version)")
+          tag=$(node -e "process.stdout.write(require('./baseline.json').tag)")
+          has_tag=$(node -e "process.stdout.write(String(require('./baseline.json').hasTag))")
+          [ "$baseline" != "0.0.0" ] || { echo "::error::no valid stable version baseline was found."; exit 1; }
+          echo "current stable version: $baseline (tag present: $has_tag)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "has_tag=$has_tag" >> "$GITHUB_OUTPUT"
+          echo "baseline=v$baseline" >> "$GITHUB_OUTPUT"
+
+      - name: Analyse changes and determine version
+        id: plan
+        shell: bash
+        run: |
+          prev='${{ steps.previous.outputs.tag }}'
+          baseline='${{ steps.previous.outputs.baseline }}'
+          # The commit range must be a REAL range. Walking the entire history
+          # (`git log` with no range) would describe every commit ever made as
+          # "new in this release", so it is only ever used when this repository
+          # genuinely has no earlier release commit to measure from.
+          range=""
+          if [ -n "$prev" ] && git rev-parse -q --verify "$prev^{commit}" >/dev/null 2>&1; then
+            range="$prev..HEAD"
+          else
+            # The baseline is published but its tag is not in this clone: use the
+            # commit that actually declared that version on main.
+            anchor=$(git log -1 --format=%H --grep="^release: ${prev}\$" || true)
+            [ -n "$anchor" ] && range="$anchor..HEAD"
+          fi
+          if [ -n "$range" ]; then
+            echo "measuring changes over $range"
+            git log --no-merges --pretty=%s "$range" > commits.txt
+          else
+            # A changelog-shipped line with no tag in this clone: the commits
+            # here are the delta. A line the changelog does not record stays
+            # an empty log so the first unpublished version is confirmed, not
+            # described from every commit.
+            if node scripts/release-engine.cjs commits-since --previous "$baseline" > commits.txt; then
+              echo "measuring commits since changelog-shipped $baseline (no tag in this clone)"
+            else
+              echo "no previous release commit — confirming the declared unpublished version without walking full history"
+              : > commits.txt
+            fi
+          fi
+          # rebuild | update | auto — one shared implementation with FRIDAY's
+          # release panel, so the Actions tab and the app never disagree.
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > released.txt 2>/dev/null || true
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> released.txt || true
+          current=$(node scripts/release-engine.cjs identity --field releaseVersion)
+          node scripts/release-engine.cjs decide \
+            --mode '${{ inputs.mode }}' \
+            --current "$current" \
+            --baseline "$baseline" \
+            --type '${{ inputs.release_type }}' \
+            --log commits.txt \
+            --released released.txt > decision.json
+          action=$(node -e "process.stdout.write(require('./decision.json').action)")
+          version=$(node -e "process.stdout.write(require('./decision.json').version)")
+          bump=$(node -e "process.stdout.write(require('./decision.json').bump)")
+          reason=$(node -e "process.stdout.write(require('./decision.json').reason)")
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+          echo "### Release decision: $action v$version" >> "$GITHUB_STEP_SUMMARY"
+          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$action" != "update" ]; then
+            {
+              echo ""
+              echo "No version change is required. Run this workflow again with"
+              echo "stage = publish and mode = rebuild to rebuild and publish"
+              echo "v$version from the current main."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # One authoritative "What's New" for both channels: version, date,
+          # summary, categorised changes and important notes.
+          #
+          # When main already carries curated, reviewed release notes for this
+          # exact version (a version that was prepared earlier and is being
+          # re-confirmed), reuse them verbatim. Regenerating from the whole
+          # v(previous)..HEAD range would replace the reviewed summary with a
+          # generic "N changes across M areas" line and make README, the release
+          # notes and the changelog disagree. A genuinely new version has no such
+          # file yet and is generated from the real commits below.
+          curated="releases/notes/v$version.md"
+          if [ -f "$curated" ] && node scripts/release-engine.cjs guard-notes --version "$version" --file "$curated" --channel stable; then
+            echo "reusing the curated release notes already on main: $curated"
+            cp "$curated" release-notes.md
+          else
+            if [ -f "$curated" ]; then
+              echo "curated notes failed validation — regenerating from the real commit range"
+            fi
+            node scripts/release-engine.cjs notes \
+              --version "$version" \
+              --previous "${prev:-$baseline}" \
+              --channel stable \
+              --ref main \
+              --type "$bump" \
+              --log commits.txt > release-notes.md
+            node scripts/release-engine.cjs guard-notes \
+              --version "$version" \
+              --file release-notes.md \
+              --channel stable
+          fi
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Refuse to reuse an existing version
+        if: steps.plan.outputs.action == 'update'
+        shell: bash
+        run: |
+          tag='${{ steps.plan.outputs.tag }}'
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists — release stopped, nothing changed."
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::release $tag already exists — release stopped, nothing changed."
+            exit 1
+          fi
+
+      - name: Resolve an existing release branch or release PR
+        id: pending
+        if: steps.plan.outputs.action == 'update'
+        # A verified branch/PR for this exact pending version is resumed rather
+        # than duplicated. An orphan whose contents do not match the planned
+        # version or current main is closed/deleted and recreated safely.
+        shell: bash
+        run: |
+          branch='release/${{ steps.plan.outputs.tag }}'
+          version='${{ steps.plan.outputs.version }}'
+          pr_number=$(gh pr list --state open --base main --head "$branch" --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)
+          pr_url=$(gh pr list --state open --base main --head "$branch" --limit 1 --json url --jq '.[0].url' 2>/dev/null || true)
+          valid=false
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" --quiet
+            # Git Bash on windows-latest mangles `git show origin/<branch>:config/...`
+            # (colon + slash). identity --ref uses a POSIX blob path. npm encoding
+            # is only a legacy fallback for three-part planned versions.
+            branch_public=$(node scripts/release-engine.cjs identity --ref "origin/$branch" --field releaseVersion 2>/dev/null || true)
+            branch_npm=$(git show "origin/$branch:package.json" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).version)}catch{}})")
+            if { [ -n "$branch_public" ] && [ "$branch_public" = "$version" ]; } \
+              || [ "$branch_npm" = "$version" ] \
+              && git show "origin/$branch:CHANGELOG.md" 2>/dev/null | grep -Eq "^## (FRIDAY )?v$version\\b" \
+              && git merge-base --is-ancestor origin/main "origin/$branch"; then
+              valid=true
+            fi
+
+            if [ "$valid" = true ] && [ -n "$pr_url" ] && [ "$pr_url" != "null" ]; then
+              echo "complete=true" >> "$GITHUB_OUTPUT"
+              echo "mode=existing_pr" >> "$GITHUB_OUTPUT"
+              echo "release PR #$pr_number already prepared and verified: $pr_url"
+              echo "Existing release PR: #$pr_number $pr_url" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ "$valid" = true ]; then
+              echo "complete=false" >> "$GITHUB_OUTPUT"
+              echo "mode=existing_branch" >> "$GITHUB_OUTPUT"
+              echo "verified pending branch $branch will be reused to create its missing PR"
+              exit 0
+            fi
+
+            echo "stale or orphaned release branch $branch does not match v$version on current main"
+            if [ -n "$pr_number" ] && [ "$pr_number" != "null" ]; then
+              gh pr close "$pr_number" --comment "Closing stale release preparation; a verified replacement for v$version will be created from current main."
+            fi
+            git push origin --delete "$branch"
+          fi
+          echo "complete=false" >> "$GITHUB_OUTPUT"
+          echo "mode=create" >> "$GITHUB_OUTPUT"
+          echo "no valid pending release branch or PR for v$version"
+
+      - name: Apply release notes override
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create' && inputs.notes != ''
+        shell: bash
+        run: |
+          cat > owner-notes.md <<'FRIDAY_NOTES'
+          ## FRIDAY v${{ steps.plan.outputs.version }}
+
+          ${{ inputs.notes }}
+          FRIDAY_NOTES
+          node scripts/release-engine.cjs guard-notes \
+            --version '${{ steps.plan.outputs.version }}' \
+            --file owner-notes.md \
+            --channel stable
+          cp owner-notes.md release-notes.md
+
+      - name: Install dependencies
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        run: npm ci
+
+      - name: Update version and changelog
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        shell: bash
+        run: |
+          node scripts/release-engine.cjs apply \
+            --version '${{ steps.plan.outputs.version }}' \
+            --notes release-notes.md
+
+          # The notes travel with the PR so the publish stage releases exactly
+          # the text that was reviewed and merged.
+          mkdir -p releases/notes
+          cp release-notes.md "releases/notes/${{ steps.plan.outputs.tag }}.md"
+
+          # SELF-HEAL. `apply` rewrites the version sources and the declarations
+          # it knows about; `heal` then repairs anything else that drifted on
+          # main before this run (a hand-edited changelog with a duplicated
+          # heading, a stale README "What is new", a stale docs index, a
+          # renderer fallback nobody stamped). The repairs are part of the
+          # release commit below, so main is left consistent after the merge.
+          # It fails only for drift the engine cannot repair - and it fails
+          # here, not later in PR Validation or publish.
+          node scripts/release-engine.cjs heal --version '${{ steps.plan.outputs.version }}'
+          node scripts/release-engine.cjs verify
+
+      # These tests stay even when main already has a green PR Validation.
+      # `apply` and `heal` just changed this tree, so the previous result is
+      # for a different commit and cannot be reused.
+      - name: Run tests
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        run: npm test
+
+      - name: Type check
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        run: npm run typecheck
+
+      - name: Verify FRIDAY layout and dependencies
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        run: |
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Clean-architecture audit
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        # Reports duplicate, conflicting, orphan and legacy implementations.
+        # Duplicates and resurrected legacy paths stop the release; anything
+        # uncertain is only listed for review and never deleted automatically.
+        run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
+
+      - name: Open the release Pull Request
+        id: pr
+        if: steps.plan.outputs.action == 'update' && steps.pending.outputs.complete != 'true'
+        # main is protected and PR-only: the version/changelog change is pushed
+        # to release/vX.Y.Z and merged through the normal review rules. This
+        # workflow never pushes to main and never bypasses protection.
+        shell: bash
+        run: |
+          set -o pipefail
+          branch='release/${{ steps.plan.outputs.tag }}'
+          git config user.name "friday-release"
+          git config user.email "devendrarj25@users.noreply.github.com"
+          if [ '${{ steps.pending.outputs.mode }}' = 'existing_branch' ]; then
+            git checkout -B "$branch" "origin/$branch"
+            # Working tree after checkout — do not `git show origin/<branch>:releases/...`
+            # (Git Bash on windows-latest mangles colon + slash blob paths).
+            if [ -f "releases/notes/${{ steps.plan.outputs.tag }}.md" ]; then
+              cp "releases/notes/${{ steps.plan.outputs.tag }}.md" release-notes.md
+            fi
+          else
+            git checkout -b "$branch"
+            # The engine owns the list of files a version bump rewrites; the
+            # workflow must never keep its own stale copy of it, or a synced
+            # document silently stays behind on the release branch.
+            node scripts/release-engine.cjs files --version '${{ steps.plan.outputs.version }}' > .release-files.txt
+            # Git Bash/MSYS turns `config/friday-version.json` into
+            # `configfriday-version.json` when xargs passes it to git (Release
+            # / Build 33887724724). Native pathspec-from-file keeps the slash.
+            git add --pathspec-from-file=.release-files.txt
+            rm -f .release-files.txt
+            git add "releases/notes/${{ steps.plan.outputs.tag }}.md"
+            # Confirm PRs for an unpublished version already on main may have
+            # no file diff. GitHub cannot open a PR with zero commits vs main,
+            # so an empty commit is required. Never skip opening the PR.
+            if git diff --cached --quiet && git diff --quiet; then
+              git commit --allow-empty -m "release: v${{ steps.plan.outputs.version }} (confirm merged release PR)"
+            else
+              git commit -m "release: v${{ steps.plan.outputs.version }}"
+            fi
+            # Plain, non-forced push: history is never rewritten. If the branch
+            # already exists remotely the push fails and the run stops.
+            git push origin "HEAD:$branch"
+          fi
+
+          # The branch must be visible to the API before a PR can reference it.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || {
+            echo "::error::release branch $branch was not published — no PR was created."
+            exit 1
+          }
+
+          # Explicitly CREATE the pull request. Only if creation fails because
+          # one already exists do we fall back to reading it; any other failure
+          # stops the prepare stage.
+          if ! create_out=$(gh pr create --base main --head "$branch" \
+                --title "release: v${{ steps.plan.outputs.version }}" \
+                --body-file release-notes.md 2>&1); then
+            echo "$create_out"
+            case "$create_out" in
+              *"already exists"*) echo "a pull request for $branch already exists — reusing it" ;;
+              *"not permitted to create or approve pull requests"*|*"createPullRequest"*)
+                echo "::error::GitHub Actions cannot open pull requests in this repository. The branch $branch is already prepared. Settings -> Actions -> General -> Workflow permissions -> enable Allow GitHub Actions to create and approve pull requests, then re-run Official Publish. Or open the pull request yourself: ${{ github.server_url }}/${{ github.repository }}/compare/main...$branch?expand=1"
+                exit 1
+                ;;
+              *)
+                echo "::error::could not create the release pull request for $branch."
+                exit 1 ;;
+            esac
+          else
+            echo "$create_out"
+          fi
+
+          # Verify the PR really exists before reporting success.
+          url=""; number=""
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            read -r number url <<<"$(gh pr list --state open --base main --head "$branch" --limit 1 \
+              --json number,url --jq '.[0] | "\(.number) \(.url)"' 2>/dev/null || true)"
+            [ -n "$url" ] && [ "$url" != "null" ] && break
+            sleep 3
+          done
+          if [ -z "$url" ] || [ "$url" = "null" ]; then
+            echo "::error::no pull request could be verified for $branch — prepare stopped."
+            exit 1
+          fi
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "release PR #$number verified: $url"
+          {
+            echo ""
+            echo "Release PR: #$number $url"
+            echo ""
+          echo "Merge it through Safe Merge (scope=selected, confirm=MERGE), then"
+          echo "run Official Publish (mode=auto) — or this workflow again with"
+          echo "stage = publish — to build, tag and release"
+          echo "v${{ steps.plan.outputs.version }} from the merged main commit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Close superseded release preparations
+        if: steps.plan.outputs.action == 'update'
+        # Only lower-version OPEN release PRs are obsolete. The exact target PR
+        # must already exist before this runs; equal/newer/ambiguous PRs are
+        # never closed automatically. SemVer resolution comes from the shared
+        # release engine rather than GitHub's update-time ordering.
+        shell: bash
+        run: |
+          target='${{ steps.plan.outputs.version }}'
+          branch="release/v$target"
+          target_number=$(gh pr list --state open --base main --head "$branch" --limit 2 --json number --jq 'if length == 1 then .[0].number else empty end')
+          [ -n "$target_number" ] || {
+            echo "::error::exactly one verified open release PR for $branch is required before superseded PRs can be closed."
+            exit 1
+          }
+
+          gh pr list --state open --base main --limit 50 --json number,headRefName,state \
+            --jq '[.[] | select(.headRefName | test("^release/v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
+                    | {number, version: (.headRefName | sub("^release/v"; "")), state: "open"}]' > open-releases.json
+          node - "$target" <<'NODE' > superseded.json
+          const fs = require("node:fs");
+          const engine = require("./scripts/release-engine.cjs");
+          const target = process.argv[2];
+          const prs = JSON.parse(fs.readFileSync("open-releases.json", "utf8"));
+          const state = engine.resolvePreparedState({ current: target, prepared: prs });
+          if (state.ambiguous || state.latestOpen?.version !== target) {
+            console.error(`release state is ambiguous; latest open release is v${state.latestOpen?.version || "unknown"}`);
+            process.exit(1);
+          }
+          process.stdout.write(JSON.stringify(state.superseded.map(({ number, version }) => ({ number, version }))));
+          NODE
+
+          jq -c '.[]' superseded.json | while read -r stale; do
+            number=$(printf '%s' "$stale" | jq -r '.number')
+            version=$(printf '%s' "$stale" | jq -r '.version')
+            gh pr comment "$number" --body "Superseded by the verified release preparation for v$target. This older v$version release PR will not be merged or published."
+            gh pr close "$number"
+            echo "closed superseded release preparation #$number (v$version)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  # ---------------------------------------------------------------- stage 2 --
+  publish:
+    if: inputs.stage == 'publish'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+
+    steps:
+      - name: Refuse to release from anything but main
+        # A stable release may only ever be cut from main. Running this stage
+        # from a branch would publish an EXE that is not on main.
+        shell: bash
+        run: |
+          [ '${{ github.ref_name }}' = 'main' ] || {
+            echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
+            exit 1
+          }
+          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+            echo "::error::Releases are manual only (workflow_dispatch)."
+            exit 1
+          }
+
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Validate clean main
+        shell: bash
+        run: |
+          head=$(git rev-parse HEAD)
+          git fetch origin main --quiet
+          remote=$(git rev-parse origin/main)
+          [ "$head" = "$remote" ] || {
+            echo "::error::main moved (HEAD $head vs origin/main $remote) — release stopped, nothing changed."
+            exit 1
+          }
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "::error::working tree is not clean — release stopped, nothing changed."
+            exit 1
+          fi
+          echo "clean main at $head"
+
+      - name: Read the merged release version
+        id: plan
+        # The version is not recomputed here: it is whatever the merged release
+        # PR put into config/friday-version.json (public four-part). package.json
+        # is only the npm/electron-builder encoding and is never the tag/EXE name.
+        # `mode` only decides whether this run is allowed to REPLACE the assets
+        # of the release that already carries this version (rebuild) or must
+        # create a brand new one (update).
+        shell: bash
+        run: |
+          version=$(node scripts/release-engine.cjs identity --field releaseVersion)
+          tag="v$version"
+          exists=false
+          gh release view "$tag" >/dev/null 2>&1 && exists=true
+          tagged=false
+          git rev-parse "$tag" >/dev/null 2>&1 && tagged=true
+
+          # Prepared-version handoff: every release/vX.Y.Z pull request with its
+          # real state. A version that Prepare chose but whose PR is still OPEN
+          # is NOT on main — publishing then would silently fall back to the
+          # previous public identity. The shared engine refuses that with an
+          # actionable message instead.
+          gh pr list --state all --base main --limit 50 \
+            --json number,headRefName,state,mergedAt \
+            --jq '[ .[] | select(.headRefName | test("^release/v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
+                    | { number, version: (.headRefName | sub("^release/v"; "")),
+                        state: (if .mergedAt then "merged" else (.state | ascii_downcase) end) } ]' \
+            > prepared.json 2>/dev/null || echo '[]' > prepared.json
+          [ -s prepared.json ] || echo '[]' > prepared.json
+
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > released.txt 2>/dev/null || true
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> released.txt || true
+
+          if ! node scripts/release-engine.cjs handoff \
+                --mode '${{ inputs.mode }}' \
+                --current "$version" \
+                --prepared prepared.json \
+                --released released.txt > handoff.json; then
+            reason=$(node -e "try{process.stdout.write(require('./handoff.json').reason||'')}catch{}")
+            echo "::error::${reason:-publish handoff refused}"
+            exit 1
+          fi
+          action=$(node -e "process.stdout.write(require('./handoff.json').action)")
+          reason=$(node -e "process.stdout.write(require('./handoff.json').reason||'')")
+          echo "$reason"
+
+          if [ "$action" = "update" ] && [ "$tagged" = true ]; then
+            echo "::error::tag $tag already exists — release stopped, nothing changed."
+            exit 1
+          fi
+          if [ "$action" = "rebuild" ] && [ "$exists" != true ]; then
+            echo "rebuild requested for $tag which has no published release yet — it will be created once."
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "### Publishing v$version ($action) from main $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prove the release PR was merged into main
+        # The hard guard against publishing an unmerged branch: there must be a
+        # MERGED pull request release/vX.Y.Z -> main, and its merge commit must
+        # be an ancestor of the main commit being released. A rebuild publishes
+        # a version that is already on main, so it needs no new release PR.
+        if: steps.plan.outputs.action == 'update'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.plan.outputs.tag }}'
+          version='${{ steps.plan.outputs.version }}'
+          branch="release/$tag"
+          published=false
+          if gh release view "$tag" >/dev/null 2>&1; then
+            published=true
+          fi
+
+          gh pr list --state open --base main --head "$branch" --limit 1 \
+            --json number,url,title,mergeable,statusCheckRollup \
+            > open-release-pr.json 2>/dev/null || echo '[]' > open-release-pr.json
+          gh pr list --state merged --base main --head "$branch" --limit 1 \
+            --json number,url,mergeCommit \
+            > merged-release-pr.json 2>/dev/null || echo '[]' > merged-release-pr.json
+
+          node -e '
+            const fs = require("fs");
+            const first = (p) => {
+              try {
+                const v = JSON.parse(fs.readFileSync(p, "utf8"));
+                return Array.isArray(v) ? v[0] || null : v;
+              } catch { return null; }
+            };
+            const open = first("open-release-pr.json");
+            const merged = first("merged-release-pr.json");
+            const rollup = Array.isArray(open && open.statusCheckRollup) ? open.statusCheckRollup : [];
+            const failing = rollup
+              .filter((c) => c && (c.conclusion === "FAILURE" || c.conclusion === "CANCELLED" || String(c.state||"").toUpperCase() === "FAILURE"))
+              .map((c) => c.name || c.context)
+              .filter(Boolean);
+            const pending = rollup
+              .filter((c) => c && (!c.conclusion || ["IN_PROGRESS","QUEUED","PENDING"].includes(c.status)))
+              .map((c) => c.name || c.context)
+              .filter(Boolean);
+            const slimOpen = open && open.number ? {
+              number: open.number,
+              url: open.url,
+              mergeable: open.mergeable,
+              failingChecks: failing,
+              pendingChecks: pending,
+            } : null;
+            const slimMerged = merged && merged.number ? {
+              number: merged.number,
+              url: merged.url,
+              mergeCommit: merged.mergeCommit,
+            } : null;
+            fs.writeFileSync("open-pr.json", JSON.stringify(slimOpen));
+            fs.writeFileSync("merged-pr.json", JSON.stringify(slimMerged));
+          '
+
+          merged_oid=$(node -e 'try{const m=JSON.parse(require("fs").readFileSync("merged-pr.json","utf8")); process.stdout.write((m&&m.mergeCommit&&m.mergeCommit.oid)||"")}catch{}')
+          ancestor=false
+          if [ -n "$merged_oid" ] && [ "$merged_oid" != "null" ]; then
+            git cat-file -e "$merged_oid" 2>/dev/null || git fetch origin "$merged_oid" --quiet || true
+            git merge-base --is-ancestor "$merged_oid" HEAD && ancestor=true || true
+          fi
+          changelog_ok=false
+          grep -Eq "^## (FRIDAY )?${tag}\b" CHANGELOG.md && changelog_ok=true || true
+
+          set +e
+          node scripts/release-engine.cjs diagnose-publish \
+            --version "$version" \
+            --published "$published" \
+            --open open-pr.json \
+            --merged merged-pr.json \
+            --ancestor "$ancestor" \
+            --changelog-ok "$changelog_ok" > diagnose.json
+          code=$?
+          set -e
+          cat diagnose.json
+          if [ "$code" != "0" ]; then
+            echo "::error::$(node -e 'try{process.stdout.write(require("./diagnose.json").message||"publish blocked")}catch{process.stdout.write("publish blocked")}')"
+            exit 1
+          fi
+          echo "release PR merged and present on main"
+
+      - name: Restore the reviewed release notes
+        shell: bash
+        run: |
+          file="releases/notes/${{ steps.plan.outputs.tag }}.md"
+          if [ -f "$file" ]; then
+            cp "$file" release-notes.md
+          else
+            # Never publish an empty or placeholder entry, and never walk the
+            # whole history. Rebuild the same generated What's New from the
+            # real previous stable commit only.
+            git fetch --tags --force --quiet || true
+            if ! node scripts/release-engine.cjs range --previous '${{ steps.plan.outputs.tag }}' > range.json; then
+              # range against the version being published is empty/self; use
+              # the previous stable tag instead.
+              prev=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | grep -v '^${{ steps.plan.outputs.tag }}$' | node -e "const e=require('./scripts/release-engine.cjs');const s=require('fs').readFileSync(0,'utf8').split(/\\s+/).filter(Boolean);process.stdout.write(s.reduce((l,v)=>e.compareBuilds(v,l)>0?v:l,''))" || true)
+              [ -n "$prev" ] || {
+                echo "::error::Unable to resolve the previous stable release commit. Refusing to describe the whole history as this release."
+                exit 1
+              }
+              node scripts/release-engine.cjs range --previous "$prev" > range.json
+            fi
+            node -e "const r=require('./range.json'); if(!r.ok){console.error(r.error); process.exit(1)} process.stdout.write((r.subjects||[]).join('\n')+'\n')" > commits.txt
+            prev=$(node -e "const r=require('./range.json'); process.stdout.write(r.from||'')")
+            node scripts/release-engine.cjs notes \
+              --version '${{ steps.plan.outputs.version }}' \
+              --previous "$prev" \
+              --channel stable \
+              --ref main \
+              --log commits.txt > release-notes.md
+          fi
+
+          node scripts/release-engine.cjs guard-notes \
+            --version '${{ steps.plan.outputs.version }}' \
+            --file release-notes.md \
+            --tag '${{ steps.plan.outputs.tag }}' \
+            --package package.json \
+            --changelog CHANGELOG.md \
+            --notes-file "$file" \
+            --channel stable
+
+          if [ -n '${{ inputs.notes }}' ]; then
+            cat > owner-notes.md <<'FRIDAY_NOTES'
+          ## FRIDAY v${{ steps.plan.outputs.version }}
+
+          ${{ inputs.notes }}
+          FRIDAY_NOTES
+            node scripts/release-engine.cjs guard-notes \
+              --version '${{ steps.plan.outputs.version }}' \
+              --file owner-notes.md \
+              --channel stable
+            cp owner-notes.md release-notes.md
+          fi
+
+      - name: Check package.json engines
+        run: node scripts/check-engines.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Electron runtime
+        run: node scripts/ensure-electron.cjs --quiet
+
+      - name: Prepare the isolated Python runtime
+        run: node scripts/setup-python.cjs
+
+      - name: Initialise runtime storage
+        run: node scripts/init-runtime.cjs
+
+      - name: Check the build environment
+        run: node scripts/check-environment.cjs --fix
+
+      - name: Record the dependency/environment registry
+        run: node scripts/env-registry.cjs repair
+
+      - name: Self-heal version/documentation drift (in-tree, never pushed)
+        # main is PR-only and this stage never commits, so the repair lives in
+        # the working tree of THIS run only: the EXE, the tests and the release
+        # notes below all see a consistent version. Anything repaired here is
+        # reported so the next prepare (which does commit) carries it to main.
+        # A problem the engine cannot repair still stops the publish.
+        shell: bash
+        run: |
+          set -o pipefail
+          if node scripts/release-engine.cjs heal --version '${{ steps.plan.outputs.version }}' | tee heal.log; then
+            if grep -q '^repaired:' heal.log; then
+              echo "::warning::main carried version/documentation drift for v${{ steps.plan.outputs.version }}; it was repaired in this run's working tree only. $(grep '^repaired:' heal.log)"
+              {
+                echo "### Self-heal"
+                echo "main carried drift for v${{ steps.plan.outputs.version }}; repaired in-tree for this publish (not pushed):"
+                grep -E '^  |^repaired:' heal.log | sed 's/^/    /'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "::error::version/documentation drift that the release engine cannot repair — see the heal output above."
+            exit 1
+          fi
+          rm -f heal.log
+
+      - name: Run tests
+        run: npm test
+
+      - name: Restore reviewed release notes after tests
+        # Defense in depth: unit tests must never be able to poison the GitHub
+        # Release body. Re-copy the reviewed notes and fail closed on fixture
+        # or version mismatch before packaging.
+        shell: bash
+        run: |
+          file="releases/notes/${{ steps.plan.outputs.tag }}.md"
+          [ -f "$file" ] || { echo "::error::reviewed release notes missing after tests — refusing to publish."; exit 1; }
+          cp "$file" release-notes.md
+          node scripts/release-engine.cjs guard-notes \
+            --version '${{ steps.plan.outputs.version }}' \
+            --file release-notes.md \
+            --tag '${{ steps.plan.outputs.tag }}' \
+            --package package.json \
+            --changelog CHANGELOG.md \
+            --notes-file "$file" \
+            --channel stable
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Verify FRIDAY layout and dependencies
+        run: |
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Clean-architecture audit
+        run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
+
+      - name: Verify version/documentation synchronization
+        run: node scripts/release-engine.cjs verify
+
+      - name: Guarantee the production build channel
+        # A production EXE must never carry a test-build marker (which would
+        # isolate its data and disable the updater). The file is generated only
+        # by test-build.yml and is not committed, so this is a safety net.
+        shell: bash
+        run: rm -f resources/build-channel.json
+
+      - name: Build Windows EXE
+        # ONE canonical production build — the same npm script a developer runs
+        # locally (npm run release:package). There is no separate CI packaging.
+        run: npm run release:package
+
+      - name: Sign production executables when certificate secrets are configured
+        if: env.CERTIFICATE_BASE64 != ''
+        shell: powershell
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "friday-release-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+            & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 `
+              -PfxPath $pfx -PfxPassword $env:CERTIFICATE_PASSWORD -TargetDir release `
+              -ExpectedPublisher $env:EXPECTED_PUBLISHER
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Publish checksums and update manifest
+        # SHA256SUMS.txt + friday-update.json — the installed FRIDAY refuses any
+        # download whose SHA-256 does not match this manifest.
+        run: node scripts/release-manifest.cjs --version "${{ steps.plan.outputs.version }}" --notes release-notes.md --type "${{ steps.plan.outputs.bump }}"
+
+      - name: Verify packaged artifacts, version and checksums
+        # Final gate before anything is tagged or published: installer, portable,
+        # kernel, config, character assets, packaged renderer, version contract
+        # and every checksum in the update manifest.
+        run: node scripts/verify-build.cjs all --version "${{ steps.plan.outputs.version }}" --manifest
+
+      - name: Verify that FRIDAY boots in EXE and browser mode
+        run: node scripts/verify-boot.cjs
+
+      - name: Run the post-build readiness test
+        # Same --pack gate as the Windows CMD build. Chat with no loaded local
+        # model continues. The checkout venv is passed as FRIDAY_PYTHON because
+        # the unpacked EXE does not look in the repo.
+        run: node scripts/readiness-test.cjs --pack
+
+      - name: Exercise official installer lifecycle
+        shell: powershell
+        run: |
+          & scripts/windows-installer-smoke.ps1 `
+            -Installer "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" `
+            -Product "FRIDAY"
+          if ($LASTEXITCODE -ne 0) { throw "Official installer lifecycle failed." }
+
+      - name: Guard canonical What's New before publishing
+        shell: bash
+        run: |
+          file="releases/notes/${{ steps.plan.outputs.tag }}.md"
+          [ -f "$file" ] && cp "$file" release-notes.md
+          node scripts/release-engine.cjs guard-notes \
+            --version '${{ steps.plan.outputs.version }}' \
+            --file release-notes.md \
+            --tag '${{ steps.plan.outputs.tag }}' \
+            --package package.json \
+            --changelog CHANGELOG.md \
+            --notes-file "$file" \
+            --setup "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
+            --channel stable
+
+      - name: Create GitHub Release
+        id: publish
+        shell: bash
+        run: |
+          title='${{ inputs.title }}'
+          [ -n "$title" ] || title='FRIDAY ${{ steps.plan.outputs.tag }}'
+          # Only assets that were really produced are attached; a missing
+          # optional manifest must not fail a verified build.
+          assets=()
+          for asset in \
+            "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
+            "release/FRIDAY-Portable-${{ steps.plan.outputs.version }}.exe" \
+            "release/latest.yml" \
+            "release/friday-update.json" \
+            "release/SHA256SUMS.txt" \
+            "CHANGELOG.md"; do
+            [ -f "$asset" ] && assets+=("$asset")
+          done
+          # An official release always ships BOTH Windows deliverables.
+          for exe in \
+            "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
+            "release/FRIDAY-Portable-${{ steps.plan.outputs.version }}.exe"; do
+            [ -f "$exe" ] || { echo "::error::$(basename "$exe") missing — release stopped."; exit 1; }
+          done
+
+          # A release without its checksum manifest cannot be verified by an
+          # installed FRIDAY, so it is not published at all.
+          if [ ! -f "release/friday-update.json" ]; then
+            echo "::error::update manifest missing — release stopped."
+            exit 1
+          fi
+
+          if [ '${{ steps.plan.outputs.exists }}' = 'true' ]; then
+            # REBUILD of a version that is already published: the release, its
+            # tag and its history stay exactly as they are — only the rebuilt
+            # assets replace the previous ones, so the published EXEs, latest.yml,
+            # manifest and checksums always describe the same files. No new
+            # version and no invented release note is created.
+            echo "rebuilding published ${{ steps.plan.outputs.tag }} — replacing its assets in place"
+            gh release upload '${{ steps.plan.outputs.tag }}' --clobber "${assets[@]}"
+          else
+            # The tag is created at the exact merged main commit that was built,
+            # so main source, tag, public friday-version.json, CHANGELOG and EXE
+            # all carry the same public version.
+            gh release create '${{ steps.plan.outputs.tag }}' \
+              --target '${{ steps.plan.outputs.sha }}' \
+              --title "$title" \
+              --notes-file release-notes.md \
+              "${assets[@]}"
+          fi
+
+      - name: Confirm the release and its assets
+        id: confirm
+        shell: bash
+        run: |
+          tag='${{ steps.plan.outputs.tag }}'
+          names=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          echo "$names"
+          echo "$names" | grep -q "FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
+            || { echo "::error::installer was not uploaded — release incomplete."; exit 1; }
+          echo "$names" | grep -q "FRIDAY-Portable-${{ steps.plan.outputs.version }}.exe" \
+            || { echo "::error::portable EXE was not uploaded — release incomplete."; exit 1; }
+
+          echo "$names" | grep -q "friday-update.json" \
+            || { echo "::error::update manifest was not uploaded — release incomplete."; exit 1; }
+          gh release view "$tag" --json isDraft --jq '.isDraft' | grep -q false \
+            || { echo "::error::release is still a draft."; exit 1; }
+          gh release view "$tag" --json isPrerelease --jq '.isPrerelease' | grep -q false \
+            || { echo "::error::official release was unexpectedly marked as a prerelease."; exit 1; }
+          # A new release must be tagged at the merged main commit that was
+          # built. A rebuild republishes an existing tag, which legitimately
+          # still points at the commit that first released this version.
+          if [ '${{ steps.plan.outputs.exists }}' != 'true' ]; then
+            target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
+            tagged=$(gh api "repos/${{ github.repository }}/git/ref/tags/$tag" --jq '.object.sha' 2>/dev/null || echo "$target")
+            echo "release commit: ${{ steps.plan.outputs.sha }} · tagged: $tagged"
+            case "$tagged" in
+              "${{ steps.plan.outputs.sha }}"*) : ;;
+              *) echo "::error::tag $tag does not point at the built release commit."; exit 1 ;;
+            esac
+          fi
+
+          echo "confirmed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Keep only the last 3 releases
+        # The single authoritative cleanup. Runs only after a confirmed
+        # release, always skips the release just published, and never touches
+        # commits, branches or source history.
+        if: steps.confirm.outputs.confirmed == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Official releases only: TEST pre-releases belong to the test
+          # channel and are never listed, counted or deleted here.
+          gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \
+            --jq 'map(select(.isDraft|not) | select(.isPrerelease|not)) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old.txt
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            [ "$tag" = "${{ steps.plan.outputs.tag }}" ] && continue
+            echo "deleting old release $tag and its assets (source history is untouched)"
+            gh release delete "$tag" --yes --cleanup-tag
+          done < old.txt

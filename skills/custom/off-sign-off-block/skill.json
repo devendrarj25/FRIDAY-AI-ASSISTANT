@@ -1,0 +1,17 @@
+{
+  "id": "off-sign-off-block",
+  "name": "Sign-off block options",
+  "summary": "Offer several sign-off lines for email or letters at different formality levels.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "tone",
+    "name"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Copy suggestions only. It does not send the message."
+}

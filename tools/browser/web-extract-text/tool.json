@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract page text",
+  "description": "Open a URL through the browser engine and return only the readable text (tags already stripped by electron/browser.cjs).",
+  "category": "browser",
+  "inputs": [
+    "url",
+    "maxChars"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ the text of “{url}”. The page is fetched from the internet. Allow this?"
+}

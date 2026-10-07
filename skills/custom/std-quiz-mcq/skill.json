@@ -1,0 +1,16 @@
+{
+  "id": "std-quiz-mcq",
+  "name": "Quiz stubs from bullets",
+  "summary": "Turn bullet facts into short multiple-choice stubs with one correct line and two placeholders.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Study stubs. You must fill wrong answers; nothing is auto-graded against a bank."
+}

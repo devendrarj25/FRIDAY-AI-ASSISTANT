@@ -1,0 +1,16 @@
+{
+  "id": "off-minutes-headings",
+  "name": "Minutes heading set",
+  "summary": "Produce standard meeting-minutes headings (attendance, agenda, decisions, actions).",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "title"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Heading template only. For a full transcript summary use the meeting-notes skill."
+}

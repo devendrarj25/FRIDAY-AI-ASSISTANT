@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "turn-hourly-rate",
+  "name": "Turn hourly rate",
+  "description": "Count finished turns per local hour so the owner can see busy vs quiet windows.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-turn-complete"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract URLs",
+  "description": "Find http(s) URLs in text. Pattern match only — does not fetch them.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to EXTRACT URLS from text you provide. Allow this?",
+  "keywords": [
+    "url",
+    "extract",
+    "links"
+  ]
+}

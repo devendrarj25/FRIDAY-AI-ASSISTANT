@@ -1,0 +1,16 @@
+{
+  "id": "wrt-tighten",
+  "name": "Tighten sentences",
+  "summary": "Shorten long sentences by dropping filler phrases and reporting the word delta.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A draft aid. Read the result before you send it — meaning can change."
+}

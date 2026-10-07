@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "versionFormat": "Extreme.Major.Minor.Patch",
+  "operations": {
+    "update": [
+      "extreme",
+      "major",
+      "minor",
+      "patch"
+    ],
+    "rebuild": [
+      "same-version"
+    ]
+  },
+  "revisionNumber": false,
+  "publicBuildNumber": false
+}

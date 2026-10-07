@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "07_action.schema.json",
+  "type": "object",
+  "x-friday-note": "Illustrative canonical contract; implement against current source owners and evolve compatibly.",
+  "properties": {
+    "action_id": {
+      "type": "string"
+    },
+    "risk": {
+      "type": "string"
+    },
+    "authority": {
+      "type": "string"
+    },
+    "approval_required": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Folder tree",
+  "description": "A bounded directory tree inside the FRIDAY folder (skips node_modules and .git).",
+  "category": "filesystem",
+  "inputs": [
+    "folder",
+    "maxEntries",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to SHOW the folder tree of “{folder}” inside the FRIDAY folder. Allow this?"
+}

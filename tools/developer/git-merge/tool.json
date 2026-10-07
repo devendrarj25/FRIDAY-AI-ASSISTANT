@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git merge",
+  "description": "Merge a named branch into the current HEAD. Can rewrite the working tree. Exec-tier, never auto-enabled.",
+  "category": "developer",
+  "inputs": ["branch", "root", "probe"],
+  "permissions": ["fs.write"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to git MERGE “{branch}” into the current branch. Uncommitted work can conflict. Allow this merge?"
+}

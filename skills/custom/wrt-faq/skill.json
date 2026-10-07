@@ -1,0 +1,16 @@
+{
+  "id": "wrt-faq",
+  "name": "FAQ from notes",
+  "summary": "Turn note lines into question/answer pairs when a line looks like a question.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft FAQ from your notes. It does not publish a help centre."
+}

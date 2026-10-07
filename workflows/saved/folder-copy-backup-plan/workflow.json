@@ -1,0 +1,57 @@
+{
+  "id": "folder-copy-backup-plan",
+  "name": "Folder copy backup plan",
+  "version": "1.0.0",
+  "description": "Plan folder copies, PDF copies, stale backup folders, config backup reminder. Copy writes wait for approval.",
+  "category": "maintenance",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Plan a folder copy",
+      "kind": "agent",
+      "ref": "agents/core/folder-copy-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Plan PDF copies",
+      "kind": "agent",
+      "ref": "agents/core/pdf-copy-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find stale backup folders",
+      "kind": "agent",
+      "ref": "agents/core/stale-backup-folder-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Config backup reminder",
+      "kind": "agent",
+      "ref": "agents/core/config-backup-reminder",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Checksum plan via module",
+      "kind": "module",
+      "ref": "modules/automation/checksum-manifest",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Hold copies until approved",
+      "kind": "note",
+      "ref": "copy-plan",
+      "risk": "safe"
+    }
+  ]
+}

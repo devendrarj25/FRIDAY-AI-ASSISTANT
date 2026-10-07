@@ -1,0 +1,19 @@
+{
+  "name": "csv-delimiter-detect",
+  "version": "1.0.0",
+  "description": "Sniff comma/semicolon/tab/pipe on a CSV/TSV sample and report dialect plus header names. Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "CSV delimiter detect",
+    "icon": "separator"
+  }
+}

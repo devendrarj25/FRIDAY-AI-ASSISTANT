@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Evaluation Result",
+  "type": "object",
+  "required": [
+    "candidateId",
+    "evaluatorId",
+    "metrics",
+    "passed"
+  ],
+  "properties": {
+    "candidateId": {
+      "type": "string"
+    },
+    "evaluatorId": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "regressions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "durationMs": {
+      "type": "number"
+    },
+    "cost": {
+      "type": "number"
+    }
+  }
+}

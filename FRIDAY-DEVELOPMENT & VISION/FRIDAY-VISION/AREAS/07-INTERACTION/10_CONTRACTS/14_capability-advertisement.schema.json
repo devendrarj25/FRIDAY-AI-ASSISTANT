@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://contracts/capability-advertisement/v1",
+  "title": "FRIDAY Capability Advertisement",
+  "type": "object",
+  "required": [
+    "catalog_version",
+    "capabilities"
+  ],
+  "properties": {
+    "catalog_version": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "availability"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "availability": {
+            "enum": [
+              "available",
+              "permission_required",
+              "unsupported",
+              "unauthorized",
+              "degraded"
+            ]
+          },
+          "renderer": {
+            "type": "string"
+          },
+          "required_permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

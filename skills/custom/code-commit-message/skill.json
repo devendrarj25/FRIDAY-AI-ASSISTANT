@@ -1,0 +1,17 @@
+{
+  "id": "code-commit-message",
+  "name": "Commit message drafter",
+  "summary": "Draft a Conventional Commit subject and body from a pasted diff or bullet list.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "type"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Uses a type prefix (feat/fix/docs/refactor/test/chore) plus the first line of your notes. Works on text FRIDAY already has in the sandbox; it does not run git commit."
+}

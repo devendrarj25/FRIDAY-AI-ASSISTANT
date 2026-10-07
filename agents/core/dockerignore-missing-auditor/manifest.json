@@ -1,0 +1,17 @@
+{
+  "name": "Dockerignore missing auditor",
+  "version": "1.0.0",
+  "description": "Finds Dockerfiles whose folder has no .dockerignore so build context bloat is visible.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} Dockerfile folder(s) missing .dockerignore under \u201c{folder}\u201d. Read-only."
+}

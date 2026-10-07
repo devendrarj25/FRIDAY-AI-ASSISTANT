@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract emails",
+  "description": "Find unique email-shaped tokens in text. Pattern match only — no sending.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to EXTRACT EMAIL ADDRESSES from text you provide. Allow this?",
+  "keywords": [
+    "email",
+    "extract",
+    "addresses"
+  ]
+}

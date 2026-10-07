@@ -1,0 +1,16 @@
+{
+  "id": "code-env-audit",
+  "name": "Environment-variable audit",
+  "summary": "List process.env / os.environ / %VAR% usages in pasted code.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Does not print values — only names referenced in source."
+}

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="540" viewBox="0 0 1500 540">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#333"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="50" y="55" font-family="Segoe UI,Arial" font-size="30" font-weight="700">Rich Presentation</text>
+<rect x="60" y="100" width="260" height="62" rx="12" fill="#f4f4f4" stroke="#222"/>
+<text x="78" y="127" font-family="Segoe UI,Arial" font-size="17" font-weight="700">Result</text>
+<text x="78" y="148" font-family="Segoe UI,Arial" font-size="13">Canonical Artifact</text>
+<line x1="320" y1="131" x2="355" y2="131" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="355" y="100" width="260" height="62" rx="12" fill="#f4f4f4" stroke="#222"/>
+<text x="373" y="127" font-family="Segoe UI,Arial" font-size="17" font-weight="700">Resolve</text>
+<text x="373" y="148" font-family="Segoe UI,Arial" font-size="13">Display Resolver</text>
+<line x1="615" y1="131" x2="650" y2="131" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="650" y="100" width="260" height="62" rx="12" fill="#f4f4f4" stroke="#222"/>
+<text x="668" y="127" font-family="Segoe UI,Arial" font-size="17" font-weight="700">Main</text>
+<text x="668" y="148" font-family="Segoe UI,Arial" font-size="13">Main UI</text>
+<line x1="910" y1="131" x2="945" y2="131" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="945" y="100" width="260" height="62" rx="12" fill="#f4f4f4" stroke="#222"/>
+<text x="963" y="127" font-family="Segoe UI,Arial" font-size="17" font-weight="700">Extra</text>
+<text x="963" y="148" font-family="Segoe UI,Arial" font-size="13">Extra Display</text>
+<line x1="1205" y1="131" x2="1240" y2="131" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+<rect x="1240" y="100" width="260" height="62" rx="12" fill="#f4f4f4" stroke="#222"/>
+<text x="1258" y="127" font-family="Segoe UI,Arial" font-size="17" font-weight="700">Voice</text>
+<text x="1258" y="148" font-family="Segoe UI,Arial" font-size="13">Voice Summary</text>
+</svg>

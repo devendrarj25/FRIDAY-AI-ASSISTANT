@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Security features",
+  "description": "Windows security feature probe via electron/hardware.cjs detectSecurity.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "system.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ security-feature status on this machine. Allow this?"
+}

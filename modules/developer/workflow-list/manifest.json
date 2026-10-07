@@ -1,0 +1,19 @@
+{
+  "name": "workflow-list",
+  "version": "1.0.0",
+  "description": "List .github/workflows YAML files and the top-level name: / on: keys. Read-only; does not dispatch Actions.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Workflow list",
+    "icon": "git-actions"
+  }
+}

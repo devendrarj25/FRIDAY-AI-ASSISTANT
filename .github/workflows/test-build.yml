@@ -1,0 +1,475 @@
+# FRIDAY — Test EXE Build (branch / pull request)
+#
+# Manual build of a Windows EXE from ANY branch or pull request so an unmerged
+# upgrade can be installed and tested before it reaches main.
+#
+# This workflow deliberately does NOT: modify main, commit, change the official
+# version, or publish an official (stable) GitHub Release. It produces a
+# downloadable artifact and, when "publish" is chosen, a clearly labelled TEST
+# PRE-RELEASE (vX.Y.Z-test.N, setup + portable, built under the separate
+# "FRIDAY Test" Windows identity) that FRIDAY's Test update channel
+
+# can detect and the owner installs explicitly. The official stable release
+# pipeline stays in release.yml and remains the only thing that can create an
+# official version, tag or release.
+
+name: Test EXE Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        # A REAL Git ref only: a branch name (main, feature/x), a tag, a full
+        # SHA, or a pull request entered as "42", "pr/42" or
+        # "refs/pull/42/merge". Descriptive text is not a ref — the workflow
+        # validates the value against the repository before checkout and stops
+        # with a clear error when it does not exist.
+        description: "Branch, tag, SHA or PR number to build — e.g. main, feature/x, pr/42"
+        type: string
+        default: "main"
+
+      package:
+        description: "Artifacts to build"
+        type: choice
+        default: "portable only (true test EXE)"
+        options:
+          - "portable only (true test EXE)"
+          - "installer + portable"
+          - "installer only"
+          - "unpacked only (fastest)"
+      publish:
+        # A TEST prerelease is what FRIDAY → Settings → Updates → Test channel
+        # can actually see. The workflow still never touches main, never bumps
+        # the official version and never creates a stable release.
+        description: "Also publish it as a TEST prerelease (visible in FRIDAY's Test update channel)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: friday-test-build-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+# Write is used for ONE thing: publishing the TEST prerelease + its tag.
+# This workflow never pushes a commit, never writes to main and never creates
+# or deletes an official (non-prerelease) release.
+permissions:
+  contents: write
+  # Reading an existing PR Validation result so typecheck and npm test can be
+  # skipped when that result is already green. The EXE build itself still runs.
+  actions: read
+  checks: read
+  statuses: read
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+
+    steps:
+      - name: Reject a publish that cannot produce installable artifacts
+        # A published TEST build is what the Test update channel installs, so it
+        # must always be nsis + portable. "unpacked only" produces neither —
+        # refuse BEFORE anything is checked out, built or published.
+        if: ${{ inputs.publish && inputs.package == 'unpacked only (fastest)' }}
+        shell: bash
+        run: |
+          echo "::error::publish=true requires an installable package. Choose \"installer + portable\", \"installer only\" or \"portable only\" — \"unpacked only (fastest)\" cannot be published to the Test update channel."
+          exit 1
+
+      - name: Resolve and validate the ref under test
+        id: target
+        # Turns "42" / "pr/42" / "#42" into refs/pull/42/merge so a pull request
+        # can be built exactly as it would look after merging, then PROVES the
+        # ref exists in this repository before anything is checked out. Free
+        # text (a description, a comment, a sentence) can never become a ref.
+        shell: bash
+        run: |
+          raw="$(printf '%s' "$RAW" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          [ -n "$raw" ] || raw="main"
+
+          case "$raw" in
+            '#'*)                 ref="refs/pull/${raw#\#}/merge" ;;
+            pr/*|PR/*)            ref="refs/pull/${raw#*/}/merge" ;;
+            [0-9]|[0-9][0-9]|[0-9][0-9][0-9]|[0-9][0-9][0-9][0-9])
+                                  ref="refs/pull/$raw/merge" ;;
+            *)                    ref="$raw" ;;
+          esac
+
+          # A Git ref never contains whitespace, "..", "~", "^", ":", "?", "*",
+          # "[", "\" or a backtick. Anything else is descriptive text.
+          case "$ref" in
+            *[[:space:]]*|*..*|*~*|*^*|*:*|*\?*|*\**|*\[*|*\\*|*'`'*)
+              echo "::error::\"$RAW\" is not a Git ref. Enter a branch (main, feature/x), a tag, a full commit SHA, or a pull request as 42 / pr/42."
+              exit 1 ;;
+          esac
+
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code "$remote" "$ref" >/dev/null 2>&1 \
+            || git ls-remote --exit-code "$remote" "refs/heads/$ref" >/dev/null 2>&1 \
+            || git ls-remote --exit-code "$remote" "refs/tags/$ref" >/dev/null 2>&1; then
+            :
+          elif printf '%s' "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
+            : # a full SHA is valid even when no ref points at it
+          else
+            echo "::error::ref \"$ref\" does not exist in ${GITHUB_REPOSITORY}. Enter an existing branch, tag, commit SHA or pull request number."
+            exit 1
+          fi
+
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "building ref: $ref"
+        env:
+          RAW: ${{ inputs.ref }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Fetch complete source of the ref under test
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          # Full history + submodules + LFS: the test EXE must be built from the
+          # COMPLETE state of the selected branch/PR, not a shallow snapshot.
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+          lfs: true
+
+      - name: Record the exact commit under test
+        shell: bash
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          {
+            echo "### FRIDAY test EXE"
+            echo "- ref: \`${{ steps.target.outputs.ref }}\`"
+            echo "- commit: \`$(git rev-parse --short HEAD)\` — $(git log -1 --pretty=%s)"
+            echo "- main untouched; any release from this run is a TEST pre-release only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      # Same real build sequence as scripts/build-windows.cmd (check-engines →
+      # npm ci → ensure-electron → setup-python → init-runtime →
+      # check-environment --fix → env-registry repair → heal → verify →
+      # verify-deps → build:desktop → electron-pack → sign → verify-build →
+      # verify-boot → readiness-test). CI-only extras (typecheck, npm test,
+      # arrange, TEST stamp) stay in this job and do not replace those scripts.
+      - name: Check package.json engines
+        run: node scripts/check-engines.cjs
+
+      - name: Install dependencies (npm ci — package-lock is authoritative)
+        run: npm ci
+
+      - name: Validate Electron runtime
+        run: node scripts/ensure-electron.cjs --quiet
+
+      - name: Prepare the isolated Python runtime
+        run: node scripts/setup-python.cjs
+
+      - name: Initialise runtime storage
+        run: node scripts/init-runtime.cjs
+
+      - name: Check the build environment
+        run: node scripts/check-environment.cjs --fix
+
+      - name: Record the dependency/environment registry
+        run: node scripts/env-registry.cjs repair
+
+      - name: Self-heal version/documentation drift (in-tree only)
+        # A feature branch whose documents lag behind its package.json must
+        # still produce a test EXE. The release engine repairs the derived
+        # version sources and documents in this run's working tree only -
+        # nothing is committed, pushed or changed on the branch or on main, and
+        # the official version is never bumped. Unrepairable drift still stops
+        # the build with the exact reason.
+        run: node scripts/release-engine.cjs heal
+
+      - name: Verify version/documentation synchronization
+        run: node scripts/release-engine.cjs verify
+
+      - name: Reuse a fresh green PR Validation on this commit
+        id: evidence
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          node scripts/validation-freshness.cjs --sha "$sha" > decision.json
+          node -e "const d=require('./decision.json'); const fs=require('fs'); console.log(d.reason); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'reuse=' + (d.reuse ? 'true' : 'false') + '\n')"
+
+      - name: Type check
+        if: steps.evidence.outputs.reuse != 'true'
+        run: npm run typecheck
+
+      - name: Run tests
+        if: steps.evidence.outputs.reuse != 'true'
+        run: npm test
+
+      - name: Verify FRIDAY layout and dependencies
+        run: |
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Determine the TEST prerelease version
+        id: testversion
+        # Official versions stay clean (1.3.2, 1.3.3). A test build carries a
+        # real SemVer prerelease of the version it tests: 1.3.2-test.1,
+        # 1.3.2-test.2, 1.3.3-test.1 … The counter comes from the tags and
+        # prereleases that already exist, so it never collides or goes backwards.
+        shell: bash
+        run: |
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > stable-candidates.txt 2>/dev/null || true
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> stable-candidates.txt || true
+          git fetch origin main --quiet
+          # Git Bash on windows-latest mangles `git show origin/main:config/...`
+          # (colon + slash). identity --ref uses a POSIX blob path and
+          # MSYS_NO_PATHCONV. package.json npm encoding is never a baseline.
+          node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion >> stable-candidates.txt
+          node scripts/release-engine.cjs identity --field releaseVersion >> stable-candidates.txt
+          base=$(node -e "const e=require('./scripts/release-engine.cjs'); const fs=require('fs'); process.stdout.write(e.stableBaseline(fs.readFileSync('stable-candidates.txt','utf8').split(/\\r?\\n/)))")
+          [ "$base" != "0.0.0" ] || { echo "::error::no valid stable version baseline was found."; exit 1; }
+          {
+            git tag --list "v${base}-test.*"
+            gh release list --limit 100 --json tagName --jq '.[].tagName' 2>/dev/null || true
+          } | sort -u > existing-tests.txt
+          node scripts/release-engine.cjs testplan --base "$base" --existing existing-tests.txt > testplan.json
+          version=$(node -e "process.stdout.write(require('./testplan.json').version)")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "test version: $version (official versions stay $base)"
+
+      - name: Stamp the TEST prerelease version
+        # Version sources only — no CHANGELOG, no commit, nothing pushed. The
+        # packaged EXE reports 1.3.2-test.N so it can never be confused with the
+        # official 1.3.2 build.
+        run: node scripts/release-engine.cjs stamp --version "${{ steps.testversion.outputs.version }}"
+
+      - name: Build renderer bundle
+        run: npm run build:desktop
+
+      - name: Stamp the TEST build channel
+        # electron/build-channel.cjs reads this marker at startup and switches
+        # FRIDAY to the isolated "test" path profile: mutable state (config,
+        # database, credentials, logs, conversations, memory) goes to
+        # <FRIDAY_ROOT>/profiles/test/…, the large immutable resources (models,
+        # voices, Python runtime, assets) are reused from the SAME root, and the
+        # stable updater / release dispatch are disabled. The marker ships via
+        # electron-builder.yml's `resources` extraResources entry.
+        shell: bash
+        run: |
+          node -e "
+            const fs=require('fs');
+            fs.mkdirSync('resources',{recursive:true});
+            fs.writeFileSync('resources/build-channel.json', JSON.stringify({
+              channel:'test',
+              ref: process.env.REF || '',
+              commit: process.env.SHA || '',
+              runId: process.env.RUN_ID || '',
+              builtAt: new Date().toISOString()
+            },null,2)+'\n');
+          "
+          cat resources/build-channel.json
+        env:
+          REF: ${{ env.TEST_REF || inputs.ref || github.ref_name }}
+          SHA: ${{ env.commit }}
+          RUN_ID: ${{ github.run_id }}
+
+      - name: Package Windows test build
+        id: package
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          pkg="${TEST_PACKAGE:-}"
+          [ -n "$pkg" ] || pkg='${{ inputs.package }}'
+          pub="${TEST_PUBLISH:-}"
+          [ -n "$pub" ] || pub='${{ inputs.publish }}'
+          case "$pkg" in
+            "installer + portable") targets="nsis portable" ;;
+            "installer only")     targets="nsis" ;;
+            "unpacked only (fastest)") targets="--dir" ;;
+            *)                    targets="portable" ;;
+          esac
+          # Publishing a TEST prerelease always ships BOTH Windows deliverables,
+          # so the Test update channel can install as well as run a test build.
+          if [ "$pub" = "true" ] && [ "$targets" != "--dir" ]; then
+            targets="nsis portable"
+          fi
+          echo "mode=$targets" >> "$GITHUB_OUTPUT"
+          # A TEST installer carries its OWN Windows identity: separate appId,
+          # separate install folder ("FRIDAY Test"), separate Start-menu entry
+          # and separate uninstall entry. It therefore installs BESIDE the
+          # production FRIDAY and can never overwrite or downgrade it. The
+          # executable itself stays FRIDAY.exe (scripts/brand-windows.cjs), and
+          # the build-channel marker keeps its mutable data in the test profile.
+          node scripts/electron-pack.cjs --win $targets \
+            -c.appId=dev.friday.desk.test \
+            -c.productName="FRIDAY Test" \
+            -c.win.executableName=FRIDAY \
+            -c.nsis.shortcutName="FRIDAY Test" \
+            -c.nsis.menuCategory="FRIDAY Test" \
+            -c.nsis.uninstallDisplayName="FRIDAY Test - Personal AI Assistant"
+      - name: Sign TEST executables when certificate secrets are configured
+        if: env.CERTIFICATE_BASE64 != ''
+        shell: powershell
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "friday-test-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+            & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 `
+              -PfxPath $pfx -PfxPassword $env:CERTIFICATE_PASSWORD -TargetDir release `
+              -ExpectedPublisher $env:EXPECTED_PUBLISHER
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify packaged application
+        # Verify exactly what was packaged: asking for an installer that this
+        # run never built would fail a perfectly good portable test EXE.
+        shell: bash
+        run: |
+          case '${{ steps.package.outputs.mode }}' in
+            "--dir")          node scripts/verify-build.cjs dir ;;
+            "nsis portable")  node scripts/verify-build.cjs all ;;
+            "nsis")           node scripts/verify-build.cjs nsis ;;
+            *)                node scripts/verify-build.cjs portable ;;
+          esac
+
+      - name: Verify that FRIDAY boots in EXE and browser mode
+        run: node scripts/verify-boot.cjs
+
+      - name: Run the post-build readiness test
+        # Same --pack gate as the Windows CMD build.
+        run: node scripts/readiness-test.cjs --pack
+
+      - name: Exercise TEST installer lifecycle
+        if: contains(steps.package.outputs.mode, 'nsis')
+        shell: powershell
+        run: |
+          & scripts/windows-installer-smoke.ps1 `
+            -Installer "release/FRIDAY-Test-Setup-${{ steps.testversion.outputs.version }}.exe" `
+            -Product "FRIDAY Test"
+          if ($LASTEXITCODE -ne 0) { throw "TEST installer lifecycle failed." }
+
+      - name: Publish the TEST prerelease (Test update channel)
+        if: inputs.publish || env.TEST_PUBLISH == 'true'
+        # This is what FRIDAY → Settings → Updates → Test channel detects.
+        # ALWAYS a GitHub PRE-RELEASE, always carrying the build-channel marker,
+        # always built under the separate "FRIDAY Test" Windows identity — so it
+        # can never be offered on the Stable channel and its installer lands
+        # beside the production FRIDAY instead of over it.
+        shell: bash
+        run: |
+          version='${{ steps.testversion.outputs.version }}'
+          tag='${{ steps.testversion.outputs.tag }}'
+          portable="release/FRIDAY-Portable-$version.exe"
+          setup="release/FRIDAY-Test-Setup-$version.exe"
+          [ -f "$portable" ] || {
+            echo "::error::no portable EXE for $version — choose a package option that builds the portable test EXE."
+            exit 1
+          }
+          [ -f "$setup" ] || {
+            echo "::error::no TEST installer for $version — a published test build ships setup + portable."
+            exit 1
+          }
+
+          # Same checksum manifest the stable channel uses, marked test: the
+          # installed FRIDAY refuses any download whose SHA-256 does not match.
+          node scripts/release-manifest.cjs --version "$version" --channel test
+          # Same generated What's New the stable channel uses, marked TEST:
+          # real commits since the stable baseline, never a placeholder.
+          git fetch origin main --quiet || true
+          base='${{ steps.testversion.outputs.version }}'
+          basetag="v${base%%-test.*}"
+          # No stable tag yet is a normal first-release state: grep exits 1 and
+          # `pipefail` would abort the whole publish step silently.
+          git fetch --tags --force --quiet || true
+          prevtag=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' | node -e "const e=require('./scripts/release-engine.cjs');const s=require('fs').readFileSync(0,'utf8').split(/\\s+/).filter(Boolean);const n=s.reduce((l,v)=>e.compareBuilds(v,l)>0?v:l,'');process.stdout.write(n)" || true)
+          if [ -n "$prevtag" ] && git rev-parse "$prevtag" >/dev/null 2>&1; then
+            git log --no-merges --pretty=%s "$prevtag..HEAD" > test-commits.txt
+          elif git rev-parse origin/main >/dev/null 2>&1; then
+            # No stable tag yet (first unpublished public line). Do not walk the
+            # whole history: a TEST of a branch is origin/main..HEAD, a TEST of
+            # current main is an empty log (verification notes only).
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+              echo "TEST of current main with no prior stable tag — verification notes only"
+              : > test-commits.txt
+            else
+              git log --no-merges --pretty=%s origin/main..HEAD > test-commits.txt
+            fi
+          else
+            echo "::error::Unable to resolve origin/main or a previous stable tag for TEST notes. Refusing to describe the whole history as this build."
+            exit 1
+          fi
+          node scripts/release-engine.cjs notes \
+            --version "$version" \
+            --previous "${prevtag:-$basetag}" \
+            --channel test \
+            --ref '${{ env.TEST_REF || inputs.ref || github.ref_name }}' \
+            --log test-commits.txt > test-notes.md
+          node scripts/release-engine.cjs guard-notes \
+            --version "$version" \
+            --file test-notes.md \
+            --tag "$tag" \
+            --channel test
+          assets=("$setup" "$portable" release/friday-update.json release/SHA256SUMS.txt)
+          [ -f release/latest.yml ] && assets+=(release/latest.yml)
+          gh release create "$tag" \
+            --target "$(git rev-parse HEAD)" \
+            --title "FRIDAY TEST $version" \
+            --notes-file test-notes.md \
+            --prerelease \
+            "${assets[@]}"
+          names=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          echo "$names"
+          for required in "FRIDAY-Test-Setup-$version.exe" "FRIDAY-Portable-$version.exe" friday-update.json; do
+            echo "$names" | grep -qx "$required" \
+              || { echo "::error::$required was not uploaded — test prerelease incomplete."; exit 1; }
+          done
+          echo "published TEST prerelease $tag (setup + portable)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep only the last 3 TEST prereleases
+        # Test housekeeping only: official (non-prerelease) releases are never
+        # listed here and never deleted by this workflow.
+        if: inputs.publish || env.TEST_PUBLISH == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \
+            --jq 'map(select(.isDraft|not) | select(.isPrerelease)) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old-tests.txt
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            [ "$tag" = '${{ steps.testversion.outputs.tag }}' ] && continue
+            gh release delete "$tag" --yes --cleanup-tag
+          done < old-tests.txt
+
+      - name: Name the portable test EXE after its branch and commit
+        # Artifact-only naming for a build that was not published: the next test
+        # build simply replaces this file. Skipped when the run published a
+        # prerelease, whose assets must keep their canonical version names.
+        if: ${{ !inputs.publish && env.TEST_PUBLISH != 'true' }}
+        shell: bash
+        run: |
+          short="$(git rev-parse --short=7 HEAD)"
+          slug="$(echo '${{ inputs.ref || github.ref_name }}' | tr '/ ' '--' | tr -cd '[:alnum:]._-')"
+          for f in release/FRIDAY-Portable-*.exe; do
+            [ -e "$f" ] || continue
+            mv "$f" "release/FRIDAY-Test-${slug}-${short}.exe"
+          done
+          ls -l release/*.exe || true
+
+      - name: Upload test EXE artifact (never a stable release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "artifact friday-test-build-${{ github.run_number }}"
+          ls -l release/*.exe release/*.yml release/friday-update.json 2>/dev/null || true
+          echo "::warning title=test artifact::The Actions artifact action is not allowed in this repository. A published test build still uploads its EXE to the TEST prerelease."

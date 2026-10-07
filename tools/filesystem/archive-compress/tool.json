@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Compress a folder",
+  "description": "Create a .tar.gz (or Windows zip) of a path inside the FRIDAY folder using the same tar / Compress-Archive tools the importer uses to unpack.",
+  "category": "filesystem",
+  "inputs": [
+    "source",
+    "dest",
+    "root"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to COMPRESS “{source}” into “{dest}” inside the FRIDAY folder. Allow this?"
+}

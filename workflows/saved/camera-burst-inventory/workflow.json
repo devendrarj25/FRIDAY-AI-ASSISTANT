@@ -1,0 +1,50 @@
+{
+  "id": "camera-burst-inventory",
+  "name": "Camera burst inventory",
+  "version": "1.0.0",
+  "description": "Inventory camera bursts, scanned images, duplicate photos.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Inventory camera bursts",
+      "kind": "agent",
+      "ref": "agents/core/camera-burst-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find scanned images",
+      "kind": "agent",
+      "ref": "agents/core/scanned-image-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find duplicate photos",
+      "kind": "agent",
+      "ref": "agents/core/duplicate-photo-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Site photo inventory",
+      "kind": "agent",
+      "ref": "agents/core/site-photo-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the burst census local",
+      "kind": "note",
+      "ref": "camera-bursts",
+      "risk": "safe"
+    }
+  ]
+}

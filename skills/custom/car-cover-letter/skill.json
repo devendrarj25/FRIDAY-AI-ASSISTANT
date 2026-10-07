@@ -1,0 +1,17 @@
+{
+  "id": "car-cover-letter",
+  "name": "Cover letter skeleton",
+  "summary": "Skeleton cover letter: why this role, proof, and close — from notes you paste.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "role",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. Does not submit an application."
+}

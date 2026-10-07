@@ -1,0 +1,16 @@
+{
+  "id": "rsn-negotiation-prep",
+  "name": "Negotiation prep checklist",
+  "summary": "BATNA, reservation, target, concessions, and questions for the other side.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Fills those five slots from keyworded notes. Not legal advice."
+}

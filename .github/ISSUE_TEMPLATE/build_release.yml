@@ -1,0 +1,51 @@
+name: Build / installer / update / release issue
+description: A failure in the CMD build, TEST build, official release, installer or update flow
+title: "[build] "
+labels: ["build", "needs-triage"]
+body:
+  - type: dropdown
+    id: path
+    attributes:
+      label: Which path failed
+      options:
+        - Local CMD build (npm run build:win)
+        - GitHub TEST build (test-build.yml)
+        - GitHub OFFICIAL release - prepare
+        - GitHub OFFICIAL release - publish
+        - Installer / uninstaller (NSIS)
+        - Update check / download / install
+        - Portable EXE
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version being built or installed
+      placeholder: "1.3.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Release mode (release issues only)
+      options: ["n/a", auto, rebuild, update]
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command or workflow run
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full error output
+      description: Include the failing step. Never paste secrets or signing material.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Repository / release state
+      description: Open release PRs, existing tags, existing releases, and whether main was clean.

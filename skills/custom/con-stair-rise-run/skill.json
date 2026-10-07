@@ -1,0 +1,18 @@
+{
+  "id": "con-stair-rise-run",
+  "name": "Stair rise/run helper",
+  "summary": "Split a total rise into riser count and check a 2R+G rule-of-thumb.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "totalRise",
+    "riserTarget",
+    "going"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Local building codes set legal riser/going limits. This only does arithmetic on the numbers you type."
+}

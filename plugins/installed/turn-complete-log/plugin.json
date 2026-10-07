@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "turn-complete-log",
+  "name": "Turn complete log",
+  "description": "On each finished chat turn, append run id and duration to this plugin's data/turns.ndjson. Inspect-only; does not write the workspace.",
+  "category": "logging",
+  "permissions": [],
+  "hooks": [
+    "on-turn-complete"
+  ]
+}

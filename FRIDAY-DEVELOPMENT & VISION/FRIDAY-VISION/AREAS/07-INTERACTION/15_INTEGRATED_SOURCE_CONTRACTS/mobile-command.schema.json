@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commandId",
+    "idempotencyKey",
+    "capabilityId",
+    "sessionId",
+    "policyVersion"
+  ],
+  "properties": {
+    "commandId": {
+      "type": "string"
+    },
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "capabilityId": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "taskId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "capabilityVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observedCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "riskClass": {
+      "type": "string"
+    }
+  }
+}

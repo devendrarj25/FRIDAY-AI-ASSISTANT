@@ -1,0 +1,16 @@
+{
+  "id": "std-glossary",
+  "name": "Glossary builder",
+  "summary": "Collect unique terms (capitalised or tagged) from notes into a glossary stub.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Term harvest. Definitions stay as '[add]' unless the line already has one."
+}

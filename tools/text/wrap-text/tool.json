@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Wrap text",
+  "description": "Wrap text to a column width without breaking the original words when possible.",
+  "category": "text",
+  "inputs": [
+    "text",
+    "width"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to WRAP TEXT to a column width. Allow this?",
+  "keywords": [
+    "wrap",
+    "fold",
+    "columns"
+  ]
+}

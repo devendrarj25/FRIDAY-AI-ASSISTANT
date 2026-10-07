@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "fileCount": 54,
+  "files": [
+    {
+      "path": "00_MASTER/DEFINITION_OF_DONE.md",
+      "bytes": 2031
+    },
+    {
+      "path": "00_MASTER/READ_FIRST.md",
+      "bytes": 1191
+    },
+    {
+      "path": "01_ARCHITECTURE/OWNERSHIP_MODEL.md",
+      "bytes": 695
+    },
+    {
+      "path": "01_ARCHITECTURE/SOURCE_VS_RUNTIME.md",
+      "bytes": 890
+    },
+    {
+      "path": "01_ARCHITECTURE/TARGET_ARCHITECTURE.md",
+      "bytes": 1016
+    },
+    {
+      "path": "02_VERSIONING/REBUILD_CONTRACT.md",
+      "bytes": 539
+    },
+    {
+      "path": "02_VERSIONING/VERSION_CONTRACT.md",
+      "bytes": 876
+    },
+    {
+      "path": "03_BUILD/BUILD_CONTRACT.md",
+      "bytes": 1047
+    },
+    {
+      "path": "03_BUILD/CORE_VS_OPTIONAL.md",
+      "bytes": 965
+    },
+    {
+      "path": "03_BUILD/DEPENDENCY_FREEZE.md",
+      "bytes": 703
+    },
+    {
+      "path": "04_RUNTIME/HEALTH_READINESS.md",
+      "bytes": 462
+    },
+    {
+      "path": "04_RUNTIME/RUNTIME_AND_COMPONENT_OWNERSHIP.md",
+      "bytes": 571
+    },
+    {
+      "path": "04_RUNTIME/RUNTIME_REGISTRY_CONTRACT.md",
+      "bytes": 510
+    },
+    {
+      "path": "05_INSTALLER/BOOTSTRAP_AND_INSTALL.md",
+      "bytes": 536
+    },
+    {
+      "path": "05_INSTALLER/FRIDAY_ROOT_LAYOUT.md",
+      "bytes": 1015
+    },
+    {
+      "path": "05_INSTALLER/INSTALL_MANAGER.md",
+      "bytes": 670
+    },
+    {
+      "path": "05_INSTALLER/MANAGED_DOWNLOADS.md",
+      "bytes": 558
+    },
+    {
+      "path": "06_UPDATES/DATA_MIGRATION.md",
+      "bytes": 428
+    },
+    {
+      "path": "06_UPDATES/ROLLBACK_CONTRACT.md",
+      "bytes": 541
+    },
+    {
+      "path": "06_UPDATES/UPDATE_ARCHITECTURE.md",
+      "bytes": 636
+    },
+    {
+      "path": "06_UPDATES/UPDATE_TRANSACTION.md",
+      "bytes": 573
+    },
+    {
+      "path": "06_UPDATES/USER_COMPONENT_PRESERVATION.md",
+      "bytes": 584
+    },
+    {
+      "path": "07_GITHUB/GITHUB_ACTIONS_CONTRACT.md",
+      "bytes": 554
+    },
+    {
+      "path": "07_GITHUB/RELEASE_EVIDENCE.md",
+      "bytes": 496
+    },
+    {
+      "path": "07_GITHUB/WORKFLOW_MATRIX.md",
+      "bytes": 419
+    },
+    {
+      "path": "08_WINDOWS/CLEAN_MACHINE_MATRIX.md",
+      "bytes": 957
+    },
+    {
+      "path": "08_WINDOWS/UNINSTALL_CONTRACT.md",
+      "bytes": 834
+    },
+    {
+      "path": "08_WINDOWS/WINDOWS_DISTRIBUTION.md",
+      "bytes": 729
+    },
+    {
+      "path": "09_DOCUMENTATION/DOCUMENT_SYNC.md",
+      "bytes": 661
+    },
+    {
+      "path": "09_DOCUMENTATION/RELEASE_NOTES_CONTRACT.md",
+      "bytes": 459
+    },
+    {
+      "path": "10_SECURITY/SUPPLY_CHAIN.md",
+      "bytes": 549
+    },
+    {
+      "path": "10_SECURITY/TRUST_MODEL.md",
+      "bytes": 491
+    },
+    {
+      "path": "11_TESTING/RELEASE_GATES.md",
+      "bytes": 398
+    },
+    {
+      "path": "11_TESTING/UPDATE_SCENARIOS.md",
+      "bytes": 790
+    },
+    {
+      "path": "12_FILE_MAP/FILE_BY_FILE_PLAN.md",
+      "bytes": 2150
+    },
+    {
+      "path": "13_MIGRATION/MIGRATION_PLAN.md",
+      "bytes": 986
+    },
+    {
+      "path": "14_DIAGRAMS/01_ownership_update.svg",
+      "bytes": 2374
+    },
+    {
+      "path": "14_DIAGRAMS/02_managed_root.svg",
+      "bytes": 2046
+    },
+    {
+      "path": "14_DIAGRAMS/03_install_transaction.svg",
+      "bytes": 1902
+    },
+    {
+      "path": "14_DIAGRAMS/README.md",
+      "bytes": 146
+    },
+    {
+      "path": "14_IMPLEMENTATION/AGENT_MASTER_PROMPT.md",
+      "bytes": 2121
+    },
+    {
+      "path": "15_COMMANDS/INSTALL_MANAGER_COMPONENTS.md",
+      "bytes": 405
+    },
+    {
+      "path": "15_COMMANDS/WINDOWS_CMD_RUNBOOK.md",
+      "bytes": 567
+    },
+    {
+      "path": "16_RESEARCH/WEB_RESEARCH_SOURCES.md",
+      "bytes": 1848
+    },
+    {
+      "path": "17_SOURCE_INSPECTION/KNOWN_BASELINE.md",
+      "bytes": 727
+    },
+    {
+      "path": "CHANGE_MANIFEST.json",
+      "bytes": 702
+    },
+    {
+      "path": "README.md",
+      "bytes": 3014
+    },
+    {
+      "path": "config/core-payload-policy.json",
+      "bytes": 245
+    },
+    {
+      "path": "config/release-policy.json",
+      "bytes": 274
+    },
+    {
+      "path": "config/uninstall-policy.json",
+      "bytes": 400
+    },
+    {
+      "path": "config/update-policy.json",
+      "bytes": 401
+    },
+    {
+      "path": "schemas/component-manifest.schema.json",
+      "bytes": 1112
+    },
+    {
+      "path": "schemas/release-manifest.schema.json",
+      "bytes": 791
+    },
+    {
+      "path": "schemas/runtime-manifest.schema.json",
+      "bytes": 605
+    }
+  ]
+}

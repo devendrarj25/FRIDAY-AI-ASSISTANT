@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Hardware info",
+  "description": "CPU/GPU/CUDA probe via electron/hardware.cjs detectHardware.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "system.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ hardware inventory on this machine. Allow this?"
+}

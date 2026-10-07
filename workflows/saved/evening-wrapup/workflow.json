@@ -1,0 +1,64 @@
+{
+  "id": "evening-wrapup",
+  "name": "Evening wrap-up chain",
+  "version": "1.0.0",
+  "description": "Close the day from real local signals: workspace changes, TODOs, git HEAD, large logs, then a thank-you / wrap note. Nothing is posted.",
+  "category": "office",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 18:30",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "List files that changed today",
+      "kind": "agent",
+      "ref": "agents/core/workspace-change-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Harvest TODO comments",
+      "kind": "agent",
+      "ref": "agents/core/workspace-todo-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Read git HEAD stamp",
+      "kind": "agent",
+      "ref": "agents/core/git-branch-head-reader",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Watch large log files",
+      "kind": "agent",
+      "ref": "agents/core/large-log-watcher",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a wrap-up status line",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft a short thanks note if you closed a thread",
+      "kind": "skill",
+      "ref": "skills/custom/com-thanks",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "File the wrap-up locally",
+      "kind": "note",
+      "ref": "evening-note",
+      "risk": "safe"
+    }
+  ]
+}

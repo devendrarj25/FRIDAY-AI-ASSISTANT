@@ -1,0 +1,57 @@
+{
+  "id": "overdue-nudge-chain",
+  "name": "Overdue nudge chain",
+  "version": "1.0.0",
+  "description": "Overdue filenames, recurring nudges, follow-up drafts — local reminders only.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 10:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft a follow-up",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft an ask-for-update",
+      "kind": "skill",
+      "ref": "skills/custom/com-ask-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep nudges local",
+      "kind": "note",
+      "ref": "overdue-list",
+      "risk": "safe"
+    }
+  ]
+}

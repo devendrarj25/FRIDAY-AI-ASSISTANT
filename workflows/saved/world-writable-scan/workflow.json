@@ -1,0 +1,57 @@
+{
+  "id": "world-writable-scan",
+  "name": "World-writable scan",
+  "version": "1.0.0",
+  "description": "Scan world-writable paths, suspicious extensions, executable downloads — inspect only.",
+  "category": "privacy",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan world-writable paths",
+      "kind": "agent",
+      "ref": "agents/core/world-writable-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan suspicious extensions",
+      "kind": "agent",
+      "ref": "agents/core/suspicious-extension-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan executable downloads",
+      "kind": "agent",
+      "ref": "agents/core/executable-download-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Scan browser extensions (names)",
+      "kind": "agent",
+      "ref": "agents/core/browser-extension-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft the risk note",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the scan local",
+      "kind": "note",
+      "ref": "writable-scan",
+      "risk": "safe"
+    }
+  ]
+}

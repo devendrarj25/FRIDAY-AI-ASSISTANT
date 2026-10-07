@@ -1,0 +1,16 @@
+{
+  "id": "wrt-blurb",
+  "name": "Forty-word blurb",
+  "summary": "Compress pasted text into a roughly forty-word blurb for a card or listing.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Length-targeted trim. It does not write marketing that claims untrue facts."
+}

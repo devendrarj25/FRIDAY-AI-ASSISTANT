@@ -1,0 +1,17 @@
+{
+  "id": "code-complexity-hotspots",
+  "name": "Branch-complexity hotspots",
+  "summary": "Score each function by if/for/while/case count as a crude cyclomatic stand-in.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code",
+    "filename"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Per-function keyword counts, not a full CFG. Use it to pick where to simplify first."
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Pretty-print JSON",
+  "description": "Parse JSON text and return a formatted string. Invalid JSON fails honestly. No files are written unless you also use file-write.",
+  "category": "automation",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to pretty-print JSON text you provided. Nothing is written to disk. Allow this?"
+}

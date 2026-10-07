@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Template fill",
+  "description": "Replace {{key}} placeholders in text from a JSON object of values.",
+  "category": "text",
+  "inputs": [
+    "text",
+    "values"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to FILL TEMPLATE PLACEHOLDERS in text. Allow this?",
+  "keywords": [
+    "template",
+    "mustache",
+    "placeholders"
+  ]
+}

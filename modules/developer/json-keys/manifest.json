@@ -1,0 +1,19 @@
+{
+  "name": "json-keys",
+  "version": "1.0.0",
+  "description": "Walk a JSON object/array and list unique key paths (dot notation) with value kinds. Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "JSON keys",
+    "icon": "braces"
+  }
+}

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950">
+<title>Local model install lifecycle</title><desc>FRIDAY models, provider federation and routing architecture</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/></marker><filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity=".15"/></filter></defs>
+<rect width="100%" height="100%" fill="#f8fafc"/><text x="60" y="55" font-family="Inter,Arial" font-size="30" font-weight="700" fill="#0f172a">Local model install lifecycle</text>
+<line x1="150.0" y1="400.0" x2="390.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="390.0" y1="400.0" x2="630.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="630.0" y1="400.0" x2="870.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="870.0" y1="400.0" x2="1110.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1110.0" y1="400.0" x2="1350.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1350.0" y1="400.0" x2="870.0" y2="640.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="870.0" y1="640.0" x2="1110.0" y2="640.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1110.0" y1="640.0" x2="1350.0" y2="640.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1110.0" y1="400.0" x2="630.0" y2="640.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="1110.0" y1="640.0" x2="630.0" y2="640.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<line x1="630.0" y1="640.0" x2="630.0" y2="400.0" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="60" y="360" width="180" height="80" rx="18" fill="#dbeafe" stroke="#0f172a" stroke-width="2"/>
+<text x="150.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Discover</text>
+<rect x="300" y="360" width="180" height="80" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="390.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Hardware Fit</text>
+<rect x="540" y="360" width="180" height="80" rx="18" fill="#e0e7ff" stroke="#0f172a" stroke-width="2"/>
+<text x="630.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Resolve Artifact</text>
+<rect x="780" y="360" width="180" height="80" rx="18" fill="#dcfce7" stroke="#0f172a" stroke-width="2"/>
+<text x="870.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Download /</text>
+<text x="870.0" y="429" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Resume</text>
+<rect x="1020" y="360" width="180" height="80" rx="18" fill="#fef3c7" stroke="#0f172a" stroke-width="2"/>
+<text x="1110.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Checksum /</text>
+<text x="1110.0" y="429" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Integrity</text>
+<rect x="1260" y="360" width="180" height="80" rx="18" fill="#fce7f3" stroke="#0f172a" stroke-width="2"/>
+<text x="1350.0" y="402" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Install /</text>
+<text x="1350.0" y="429" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Register</text>
+<rect x="780" y="600" width="180" height="80" rx="18" fill="#dbeafe" stroke="#0f172a" stroke-width="2"/>
+<text x="870.0" y="642" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Load / Warm</text>
+<rect x="1020" y="600" width="180" height="80" rx="18" fill="#dbeafe" stroke="#0f172a" stroke-width="2"/>
+<text x="1110.0" y="642" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Probe</text>
+<rect x="1260" y="600" width="180" height="80" rx="18" fill="#dcfce7" stroke="#0f172a" stroke-width="2"/>
+<text x="1350.0" y="642" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Ready</text>
+<rect x="540" y="600" width="180" height="80" rx="18" fill="#fee2e2" stroke="#0f172a" stroke-width="2"/>
+<text x="630.0" y="642" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Repair /</text>
+<text x="630.0" y="669" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#0f172a">Rollback</text>
+</svg>

@@ -1,0 +1,19 @@
+{
+  "name": "package-scripts",
+  "version": "1.0.0",
+  "description": "List npm/pnpm/yarn script names from package.json plus name, private flag, and workspace hint. Read-only; does not run scripts.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Package scripts",
+    "icon": "terminal"
+  }
+}

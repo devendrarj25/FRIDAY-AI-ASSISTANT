@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Capability Contract",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "kind",
+    "title",
+    "provider",
+    "inputs",
+    "outputs",
+    "permissions",
+    "risk",
+    "requirements",
+    "lifecycle"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "tool",
+        "skill",
+        "agent",
+        "workflow",
+        "connector",
+        "module",
+        "model_capability",
+        "device",
+        "browser_action",
+        "desktop_action",
+        "remote_worker",
+        "mcp",
+        "a2a",
+        "feature_adapter"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "object"
+    },
+    "inputs": {
+      "type": "array"
+    },
+    "outputs": {
+      "type": "array"
+    },
+    "permissions": {
+      "type": "array"
+    },
+    "risk": {
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ]
+    },
+    "requirements": {
+      "type": "object"
+    },
+    "lifecycle": {
+      "type": "object"
+    },
+    "health": {
+      "type": "object"
+    },
+    "readiness": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "object"
+    },
+    "verification": {
+      "type": "object"
+    },
+    "supports": {
+      "type": "object"
+    },
+    "cost": {
+      "type": "object"
+    },
+    "limits": {
+      "type": "object"
+    },
+    "provenance": {
+      "type": "object"
+    },
+    "fallbacks": {
+      "type": "array"
+    }
+  }
+}

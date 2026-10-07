@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "CPU count",
+  "description": "Return os.cpus().length and the first CPU model string.",
+  "category": "health",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ CPU COUNT. Allow this?",
+  "keywords": [
+    "cpu",
+    "cores"
+  ]
+}

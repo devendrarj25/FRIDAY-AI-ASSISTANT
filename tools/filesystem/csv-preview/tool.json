@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Preview CSV",
+  "description": "Parse CSV/TSV text or a file using electron/document-extract.cjs parseCsv — the same parser docs.extract uses.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "text",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PARSE CSV from “{path}”. Allow this?"
+}

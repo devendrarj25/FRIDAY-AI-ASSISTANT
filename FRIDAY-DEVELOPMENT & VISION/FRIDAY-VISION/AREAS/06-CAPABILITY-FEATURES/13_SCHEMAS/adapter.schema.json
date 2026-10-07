@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Capability Adapter",
+  "type": "object",
+  "required": [
+    "adapter_id",
+    "protocol",
+    "discover",
+    "invoke",
+    "health",
+    "verify"
+  ],
+  "properties": {
+    "adapter_id": {
+      "type": "string"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "discover": {
+      "type": "object"
+    },
+    "invoke": {
+      "type": "object"
+    },
+    "health": {
+      "type": "object"
+    },
+    "verify": {
+      "type": "object"
+    },
+    "compatibility": {
+      "type": "object"
+    },
+    "security": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "intent-counter",
+  "name": "Intent counter",
+  "description": "Count on-turn-start intent ids (the live catalog rule id). No prompt text is stored.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-turn-start"
+  ]
+}

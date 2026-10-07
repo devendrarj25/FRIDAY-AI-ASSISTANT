@@ -1,0 +1,16 @@
+{
+  "id": "mkt-macd-explainer",
+  "name": "MACD explainer",
+  "summary": "Describe MACD line, signal, and histogram, and compute a simple EMA-based MACD from pasted closes.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Uses EMA(12) − EMA(26) and a 9-period EMA of that difference. Slow educational average, not a live scan of an exchange."
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "OS information",
+  "description": "Platform, release, arch, hostname and CPU model from node:os — a light snapshot alongside system-health.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read this PC's operating-system identity (platform, hostname, CPU model). Allow this?"
+}

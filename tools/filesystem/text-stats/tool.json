@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Text statistics",
+  "description": "Count bytes, lines, words and characters of a text file inside the FRIDAY folder.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to COUNT lines and words in “{path}”. Allow this?"
+}

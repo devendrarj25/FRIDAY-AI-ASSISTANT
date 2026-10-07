@@ -1,0 +1,17 @@
+{
+  "name": "Drawing revision scanner",
+  "version": "1.0.0",
+  "description": "Lists drawing-like files (dwg/dxf/pdf) whose names include revision tokens (Rev, _R01, A1) so superseded sets are visible.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} drawing/revision-named file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

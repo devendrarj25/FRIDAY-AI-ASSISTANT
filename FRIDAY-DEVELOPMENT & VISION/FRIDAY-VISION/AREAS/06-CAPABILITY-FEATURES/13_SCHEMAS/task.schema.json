@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Durable Task v2",
+  "type": "object",
+  "required": [
+    "id",
+    "state",
+    "createdAt",
+    "nodes",
+    "policySnapshot"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "nodes": {
+      "type": "array"
+    },
+    "policySnapshot": {
+      "type": "object"
+    },
+    "checkpoint": {
+      "type": "object"
+    },
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "budget": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array"
+    },
+    "events": {
+      "type": "array"
+    },
+    "resumeToken": {
+      "type": "string"
+    }
+  }
+}

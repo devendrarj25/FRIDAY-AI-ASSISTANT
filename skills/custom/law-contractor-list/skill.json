@@ -1,0 +1,16 @@
+{
+  "id": "law-contractor-list",
+  "name": "Contractor kickoff checklist",
+  "summary": "Kickoff checklist for a contractor (scope, dates, confidentiality, invoice cadence).",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

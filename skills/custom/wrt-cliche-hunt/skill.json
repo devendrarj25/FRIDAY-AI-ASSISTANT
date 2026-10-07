@@ -1,0 +1,16 @@
+{
+  "id": "wrt-cliche-hunt",
+  "name": "Cliche hunt",
+  "summary": "Flag tired phrases (at the end of the day, think outside the box, …) in a draft.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A phrase list check. It does not grade writing quality overall."
+}

@@ -1,0 +1,176 @@
+name: Safe Merge
+
+# The ONE automated merge surface for FRIDAY.
+#
+#   manual dispatch -> read the selected pull requests -> validate every rule
+#   in scripts/merge-engine.cjs -> merge only what is provably safe.
+#
+# It never runs automatically, never merges a draft, a conflicted, a blocked,
+# a fork or an untrusted branch, never merges into anything but main, and stops
+# on the first failure. Ineligible pull requests are reported, not merged.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which pull requests to consider"
+        type: choice
+        default: auto
+        options:
+          - auto # every eligible PR targeting main
+          - selected # only the numbers in pr_numbers
+          - release # only release/vX.Y.Z pull requests
+      pr_numbers:
+        description: "Pull request numbers for scope = selected (e.g. 12, 14)"
+        type: string
+        default: ""
+      delete_branch:
+        description: "Delete the merged work branch afterwards (true or false)"
+        type: string
+        default: "true"
+      confirm:
+        description: "Type MERGE to allow this run to merge"
+        type: string
+        required: true
+
+concurrency: friday-safe-merge
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+  # `statusCheckRollup` resolves each check back to the workflow run that
+  # produced it. Without `actions: read` that field is refused with
+  # "GraphQL: Resource not accessible by integration" and this workflow can
+  # never read a single pull request.
+  actions: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require the typed confirmation
+        shell: bash
+        run: |
+          [ '${{ inputs.confirm }}' = 'MERGE' ] || {
+            echo "::error::type MERGE in the confirm field to allow this run."
+            exit 1
+          }
+
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Collect open pull requests targeting main
+        shell: bash
+        run: |
+          set -o pipefail
+          # A push that just landed can leave mergeable=UNKNOWN for a short
+          # time. UNKNOWN is not safe to merge, so wait until GitHub has
+          # computed it instead of treating a still-computing pull request as
+          # "nothing to merge".
+          for attempt in $(seq 1 12); do
+            gh pr list --state open --base main --limit 50 \
+              --json number,title,url,headRefName,baseRefName,state,isDraft,mergeable,mergeStateStatus,headRefOid,headRepositoryOwner,statusCheckRollup \
+              > prs.json
+            unknown=$(jq '[.[] | select((.mergeable // "") | ascii_upcase == "UNKNOWN")] | length' prs.json)
+            echo "open pull requests: $(jq 'length' prs.json); mergeability unknown: $unknown (attempt $attempt)"
+            [ "$unknown" = "0" ] && break
+            echo "mergeability still computing; waiting"
+            sleep 10
+          done
+
+      - name: Collect the real per-commit check results
+        shell: bash
+        # `statusCheckRollup` does not say which commit a check ran on, so it
+        # can never prove that validation covered the commit being merged. The
+        # check-runs/status APIs do report `head_sha`, so those are what the
+        # merge contract is evaluated against.
+        run: |
+          set -euo pipefail
+          echo '{}' > checkruns.json
+          for sha in $(jq -r '.[].headRefOid' prs.json); do
+            gh api "repos/${{ github.repository }}/commits/$sha/check-runs" --paginate \
+              --jq '[.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}]' \
+              > runs.json 2>/dev/null || echo '[]' > runs.json
+            gh api "repos/${{ github.repository }}/commits/$sha/status" \
+              --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+              > statuses.json 2>/dev/null || echo '[]' > statuses.json
+            jq --arg sha "$sha" --slurpfile a runs.json --slurpfile b statuses.json \
+              '.[$sha] = (($a[0] // []) + (($b[0] // []) | map(. + {head_sha: $sha})))' \
+              checkruns.json > merged.json && mv merged.json checkruns.json
+          done
+          jq -r 'to_entries[] | "\(.key): \(.value|length) check(s)"' checkruns.json
+
+      - name: Decide what is safe to merge
+        id: plan
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/merge-engine.cjs evaluate \
+            --prs prs.json \
+            --scope '${{ inputs.scope }}' \
+            --numbers '${{ inputs.pr_numbers }}' \
+            --owner '${{ github.repository_owner }}' \
+            --check-runs checkruns.json \
+            --required 'PR Validation' > decisions.json
+          cat decisions.json
+          jq -r '.decisions[] | "- #\(.number) \(.branch): " + (if .eligible then "ELIGIBLE" else "refused (" + (.reasons|join("; ")) + ")" end)' \
+            decisions.json >> "$GITHUB_STEP_SUMMARY"
+          eligible=$(jq -c '[.decisions[] | select(.eligible) | .number]' decisions.json)
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          echo "latest_release_branch=$(jq -r '.latestReleaseBranch // ""' decisions.json)" >> "$GITHUB_OUTPUT"
+          [ "$eligible" = "[]" ] && echo "::warning::no pull request is currently safe to merge." || true
+
+      - name: Merge the eligible pull requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          numbers=$(jq -r '.decisions[] | select(.eligible) | .number' decisions.json)
+          [ -n "$numbers" ] || { echo "nothing to merge."; exit 0; }
+          for pr in $numbers; do
+            # Re-read the pull request immediately before merging: nothing may
+            # be merged on stale information.
+            gh pr view "$pr" \
+              --json number,headRefName,baseRefName,state,isDraft,mergeable,mergeStateStatus,headRefOid,headRepositoryOwner,statusCheckRollup \
+              | jq -s '.' > one.json
+            head=$(jq -r '.[0].headRefOid' one.json)
+            # Re-read the checks for THIS exact commit too - stale evidence may
+            # never be reused for the final merge decision.
+            gh api "repos/${{ github.repository }}/commits/$head/check-runs" --paginate \
+              --jq '[.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}]' \
+              > runs.json 2>/dev/null || echo '[]' > runs.json
+            gh api "repos/${{ github.repository }}/commits/$head/status" \
+              --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+              > statuses.json 2>/dev/null || echo '[]' > statuses.json
+            jq -n --arg sha "$head" --slurpfile a runs.json --slurpfile b statuses.json \
+              '{($sha): (($a[0] // []) + (($b[0] // []) | map(. + {head_sha: $sha})))}' > one-checks.json
+            node scripts/merge-engine.cjs evaluate --prs one.json --scope auto \
+              --owner '${{ github.repository_owner }}' --required 'PR Validation' \
+              --check-runs one-checks.json \
+              --latest-release-branch '${{ steps.plan.outputs.latest_release_branch }}' > recheck.json
+            if [ "$(jq -r '.decisions[0].eligible' recheck.json)" != "true" ]; then
+              echo "::error::#$pr stopped being safe to merge: $(jq -r '.decisions[0].reasons|join("; ")' recheck.json)"
+              exit 1
+            fi
+            branch=$(jq -r '.[0].headRefName' one.json)
+            # A normal merge commit only: no squash rewrite, no force, and the
+            # exact commit that was validated.
+            gh pr merge "$pr" --merge --match-head-commit "$head"
+            echo "merged #$pr ($branch)" >> "$GITHUB_STEP_SUMMARY"
+            if [ '${{ inputs.delete_branch }}' = 'true' ]; then
+              case "$branch" in
+                main|master|develop|development|release|recovery/*)
+                  echo "refusing to delete protected branch $branch" ;;
+                *)
+                  git push origin --delete "$branch" || echo "branch $branch was already removed" ;;
+              esac
+            fi
+          done

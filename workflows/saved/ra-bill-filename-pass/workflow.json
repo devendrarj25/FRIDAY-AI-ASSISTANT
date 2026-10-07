@@ -1,0 +1,57 @@
+{
+  "id": "ra-bill-filename-pass",
+  "name": "RA bill filename pass",
+  "version": "1.0.0",
+  "description": "Scan RA bill names, invoices, GST filenames, then a local billing note for hisab — no GST filing.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan RA bill filenames",
+      "kind": "agent",
+      "ref": "agents/core/ra-bill-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "List GST invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/gst-invoice-filename-lister",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Total CSV expenses if present",
+      "kind": "agent",
+      "ref": "agents/core/csv-expense-total",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a billing status",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the billing note local — not a GST return",
+      "kind": "note",
+      "ref": "ra-billing",
+      "risk": "safe"
+    }
+  ]
+}

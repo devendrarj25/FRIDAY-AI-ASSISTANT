@@ -1,0 +1,12 @@
+{
+  "name": "Process health snapshot",
+  "version": "1.0.0",
+  "description": "Takes a read-only snapshot of running processes (tasklist on Windows, ps on other hosts). Never kills or changes a process.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY captured a running-process snapshot ({count} rows). This is read-only — allow to keep it in the approval queue. No process will be stopped."
+}

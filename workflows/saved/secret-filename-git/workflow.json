@@ -1,0 +1,57 @@
+{
+  "id": "secret-filename-git",
+  "name": "Secret-filename git pass",
+  "version": "1.0.0",
+  "description": "Scan secret filenames, private-key paths, env presence — names only, never dump values.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan secret filenames",
+      "kind": "agent",
+      "ref": "agents/core/secret-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Alert on private-key paths",
+      "kind": "agent",
+      "ref": "agents/core/private-key-path-alert",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Audit env presence",
+      "kind": "agent",
+      "ref": "agents/core/env-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Audit gitignore vs env",
+      "kind": "agent",
+      "ref": "agents/core/gitignore-env-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Static OWASP-style checklist",
+      "kind": "skill",
+      "ref": "skills/custom/code-owasp-static",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep names only — no secret values",
+      "kind": "note",
+      "ref": "secret-names",
+      "risk": "safe"
+    }
+  ]
+}

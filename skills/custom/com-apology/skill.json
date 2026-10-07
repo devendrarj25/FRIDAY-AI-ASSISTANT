@@ -1,0 +1,18 @@
+{
+  "id": "com-apology",
+  "name": "Apology draft",
+  "summary": "Draft a short apology with what happened, impact, and the next step you name.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "what",
+    "impact",
+    "next"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. Honesty still depends on you."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "ckn-meal-week",
+  "name": "Seven-day meal slots",
+  "summary": "Distribute dish names across 7 days lunch/dinner so leftovers can repeat once.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A slot plan for dishes you already named. Not nutrition advice and not a shopping order."
+}

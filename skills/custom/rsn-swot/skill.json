@@ -1,0 +1,16 @@
+{
+  "id": "rsn-swot",
+  "name": "SWOT from notes",
+  "summary": "Bucket lines into strengths, weaknesses, opportunities, threats using headings or keywords.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "S/W/O/T headings or words like risk/competitor/asset. A worksheet, not a strategy."
+}

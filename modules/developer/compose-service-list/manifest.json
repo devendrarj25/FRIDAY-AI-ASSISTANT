@@ -1,0 +1,19 @@
+{
+  "name": "compose-service-list",
+  "version": "1.0.0",
+  "description": "Naive parse of docker-compose.yml / compose.yaml: service names under the services: key, and ports: lines. No PyYAML required. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Compose service list",
+    "icon": "layers"
+  }
+}

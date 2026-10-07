@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Copy a file",
+  "description": "Copy a file inside the FRIDAY folder (fs.copyFileSync). Source and destination must both stay inside the root.",
+  "category": "filesystem",
+  "inputs": [
+    "from",
+    "to",
+    "root"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to COPY “{from}” to “{to}” inside the FRIDAY folder. Allow this copy?"
+}

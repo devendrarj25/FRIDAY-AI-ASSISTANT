@@ -1,0 +1,19 @@
+{
+  "name": "ics-summary",
+  "version": "1.0.0",
+  "description": "Summarise VEVENT SUMMARY/DTSTART/DTEND/LOCATION from a local .ics file. Naive line parser, no calendar write.",
+  "category": "communication",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "ICS summary",
+    "icon": "calendar"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": [
+    "truth_state",
+    "evidence_required"
+  ],
+  "properties": {
+    "truth_state": {
+      "enum": [
+        "verified",
+        "reported",
+        "inferred",
+        "unknown",
+        "failed"
+      ]
+    },
+    "evidence_required": {
+      "type": "boolean"
+    },
+    "evidence_refs": {
+      "type": "array"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "CSV headers",
+  "description": "Return the header row of CSV/TSV text using document-extract.parseCsv.",
+  "category": "data",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ CSV HEADERS from text you provide. Allow this?",
+  "keywords": [
+    "csv",
+    "headers",
+    "columns"
+  ]
+}

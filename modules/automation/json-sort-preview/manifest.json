@@ -1,0 +1,20 @@
+{
+  "name": "json-sort-preview",
+  "version": "1.0.0",
+  "description": "Recursively sort JSON object keys. Dry-run returns pretty JSON; apply writes the file in place via fs.write.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "JSON sort preview",
+    "icon": "arrow-up-down"
+  }
+}

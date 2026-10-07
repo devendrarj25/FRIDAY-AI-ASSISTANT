@@ -1,0 +1,23 @@
+{
+  "name": "Press a keyboard shortcut",
+  "version": "1.0.0",
+  "description": "Press a key combination (for example ctrl+s, alt+f4, win+r) in the focused window, or in a window you name. Shortcuts can save, delete, close or launch things.",
+  "category": "automation",
+  "entry": "index.cjs",
+  "kernelTool": "input.hotkey",
+  "inputs": [
+    "keys",
+    "target",
+    "hwnd"
+  ],
+  "permissions": [
+    "devices",
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "requires": [
+    "PyAutoGUI"
+  ],
+  "approvalPrompt": "FRIDAY wants to PRESS the shortcut {keys} in the window \u201c{target}\u201d. Shortcuts act immediately and can save, delete, close or start things. Allow this?"
+}

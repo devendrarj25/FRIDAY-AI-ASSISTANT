@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Timezone and clock",
+  "description": "Current local date, time and timezone using Intl — the same clock family system-context uses.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read this PC's local date, time and timezone. Allow this?"
+}

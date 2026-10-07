@@ -1,0 +1,17 @@
+{
+  "name": "Old SQL dump scanner",
+  "version": "1.0.0",
+  "description": "Finds .sql / .sql.gz dumps older than a retention window so stale database dumps are visible.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} old SQL dump(s) under \u201c{folder}\u201d older than {olderThanDays} days. Read-only. Nothing will be deleted."
+}

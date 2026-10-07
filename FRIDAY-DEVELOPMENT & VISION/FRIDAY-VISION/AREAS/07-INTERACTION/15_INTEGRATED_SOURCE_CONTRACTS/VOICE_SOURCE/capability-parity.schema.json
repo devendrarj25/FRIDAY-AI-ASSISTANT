@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://voice/capability-parity",
+  "type": "object",
+  "required": [
+    "capabilityId",
+    "chat",
+    "voice",
+    "governance"
+  ],
+  "properties": {
+    "capabilityId": {
+      "type": "string"
+    },
+    "chat": {
+      "type": "boolean"
+    },
+    "voice": {
+      "type": "boolean"
+    },
+    "governance": {
+      "const": "shared"
+    },
+    "registry": {
+      "const": "shared"
+    },
+    "taskRuntime": {
+      "const": "shared"
+    },
+    "resultContract": {
+      "const": "shared"
+    }
+  }
+}

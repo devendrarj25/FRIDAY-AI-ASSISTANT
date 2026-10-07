@@ -1,0 +1,16 @@
+{
+  "id": "dat-json-keys",
+  "name": "JSON key paths",
+  "summary": "List dotted key paths from a pasted JSON object so nested fields are visible.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Reads JSON text you paste. It does not call an API."
+}

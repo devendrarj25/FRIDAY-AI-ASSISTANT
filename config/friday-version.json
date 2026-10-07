@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "epoch": 2,
+  "epochName": "friday-2",
+  "fourPart": true,
+  "major": 1,
+  "minor": 0,
+  "patch": 1,
+  "revision": 2,
+  "channel": "stable",
+  "prerelease": null
+}

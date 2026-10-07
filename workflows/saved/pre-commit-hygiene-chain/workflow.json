@@ -1,0 +1,78 @@
+{
+  "id": "pre-commit-hygiene-chain",
+  "name": "Pre-commit hygiene chain",
+  "version": "1.0.0",
+  "description": "Before a commit: dirty names, secret filenames, gitignore vs env, lockfile, README, tsconfig, env-key names, then a local checklist. No commit is created.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan git dirty files (names only)",
+      "kind": "agent",
+      "ref": "agents/core/git-dirty-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan secret filenames",
+      "kind": "agent",
+      "ref": "agents/core/secret-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Audit gitignore vs env names",
+      "kind": "agent",
+      "ref": "agents/core/gitignore-env-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Check lockfile presence",
+      "kind": "agent",
+      "ref": "agents/core/lockfile-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Check tsconfig presence",
+      "kind": "agent",
+      "ref": "agents/core/tsconfig-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Audit env key names (not values)",
+      "kind": "module",
+      "ref": "modules/developer/env-key-audit",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Load gitignore notes skill",
+      "kind": "skill",
+      "ref": "skills/custom/code-gitignore-notes",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the pre-commit checklist local",
+      "kind": "note",
+      "ref": "pre-commit-hygiene",
+      "risk": "safe"
+    }
+  ]
+}

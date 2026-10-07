@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "List browser bookmarks",
+  "description": "Read bookmarks stored for FRIDAY's own browser session (electron/browser-live.cjs). Does not read the owner's Chrome/Edge bookmarks.",
+  "category": "browser",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read bookmarks saved in her own in-app browser. Allow this?"
+}

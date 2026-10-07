@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "FRIDAY Durable Task",
+  "required": [
+    "task_id",
+    "goal",
+    "state",
+    "plan",
+    "policy_snapshot",
+    "budget"
+  ]
+}

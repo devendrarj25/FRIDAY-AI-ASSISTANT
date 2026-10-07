@@ -1,0 +1,19 @@
+{
+  "name": "PDF copy planner",
+  "version": "1.0.0",
+  "description": "Plans copying only PDF files from a folder to a destination so a documents backup is a real file list, not a whole-disk clone.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dest",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to COPY {count} PDF(s) from \u201c{folder}\u201d to the destination. Review the list before allowing."
+}

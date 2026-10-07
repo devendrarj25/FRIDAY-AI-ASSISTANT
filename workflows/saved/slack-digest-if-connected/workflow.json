@@ -1,0 +1,50 @@
+{
+  "id": "slack-digest-if-connected",
+  "name": "Slack digest if connected",
+  "version": "1.0.0",
+  "description": "Local status draft plus Slack only when connected. If Slack is not connected the connector step fails honestly. No Twitter/X/IG/FB/LinkedIn.",
+  "category": "connectors",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "every 4h",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Draft a Slack update text locally",
+      "kind": "skill",
+      "ref": "skills/custom/com-slack-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Draft a status line",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan TODOs for the digest",
+      "kind": "agent",
+      "ref": "agents/core/workspace-todo-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Slack read/post only if connected",
+      "kind": "connector",
+      "ref": "slack",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep a local copy of the digest",
+      "kind": "note",
+      "ref": "slack-digest",
+      "risk": "safe"
+    }
+  ]
+}

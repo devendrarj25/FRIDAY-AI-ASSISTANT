@@ -1,0 +1,142 @@
+# FRIDAY — Unexpected Main Push Recovery
+#
+# Branch protection remains the primary control. This workflow is a non-
+# destructive backup for the exceptional case where a direct push still lands
+# on main. A normal merged Pull Request causes no action. An unexpected push is
+# preserved on exactly one deterministic recovery branch for manual review.
+#
+# This workflow NEVER changes main, reverts, resets, force-pushes, merges,
+# releases or deletes anything. The Manual Revert Center remains the only owner
+# tool for creating a revert/restore branch and Pull Request.
+
+name: Main Safety Recovery
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: friday-main-safety-${{ github.event.after }}
+  cancel-in-progress: false
+
+jobs:
+  preserve-unexpected-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Decide whether this was a merged Pull Request
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSHED_SHA: ${{ github.event.after }}
+          PREVIOUS_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The very first push creates `main` (there is no previous commit). That
+          # is the owner publishing the project, not an unexpected push, and there
+          # is nothing earlier to preserve.
+          if [ "$PREVIOUS_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "initial creation of main - no recovery action"
+            echo "unexpected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # GitHub links a merge commit to its pull request a moment AFTER the push
+          # event fires. Ask a few times before deciding nobody merged it.
+          merged=0
+          for attempt in 1 2 3 4; do
+            merged=$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${{ github.repository }}/commits/$PUSHED_SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | length' 2>/dev/null || echo 0)
+            [ "$merged" -gt 0 ] && break
+            [ "$attempt" -lt 4 ] && sleep 15
+          done
+          if [ "$merged" -gt 0 ]; then
+            echo "normal merged Pull Request detected — no recovery action"
+            echo "unexpected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::UNEXPECTED MAIN PUSH — MANUAL REVIEW REQUIRED"
+            echo "unexpected=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch the exact pushed commit
+        if: steps.source.outputs.unexpected == 'true'
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ github.event.after }}
+          fetch-depth: 0
+
+      - name: Preserve the push and write the recovery record
+        if: steps.source.outputs.unexpected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSHED_SHA: ${{ github.event.after }}
+          PREVIOUS_SHA: ${{ github.event.before }}
+          PUSH_REASON: ${{ github.event.head_commit.message }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          short=$(git rev-parse --short=8 "$PUSHED_SHA")
+          timestamp=$(git show -s --format=%ct "$PUSHED_SHA" | xargs -I{} date -u -d @{} +%Y%m%dT%H%M%SZ)
+          branch="recovery/main-${timestamp}-${short}"
+          report="recovery/${timestamp}.md"
+
+          # A re-run for the same push must not create a duplicate branch.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "recovery branch already exists: $branch"
+            exit 0
+          fi
+
+          if [ "$PREVIOUS_SHA" = "0000000000000000000000000000000000000000" ]; then
+            changed_files=$(git show --pretty=format: --name-status "$PUSHED_SHA")
+          else
+            changed_files=$(git diff --name-status "$PREVIOUS_SHA" "$PUSHED_SHA")
+          fi
+          [ -n "$changed_files" ] || changed_files="(no changed files reported)"
+          reason=$(printf '%s' "$PUSH_REASON" | tr '\r\n' ' ')
+
+          # The branch starts at the exact pushed SHA. The report is committed
+          # forward on that branch, so the pushed commit remains its direct,
+          # immutable ancestor and no history is rewritten.
+          git switch --detach "$PUSHED_SHA"
+          git switch -c "$branch"
+          mkdir -p recovery
+          cat > "$report" <<EOF
+          # UNEXPECTED MAIN PUSH — MANUAL REVIEW REQUIRED
+
+          - Pushed SHA: \`$PUSHED_SHA\`
+          - Previous main SHA: \`$PREVIOUS_SHA\`
+          - Date (UTC): \`$timestamp\`
+          - Actor: \`automated agent (name withheld)\`
+          - Reason / commit message: $reason
+          - Recovery branch: \`$branch\`
+
+          ## Changed files
+
+          \`\`\`text
+          $changed_files
+          \`\`\`
+
+          This is a preservation record only. Main was not reset, reverted,
+          overwritten or force-pushed. Review manually in FRIDAY Revert Center;
+          any correction must use a new branch, Pull Request and manual merge.
+          EOF
+
+          git config user.name "FRIDAY Main Safety"
+          git config user.email "actions@users.noreply.github.com"
+          git add -- "$report"
+          git commit -m "safety: preserve unexpected main push $short"
+          git push origin "HEAD:refs/heads/$branch"
+
+          # Prove the exact pushed SHA is preserved by the recovery branch.
+          git merge-base --is-ancestor "$PUSHED_SHA" HEAD
+          echo "UNEXPECTED MAIN PUSH — MANUAL REVIEW REQUIRED" >> "$GITHUB_STEP_SUMMARY"
+          echo "Recovery branch: \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pushed commit preserved: \`$PUSHED_SHA\`" >> "$GITHUB_STEP_SUMMARY"

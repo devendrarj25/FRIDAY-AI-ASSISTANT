@@ -1,0 +1,36 @@
+# FRIDAY — Python kernel requirements (canonical list)
+#
+# Policy: minimum supported floors, NOT installation targets.
+#   * Any newer compatible release is accepted and reused.
+#   * FRIDAY never intentionally downgrades an installed compatible package.
+#   * Only official PyPI wheels are used; no Rust/Cargo toolchain is required.
+#
+# Supported Python: >= 3.12 (64-bit), including 3.13 and 3.14 once the
+# packages below publish wheels for that interpreter.
+#
+# Install with:  npm run setup:python
+# The repository root requirements.txt includes this file and
+# kernel/requirements-capabilities.txt, so `pip install -r requirements.txt`
+# from the project root matches CMD setup.
+#
+# These packages are the entire startup surface of the FastAPI kernel.
+fastapi>=0.142.2
+uvicorn[standard]>=0.54.0
+httpx>=0.28.1
+pydantic>=2.13.5
+PyYAML>=6.0.3
+
+# Voice runtime (same STT / TTS the app already uses). setup-python installs
+# these into the live venv (selected FRIDAY folder runtime/.venv when one is
+# selected, otherwise the checkout .venv). They are not FastAPI startup
+# imports — the kernel still boots without them. Windows CMD treats a failed
+# voice pip as a setup failure so hear/speak is ready before pack.
+faster-whisper>=1.2.1
+edge-tts>=7.2.8
+
+# Memory, devices, wake scorer, OCR and Windows control extras live in
+# kernel/requirements-capabilities.txt — not here — so a missing wheel cannot
+# abort NSIS runtime repair. setup-python installs that file into the live
+# venv with the same official PyPI wheel methods. The kernel still boots
+# without those packages (numpy / chromadb / bleak / zeroconf stay optional
+# at FastAPI startup).

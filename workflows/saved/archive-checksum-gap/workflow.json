@@ -1,0 +1,50 @@
+{
+  "id": "archive-checksum-gap",
+  "name": "Archive checksum gap chain",
+  "version": "1.0.0",
+  "description": "Scan archive checksum gaps, zip inventory, file hashes — inspect only.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan archive checksum gaps",
+      "kind": "agent",
+      "ref": "agents/core/archive-checksum-gap-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory zip archives",
+      "kind": "agent",
+      "ref": "agents/core/zip-archive-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Hash a named file",
+      "kind": "tool",
+      "ref": "tools/filesystem/file-hash",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Checksum manifest module",
+      "kind": "module",
+      "ref": "modules/automation/checksum-manifest",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the gap list local",
+      "kind": "note",
+      "ref": "checksum-gaps",
+      "risk": "safe"
+    }
+  ]
+}

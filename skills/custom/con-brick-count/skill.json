@@ -1,0 +1,20 @@
+{
+  "id": "con-brick-count",
+  "name": "Brick and block count",
+  "summary": "Count masonry units from wall area, unit face size, joint gap, and waste.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "wallArea",
+    "unitLength",
+    "unitHeight",
+    "mortarGap",
+    "wastePct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "units = wallArea / ((L+gap)×(H+gap)) × (1+waste). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Openings should be subtracted in the area you pass in."
+}

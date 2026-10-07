@@ -1,0 +1,19 @@
+{
+  "name": "markdown-toc",
+  "version": "1.0.0",
+  "description": "Build a table of contents from ATX headings in a Markdown file, with GitHub-ish slugs. Read-only.",
+  "category": "communication",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Markdown TOC",
+    "icon": "list"
+  }
+}

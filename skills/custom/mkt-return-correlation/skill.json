@@ -1,0 +1,17 @@
+{
+  "id": "mkt-return-correlation",
+  "name": "Two-series return correlation",
+  "summary": "Pearson correlation of two equal-length return lists you paste.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "seriesA",
+    "seriesB"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. corr = cov(A,B) / (sA sB). Align the series yourself; FRIDAY does not match timestamps from a vendor."
+}

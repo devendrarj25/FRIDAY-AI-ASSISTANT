@@ -1,0 +1,102 @@
+{
+  "package": "FRIDAY-HIGH-LEVEL-PRD-TRD-UX-BACKEND-AUDIT-AGENTS-STATUS",
+  "date": "2026-09-13",
+  "baseline_zip": "FRIDAY(3).zip",
+  "canonical_version": "1.0.0.2",
+  "documents": [
+    {
+      "file": "PRD.md",
+      "purpose": "Product requirements and acceptance criteria"
+    },
+    {
+      "file": "TRD.md",
+      "purpose": "Technical architecture and implementation constraints"
+    },
+    {
+      "file": "UI-UX-Design-Document.md",
+      "purpose": "UI/UX preservation and next-level interaction contract"
+    },
+    {
+      "file": "Backend-Schema.md",
+      "purpose": "Logical backend entities, invariants and JSON contracts"
+    },
+    {
+      "file": "Audit.md",
+      "purpose": "Current-to-target architecture audit and gap priorities"
+    },
+    {
+      "file": "Agents.md",
+      "purpose": "Agent lifecycle, delegation, safety and output contract"
+    },
+    {
+      "file": "Friday_status.md",
+      "purpose": "Current status, target maturity and implementation waves"
+    }
+  ],
+  "verified_source_inventory": {
+    "source_files": 2516,
+    "version": "1.0.0.2",
+    "package_version": "1.0.0",
+    "src_lib_friday": 227,
+    "electron": 102,
+    "kernel": 44,
+    "core": 304,
+    "routes": 31,
+    "skills": 214,
+    "tools": 177,
+    "agents": 98,
+    "modules": 76,
+    "plugins": 78,
+    "workflows": 116
+  },
+  "route_inventory": [
+    "status",
+    "tools",
+    "agents",
+    "system",
+    "doctor",
+    "terminal",
+    "skills",
+    "index",
+    "plugins",
+    "memory",
+    "sandbox",
+    "brain",
+    "models",
+    "settings",
+    "connectors",
+    "import",
+    "workspace",
+    "self-management",
+    "projects",
+    "hub",
+    "character",
+    "install-manager",
+    "workflows",
+    "devices",
+    "tasks",
+    "library",
+    "modules",
+    "logs",
+    "browser",
+    "n8n"
+  ],
+  "research_sources": [
+    "https://openai.com/index/the-next-evolution-of-the-agents-sdk/",
+    "https://openai.com/index/introducing-the-agents-api/",
+    "https://ai.google.dev/gemini-api/docs/background-execution",
+    "https://ai.google.dev/gemini-api/docs/computer-use",
+    "https://www.anthropic.com/news/claude-opus-4-6",
+    "https://blog.modelcontextprotocol.io/posts/2026-07-28/",
+    "https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks"
+  ],
+  "principles": [
+    "Preserve existing UI/design unless explicitly changed",
+    "Preserve build/installer/release pipeline",
+    "One canonical owner per responsibility",
+    "Existing governance path for consequential actions",
+    "No completion claim without real verification",
+    "Extend before replacing",
+    "No second brain"
+  ]
+}

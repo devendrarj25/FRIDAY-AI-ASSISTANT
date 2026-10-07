@@ -1,0 +1,16 @@
+{
+  "id": "hlt-symptom-log",
+  "name": "Symptom log template",
+  "summary": "Blank symptom log (time, what you noticed, food/sleep context) — not a diagnosis.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

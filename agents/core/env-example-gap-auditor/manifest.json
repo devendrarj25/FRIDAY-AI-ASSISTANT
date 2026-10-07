@@ -1,0 +1,17 @@
+{
+  "name": "Env example gap auditor",
+  "version": "1.0.0",
+  "description": "Compares KEY names in .env.example to KEY names in .env (never values) so missing local keys are visible.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY compared env key names in \u201c{folder}\u201d ({count} gap(s)). Values are not read beyond the key side of KEY=. Allow to keep the gap list."
+}

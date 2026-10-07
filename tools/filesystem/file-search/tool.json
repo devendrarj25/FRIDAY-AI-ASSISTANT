@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Search file contents",
+  "description": "Walk text files under a folder inside the FRIDAY root and return lines matching a substring (case-insensitive). Bounded so a huge tree cannot hang the tool.",
+  "category": "filesystem",
+  "inputs": [
+    "folder",
+    "query",
+    "maxHits",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to SEARCH files under “{folder}” for “{query}” inside the FRIDAY folder. Allow this?"
+}

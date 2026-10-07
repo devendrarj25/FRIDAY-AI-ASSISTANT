@@ -1,0 +1,19 @@
+{
+  "id": "con-paint-coverage",
+  "name": "Paint coverage estimator",
+  "summary": "Litres of paint from wall area, coats, coverage per litre, and a waste percent.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "area",
+    "coats",
+    "coveragePerLitre",
+    "wastePct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Practical takeoff: litres = area × coats / coveragePerLitre × (1 + wastePct/100). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

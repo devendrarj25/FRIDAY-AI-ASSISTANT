@@ -1,0 +1,19 @@
+{
+  "name": "documents-inventory",
+  "version": "1.0.0",
+  "description": "Inventory document filenames (.pdf .docx .xlsx .csv .txt .md) with sizes. Does not extract PDF/DOCX text (that stays on document-extract).",
+  "category": "home",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Documents inventory",
+    "icon": "file-text"
+  }
+}

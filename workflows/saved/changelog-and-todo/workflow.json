@@ -1,0 +1,64 @@
+{
+  "id": "changelog-and-todo",
+  "name": "Changelog and TODO chain",
+  "version": "1.0.0",
+  "description": "Changelog presence, TODO scan, commit-message skill, PR checklist — local draft only.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Changelog presence via module",
+      "kind": "module",
+      "ref": "modules/developer/changelog-head",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan TODOs",
+      "kind": "agent",
+      "ref": "agents/core/workspace-todo-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan git dirty files",
+      "kind": "agent",
+      "ref": "agents/core/git-dirty-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft a changelog blurb",
+      "kind": "skill",
+      "ref": "skills/custom/code-changelog",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a commit message",
+      "kind": "skill",
+      "ref": "skills/custom/code-commit-message",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "PR checklist skill",
+      "kind": "skill",
+      "ref": "skills/custom/code-pr-checklist",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the draft local",
+      "kind": "note",
+      "ref": "changelog-draft",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://voice/session",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "turnId",
+    "generationId",
+    "source",
+    "state"
+  ],
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "turnId": {
+      "type": "string"
+    },
+    "generationId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source": {
+      "const": "voice"
+    },
+    "state": {
+      "enum": [
+        "disabled",
+        "starting",
+        "ready",
+        "listening",
+        "thinking",
+        "speaking",
+        "barge_in",
+        "stopping",
+        "error",
+        "degraded"
+      ]
+    },
+    "language": {
+      "type": "string"
+    },
+    "providerGraphId": {
+      "type": "string"
+    },
+    "networkAllowed": {
+      "type": "boolean"
+    },
+    "rawAudioRetention": {
+      "const": false
+    }
+  }
+}

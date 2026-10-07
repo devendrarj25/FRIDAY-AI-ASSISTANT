@@ -1,0 +1,17 @@
+{
+  "id": "ckn-yield-split",
+  "name": "Servings split",
+  "summary": "Split a pot into per-person portions from total servings and headcount.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "servings",
+    "people"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Divides total servings by headcount. Kitchen arithmetic only — not a nutrition label."
+}

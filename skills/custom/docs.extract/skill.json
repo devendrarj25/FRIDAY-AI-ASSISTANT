@@ -1,0 +1,14 @@
+{
+  "id": "docs.extract",
+  "name": "Extract document text",
+  "summary": "Read real text and rows out of CSV, XLSX, DOCX and text-based PDFs, or pasted document text.",
+  "category": "documents",
+  "capabilities": ["fs.read"],
+  "risk": "safe",
+  "inputs": ["path", "filename", "text", "url", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": ["fs.read"],
+  "description": "Read-only document extract. File bytes and URLs run as the built-in docs.extract skill (electron/document-extract.cjs). This sandbox pack extracts pasted text or CSV so capability-verify can run offline. Scanned PDFs fail honestly until OCR is wired on the same extract path."
+}

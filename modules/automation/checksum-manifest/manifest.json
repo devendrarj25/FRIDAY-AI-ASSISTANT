@@ -1,0 +1,20 @@
+{
+  "name": "checksum-manifest",
+  "version": "1.0.0",
+  "description": "SHA-256 every file under a folder. Dry-run returns the map; apply=True writes .friday-checksums.sha256 in that folder. Does not overwrite releases/SHA256SUMS.txt.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Checksum manifest",
+    "icon": "hash"
+  }
+}

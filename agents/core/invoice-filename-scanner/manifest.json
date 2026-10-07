@@ -1,0 +1,17 @@
+{
+  "name": "Invoice filename scanner",
+  "version": "1.0.0",
+  "description": "Finds files whose names look like invoices or receipts (invoice, receipt, bill, tax-invoice) so accounts folders can be triaged by name.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} invoice/receipt-named file(s) under \u201c{folder}\u201d. Read-only filename match. Allow to keep the list."
+}

@@ -1,0 +1,19 @@
+{
+  "name": "secret-filename-scan",
+  "version": "1.0.0",
+  "description": "Flag filenames that look like secrets (.pem, .key, id_rsa, credentials, .p12, wallet.dat) \u2014 names only, never file contents. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Secret filename scan",
+    "icon": "shield"
+  }
+}

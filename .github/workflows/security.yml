@@ -1,0 +1,137 @@
+# FRIDAY - Security Scan
+#
+# Weekly and manual scan of the default branch. Pull requests do not start this
+# workflow: the same secret scan, CodeQL and dependency audit run inside
+# PR Validation, so a ready pull request pays for them once.
+#
+# Three independent checks. Only a leaked secret turns the run red; code-scanning
+# findings go to the Security tab, and dependency advisories are warnings, so a
+# brand-new upstream advisory never fails a build that nobody touched.
+#
+#   secrets  - gitleaks over the full history (the gitleaks binary from its
+#              official container, so no licence key is needed)
+#   codeql   - JavaScript/TypeScript + Python code scanning (public repositories
+#              only; private ones need GitHub Advanced Security, so it is skipped
+#              there instead of failing)
+#   audit    - npm audit and pip-audit, informational
+
+name: Security Scan
+
+on:
+  schedule:
+    - cron: "37 5 * * 2" # Tuesdays 05:37 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: friday-security-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    # Pull requests scan secrets inside PR Validation, including drafts.
+    # This job is the weekly and manual scan of the default branch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch full history
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 \
+            detect --source /repo --redact --no-banner --exit-code 1
+
+  # This workflow has no pull_request trigger. The scope job still reads
+  # scripts/pr-scope.cjs from the trusted base commit, and on a weekly or manual
+  # run that classifier stays false, so CodeQL and the audit always run. The
+  # pull_request branch below is the same rule PR Validation uses; it does not
+  # fire here.
+  scope:
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch the trusted classifier
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/pr-scope.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Is this a documentation-only change?
+        id: scope
+        shell: bash
+        run: |
+          set -uo pipefail
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -f scripts/pr-scope.cjs ]; then
+            if files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null) && [ -n "$files" ]; then
+              verdict=$(printf '%s\n' "$files" | node scripts/pr-scope.cjs 2>/dev/null || true)
+              [ "$verdict" = "docs_only=true" ] && docs_only=true
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+  codeql:
+    needs: scope
+    if: needs.scope.result == 'success' && needs.scope.outputs.docs_only != 'true' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+
+      - name: Analyse
+        shell: bash
+        run: |
+          echo "::warning title=CodeQL::CodeQL is not started. This repository only allows actions owned by devendrarj25, so github/codeql-action cannot run. Language: ${{ matrix.language }}"
+
+  audit:
+    needs: scope
+    if: needs.scope.result == 'success' && needs.scope.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: npm audit (informational)
+        run: |
+          if ! npm audit --audit-level=high --omit=dev; then
+            echo "::warning title=npm audit::High or critical advisory found. Dependabot will open the fix as a pull request."
+          fi
+
+      - name: pip-audit (informational)
+        run: |
+          if ! python3 -m pip install --quiet pip-audit; then
+            echo "::warning title=pip-audit::pip-audit could not be installed. The advisory check was skipped."
+          elif ! python3 -m pip_audit -r kernel/requirements.txt; then
+            echo "::warning title=pip-audit::Advisory found in the kernel requirements."
+          fi

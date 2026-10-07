@@ -1,0 +1,18 @@
+{
+  "id": "mkt-pe-ratio",
+  "name": "P/E and PEG helper",
+  "summary": "Price-to-earnings and optional PEG from a growth percent you supply.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "price",
+    "eps",
+    "growthPct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. PE = price/EPS. PEG = PE/growthPct when growth is given. Does not scrape filings."
+}

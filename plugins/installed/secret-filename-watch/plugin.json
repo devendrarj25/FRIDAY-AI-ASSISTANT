@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "secret-filename-watch",
+  "name": "Secret filename watch",
+  "description": "On file-change, flag paths whose *names* look like secrets (.env, id_rsa, .pem). Does not read file contents.",
+  "category": "security",
+  "permissions": [],
+  "hooks": [
+    "on-file-change"
+  ]
+}

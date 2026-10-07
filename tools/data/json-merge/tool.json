@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Merge JSON objects",
+  "description": "Shallow-merge two JSON objects with Object.assign. Arrays are not deep-merged.",
+  "category": "data",
+  "inputs": [
+    "base",
+    "patch"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to MERGE two JSON objects in memory. Allow this?"
+}

@@ -1,0 +1,198 @@
+{
+  "schema": 3,
+  "scope": "Root docs of FRIDAY-DEVELOPMENT & VISION/ + the entire FRIDAY-DEVELOPMENT/ workbench. AGENTS.md, AUDIT.md, and FRIDAY_STATE.md live at repo root, not here. FRIDAY-VISION/ is indexed separately via its own per-folder INDEX.md and per-area AREA-MANIFEST.json files, not here.",
+  "sha_policy": "This index intentionally carries no content hashes. Per-file/folder/tree SHAs were removed from the whole FRIDAY-DEVELOPMENT & VISION layer -- the only authoritative SHA-256 for this project is for the whole main/release FRIDAY ZIP, kept alongside that ZIP, not duplicated per-file here.",
+  "regeneration_rule": "Regenerate immediately, in the same change, whenever any file listed in 'scope' above is added, removed, or renamed. Re-running the generator script is the only supported way to update this file.",
+  "regenerated": "2026-09-21",
+  "file_count": 47,
+  "files": [
+    {
+      "path": "Backend-Schema.md",
+      "bytes": 6117
+    },
+    {
+      "path": "DOCUMENT-MANIFEST.json",
+      "bytes": 2643
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md",
+      "bytes": 1215
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/00_MASTER/ARCHITECTURE_MAP.md",
+      "bytes": 1323
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/00_MASTER/DEVELOPMENT_MASTER_CONTRACT.md",
+      "bytes": 1633
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/00_MASTER/DEVELOPMENT_WORKBENCH_MANIFEST.json",
+      "bytes": 858
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/00_MASTER/PACKAGE_MANIFEST.json",
+      "bytes": 715
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/CONTEXT_PACKET_RULES.md",
+      "bytes": 745
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/SOURCE_OWNERSHIP_MAP.json",
+      "bytes": 43784
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/SOURCE_OWNER_CATALOG.md",
+      "bytes": 16124
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md",
+      "bytes": 1532
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/02_RUNTIME_CONTRACTS/DURABLE_TASK_RUNTIME.md",
+      "bytes": 683
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/02_RUNTIME_CONTRACTS/EVENT_CONTRACT.md",
+      "bytes": 614
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md",
+      "bytes": 697
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/MODEL_ROUTING_CONTRACT.md",
+      "bytes": 679
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/04_AGENT_RUNTIME/AGENT_RUNTIME_CONTRACT.md",
+      "bytes": 522
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/04_AGENT_RUNTIME/HANDOFF_AND_PARALLELISM.md",
+      "bytes": 474
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/05_CAPABILITY_FABRIC/CAPABILITY_CONTRACT.md",
+      "bytes": 541
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/05_CAPABILITY_FABRIC/TOOL_DISCOVERY_AND_DEFERRED_LOADING.md",
+      "bytes": 434
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/MEMORY_CONTRACT.md",
+      "bytes": 511
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/RETRIEVAL_CONTEXT_POLICY.md",
+      "bytes": 406
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/07_EXECUTION_VERIFICATION/EVIDENCE_CONTRACT.md",
+      "bytes": 525
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/07_EXECUTION_VERIFICATION/WORLD_STATE_FRESHNESS.md",
+      "bytes": 400
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/EVALUATION_CONTRACT.md",
+      "bytes": 429
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/TRACING_AND_TELEMETRY.md",
+      "bytes": 512
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/09_SECURITY_GOVERNANCE/APPROVAL_CONTRACT.md",
+      "bytes": 373
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/09_SECURITY_GOVERNANCE/SECURITY_INVARIANTS.md",
+      "bytes": 613
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/AI_HANDOFF_TEMPLATE.md",
+      "bytes": 306
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/CHANGE_LEDGER.md",
+      "bytes": 27465
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
+      "bytes": 3144
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/ENVIRONMENT_REQUIREMENTS.md",
+      "bytes": 2201
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/REGRESSION_MATRIX.md",
+      "bytes": 612
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/RELEASE_GATES.md",
+      "bytes": 415
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/TEST_STRATEGY.md",
+      "bytes": 476
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/VALIDATION_STATES.md",
+      "bytes": 2131
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/NO_BIG_BANG_RULE.md",
+      "bytes": 329
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
+      "bytes": 1017
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/13_RESEARCH/PRIMARY_RESEARCH_URLS.md",
+      "bytes": 3732
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/13_RESEARCH/RESEARCH_SYNTHESIS_2026.md",
+      "bytes": 1472
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/14_TEMPLATES/CONTRACT_CHANGE_TEMPLATE.md",
+      "bytes": 180
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/14_TEMPLATES/SOURCE_CARD_TEMPLATE.md",
+      "bytes": 231
+    },
+    {
+      "path": "FRIDAY-DEVELOPMENT/14_TEMPLATES/TASK_PACKET_TEMPLATE.md",
+      "bytes": 2801
+    },
+    {
+      "path": "INDEX.md",
+      "bytes": 2452
+    },
+    {
+      "path": "PRD.md",
+      "bytes": 7566
+    },
+    {
+      "path": "README.md",
+      "bytes": 797
+    },
+    {
+      "path": "TRD.md",
+      "bytes": 7877
+    },
+    {
+      "path": "UI-UX-Design-Document.md",
+      "bytes": 4878
+    }
+  ]
+}

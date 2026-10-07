@@ -1,0 +1,20 @@
+{
+  "name": "hash-chain-append",
+  "version": "1.0.0",
+  "description": "Append a SHA-256 chained NDJSON audit line. Dry-run returns the next record; apply appends .friday-hash-chain.ndjson. Stdlib hashlib only.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Hash chain append",
+    "icon": "link"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Gitignore env auditor",
+  "version": "1.0.0",
+  "description": "Checks whether .gitignore mentions .env in folders that have a .git directory, so secrets files are less likely to be committed. Does not edit gitignore.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} repo(s) whose .gitignore does not mention .env under \u201c{folder}\u201d. Read-only. Nothing will be edited."
+}

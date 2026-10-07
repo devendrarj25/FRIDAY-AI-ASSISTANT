@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git remotes",
+  "description": "List git remotes and their URLs (read-only). Does not fetch or push.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to list git remotes (read-only). Allow this?"
+}

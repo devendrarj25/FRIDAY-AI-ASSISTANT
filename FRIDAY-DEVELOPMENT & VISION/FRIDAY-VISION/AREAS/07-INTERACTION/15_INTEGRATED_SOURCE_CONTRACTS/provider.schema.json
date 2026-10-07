@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://voice/provider",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "version",
+    "locality",
+    "capabilities",
+    "licenseRefs"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "audio-io",
+        "aec",
+        "ns",
+        "agc",
+        "vad",
+        "wake",
+        "stt",
+        "tts",
+        "enhancement"
+      ]
+    },
+    "version": {
+      "type": "string"
+    },
+    "locality": {
+      "enum": [
+        "local",
+        "network",
+        "hybrid"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "licenseRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "healthProbe": {
+      "type": "string"
+    }
+  }
+}

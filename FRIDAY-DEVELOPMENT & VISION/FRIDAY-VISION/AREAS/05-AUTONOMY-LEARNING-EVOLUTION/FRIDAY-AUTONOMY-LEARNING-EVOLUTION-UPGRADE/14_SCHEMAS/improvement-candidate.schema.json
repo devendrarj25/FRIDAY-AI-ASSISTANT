@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Improvement Candidate",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "parent",
+    "status",
+    "evaluator"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "policy",
+        "memory-rule",
+        "procedure",
+        "skill",
+        "tool",
+        "workflow",
+        "agent",
+        "module",
+        "router-policy",
+        "adapter",
+        "code"
+      ]
+    },
+    "parent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "sandboxed",
+        "evaluated",
+        "shortlisted",
+        "approved",
+        "canary",
+        "promoted",
+        "rejected",
+        "rolled-back",
+        "quarantined"
+      ]
+    },
+    "evaluator": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "permissions": {
+      "type": "object"
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollback": {
+      "type": "object"
+    }
+  }
+}

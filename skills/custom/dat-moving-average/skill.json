@@ -1,0 +1,17 @@
+{
+  "id": "dat-moving-average",
+  "name": "Simple moving average",
+  "summary": "Compute a simple moving average of a numeric series for a window you choose.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "window"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Local smoothing. Not a trading signal and not a forecast service."
+}

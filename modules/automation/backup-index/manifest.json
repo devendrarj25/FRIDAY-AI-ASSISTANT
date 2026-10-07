@@ -1,0 +1,20 @@
+{
+  "name": "backup-index",
+  "version": "1.0.0",
+  "description": "Index files that look like backups (*.bak, *.old, *~, copy of). Dry-run lists them; apply writes .friday-backup-index.json.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Backup index",
+    "icon": "archive"
+  }
+}

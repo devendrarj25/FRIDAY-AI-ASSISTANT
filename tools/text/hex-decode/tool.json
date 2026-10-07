@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Hex decode",
+  "description": "Decode lowercase/uppercase hex to UTF-8 text with Node Buffer.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to HEX-DECODE text in memory. Allow this?",
+  "keywords": [
+    "hex",
+    "decode"
+  ]
+}

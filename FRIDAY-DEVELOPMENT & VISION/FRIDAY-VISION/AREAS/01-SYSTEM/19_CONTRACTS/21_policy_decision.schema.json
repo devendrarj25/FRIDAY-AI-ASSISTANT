@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "21_policy_decision.schema.json",
+  "type": "object",
+  "x-friday-note": "Illustrative canonical contract; implement against current source owners and evolve compatibly.",
+  "properties": {
+    "decision_id": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "string"
+    },
+    "reasons": {
+      "type": "array"
+    }
+  }
+}

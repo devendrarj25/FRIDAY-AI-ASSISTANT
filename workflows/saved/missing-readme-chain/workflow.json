@@ -1,0 +1,57 @@
+{
+  "id": "missing-readme-chain",
+  "name": "Missing README chain",
+  "version": "1.0.0",
+  "description": "Find missing READMEs, extract links from existing ones, license files, changelog presence.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Extract README links",
+      "kind": "agent",
+      "ref": "agents/core/readme-link-extractor",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find license files",
+      "kind": "agent",
+      "ref": "agents/core/license-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Changelog head via module",
+      "kind": "module",
+      "ref": "modules/developer/changelog-head",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft README headings",
+      "kind": "skill",
+      "ref": "skills/custom/code-changelog",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the README plan local",
+      "kind": "note",
+      "ref": "readme-plan",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Desktop shortcut inventory",
+  "version": "1.0.0",
+  "description": "Lists .lnk / .url / .desktop shortcuts on the Desktop (or chosen folder). Read-only.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} shortcut(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

@@ -1,0 +1,500 @@
+# FRIDAY — Pull Request Validation
+#
+# The single validation workflow. It runs on pull requests targeting main and
+# on manual dispatch. One run covers what used to be split across CI Fast and
+# the pull-request Security Scan: typecheck, docs and version sync, layout and
+# architecture audits, kernel tests, the full Vitest suite, a warn-only
+# "code changed without a test" note, secret scan, CodeQL, dependency audit,
+# and (unless the change is documentation only) a real Windows NSIS installer
+# plus install/boot/uninstall smoke. It never versions, tags, publishes or
+# writes to main. It does not enforce branch protection. A public repository
+# may have a ruleset; a private free repository does not. See
+# docs/FRIDAY_MERGE_FLOW.md.
+#
+# Direct pushes to main are NOT watched here (no push trigger at all): making
+# main accept only pull requests is a repository Ruleset setting, see
+# docs/FRIDAY_MERGE_FLOW.md.
+#
+# Node/npm come from the single canonical toolchain action
+# (.github/actions/friday-node), which derives the version from package.json
+# engines, so PR validation, the test EXE build and the official release build
+# all run on the exact same Node/npm.
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+    # `ready_for_review` is what makes draft pull requests free: the gate skips
+    # drafts, so tests and the Windows installer wait until the PR is marked
+    # ready. The secret scan still runs on a draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact commit to validate (defaults to the tip of the dispatched ref)"
+        type: string
+        default: ""
+
+# One validation run per branch/PR head, so repeated pushes to an open PR
+# supersede the previous run instead of validating twice. The event is part of
+# the group on purpose: a manual validation requested for an exact release
+# commit must never be cancelled by (or cancel) the PR-triggered run, otherwise
+# the release orchestrator waits forever for evidence that was thrown away.
+concurrency:
+  group: friday-pr-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Read-only by design: this workflow cannot tag, release, commit or push. The
+# single exception is the commit status it publishes for the exact commit it
+# validated - that status IS the evidence the release orchestrator requires,
+# produced by the run that really did the validation.
+permissions:
+  # `contents: write` exists for exactly one purpose: the version/documentation
+  # auto-heal step below, which may push a docs-only "chore: sync docs" commit
+  # to the pull request branch. Nothing else in this workflow writes to git.
+  contents: write
+  statuses: write
+
+jobs:
+  # Cheap Linux gate (about a minute). It decides how much validation this change
+  # needs, so the Windows build (billed at twice the Linux rate) only runs when
+  # something that ends up in the installer, or in the tests, actually changed.
+  gate:
+    # Draft pull requests cost nothing: no runner is started for them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVENT_NAME: ${{ github.event_name }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+    steps:
+      # The classifier is read from the BASE commit (trusted `main`), never from the
+      # pull request, so a change cannot rewrite the rule that decides how much of it
+      # gets validated. The very first PR that adds the script has no base copy and
+      # simply gets the full validation.
+      - name: Fetch the trusted classifier
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/pr-scope.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Decide how much validation this change needs
+        id: scope
+        shell: bash
+        run: |
+          set -uo pipefail
+          docs_only=false
+          # Manual dispatches (release evidence for an exact commit) are ALWAYS full.
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -f scripts/pr-scope.cjs ]; then
+            if files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null) && [ -n "$files" ]; then
+              verdict=$(printf '%s\n' "$files" | node scripts/pr-scope.cjs 2>/dev/null || true)
+              [ "$verdict" = "docs_only=true" ] && docs_only=true
+            else
+              echo "::notice::could not list the changed files - running the full validation"
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "### PR Validation scope: $([ "$docs_only" = true ] && echo 'documentation only (installer build skipped, all tests still run)' || echo 'full (Windows build)')" >> "$GITHUB_STEP_SUMMARY"
+
+  validate:
+    needs: gate
+    # `needs.gate.result == 'success'` is required. A custom `if` replaces the
+    # default success check, so a skipped gate (a draft) would otherwise start
+    # the Windows job and spend minutes on a pull request that cannot merge.
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          # A manual validation may name the exact commit it must validate, so
+          # the evidence it publishes always belongs to that commit.
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+
+      - name: Report what is being validated
+        id: target
+        # Reporting only - this workflow reports pass/fail; it never blocks a
+        # push and never modifies main.
+        shell: bash
+        env:
+          # Branch names are attacker-influenced text: never splice them into a script.
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          branch="$HEAD_REF"
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "validating: $branch @ $sha (event: ${{ github.event_name }})"
+
+      - name: Publish "PR Validation" as running on the validated commit
+        shell: bash
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ steps.target.outputs.sha }}" \
+            -f state=pending -f context='PR Validation' \
+            -f description='FRIDAY PR validation is running' \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Install dependencies (npm ci — package-lock is authoritative)
+        run: npm ci
+
+      # Version/documentation synchronization - SELF-HEALING.
+      #
+      # A human may bump package.json by hand, hand-edit the changelog, or open
+      # a pull request without running the release engine. That used to
+      # hard-fail here (and in `npm test`, whose version-sync and documentation
+      # contract tests audit the same declarations). Now CI repairs it BEFORE the
+      # tests with the release engine's single `heal` command - package-lock,
+      # renderer fallback, LICENSE year, every governed document, CHANGELOG
+      # (exactly one heading per version), releases/notes/vX.Y.Z.md, README
+      # "What is new" and the generated docs index/map, all derived from the
+      # version the branch already declares (idempotent, never a version bump of
+      # its own) - commits the result to the pull request branch and continues
+      # validating on the healed tree.
+      #
+      # Hard failure is kept for exactly the cases auto-heal cannot fix:
+      # an invalid/absent version, drift that survives the repair, a fork PR
+      # (no push rights), or a repair that touched anything outside the
+      # version/documentation allowlist below - code logic is never rewritten.
+      - name: Verify version/documentation synchronization (auto-heal)
+        id: heal
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if node scripts/release-engine.cjs heal --check; then
+            echo "documentation already in sync"
+            exit 0
+          fi
+
+          version=$(node scripts/release-engine.cjs identity --field releaseVersion)
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            echo "::error::canonical identity declares an invalid version \"$version\" - auto-heal cannot repair this"
+            exit 1
+          fi
+
+          branch="$HEAD_REF"
+          same_repo='${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}'
+          echo "::notice::version/documentation drift detected - auto-healing to v$version"
+          # One idempotent repair for every derived version source and document.
+          # It never bumps a version and never touches code logic; it exits
+          # non-zero only when a problem survived the repair.
+          node scripts/release-engine.cjs heal --version "$version"
+          # Missing structure folders are empty placeholders. Create them here
+          # so the same run can commit the .gitkeep instead of failing later.
+          node scripts/arrange-project.cjs --fix
+
+          # Auto-heal may only touch version/documentation sources and those
+          # empty placeholder files. Code logic is never rewritten.
+          changed=$(git status --porcelain --untracked-files=all | awk '{print $2}')
+          if [ -n "$changed" ]; then
+            bad=$(echo "$changed" | grep -vE '(^|/)[^/]+\.md$|^package(-lock)?\.json$|^src/lib/friday/version\.ts$|^LICENSE$|^config/friday-version\.json$|^installer/build/friday-version\.nsh$|(^|/)\.gitkeep$' || true)
+            if [ -n "$bad" ]; then
+              echo "::error::auto-heal touched non-documentation files:"; echo "$bad"
+              exit 1
+            fi
+          fi
+
+          # The repair must actually have fixed the drift.
+          node scripts/release-engine.cjs verify
+
+          if [ -z "$changed" ]; then
+            echo "drift resolved without file changes"
+            exit 0
+          fi
+
+          # PINNED-COMMIT GUARD.
+          #
+          # When this run was dispatched for an EXACT commit (inputs.sha), the
+          # release orchestrator is waiting for evidence about that very commit
+          # and has pinned the pull request head to it. Pushing an auto-heal
+          # commit here would move the head, invalidate the pin and abort
+          # Official Publish at "Wait for the required checks" - which is
+          # exactly the failure this guard removes. The repair still happens
+          # in the working tree (so the validation below is honest); it is
+          # simply not pushed.
+          if [ -n '${{ inputs.sha }}' ]; then
+            echo "::notice::validating pinned commit ${{ inputs.sha }} - documentation was repaired in-tree and deliberately NOT pushed (pushing would move the pinned head)"
+            exit 0
+          fi
+
+          if [ "$same_repo" != "true" ]; then
+            echo "::error::documentation is out of sync and this pull request comes from a fork - run 'npm run release:heal' locally and push"
+            exit 1
+          fi
+
+          git config user.name 'friday-ci'
+          git config user.email 'friday-ci@users.noreply.github.com'
+          printf '%s\n' "$changed" | xargs -d '\n' git add --
+          git commit -m "chore: sync docs to v$version"
+          git push origin "HEAD:refs/heads/$branch"
+
+          # A push made with GITHUB_TOKEN never starts a new workflow run, so the
+          # healed commit (now the pull request head) would otherwise carry no
+          # "PR Validation" status and stay BLOCKED forever. The rest of this run
+          # validates exactly this tree, so the result is published on it too.
+          healed=$(git rev-parse HEAD)
+          echo "sha=$healed" >> "$GITHUB_OUTPUT"
+          gh api "repos/${{ github.repository }}/statuses/$healed" \
+            -f state=pending -f context='PR Validation' \
+            -f description='FRIDAY PR validation is running on the auto-healed commit' \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
+          echo "::notice::pushed 'chore: sync docs to v$version' to $branch - validation continues on the healed tree"
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Documentation and version in sync
+        run: |
+          npm run docs:check
+          npm run verify:version
+
+      - name: Tests changed with the code (warn only)
+        if: github.event_name == 'pull_request'
+        run: node scripts/tests-required.cjs "origin/${{ github.base_ref }}"
+
+      - name: Commit provenance
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-provenance.cjs "origin/${{ github.base_ref }}"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Python for the kernel tests
+        uses: ./.github/actions/python
+
+      - name: Kernel tests
+        run: |
+          python -m pip install -r kernel/requirements-dev.txt
+          npm run test:kernel
+
+      - name: Verify FRIDAY layout and dependencies
+        run: |
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Clean-architecture audit
+        run: node scripts/audit-architecture.cjs --strict
+
+      - name: Validate Electron runtime
+        run: node scripts/ensure-electron.cjs --quiet
+
+      - name: Build renderer bundle
+        run: npm run build:desktop
+
+      - name: Windows NSIS installer (no release)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: node scripts/electron-pack.cjs --win nsis
+
+      - name: Verify packaged application
+        run: node scripts/verify-build.cjs nsis
+
+      - name: Exercise installer lifecycle (install, boot, reinstall, uninstall)
+        shell: powershell
+        run: |
+          $version = node scripts/release-engine.cjs identity --field releaseVersion
+          & scripts/windows-installer-smoke.ps1 -Installer "release/FRIDAY-Setup-$version.exe" -Product "FRIDAY"
+          if ($LASTEXITCODE -ne 0) { throw "installer lifecycle failed." }
+
+      - name: Publish the "PR Validation" result for the validated commit
+        if: always()
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          HEALED_SHA: ${{ steps.heal.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        # The real outcome of THIS run, on the exact commit THIS run checked
+        # out - and, when auto-heal pushed a docs-only commit, on that healed
+        # commit as well, because it is the tree that was validated. Nothing is
+        # fabricated: a failed or cancelled job publishes a failure, which the
+        # release orchestrator treats as a hard stop.
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            cancelled) state=error ;;
+            *) state=failure ;;
+          esac
+          for sha in $TARGET_SHA $HEALED_SHA; do
+            [ -n "$sha" ] || continue
+            gh api "repos/${{ github.repository }}/statuses/$sha" \
+              -f state="$state" -f context='PR Validation' \
+              -f description="FRIDAY PR validation: $JOB_STATUS" \
+              -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
+          done
+
+  # Documentation-only pull requests: everything that can actually break for a
+  # docs change (type check, the full Vitest suite, docs registry, version sync)
+  # runs on Linux. There is no installer to build because nothing in it changed.
+  # It publishes the SAME required "PR Validation" status, honestly labelled.
+  docs-only:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Publish "PR Validation" as running on the validated commit
+        id: target
+        shell: bash
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          gh api "repos/${{ github.repository }}/statuses/$sha" \
+            -f state=pending -f context='PR Validation' \
+            -f description='FRIDAY PR validation (docs only) is running' \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Documentation, version and type checks
+        run: |
+          node scripts/release-engine.cjs heal --check || {
+            echo "::error::documentation is out of sync - run 'npm run release:heal' locally and push"
+            exit 1
+          }
+          npm run docs:check
+          npm run verify:version
+          npm run typecheck
+
+      - name: Tests changed with the code (warn only)
+        if: github.event_name == 'pull_request'
+        run: node scripts/tests-required.cjs "origin/${{ github.base_ref }}"
+
+      - name: Commit provenance
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-provenance.cjs "origin/${{ github.base_ref }}"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Publish the "PR Validation" result for the validated commit
+        if: always()
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            cancelled) state=error ;;
+            *) state=failure ;;
+          esac
+          [ -n "$TARGET_SHA" ] || exit 0
+          gh api "repos/${{ github.repository }}/statuses/$TARGET_SHA" \
+            -f state="$state" -f context='PR Validation' \
+            -f description="FRIDAY PR validation (docs only, Windows build skipped): $JOB_STATUS" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
+
+  # Secret scan runs on drafts too. A leaked secret is already leaked, and this
+  # job is about a minute. CodeQL and the dependency audit follow the same
+  # docs-only rule as the Windows installer: documentation cannot change them.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch full history
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          # The pull request head, not the synthetic merge commit. On a
+          # pull_request event GITHUB_SHA is refs/pull/N/merge, which is not a
+          # branch tip. Same-repo and fork heads are fetched by the checkout
+          # action when that commit is not already in refs/heads/*.
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 \
+            detect --source /repo --redact --no-banner --exit-code 1
+
+  codeql:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true' && github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+
+      - name: Analyse
+        shell: bash
+        run: |
+          echo "::warning title=CodeQL::CodeQL is not started. This repository only allows actions owned by devendrarj25, so github/codeql-action cannot run. Language: ${{ matrix.language }}"
+
+  audit:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: npm audit (informational)
+        run: |
+          if ! npm audit --audit-level=high --omit=dev; then
+            echo "::warning title=npm audit::High or critical advisory found. Dependabot will open the fix as a pull request."
+          fi
+
+      - name: pip-audit (informational)
+        run: |
+          if ! python3 -m pip install --quiet pip-audit; then
+            echo "::warning title=pip-audit::pip-audit could not be installed. The advisory check was skipped."
+          elif ! python3 -m pip_audit -r kernel/requirements.txt; then
+            echo "::warning title=pip-audit::Advisory found in the kernel requirements."
+          fi

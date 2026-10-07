@@ -1,0 +1,17 @@
+{
+  "name": "WhatsApp image dump scanner",
+  "version": "1.0.0",
+  "description": "Finds WhatsApp-style IMG-YYYYMMDD / WA*.jpg files so phone dumps can be counted and later sorted.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} WhatsApp-style image(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

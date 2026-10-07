@@ -1,0 +1,19 @@
+{
+  "name": "prompt-pack-list",
+  "version": "1.0.0",
+  "description": "List prompt-like files (prompts/, *.prompt.md, *prompt*.txt) and return the first line of each. Read-only.",
+  "category": "ai",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Prompt pack list",
+    "icon": "message-square"
+  }
+}

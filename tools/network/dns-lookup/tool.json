@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "DNS lookup",
+  "description": "Resolve a hostname with Node's dns.promises (the same DNS API network-diagnostics uses).",
+  "category": "network",
+  "inputs": [
+    "host"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to resolve DNS for “{host}”. Allow this lookup?"
+}

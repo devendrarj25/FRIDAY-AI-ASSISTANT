@@ -1,0 +1,64 @@
+{
+  "id": "inbox-desk-triage",
+  "name": "Inbox desk triage",
+  "version": "1.0.0",
+  "description": "Triage mail-shaped work locally: Gmail search if connected, otherwise harvest URLs and draft replies from files. Send stays gated. No social posting.",
+  "category": "office",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "every 30m",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Search Gmail if connected",
+      "kind": "connector",
+      "ref": "google-gmail",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Harvest URLs from a folder",
+      "kind": "agent",
+      "ref": "agents/core/url-harvest-from-folder",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Draft an email from those notes",
+      "kind": "skill",
+      "ref": "skills/custom/com-email-draft",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft a follow-up",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a Slack update text (local only unless Slack is connected)",
+      "kind": "skill",
+      "ref": "skills/custom/com-slack-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Post to Slack only if connected and approved",
+      "kind": "connector",
+      "ref": "slack",
+      "risk": "write"
+    },
+    {
+      "id": "s7",
+      "label": "Queue what still needs a decision",
+      "kind": "note",
+      "ref": "decision-queue",
+      "risk": "safe"
+    }
+  ]
+}

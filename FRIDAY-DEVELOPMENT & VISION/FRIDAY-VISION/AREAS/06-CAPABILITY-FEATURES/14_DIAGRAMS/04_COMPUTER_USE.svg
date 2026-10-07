@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 z"/></marker></defs>
+<text x="50" y="55" font-family="Arial" font-size="30" font-weight="700">Hybrid Computer Use</text>
+<rect x="70" y="100" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="90" y="134" font-family="Arial" font-size="22" font-weight="700">Observe</text>
+<text x="90" y="165" font-family="Arial" font-size="16">DOM/UIA/screenshot/device state</text>
+<rect x="730" y="100" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="750" y="134" font-family="Arial" font-size="22" font-weight="700">Ground</text>
+<text x="750" y="165" font-family="Arial" font-size="16">native selector or visual target</text>
+<rect x="70" y="220" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="90" y="254" font-family="Arial" font-size="22" font-weight="700">Choose Action</text>
+<text x="90" y="285" font-family="Arial" font-size="16">API > structured UI > vision</text>
+<rect x="730" y="220" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="750" y="254" font-family="Arial" font-size="22" font-weight="700">Policy</text>
+<text x="750" y="285" font-family="Arial" font-size="16">risk + approval</text>
+<rect x="70" y="340" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="90" y="374" font-family="Arial" font-size="22" font-weight="700">Act</text>
+<text x="90" y="405" font-family="Arial" font-size="16">native/GUI/browser</text>
+<rect x="730" y="340" width="590" height="90" rx="16" fill="none" stroke="black" stroke-width="2"/>
+<text x="750" y="374" font-family="Arial" font-size="22" font-weight="700">Verify</text>
+<text x="750" y="405" font-family="Arial" font-size="16">observe again + expected state</text>
+<line x1="365" y1="190" x2="1025" y2="100" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+<line x1="1025" y1="190" x2="365" y2="220" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+<line x1="365" y1="310" x2="1025" y2="220" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+<line x1="1025" y1="310" x2="365" y2="340" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+<line x1="365" y1="430" x2="1025" y2="340" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+<line x1="1025" y1="430" x2="365" y2="100" stroke="black" stroke-width="2" marker-end="url(#a)"/>
+</svg>

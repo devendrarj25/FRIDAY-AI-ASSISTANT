@@ -1,0 +1,17 @@
+{
+  "name": "Tender filename scanner",
+  "version": "1.0.0",
+  "description": "Finds files named like tenders, RFPs, NITs or corrigenda so a bids folder can be listed from names alone. Does not fetch portals.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} tender/RFP/NIT-named file(s) under \u201c{folder}\u201d. Filename match only. Allow to keep the list."
+}

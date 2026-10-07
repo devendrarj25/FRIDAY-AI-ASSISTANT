@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "18_recovery.schema.json",
+  "type": "object",
+  "x-friday-note": "Illustrative canonical contract; implement against current source owners and evolve compatibly.",
+  "properties": {
+    "recovery_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "ambiguous_effects": {
+      "type": "array"
+    },
+    "evidence_required": {
+      "type": "array"
+    },
+    "status": {
+      "type": "string"
+    }
+  }
+}

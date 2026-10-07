@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "GitHub update config",
+  "description": "Read public GitHub-sync config (no token) via electron/github-sync.cjs publicConfig.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "system.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ GitHub update settings (token stays hidden). Allow this?"
+}

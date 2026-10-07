@@ -1,0 +1,71 @@
+{
+  "id": "tax-season-filename-pass",
+  "name": "Tax-season filename pass",
+  "version": "1.0.0",
+  "description": "Filename-only tax season pass: GST invoices, invoices, contracts, overdue dated files, PDF copies, CSV totals, then a local hisab note. Values are not scraped from scans.",
+  "category": "bookkeeping",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "quarterly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "List GST invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/gst-invoice-filename-lister",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan contract filenames",
+      "kind": "agent",
+      "ref": "agents/core/contract-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Plan PDF copies into books",
+      "kind": "agent",
+      "ref": "agents/core/folder-copy-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Total CSV expense rows",
+      "kind": "agent",
+      "ref": "agents/core/csv-expense-total",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Load invoice-terms checklist",
+      "kind": "skill",
+      "ref": "skills/custom/law-invoice-terms",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the tax-season note local",
+      "kind": "note",
+      "ref": "tax-season",
+      "risk": "safe"
+    }
+  ]
+}

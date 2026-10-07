@@ -1,0 +1,17 @@
+{
+  "id": "hom-meal-slots",
+  "name": "Leftover meal slots",
+  "summary": "Slot leftover names into lunch/dinner for the next few days so food gets used.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "days"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Household planning helper. It does not control devices or place orders."
+}

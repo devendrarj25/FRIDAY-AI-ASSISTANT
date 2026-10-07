@@ -1,0 +1,16 @@
+{
+  "id": "dat-schema-infer",
+  "name": "CSV schema guess",
+  "summary": "Guess column types (number, date-like, text) from a pasted CSV sample.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Heuristic types from a sample. It does not migrate a database."
+}

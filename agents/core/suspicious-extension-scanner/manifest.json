@@ -1,0 +1,17 @@
+{
+  "name": "Suspicious extension scanner",
+  "version": "1.0.0",
+  "description": "Lists double-extension and script-like files (.exe.js, .pdf.exe, .scr, .vbs, .hta) that often arrive in Downloads. Report only.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} suspicious-extension file(s) under \u201c{folder}\u201d. Read-only. Nothing will be deleted."
+}

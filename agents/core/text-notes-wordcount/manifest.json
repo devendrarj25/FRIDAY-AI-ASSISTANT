@@ -1,0 +1,17 @@
+{
+  "name": "Text notes wordcount",
+  "version": "1.0.0",
+  "description": "Word-counts .txt/.md notes in a folder so a research dump has real volume numbers, not a guess.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY counted words in {count} note file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the totals."
+}

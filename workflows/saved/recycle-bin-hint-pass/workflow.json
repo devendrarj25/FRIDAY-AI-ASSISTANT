@@ -1,0 +1,50 @@
+{
+  "id": "recycle-bin-hint-pass",
+  "name": "Recycle Bin hint pass",
+  "version": "1.0.0",
+  "description": "Recycle Bin hint (Windows names), empty folders, zero-byte files — no silent purge.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Recycle Bin hint",
+      "kind": "agent",
+      "ref": "agents/core/recycle-bin-hint",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find empty folders",
+      "kind": "agent",
+      "ref": "agents/core/empty-folder-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find zero-byte files",
+      "kind": "agent",
+      "ref": "agents/core/zero-byte-file-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft what could go",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "No silent purge",
+      "kind": "note",
+      "ref": "recycle-hint",
+      "risk": "safe"
+    }
+  ]
+}

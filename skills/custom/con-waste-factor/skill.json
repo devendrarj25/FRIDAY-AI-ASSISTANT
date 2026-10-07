@@ -1,0 +1,18 @@
+{
+  "id": "con-waste-factor",
+  "name": "Waste factor planner",
+  "summary": "Gross order quantity from a net takeoff and a waste percent.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "netQty",
+    "wastePct",
+    "label"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "gross = net × (1+wastePct/100). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

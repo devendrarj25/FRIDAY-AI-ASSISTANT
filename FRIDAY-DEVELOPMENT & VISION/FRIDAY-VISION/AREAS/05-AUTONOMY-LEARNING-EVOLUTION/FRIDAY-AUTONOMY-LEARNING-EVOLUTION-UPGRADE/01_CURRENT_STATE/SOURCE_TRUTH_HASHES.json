@@ -1,0 +1,157 @@
+{
+  "source": "FRIDAY-main.zip",
+  "files": [
+    {
+      "path": "core/__tests__/experience-learning-loop.test.ts",
+      "bytes": 7216
+    },
+    {
+      "path": "core/__tests__/memory-fabric.test.ts",
+      "bytes": 3602
+    },
+    {
+      "path": "core/__tests__/memory-section-closeout.test.ts",
+      "bytes": 4038
+    },
+    {
+      "path": "core/__tests__/self-diagnosis.test.ts",
+      "bytes": 12140
+    },
+    {
+      "path": "core/__tests__/self-maintenance.test.ts",
+      "bytes": 4635
+    },
+    {
+      "path": "core/__tests__/self-management-closeout.test.ts",
+      "bytes": 3367
+    },
+    {
+      "path": "electron/self-maintenance.cjs",
+      "bytes": 17291
+    },
+    {
+      "path": "src/lib/friday/brain/agent-forge.ts",
+      "bytes": 21449
+    },
+    {
+      "path": "src/lib/friday/brain/module-forge.ts",
+      "bytes": 19851
+    },
+    {
+      "path": "src/lib/friday/brain/multi-model.ts",
+      "bytes": 5245
+    },
+    {
+      "path": "src/lib/friday/brain/plugin-forge.ts",
+      "bytes": 17462
+    },
+    {
+      "path": "src/lib/friday/brain/skill-forge.ts",
+      "bytes": 21922
+    },
+    {
+      "path": "src/lib/friday/brain/tool-forge.ts",
+      "bytes": 11499
+    },
+    {
+      "path": "src/lib/friday/brain/workflow-forge.ts",
+      "bytes": 35092
+    },
+    {
+      "path": "src/lib/friday/brain/workflow-introspection.ts",
+      "bytes": 7686
+    },
+    {
+      "path": "src/lib/friday/self/agent-scheduler.ts",
+      "bytes": 9162
+    },
+    {
+      "path": "src/lib/friday/self/autonomous-core.ts",
+      "bytes": 10245
+    },
+    {
+      "path": "src/lib/friday/self/autonomy.ts",
+      "bytes": 4849
+    },
+    {
+      "path": "src/lib/friday/self/background-tasks.ts",
+      "bytes": 9786
+    },
+    {
+      "path": "src/lib/friday/self/capability-matrix.ts",
+      "bytes": 7061
+    },
+    {
+      "path": "src/lib/friday/self/dev-pipeline.ts",
+      "bytes": 24750
+    },
+    {
+      "path": "src/lib/friday/self/finetune.ts",
+      "bytes": 7594
+    },
+    {
+      "path": "src/lib/friday/self/governance.ts",
+      "bytes": 14180
+    },
+    {
+      "path": "src/lib/friday/self/horizon-goals.ts",
+      "bytes": 1391
+    },
+    {
+      "path": "src/lib/friday/self/intelligence-benchmark.ts",
+      "bytes": 10935
+    },
+    {
+      "path": "src/lib/friday/self/learning-engine.ts",
+      "bytes": 13082
+    },
+    {
+      "path": "src/lib/friday/self/limitation-loop.ts",
+      "bytes": 1999
+    },
+    {
+      "path": "src/lib/friday/self/maintenance-bridge.ts",
+      "bytes": 6652
+    },
+    {
+      "path": "src/lib/friday/self/mastery.ts",
+      "bytes": 3997
+    },
+    {
+      "path": "src/lib/friday/self/memory-consolidate.ts",
+      "bytes": 4658
+    },
+    {
+      "path": "src/lib/friday/self/memory-engine.ts",
+      "bytes": 24865
+    },
+    {
+      "path": "src/lib/friday/self/memory-teach.ts",
+      "bytes": 3118
+    },
+    {
+      "path": "src/lib/friday/self/self-manager.ts",
+      "bytes": 34480
+    },
+    {
+      "path": "src/lib/friday/self/self-section.ts",
+      "bytes": 1373
+    },
+    {
+      "path": "src/lib/friday/self/task-graph.ts",
+      "bytes": 28299
+    },
+    {
+      "path": "src/lib/friday/self/task-ledger.ts",
+      "bytes": 25100
+    },
+    {
+      "path": "src/lib/friday/self/task-runners.ts",
+      "bytes": 11626
+    },
+    {
+      "path": "src/lib/friday/self/use-self.ts",
+      "bytes": 2047
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "off-checklist-from-text",
+  "name": "Checklist from text",
+  "summary": "Turn sentences or commas into a numbered markdown checklist with unchecked boxes.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Formats a list. It does not store tasks on the personal desk."
+}

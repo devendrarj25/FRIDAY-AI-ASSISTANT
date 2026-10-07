@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "markdown-save-headings",
+  "name": "Markdown save headings",
+  "description": "When a .md file changes, count heading lines (# ) without rewriting the file.",
+  "category": "quality",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-file-change"
+  ]
+}

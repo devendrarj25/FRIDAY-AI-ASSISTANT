@@ -1,0 +1,18 @@
+{
+  "id": "mkt-dca-schedule",
+  "name": "Dollar-cost average schedule",
+  "summary": "Split a total cash amount across N equal buys and show shares per slice at a study price.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "total",
+    "periods",
+    "price"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Each slice = total/periods. Shares per slice = slice/price. A worksheet, not an auto-invest instruction."
+}

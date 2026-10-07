@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="810">
+<text x="40" y="55" font-family="Arial" font-size="30" font-weight="bold">Tiered Computer Use</text>
+<rect x="60" y="90" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="134" font-family="Arial" font-size="20">API / CLI</text>
+<line x1="660" y1="160" x2="660" y2="190" stroke="black" stroke-width="2"/>
+<rect x="60" y="195" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="239" font-family="Arial" font-size="20">DOM / Accessibility</text>
+<line x1="660" y1="265" x2="660" y2="295" stroke="black" stroke-width="2"/>
+<rect x="60" y="300" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="344" font-family="Arial" font-size="20">Windows UIA / Win32 / COM</text>
+<line x1="660" y1="370" x2="660" y2="400" stroke="black" stroke-width="2"/>
+<rect x="60" y="405" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="449" font-family="Arial" font-size="20">Browser CDP / Playwright</text>
+<line x1="660" y1="475" x2="660" y2="505" stroke="black" stroke-width="2"/>
+<rect x="60" y="510" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="554" font-family="Arial" font-size="20">Vision Grounding</text>
+<line x1="660" y1="580" x2="660" y2="610" stroke="black" stroke-width="2"/>
+<rect x="60" y="615" width="1200" height="70" rx="14" fill="white" stroke="black" stroke-width="2"/>
+<text x="85" y="659" font-family="Arial" font-size="20">Human Takeover</text>
+</svg>

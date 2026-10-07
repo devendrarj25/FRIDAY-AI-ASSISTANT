@@ -1,0 +1,19 @@
+{
+  "name": "gitignore-audit",
+  "version": "1.0.0",
+  "description": "Parse .gitignore patterns in a folder and flag common misses (node_modules, .venv, dist, .env) when those directories exist. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Gitignore audit",
+    "icon": "eye-off"
+  }
+}

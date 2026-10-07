@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Model Execution Trace",
+  "type": "object",
+  "required": [
+    "traceId",
+    "taskId",
+    "selectedEndpointId",
+    "status"
+  ],
+  "properties": {
+    "traceId": {
+      "type": "string"
+    },
+    "taskId": {
+      "type": "string"
+    },
+    "selectedEndpointId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failed",
+        "fallback",
+        "cancelled",
+        "partial"
+      ]
+    },
+    "latencyMs": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "ttftMs": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fallbackCount": {
+      "type": "integer"
+    },
+    "errorCategory": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "qualitySignal": {
+      "type": [
+        "number",
+        "null"
+      ]
+    }
+  }
+}

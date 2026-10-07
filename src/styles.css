@@ -1,0 +1,707 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * FRIDAY design system — neon HUD console.
+ * Deep navy glass surfaces, electric cyan signal, neon green status.
+ * All colors are oklch tokens; never hardcode colors in components.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 3px);
+  --radius-md: calc(var(--radius) - 1px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --font-display: "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Rajdhani", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-magenta: var(--magenta);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-grid: var(--grid);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.4rem;
+  --friday-density-scale: 1;
+  --friday-panel-opacity: 1;
+  --friday-graphic-intensity: 0.7;
+  --background: oklch(0.15 0.035 255);
+  --foreground: oklch(0.985 0.006 220);
+  --surface: oklch(0.19 0.04 255);
+  --surface-raised: oklch(0.23 0.045 255);
+  --grid: oklch(0.3 0.05 250);
+  --card: oklch(0.185 0.04 255);
+  --card-foreground: oklch(0.985 0.006 220);
+  --popover: oklch(0.19 0.04 255);
+  --popover-foreground: oklch(0.985 0.006 220);
+  --primary: oklch(0.79 0.15 213);
+  --primary-foreground: oklch(0.15 0.035 255);
+  --secondary: oklch(0.26 0.05 255);
+  --secondary-foreground: oklch(0.92 0.02 220);
+  --muted: oklch(0.24 0.045 255);
+  --muted-foreground: oklch(0.84 0.025 225);
+  --accent: oklch(0.85 0.2 150);
+  --accent-foreground: oklch(0.16 0.04 150);
+  --destructive: oklch(0.65 0.22 22);
+  --destructive-foreground: oklch(0.98 0.01 22);
+  --success: oklch(0.85 0.2 150);
+  --success-foreground: oklch(0.16 0.04 150);
+  --warning: oklch(0.85 0.16 85);
+  --warning-foreground: oklch(0.18 0.04 85);
+  --info: oklch(0.79 0.15 213);
+  --info-foreground: oklch(0.15 0.035 255);
+  --magenta: oklch(0.72 0.22 320);
+  --border: oklch(0.32 0.06 245);
+  --input: oklch(0.3 0.055 250);
+  --ring: oklch(0.79 0.15 213);
+  --chart-1: oklch(0.79 0.15 213);
+  --chart-2: oklch(0.85 0.2 150);
+  --chart-3: oklch(0.85 0.16 85);
+  --chart-4: oklch(0.72 0.22 320);
+  --chart-5: oklch(0.65 0.22 22);
+  --sidebar: oklch(0.13 0.035 258);
+  --sidebar-foreground: oklch(0.97 0.01 220);
+  --sidebar-primary: oklch(0.79 0.15 213);
+  --sidebar-primary-foreground: oklch(0.13 0.035 258);
+  --sidebar-accent: oklch(0.25 0.06 245);
+  --sidebar-accent-foreground: oklch(0.97 0.02 213);
+  --sidebar-border: oklch(0.28 0.055 250);
+  --sidebar-ring: oklch(0.79 0.15 213);
+}
+
+/* Accent presets — swapped from Settings › Appearance */
+.theme-green {
+  --primary: oklch(0.85 0.2 150);
+  --primary-foreground: oklch(0.15 0.04 150);
+  --accent: oklch(0.79 0.15 213);
+  --accent-foreground: oklch(0.15 0.035 255);
+  --ring: oklch(0.85 0.2 150);
+  --sidebar-primary: oklch(0.85 0.2 150);
+  --sidebar-primary-foreground: oklch(0.15 0.04 150);
+}
+
+.theme-orange {
+  --primary: oklch(0.8 0.17 60);
+  --primary-foreground: oklch(0.16 0.04 60);
+  --accent: oklch(0.85 0.2 150);
+  --ring: oklch(0.8 0.17 60);
+  --sidebar-primary: oklch(0.8 0.17 60);
+  --sidebar-primary-foreground: oklch(0.16 0.04 60);
+}
+
+.theme-purple {
+  --primary: oklch(0.72 0.22 320);
+  --primary-foreground: oklch(0.98 0.01 320);
+  --accent: oklch(0.79 0.15 213);
+  --ring: oklch(0.72 0.22 320);
+  --sidebar-primary: oklch(0.72 0.22 320);
+  --sidebar-primary-foreground: oklch(0.98 0.01 320);
+}
+
+.theme-daylight {
+  --background: oklch(0.97 0.008 240);
+  --foreground: oklch(0.2 0.03 250);
+  --surface: oklch(1 0 0);
+  --surface-raised: oklch(0.99 0.005 240);
+  --grid: oklch(0.9 0.015 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.03 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.03 250);
+  --secondary: oklch(0.94 0.01 240);
+  --secondary-foreground: oklch(0.24 0.03 250);
+  --muted: oklch(0.94 0.01 240);
+  --muted-foreground: oklch(0.48 0.03 245);
+  --primary: oklch(0.58 0.15 232);
+  --primary-foreground: oklch(0.99 0.005 232);
+  --success: oklch(0.6 0.16 150);
+  --border: oklch(0.88 0.015 240);
+  --input: oklch(0.88 0.015 240);
+  --sidebar: oklch(0.95 0.01 240);
+  --sidebar-foreground: oklch(0.24 0.03 250);
+  --sidebar-accent: oklch(0.9 0.02 235);
+  --sidebar-accent-foreground: oklch(0.18 0.03 250);
+  --sidebar-border: oklch(0.87 0.015 240);
+}
+
+/* Daylight + accent stack: darker primaries so contrast holds on light surfaces. */
+.theme-daylight.theme-green {
+  --primary: oklch(0.45 0.16 150);
+  --primary-foreground: oklch(0.99 0.005 150);
+  --ring: oklch(0.45 0.16 150);
+  --sidebar-primary: oklch(0.45 0.16 150);
+  --sidebar-primary-foreground: oklch(0.99 0.005 150);
+}
+
+.theme-daylight.theme-orange {
+  --primary: oklch(0.55 0.16 60);
+  --primary-foreground: oklch(0.99 0.005 60);
+  --ring: oklch(0.55 0.16 60);
+  --sidebar-primary: oklch(0.55 0.16 60);
+  --sidebar-primary-foreground: oklch(0.99 0.005 60);
+}
+
+.theme-daylight.theme-purple {
+  --primary: oklch(0.48 0.18 320);
+  --primary-foreground: oklch(0.99 0.005 320);
+  --ring: oklch(0.48 0.18 320);
+  --sidebar-primary: oklch(0.48 0.18 320);
+  --sidebar-primary-foreground: oklch(0.99 0.005 320);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    background-image:
+      radial-gradient(
+        900px circle at 12% -10%,
+        color-mix(
+          in oklab,
+          var(--color-primary) calc(17% * var(--friday-graphic-intensity, 0.7)),
+          transparent
+        ),
+        transparent 60%
+      ),
+      radial-gradient(
+        700px circle at 100% 0%,
+        color-mix(
+          in oklab,
+          var(--color-magenta) calc(11% * var(--friday-graphic-intensity, 0.7)),
+          transparent
+        ),
+        transparent 55%
+      );
+    background-attachment: fixed;
+    -webkit-app-region: no-drag;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+  }
+}
+
+@utility panel-grid {
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.2;
+}
+
+@utility label-xs {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Neon HUD surfaces */
+@utility hud-panel {
+  border: 1px solid color-mix(in oklab, var(--color-primary) 22%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(
+        in oklab,
+        var(--color-primary) calc(6% * var(--friday-graphic-intensity, 0.7)),
+        color-mix(
+          in oklab,
+          var(--color-card) calc(var(--friday-panel-opacity, 1) * 100%),
+          transparent
+        )
+      ),
+      color-mix(
+        in oklab,
+        var(--color-card) calc(var(--friday-panel-opacity, 1) * 100%),
+        transparent
+      )
+    );
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-primary) 6%, transparent),
+    0 12px 32px -18px
+      color-mix(
+        in oklab,
+        var(--color-primary) calc(64% * var(--friday-graphic-intensity, 0.7)),
+        transparent
+      ),
+    inset 0 1px 0 color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+@utility hud-tile {
+  border: 1px solid color-mix(in oklab, var(--color-primary) 18%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 5%, var(--color-surface));
+}
+
+@utility glow-text {
+  text-shadow: 0 0 14px color-mix(in oklab, currentColor 55%, transparent);
+}
+
+@utility glow-ring {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-primary) 45%, transparent),
+    0 0 22px -4px color-mix(in oklab, var(--color-primary) 55%, transparent);
+}
+
+@utility scanline {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--color-primary) 6%, transparent) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* FRIDAY live orb — breathing brand mark */
+@keyframes friday-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.045);
+    filter: brightness(1.18);
+  }
+}
+@keyframes friday-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes friday-halo {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.12);
+  }
+}
+@keyframes friday-sweep {
+  0% {
+    transform: rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0;
+  }
+}
+@keyframes friday-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 60%, transparent);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 4px color-mix(in oklab, currentColor 0%, transparent);
+  }
+}
+
+@utility orb-breathe {
+  animation: friday-breathe 4.2s ease-in-out infinite;
+}
+@utility orb-spin-slow {
+  animation: friday-spin 24s linear infinite;
+}
+@utility orb-spin-rev {
+  animation: friday-spin 16s linear infinite reverse;
+}
+@utility orb-halo {
+  animation: friday-halo 4.2s ease-in-out infinite;
+}
+@utility orb-sweep {
+  animation: friday-sweep 3.4s linear infinite;
+}
+@utility pulse-dot {
+  animation: friday-pulse-dot 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-breathe,
+  .orb-spin-slow,
+  .orb-spin-rev,
+  .orb-halo,
+  .orb-sweep,
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* Live circuit: electricity travelling along the neon traces */
+@keyframes friday-dash {
+  to {
+    stroke-dashoffset: -240;
+  }
+}
+@keyframes friday-flicker {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.7;
+  }
+}
+@keyframes friday-node-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@utility circuit-flow {
+  stroke-dasharray: 10 26;
+  animation: friday-dash 2.4s linear infinite;
+  will-change: stroke-dashoffset;
+}
+@utility circuit-flicker {
+  animation: friday-flicker 3.6s ease-in-out infinite;
+}
+@utility node-glow {
+  animation: friday-node-glow 2.8s ease-in-out infinite;
+}
+@utility gpu-layer {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Mode switch (manual ⇄ auto) transition */
+@keyframes friday-mode-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility mode-enter {
+  animation: friday-mode-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Theme-matched scrollbars everywhere (Chromium + Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-primary) 45%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: color-mix(in oklab, var(--color-primary) 5%, var(--color-surface));
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-surface-raised));
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-surface-raised));
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-primary);
+}
+
+
+/* Windows keeps whatever cursor the last hit-test produced when a frameless
+   window repaints, which left the caret/move pointer stuck over inert areas.
+   Anchoring the default here resets it outside real controls. */
+html,
+body,
+#root {
+  cursor: default;
+}
+
+/* Keep Chromium's hit-testing and Windows cursor selection local to editable
+   controls even while GPU-composited HUD layers are animating nearby. */
+
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+  user-select: text;
+  pointer-events: auto;
+  touch-action: manipulation;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+button,
+a,
+[role="button"] {
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+/* Electron frameless-window safety boundary. Chromium builds the native drag
+   hit-test map separately from normal DOM hit-testing. AppShell applies this
+   to all content below the title strip, so every input and control remains
+   interactive while the title strip stays the only draggable region. */
+.friday-interactive-region,
+.friday-interactive-region * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .circuit-flow,
+  .circuit-flicker,
+  .node-glow {
+    animation: none;
+  }
+}
+
+/* Appearance preferences (src/lib/friday/appearance.ts). Defaults are unchanged;
+   these only take effect when the owner turns an effect off in Settings. */
+html.no-motion *,
+html.no-motion *::before,
+html.no-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+html.no-glow .glow-text,
+html.no-glow .glow-border,
+html.no-glow .glow-ring {
+  text-shadow: none;
+  box-shadow: none;
+}
+
+html.no-glow .hud-panel {
+  box-shadow: none;
+}
+
+html.no-scanlines .scanline,
+html.no-scanlines .scanline::after {
+  background-image: none !important;
+}
+
+html.no-scanlines .scanline::after {
+  display: none;
+}
+
+html.high-contrast:not(.theme-daylight) {
+  --foreground: oklch(1 0 0);
+  --card-foreground: oklch(1 0 0);
+  --popover-foreground: oklch(1 0 0);
+  --muted-foreground: oklch(0.9 0.015 225);
+  --sidebar-foreground: oklch(1 0 0);
+}
+
+html[data-text-size="Small"] { font-size: 14px; }
+html[data-text-size="Normal"] { font-size: 16px; }
+html[data-text-size="Large"] { font-size: 18px; }
+html[data-text-size="Extra Large"] { font-size: 20px; }
+html[data-density="Compact"] { --friday-density-scale: 0.88; }
+html[data-density="Normal"] { --friday-density-scale: 1; }
+html[data-density="Comfortable"] { --friday-density-scale: 1.12; }
+html.no-blur [class*="backdrop-blur"] { backdrop-filter: none !important; }
+html.no-circuit .circuit-flow { display: none !important; }
+html.no-circuit .neural-circuit svg { visibility: hidden; }
+html.no-circuit .neural-circuit .panel-grid { display: none; }
+html.no-gpu * {
+  filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Flow Studio canvas. The rest of the app keeps the tokens above.
+   These names only exist inside .flow-stage. */
+.flow-stage {
+  --flow-control: var(--primary);
+  --flow-data: var(--accent);
+  --flow-event: var(--muted-foreground);
+  --flow-approval: var(--destructive);
+  --flow-running: var(--primary);
+  --flow-ok: var(--accent);
+  --flow-failed: var(--destructive);
+  --flow-idle: var(--muted-foreground);
+  --flow-heat: var(--ring);
+  background: color-mix(in oklch, var(--card) 86%, var(--background));
+}
+
+.flow-stage .flow-box {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.flow-stage .flow-box[data-kind="trigger"] { border-radius: 999px; }
+.flow-stage .flow-box[data-kind="condition"] { transform: rotate(0deg); border-radius: 2px; }
+.flow-stage .flow-box[data-kind="model"] { border-top: 3px solid var(--flow-control); }
+.flow-stage .flow-box[data-kind="skill"] { border-left: 3px solid var(--flow-data); }
+.flow-stage .flow-box[data-kind="tool"] { border-left: 3px solid var(--flow-heat); }
+.flow-stage .flow-box[data-kind="agent"] { border-left: 3px solid var(--flow-approval); }
+.flow-stage .flow-box[data-kind="approval"] { border-style: double; }
+.flow-stage .flow-box[data-kind="loop"] { border-radius: 12px 2px; }
+.flow-stage .flow-box[data-kind="subflow"] { outline: 1px dashed var(--border); }
+.flow-stage .flow-box[data-kind="note"] { background: color-mix(in oklch, var(--muted) 70%, var(--card)); }
+.flow-stage .flow-box[data-status="running"] { box-shadow: 0 0 0 2px var(--flow-running); }
+.flow-stage .flow-box[data-status="ok"] { box-shadow: inset 3px 0 0 var(--flow-ok); }
+.flow-stage .flow-box[data-status="failed"] { box-shadow: inset 3px 0 0 var(--flow-failed); }
+.flow-stage .flow-box[data-status="blocked"],
+.flow-stage .flow-box[data-status="awaiting-approval"] { box-shadow: inset 3px 0 0 var(--flow-event); }
+.flow-stage .flow-live { box-shadow: 0 0 0 2px var(--flow-running); }
+
+.flow-stage .flow-port {
+  width: 8px;
+  height: 8px;
+  background: var(--flow-control);
+  border: 1px solid var(--background);
+}
+
+.flow-stage .react-flow__edge-path.flow-wire-control { stroke: var(--flow-control); }
+.flow-stage .react-flow__edge-path.flow-wire-data {
+  stroke: var(--flow-data);
+  stroke-dasharray: 6 4;
+}
+.flow-stage .react-flow__edge-path.flow-wire-event {
+  stroke: var(--flow-event);
+  stroke-dasharray: 1 4;
+}
+.flow-stage .react-flow__edge-path.flow-wire-approval {
+  stroke: var(--flow-approval);
+  stroke-width: 2.5;
+}
+
+.flow-stage .react-flow__edge.animated .react-flow__edge-path {
+  animation: flow-particle 1.2s linear infinite;
+}
+
+.flow-stage .flow-marker { fill: var(--flow-running); }
+
+.flow-stage .flow-wire-static {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  pointer-events: none;
+}
+
+.flow-stage .flow-marker-static {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--flow-running);
+}
+
+.flow-stage .react-flow__minimap { background: var(--card); }
+
+.flow-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.flow-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.flow-legend i {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.flow-sketch .flow-box {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.flow-contrast .flow-box {
+  border-width: 2px;
+  border-color: var(--foreground);
+}
+
+@keyframes flow-particle {
+  to { stroke-dashoffset: -24; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-stage .react-flow__edge.animated .react-flow__edge-path,
+  .flow-stage .flow-live,
+  .flow-stage .flow-marker {
+    animation: none;
+  }
+}
+
+html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
+  animation: none;
+}

@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Browser history",
+  "description": "Return recent programmatic browser actions from electron/browser.cjs (search, open, download, screenshot). This is FRIDAY's own session history, not the owner's system browser.",
+  "category": "browser",
+  "inputs": [
+    "limit"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read her own in-app browser history (pages she already opened in this session). Allow this?"
+}

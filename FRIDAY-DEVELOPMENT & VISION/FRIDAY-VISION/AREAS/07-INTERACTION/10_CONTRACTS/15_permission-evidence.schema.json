@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "friday://contracts/permission-evidence/v1",
+  "title": "FRIDAY Permission Evidence",
+  "type": "object",
+  "required": [
+    "permission",
+    "state",
+    "observed_at"
+  ],
+  "properties": {
+    "permission": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "granted",
+        "prompt",
+        "denied",
+        "unsupported",
+        "unknown"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "enum": [
+        "browser_query",
+        "api_attempt",
+        "runtime_event",
+        "user_action"
+      ]
+    },
+    "active": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "image-inventory",
+  "version": "1.0.0",
+  "description": "Inventory image files by extension (.png .jpg .jpeg .gif .webp .bmp .svg) with names and sizes. No FFmpeg, no pixel decode.",
+  "category": "home",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Image inventory",
+    "icon": "image"
+  }
+}

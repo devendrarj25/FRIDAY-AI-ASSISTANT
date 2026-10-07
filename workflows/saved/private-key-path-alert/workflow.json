@@ -1,0 +1,50 @@
+{
+  "id": "private-key-path-alert",
+  "name": "Private-key path alert",
+  "version": "1.0.0",
+  "description": "Alert on private-key paths, secret filenames, SSH inventory — never print key bytes.",
+  "category": "privacy",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Alert on private-key paths",
+      "kind": "agent",
+      "ref": "agents/core/private-key-path-alert",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan secret filenames",
+      "kind": "agent",
+      "ref": "agents/core/secret-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "SSH public key inventory",
+      "kind": "agent",
+      "ref": "agents/core/ssh-public-key-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "SSH folder permissions",
+      "kind": "agent",
+      "ref": "agents/core/ssh-folder-permission-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep path alerts only",
+      "kind": "note",
+      "ref": "key-paths",
+      "risk": "safe"
+    }
+  ]
+}

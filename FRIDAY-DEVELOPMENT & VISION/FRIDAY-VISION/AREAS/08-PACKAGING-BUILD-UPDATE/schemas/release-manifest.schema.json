@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Release Manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "product",
+    "version",
+    "intent",
+    "source",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "product": {
+      "const": "FRIDAY"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "intent": {
+      "enum": [
+        "update",
+        "rebuild"
+      ]
+    },
+    "source": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array"
+    },
+    "components": {
+      "type": "array"
+    },
+    "toolchain": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

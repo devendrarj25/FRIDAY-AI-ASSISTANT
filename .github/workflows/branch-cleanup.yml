@@ -1,0 +1,43 @@
+# FRIDAY — Merged Branch Cleanup
+#
+# When a pull request is merged into main, the temporary work branch
+# (feature/..., fix/..., upgrade/..., release/vX.Y.Z etc.) is deleted
+# automatically so the repository never accumulates permanent side branches.
+# A merged release/vX.Y.Z branch has served its purpose — the version now lives
+# on main — so it is cleaned up like any other temporary branch.
+#
+# It never deletes main, never deletes a long-lived protected branch, and it
+# never creates a release — merging main is not a release event. Recovery
+# branches are owner-controlled evidence and are never automatically deleted.
+
+name: Branch Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-branch:
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete the merged temporary branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: |
+          case "$BRANCH" in
+            main|master|develop|development|release|recovery/*)
+              echo "protected branch '$BRANCH' — not deleted"
+              exit 0 ;;
+          esac
+          echo "deleting merged branch $BRANCH"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$BRANCH" \
+            && echo "branch $BRANCH deleted" \
+            || echo "branch $BRANCH already gone or protected — nothing to do"

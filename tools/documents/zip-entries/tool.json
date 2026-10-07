@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "ZIP entries",
+  "description": "List entry names inside a ZIP / Office Open XML file via document-extract.unzip.",
+  "category": "documents",
+  "inputs": [
+    "path",
+    "root"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to LIST ZIP ENTRIES inside a file in your FRIDAY folder. Allow this?",
+  "keywords": [
+    "zip",
+    "entries",
+    "archive",
+    "office"
+  ]
+}

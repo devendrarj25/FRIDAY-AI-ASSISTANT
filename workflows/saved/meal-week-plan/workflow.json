@@ -1,0 +1,50 @@
+{
+  "id": "meal-week-plan",
+  "name": "Meal-week plan",
+  "version": "1.0.0",
+  "description": "Meal week, grocery merge, leftover ideas — local kitchen notes.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Sunday 11:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Meal-week skill",
+      "kind": "skill",
+      "ref": "skills/custom/ckn-meal-week",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Grocery merge skill",
+      "kind": "skill",
+      "ref": "skills/custom/ckn-grocery-merge",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Leftover ideas skill",
+      "kind": "skill",
+      "ref": "skills/custom/ckn-leftover-ideas",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Cook-time skill",
+      "kind": "skill",
+      "ref": "skills/custom/ckn-cook-time",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the meal plan local",
+      "kind": "note",
+      "ref": "meal-week",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "id": "boq-spreadsheet-pass",
+  "name": "BOQ spreadsheet pass",
+  "version": "1.0.0",
+  "description": "Find BOQ sheets, inventory spreadsheets, preview CSV, roll costs with the construction skill.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find BOQ spreadsheets",
+      "kind": "agent",
+      "ref": "agents/core/boq-spreadsheet-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory spreadsheets",
+      "kind": "agent",
+      "ref": "agents/core/spreadsheet-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Preview a CSV",
+      "kind": "tool",
+      "ref": "tools/filesystem/csv-preview",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Roll cost line items (skill)",
+      "kind": "skill",
+      "ref": "skills/custom/con-cost-rollup",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Convert units if needed",
+      "kind": "skill",
+      "ref": "skills/custom/con-unit-convert",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Apply a waste factor",
+      "kind": "skill",
+      "ref": "skills/custom/con-waste-factor",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the BOQ note local",
+      "kind": "note",
+      "ref": "boq-note",
+      "risk": "safe"
+    }
+  ]
+}

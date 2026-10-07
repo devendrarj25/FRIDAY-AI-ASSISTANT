@@ -1,0 +1,15 @@
+{
+  "name": "List open windows",
+  "version": "1.0.0",
+  "description": "Read the title, window handle and process id of every visible window on this desktop. Window titles can contain private information such as file names, chat contacts and page titles.",
+  "category": "system",
+  "entry": "index.cjs",
+  "kernelTool": "app.list_windows",
+  "inputs": [],
+  "permissions": [
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to READ the titles of every window open on this PC, including apps you are not using. Window titles can reveal file names, contacts and pages you have open. Allow this?"
+}

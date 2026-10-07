@@ -1,0 +1,14 @@
+{
+  "name": "sqlite-inspect",
+  "version": "1.0.0",
+  "description": "Read-only SQLite inspector: list tables, row counts, and column types for a database path the owner names. Does not dump passwords or rewrite the file.",
+  "category": "data",
+  "permissions": ["fs.read"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "SQLite inspect",
+    "icon": "database"
+  }
+}

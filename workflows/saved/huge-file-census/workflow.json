@@ -1,0 +1,64 @@
+{
+  "id": "huge-file-census",
+  "name": "Huge-file census",
+  "version": "1.0.0",
+  "description": "Census huge files, large logs, node_modules size, old archives, and disk hotspots without deleting anything.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find huge files",
+      "kind": "agent",
+      "ref": "agents/core/huge-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Watch large logs",
+      "kind": "agent",
+      "ref": "agents/core/large-log-watcher",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Audit node_modules size",
+      "kind": "agent",
+      "ref": "agents/core/node-modules-size-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Find old archives",
+      "kind": "agent",
+      "ref": "agents/core/old-archive-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Walk disk hotspots",
+      "kind": "agent",
+      "ref": "agents/core/disk-hotspot-walker",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Stat the workspace root",
+      "kind": "tool",
+      "ref": "tools/filesystem/file-stat",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Write a local census note",
+      "kind": "note",
+      "ref": "huge-file-census",
+      "risk": "safe"
+    }
+  ]
+}

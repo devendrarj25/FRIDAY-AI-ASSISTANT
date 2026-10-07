@@ -1,0 +1,27 @@
+{
+  "name": "Tap, swipe or type on the connected Android phone",
+  "version": "1.0.0",
+  "description": "Send a real touch, swipe or keystroke to a cable-connected Android phone over ADB. Refuses while the phone is locked.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "android.input",
+  "inputs": [
+    {
+      "name": "action",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "serial",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "process.exec",
+    "devices"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to control the touchscreen of your connected Android phone. Allow this?"
+}

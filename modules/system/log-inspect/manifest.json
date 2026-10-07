@@ -1,0 +1,14 @@
+{
+  "name": "log-inspect",
+  "version": "1.0.0",
+  "description": "Read a log file and summarise ERROR / WARN / INFO counts plus the last matching error lines. Read-only. Isolated temp prefix friday-log-inspect- so it does not share paths with other modules.",
+  "category": "system",
+  "permissions": ["fs.read"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "Log inspect",
+    "icon": "scroll-text"
+  }
+}

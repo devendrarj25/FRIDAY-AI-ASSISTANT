@@ -1,0 +1,16 @@
+{
+  "id": "hlt-food-label",
+  "name": "Food-label decode",
+  "summary": "Parse kcal / protein / sugar numbers from a pasted label block into a small table.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

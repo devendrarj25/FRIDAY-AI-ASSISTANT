@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Write a file",
+  "description": "Create or overwrite a UTF-8 file inside the FRIDAY folder. Parent folders are created as needed. Never writes outside the selected root.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "content",
+    "root"
+  ],
+  "permissions": [
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to WRITE the file “{path}” inside the FRIDAY folder. Existing content at that path will be overwritten. Allow this?"
+}

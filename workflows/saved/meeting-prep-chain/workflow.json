@@ -1,0 +1,64 @@
+{
+  "id": "meeting-prep-chain",
+  "name": "Meeting prep chain",
+  "version": "1.0.0",
+  "description": "Prep a meeting from local ICS, Google/Outlook calendars when connected, prior notes, and a meeting-ask draft. No calendar writes unless approved.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read local ICS titles",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Read Google Calendar if connected",
+      "kind": "connector",
+      "ref": "google-calendar",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Read Outlook calendar if connected",
+      "kind": "connector",
+      "ref": "outlook",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Count words in text notes",
+      "kind": "agent",
+      "ref": "agents/core/text-notes-wordcount",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a meeting ask",
+      "kind": "skill",
+      "ref": "skills/custom/com-meeting-ask",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft an intro blurb",
+      "kind": "skill",
+      "ref": "skills/custom/com-intro-blurb",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Assemble a one-page brief locally",
+      "kind": "note",
+      "ref": "meeting-brief",
+      "risk": "safe"
+    }
+  ]
+}

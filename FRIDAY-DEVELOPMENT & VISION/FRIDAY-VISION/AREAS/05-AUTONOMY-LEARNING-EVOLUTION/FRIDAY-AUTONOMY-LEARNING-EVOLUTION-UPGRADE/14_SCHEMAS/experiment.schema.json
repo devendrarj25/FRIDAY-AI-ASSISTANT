@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FRIDAY Experiment",
+  "type": "object",
+  "required": [
+    "id",
+    "hypothesis",
+    "baseline",
+    "candidate",
+    "budget",
+    "state"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "hypothesis": {
+      "type": "string"
+    },
+    "baseline": {
+      "type": "string"
+    },
+    "candidate": {
+      "type": "string"
+    },
+    "budget": {
+      "type": "object"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "planned",
+        "running",
+        "completed",
+        "aborted"
+      ]
+    },
+    "results": {
+      "type": "object"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "reject",
+        "shadow",
+        "canary",
+        "promote"
+      ]
+    }
+  }
+}

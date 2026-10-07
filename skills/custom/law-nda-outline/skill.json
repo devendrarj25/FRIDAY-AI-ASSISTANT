@@ -1,0 +1,14 @@
+{
+  "id": "law-nda-outline",
+  "name": "NDA section outline",
+  "summary": "Outline typical NDA headings (parties, purpose, exclusions, term) as a study scaffold.",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

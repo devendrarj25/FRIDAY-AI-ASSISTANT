@@ -1,0 +1,12 @@
+{
+  "name": "System health snapshot",
+  "version": "1.0.0",
+  "description": "Take a real snapshot of this PC: CPU, memory, disks, GPU/CUDA and sensor readings, using FRIDAY's existing hardware probes.",
+  "category": "system",
+  "entry": "index.cjs",
+  "inputs": [],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to read this PC's hardware and sensor information (CPU, memory, disks, GPU). Nothing is changed and nothing leaves the machine. Allow this?"
+}

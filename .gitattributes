@@ -1,0 +1,37 @@
+# FRIDAY — line endings are part of the build contract.
+#
+# GitHub's Windows runners check out with core.autocrlf=true by default, which
+# rewrites every LF into CRLF. FRIDAY's contract tests read real source files
+# (electron/*.cjs, workflows, scripts) and assert exact multi-line text, so a
+# CRLF checkout fails "Run tests" on Windows while passing everywhere else.
+#
+# Normalizing text to LF in the working tree makes the Windows checkout byte
+# identical to Linux/macOS and to what the tests, the audits and the packaged
+# EXE expect. Windows-native script formats keep CRLF; binaries stay binary.
+
+* text=auto eol=lf
+
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.nsh  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.exe  binary
+*.dll  binary
+*.zip  binary
+*.gguf binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.mp3  binary
+*.wav  binary
+*.mp4  binary
+*.pdf  binary
+*.node binary

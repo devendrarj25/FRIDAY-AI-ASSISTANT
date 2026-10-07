@@ -1,0 +1,16 @@
+{
+  "id": "trv-day-plan",
+  "name": "Three-block day plan",
+  "summary": "Sort pasted attractions into morning, afternoon, and evening blocks by list order.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

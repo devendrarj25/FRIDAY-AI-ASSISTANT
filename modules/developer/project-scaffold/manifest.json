@@ -1,0 +1,14 @@
+{
+  "name": "project-scaffold",
+  "version": "1.0.0",
+  "description": "Write a small Node or Python project tree (package.json or pyproject.toml, README, src) through kernel fs.write. Dry-run lists the files first; nothing is written until apply=True.",
+  "category": "developer",
+  "permissions": ["fs.read", "fs.write"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "Project scaffold",
+    "icon": "folder-plus"
+  }
+}

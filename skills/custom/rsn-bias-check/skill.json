@@ -1,0 +1,16 @@
+{
+  "id": "rsn-bias-check",
+  "name": "Cognitive bias checklist",
+  "summary": "Scan a pasted argument for phrasing that often rides confirmation, sunk cost, or anchoring.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Phrase heuristics, not a diagnosis of a person."
+}

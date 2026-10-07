@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtimeVersion",
+    "capabilityCatalogVersion",
+    "policyVersion",
+    "eventCursor",
+    "syncState"
+  ],
+  "properties": {
+    "runtimeVersion": {
+      "type": "string"
+    },
+    "capabilityCatalogVersion": {
+      "type": "string"
+    },
+    "policyVersion": {
+      "type": "string"
+    },
+    "eventCursor": {
+      "type": "string"
+    },
+    "syncState": {
+      "enum": [
+        "snapshot_required",
+        "snapshot_loaded",
+        "reconciling",
+        "streaming",
+        "stale",
+        "failed"
+      ]
+    },
+    "missingEventRange": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

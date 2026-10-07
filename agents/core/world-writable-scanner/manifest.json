@@ -1,0 +1,17 @@
+{
+  "name": "World-writable scanner",
+  "version": "1.0.0",
+  "description": "Lists files whose Unix mode is world-writable. On Windows this is usually empty (no POSIX mode). Never changes permissions.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} world-writable file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the hygiene list. Modes will not be changed."
+}

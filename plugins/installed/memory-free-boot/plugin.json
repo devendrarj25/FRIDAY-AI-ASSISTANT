@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "memory-free-boot",
+  "name": "Memory free boot",
+  "description": "Stamp free/total host memory when FRIDAY starts.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-app-start"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Slugify text",
+  "description": "Lowercase hyphen slug from a phrase (same style as skill/tool ids).",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to SLUGIFY text in memory. Allow this?"
+}

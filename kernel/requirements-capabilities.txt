@@ -1,0 +1,46 @@
+# FRIDAY — Python capability extras (not FastAPI startup)
+#
+# Policy: the same as kernel/requirements.txt — floors, not pins. Newer
+# compatible wheels are reused and never downgraded. Official PyPI only.
+#
+# These packages are what the existing kernel modules already import when
+# present (memory, devices, wake scorer, OCR, Windows control). The kernel
+# still boots without them. setup-python / Windows CMD / check-environment
+# --fix install them into the live venv (selected FRIDAY folder
+# runtime/.venv when one is chosen). Install Manager can still add the
+# same catalog rows. NSIS repair keeps kernel/requirements.txt as the
+# fail-closed startup + voice set so a missing extra cannot abort Setup.
+#
+# Voice-stack rule (2026-10-05, owner approved the voice extras).
+# Official PyPI only, offline after install, CPU fallback required,
+# no compiler, no second product stack. One STT worker and one speaker.
+#   * Speech-to-text stays the faster-whisper worker in kernel/requirements.txt.
+#     moonshine-voice is that worker's English streaming model (MIT).
+#     Hindi and Hinglish stay on faster-whisper. Non-English Moonshine
+#     weights are a non-commercial license and are not downloaded.
+#   * supertonic is the local neural speaker (code MIT, weights OpenRAIL-M).
+#     The ONNX files are downloaded on demand, not bundled in the EXE.
+#   * pyrnnoise is noise suppression on the PCM before that same worker.
+#   * Silero VAD and Smart Turn are ONNX files scored by onnxruntime.
+#     Do not add the silero-vad package; it requires torch.
+#   * Still not added: kokoro-onnx (phonemizer GPL-3), piper-tts
+#     (GPL-3.0-or-later), sherpa-onnx (espeak-ng GPL-3), torch, vLLM, vosk.
+#   * onnxruntime-directml is an optional Windows Install Manager tool.
+#     It is not in this file, because installing it replaces this wheel.
+#     The DirectML build still has CPUExecutionProvider.
+# Cloud edge-tts stays in kernel/requirements.txt and is opt-in.
+numpy>=2.5.3
+chromadb>=1.5.9
+bleak>=3.0.2
+zeroconf>=0.151.5
+onnxruntime>=1.30.0
+supertonic>=1.3.1
+moonshine-voice>=0.1.5
+pyrnnoise>=0.4.3
+soundfile>=0.13.1
+pymupdf>=1.28.2
+Pillow>=12.3.0
+pytesseract>=0.3.13
+mss>=10.2.0
+PyAutoGUI>=0.9.54
+pywin32>=312; sys_platform == "win32"

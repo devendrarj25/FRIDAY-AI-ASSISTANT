@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "command_id",
+    "session_id",
+    "intent",
+    "target"
+  ],
+  "properties": {
+    "command_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "intent": {
+      "enum": [
+        "inspect",
+        "pause",
+        "resume",
+        "cancel",
+        "approve",
+        "reject",
+        "prioritize",
+        "redirect",
+        "request_artifact"
+      ]
+    },
+    "target": {
+      "type": "object"
+    }
+  }
+}

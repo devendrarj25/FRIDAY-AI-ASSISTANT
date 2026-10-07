@@ -1,0 +1,16 @@
+{
+  "id": "con-safety-electrical",
+  "name": "Electrical isolation checklist",
+  "summary": "Lock-out / tag-out style prompts for temporary electrical work on a site.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Not a licensed electrician's method statement and not a live-work authorisation."
+}

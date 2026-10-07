@@ -1,0 +1,12 @@
+# FRIDAY — Python kernel TEST requirements (development only)
+#
+# The packaged app never installs these: they are only needed to run the
+# kernel test suite (`npm run test:kernel`) from a source checkout.
+# Runtime packages stay in kernel/requirements.txt — this file only adds the
+# test runner on top of it.
+# Kernel tests only need the fail-closed startup + voice set. Capability
+# extras are installed by setup-python into the live venv, not by pytest.
+-r requirements.txt
+
+pytest>=9.1.1
+pytest-asyncio>=1.4.0

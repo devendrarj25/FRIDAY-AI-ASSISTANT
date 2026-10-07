@@ -1,0 +1,19 @@
+{
+  "name": "hosts-read",
+  "version": "1.0.0",
+  "description": "Parse a workspace hosts file (hosts or etc/hosts) into IP \u2192 names. Does not read the OS /etc/hosts. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Hosts read",
+    "icon": "server"
+  }
+}

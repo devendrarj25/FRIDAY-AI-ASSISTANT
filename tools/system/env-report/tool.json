@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Environment report",
+  "description": "User name, home, temp dir, locale and PATH length from node:os. Does not dump process.env values (secrets stay out).",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read this account's home folder, temp dir and locale (not environment-variable values). Allow this?"
+}

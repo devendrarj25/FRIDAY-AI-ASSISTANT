@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "URL parts",
+  "description": "Split a URL into protocol, host, path, query, and hash using the WHATWG URL parser.",
+  "category": "network",
+  "inputs": [
+    "url"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PARSE URL PARTS in memory. Allow this?",
+  "keywords": [
+    "url",
+    "parse",
+    "host"
+  ]
+}

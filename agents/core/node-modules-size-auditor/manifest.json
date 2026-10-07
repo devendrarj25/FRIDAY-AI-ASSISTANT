@@ -1,0 +1,17 @@
+{
+  "name": "node_modules size auditor",
+  "version": "1.0.0",
+  "description": "Finds node_modules directories and estimates their size so leftover install trees are visible. Report only; does not npm-prune.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} node_modules tree(s) under \u201c{folder}\u201d. Read-only. Allow to keep the size report. Nothing will be deleted."
+}

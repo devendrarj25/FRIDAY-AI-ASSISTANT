@@ -1,0 +1,16 @@
+{
+  "id": "hlt-hydration-plan",
+  "name": "Hydration reminder math",
+  "summary": "Educational glass-count sketch from a kg body-weight figure you type (not a prescription).",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "kg"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

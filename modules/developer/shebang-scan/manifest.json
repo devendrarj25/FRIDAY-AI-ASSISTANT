@@ -1,0 +1,19 @@
+{
+  "name": "shebang-scan",
+  "version": "1.0.0",
+  "description": "Collect #! interpreter lines from executable-looking files in a folder. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Shebang scan",
+    "icon": "hash"
+  }
+}

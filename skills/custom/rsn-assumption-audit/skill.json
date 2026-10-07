@@ -1,0 +1,16 @@
+{
+  "id": "rsn-assumption-audit",
+  "name": "Assumption audit",
+  "summary": "List statements that look like assumptions (we assume, must, always) and ask for evidence.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Linguistic flags for assume/always/never/must wording. It lists claims that need evidence; it is not a truth oracle and does not verify facts."
+}

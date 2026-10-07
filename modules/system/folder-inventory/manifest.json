@@ -1,0 +1,19 @@
+{
+  "name": "folder-inventory",
+  "version": "1.0.0",
+  "description": "Shallow-plus-one inventory: immediate children with file/dir kind, child counts, and total bytes. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Folder inventory",
+    "icon": "folder-tree"
+  }
+}

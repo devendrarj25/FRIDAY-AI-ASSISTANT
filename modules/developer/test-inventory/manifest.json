@@ -1,0 +1,19 @@
+{
+  "name": "test-inventory",
+  "version": "1.0.0",
+  "description": "Inventory test files by naming convention (test_*.py, *_test.py, *.test.ts, *.spec.ts, *.test.js). Read-only; does not run tests.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Test inventory",
+    "icon": "flask"
+  }
+}

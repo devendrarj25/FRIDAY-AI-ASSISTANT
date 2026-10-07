@@ -1,0 +1,17 @@
+{
+  "name": "URL harvest from folder",
+  "version": "1.0.0",
+  "description": "Extracts http(s) URLs from .txt/.md/.html/.csv notes so a research dump becomes a real link list. Local files only \u2014 no fetch.",
+  "category": "research",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY extracted {count} URL(s) from files under \u201c{folder}\u201d. Local text only; nothing is fetched. Allow to keep the list."
+}

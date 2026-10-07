@@ -1,0 +1,16 @@
+{
+  "name": "Browser profile size auditor",
+  "version": "1.0.0",
+  "description": "Measures local Chrome / Edge / Chromium profile folder sizes. Does not read cookies, passwords or history rows \u2014 size only. Honest empty when those folders are absent.",
+  "category": "home",
+  "entry": "index.cjs",
+  "inputs": [
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY measured {count} browser profile folder(s). Size only; cookies and passwords are not read. Allow to keep the report."
+}

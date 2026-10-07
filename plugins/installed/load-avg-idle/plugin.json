@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "load-avg-idle",
+  "name": "Load average idle",
+  "description": "On each idle cycle, stamp loadavg and free memory without touching the workspace.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-idle"
+  ]
+}

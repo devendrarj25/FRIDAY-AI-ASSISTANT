@@ -1,0 +1,16 @@
+{
+  "id": "std-reading-list",
+  "name": "Prioritised reading list",
+  "summary": "Rank reading items by optional priority tags (must / should / later) in the line.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Ordering helper. It does not fetch the papers."
+}

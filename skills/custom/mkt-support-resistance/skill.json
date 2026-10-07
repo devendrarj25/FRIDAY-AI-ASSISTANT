@@ -1,0 +1,16 @@
+{
+  "id": "mkt-support-resistance",
+  "name": "Support and resistance from highs/lows",
+  "summary": "Cluster pasted high/low prices into crude support and resistance bands.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Sorts unique prices and groups those within 0.5% of each other. A sketch, not a level-trading bot."
+}
