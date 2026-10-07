@@ -317,8 +317,13 @@ export function normalizeWorkflowSteps(raw: unknown): WorkflowStep[] {
   });
 }
 
-const DELETE_STEP = /\b(delete|rmdir|unlink|remove file)\b/i;
+const DELETE_STEP = /\b(delete|rmdir|unlink|rm|del)\b|\bremove\s+(the\s+|a\s+)?file\b/i;
 const SEND_STEP = /\b(send|submit)\b/i;
+
+function isSend(step: WorkflowStep): boolean {
+  if (/\bdo not send\b/i.test(step.label)) return false;
+  return SEND_STEP.test(step.label);
+}
 
 /** A daily playbook may move and draft. It does not delete, and it does not send by itself. */
 export function checkPlaybook(steps: WorkflowStep[]): { ok: boolean; reasons: string[] } {
@@ -329,11 +334,30 @@ export function checkPlaybook(steps: WorkflowStep[]): { ok: boolean; reasons: st
     if (!step.postcondition) reasons.push(`${step.id}:postcondition`);
     if (DELETE_STEP.test(blob)) reasons.push(`${step.id}:delete`);
     if (/\bmove\b/i.test(step.label) && !step.undo) reasons.push(`${step.id}:undo`);
-    if (SEND_STEP.test(step.label) && (step.risk !== "write" || step.approvesSelf === true)) {
+    if (isSend(step) && (step.risk !== "write" || step.approvesSelf === true)) {
       reasons.push(`${step.id}:approval`);
     }
   }
   return { ok: reasons.length === 0, reasons };
+}
+
+export type PlaybookDial = "strict" | "balanced" | "trusted" | "full";
+
+/**
+ * Full may run a move. A send still waits. A delete is refused at every dial.
+ * Stop everything refuses the step.
+ */
+export function playbookMayRun(
+  step: WorkflowStep,
+  level: PlaybookDial,
+  halted: boolean,
+): "run" | "ask" | "refuse" {
+  if (halted) return "refuse";
+  if (!checkPlaybook([step]).ok) return "refuse";
+  if (isSend(step)) return "ask";
+  if (level === "full") return "run";
+  if (step.risk === "safe" && level !== "strict") return "run";
+  return "ask";
 }
 
 const FORGE_PROMPT = (goal: string, previousError?: string) =>

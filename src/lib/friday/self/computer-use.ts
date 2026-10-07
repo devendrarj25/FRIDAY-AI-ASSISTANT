@@ -127,6 +127,8 @@ export type DesktopRunInput = {
   request: string;
   level: ApprovalLevel;
   halted: boolean;
+  /** Read again before each step so Stop everything halts a replay already in progress. */
+  isHalted?: () => boolean;
   source: "chat" | "auto" | "flow" | "task";
   desktop?: DesktopPort;
   now?: () => number;
@@ -942,7 +944,8 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
     },
   });
 
-  if (input.halted) {
+  const killed = () => input.halted || input.isHalted?.() === true;
+  if (killed()) {
     lines.push(statusLine("stop", "Stop everything is on."));
     return finish(false, true, lines[0] ?? "Stopped.", "halted");
   }
@@ -966,6 +969,10 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
     step: DesktopAction,
     index: number,
   ): Promise<StepResult | DesktopReport> => {
+    if (killed()) {
+      lines.push(statusLine("stop", "Stop everything is on."));
+      return finish(false, true, lines[lines.length - 1] ?? "Stopped.", "halted");
+    }
     if (input.signal?.aborted) return finish(false, false, "Cancelled.", "cancelled");
     const block = budgetBlock(budget, {
       ms: Math.max(0, now() - started),

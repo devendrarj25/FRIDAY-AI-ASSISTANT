@@ -1,11 +1,13 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { considerLifeTrigger } from "../../src/lib/friday/assistant-conduct";
 import { screenTextIsData } from "../../src/lib/friday/self/computer-use";
 import { admitSense, SENSES_OFF } from "../../src/lib/friday/senses";
 
 const require_ = createRequire(import.meta.url);
 const browser = require_("../../electron/browser-live.cjs") as {
   pageTextIsData: (text: string) => { untrusted: boolean; instruction: boolean; text: string };
+  emailTextIsData: (text: string) => { untrusted: boolean; instruction: boolean; text: string };
 };
 const mcp = require_("../../electron/mcp-client.cjs") as {
   isolateToolOutput: (result: unknown) => {
@@ -69,5 +71,62 @@ describe("untrusted input corpus", () => {
     });
     expect(remote.ok).toBe(false);
     expect(remote.tools).toEqual([]);
+  });
+
+  it("keeps the same injection as data at every dial", () => {
+    const levels = ["strict", "balanced", "trusted", "full"] as const;
+    const email = browser.emailTextIsData(`Mail: ${HOSTILE}. ${SECRET}`);
+    expect(email.instruction).toBe(false);
+    expect(email.text).toContain("ignore previous");
+    expect(email.text).not.toContain("hunter2");
+    for (const level of levels) {
+      const screen = screenTextIsData(`${HOSTILE}. ${SECRET}`);
+      expect(screen.instruction).toBe(false);
+      expect(screen.text).not.toContain("hunter2");
+      const page = browser.pageTextIsData(HOSTILE);
+      expect(page.instruction).toBe(false);
+      const file = admitSense(
+        { ...SENSES_OFF, folder: true },
+        {
+          sense: "folder",
+          at: 1,
+          path: "notes/a.txt",
+          approvedFolders: ["notes"],
+          text: `${HOSTILE}. ${SECRET}`,
+        },
+      );
+      expect(file?.instruction).toBe(false);
+      const calendar = admitSense(
+        { ...SENSES_OFF, calendar: true },
+        { sense: "calendar", at: 2, text: `${HOSTILE}. ${SECRET}` },
+      );
+      expect(calendar?.instruction).toBe(false);
+      const tool = mcp.isolateToolOutput({ text: `${HOSTILE}. ${SECRET}` });
+      expect(tool.instruction).toBe(false);
+      expect(tool.text).not.toContain("hunter2");
+      const gate = considerLifeTrigger({
+        kind: "calendar",
+        now: 1_000,
+        offeredAt: [],
+        level,
+        halted: false,
+        text: email.text,
+        hour: 9,
+      });
+      expect(gate.reason).toBe("data");
+      expect(gate.offer).toBe(false);
+      expect(gate.spoken).not.toContain("hunter2");
+      expect(
+        considerLifeTrigger({
+          kind: "file",
+          now: 1_000,
+          offeredAt: [],
+          level,
+          halted: true,
+          text: "notes changed",
+          hour: 9,
+        }).reason,
+      ).toBe("halted");
+    }
   });
 });
