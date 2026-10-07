@@ -15,6 +15,14 @@
 
 All three call `scripts/electron-pack.cjs` with `electron-builder.yml`. File names use the public four-part identity. The npm field stays the three-part encoding. ExtraResources copy the kernel, the capability trees, and the scripts, except the `cloud-agent-*` helpers.
 
+### Pack-toolchain advisories (2026-10-07)
+
+`http-cache-semantics` stays at 4.2.0. [GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp) covers `<= 4.2.0` and still has no patched version (advisory API, 2026-10-07). Registry 4.3.0 was published 2026-10-04 ([package](https://registry.npmjs.org/http-cache-semantics)). **REJECT** as the fix: its `max-stale` check matches 4.2.0 ([upstream issue 56](https://github.com/kornelski/http-cache-semantics/issues/56)). The chain is dev-only: `app-builder-lib` → `@electron/get` 3.1.0 → `got` 11.8.6 → `cacheable-request` 7.0.4.
+
+`sprintf-js` has no release after 1.1.3 ([package](https://registry.npmjs.org/sprintf-js)). [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c) covers `<= 1.1.3` and has no patched version. **REJECT** a direct bump. `global-agent` 4.0.0 still depends on `roarr`; 4.1.0 and later do not. `app-builder-lib` 26.17.0 still depends on `@electron/get` `^3.0.0`, so a newer 26.x builder does not drop the chain. **REJECT** that bump.
+
+**ADOPT** `overrides.global-agent` `4.1.3` ([registry](https://registry.npmjs.org/global-agent), [repository](https://github.com/gajus/global-agent), 2026-10-07). It still exports `bootstrap()`, which is the only call `@electron/get` 3 makes, and it does not depend on `roarr` or `sprintf-js`. Dev-only optional pack helper. Unpacked size 87313 bytes. `npm ci` installs it, and both `electron-builder` and the nested `@electron/get` still resolve.
+
 The local CMD step list is [INSTALL.md](../INSTALL.md). CMD does not run `npm test`. PR Validation, Test EXE Build, and Official Publish do.
 
 ## 🪪 Package identity

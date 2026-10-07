@@ -23,6 +23,8 @@ Stack (from `package.json` / toolchain file): Electron ^43.6.0, React 19, TanSta
 
 Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py` (`GET /health`, WebSocket `/bridge`). `kernel/router.py` is the model router. `core/` is Vitest/contracts only. Navigation: 28 sidebar paths + Settings footer + `/character` + `/workflow-visual` (Visual Builder; not a sidebar row). IPC examples: `app:version`, `chat:send`, `workspace:get`.
 
+Product code does not require a `.cursor/` folder. `scripts/cloud-agent-install.sh` and `scripts/cloud-agent-start.sh` stay required. `.cursor/environment.json` is checked only when that file is present. Commit provenance accepts one dependency-update account only when its name and email are both exact. Detail: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). The optional pack helper is `global-agent` 4.1.3, so `sprintf-js` is not in the lock. Detail: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+
 ## Capability counts (this checkout)
 
 | Kind | Count | How counted |
@@ -84,7 +86,8 @@ These look like bugs; they are not. Do not "fix" them.
 - Computer use is not in the product yet. Perception, actions, the agent loop, learn-by-watching, MCP, life automation, multimodal voice, and the fake-desktop harness are still next. Screen text must stay data. UAC and captchas are not auto-clicked. Those Windows paths are unverified.
 - Unsigned EXE is the local/CI default unless signing secrets exist.
 - On a stock Ubuntu image, `check:env` / `doctor` can fail the SQLite 3.45.3 and Git 2.49.0 floors in `config/toolchain-versions.json` until `scripts/cloud-agent-install.sh` runs. `.cursor/environment.json` is that install plus `scripts/cloud-agent-start.sh` (Vite on port 8080, kernel on port 8765). The floors are not lowered. After that install, `npm run check:env` passed (SQLite 3.53.4, Git 2.55.0). PyAutoGUI is installed but not importable; Ollama and Tesseract stay optional and were not installed.
-- Hosted GitHub Actions for the provenance step are **unverified** until the owner marks the draft ready. Windows CMD, install, and publish are **unverified** on this Linux check.
+- Hosted GitHub Actions for the provenance step are **unverified** until the owner marks the draft ready. Windows CMD, install, and publish are **unverified** on this Linux check. Hosted dependency-update pull requests were not re-run here.
+- `http-cache-semantics` 4.2.0 remains, dev-only, through `got` 11 inside `app-builder-lib`'s `@electron/get` 3.1.0. No patched release. 4.3.0 does not change the reported check, so the lock was not bumped to clear the alert. `npm audit` on this machine: 1 high, 0 moderate, 0 critical (before the pack-helper override: 1 high and 8 moderate). The owner can dismiss that remaining alert in the GitHub UI, or wait for a real patch. This session did not dismiss it.
 - The owner must verify GitHub branch protection and rulesets manually. This change does not touch those settings.
 
 ## Next priorities
