@@ -1463,13 +1463,13 @@ class AssistantModeStore {
     this.state.status = status;
     const cause = failureCause(message);
     this.lastFailure = cause;
+    this.caption("friday", message);
     if (!mayAnnounce(cause, this.spokenCauses)) {
       this.emit();
       return;
     }
     this.spokenCauses.add(cause);
     const spoken = voiceFailureLine(cause, this.spokenCauses.size);
-    this.caption("friday", spoken);
     this.emit();
     this.speak(spoken);
   }

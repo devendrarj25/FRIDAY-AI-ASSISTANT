@@ -51,10 +51,11 @@ describe("Auto Mode never fails silently at any stage", () => {
   it("speaks and shows a dropped turn instead of ignoring it", () => {
     expect(assistant).toContain("let result = brain.send(command, payload);");
     expect(assistant).toContain("if (!result.accepted) {");
-    // reportFailure captions AND speaks — the owner may not be at the screen.
+    // The real cause stays on screen. The first time, a short line is spoken.
     expect(assistant).toMatch(
-      /private reportFailure\([\s\S]*this\.caption\("friday", message\);[\s\S]*this\.speak\(message\);/,
+      /private reportFailure\([\s\S]*this\.caption\("friday", message\);[\s\S]*this\.speak\(spoken\);/,
     );
+    expect(assistant).toContain("mayAnnounce");
   });
 
   it("announces a missing microphone, a missing transcriber and dead speech output", () => {
