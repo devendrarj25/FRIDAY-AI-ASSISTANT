@@ -189,6 +189,8 @@ def invoke_pattern(selector: str, intent: str, value: str = "") -> dict[str, Any
         raise ControlError("That control needs the owner")
     if choice["via"] == "disabled":
         raise ControlError("That control is disabled")
+    if choice["via"] == "offscreen":
+        raise ControlError("That control is off screen")
     if choice["via"] != "pattern":
         raise ControlError("no pattern")
     try:
@@ -340,14 +342,22 @@ def perceive() -> dict[str, Any]:
     """UI Automation tree, then OCR. Text is data. A secure prompt has no content."""
     if not WINDOWS:
         raise ControlError("structured screen perception is only available on Windows")
-    from uia_tree import choose_layer, perception_from_raw
+    from uia_tree import choose_layer, comtypes_missing, ocr_fallback, perception_from_raw
     from uia_windows import collect_uia_raw
 
+    now = int(time.time() * 1000)
     try:
         raw = collect_uia_raw()
     except Exception as exc:
-        raise ControlError(str(exc)) from exc
-    now = int(time.time() * 1000)
+        if not comtypes_missing(str(exc)):
+            raise ControlError(str(exc)) from exc
+        try:
+            ocr = read_text()
+        except ControlError as ocr_exc:
+            raise ControlError(
+                "comtypes is not installed in FRIDAY's Python runtime. OCR was not available either."
+            ) from ocr_exc
+        return ocr_fallback(now, str(ocr.get("text") or ""))
     seen = perception_from_raw(raw, now)
     if seen.get("handoff") or float(seen.get("confidence") or 0) >= 0.75:
         return seen

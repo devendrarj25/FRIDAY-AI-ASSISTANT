@@ -42,6 +42,15 @@ _OFFSCREEN = 30022
 _PASSWORD = 30019
 
 
+def guarded_collect(body, initialize, uninitialize):
+    """Pair COM startup with cleanup, including when the walk raises."""
+    initialize()
+    try:
+        return body()
+    finally:
+        uninitialize()
+
+
 def collect_uia_raw(max_depth: int = 8, max_nodes: int = 400) -> dict[str, Any]:
     if not WINDOWS:
         raise RuntimeError("UI Automation collection is only available on Windows")
@@ -52,26 +61,31 @@ def collect_uia_raw(max_depth: int = 8, max_nodes: int = 400) -> dict[str, Any]:
             "comtypes is not installed in FRIDAY's Python runtime. "
             "Install comtypes from the Install Manager, then retry."
         ) from exc
-    _dpi_aware()
-    comtypes.client.GetModule("UIAutomationCore.dll")
-    from comtypes.gen.UIAutomationClient import CUIAutomation, IUIAutomation
+    import comtypes
 
-    uia = comtypes.CoCreateInstance(
-        CUIAutomation._reg_clsid_,
-        interface=IUIAutomation,
-        clsctx=comtypes.CLSCTX_INPROC_SERVER,
-    )
-    state = {"count": 0}
-    root = uia.GetRootElement()
-    windows = []
-    walker = uia.ControlViewWalker
-    child = walker.GetFirstChildElement(root)
-    while child is not None and state["count"] < max_nodes:
-        built = _node(walker, child, 1, max_depth, max_nodes, state)
-        if built:
-            windows.append(built)
-        child = walker.GetNextSiblingElement(child)
-    return {"monitors": _monitors(), "windows": windows}
+    def _body() -> dict[str, Any]:
+        _dpi_aware()
+        comtypes.client.GetModule("UIAutomationCore.dll")
+        from comtypes.gen.UIAutomationClient import CUIAutomation, IUIAutomation
+
+        uia = comtypes.CoCreateInstance(
+            CUIAutomation._reg_clsid_,
+            interface=IUIAutomation,
+            clsctx=comtypes.CLSCTX_INPROC_SERVER,
+        )
+        state = {"count": 0}
+        root = uia.GetRootElement()
+        windows = []
+        walker = uia.ControlViewWalker
+        child = walker.GetFirstChildElement(root)
+        while child is not None and state["count"] < max_nodes:
+            built = _node(walker, child, 1, max_depth, max_nodes, state)
+            if built:
+                windows.append(built)
+            child = walker.GetNextSiblingElement(child)
+        return {"monitors": _monitors(), "windows": windows}
+
+    return guarded_collect(_body, comtypes.CoInitialize, comtypes.CoUninitialize)
 
 
 def _node(walker: Any, element: Any, depth: int, max_depth: int, max_nodes: int, state: dict[str, int]) -> dict[str, Any] | None:
