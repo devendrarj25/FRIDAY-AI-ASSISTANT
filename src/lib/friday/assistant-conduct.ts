@@ -409,3 +409,85 @@ export function proposeStep(
   };
   return result(next, named(address, "Done."), "step", "ran");
 }
+
+export const PROACTIVITY_BUDGET = 2;
+export const PROACTIVITY_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+export type LifeKind = "schedule" | "file" | "calendar" | "clipboard" | "window" | "reminder";
+
+const LIFE_DATA = /\b(ignore (all |any |previous |your )?instructions|system prompt|you must)\b/i;
+
+/** Morning and evening are the only times a brief is offered. */
+export function briefSlot(hour: number): "morning" | "evening" | "none" {
+  const h = Math.floor(Number(hour));
+  if (h >= 5 && h < 11) return "morning";
+  if (h >= 17 && h < 22) return "evening";
+  return "none";
+}
+
+/**
+ * Whether an ambient event may be mentioned. Stop everything wins.
+ * A file, clipboard, or window is data. Ask-every-time does not get
+ * an unsolicited offer. A reminder the owner set still fires unless halted.
+ */
+export function considerLifeTrigger(input: {
+  kind: LifeKind;
+  now: number;
+  offeredAt: number[];
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted: boolean;
+  quiet?: boolean;
+  meeting?: boolean;
+  text?: string;
+  hour?: number;
+  solicited?: boolean;
+  windowMs?: number;
+  budget?: number;
+}): { offer: boolean; reason: string; offeredAt: number[]; spoken: string } {
+  const windowMs = input.windowMs ?? PROACTIVITY_WINDOW_MS;
+  const budget = input.budget ?? PROACTIVITY_BUDGET;
+  const recent = (input.offeredAt || []).filter(
+    (at) => input.now - at < windowMs && input.now - at >= 0,
+  );
+  const hold = (reason: string, spoken: string) => ({
+    offer: false,
+    reason,
+    offeredAt: recent,
+    spoken,
+  });
+  if (input.halted) return hold("halted", "Stop everything is on.");
+  if (!input.solicited && (input.quiet || input.meeting)) return hold("quiet", "Not now.");
+  if (!input.solicited && LIFE_DATA.test(input.text || "")) {
+    return hold("data", "That text stays data.");
+  }
+  if (!input.solicited && input.level === "strict") return hold("ask", "I'll wait until you ask.");
+  if (!input.solicited && input.kind === "schedule" && briefSlot(input.hour ?? -1) === "none") {
+    return hold("none", "");
+  }
+  if (!input.solicited && recent.length >= budget) return hold("budget", "I'll stay quiet.");
+  const slot = briefSlot(input.hour ?? -1);
+  const spoken = input.solicited
+    ? "A reminder is due."
+    : input.kind === "schedule"
+      ? slot === "morning"
+        ? "Morning. I can read the standing orders if you want."
+        : "Evening. I can read the standing orders if you want."
+      : input.kind === "file"
+        ? "A folder changed. Want me to look?"
+        : input.kind === "calendar"
+          ? "Something is on the calendar. Want the short version?"
+          : input.kind === "clipboard"
+            ? "The clipboard changed. It stays data unless you ask."
+            : input.kind === "window"
+              ? "A window changed. Want me to look?"
+              : "A reminder is due. Want me to say it?";
+  const run =
+    input.level === "full" &&
+    (input.solicited || input.kind === "schedule" || input.kind === "calendar");
+  return {
+    offer: true,
+    reason: run ? "run" : "offer",
+    offeredAt: input.solicited ? recent : [...recent, input.now],
+    spoken,
+  };
+}

@@ -11,6 +11,8 @@ import { memory } from "./self/memory-engine";
 import { ledger } from "./self/task-ledger";
 import { notifications } from "./notifications";
 import { NOTE_TAG, SOCIAL_DRAFT_TAG, parseDueAt } from "./owner-work-logic";
+import { considerLifeTrigger } from "./assistant-conduct";
+import { autonomy } from "./self/autonomy";
 
 export type DeskTask = {
   id: string;
@@ -101,6 +103,16 @@ class PersonalDesk {
 
   fireDueReminders(now = Date.now()): DeskTask[] {
     this.load();
+    const snap = autonomy.getSnapshot();
+    const gate = considerLifeTrigger({
+      kind: "reminder",
+      now,
+      offeredAt: [],
+      level: snap.approvalLevel,
+      halted: snap.halted,
+      solicited: true,
+    });
+    if (!gate.offer) return [];
     const due = this.tasks.filter(
       (task) => !task.done && task.dueAt != null && task.dueAt <= now && !task.remindedAt,
     );
