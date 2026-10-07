@@ -7,6 +7,7 @@
 
 import { load as loadYaml } from "js-yaml";
 import { looksSensitive } from "./brain/memory-policy";
+import { redactRunText } from "./self/run-receipt";
 
 export const FLOW_GRAPH_VERSION = 1 as const;
 
@@ -176,6 +177,71 @@ export function safeFlowId(raw: string): string {
   if (!/^[A-Za-z_]/.test(id)) id = `n_${id}`;
   if (id.length > 80) id = `${id.slice(0, 68)}_${flowHash(raw)}`.slice(0, 80);
   return id;
+}
+
+export type WatchStep = {
+  kind: "click" | "type" | "launch" | "focus" | "hotkey" | "scroll";
+  target: string;
+  payload?: string;
+  role?: string;
+};
+
+const SECRET_STEP = /password|payment|captcha|credential/i;
+
+function watchLine(step: WatchStep): string {
+  if (step.kind === "type") return `type ${step.payload || ""} into ${step.target}`;
+  if (step.kind === "launch") return `launch ${step.target}`;
+  if (step.kind === "focus") return `focus ${step.target}`;
+  if (step.kind === "hotkey") return `press ${step.target}`;
+  if (step.kind === "scroll") return `scroll ${step.target}`;
+  return `click ${step.target}`;
+}
+
+function watchKeeps(step: WatchStep): boolean {
+  if (SECRET_STEP.test(step.role || "") || SECRET_STEP.test(step.target)) return false;
+  if (looksSensitive(step.payload || "")) return false;
+  if (looksSensitive(watchLine(step))) return false;
+  return true;
+}
+
+/**
+ * An owner-started demonstration becomes one editable graph.
+ * No consent, no graph. A password or secret step is left out.
+ */
+export function graphFromWatch(
+  steps: WatchStep[],
+  options: { consent: boolean; id?: string; title?: string },
+): { ok: true; graph: FlowGraph; request: string } | { ok: false; reason: "consent" | "empty" } {
+  if (!options.consent) return { ok: false, reason: "consent" };
+  const kept = steps.filter(watchKeeps);
+  if (!kept.length) return { ok: false, reason: "empty" };
+  const graph = emptyGraph(options.id || "watch", options.title || "Watched steps");
+  graph.trusted = false;
+  kept.forEach((step, index) => {
+    const id = safeFlowId(`step_${index + 1}`);
+    const line = redactRunText(watchLine(step));
+    graph.nodes.push(
+      nodeOf({
+        id,
+        kind: "tool",
+        label: redactRunText(step.target).slice(0, 68) || id,
+        status: "idle",
+        risk: step.kind === "click" || step.kind === "type" ? "write" : "safe",
+        privacy: "standard",
+        detail: line,
+        source: { adapter: "demonstration", ref: id },
+      }),
+    );
+    if (index > 0) {
+      const prev = safeFlowId(`step_${index}`);
+      graph.edges.push({ id: `e${index}`, source: prev, target: id, kind: "control" });
+    }
+  });
+  return {
+    ok: true,
+    graph,
+    request: kept.map((step) => redactRunText(watchLine(step))).join("\n"),
+  };
 }
 
 export function emptyGraph(id: string, title: string): FlowGraph {
