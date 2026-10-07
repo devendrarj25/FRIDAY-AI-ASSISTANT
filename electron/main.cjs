@@ -36,6 +36,7 @@ const {
   resolveFolder,
 } = require("./workspace.cjs");
 const paths = require("./friday-paths.cjs");
+const stateStore = require("./state-store.cjs");
 const fridayVersion = require("./friday-version.cjs");
 const productVersion = () => fridayVersion.displayVersion();
 const { createStallWatchdog } = require("./stream-watchdog.cjs");
@@ -3756,7 +3757,7 @@ ipcMain.handle("state:identity", () => {
 
 ipcMain.handle("state:get", (_e, namespace) => {
   try {
-    return JSON.parse(fs.readFileSync(stateFile(namespace), "utf8"));
+    return stateStore.readState(stateFile(namespace));
   } catch {
     return null;
   }
@@ -3765,8 +3766,8 @@ ipcMain.handle("state:get", (_e, namespace) => {
 ipcMain.handle("state:set", (_e, namespace, value) => {
   const file = stateFile(namespace);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(value));
-  return true;
+  const result = stateStore.commitState(file, value, { now: Date.now() });
+  return result.ok;
 });
 
 ipcMain.handle("workspace:pick", async () => {
