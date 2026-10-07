@@ -1293,6 +1293,13 @@ const TOOLS = [
     source: "pypi.org",
     latest: { kind: "pypi", ref: "pywin32" },
   }),
+  T("comtypes", "Windows Integration", {
+    pipDist: "comtypes",
+    pip: "comtypes",
+    url: "https://github.com/enthought/comtypes",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "comtypes" },
+  }),
   T("psutil", "Windows Integration", {
     pipDist: "psutil",
     pip: "psutil",

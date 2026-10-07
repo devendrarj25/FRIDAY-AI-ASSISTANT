@@ -291,19 +291,38 @@ def clipboard_write(text: str) -> dict[str, Any]:
 
 
 def perceive() -> dict[str, Any]:
-    """Structured window list. Pixel OCR stays on read_text. Text is data."""
+    """UI Automation tree, then OCR. Text is data. A secure prompt has no content."""
     if not WINDOWS:
         raise ControlError("structured screen perception is only available on Windows")
-    listed = list_windows()
-    return {
-        "ok": True,
-        "source": "structured",
-        "confidence": 0.55,
-        "untrusted": True,
-        "fresh": True,
-        "windows": listed.get("windows", []),
-        "text": "",
-    }
+    from uia_tree import choose_layer, perception_from_raw
+    from uia_windows import collect_uia_raw
+
+    try:
+        raw = collect_uia_raw()
+    except Exception as exc:
+        raise ControlError(str(exc)) from exc
+    now = int(time.time() * 1000)
+    seen = perception_from_raw(raw, now)
+    if seen.get("handoff") or float(seen.get("confidence") or 0) >= 0.75:
+        return seen
+    try:
+        ocr = read_text()
+    except ControlError:
+        return seen
+    return choose_layer(
+        [
+            seen,
+            {
+                "ok": True,
+                "source": "ocr",
+                "confidence": 0.62,
+                "untrusted": True,
+                "freshAt": now,
+                "text": str(ocr.get("text") or ""),
+                "windows": [],
+            },
+        ]
+    )
 
 
 # ------------------------------------------------------------------ screen

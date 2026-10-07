@@ -16,7 +16,11 @@ import {
   publishDoctorSession,
   resetDoctorSession,
 } from "../../src/lib/friday/doctor-awareness";
-import { handleDoctorCommand, type DoctorCheck } from "../../src/lib/friday/doctor-engine";
+import {
+  desktopUiaChecks,
+  handleDoctorCommand,
+  type DoctorCheck,
+} from "../../src/lib/friday/doctor-engine";
 
 const SAMPLE: DoctorCheck[] = [
   {
@@ -180,5 +184,14 @@ describe("baseline doctor look", () => {
     expect(reply.handled).toBe(true);
     const text = reply.text || (await reply.resolve?.()) || "";
     expect(text).not.toContain("DOCTOR SESSION");
+  });
+});
+
+describe("desktop UI Automation doctor row", () => {
+  it("points at the Install Manager helper and does not claim a live walk", () => {
+    const row = desktopUiaChecks()[0];
+    expect(row?.id).toBe("desktop:uia");
+    expect(row?.fix).toMatch(/Install Manager/);
+    expect(row?.detail).toMatch(/comtypes/);
   });
 });

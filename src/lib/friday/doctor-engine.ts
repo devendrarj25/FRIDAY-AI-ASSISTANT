@@ -650,7 +650,24 @@ function brainSurfaceChecks(): DoctorCheck[] {
     /* store may not be ready */
   }
   checks.push(...optionalDiagramChecks());
+  checks.push(...desktopUiaChecks());
   return checks;
+}
+
+/** UI Automation helper. The tree normalizer does not need it. The live walker does. */
+export function desktopUiaChecks(): DoctorCheck[] {
+  return [
+    {
+      id: "desktop:uia",
+      label: "UI Automation helper",
+      group: "Desktop",
+      status: "Missing",
+      detail:
+        "Optional Windows package. A fixture tree is normalized without it. Live window walking needs comtypes from Install Manager.",
+      fix: "Install comtypes from Install Manager.",
+      fixable: false,
+    },
+  ];
 }
 
 /** Optional diagram compilers. Core drawing does not need them. */

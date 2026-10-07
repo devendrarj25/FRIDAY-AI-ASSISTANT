@@ -254,4 +254,30 @@ describe("desktop loop on a fake desktop", () => {
       taskGraph.cancel(taken.id);
     }
   });
+
+  it("hands a secure desktop back with no screen content", async () => {
+    const desktop = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          title: "User Account Control",
+          controls: [
+            {
+              id: "yes",
+              role: "button",
+              name: "Yes",
+              value: "s3cret-value",
+              bounds: { x: 1, y: 1, w: 10, h: 10 },
+            },
+          ],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const report = await runComputerUse({ ...base, request: "click Yes", desktop });
+    expect(report.stoppedReason).toBe("handoff:uac");
+    expect(report.summary.includes("s3cret-value")).toBe(false);
+    expect(report.lines.join(" ").includes("s3cret-value")).toBe(false);
+    expect(desktop.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+  });
 });

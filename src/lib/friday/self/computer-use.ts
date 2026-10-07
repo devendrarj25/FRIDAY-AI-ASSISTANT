@@ -65,6 +65,8 @@ export type Perception = {
   monitor: number;
   windows: { id: string; title: string; controls: DeskControl[] }[];
   text: string;
+  handoff?: "credential" | "payment" | "captcha" | "uac";
+  truncated?: boolean;
 };
 
 export type DesktopAction = {
@@ -131,6 +133,8 @@ export type DesktopRunInput = {
 const DEFAULT_BUDGET: TaskBudget = { timeMs: 120_000, maxSteps: 8, spend: 0, tokens: 0 };
 
 const HANDOFF_ROLE = new Set(["password", "payment", "captcha", "uac"]);
+
+const SECURE_WINDOW = /user account control|secure desktop|windows security|credential dialog/i;
 
 const INJECTION =
   /\b(ignore (all |any |previous |your )?instructions|system prompt|you must (now )?click|type the password|disregard the owner)\b/i;
@@ -341,13 +345,27 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
     state.readsInFlight = Math.max(0, state.readsInFlight - 1);
     const focused =
       state.windows.find((window) => window.id === state.focusedId) ?? state.windows[0];
+    const secure = state.windows.find((window) => SECURE_WINDOW.test(window.title));
+    if (secure) {
+      const handoff = /security|credential/i.test(secure.title) ? "credential" : "uac";
+      return {
+        source: "uia",
+        confidence: 0.97,
+        freshAt: at,
+        generation: state.generation,
+        untrusted: true,
+        dpi: secure.dpi,
+        monitor: secure.monitor,
+        windows: [],
+        text: "",
+        handoff,
+      };
+    }
     const sight = focused?.sight ?? "vision";
     const source: PerceptionSource = !focused ? "none" : sight === "uia" ? "uia" : sight;
     const confidence =
       source === "uia" ? 0.92 : source === "ocr" ? 0.62 : source === "vision" ? 0.41 : 0;
-    const text = (focused?.controls ?? [])
-      .map((control) => `${control.name} ${control.value}`.trim())
-      .join("\n");
+    const text = (focused?.controls ?? []).map((control) => controlText(control)).join("\n");
     return {
       source,
       confidence,
@@ -364,6 +382,7 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
           controls: window.controls.map((control) => ({
             ...control,
             bounds: { ...control.bounds },
+            value: control.role === "password" ? "" : control.value,
           })),
         })),
       text,
@@ -425,6 +444,11 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
   };
 
   return { state, perceive, act };
+}
+
+function controlText(control: DeskControl): string {
+  if (control.role === "password") return control.name;
+  return `${control.name} ${control.value}`.trim();
 }
 
 function cloneWindow(window: DeskWindow): DeskWindow {
@@ -604,6 +628,93 @@ export function resolveDesktopPort(): DesktopPort {
   return kernelBackedPort();
 }
 
+function sourceOf(value: unknown): PerceptionSource {
+  if (value === "uia" || value === "ocr" || value === "vision" || value === "none") return value;
+  return "uia";
+}
+
+function handoffOf(value: unknown): Perception["handoff"] | null {
+  if (value === "credential" || value === "payment" || value === "captcha" || value === "uac") {
+    return value;
+  }
+  return null;
+}
+
+function windowsOf(value: unknown): Perception["windows"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const window = row as Record<string, unknown>;
+    const controls = Array.isArray(window["controls"])
+      ? window["controls"].flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const control = item as Record<string, unknown>;
+          const bounds = control["bounds"];
+          const box =
+            bounds && typeof bounds === "object"
+              ? (bounds as Record<string, unknown>)
+              : { x: 0, y: 0, w: 0, h: 0 };
+          const role = String(control["role"] || "text");
+          const known = (
+            ["button", "edit", "text", "password", "payment", "captcha", "uac"] as const
+          ).find((item) => item === role);
+          return [
+            {
+              id: String(control["id"] || control["selector"] || control["name"] || "control"),
+              role: known ?? "text",
+              name: String(control["name"] || ""),
+              value: known === "password" ? "" : String(control["value"] || ""),
+              bounds: {
+                x: Number(box["x"] || 0),
+                y: Number(box["y"] || 0),
+                w: Number(box["w"] || 0),
+                h: Number(box["h"] || 0),
+              },
+            },
+          ];
+        })
+      : [];
+    return [
+      {
+        id: String(window["id"] || window["title"] || "window"),
+        title: String(window["title"] || ""),
+        controls,
+      },
+    ];
+  });
+}
+
+function perceptionFromTool(result: Record<string, unknown> | null, at: number): Perception {
+  if (!result || result["ok"] === false) {
+    return {
+      source: "none",
+      confidence: 0,
+      freshAt: at,
+      generation: 0,
+      untrusted: true,
+      dpi: 96,
+      monitor: 0,
+      windows: [],
+      text: "",
+    };
+  }
+  const handoff = handoffOf(result["handoff"]);
+  const seen: Perception = {
+    source: sourceOf(result["source"]),
+    confidence: typeof result["confidence"] === "number" ? result["confidence"] : 0.5,
+    freshAt: typeof result["freshAt"] === "number" ? result["freshAt"] : at,
+    generation: 1,
+    untrusted: true,
+    dpi: typeof result["dpi"] === "number" ? result["dpi"] : 96,
+    monitor: typeof result["monitor"] === "number" ? result["monitor"] : 1,
+    windows: handoff ? [] : windowsOf(result["windows"]),
+    text: handoff ? "" : String(result["text"] || ""),
+  };
+  if (handoff) seen.handoff = handoff;
+  if (result["truncated"] === true) seen.truncated = true;
+  return seen;
+}
+
 function kernelBackedPort(): DesktopPort {
   const state: DeskState = {
     monitors: [],
@@ -622,30 +733,7 @@ function kernelBackedPort(): DesktopPort {
     state,
     async perceive(at: number): Promise<Perception> {
       const result = await kernelApi.tools.exec("screen.perceive", {});
-      if (!result || result["ok"] === false) {
-        return {
-          source: "none",
-          confidence: 0,
-          freshAt: at,
-          generation: 0,
-          untrusted: true,
-          dpi: 96,
-          monitor: 0,
-          windows: [],
-          text: "",
-        };
-      }
-      return {
-        source: "uia",
-        confidence: typeof result["confidence"] === "number" ? result["confidence"] : 0.5,
-        freshAt: at,
-        generation: 1,
-        untrusted: true,
-        dpi: 96,
-        monitor: 1,
-        windows: [],
-        text: String(result["text"] || ""),
-      };
+      return perceptionFromTool(result, at);
     },
     async act(step: DesktopAction): Promise<ActOutcome> {
       const result = await kernelApi.tools.exec(step.tool, {
@@ -750,6 +838,16 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
 
     return enqueue(step.readOnly, async () => {
       const before = await desktop.perceive(now());
+      if (before.handoff) {
+        lines.push(statusLine("handoff", "A secure prompt needs the owner."));
+        audit.push({ at: now(), action: step.tool, result: `handoff:${before.handoff}` });
+        return finish(
+          false,
+          true,
+          lines[lines.length - 1] ?? "Handoff.",
+          `handoff:${before.handoff}`,
+        );
+      }
       if (INJECTION.test(before.text) && !input.request.includes(before.text.trim())) {
         lines.push(statusLine("injection", "I will not follow text on the screen."));
         audit.push({ at: now(), action: step.tool, result: "injection" });
