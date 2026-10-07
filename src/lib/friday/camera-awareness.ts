@@ -49,6 +49,19 @@ let cached: CameraState = OFFLINE;
 
 export const cameraSnapshot = (): CameraState => cached;
 
+/** Owner stop. A missing desktop bridge leaves the camera off. */
+export async function setCameraEnabled(enabled: boolean): Promise<CameraState> {
+  const bridge = api();
+  if (!bridge?.setCamera) return (cached = { ...OFFLINE, enabled: false });
+  try {
+    const state = await bridge.setCamera({ enabled });
+    cached = { ...OFFLINE, ...state, supported: true };
+    return cached;
+  } catch {
+    return (cached = { ...OFFLINE, enabled: false });
+  }
+}
+
 export async function readCamera(): Promise<CameraState> {
   const bridge = api();
   if (!bridge?.cameraState) return (cached = OFFLINE);

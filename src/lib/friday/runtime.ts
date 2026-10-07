@@ -46,6 +46,7 @@ import { watchStartup } from "./startup";
 import { ensureEssentialCapabilities } from "./capability-seed";
 import { buildCapabilityGroups, type CapabilityKind } from "./capabilities";
 import { deliverSenses, emptySenseGate } from "./assistant-conduct";
+import { noteSense } from "./control-center";
 import { desktopApi, getWorkspaceScan, onWorkspaceScanChange } from "./desktop";
 import { preferences } from "./preferences";
 import { approvedFolderList, isSenseId, switchesFromToggles } from "./senses";
@@ -533,6 +534,8 @@ function bindSenseOffers(): void {
         state,
       });
       state = next.state;
+      const heard = next.events[next.events.length - 1];
+      if (heard) noteSense(heard.at);
     } catch {
       /* a sense must never take the UI down */
     }

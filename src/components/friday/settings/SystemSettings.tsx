@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Activity, FolderOpen, Gauge, RefreshCw } from "lucide-react";
@@ -14,12 +15,24 @@ import {
   SENSE_LABEL,
   SENSE_TOGGLE,
   approvedFolderList,
+  isSenseId,
   senseHint,
   stopAllPatch,
   switchesFromToggles,
   watchingLine,
 } from "@/lib/friday/senses";
 import { usePreferences } from "@/lib/friday/use-preferences";
+import { assistantMode } from "@/lib/friday/assistant-mode";
+import { cameraSnapshot, setCameraEnabled } from "@/lib/friday/camera-awareness";
+import {
+  controlNotes,
+  controlRows,
+  panicPlan,
+  subscribeControl,
+} from "@/lib/friday/control-center";
+import { setScreenVision, screenVisionSnapshot } from "@/lib/friday/screen-awareness";
+import { autonomy } from "@/lib/friday/self/autonomy";
+import { useAutonomy, useLedger } from "@/lib/friday/self/use-self";
 import { useAppVersion } from "@/lib/friday/version";
 import { models } from "@/lib/friday/models-engine";
 
@@ -36,6 +49,64 @@ export function SystemSettings() {
   const kernel = useKernelStatus();
   const version = useAppVersion();
   const prefs = usePreferences();
+  const dial = useAutonomy();
+  const voice = useSyncExternalStore(
+    assistantMode.subscribe,
+    assistantMode.getSnapshot,
+    assistantMode.getSnapshot,
+  );
+  const noted = useSyncExternalStore(subscribeControl, controlNotes, controlNotes);
+  const ledger = useLedger();
+  const latest = ledger.tasks.reduce<(typeof ledger.tasks)[number] | null>(
+    (best, task) => (!best || task.startedAt > best.startedAt ? task : best),
+    null,
+  );
+  const rows = controlRows({
+    toggles: prefs.toggles,
+    halted: dial.halted,
+    level: dial.approvalLevel,
+    listening: voice.mode === "auto" && voice.listening,
+    handsFree: voice.handsFree,
+    screenOn: screenVisionSnapshot().enabled,
+    cameraOn: cameraSnapshot().enabled,
+    consent: false,
+    lastEventAt: noted.senseAt,
+    lastReceipt: latest?.title ?? noted.receipt,
+  });
+  const stopRow = (id: string) => {
+    if (id.startsWith("sense:")) {
+      const sense = id.slice("sense:".length);
+      if (isSenseId(sense)) preferences.setToggle(SENSE_TOGGLE[sense], false);
+      return;
+    }
+    if (id === "listener:mic") {
+      assistantMode.setMode("manual");
+      return;
+    }
+    if (id === "listener:hands-free") {
+      assistantMode.setHandsFree(false);
+      return;
+    }
+    if (id === "recorder:screen") {
+      void setScreenVision({ enabled: false });
+      return;
+    }
+    if (id === "recorder:camera") {
+      void setCameraEnabled(false);
+      return;
+    }
+    if (id === "autonomy:dial") autonomy.stopEverything();
+  };
+  const panic = () => {
+    const plan = panicPlan();
+    autonomy.stopEverything();
+    preferences.update({ toggles: plan.toggles });
+    assistantMode.setHandsFree(false);
+    assistantMode.setMode("manual");
+    void setScreenVision({ enabled: false });
+    void setCameraEnabled(false);
+    toast.success("Stopped. Senses are off.");
+  };
 
   const isOn = (k: string) => prefs.toggles[k] === true;
   const flip = (k: string) => preferences.setToggle(k, !isOn(k));
@@ -133,6 +204,34 @@ export function SystemSettings() {
             onClick={() => preferences.update({ toggles: stopAllPatch() })}
           >
             Stop all watching
+          </Button>
+        </div>
+      </HudPanel>
+
+      <HudPanel title="Owner control" hint="Each sense, listener, and recorder, with a stop">
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{row.label}</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  {row.on ? "ON" : "OFF"} · {row.detail}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!row.on}
+                onClick={() => stopRow(row.id)}
+              >
+                Stop
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3">
+          <Button size="sm" variant="outline" onClick={panic}>
+            Panic
           </Button>
         </div>
       </HudPanel>
