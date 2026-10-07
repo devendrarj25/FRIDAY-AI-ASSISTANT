@@ -841,6 +841,47 @@ function countProvidersWithoutFree(rows) {
   return count;
 }
 
+/**
+ * Models that are free right now. A cooldown stays on the board and disabled.
+ * Paid and unknown-cost rows stay off. Source and age come from the evidence
+ * the access record already stored.
+ */
+function freeNowBoard(models, options = {}) {
+  const now = options.now || Date.now();
+  const view = usableModels(models, {
+    ...options,
+    policy: options.policy || "free-preferred",
+    now,
+  });
+  const rows = [];
+  for (const row of view.rows) {
+    const model = row.model || {};
+    const local = model.type === "local" || model.kind === "local";
+    if (!local && model.access !== "free") continue;
+    if (row.visibility === "hide") continue;
+    const evidence = model.accessRecord?.evidence || {};
+    const checkedAt = Number(evidence.checkedAt || 0);
+    const cooling = Boolean(model.coolingDown) || /limit reached/i.test(String(row.reason || ""));
+    const marks = [...(row.marks || [])];
+    if (local && !marks.includes("local")) marks.push("local");
+    if ((model.capabilities?.fast || model.role === "fast") && !marks.includes("speed")) {
+      marks.push("speed");
+    }
+    rows.push({
+      id: model.id,
+      label: row.choiceLabel,
+      source: evidence.source || (local ? "local_runtime" : "unknown"),
+      sourceUrl: String(evidence.url || evidence.sourceUrl || ""),
+      checkedAt: checkedAt || null,
+      ageMs: checkedAt > 0 ? Math.max(0, now - checkedAt) : null,
+      cooling,
+      reason: row.disabledReason || null,
+      marks,
+    });
+  }
+  return rows;
+}
+
 function usableModels(models, options = {}) {
   const policy = normalisePolicy(options.policy || DEFAULT_POLICY);
   const now = options.now || Date.now();
@@ -1706,6 +1747,7 @@ module.exports = {
   compileRoleTurn,
   selectVerificationCandidates,
   usableModels,
+  freeNowBoard,
   modelAvailability,
   formatAnsweredBy,
   choiceLabelOf,

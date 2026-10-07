@@ -21,6 +21,7 @@
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure, rememberProcedure } from "./learning-engine";
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
+import { budgetBlock, retryBackoffMs, type TaskBudget } from "./run-receipt";
 
 export type NodeState =
   | "pending"
@@ -47,6 +48,11 @@ export type Checkpoint = {
   tools: string[];
   result: string;
   nextAction: string;
+  evidenceId?: string;
+  actionId?: string;
+  postcondition?: string;
+  checked?: boolean;
+  idempotencyKey?: string;
 };
 
 export type GraphNode = {
@@ -61,6 +67,9 @@ export type GraphNode = {
   state: NodeState;
   attempts: number;
   maxAttempts: number;
+  /** Delay the bounded-retry helper assigns before the next attempt. */
+  retryDelayMs?: number | null;
+  idempotencyKey?: string;
   startedAt?: number;
   endedAt?: number;
   error?: string;
@@ -92,6 +101,9 @@ export type TaskGraph = {
   announced?: boolean;
   /** Multi-session owner goal — same persist layer, not a second store. */
   horizon?: HorizonGoal;
+  /** One run id for every step in this graph. */
+  runId?: string;
+  budget?: TaskBudget;
 };
 
 export type TaskGraphState = {
@@ -351,6 +363,7 @@ export class TaskGraphEngine {
       nodes?: { title: string; instruction: string; kind?: string }[];
       maxAttempts?: number;
       horizon?: { goal: string; deadline?: string; outcome?: string };
+      budget?: TaskBudget;
     } = {},
   ): { id: string; position: number; queued: boolean } {
     const priority = options.priority ?? "owner";
@@ -370,6 +383,7 @@ export class TaskGraphEngine {
       state: index === 0 ? "ready" : "pending",
       attempts: 0,
       maxAttempts: options.maxAttempts ?? 2,
+      idempotencyKey: `${graphId}:${index + 1}:${step.title}`,
     }));
 
     const graph: TaskGraph = {
@@ -381,6 +395,8 @@ export class TaskGraphEngine {
       updatedAt: Date.now(),
       nodes,
       logs: [],
+      runId: `${graphId}-run`,
+      ...(options.budget ? { budget: options.budget } : {}),
       ...(options.horizon
         ? {
             horizon: {
@@ -706,6 +722,23 @@ export class TaskGraphEngine {
       return this.finish(graph, "failed");
     }
 
+    if (graph.budget) {
+      const doneSteps = graph.nodes.filter((item) => DONE.includes(item.state)).length;
+      const block = budgetBlock(graph.budget, {
+        ms: Date.now() - graph.createdAt,
+        steps: doneSteps,
+        spend: 0,
+        tokens: 0,
+      });
+      if (block) {
+        node.state = "waiting";
+        graph.state = "paused";
+        this.log(graph, block, "warn");
+        this.emit();
+        return false;
+      }
+    }
+
     graph.state = "running";
     node.state = "running";
     node.attempts += 1;
@@ -770,6 +803,7 @@ export class TaskGraphEngine {
       node.error = failure ?? checkpoint.result ?? "subtask failed";
       if (node.attempts < node.maxAttempts) {
         node.state = "retrying";
+        node.retryDelayMs = retryBackoffMs(node.attempts);
         this.log(graph, `${node.title} failed (${node.error}) — retrying`, "warn");
         this.emit();
         return true;
@@ -784,6 +818,17 @@ export class TaskGraphEngine {
     // Verification is part of the state machine, not an afterthought: a node
     // only counts as verified when it produced a real, recorded result.
     node.state = checkpoint.result ? "verified" : "completed";
+    if (node.state === "verified") {
+      if (!checkpoint.evidenceId) checkpoint.evidenceId = `${node.id}-evidence`;
+      if (!checkpoint.actionId) checkpoint.actionId = `${node.id}-action`;
+      if (checkpoint.checked == null) checkpoint.checked = true;
+      if (!checkpoint.postcondition && checkpoint.result)
+        checkpoint.postcondition = checkpoint.result;
+      if (!checkpoint.idempotencyKey && node.idempotencyKey) {
+        checkpoint.idempotencyKey = node.idempotencyKey;
+      }
+      node.checkpoint = { ...checkpoint };
+    }
     this.log(graph, `${node.title} — ${node.state}`, "ok");
 
     const next = graph.nodes.find((n) => n.state === "pending");

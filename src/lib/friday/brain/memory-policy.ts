@@ -6,7 +6,7 @@
  */
 
 import type { MemoryItem, MemoryTier } from "../self/memory-engine";
-import { meaningsDisagree } from "../self/memory-engine";
+import { meaningsDisagree, memoryContentTokens, tokenJaccard } from "../self/memory-engine";
 import { shouldRememberChats } from "../settings-runtime";
 
 export { meaningsDisagree };
@@ -130,4 +130,67 @@ export function detectConflict(
       meaningsDisagree(`${item.title} ${item.text}`, `${incoming.title} ${incoming.text}`),
   );
   return polar ?? null;
+}
+
+export type TurnLine = { role: "user" | "assistant"; text: string };
+
+export type TurnFact = {
+  id: string;
+  text: string;
+  source: string;
+  at: number;
+  privacy?: "local" | "cloud";
+  pinned?: boolean;
+};
+
+/**
+ * The full transcript stays with the caller. The model packet is the recent
+ * turns plus facts that match this ask. Sensitive text and local-only facts
+ * stay out of that packet. Each fact keeps its source and age.
+ */
+export function packTurnContext(input: {
+  transcript: TurnLine[];
+  facts: TurnFact[];
+  ask: string;
+  now: number;
+  maxTurns?: number;
+  maxFacts?: number;
+}): {
+  localTranscript: TurnLine[];
+  forModel: { turns: TurnLine[]; facts: Array<TurnFact & { ageMs: number | null }> };
+  withheld: string[];
+} {
+  const transcript = Array.isArray(input.transcript) ? input.transcript : [];
+  const maxTurns = input.maxTurns ?? 8;
+  const maxFacts = input.maxFacts ?? 4;
+  const askTerms = memoryContentTokens(input.ask);
+  const withheld: string[] = [];
+  const ranked = (input.facts || [])
+    .map((fact) => {
+      const text = String(fact.text || "");
+      if (!text.trim() || looksSensitive(text) || fact.privacy === "local") {
+        if (fact.id) withheld.push(fact.id);
+        return null;
+      }
+      const overlap = tokenJaccard(askTerms, memoryContentTokens(text));
+      const ageMs = Number.isFinite(fact.at) ? Math.max(0, input.now - fact.at) : null;
+      return { fact: { ...fact, text, ageMs }, overlap };
+    })
+    .filter((row): row is { fact: TurnFact & { ageMs: number | null }; overlap: number } =>
+      Boolean(row),
+    )
+    .filter((row) => row.overlap > 0 || row.fact.pinned)
+    .sort(
+      (a, b) =>
+        b.overlap - a.overlap ||
+        Number(Boolean(b.fact.pinned)) - Number(Boolean(a.fact.pinned)) ||
+        b.fact.at - a.fact.at,
+    )
+    .slice(0, maxFacts)
+    .map((row) => row.fact);
+  return {
+    localTranscript: transcript,
+    forModel: { turns: transcript.slice(-Math.max(1, maxTurns)), facts: ranked },
+    withheld,
+  };
 }

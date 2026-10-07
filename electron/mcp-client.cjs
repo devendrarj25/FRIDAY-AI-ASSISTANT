@@ -247,7 +247,70 @@ async function callTool(session, name, args) {
  * Open, handshake, list tools, then close (HTTP) or keep (stdio, caller closes).
  * For verify we list then close.
  */
-async function listFromConfig({ command, url, bearer, cwd, fetchImpl }) {
+function isLoopbackUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function refuseRemote(url) {
+  if (!url) return null;
+  if (!isLoopbackUrl(url)) return "A local server must stay on this machine.";
+  return null;
+}
+
+function isolateToolOutput(result) {
+  const text = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  return { untrusted: true, text: String(text).slice(0, 8000) };
+}
+
+const OPENAPI_RISK = {
+  get: "read",
+  head: "read",
+  post: "exec",
+  put: "exec",
+  patch: "exec",
+  delete: "exec",
+};
+
+/** Local OpenAPI document becomes tools at the same read/exec split. No hosted server. */
+function importOpenApi(spec) {
+  const servers = Array.isArray(spec?.servers) ? spec.servers : [];
+  const serverUrl = String(servers[0]?.url || "");
+  if (!isLoopbackUrl(serverUrl)) {
+    return { ok: false, reason: "OpenAPI import stays on this machine.", tools: [] };
+  }
+  const tools = [];
+  const paths = spec?.paths && typeof spec.paths === "object" ? spec.paths : {};
+  for (const [route, item] of Object.entries(paths)) {
+    if (!item || typeof item !== "object") continue;
+    for (const method of Object.keys(item)) {
+      const risk = OPENAPI_RISK[method.toLowerCase()];
+      if (!risk) continue;
+      const op = item[method] || {};
+      const raw = String(op.operationId || `${method}_${route}`);
+      tools.push({
+        name: raw.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80),
+        description: String(op.summary || route),
+        risk,
+        method: method.toUpperCase(),
+        path: route,
+      });
+    }
+  }
+  return { ok: true, tools };
+}
+
+async function listFromConfig({ command, url, bearer, cwd, fetchImpl, ownerAllowed = true }) {
+  if (!ownerAllowed) return { ok: false, error: "The owner has not allowed this server." };
+  const remote = refuseRemote(url);
+  if (remote) return { ok: false, error: remote };
   if (url) {
     const session = openHttp(String(url).trim(), bearer || "", fetchImpl || fetchCompat);
     try {
@@ -282,13 +345,24 @@ async function listFromConfig({ command, url, bearer, cwd, fetchImpl }) {
   return { ok: false, error: "Give an MCP server URL or a launch command." };
 }
 
-async function callFromConfig({ command, url, bearer, cwd, fetchImpl }, name, args) {
+async function callFromConfig(
+  { command, url, bearer, cwd, fetchImpl, allow, ownerAllowed = true },
+  name,
+  args,
+) {
+  if (!ownerAllowed)
+    return { ok: false, error: "The owner has not allowed this server.", untrusted: true };
+  const remote = refuseRemote(url);
+  if (remote) return { ok: false, error: remote, untrusted: true };
+  if (Array.isArray(allow) && !allow.map((item) => String(item)).includes(String(name))) {
+    return { ok: false, error: "That tool is not on this server's allow list.", untrusted: true };
+  }
   if (url) {
     const session = openHttp(String(url).trim(), bearer || "", fetchImpl || fetchCompat);
     try {
       await handshake(session);
       const result = await callTool(session, name, args);
-      return { ok: true, result };
+      return { ok: true, result, untrusted: true, output: isolateToolOutput(result) };
     } catch (error) {
       return { ok: false, error: String(error?.message || error) };
     } finally {
@@ -302,7 +376,7 @@ async function callFromConfig({ command, url, bearer, cwd, fetchImpl }, name, ar
       await handshake(session);
       const result = await callTool(session, name, args);
       session.close();
-      return { ok: true, result };
+      return { ok: true, result, untrusted: true, output: isolateToolOutput(result) };
     } catch (error) {
       try {
         session?.close();
@@ -313,13 +387,23 @@ async function callFromConfig({ command, url, bearer, cwd, fetchImpl }, name, ar
     }
   }
   return { ok: false, error: "Give an MCP server URL or a launch command." };
+}
+
+async function healthFromConfig(config = {}) {
+  const listed = await listFromConfig(config);
+  if (!listed.ok) return listed;
+  return { ok: true, serverName: listed.serverName, tools: listed.tools.length };
 }
 
 module.exports = {
   PROTOCOL,
   parseCommand,
+  isLoopbackUrl,
+  importOpenApi,
+  isolateToolOutput,
   listFromConfig,
   callFromConfig,
+  healthFromConfig,
   openStdio,
   openHttp,
   handshake,

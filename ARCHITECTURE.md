@@ -23,7 +23,7 @@ The renderer never runs shell. Every call is `ipcRenderer.invoke` / `send` on na
 
 ## 3. Kernel surface
 
-`kernel/main.py` mounts `GET /health` and `WebSocket /bridge`. Companion HTTP routes come from `kernel/companion.py`. `kernel/router.py` is the **model** router, not FastAPI routes. Tools: `kernel/tools.py` (27 named tools, exec-tier for PC control).
+`kernel/main.py` mounts `GET /health` and `WebSocket /bridge`. Companion HTTP routes come from `kernel/companion.py`. `kernel/router.py` is the **model** router, not FastAPI routes. Tools: `kernel/tools.py` (32 named tools, exec-tier for PC control).
 
 ## 4. Intelligence
 

@@ -276,6 +276,40 @@ describe("task intake — chat stays free", () => {
   });
 });
 
+describe("task graph budgets and receipts", () => {
+  it("stops at the step budget and keeps an evidence id on the finished step", async () => {
+    const engine = new TaskGraphEngine();
+    engine.registerRunner("goal", async ({ node }) => ({ result: `done ${node.title}` }));
+    const { id } = engine.submit("step one of the job\nthen step two of the job", {
+      budget: { timeMs: 60_000, maxSteps: 1, spend: 0, tokens: 0 },
+    });
+    await settle(engine, 400);
+    const graph = engine.get(id)!;
+    expect(graph.state).toBe("paused");
+    expect(graph.nodes[0]?.state).toBe("verified");
+    expect(graph.nodes[0]?.checkpoint?.evidenceId).toContain("evidence");
+    expect(graph.nodes[0]?.checkpoint?.checked).toBe(true);
+    expect(graph.runId).toContain("-run");
+    expect(graph.nodes[1]?.state).toBe("waiting");
+  });
+
+  it("records the bounded retry delay when a step fails once", async () => {
+    const engine = new TaskGraphEngine();
+    let tries = 0;
+    engine.registerRunner("goal", async () => {
+      tries += 1;
+      if (tries === 1) return { ok: false, result: "not yet" };
+      return { result: "done" };
+    });
+    const { id } = engine.submit("retry this single job", { maxAttempts: 2 });
+    await settle(engine, 400);
+    const graph = engine.get(id)!;
+    expect(graph.state).toBe("completed");
+    expect(graph.nodes[0]?.retryDelayMs).toBe(2000);
+    expect(tries).toBe(2);
+  });
+});
+
 describe("long-horizon goals", () => {
   it("tracks a multi-session goal and replans remaining work when a blocker appears", async () => {
     expect(looksLikeHorizonGoal("finish the tender bid by Friday")).toBe(true);

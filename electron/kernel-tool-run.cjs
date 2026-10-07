@@ -266,6 +266,33 @@ const DISPATCH = {
       hwnd: input.hwnd || null,
     });
   },
+  "input.scroll": (input) =>
+    callPython("control", "scroll", {
+      amount: Number(input.amount ?? input.clicks ?? -3),
+      x: input.x == null ? null : Number(input.x),
+      y: input.y == null ? null : Number(input.y),
+      target: input.target || null,
+      hwnd: input.hwnd || null,
+    }),
+  "input.drag": (input) => {
+    if (input.x == null || input.y == null || (input.x2 == null && input.toX == null)) {
+      return { ok: false, error: "drag needs a start and an end" };
+    }
+    return callPython("control", "drag", {
+      x: Number(input.x),
+      y: Number(input.y),
+      x2: Number(input.x2 ?? input.toX),
+      y2: Number(input.y2 ?? input.toY),
+      target: input.target || null,
+      hwnd: input.hwnd || null,
+    });
+  },
+  "clipboard.read": () => callPython("control", "clipboard_read", {}),
+  "clipboard.write": (input) => {
+    if (input.text == null) return { ok: false, error: "text is required" };
+    return callPython("control", "clipboard_write", { text: String(input.text) });
+  },
+  "screen.perceive": () => callPython("control", "perceive", {}),
   "screen.read_text": (input) =>
     callPython("control", "read_text", {
       region: Array.isArray(input.region) ? input.region : null,

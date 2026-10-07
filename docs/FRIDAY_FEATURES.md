@@ -6,7 +6,7 @@
 
 Discovery: `listCapabilities()` in `src/lib/friday/capability-trees.ts`. Disk trees: `electron/friday-contract.cjs` `TREES`. Landing path: `resolveLandingPath()` in `src/lib/friday/navigation.ts`. Root folders: `ensureStructure()` in `electron/friday-paths.cjs`. Public identity: `readCanonicalIdentity()` in `scripts/release-engine.cjs`.
 
-Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **116** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **27** in `kernel/tools.py`.
+Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **116** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **32** in `kernel/tools.py`.
 
 ## 1. Shell and routes
 
@@ -222,3 +222,24 @@ Recorded from public docs read that day. This is not a second chat product. Manu
 | Network meter | `src/lib/friday/network.ts`, `electron/net-status.cjs` | `core/__tests__/connectivity.test.ts` |
 | Camera ingest | devices/camera path | `core/__tests__/camera-ingest.test.ts` |
 | Conversation continuity | chat sessions | `core/__tests__/conversation-continuity.test.ts` |
+| Desktop loop | `src/lib/friday/self/computer-use.ts`, `src/lib/friday/self/task-graph.ts`, `kernel/control.py` | `core/__tests__/computer-use.test.ts`, `core/__tests__/task-graph.test.ts`, `kernel/tests/test_desktop_tools.py` |
+| Free now | `electron/model-router.cjs` `freeNowBoard`, `kernel/router.py` `free_now_entry` | `core/__tests__/usable-models.test.ts`, `kernel/tests/test_router_free_now.py` |
+| Turn packet | `src/lib/friday/brain/memory-policy.ts` `packTurnContext` | `core/__tests__/turn-context.test.ts` |
+| Life offers | `src/lib/friday/assistant-conduct.ts` `considerLifeTrigger` | `core/__tests__/assistant-conduct.test.ts` |
+| MCP scope | `electron/mcp-client.cjs` | `core/__tests__/mcp-client.test.ts`, `core/__tests__/connectors-oauth.test.ts` |
+
+### Desktop autonomy research (2026-10-07)
+
+Recorded once. Real Windows clicks, a full UI Automation tree, and live provider calls were not run here.
+
+| Finding | Decision | Why |
+| --- | --- | --- |
+| UI Automation control view and content view | ADOPT | Structured controls come before OCR and before a vision model. Perception carries source, confidence, and freshness. Source: learn.microsoft.com/en-us/windows/win32/winauto/uiauto-treeoverview (read 2026-10-07). |
+| Prompt-injection controls outside the prompt | ADOPT | Screen text, files, and tool output stay data. The plan is parsed from the owner's words. A credential, payment, captcha, or secure-desktop prompt is handed over. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html (read 2026-10-07). |
+| UFO2 hybrid detection (UIA, then vision) | ADAPT | The same order, on the existing desktop loop. A vision-only view stops and asks. Source: microsoft.com/en-us/research/publication/ufo2-the-desktop-agentos/ and microsoft.github.io/UFO/ufo2/core_features/control_detection/hybrid_detection/ (read 2026-10-07). |
+| Hosted vision-first desktop agents | REJECT | They skip the local-first path and the in-app autonomy dial. |
+| Durable orchestration replay | ADAPT | Checkpoint, idempotent steps, and bounded retry stay on the existing task graph. Source: learn.microsoft.com/en-us/azure/durable-task/common/durable-task-orchestrations (read 2026-10-07). |
+| A second workflow host | REJECT | One task graph is the durable run. |
+| MCP stdio, and HTTP bound to loopback | ADOPT | The listed tools are the allow list. Tool text is untrusted. Source: modelcontextprotocol.io/specification/2025-06-18/basic/transports and modelcontextprotocol.io/specification/2025-06-18/server/tools (read 2026-10-07). |
+| A hosted MCP endpoint | REJECT | A public URL is refused. OpenAPI import uses the same loopback rule and the existing read/exec split. |
+| Free-now source and age | ADOPT | `freeNowBoard` reads the access record the router already stores. A price changes only when `commitParsedKnowledge` accepts a parsed page. A miss leaves the last table, which still fails closed after 14 days. |

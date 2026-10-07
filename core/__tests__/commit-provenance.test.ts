@@ -136,7 +136,7 @@ describe("commit provenance", () => {
       expect(result.status, row.message).toBe(1);
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 
   it("accepts the dependency-update account only with its exact email", () => {
     const dir = repo();

@@ -39,7 +39,7 @@ import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
-import { looksSensitive } from "./brain/memory-policy";
+import { looksSensitive, packTurnContext } from "./brain/memory-policy";
 import { coreBrain, type Cognition } from "./brain/core-brain";
 import { considerCollaboration, type CollaborationDecision } from "./brain/multi-model";
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
@@ -101,7 +101,12 @@ export function withRoutingDefaults(options: {
 }
 
 import { taskGraph } from "./self/task-graph";
-import { handleQueueCommand, considerLongTask, registerTaskRunners } from "./self/task-runners";
+import {
+  handleQueueCommand,
+  considerLongTask,
+  considerDesktopTask,
+  registerTaskRunners,
+} from "./self/task-runners";
 import { handleDoctorCommand } from "./doctor-engine";
 import { handleInstallerCommand } from "./installer-engine";
 import { kernelCall, checkForUpdates, applyUpdate as applyDesktopUpdate } from "./desktop";
@@ -301,6 +306,8 @@ export type MemoryHit = {
   title: string;
   snippet: string;
   score: number;
+  source?: string;
+  ageMs?: number | null;
 };
 
 export type MemoryRecord = MemoryHit & { at: number; pinned: boolean };
@@ -1248,6 +1255,7 @@ class BrainStore {
   /* --------------------------------------------------------------- memory */
 
   recall(prompt: string, k = 4): MemoryHit[] {
+    const now = Date.now();
     const words = prompt
       .toLowerCase()
       .split(/\W+/)
@@ -1255,8 +1263,10 @@ class BrainStore {
     const enabled = (layer: MemoryLayer) =>
       (layer !== "knowledge" || this.state.settings.useKnowledge) &&
       (layer !== "project" || this.state.settings.useProjectMemory);
-    return this.state.memory
-      .filter((m) => enabled(m.layer))
+    const pool = this.state.memory.filter(
+      (m) => enabled(m.layer) && !looksSensitive(`${m.title} ${m.snippet}`),
+    );
+    const scored = pool
       .map((m) => {
         const hay = `${m.title} ${m.snippet}`.toLowerCase();
         const hits = words.filter((w) => hay.includes(w)).length;
@@ -1265,9 +1275,38 @@ class BrainStore {
           score: Number(Math.min(0.99, (m.pinned ? 0.6 : 0.25) + hits * 0.18).toFixed(2)),
         };
       })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k)
-      .map(({ id, layer, title, snippet, score }) => ({ id, layer, title, snippet, score }));
+      .sort((a, b) => b.score - a.score);
+    const packed = packTurnContext({
+      transcript: this.state.messages.map((message) => ({
+        role: message.role === "user" ? "user" : "assistant",
+        text: message.text,
+      })),
+      facts: pool.map((m) => ({
+        id: m.id,
+        text: `${m.title} ${m.snippet}`,
+        source: m.layer,
+        at: m.at,
+        pinned: m.pinned,
+      })),
+      ask: prompt,
+      now,
+      maxFacts: k,
+    });
+    const picked = packed.forModel.facts.length
+      ? packed.forModel.facts.flatMap((fact) => {
+          const rec = scored.find((row) => row.id === fact.id);
+          return rec ? [rec] : [];
+        })
+      : scored.slice(0, k);
+    return picked.map((m) => ({
+      id: m.id,
+      layer: m.layer,
+      title: m.title,
+      snippet: m.snippet,
+      score: m.score,
+      source: m.layer,
+      ageMs: Number.isFinite(m.at) ? Math.max(0, now - m.at) : null,
+    }));
   }
 
   remember(layer: MemoryLayer, title: string, snippet: string, pinned = false) {
@@ -1573,6 +1612,19 @@ class BrainStore {
         handled: true,
         kind: "action",
         text: installerReply,
+        confidence: 1,
+      });
+      return;
+    }
+
+    const desktopIntake = considerDesktopTask(work);
+    if (desktopIntake) {
+      bindActiveGraph(desktopIntake.id);
+      stampUnderstanding("desktop task — no model");
+      void this.answerFromBaseline(run, {
+        handled: true,
+        kind: "action",
+        text: desktopIntake.message,
         confidence: 1,
       });
       return;

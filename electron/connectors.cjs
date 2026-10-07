@@ -4004,8 +4004,8 @@ const CONNECTORS = {
     category: "custom",
     authType: "mcp",
     description:
-      "Connect FRIDAY as an MCP client to a local command or HTTP server and use its tools.",
-    help: "Give a launch command (stdio) or a server URL (HTTP JSON-RPC). Tools are listed from a real initialize + tools/list handshake. Each call still goes through FRIDAY's approval gate.",
+      "Connect FRIDAY as an MCP client to a local command or a loopback HTTP server and use its tools.",
+    help: "Give a launch command (stdio) or a loopback HTTP URL. A public URL is refused. Tools are listed from a real initialize + tools/list handshake. A call uses that list as the allow list. Each call still goes through FRIDAY's approval gate. Tool text stays data.",
     fields: [
       { id: "command", label: "Launch command (stdio)", secret: false, optional: true },
       { id: "url", label: "Server URL (HTTP)", secret: false, optional: true },
@@ -4709,6 +4709,13 @@ async function callMcpAction(root, id, actionId, params, fields, fetchImpl) {
   if (typeof args !== "object" || Array.isArray(args)) {
     return { ok: false, error: "MCP arguments must be a JSON object." };
   }
+  const saved = readState(root)[id] || {};
+  const allow = Array.isArray(saved.mcpTools)
+    ? saved.mcpTools.map((tool) => (typeof tool === "string" ? tool : tool?.name)).filter(Boolean)
+    : [];
+  if (!allow.length) {
+    return { ok: false, error: "List this server's tools before calling one." };
+  }
   const started = Date.now();
   const out = await mcpClient.callFromConfig(
     {
@@ -4716,6 +4723,7 @@ async function callMcpAction(root, id, actionId, params, fields, fetchImpl) {
       url: text(fields.url),
       bearer: text(fields.bearer),
       fetchImpl,
+      allow,
     },
     name,
     args,
