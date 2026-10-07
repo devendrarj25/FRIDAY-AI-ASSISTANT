@@ -338,6 +338,88 @@ def is_local_model(model: "Model") -> bool:
     return any(host in endpoint for host in _LOCAL_HOSTS)
 
 
+def _header_get(headers, name: str):
+    """One header, matched without caring about letter case."""
+    if headers is None:
+        return None
+    try:
+        value = headers.get(name)
+    except Exception:  # noqa: BLE001 — a header map that is not a dict
+        value = None
+    if value not in (None, ""):
+        return value
+    if isinstance(headers, dict):
+        for key, item in headers.items():
+            if str(key).lower() == name.lower():
+                return item
+    return None
+
+
+def _header_int(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    if number < 0:
+        return None
+    return int(number)
+
+
+def quota_meter(headers) -> dict | None:
+    """Remaining quota from a response that already came back.
+
+    No second request. OpenAI-style and Anthropic-style names both count.
+    """
+    pairs = {
+        "remainingRequests": (
+            "x-ratelimit-remaining-requests",
+            "anthropic-ratelimit-requests-remaining",
+        ),
+        "limitRequests": (
+            "x-ratelimit-limit-requests",
+            "anthropic-ratelimit-requests-limit",
+        ),
+        "remainingTokens": (
+            "x-ratelimit-remaining-tokens",
+            "anthropic-ratelimit-tokens-remaining",
+        ),
+        "limitTokens": (
+            "x-ratelimit-limit-tokens",
+            "anthropic-ratelimit-tokens-limit",
+        ),
+    }
+    meter: dict = {"source": "response-headers"}
+    found = False
+    for field, keys in pairs.items():
+        raw = None
+        for key in keys:
+            raw = _header_get(headers, key)
+            if raw not in (None, ""):
+                break
+        number = _header_int(raw)
+        meter[field] = number
+        if number is not None:
+            found = True
+    reset = None
+    for key in (
+        "x-ratelimit-reset-requests",
+        "anthropic-ratelimit-requests-reset",
+        "retry-after",
+    ):
+        reset = _header_get(headers, key)
+        if reset not in (None, ""):
+            break
+    meter["reset"] = None if reset in (None, "") else str(reset)
+    if meter["reset"]:
+        found = True
+    return meter if found else None
+
+
 def capability_tags(model: "Model") -> list[str]:
     """Tags the router already understands. A name alone does not add one."""
     options = model.options if isinstance(model.options, dict) else {}
@@ -582,11 +664,22 @@ class ModelRouter:
         # Desktop answers SENSITIVE companion/kernel turns that have not
         # already been confirmed. Unset = fail closed.
         self.on_privacy_ask = None
+        # Last quota meter copied off a chat response. Never a separate probe.
+        self.last_quota = None
         # Set by the app once the tool registry exists. When present, a chat
         # turn can call FRIDAY's read-only tools itself instead of guessing.
         self.tools = None
         for row in storage.models():
             self._models[row["id"]] = Model(**row)
+
+    def note_response_headers(self, headers) -> None:
+        """Keep the quota line from this response. A bad header map is ignored."""
+        try:
+            meter = quota_meter(headers)
+        except Exception:  # noqa: BLE001 — metering must not break the answer
+            return
+        if meter is not None:
+            self.last_quota = meter
 
     def _on_billing_spent(self, state: dict) -> None:
         callback = self.on_billing_spent
@@ -1160,6 +1253,7 @@ class ModelRouter:
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
             async with nullcontext(_client()) as client:
                 async with client.stream("POST", url, json=body, headers=headers) as resp:
+                    self.note_response_headers(resp.headers)
                     await _raise_with_body(resp)
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):
@@ -1330,6 +1424,7 @@ class ModelRouter:
                     # nullcontext keeps the shared client alive across requests.
                     async with nullcontext(_client()) as client:
                         async with client.stream("POST", url, json=body, headers=headers) as resp:
+                            self.note_response_headers(resp.headers)
                             await _raise_with_body(resp)
                             async for line in resp.aiter_lines():
                                 if not line.startswith("data: "):
@@ -1442,6 +1537,7 @@ class ModelRouter:
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
             async with nullcontext(_client()) as client:
                 async with client.stream("POST", url, json=body) as resp:
+                    self.note_response_headers(resp.headers)
                     await _raise_with_body(resp)
                     async for line in resp.aiter_lines():
                         if not line.strip():

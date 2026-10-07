@@ -18,6 +18,7 @@ import {
 } from "../../src/lib/friday/doctor-awareness";
 import {
   desktopUiaChecks,
+  localLlamaChecks,
   handleDoctorCommand,
   type DoctorCheck,
 } from "../../src/lib/friday/doctor-engine";
@@ -193,5 +194,16 @@ describe("desktop UI Automation doctor row", () => {
     expect(row?.id).toBe("desktop:uia");
     expect(row?.fix).toMatch(/Install Manager/);
     expect(row?.detail).toMatch(/comtypes/);
+  });
+});
+
+describe("local engine doctor row", () => {
+  it("points at the pinned CPU pack and does not claim a live install", () => {
+    const row = localLlamaChecks()[0];
+    expect(row?.id).toBe("local:llama-cpp");
+    expect(row?.status).toBe("Missing");
+    expect(row?.fix).toMatch(/Install Manager/);
+    expect(row?.detail).toMatch(/CPU zip/);
+    expect(row?.detail).toMatch(/not checked/);
   });
 });

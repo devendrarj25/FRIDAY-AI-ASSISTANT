@@ -13,6 +13,7 @@ const { execFile, spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
 
@@ -647,6 +648,12 @@ const TOOLS = [
     url: "https://github.com/ggml-org/llama.cpp",
     source: "github.com/ggml-org",
     latest: { kind: "github", ref: "ggml-org/llama.cpp" },
+    installerUrl:
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11243/llama-b11243-bin-win-cpu-x64.zip",
+    sha256: "29f91327f4e98fcac93e3b44e6cc54beda26468eb9ffeb804a08cfa67bda8c5b",
+    needBytes: 19161151,
+    archiveBin: "llama-server.exe",
+    manual: "Windows CPU zip, hashed 2026-10-07. CUDA and DirectML builds are not this pin. MIT.",
   }),
 
   T("LM Studio", "AI Runtimes", {
@@ -1684,7 +1691,53 @@ async function loadPipFreeze(force = false) {
   return map;
 }
 
-async function probeTool(tool, freeze, installedPackages = "") {
+function safeToolDir(id) {
+  const clean = String(id || "tool").replace(/[^\w.-]+/g, "_");
+  return clean || "tool";
+}
+
+/** Where a pinned zip is unpacked. The archive is not executed. */
+function archiveInstallCommand(file, root, tool) {
+  const dest = path.join(root || os.tmpdir(), "runtime", safeToolDir(tool?.id));
+  return {
+    dest,
+    command: [process.execPath, ["-e", "process.exit(0)"]],
+    bin: tool?.archiveBin || null,
+  };
+}
+
+/** Unpack a zip into dest. Entries that leave dest are skipped. */
+function extractZip(file, dest) {
+  const buf = fs.readFileSync(file);
+  const base = path.resolve(dest);
+  let offset = 0;
+  while (offset + 30 <= buf.length) {
+    if (buf.readUInt32LE(offset) !== 0x04034b50) break;
+    const flags = buf.readUInt16LE(offset + 6);
+    if (flags & 0x8) throw new Error("zip data descriptor is not supported");
+    const method = buf.readUInt16LE(offset + 8);
+    const compSize = buf.readUInt32LE(offset + 18);
+    const nameLen = buf.readUInt16LE(offset + 26);
+    const extraLen = buf.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const name = buf.slice(nameStart, nameStart + nameLen).toString("utf8");
+    const dataStart = nameStart + nameLen + extraLen;
+    const data = buf.slice(dataStart, dataStart + compSize);
+    offset = dataStart + compSize;
+    if (!name || name.endsWith("/")) continue;
+    const rel = name.replace(/\\/g, "/");
+    if (rel.startsWith("/") || rel.split("/").includes("..")) continue;
+    const target = path.resolve(dest, rel);
+    const fromRoot = path.relative(base, target);
+    if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (method === 0) fs.writeFileSync(target, data);
+    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
+    else throw new Error(`unsupported zip method ${method}`);
+  }
+}
+
+async function probeTool(tool, freeze, installedPackages = "", root = "") {
   // Components with a real machine-level detector (registry, optional Windows
   // feature, packaged executable) decide their own state.
   if (typeof tool.detect === "function") {
@@ -1768,6 +1821,24 @@ async function probeTool(tool, freeze, installedPackages = "") {
       manual: tool.manual || null,
       status: present ? "Ready" : "Missing",
     };
+  }
+  if (tool.archiveBin && root) {
+    const candidate = path.join(root, "runtime", safeToolDir(tool.id), tool.archiveBin);
+    if (fs.existsSync(candidate)) {
+      return {
+        id: tool.id,
+        category: tool.category,
+        installed: true,
+        version: null,
+        path: candidate,
+        source: tool.source,
+        url: tool.url,
+        manager: "vendor",
+        required: Boolean(tool.required),
+        manual: tool.manual || null,
+        status: "Ready",
+      };
+    }
   }
   const bin = tool.cmd ? await which(tool.cmd) : null;
   const packageHit = !bin ? wingetPackage(tool, installedPackages) : null;
@@ -2190,11 +2261,17 @@ function downloadInstaller(url, root, log, depth = 0) {
   });
 }
 
-/** Silent-run command for a downloaded installer. */
+/** Silent-run command for a downloaded installer. A zip is unpacked, not executed. */
 function installerCommand(file, tool, root) {
   const ext = path.extname(file).toLowerCase();
   if (ext === ".msi") {
     return ["msiexec", ["/i", file, "/qn", "/norestart"]];
+  }
+  if (ext === ".zip") {
+    const plan = archiveInstallCommand(file, root, tool);
+    fs.mkdirSync(plan.dest, { recursive: true });
+    extractZip(file, plan.dest);
+    return plan.command;
   }
   const args = Array.isArray(tool.installerArgs) ? [...tool.installerArgs] : ["/S"];
   // Only tools that document a target-path switch get one, pointed at the
@@ -2239,7 +2316,7 @@ function runJob({ id, action, root }, emit) {
   if (action === "verify") {
     return (async () => {
       const freeze = await loadPipFreeze(true);
-      const probe = await probeTool(tool, freeze, await loadWingetList(true));
+      const probe = await probeTool(tool, freeze, await loadWingetList(true), root);
       emit({
         id,
         action,
@@ -2414,7 +2491,7 @@ function runJob({ id, action, root }, emit) {
         emit({ id, action, phase: "Running", line: `[${label}] PATH refreshed` });
       }
       const freeze = await loadPipFreeze(true);
-      const probe = await probeTool(tool, freeze, await loadWingetList(true));
+      const probe = await probeTool(tool, freeze, await loadWingetList(true), root);
       let ok = jobSucceeded(code, action, probe);
       // A pip exit code of 0 is not proof: import the module with the SAME
       // interpreter pip installed into before calling it installed.
@@ -2645,4 +2722,6 @@ module.exports = {
   acceptPinnedFile,
   diskRoom,
   fileSha256,
+  archiveInstallCommand,
+  extractZip,
 };

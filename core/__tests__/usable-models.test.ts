@@ -536,6 +536,11 @@ describe("test chat stays on the router path", () => {
               checkedAt: now - 5000,
               url: "https://console.groq.com/docs/models",
             },
+            rateLimits: {
+              remainingRequests: 12,
+              limitRequests: 30,
+              source: "response-headers",
+            },
           },
         },
       ],
@@ -546,6 +551,13 @@ describe("test chat stays on the router path", () => {
       source?: string;
       ageMs?: number;
       marks?: string[];
+      quota?: {
+        remainingRequests: number | null;
+        limitRequests: number | null;
+        remainingTokens: number | null;
+        limitTokens: number | null;
+        source: string;
+      } | null;
     }>;
     expect(board.some((row) => row.id.includes("gpt-4o"))).toBe(false);
     expect(board.find((row) => row.id === "ollama:llama3.2")?.marks).toContain("local");
@@ -553,5 +565,12 @@ describe("test chat stays on the router path", () => {
     expect(cool?.cooling).toBe(true);
     expect(cool?.source).toBe("provider_free_plan");
     expect(cool?.ageMs).toBe(5000);
+    expect(cool?.quota).toEqual({
+      remainingRequests: 12,
+      limitRequests: 30,
+      remainingTokens: null,
+      limitTokens: null,
+      source: "response-headers",
+    });
   });
 });

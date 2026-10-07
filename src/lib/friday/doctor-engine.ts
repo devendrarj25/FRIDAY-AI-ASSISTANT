@@ -651,7 +651,24 @@ function brainSurfaceChecks(): DoctorCheck[] {
   }
   checks.push(...optionalDiagramChecks());
   checks.push(...desktopUiaChecks());
+  checks.push(...localLlamaChecks());
   return checks;
+}
+
+/** Windows CPU pack for the local engine. The pin is in Install Manager. */
+export function localLlamaChecks(): DoctorCheck[] {
+  return [
+    {
+      id: "local:llama-cpp",
+      label: "llama.cpp CPU pack",
+      group: "Models",
+      status: "Missing",
+      detail:
+        "Optional Windows CPU zip. Install Manager checks the pinned hash. CUDA and DirectML builds are not this pack. A live install was not checked here.",
+      fix: "Install llama.cpp from Install Manager.",
+      fixable: false,
+    },
+  ];
 }
 
 /** UI Automation helper. The tree normalizer does not need it. The live walker does. */

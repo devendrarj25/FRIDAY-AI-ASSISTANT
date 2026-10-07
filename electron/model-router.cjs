@@ -846,6 +846,18 @@ function countProvidersWithoutFree(rows) {
  * Paid and unknown-cost rows stay off. Source and age come from the evidence
  * the access record already stored.
  */
+function quotaLine(model) {
+  const limits = model?.accessRecord?.rateLimits;
+  if (!limits || typeof limits !== "object") return null;
+  return {
+    remainingRequests: limits.remainingRequests ?? null,
+    limitRequests: limits.limitRequests ?? null,
+    remainingTokens: limits.remainingTokens ?? null,
+    limitTokens: limits.limitTokens ?? null,
+    source: limits.source || "response-headers",
+  };
+}
+
 function freeNowBoard(models, options = {}) {
   const now = options.now || Date.now();
   const view = usableModels(models, {
@@ -877,6 +889,7 @@ function freeNowBoard(models, options = {}) {
       cooling,
       reason: row.disabledReason || null,
       marks,
+      quota: quotaLine(model),
     });
   }
   return rows;

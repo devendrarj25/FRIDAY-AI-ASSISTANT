@@ -1416,11 +1416,16 @@ function parseRateLimitHeaders(headers) {
     const v = parseMoney(get(name));
     return v;
   };
-  const remainingReq = num("x-ratelimit-remaining-requests");
-  const remainingTok = num("x-ratelimit-remaining-tokens");
-  const limitReq = num("x-ratelimit-limit-requests");
-  const limitTok = num("x-ratelimit-limit-tokens");
-  const retryAfter = get("retry-after");
+  const remainingReq =
+    num("x-ratelimit-remaining-requests") ?? num("anthropic-ratelimit-requests-remaining");
+  const remainingTok =
+    num("x-ratelimit-remaining-tokens") ?? num("anthropic-ratelimit-tokens-remaining");
+  const limitReq = num("x-ratelimit-limit-requests") ?? num("anthropic-ratelimit-requests-limit");
+  const limitTok = num("x-ratelimit-limit-tokens") ?? num("anthropic-ratelimit-tokens-limit");
+  const retryAfter =
+    get("retry-after") ||
+    get("x-ratelimit-reset-requests") ||
+    get("anthropic-ratelimit-requests-reset");
   if (
     remainingReq == null &&
     remainingTok == null &&
@@ -1436,6 +1441,13 @@ function parseRateLimitHeaders(headers) {
     limitTokens: limitTok,
     retryAfter: retryAfter || null,
   };
+}
+
+/** Quota copied off headers the provider already sent. This does not call out. */
+function quotaMeter(headers) {
+  const parsed = parseRateLimitHeaders(headers);
+  if (!parsed) return null;
+  return { ...parsed, source: "response-headers" };
 }
 
 function classifyProbeFailure(probe = {}) {
@@ -1975,6 +1987,7 @@ module.exports = {
   candidateRank,
   creditSourceOf,
   parseRateLimitHeaders,
+  quotaMeter,
   applyProbe,
   applyOwnerDeclaration,
   classifyModel,
