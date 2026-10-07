@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -443,6 +444,16 @@ def first_audio_latency(started_ms: int, heard_ms: int, budget_ms: int = 1000) -
     return {"elapsedMs": elapsed, "budgetMs": int(budget_ms), "within": 0 <= elapsed <= int(budget_ms)}
 
 
+_SECRET_TEXT = re.compile(
+    r"(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+",
+    re.I,
+)
+
+
+def redact_voice_text(text: str) -> str:
+    return _SECRET_TEXT.sub("[redacted]", str(text or ""))
+
+
 def voice_context(asked: bool, perception: dict | None) -> dict:
     """Camera or screen text joins a voice turn only when the owner asked."""
     if not asked:
@@ -459,7 +470,7 @@ def voice_context(asked: bool, perception: dict | None) -> dict:
         }
     return {
         "used": True,
-        "text": str(seen.get("text") or ""),
+        "text": redact_voice_text(str(seen.get("text") or "")),
         "untrusted": True,
         "instruction": False,
         "reason": "data",

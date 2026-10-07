@@ -163,6 +163,9 @@ class VoiceRuntimeTests(unittest.TestCase):
         handed = voice_runtime.voice_context(True, {"text": "secret", "handoff": "credential"})
         self.assertEqual(handed["text"], "")
         self.assertEqual(handed["reason"], "handoff")
+        leaked = voice_runtime.voice_context(True, {"text": "password: hunter2"})
+        self.assertNotIn("hunter2", leaked["text"])
+        self.assertFalse(leaked["instruction"])
 
     def test_partial_plan_stays_on_this_worker(self):
         self.assertEqual(stt.plan_partials(0), [])
