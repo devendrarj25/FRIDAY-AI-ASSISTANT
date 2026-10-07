@@ -174,6 +174,22 @@ const INJECTION =
 const DESKTOP_ASK =
   /(?:^|\n)\s*(?:please\s+)?(launch|focus|click|type|press|scroll|drag|copy|paste|close)\b|\b(on (my|the) desktop|on (my|the) screen)\b/i;
 
+/** Screen text is data. A hostile line is marked, never followed. */
+export function screenTextIsData(text: string): {
+  untrusted: true;
+  instruction: false;
+  hostile: boolean;
+  text: string;
+} {
+  const raw = String(text || "");
+  return {
+    untrusted: true,
+    instruction: false,
+    hostile: INJECTION.test(raw),
+    text: redactRunText(raw),
+  };
+}
+
 export function desktopAsk(text: string): boolean {
   return DESKTOP_ASK.test(String(text || ""));
 }

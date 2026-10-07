@@ -266,8 +266,10 @@ function refuseRemote(url) {
 }
 
 function isolateToolOutput(result) {
-  const text = typeof result === "string" ? result : JSON.stringify(result ?? "");
-  return { untrusted: true, text: String(text).slice(0, 8000) };
+  const raw = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
+  const text = String(raw).replace(secret, "[redacted]").slice(0, 8000);
+  return { untrusted: true, instruction: false, text };
 }
 
 const OPENAPI_RISK = {

@@ -470,7 +470,11 @@ function handoffSelector(selector) {
 }
 
 function pageTextIsData(text) {
-  return { untrusted: true, instruction: false, text: String(text || "").slice(0, 240) };
+  const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
+  const clean = String(text || "")
+    .replace(secret, "[redacted]")
+    .slice(0, 240);
+  return { untrusted: true, instruction: false, text: clean };
 }
 
 module.exports = {
