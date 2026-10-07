@@ -8,6 +8,7 @@
  */
 
 import { withDeadline } from "./brain/turn-timing";
+import { redactRunText } from "./self/run-receipt";
 
 export type SearchResult = { title: string; url: string; snippet: string };
 
@@ -221,6 +222,104 @@ export type PageInteractAction = "click" | "scroll" | "fill" | "read" | "submit"
 
 const CONSEQUENTIAL_PAGE =
   /\b(submit|login|log in|sign in|purchase|buy|checkout|pay|password|card|cvv|otp)\b/i;
+
+export type PageNode = {
+  role: string;
+  name: string;
+  value?: string;
+  selector: string;
+};
+
+export type PagePerception = {
+  url: string;
+  title: string;
+  source: "dom";
+  untrusted: true;
+  confidence: number;
+  text: string;
+  nodes: { role: string; name: string; selector: string }[];
+  handoff?: "credential" | "payment" | "captcha";
+};
+
+const PAGE_SECRET = /password|passwd|otp|captcha|pay|card|cvv|checkout/i;
+
+/** Accessibility or DOM nodes, before pixels. A secret control returns no content. */
+export function perceivePage(raw: {
+  url: string;
+  title?: string;
+  nodes: PageNode[];
+}): PagePerception {
+  const secret = raw.nodes.find((node) =>
+    PAGE_SECRET.test(`${node.role} ${node.name} ${node.selector}`),
+  );
+  if (secret) {
+    const label = `${secret.role} ${secret.name} ${secret.selector}`;
+    const handoff = /captcha/i.test(label)
+      ? "captcha"
+      : /pay|card|cvv|checkout/i.test(label)
+        ? "payment"
+        : "credential";
+    return {
+      url: raw.url,
+      title: "",
+      source: "dom",
+      untrusted: true,
+      confidence: 0.95,
+      text: "",
+      nodes: [],
+      handoff,
+    };
+  }
+  const nodes = raw.nodes.map((node) => ({
+    role: node.role,
+    name: redactRunText(node.name),
+    selector: node.selector,
+  }));
+  return {
+    url: raw.url,
+    title: redactRunText(raw.title || ""),
+    source: "dom",
+    untrusted: true,
+    confidence: nodes.length ? 0.9 : 0.4,
+    text: redactRunText(
+      nodes
+        .map((node) => node.name)
+        .filter(Boolean)
+        .join("\n"),
+    ),
+    nodes,
+  };
+}
+
+export function siteAllowed(url: string, allow: string[]): boolean {
+  let host = "";
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return false;
+  }
+  return allow.some((item) => {
+    const rule = String(item || "")
+      .replace(/^www\./, "")
+      .toLowerCase();
+    return Boolean(rule) && (host === rule || host.endsWith(`.${rule}`));
+  });
+}
+
+export function gatePageStep(input: {
+  url: string;
+  allow: string[];
+  action: PageInteractAction;
+  target: string;
+  perception: PagePerception;
+}): { allow: boolean; reason: string } {
+  if (input.perception.handoff)
+    return { allow: false, reason: `handoff:${input.perception.handoff}` };
+  if (!siteAllowed(input.url, input.allow)) return { allow: false, reason: "site" };
+  if (pageActionNeedsApproval(input.action, input.target))
+    return { allow: false, reason: "approval" };
+  return { allow: true, reason: "ok" };
+}
 
 /** Submit / login / purchase / password fields always need the existing approval gate. */
 export function pageActionNeedsApproval(action: PageInteractAction, extra = ""): boolean {

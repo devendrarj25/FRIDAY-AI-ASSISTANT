@@ -7659,6 +7659,12 @@ export const FLOW_REGISTRY = {
       file: "workflows/saved/csv-expense-total-chain/workflow.json",
     },
     {
+      id: "workflows/saved/daily-desk-playbooks/workflow",
+      kind: "workflow",
+      name: "Daily desk playbooks",
+      file: "workflows/saved/daily-desk-playbooks/workflow.json",
+    },
+    {
       id: "workflows/saved/desk-hygiene-weekly/workflow",
       kind: "workflow",
       name: "Desk hygiene weekly",
@@ -8408,8 +8414,8 @@ export const FLOW_REGISTRY = {
       total: 102,
     },
     capabilities: {
-      mapped: 1013,
-      total: 1013,
+      mapped: 1014,
+      total: 1014,
     },
     ipc: {
       mapped: 437,

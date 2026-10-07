@@ -6,8 +6,8 @@
  * what was done, what is left, which files/models/tools were involved, the
  * result and the next action. The whole graph is persisted through the same
  * `persist` layer the task ledger and governance already use, so a restart
- * mid-task reloads the last safe checkpoint and continues instead of starting
- * over.
+ * mid-task keeps the last checkpoint. Ask and Balanced wait. Full continues
+ * only when that dial is on and stop-everything is off.
  *
  * Scheduling rules (deliberately small, no second scheduler):
  *  - One owner graph runs at a time; further owner requests QUEUE, they are
@@ -21,7 +21,15 @@
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure, rememberProcedure } from "./learning-engine";
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
-import { budgetBlock, retryBackoffMs, type TaskBudget } from "./run-receipt";
+import { autonomy, type ApprovalLevel } from "./autonomy";
+import {
+  budgetBlock,
+  resumeOffer,
+  retryBackoffMs,
+  shouldReplay,
+  type TaskBudget,
+  type TimelineRow,
+} from "./run-receipt";
 
 export type NodeState =
   | "pending"
@@ -32,9 +40,11 @@ export type NodeState =
   | "failed"
   | "retrying"
   | "completed"
-  | "verified";
+  | "verified"
+  | "interrupted";
 
-export type GraphState = "queued" | "running" | "paused" | "failed" | "completed" | "cancelled";
+export type GraphState =
+  "queued" | "running" | "paused" | "failed" | "completed" | "cancelled" | "interrupted";
 
 export type GraphPriority = "owner" | "idle";
 
@@ -53,6 +63,12 @@ export type Checkpoint = {
   postcondition?: string;
   checked?: boolean;
   idempotencyKey?: string;
+  /** The desktop changed after this checkpoint, so the step must be checked again. */
+  worldChanged?: boolean;
+  /** Set when a resume must re-check the postcondition before trusting the step. */
+  reverify?: boolean;
+  /** Redacted step notes for the Tasks page. Never a screenshot. */
+  timeline?: TimelineRow[];
 };
 
 export type GraphNode = {
@@ -104,6 +120,8 @@ export type TaskGraph = {
   /** One run id for every step in this graph. */
   runId?: string;
   budget?: TaskBudget;
+  /** After a restart: ask, or resume because the owner set Full. */
+  resumeOffer?: "ask" | "resume";
 };
 
 export type TaskGraphState = {
@@ -274,11 +292,13 @@ export class TaskGraphEngine {
    * Loads a stored set of graphs (what the last session left on disk) and
    * brings anything that was mid-flight back to its last checkpoint.
    */
-  hydrateFrom(stored: TaskGraph[] | null): void {
+  hydrateFrom(stored: TaskGraph[] | null, level?: ApprovalLevel): void {
     if (!stored?.length) return;
-    this.graphs = stored.map((graph) => this.recover(graph));
+    const dial = level ?? autonomy.getSnapshot().approvalLevel;
+    const offer = autonomy.getSnapshot().halted ? "ask" : resumeOffer(dial);
+    this.graphs = stored.map((graph) => this.recover(graph, offer));
     this.emit();
-    void this.pump();
+    if (offer === "resume") void this.pump();
   }
 
   private hydrate(): void {
@@ -287,31 +307,43 @@ export class TaskGraphEngine {
   }
 
   /**
-   * Restart recovery: a node that was mid-flight when the app died goes back to
-   * `ready` with its checkpoint intact, so the graph continues from the last
-   * safe point instead of re-running finished work.
+   * A node that died mid-flight keeps its checkpoint. A checked step is not
+   * replayed. An unchecked step, or a world that changed, is marked for a
+   * fresh postcondition check. Full queues it. Every other dial waits.
    */
-  private recover(graph: TaskGraph): TaskGraph {
-    const nodes = graph.nodes.map((node) =>
-      node.state === "running" || node.state === "retrying"
-        ? { ...node, state: "ready" as NodeState }
-        : node,
+  private recover(graph: TaskGraph, offer: "ask" | "resume"): TaskGraph {
+    const crashed = graph.nodes.some(
+      (node) => node.state === "running" || node.state === "retrying",
     );
-    const resumed = nodes.some((node, i) => node.state !== graph.nodes[i]?.state);
+    if (!crashed) return graph;
+    const nodes = graph.nodes.map((node) => this.settleCrashed(node, offer));
+    const open = nodes.some((node) => !DONE.includes(node.state));
     const next: TaskGraph = {
       ...graph,
       nodes,
-      state: graph.state === "running" ? "queued" : graph.state,
+      resumeOffer: offer,
+      state: !open ? "completed" : offer === "resume" ? "queued" : "interrupted",
+      ...(!open && graph.finishedAt == null ? { finishedAt: Date.now() } : {}),
     };
-    if (resumed) {
-      const from = nodes.find((node) => node.state === "ready");
-      this.log(
-        next,
-        `resumed after restart from checkpoint: ${from?.checkpoint?.nextAction || from?.title || "start"}`,
-        "warn",
-      );
-    }
+    const from = nodes.find((node) => node.state === "ready" || node.state === "interrupted");
+    this.log(
+      next,
+      !open
+        ? "restart found the last step already checked"
+        : offer === "resume"
+          ? `resumed after restart from checkpoint: ${from?.checkpoint?.nextAction || from?.title || "start"}`
+          : `interrupted after restart — waiting to resume ${from?.checkpoint?.nextAction || from?.title || "the run"}`,
+      open ? "warn" : "ok",
+    );
     return next;
+  }
+
+  private settleCrashed(node: GraphNode, offer: "ask" | "resume"): GraphNode {
+    if (node.state !== "running" && node.state !== "retrying") return node;
+    if (!shouldReplay(node.checkpoint)) return { ...node, state: "verified" };
+    const checkpoint = node.checkpoint ? { ...node.checkpoint, reverify: true } : undefined;
+    const state: NodeState = offer === "resume" ? "ready" : "interrupted";
+    return checkpoint ? { ...node, state, checkpoint } : { ...node, state };
   }
 
   private persist(): void {
@@ -526,14 +558,21 @@ export class TaskGraphEngine {
 
   resume(graphId: string): void {
     const graph = this.get(graphId);
-    if (!graph || graph.state !== "paused") return;
+    if (!graph || (graph.state !== "paused" && graph.state !== "interrupted")) return;
     for (const node of graph.nodes) {
-      if (node.state === "paused" || node.state === "waiting") {
-        node.state = "ready";
-        delete node.error;
+      if (node.state !== "paused" && node.state !== "waiting" && node.state !== "interrupted") {
+        continue;
       }
+      if (!shouldReplay(node.checkpoint)) {
+        node.state = "verified";
+        continue;
+      }
+      node.state = "ready";
+      if (node.checkpoint) node.checkpoint = { ...node.checkpoint, reverify: true };
+      delete node.error;
     }
     graph.state = "queued";
+    graph.resumeOffer = "resume";
     this.log(graph, "resumed");
     this.emit();
     void this.pump();
@@ -541,7 +580,7 @@ export class TaskGraphEngine {
 
   cancel(graphId: string): void {
     const graph = this.get(graphId);
-    if (!graph || !OPEN_GRAPH.includes(graph.state)) return;
+    if (!graph || (!OPEN_GRAPH.includes(graph.state) && graph.state !== "interrupted")) return;
     graph.state = "cancelled";
     graph.finishedAt = Date.now();
     if (this.activeGraphId === graphId) this.controller?.abort("cancelled");
@@ -561,6 +600,16 @@ export class TaskGraphEngine {
     const unfinished = graph.nodes.filter((node) => !DONE.includes(node.state));
     if (!unfinished.length) return false;
     for (const node of unfinished) {
+      if (node.state === "interrupted") {
+        if (!shouldReplay(node.checkpoint)) {
+          node.state = "verified";
+          continue;
+        }
+        node.state = "ready";
+        if (node.checkpoint) node.checkpoint = { ...node.checkpoint, reverify: true };
+        delete node.error;
+        continue;
+      }
       if (node.state === "failed" || node.state === "paused" || node.state === "waiting") {
         if (node.attempts >= node.maxAttempts) node.maxAttempts = node.attempts + 1;
         node.state = "ready";
@@ -585,9 +634,11 @@ export class TaskGraphEngine {
 
   /** Puts every paused graph back in line; the first eligible one starts. */
   resumeAllPaused(): number {
-    const paused = this.graphs.filter((graph) => graph.state === "paused");
-    for (const graph of paused) this.resume(graph.id);
-    return paused.length;
+    const held = this.graphs.filter(
+      (graph) => graph.state === "paused" || graph.state === "interrupted",
+    );
+    for (const graph of held) this.resume(graph.id);
+    return held.length;
   }
 
   /**
@@ -635,7 +686,9 @@ export class TaskGraphEngine {
   }
 
   clearFinished(): void {
-    this.graphs = this.graphs.filter((graph) => OPEN_GRAPH.includes(graph.state));
+    this.graphs = this.graphs.filter(
+      (graph) => OPEN_GRAPH.includes(graph.state) || graph.state === "interrupted",
+    );
     this.emit();
   }
 
@@ -702,11 +755,19 @@ export class TaskGraphEngine {
         return false;
       }
       if (unfinished.some((n) => n.state === "failed")) return this.finish(graph, "failed");
+      if (unfinished.some((n) => n.state === "interrupted")) {
+        graph.state = "interrupted";
+        this.emit();
+        return false;
+      }
       // Dependencies satisfied but nothing marked ready — promote the next one.
-      const next = unfinished.find((n) =>
-        n.dependsOn.every((dep) =>
-          DONE.includes(graph.nodes.find((x) => x.id === dep)?.state ?? "pending"),
-        ),
+      const next = unfinished.find(
+        (n) =>
+          n.state !== "waiting" &&
+          n.state !== "paused" &&
+          n.dependsOn.every((dep) =>
+            DONE.includes(graph.nodes.find((x) => x.id === dep)?.state ?? "pending"),
+          ),
       );
       if (!next) return this.finish(graph, "failed");
       next.state = "ready";
@@ -749,6 +810,10 @@ export class TaskGraphEngine {
     this.emit();
 
     const checkpoint: Checkpoint = { ...(node.checkpoint ?? emptyCheckpoint()), at: Date.now() };
+    if (!checkpoint.idempotencyKey && node.idempotencyKey) {
+      checkpoint.idempotencyKey = node.idempotencyKey;
+    }
+    node.checkpoint = { ...checkpoint };
     const context: RunnerContext = {
       graph,
       node,
@@ -822,6 +887,7 @@ export class TaskGraphEngine {
       if (!checkpoint.evidenceId) checkpoint.evidenceId = `${node.id}-evidence`;
       if (!checkpoint.actionId) checkpoint.actionId = `${node.id}-action`;
       if (checkpoint.checked == null) checkpoint.checked = true;
+      delete checkpoint.reverify;
       if (!checkpoint.postcondition && checkpoint.result)
         checkpoint.postcondition = checkpoint.result;
       if (!checkpoint.idempotencyKey && node.idempotencyKey) {

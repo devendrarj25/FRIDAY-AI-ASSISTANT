@@ -6,10 +6,12 @@ import {
   createFakeDesktop,
   desktopAsk,
   planDesktop,
+  preferPattern,
   runComputerUse,
   setDesktopPort,
   type DeskWindow,
 } from "../../src/lib/friday/self/computer-use";
+import { redactRunText, timelineFromEvidence } from "../../src/lib/friday/self/run-receipt";
 
 const notes = (): DeskWindow => ({
   id: "notes",
@@ -81,6 +83,7 @@ describe("desktop loop on a fake desktop", () => {
     });
     const injected = await runComputerUse({ ...base, request: "click Save", desktop: hostile });
     expect(injected.stoppedReason).toBe("injection");
+    expect(JSON.stringify(injected.evidence)).not.toContain("ignore previous instructions");
     expect(
       hostile.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
     ).toBe(undefined);
@@ -108,6 +111,8 @@ describe("desktop loop on a fake desktop", () => {
       desktop: secret,
     });
     expect(handed.stoppedReason).toBe("handoff:credential");
+    expect(handed.evidence[0]?.perception?.handoff).toBe("credential");
+    expect(JSON.stringify(handed.evidence)).not.toContain("hunter2");
     expect(secret.state.windows[0]?.controls[0]?.value).toBe("");
 
     const stopped = await runComputerUse({
@@ -253,5 +258,132 @@ describe("desktop loop on a fake desktop", () => {
       const { taskGraph } = await import("../../src/lib/friday/self/task-graph");
       taskGraph.cancel(taken.id);
     }
+  });
+
+  it("hands a secure desktop back with no screen content", async () => {
+    const desktop = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          title: "User Account Control",
+          controls: [
+            {
+              id: "yes",
+              role: "button",
+              name: "Yes",
+              value: "s3cret-value",
+              bounds: { x: 1, y: 1, w: 10, h: 10 },
+            },
+          ],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const report = await runComputerUse({ ...base, request: "click Yes", desktop });
+    expect(report.stoppedReason).toBe("handoff:uac");
+    expect(report.summary.includes("s3cret-value")).toBe(false);
+    expect(report.lines.join(" ").includes("s3cret-value")).toBe(false);
+    expect(JSON.stringify(report.evidence).includes("s3cret-value")).toBe(false);
+    expect(report.evidence[0]?.perception?.handoff).toBe("uac");
+    expect(desktop.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+  });
+
+  it("uses a pattern, and refuses a disabled, stale, or unfocused control", async () => {
+    expect(preferPattern({ role: "button", patterns: ["Invoke"] }, "click").pattern).toBe("Invoke");
+    expect(preferPattern({ role: "button" }, "click").via).toBe("input");
+    const desktop = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          slow: true,
+          controls: [
+            {
+              id: "group",
+              role: "text",
+              name: "Group",
+              value: "",
+              bounds: { x: 0, y: 0, w: 10, h: 10 },
+              children: [
+                {
+                  id: "save",
+                  role: "button",
+                  name: "Save",
+                  value: "",
+                  bounds: { x: 4, y: 4, w: 20, h: 12 },
+                  patterns: ["Invoke"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const report = await runComputerUse({ ...base, request: "click Save", desktop });
+    expect(report.ok).toBe(true);
+    expect(report.evidence[0]?.result).toContain("Invoke");
+    expect(desktop.state.slowHits).toBe(1);
+
+    const disabled = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          controls: [{ ...notes().controls[0]!, enabled: false }],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const blocked = await runComputerUse({ ...base, request: "click Save", desktop: disabled });
+    expect(blocked.stoppedReason).toBe("verify-failed");
+    expect(disabled.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+
+    const stale = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          controls: [{ ...notes().controls[0]!, stale: true }],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const missed = await runComputerUse({ ...base, request: "click Save", desktop: stale });
+    expect(missed.evidence[0]?.result).toBe("stale");
+    expect(stale.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+
+    const other = createFakeDesktop({
+      focusedId: "mail",
+      windows: [
+        notes(),
+        {
+          id: "mail",
+          title: "Mail",
+          monitor: 1,
+          dpi: 96,
+          crashed: false,
+          sight: "uia",
+          controls: [],
+        },
+      ],
+    });
+    const guard = await runComputerUse({ ...base, request: "click Save", desktop: other });
+    expect(guard.evidence[0]?.result).toBe("wrong window");
+    const saved = report.evidence[0];
+    expect(saved?.perception?.source).toBe("uia");
+    expect(saved?.perception?.confidence).toBe(0.92);
+    expect(saved?.perception?.ageMs).toBe(0);
+    expect(saved?.undoHint).toContain("cannot be undone");
+    const rows = timelineFromEvidence([
+      {
+        ...saved!,
+        result: "password=hunter2 data:image/png;base64,aaaa",
+      },
+    ]);
+    expect(rows[0]?.result).toBe("[redacted] [image omitted]");
+    expect(rows[0]?.source).toBe("uia");
+    expect("screenshot" in (rows[0] ?? {})).toBe(false);
+    expect(redactRunText("token: abcdef")).toBe("[redacted]");
+    expect(
+      other.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
+    ).toBe(undefined);
   });
 });

@@ -380,6 +380,7 @@ export function WorkflowVisualBuilder({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [draft, setDraft] = useState<WorkflowDraft | null>(null);
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
+  const [watchConsent, setWatchConsent] = useState(false);
   const [log, setLog] = useState("");
   const [run, setRun] = useState<WorkflowRunResult | null>(null);
   const snapshot = useSyncExternalStore(
@@ -629,6 +630,19 @@ export function WorkflowVisualBuilder({
             from the installed catalog.
           </p>
         )}
+        <p className="font-mono text-[11px] text-muted-foreground">
+          {watchConsent
+            ? "Watching is on for this page. Password and secret fields are still left out. Local only."
+            : "Watching is off. Password and secret fields are never recorded."}{" "}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => setWatchConsent((on) => !on)}
+          >
+            {watchConsent ? "Stop watching" : "I consent"}
+          </Button>
+        </p>
         <div
           className="workflow-visual-canvas h-[28rem] overflow-hidden rounded-sm border border-primary/20 bg-surface"
           data-testid="workflow-visual-canvas"

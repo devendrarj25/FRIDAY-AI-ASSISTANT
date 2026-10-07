@@ -1466,6 +1466,18 @@ export const catalog: CatalogEntry[] = [
     "Windows APIs used by device and desktop tools",
   ),
   E(
+    "comtypes",
+    "Windows Integration",
+    "pypi.org",
+    "https://github.com/enthought/comtypes",
+    "pip",
+    null,
+    "1.4.0",
+    "1 MB",
+    "optional",
+    "Windows UI Automation client. Optional. The desktop still boots without it.",
+  ),
+  E(
     "psutil",
     "Windows Integration",
     "pypi.org",

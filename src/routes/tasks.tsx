@@ -29,6 +29,7 @@ import { isDesktopApp } from "@/lib/friday/desktop";
 import { ledger, type TaskRecord, type TaskStatus } from "@/lib/friday/self/task-ledger";
 import { useBackgroundTasks, useLedger, useTaskGraph } from "@/lib/friday/self/use-self";
 import { graphProgress, taskGraph, type TaskGraph } from "@/lib/friday/self/task-graph";
+import type { TimelineRow } from "@/lib/friday/self/run-receipt";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { registerTaskRunners } from "@/lib/friday/self/task-runners";
 import { extractDeadline, looksLikeHorizonGoal } from "@/lib/friday/self/horizon-goals";
@@ -156,6 +157,36 @@ function TaskPanel({ task, question }: { task: TaskRecord; question: string | un
   );
 }
 
+function RunTimeline({ rows }: { rows: TimelineRow[] | undefined }) {
+  if (!rows?.length) return null;
+  return (
+    <ol className="mt-1 space-y-1 text-muted-foreground">
+      {rows.map((row) => (
+        <li key={row.stepId}>
+          <span className="text-foreground">{row.action}</span>
+          {" · "}
+          <Badge variant="outline" className="label-xs">
+            {row.source}
+            {row.confidence == null ? "" : ` ${row.confidence.toFixed(2)}`}
+            {row.ageMs == null ? "" : ` · ${row.ageMs} ms`}
+          </Badge>
+          {row.handoff ? (
+            <Badge variant="outline" className="label-xs">
+              {row.handoff}
+            </Badge>
+          ) : null}
+          <span className="block">
+            {row.checked ? "postcondition held" : "postcondition missed"}
+            {row.postcondition ? `: ${row.postcondition}` : ""}
+            {row.result ? ` · ${row.result}` : ""}
+          </span>
+          {row.undoHint ? <span className="block">undo · {row.undoHint}</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function GraphRow({
   graph,
   position,
@@ -177,11 +208,15 @@ function GraphRow({
       n.state === "running" ||
       n.state === "ready" ||
       n.state === "retrying" ||
-      n.state === "waiting",
+      n.state === "waiting" ||
+      n.state === "interrupted",
   );
   const queued = graph.state === "queued";
   const openGraph =
-    graph.state === "queued" || graph.state === "running" || graph.state === "paused";
+    graph.state === "queued" ||
+    graph.state === "running" ||
+    graph.state === "paused" ||
+    graph.state === "interrupted";
   const finished =
     graph.state === "completed" || graph.state === "failed" || graph.state === "cancelled";
   return (
@@ -231,15 +266,17 @@ function GraphRow({
               Pause
             </Button>
           ) : null}
-          {graph.state === "paused" || queued ? (
+          {graph.state === "paused" || graph.state === "interrupted" || queued ? (
             <Button
               size="sm"
               variant="outline"
               onClick={() =>
-                graph.state === "paused" ? taskGraph.resume(graph.id) : void taskGraph.pump()
+                graph.state === "paused" || graph.state === "interrupted"
+                  ? taskGraph.resume(graph.id)
+                  : void taskGraph.pump()
               }
             >
-              {graph.state === "paused" ? "Resume" : "Run next"}
+              {graph.state === "paused" || graph.state === "interrupted" ? "Resume" : "Run next"}
             </Button>
           ) : null}
           {graph.state === "failed" || graph.state === "cancelled" ? (
@@ -286,6 +323,7 @@ function GraphRow({
                     {node.purpose === "outcome" ? " · outcome" : ""}
                   </span>
                   {node.error ? <span className="block text-destructive">{node.error}</span> : null}
+                  <RunTimeline rows={node.checkpoint?.timeline} />
                 </span>
               </li>
             ))}
@@ -444,7 +482,12 @@ function TasksPage() {
     if (!window.confirm("Cancel every live ledger task and open graph?")) return;
     ledger.cancelAll();
     for (const graph of graphs) {
-      if (graph.state === "queued" || graph.state === "running" || graph.state === "paused") {
+      if (
+        graph.state === "queued" ||
+        graph.state === "running" ||
+        graph.state === "paused" ||
+        graph.state === "interrupted"
+      ) {
         taskGraph.cancel(graph.id);
       }
     }
@@ -458,8 +501,8 @@ function TasksPage() {
 
   const onResumePaused = () => {
     const n = taskGraph.resumeAllPaused();
-    if (n) toast.success(`Resumed ${n} paused graph(s).`);
-    else toast.message("Nothing is paused.");
+    if (n) toast.success(`Resumed ${n} held graph(s).`);
+    else toast.message("Nothing is waiting to resume.");
   };
 
   const onApproveAll = () => {

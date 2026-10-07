@@ -48,6 +48,10 @@ export type WorkflowStep = {
   loopMax?: number;
   onError?: "stop" | "continue";
   approvesSelf?: boolean;
+  /** What must be true after the step. A playbook step always has one. */
+  postcondition?: string;
+  /** How a reversible step is undone. A move always has one. */
+  undo?: string;
 };
 
 export type WorkflowForgeRun = {
@@ -303,8 +307,33 @@ export function normalizeWorkflowSteps(raw: unknown): WorkflowStep[] {
         ? { onError: rec["onError"] }
         : {}),
       ...(rec["approvesSelf"] === true ? { approvesSelf: true } : {}),
+      ...(typeof rec["postcondition"] === "string" && rec["postcondition"].trim()
+        ? { postcondition: String(rec["postcondition"]).trim().slice(0, 240) }
+        : {}),
+      ...(typeof rec["undo"] === "string" && rec["undo"].trim()
+        ? { undo: String(rec["undo"]).trim().slice(0, 240) }
+        : {}),
     };
   });
+}
+
+const DELETE_STEP = /\b(delete|rmdir|unlink|remove file)\b/i;
+const SEND_STEP = /\b(send|submit)\b/i;
+
+/** A daily playbook may move and draft. It does not delete, and it does not send by itself. */
+export function checkPlaybook(steps: WorkflowStep[]): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!steps.length) reasons.push("empty");
+  for (const step of steps) {
+    const blob = `${step.label} ${step.ref} ${step.postcondition || ""} ${step.undo || ""}`;
+    if (!step.postcondition) reasons.push(`${step.id}:postcondition`);
+    if (DELETE_STEP.test(blob)) reasons.push(`${step.id}:delete`);
+    if (/\bmove\b/i.test(step.label) && !step.undo) reasons.push(`${step.id}:undo`);
+    if (SEND_STEP.test(step.label) && (step.risk !== "write" || step.approvesSelf === true)) {
+      reasons.push(`${step.id}:approval`);
+    }
+  }
+  return { ok: reasons.length === 0, reasons };
 }
 
 const FORGE_PROMPT = (goal: string, previousError?: string) =>

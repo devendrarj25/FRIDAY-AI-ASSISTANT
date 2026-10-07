@@ -16,7 +16,12 @@ import {
   publishDoctorSession,
   resetDoctorSession,
 } from "../../src/lib/friday/doctor-awareness";
-import { handleDoctorCommand, type DoctorCheck } from "../../src/lib/friday/doctor-engine";
+import {
+  desktopUiaChecks,
+  localLlamaChecks,
+  handleDoctorCommand,
+  type DoctorCheck,
+} from "../../src/lib/friday/doctor-engine";
 
 const SAMPLE: DoctorCheck[] = [
   {
@@ -180,5 +185,25 @@ describe("baseline doctor look", () => {
     expect(reply.handled).toBe(true);
     const text = reply.text || (await reply.resolve?.()) || "";
     expect(text).not.toContain("DOCTOR SESSION");
+  });
+});
+
+describe("desktop UI Automation doctor row", () => {
+  it("points at the Install Manager helper and does not claim a live walk", () => {
+    const row = desktopUiaChecks()[0];
+    expect(row?.id).toBe("desktop:uia");
+    expect(row?.fix).toMatch(/Install Manager/);
+    expect(row?.detail).toMatch(/comtypes/);
+  });
+});
+
+describe("local engine doctor row", () => {
+  it("points at the pinned CPU pack and does not claim a live install", () => {
+    const row = localLlamaChecks()[0];
+    expect(row?.id).toBe("local:llama-cpp");
+    expect(row?.status).toBe("Missing");
+    expect(row?.fix).toMatch(/Install Manager/);
+    expect(row?.detail).toMatch(/CPU zip/);
+    expect(row?.detail).toMatch(/not checked/);
   });
 });

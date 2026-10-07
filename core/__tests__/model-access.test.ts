@@ -363,6 +363,20 @@ describe("model access classification", () => {
     expect(limited.rateLimits.remainingRequests).toBe(0);
   });
 
+  it("reads Anthropic quota headers without a second call", () => {
+    const meter = access.quotaMeter({
+      "anthropic-ratelimit-requests-remaining": "40",
+      "anthropic-ratelimit-requests-limit": "50",
+      "anthropic-ratelimit-requests-reset": "2026-01-01T00:00:00Z",
+    });
+    expect(meter.source).toBe("response-headers");
+    expect(meter.remainingRequests).toBe(40);
+    expect(meter.limitRequests).toBe(50);
+    expect(meter.retryAfter).toBe("2026-01-01T00:00:00Z");
+    expect(access.quotaMeter({})).toBeNull();
+    expect(access.quotaMeter({ authorization: "Bearer secret" })).toBeNull();
+  });
+
   it("xAI native pricing fields normalize to PAID without generic pricing.input", () => {
     const record = access.classifyModel({
       providerId: "xai",

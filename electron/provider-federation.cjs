@@ -263,6 +263,44 @@ function hardwareFit({ sizeGb, vramGb, ramGb } = {}) {
   return { fit: "too-large" };
 }
 
+/**
+ * Read-only cards from a Hub list the caller already has.
+ * Private and gated repos are counted and not shown. Nothing is downloaded.
+ */
+function browseHub(payload) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.models)
+      ? payload.models
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+  const shown = [];
+  let hidden = 0;
+  for (const row of rows.slice(0, 50)) {
+    if (!row || typeof row !== "object") continue;
+    const id = String(row.id || row.modelId || "").trim();
+    if (!id || id.includes("..") || /\s/.test(id)) continue;
+    const gated = row.gated === true || row.gated === "auto" || row.gated === "manual";
+    if (row.private === true || gated) {
+      hidden += 1;
+      continue;
+    }
+    const pipeline = String(row.pipeline_tag || row.pipeline || "");
+    const mapped = mapPipelineTag(pipeline);
+    shown.push({
+      id,
+      pipeline: pipeline || null,
+      capability: mapped.capability,
+      usable: mapped.usable === true,
+      likes: Number.isFinite(Number(row.likes)) ? Number(row.likes) : 0,
+      downloads: Number.isFinite(Number(row.downloads)) ? Number(row.downloads) : 0,
+      untrusted: true,
+    });
+  }
+  return { shown, hidden, untrusted: true };
+}
+
 function localEngineHealth(engine) {
   if (!engine) return { status: "unknown", detail: "unknown" };
   const name = engine.name || "engine";
@@ -356,6 +394,7 @@ module.exports = {
   freeEvidence,
   applyProbeOverride,
   mapPipelineTag,
+  browseHub,
   hardwareFit,
   localEngineHealth,
   createExactCache,

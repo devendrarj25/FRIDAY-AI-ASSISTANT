@@ -460,6 +460,23 @@ async function shutdown() {
   }
 }
 
+/** A password, payment, or captcha control is the owner's. The page text stays data. */
+function handoffSelector(selector) {
+  const value = String(selector || "");
+  if (/captcha/i.test(value)) return "captcha";
+  if (/pay|card|cvv|checkout/i.test(value)) return "payment";
+  if (/password|passwd|otp/i.test(value)) return "credential";
+  return "";
+}
+
+function pageTextIsData(text) {
+  const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
+  const clean = String(text || "")
+    .replace(secret, "[redacted]")
+    .slice(0, 240);
+  return { untrusted: true, instruction: false, text: clean };
+}
+
 module.exports = {
   PARTITION,
   init,
@@ -488,4 +505,6 @@ module.exports = {
   sessionFetch,
   browserSession,
   downloadDir,
+  handoffSelector,
+  pageTextIsData,
 };

@@ -88,6 +88,34 @@ export const PROTECTED_POLICY_FILES: readonly string[] = [
 const normalisePath = (path: string) => String(path).replace(/\\/g, "/").toLowerCase();
 
 /** Which protected policy files a set of paths / evidence lines touches. */
+export type ChangeVerdict = {
+  allow: "refuse" | "ask" | "stage";
+  applied: false;
+  reversible: true;
+  reason: string;
+};
+
+/**
+ * Separate from the proposer. A protected file is refused at every dial.
+ * Full may stage a reversible change. This function never applies one.
+ */
+export function evaluateChange(input: {
+  paths: string[];
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted?: boolean;
+}): ChangeVerdict {
+  if (input.halted) {
+    return { allow: "refuse", applied: false, reversible: true, reason: "halted" };
+  }
+  if (protectedPolicyPaths(input.paths).length > 0) {
+    return { allow: "refuse", applied: false, reversible: true, reason: "protected" };
+  }
+  if (input.level === "full") {
+    return { allow: "stage", applied: false, reversible: true, reason: "staged" };
+  }
+  return { allow: "ask", applied: false, reversible: true, reason: "dial" };
+}
+
 export function protectedPolicyPaths(paths: Iterable<string>): string[] {
   const hit = new Set<string>();
   for (const raw of paths) {

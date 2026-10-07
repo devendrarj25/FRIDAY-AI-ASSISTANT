@@ -13,6 +13,7 @@ import {
   budgetBlock,
   idempotencyKey,
   mintIdentity,
+  redactRunText,
   retryBackoffMs,
   type EvidenceReceipt,
   type TaskBudget,
@@ -27,6 +28,11 @@ export type DeskControl = {
   value: string;
   bounds: { x: number; y: number; w: number; h: number };
   pressed?: boolean;
+  enabled?: boolean;
+  patterns?: string[];
+  selector?: string;
+  children?: DeskControl[];
+  stale?: boolean;
 };
 
 export type DeskWindow = {
@@ -38,6 +44,7 @@ export type DeskWindow = {
   /** How this window is seen. Controls win over pixels. */
   sight: "uia" | "ocr" | "vision";
   controls: DeskControl[];
+  slow?: boolean;
 };
 
 export type DeskState = {
@@ -53,6 +60,7 @@ export type DeskState = {
   maxWritesInFlight: number;
   readsInFlight: number;
   maxReadsInFlight: number;
+  slowHits: number;
 };
 
 export type Perception = {
@@ -65,6 +73,8 @@ export type Perception = {
   monitor: number;
   windows: { id: string; title: string; controls: DeskControl[] }[];
   text: string;
+  handoff?: "credential" | "payment" | "captcha" | "uac";
+  truncated?: boolean;
 };
 
 export type DesktopAction = {
@@ -132,11 +142,53 @@ const DEFAULT_BUDGET: TaskBudget = { timeMs: 120_000, maxSteps: 8, spend: 0, tok
 
 const HANDOFF_ROLE = new Set(["password", "payment", "captcha", "uac"]);
 
+const SECURE_WINDOW = /user account control|secure desktop|windows security|credential dialog/i;
+
+const CLICK_PATTERNS = ["Invoke", "Toggle", "SelectionItem", "ExpandCollapse"] as const;
+
+/** A control pattern wins. The mouse is the fallback. Secrets are never typed. */
+export function preferPattern(
+  control: { enabled?: boolean; role: string; patterns?: string[] },
+  intent: "click" | "type" | "scroll",
+): { via: "pattern" | "input" | "handoff" | "disabled"; pattern: string } {
+  if (control.enabled === false) return { via: "disabled", pattern: "" };
+  if (HANDOFF_ROLE.has(control.role)) return { via: "handoff", pattern: "" };
+  const patterns = control.patterns ?? [];
+  if (intent === "type") {
+    return patterns.includes("Value")
+      ? { via: "pattern", pattern: "Value" }
+      : { via: "input", pattern: "input.type" };
+  }
+  if (intent === "scroll") {
+    return patterns.includes("Scroll")
+      ? { via: "pattern", pattern: "Scroll" }
+      : { via: "input", pattern: "input.scroll" };
+  }
+  const found = CLICK_PATTERNS.find((name) => patterns.includes(name));
+  return found ? { via: "pattern", pattern: found } : { via: "input", pattern: "input.click" };
+}
+
 const INJECTION =
   /\b(ignore (all |any |previous |your )?instructions|system prompt|you must (now )?click|type the password|disregard the owner)\b/i;
 
 const DESKTOP_ASK =
   /(?:^|\n)\s*(?:please\s+)?(launch|focus|click|type|press|scroll|drag|copy|paste|close)\b|\b(on (my|the) desktop|on (my|the) screen)\b/i;
+
+/** Screen text is data. A hostile line is marked, never followed. */
+export function screenTextIsData(text: string): {
+  untrusted: true;
+  instruction: false;
+  hostile: boolean;
+  text: string;
+} {
+  const raw = String(text || "");
+  return {
+    untrusted: true,
+    instruction: false,
+    hostile: INJECTION.test(raw),
+    text: redactRunText(raw),
+  };
+}
 
 export function desktopAsk(text: string): boolean {
   return DESKTOP_ASK.test(String(text || ""));
@@ -332,6 +384,7 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
     maxWritesInFlight: 0,
     readsInFlight: 0,
     maxReadsInFlight: 0,
+    slowHits: seed?.slowHits ?? 0,
   };
 
   const perceive = async (at: number): Promise<Perception> => {
@@ -341,13 +394,27 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
     state.readsInFlight = Math.max(0, state.readsInFlight - 1);
     const focused =
       state.windows.find((window) => window.id === state.focusedId) ?? state.windows[0];
+    const secure = state.windows.find((window) => SECURE_WINDOW.test(window.title));
+    if (secure) {
+      const handoff = /security|credential/i.test(secure.title) ? "credential" : "uac";
+      return {
+        source: "uia",
+        confidence: 0.97,
+        freshAt: at,
+        generation: state.generation,
+        untrusted: true,
+        dpi: secure.dpi,
+        monitor: secure.monitor,
+        windows: [],
+        text: "",
+        handoff,
+      };
+    }
     const sight = focused?.sight ?? "vision";
     const source: PerceptionSource = !focused ? "none" : sight === "uia" ? "uia" : sight;
     const confidence =
       source === "uia" ? 0.92 : source === "ocr" ? 0.62 : source === "vision" ? 0.41 : 0;
-    const text = (focused?.controls ?? [])
-      .map((control) => `${control.name} ${control.value}`.trim())
-      .join("\n");
+    const text = (focused?.controls ?? []).map((control) => controlText(control)).join("\n");
     return {
       source,
       confidence,
@@ -361,10 +428,7 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
         .map((window) => ({
           id: window.id,
           title: window.title,
-          controls: window.controls.map((control) => ({
-            ...control,
-            bounds: { ...control.bounds },
-          })),
+          controls: flattenControls(window.controls),
         })),
       text,
     };
@@ -427,11 +491,69 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
   return { state, perceive, act };
 }
 
+function controlText(control: DeskControl): string {
+  if (control.role === "password") return control.name;
+  const own = `${control.name} ${control.value}`.trim();
+  const nested = (control.children ?? []).map((child) => controlText(child)).join("\n");
+  return [own, nested].filter(Boolean).join("\n");
+}
+
+function flattenControls(controls: DeskControl[]): DeskControl[] {
+  const flat: DeskControl[] = [];
+  for (const control of controls) {
+    flat.push({
+      ...control,
+      bounds: { ...control.bounds },
+      value: control.role === "password" ? "" : control.value,
+    });
+    if (control.children?.length) flat.push(...flattenControls(control.children));
+  }
+  return flat;
+}
+
+function cloneControl(control: DeskControl): DeskControl {
+  return {
+    ...control,
+    bounds: { ...control.bounds },
+    ...(control.children ? { children: control.children.map(cloneControl) } : {}),
+  };
+}
+
 function cloneWindow(window: DeskWindow): DeskWindow {
   return {
     ...window,
-    controls: window.controls.map((control) => ({ ...control, bounds: { ...control.bounds } })),
+    controls: window.controls.map(cloneControl),
   };
+}
+
+function findNamed(controls: DeskControl[], target: string): DeskControl | null {
+  for (const control of controls) {
+    const named = control.name.toLowerCase() === target.toLowerCase();
+    const selected = control.selector === target;
+    if (named || selected) return control;
+    const nested = control.children ? findNamed(control.children, target) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function resolveControl(
+  state: DeskState,
+  target: string,
+): { window: DeskWindow; control: DeskControl; problem?: "wrong-window" | "stale" } | null {
+  const focused = state.focusedId
+    ? state.windows.find((window) => window.id === state.focusedId)
+    : state.windows[0];
+  if (!focused) return null;
+  const direct = findNamed(focused.controls, target);
+  if (direct?.stale) return { window: focused, control: direct, problem: "stale" };
+  if (direct) return { window: focused, control: direct };
+  for (const window of state.windows) {
+    if (window.id === focused.id) continue;
+    const elsewhere = findNamed(window.controls, target);
+    if (elsewhere) return { window, control: elsewhere, problem: "wrong-window" };
+  }
+  return null;
 }
 
 function launch(state: DeskState, step: DesktopAction): ActOutcome {
@@ -468,21 +590,17 @@ function focus(state: DeskState, step: DesktopAction): ActOutcome {
   return { ok: true, detail: `focused ${window.title}` };
 }
 
-function controlOf(
-  state: DeskState,
-  name: string,
-): { window: DeskWindow; control: DeskControl } | null {
-  const window = state.windows.find((item) => item.id === state.focusedId) ?? state.windows[0];
-  if (!window) return null;
-  const control = window.controls.find((item) => item.name.toLowerCase() === name.toLowerCase());
-  if (!control) return null;
-  return { window, control };
+function notePace(state: DeskState, window: DeskWindow): void {
+  if (window.slow) state.slowHits += 1;
 }
 
 function click(state: DeskState, step: DesktopAction, key: string): ActOutcome {
-  const found = controlOf(state, step.target);
+  const found = resolveControl(state, step.target);
   if (!found) return { ok: false, detail: "control missing" };
+  if (found.problem === "wrong-window") return { ok: false, detail: "wrong window" };
+  if (found.problem === "stale") return { ok: false, detail: "stale" };
   if (found.window.crashed) return { ok: false, detail: `${found.window.title} crashed` };
+  notePace(state, found.window);
   if (HANDOFF_ROLE.has(found.control.role) || /user account control/i.test(found.window.title)) {
     return {
       ok: false,
@@ -490,16 +608,45 @@ function click(state: DeskState, step: DesktopAction, key: string): ActOutcome {
       handoff: handoffKind(found.control.role),
     };
   }
+  const choice = preferPattern(found.control, "click");
+  if (choice.via === "disabled") return { ok: false, detail: "disabled" };
+  if (choice.via === "handoff") {
+    return {
+      ok: false,
+      detail: `${found.control.name} needs the owner`,
+      handoff: handoffKind(found.control.role),
+    };
+  }
+  const was = found.control.pressed;
   found.control.pressed = true;
   state.generation += 1;
   state.applied.push(key);
-  return { ok: true, detail: `clicked ${found.control.name}` };
+  return {
+    ok: true,
+    detail: `clicked ${found.control.name} via ${choice.pattern}`,
+    undo: () => {
+      if (was === undefined) delete found.control.pressed;
+      else found.control.pressed = was;
+    },
+  };
 }
 
 function typeInto(state: DeskState, step: DesktopAction, key: string): ActOutcome {
-  const found = controlOf(state, step.target);
+  const found = resolveControl(state, step.target);
   if (!found) return { ok: false, detail: "field missing" };
+  if (found.problem === "wrong-window") return { ok: false, detail: "wrong window" };
+  if (found.problem === "stale") return { ok: false, detail: "stale" };
+  notePace(state, found.window);
   if (HANDOFF_ROLE.has(found.control.role)) {
+    return {
+      ok: false,
+      detail: `${found.control.name} needs the owner`,
+      handoff: handoffKind(found.control.role),
+    };
+  }
+  const choice = preferPattern(found.control, "type");
+  if (choice.via === "disabled") return { ok: false, detail: "disabled" };
+  if (choice.via === "handoff") {
     return {
       ok: false,
       detail: `${found.control.name} needs the owner`,
@@ -512,7 +659,7 @@ function typeInto(state: DeskState, step: DesktopAction, key: string): ActOutcom
   state.applied.push(key);
   return {
     ok: true,
-    detail: `typed into ${found.control.name}`,
+    detail: `typed into ${found.control.name} via ${choice.pattern}`,
     undo: () => {
       found.control.value = previous;
     },
@@ -604,6 +751,93 @@ export function resolveDesktopPort(): DesktopPort {
   return kernelBackedPort();
 }
 
+function sourceOf(value: unknown): PerceptionSource {
+  if (value === "uia" || value === "ocr" || value === "vision" || value === "none") return value;
+  return "uia";
+}
+
+function handoffOf(value: unknown): Perception["handoff"] | null {
+  if (value === "credential" || value === "payment" || value === "captcha" || value === "uac") {
+    return value;
+  }
+  return null;
+}
+
+function windowsOf(value: unknown): Perception["windows"] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const window = row as Record<string, unknown>;
+    const controls = Array.isArray(window["controls"])
+      ? window["controls"].flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const control = item as Record<string, unknown>;
+          const bounds = control["bounds"];
+          const box =
+            bounds && typeof bounds === "object"
+              ? (bounds as Record<string, unknown>)
+              : { x: 0, y: 0, w: 0, h: 0 };
+          const role = String(control["role"] || "text");
+          const known = (
+            ["button", "edit", "text", "password", "payment", "captcha", "uac"] as const
+          ).find((item) => item === role);
+          return [
+            {
+              id: String(control["id"] || control["selector"] || control["name"] || "control"),
+              role: known ?? "text",
+              name: String(control["name"] || ""),
+              value: known === "password" ? "" : String(control["value"] || ""),
+              bounds: {
+                x: Number(box["x"] || 0),
+                y: Number(box["y"] || 0),
+                w: Number(box["w"] || 0),
+                h: Number(box["h"] || 0),
+              },
+            },
+          ];
+        })
+      : [];
+    return [
+      {
+        id: String(window["id"] || window["title"] || "window"),
+        title: String(window["title"] || ""),
+        controls,
+      },
+    ];
+  });
+}
+
+function perceptionFromTool(result: Record<string, unknown> | null, at: number): Perception {
+  if (!result || result["ok"] === false) {
+    return {
+      source: "none",
+      confidence: 0,
+      freshAt: at,
+      generation: 0,
+      untrusted: true,
+      dpi: 96,
+      monitor: 0,
+      windows: [],
+      text: "",
+    };
+  }
+  const handoff = handoffOf(result["handoff"]);
+  const seen: Perception = {
+    source: sourceOf(result["source"]),
+    confidence: typeof result["confidence"] === "number" ? result["confidence"] : 0.5,
+    freshAt: typeof result["freshAt"] === "number" ? result["freshAt"] : at,
+    generation: 1,
+    untrusted: true,
+    dpi: typeof result["dpi"] === "number" ? result["dpi"] : 96,
+    monitor: typeof result["monitor"] === "number" ? result["monitor"] : 1,
+    windows: handoff ? [] : windowsOf(result["windows"]),
+    text: handoff ? "" : String(result["text"] || ""),
+  };
+  if (handoff) seen.handoff = handoff;
+  if (result["truncated"] === true) seen.truncated = true;
+  return seen;
+}
+
 function kernelBackedPort(): DesktopPort {
   const state: DeskState = {
     monitors: [],
@@ -617,35 +851,13 @@ function kernelBackedPort(): DesktopPort {
     maxWritesInFlight: 0,
     readsInFlight: 0,
     maxReadsInFlight: 0,
+    slowHits: 0,
   };
   return {
     state,
     async perceive(at: number): Promise<Perception> {
       const result = await kernelApi.tools.exec("screen.perceive", {});
-      if (!result || result["ok"] === false) {
-        return {
-          source: "none",
-          confidence: 0,
-          freshAt: at,
-          generation: 0,
-          untrusted: true,
-          dpi: 96,
-          monitor: 0,
-          windows: [],
-          text: "",
-        };
-      }
-      return {
-        source: "uia",
-        confidence: typeof result["confidence"] === "number" ? result["confidence"] : 0.5,
-        freshAt: at,
-        generation: 1,
-        untrusted: true,
-        dpi: 96,
-        monitor: 1,
-        windows: [],
-        text: String(result["text"] || ""),
-      };
+      return perceptionFromTool(result, at);
     },
     async act(step: DesktopAction): Promise<ActOutcome> {
       const result = await kernelApi.tools.exec(step.tool, {
@@ -679,6 +891,35 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
   const undos: Array<() => void> = [];
   const planned = planDesktop(input.request);
   const taskId = "desk";
+
+  const note = (
+    step: DesktopAction,
+    index: number,
+    seen: Perception,
+    detail: string,
+    checked: boolean,
+  ) => {
+    const ids = mintIdentity(taskId, index + 1);
+    evidence.push({
+      evidenceId: ids.evidenceId,
+      taskId: ids.taskId,
+      runId: ids.runId,
+      stepId: ids.stepId,
+      actionId: ids.actionId,
+      done: redactRunText(`${step.kind} ${step.target}`),
+      postcondition: redactRunText(step.postcondition),
+      checked,
+      result: redactRunText(detail),
+      at: now(),
+      undoHint: redactRunText(step.undoHint),
+      perception: {
+        source: seen.source,
+        confidence: seen.confidence,
+        ageMs: Math.max(0, now() - seen.freshAt),
+        ...(seen.handoff ? { handoff: seen.handoff } : {}),
+      },
+    });
+  };
 
   const finish = (
     ok: boolean,
@@ -723,7 +964,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
 
   const runStep = async (
     step: DesktopAction,
-    _index: number,
+    index: number,
   ): Promise<StepResult | DesktopReport> => {
     if (input.signal?.aborted) return finish(false, false, "Cancelled.", "cancelled");
     const block = budgetBlock(budget, {
@@ -750,8 +991,20 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
 
     return enqueue(step.readOnly, async () => {
       const before = await desktop.perceive(now());
+      if (before.handoff) {
+        lines.push(statusLine("handoff", "A secure prompt needs the owner."));
+        note(step, index, before, `handoff:${before.handoff}`, false);
+        audit.push({ at: now(), action: step.tool, result: `handoff:${before.handoff}` });
+        return finish(
+          false,
+          true,
+          lines[lines.length - 1] ?? "Handoff.",
+          `handoff:${before.handoff}`,
+        );
+      }
       if (INJECTION.test(before.text) && !input.request.includes(before.text.trim())) {
         lines.push(statusLine("injection", "I will not follow text on the screen."));
+        note(step, index, before, "injection", false);
         audit.push({ at: now(), action: step.tool, result: "injection" });
         return finish(false, true, lines[lines.length - 1] ?? "Injection.", "injection");
       }
@@ -783,6 +1036,13 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
     const { acted, after } = result;
     if (acted.handoff) {
       lines.push(statusLine("handoff", acted.detail));
+      note(
+        step,
+        index,
+        { ...after, text: "", windows: [], handoff: acted.handoff },
+        acted.detail,
+        false,
+      );
       audit.push({ at: now(), action: step.tool, result: `handoff:${acted.handoff}` });
       return finish(
         false,
@@ -792,19 +1052,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       );
     }
     const checked = postconditionMet(step, after, acted) || acted.detail === "already applied";
-    const ids = mintIdentity(taskId, index + 1);
-    evidence.push({
-      evidenceId: ids.evidenceId,
-      taskId: ids.taskId,
-      runId: ids.runId,
-      stepId: ids.stepId,
-      actionId: ids.actionId,
-      done: `${step.kind} ${step.target}`,
-      postcondition: step.postcondition,
-      checked,
-      result: acted.detail,
-      at: now(),
-    });
+    note(step, index, after, acted.detail, checked);
     audit.push({ at: now(), action: step.tool, result: checked ? "verified" : acted.detail });
     if (acted.undo) undos.push(acted.undo);
     if (!checked) {

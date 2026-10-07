@@ -7,6 +7,7 @@
  * correction, an approved improvement, an imported document).
  */
 
+import { redactForExport } from "../brain/memory-policy";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import {
   rankByRetrieval,
@@ -688,8 +689,9 @@ class MemoryEngine {
 
   /* ------------------------------------------------- export / backup / IO */
 
-  export(): string {
-    return JSON.stringify({ version: 1, exportedAt: Date.now(), items: this.items }, null, 2);
+  export(now = Date.now()): string {
+    const items = redactForExport(this.items, now);
+    return JSON.stringify({ version: 1, exportedAt: now, items }, null, 2);
   }
 
   backup(): number {

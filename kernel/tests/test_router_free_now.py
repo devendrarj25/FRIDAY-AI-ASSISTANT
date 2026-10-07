@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router import ModelRouter, free_now_entry, model_view
+from router import ModelRouter, free_now_entry, model_view, quota_meter
 
 
 class FakeStorage:
@@ -64,3 +64,28 @@ def test_free_now_shows_source_and_age_and_hides_paid():
     cooling = free_now_entry(router._models["local-brain"], 1500)
     assert cooling is not None
     assert cooling["cooling"] is True
+
+
+def test_quota_meter_reads_headers_and_ignores_an_empty_map():
+    openai = quota_meter(
+        {
+            "x-ratelimit-remaining-requests": "59",
+            "x-ratelimit-limit-requests": "60",
+            "x-ratelimit-reset-requests": "1s",
+        }
+    )
+    assert openai is not None
+    assert openai["source"] == "response-headers"
+    assert openai["remainingRequests"] == 59
+    assert openai["limitRequests"] == 60
+    assert openai["reset"] == "1s"
+    anthropic = quota_meter({"anthropic-ratelimit-requests-remaining": "999"})
+    assert anthropic is not None
+    assert anthropic["remainingRequests"] == 999
+    assert quota_meter({}) is None
+    assert quota_meter({"authorization": "Bearer secret"}) is None
+    router = ModelRouter(FakeStorage())
+    router.note_response_headers({"x-ratelimit-remaining-tokens": "10"})
+    assert router.last_quota["remainingTokens"] == 10
+    router.note_response_headers(None)
+    assert router.last_quota["remainingTokens"] == 10
