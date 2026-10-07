@@ -62,4 +62,21 @@ describe("Friday Hub · development workflow", () => {
     const result = await dev.publishBranch(root, { dir: root, message: "x", confirm: true });
     expect(result.ok).toBe(false);
   });
+
+  it("loads publisher identity from the resources folder when the archive copy is absent", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "electron/dev-workflow.cjs"), "utf8");
+    expect(source).not.toMatch(/require\(\s*["']\.\.\/scripts\/identity\.cjs["']\s*\)/);
+    expect(source).toContain('path.join(__dirname, "..", "scripts", "identity.cjs")');
+    expect(source).toContain('path.join(process.resourcesPath || "", "scripts", "identity.cjs")');
+
+    const missing = path.join(root, "app.asar", "scripts", "identity.cjs");
+    expect(() => dev.loadFirstExisting([missing])).toThrow(/identity\.cjs/);
+
+    const installed = path.join(root, "resources", "scripts", "identity.cjs");
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.copyFileSync(path.join(process.cwd(), "scripts/identity.cjs"), installed);
+    const loaded = dev.loadFirstExisting([missing, installed]);
+    expect(loaded.OWNER).toBe("Devendra Singh Meena");
+    expect(loaded.GITHUB).toBe("devendrarj25");
+  });
 });
