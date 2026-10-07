@@ -87,3 +87,11 @@ npm ci
 npm run setup:python
 npm run setup:electron
 npm run init:runtime
+
+# `npm run test:kernel` is `python -m pytest`. Use the same interpreter the kernel uses.
+echo "[friday] installing kernel test runner"
+.venv/bin/python -m pip install -r kernel/requirements-dev.txt
+friday_sudo ln -sfn "${PWD}/.venv/bin/python" /usr/local/bin/python
+friday_sudo ln -sfn "${PWD}/.venv/bin/python" /usr/local/bin/python3
+hash -r || true
+echo "[friday] python for tests: $(command -v python)"
