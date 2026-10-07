@@ -652,6 +652,7 @@ contextBridge.exposeInMainWorld("friday", {
   onKernelExit: on("kernel:exit"),
   onKernelRecover: on("kernel:recover"),
   onWorkspaceChange: on("workspace:changed"),
+  onSenseEvent: on("senses:event"),
   onWorkspaceScan: on("workspace:scanned"),
   onWorkspaceMigrate: on("workspace:migrate"),
   onProvidersDetected: on("providers:detected"),

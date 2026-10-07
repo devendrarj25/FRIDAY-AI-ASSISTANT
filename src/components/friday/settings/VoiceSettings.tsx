@@ -4,6 +4,7 @@ import { HardDriveDownload, Mic, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
+import { desktopApi } from "@/lib/friday/desktop";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { assistantMode } from "@/lib/friday/assistant-mode";
@@ -119,6 +120,47 @@ export function VoiceSettings() {
             on={voice.paused}
             onToggle={() => assistantMode.setPaused(!voice.paused)}
           />
+          <EditField
+            label="Speaker match threshold"
+            value={prefs.fields["speakerThreshold"] ?? "0.75"}
+            onChange={(value) => preferences.setField("speakerThreshold", value)}
+          />
+          <p className="font-mono text-[11px] text-muted-foreground">
+            WeSpeaker ECAPA is CC-BY-4.0 and is not bundled. A match never approves an action. Enrol
+            waits until that file is on this PC.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const api = desktopApi();
+                if (!api?.voiceprintStatus) {
+                  toast.message("The speaker model is not on disk");
+                  return;
+                }
+                void api.voiceprintStatus().then((row) => {
+                  toast.message(row?.reason || "The speaker model is not on disk");
+                });
+              }}
+            >
+              Enrol voiceprint
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const api = desktopApi();
+                if (!api?.clearVoiceprint) {
+                  toast.error("Forget voiceprint runs in the desktop app");
+                  return;
+                }
+                void api.clearVoiceprint().then(() => toast.success("Voiceprint forgotten"));
+              }}
+            >
+              Forget voiceprint
+            </Button>
+          </div>
           <ToggleRow
             label="Lower other audio while FRIDAY speaks"
             hint="Quiet hours leave other apps alone. A voice match never approves an action."

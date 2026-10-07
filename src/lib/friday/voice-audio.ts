@@ -228,6 +228,37 @@ export interface VadSnapshot {
  * short run of frames above that floor. While FRIDAY is speaking the bar is
  * higher so echo is not a barge-in, and a close talker still clears it.
  */
+function voiceDot(left: number[], right: number[]): number | null {
+  if (left.length === 0 || left.length !== right.length) return null;
+  let dot = 0;
+  let leftSq = 0;
+  let rightSq = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const x = left[index] ?? 0;
+    const y = right[index] ?? 0;
+    dot += x * y;
+    leftSq += x * x;
+    rightSq += y * y;
+  }
+  if (leftSq === 0 || rightSq === 0) return null;
+  return dot / Math.sqrt(leftSq * rightSq);
+}
+
+/**
+ * While FRIDAY is speaking, a frame that matches the playback is her own voice
+ * and is dropped. A different frame can still barge in.
+ */
+export function suppressSelfVoice(input: {
+  mic: number[];
+  playback: number[];
+  speaking: boolean;
+}): { keep: boolean; reason: "quiet" | "self-voice" | "owner" } {
+  if (!input.speaking) return { keep: true, reason: "quiet" };
+  const sim = voiceDot(input.mic, input.playback);
+  if (sim != null && sim >= 0.9) return { keep: false, reason: "self-voice" };
+  return { keep: true, reason: "owner" };
+}
+
 export function advanceVad(input: {
   level: number;
   noiseFloor: number;

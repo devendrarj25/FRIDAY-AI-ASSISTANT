@@ -208,6 +208,22 @@ function watchKeeps(step: WatchStep): boolean {
  * An owner-started demonstration becomes one editable graph.
  * No consent, no graph. A password or secret step is left out.
  */
+export type WatchSession = { consent: boolean; steps: WatchStep[] };
+
+/** Owner-started. Consent is on until it is revoked, and a revoke drops the steps. */
+export function openWatch(): WatchSession {
+  return { consent: true, steps: [] };
+}
+
+export function pushWatch(session: WatchSession, step: WatchStep): WatchSession {
+  if (!session.consent) return session;
+  return { consent: true, steps: [...session.steps, step] };
+}
+
+export function revokeWatch(session: WatchSession): WatchSession {
+  return { consent: false, steps: [] };
+}
+
 export function graphFromWatch(
   steps: WatchStep[],
   options: { consent: boolean; id?: string; title?: string },

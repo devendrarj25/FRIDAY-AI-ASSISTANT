@@ -469,12 +469,20 @@ function handoffSelector(selector) {
   return "";
 }
 
-function pageTextIsData(text) {
+function foreignTextIsData(text) {
   const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
   const clean = String(text || "")
     .replace(secret, "[redacted]")
     .slice(0, 240);
   return { untrusted: true, instruction: false, text: clean };
+}
+
+function pageTextIsData(text) {
+  return foreignTextIsData(text);
+}
+
+function emailTextIsData(text) {
+  return foreignTextIsData(text);
 }
 
 module.exports = {
@@ -507,4 +515,5 @@ module.exports = {
   downloadDir,
   handoffSelector,
   pageTextIsData,
+  emailTextIsData,
 };

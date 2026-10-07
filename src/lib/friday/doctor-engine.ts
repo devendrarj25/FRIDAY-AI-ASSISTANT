@@ -9,6 +9,8 @@
 import { rerunStartup } from "./startup";
 import { recentFailedStages } from "./brain/turn-timing";
 import { recentSkillGapDrafts } from "./brain/skill-forge";
+import { repairWaveCapability, waveCapabilityChecks } from "./failure-guard";
+import { preferences } from "./preferences";
 
 export type DoctorStatus =
   "Ready" | "Running" | "Missing" | "Outdated" | "Error" | "Warning" | "Repairing";
@@ -216,7 +218,9 @@ class DoctorStore {
 
   private emit() {
     const extra = brainSurfaceChecks();
-    this.snapshot = { ...this.state, checks: [...this.state.checks, ...extra] };
+    const seen = new Set(this.state.checks.map((check) => check.id));
+    const added = extra.filter((check) => !seen.has(check.id));
+    this.snapshot = { ...this.state, checks: [...this.state.checks, ...added] };
     this.listeners.forEach((l) => l());
   }
 
@@ -325,7 +329,11 @@ class DoctorStore {
       // Cross-mode routing sync is a renderer-side truth: it compares what a
       // typed chat turn and an Auto Mode voice turn would really route to,
       // right now, from the same shared stores.
-      this.state.checks = [...this.state.checks, await this.crossModeCheck()].map((check) => {
+      this.state.checks = [
+        ...this.state.checks,
+        await this.crossModeCheck(),
+        ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
+      ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
         if (enriched.repairKind === "none-needed") this.triedIds.delete(check.id);
         return enriched;
@@ -397,6 +405,9 @@ class DoctorStore {
     // The routing-sync repair is renderer-owned (it re-reads the shared
     // stores), so it works in the same way with or without the desktop fixer.
     if (id === "cross-mode-sync" && check) return this.repairCrossMode(check);
+    if (id === "sense:watching" || id === "watch:learn" || id === "playbook:daily") {
+      return this.repairWave(id);
+    }
     if (!desktop?.applyDiagnosticFix || !check) {
       this.log("error", `no repair available for "${id}" outside the desktop app`);
       return false;
@@ -452,6 +463,42 @@ class DoctorStore {
     }
     this.emit();
     return ok;
+  }
+
+  /** Renderer repair for a sense, a recording, or the daily pack. No desktop probe. */
+  private repairWave(id: string): boolean {
+    const result = repairWaveCapability(id);
+    if (!result.ok) {
+      this.triedIds.add(id);
+      this.push("warn", result.reason);
+      this.emit();
+      return false;
+    }
+    if (Object.keys(result.patch).length) {
+      for (const [key, value] of Object.entries(result.patch)) preferences.setToggle(key, value);
+    }
+    const existing =
+      this.state.checks.find((check) => check.id === id) ??
+      this.snapshot.checks.find((check) => check.id === id);
+    if (!existing) {
+      this.push("error", `no repair available for "${id}"`);
+      this.emit();
+      return false;
+    }
+    const updated: DoctorCheck = {
+      ...existing,
+      status: "Ready",
+      repairKind: "auto-fixed",
+      detail: result.reason,
+      fixable: false,
+    };
+    this.state.checks = this.state.checks.some((check) => check.id === id)
+      ? this.state.checks.map((check) => (check.id === id ? updated : check))
+      : [...this.state.checks, updated];
+    this.triedIds.delete(id);
+    this.push("ok", result.reason);
+    this.emit();
+    return true;
   }
 
   /** Force both surfaces back onto the single source of truth, then verify. */
@@ -652,6 +699,7 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...optionalDiagramChecks());
   checks.push(...desktopUiaChecks());
   checks.push(...localLlamaChecks());
+  checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
   return checks;
 }
 

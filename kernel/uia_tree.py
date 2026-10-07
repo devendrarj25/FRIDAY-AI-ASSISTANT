@@ -39,6 +39,8 @@ def prefer_pattern(control: dict[str, Any] | None, intent: str) -> dict[str, str
     row = control or {}
     if row.get("enabled") is False:
         return {"via": "disabled", "pattern": ""}
+    if row.get("offscreen") is True:
+        return {"via": "offscreen", "pattern": ""}
     if str(row.get("role") or "") in _HANDOFF_ROLES:
         return {"via": "handoff", "pattern": ""}
     patterns = [str(item) for item in row.get("patterns") or []]
@@ -130,15 +132,17 @@ def perception_from_raw(
             "windows": [],
             "text": "",
             "truncated": False,
+            "cyclic": False,
+            "elapsedMs": 0,
             "nodeCount": 0,
             "dpi": int(monitors[0]["dpi"]),
             "monitor": 1,
         }
 
-    state = {"count": 0, "elapsed": 0, "truncated": False}
+    state = {"count": 0, "elapsed": 0, "truncated": False, "cyclic": False}
     windows: list[dict[str, Any]] = []
     for index, root in enumerate(roots):
-        built = _walk(root, 0, "", monitors, limits, int(step_ms), state)
+        built = _walk(root, 0, "", monitors, limits, int(step_ms), state, set())
         if not built:
             continue
         controls = _flatten(built.get("children") or [])
@@ -170,6 +174,8 @@ def perception_from_raw(
         "windows": windows,
         "text": text,
         "truncated": bool(state["truncated"]),
+        "cyclic": bool(state["cyclic"]),
+        "elapsedMs": int(state["elapsed"]),
         "nodeCount": int(state["count"]),
         "dpi": int(focused["dpi"]),
         "monitor": int(focused["index"]),
@@ -229,14 +235,19 @@ def _roots(tree: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _tree_handoff(nodes: list[dict[str, Any]]) -> str | None:
+def _tree_handoff(nodes: list[dict[str, Any]], seen: set[int] | None = None) -> str | None:
+    visited = seen if seen is not None else set()
     for node in nodes:
+        marker = id(node)
+        if marker in visited:
+            continue
+        visited.add(marker)
         kind = _node_handoff(node)
         if kind:
             return kind
         children = node.get("children")
         if isinstance(children, list):
-            nested = _tree_handoff([child for child in children if isinstance(child, dict)])
+            nested = _tree_handoff([child for child in children if isinstance(child, dict)], visited)
             if nested:
                 return nested
     return None
@@ -244,7 +255,7 @@ def _tree_handoff(nodes: list[dict[str, Any]]) -> str | None:
 
 def _node_handoff(node: dict[str, Any]) -> str | None:
     blob = f"{node.get('name') or ''} {node.get('className') or ''}"
-    if _SECURE.search(blob):
+    if node.get("elevated") is True or _SECURE.search(blob):
         return "uac"
     if _CREDENTIAL.search(blob):
         return "credential"
@@ -265,9 +276,15 @@ def _walk(
     limits: dict[str, int],
     step_ms: int,
     state: dict[str, Any],
+    seen: set[int],
 ) -> dict[str, Any] | None:
     if state["truncated"]:
         return None
+    marker = id(node)
+    if marker in seen:
+        state["cyclic"] = True
+        return None
+    seen.add(marker)
     if depth > int(limits["maxDepth"]):
         state["truncated"] = True
         return None
@@ -282,11 +299,18 @@ def _walk(
     built = _control(node, parent, monitors)
     children = node.get("children") if isinstance(node.get("children"), list) else []
     nested: list[dict[str, Any]] = []
+    seen_selectors: dict[str, int] = {}
     for child in children:
         if not isinstance(child, dict):
             continue
-        item = _walk(child, depth + 1, built["selector"], monitors, limits, step_ms, state)
+        item = _walk(child, depth + 1, built["selector"], monitors, limits, step_ms, state, seen)
         if item:
+            base = str(item.get("selector") or "")
+            seen_selectors[base] = seen_selectors.get(base, 0) + 1
+            if seen_selectors[base] > 1:
+                unique = f"{base}~{seen_selectors[base]}"
+                item["selector"] = unique
+                item["id"] = unique
             nested.append(item)
         if state["truncated"]:
             break
@@ -382,6 +406,35 @@ def _public_text(windows: list[dict[str, Any]]) -> str:
 
 def _any_control(windows: list[dict[str, Any]]) -> bool:
     return any(window.get("controls") for window in windows)
+
+
+IDLE_CPU_PERCENT = 1.0
+
+
+def idle_within(samples: list[float] | None, budget: float = IDLE_CPU_PERCENT) -> bool:
+    """True when the injected idle samples stay at or under the budget."""
+    rows = [float(item) for item in (samples or [])]
+    if not rows:
+        return True
+    return (sum(rows) / len(rows)) <= float(budget)
+
+
+def comtypes_missing(detail: str | None) -> bool:
+    return "comtypes is not installed" in str(detail or "")
+
+
+def ocr_fallback(now_ms: int, text: str) -> dict[str, Any]:
+    """Used when the Windows collector cannot load comtypes. The text stays data."""
+    return {
+        "ok": True,
+        "source": "ocr",
+        "confidence": 0.62,
+        "untrusted": True,
+        "freshAt": int(now_ms),
+        "text": str(text or ""),
+        "windows": [],
+        "fallback": "comtypes-missing",
+    }
 
 
 def _focused_monitor(windows: list[dict[str, Any]], monitors: list[dict[str, Any]]) -> dict[str, Any]:

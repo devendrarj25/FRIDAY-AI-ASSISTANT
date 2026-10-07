@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS logs (
 class Storage:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = path
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
 
@@ -81,13 +82,30 @@ class Storage:
         ("chats", "origin", "TEXT"),
     )
 
+    def backup_database(self) -> str:
+        """Consistent copy beside the live file, before a schema change is published."""
+        if self.conn is None:
+            raise RuntimeError("database is closed")
+        dest = Path(str(self.path) + ".bak")
+        bak = sqlite3.connect(dest)
+        try:
+            self.conn.backup(bak)
+        finally:
+            bak.close()
+        return str(dest)
+
     def migrate(self) -> None:
         self.conn.executescript(SCHEMA)
+        pending = []
         for table, column, decl in self.ADDED_COLUMNS:
             have = {
                 r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
             }
             if column not in have:
+                pending.append((table, column, decl))
+        if pending:
+            self.backup_database()
+            for table, column, decl in pending:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
         # Older builds persisted provider API keys in this table. Scrub them
         # once on open; the desktop re-supplies keys from its secure store.
