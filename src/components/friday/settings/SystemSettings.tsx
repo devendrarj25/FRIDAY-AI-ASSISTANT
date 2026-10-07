@@ -9,6 +9,13 @@ import { useNetwork } from "@/lib/friday/use-network";
 import { useKernelStatus } from "@/lib/friday/use-kernel-status";
 import { desktopApi, revealWorkspaceFolder } from "@/lib/friday/desktop";
 import { preferences } from "@/lib/friday/preferences";
+import {
+  SENSE_IDS,
+  SENSE_TOGGLE,
+  approvedFolderList,
+  switchesFromToggles,
+  watchingLine,
+} from "@/lib/friday/senses";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useAppVersion } from "@/lib/friday/version";
 import { models } from "@/lib/friday/models-engine";
@@ -90,6 +97,46 @@ export function SystemSettings() {
           <Row k="kernel" v={`${kernel.host} · ${kernel.version}`} />
           <Row k="app" v={`${version.label} · build ${version.build}`} />
         </dl>
+      </HudPanel>
+
+      <HudPanel
+        title="What FRIDAY is watching"
+        hint={watchingLine(switchesFromToggles(prefs.toggles))}
+      >
+        {SENSE_IDS.map((id) => (
+          <ToggleRow
+            key={id}
+            label={
+              id === "foreground"
+                ? "Foreground window"
+                : id === "folder"
+                  ? "Approved folders"
+                  : id === "idle"
+                    ? "Idle"
+                    : id === "lock"
+                      ? "Lock and unlock"
+                      : id === "power"
+                        ? "Power"
+                        : id === "network"
+                          ? "Network"
+                          : "Calendar"
+            }
+            hint={id === "folder" ? "Only folders you list below" : "Off until you turn it on"}
+            on={prefs.toggles[SENSE_TOGGLE[id]] === true}
+            onToggle={() =>
+              preferences.setToggle(SENSE_TOGGLE[id], prefs.toggles[SENSE_TOGGLE[id]] !== true)
+            }
+          />
+        ))}
+        <label className="mt-3 block font-mono text-[11px] text-muted-foreground">
+          Approved folders ({approvedFolderList(prefs.fields["senseFolders"]).length})
+          <input
+            value={prefs.fields["senseFolders"] ?? ""}
+            onChange={(event) => preferences.setField("senseFolders", event.target.value)}
+            placeholder="notes, Downloads"
+            className="mt-1 h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-xs text-foreground"
+          />
+        </label>
       </HudPanel>
 
       <HudPanel title="Performance">

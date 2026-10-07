@@ -40,6 +40,23 @@ const isIgnored = (relative) => IGNORED.some((rx) => rx.test(relative));
 
 const needsRestart = (relative) => RESTART_FILES.some((rx) => rx.test(relative));
 
+/** A folder the owner named, and only if it stays inside the workspace root. */
+function boundFolder(root, folder) {
+  if (!root || !folder) return null;
+  const absolute = path.resolve(root, String(folder));
+  const relative = path.relative(path.resolve(root), absolute);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  return { absolute, relative: relative.replace(/\\/g, "/") };
+}
+
+function isApproved(relative, approved) {
+  const rel = String(relative || "").replace(/\\/g, "/");
+  return (approved || []).some((folder) => {
+    const root = String(folder || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    return Boolean(root) && (rel === root || rel.startsWith(`${root}/`));
+  });
+}
+
 function hashFile(file) {
   try {
     const stat = fs.statSync(file);
@@ -61,12 +78,39 @@ class WorkspaceWatcher {
     // (very common: FRIDAY re-serializing its own JSON) emits nothing.
     this.hashes = new Map();
     this.root = null;
+    this.approved = [];
   }
 
-  start(root) {
+  start(root, options = {}) {
     this.stop();
     if (!root) return;
     this.root = root;
+    this.approved = [];
+    for (const folder of options.approvedFolders || []) {
+      const bound = boundFolder(root, folder);
+      if (!bound) continue;
+      this.approved.push(bound.relative);
+      try {
+        if (!fs.statSync(bound.absolute).isDirectory()) continue;
+        const watcher = fs.watch(bound.absolute, { recursive: true }, (_event, filename) => {
+          const name = filename ? String(filename) : "";
+          this.queue(bound.relative, name);
+        });
+        watcher.on("error", (error) => {
+          this.onChange({
+            component: bound.relative,
+            file: `watch stopped: ${error.message}`,
+            restartRequired: false,
+            untrusted: true,
+            instruction: false,
+            at: Date.now(),
+          });
+        });
+        this.watchers.push(watcher);
+      } catch {
+        /* folder missing or not watchable — skipped */
+      }
+    }
     // Seed the hashes for every file that can request a restart BEFORE
     // watching. Without this, the first time FRIDAY (or Windows) touches an
     // unchanged config file the watcher sees "no known hash" and raises a
@@ -151,11 +195,14 @@ class WorkspaceWatcher {
         this.hashes.delete(relative);
       }
     }
+    const dataOnly = isApproved(relative, this.approved);
     this.onChange({
       component: folder,
       file: filename,
       relative,
-      restartRequired: needsRestart(relative),
+      restartRequired: dataOnly ? false : needsRestart(relative),
+      untrusted: true,
+      instruction: false,
       at: Date.now(),
     });
   }
@@ -172,7 +219,15 @@ class WorkspaceWatcher {
     this.timers.forEach((t) => clearTimeout(t));
     this.timers.clear();
     this.hashes.clear();
+    this.approved = [];
   }
 }
 
-module.exports = { WorkspaceWatcher, RESTART_FILES, needsRestart, isIgnored };
+module.exports = {
+  WorkspaceWatcher,
+  RESTART_FILES,
+  needsRestart,
+  isIgnored,
+  boundFolder,
+  isApproved,
+};

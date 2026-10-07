@@ -49,4 +49,42 @@ describe("workspace watcher restart detection", () => {
     expect(isIgnored("config/companion-features.json")).toBe(true);
     expect(isIgnored("config/kernel.yaml")).toBe(false);
   });
+
+  it("keeps an approved folder inside the workspace and marks it as data", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const watcherApi = require("../../electron/watcher.cjs") as {
+      boundFolder: (root: string, folder: string) => { relative: string } | null;
+      isApproved: (relative: string, approved: string[]) => boolean;
+      WorkspaceWatcher: new (
+        onChange: (event: {
+          restartRequired: boolean;
+          untrusted: boolean;
+          instruction: boolean;
+        }) => void,
+      ) => {
+        root: string;
+        approved: string[];
+        emit: (folder: string, filename: string, relative: string) => void;
+        stop: () => void;
+      };
+    };
+    const { boundFolder, isApproved, WorkspaceWatcher: Watcher } = watcherApi;
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-watch-"));
+    expect(boundFolder(root, "../outside")).toBeNull();
+    expect(boundFolder(root, "notes")?.relative).toBe("notes");
+    expect(isApproved("notes/a.txt", ["notes"])).toBe(true);
+    expect(isApproved("config/kernel.yaml", ["notes"])).toBe(false);
+
+    const events: { restartRequired: boolean; untrusted: boolean; instruction: boolean }[] = [];
+    const watcher = new Watcher((event) => events.push(event));
+    watcher.root = root;
+    watcher.approved = ["notes"];
+    fs.mkdirSync(path.join(root, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(root, "notes", "a.txt"), "hello\n");
+    watcher.emit("notes", "a.txt", path.join("notes", "a.txt"));
+    expect(events[0]?.restartRequired).toBe(false);
+    expect(events[0]?.untrusted).toBe(true);
+    expect(events[0]?.instruction).toBe(false);
+    watcher.stop();
+  });
 });
