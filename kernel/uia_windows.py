@@ -130,6 +130,87 @@ def _patterns(element: Any) -> list[str]:
     return found
 
 
+def perform_pattern(selector: str, pattern: str, value: str = "") -> dict[str, Any]:
+    """Invoke one pattern on a freshly resolved element. Windows only."""
+    if not WINDOWS:
+        raise RuntimeError("UI Automation actions are only available on Windows")
+    import comtypes.client
+
+    comtypes.client.GetModule("UIAutomationCore.dll")
+    from comtypes.gen.UIAutomationClient import (
+        CUIAutomation,
+        IUIAutomation,
+        IUIAutomationExpandCollapsePattern,
+        IUIAutomationInvokePattern,
+        IUIAutomationScrollPattern,
+        IUIAutomationSelectionItemPattern,
+        IUIAutomationTogglePattern,
+        IUIAutomationValuePattern,
+    )
+
+    uia = comtypes.CoCreateInstance(
+        CUIAutomation._reg_clsid_,
+        interface=IUIAutomation,
+        clsctx=comtypes.CLSCTX_INPROC_SERVER,
+    )
+    found: dict[str, Any] = {}
+
+    def walk(element: Any, parent: str, depth: int) -> None:
+        if found or depth > 8:
+            return
+        name = str(_prop(element, _NAME) or "")
+        auto = str(_prop(element, _AUTO) or "").strip()
+        control_id = _prop(element, _CONTROL)
+        control_type = _TYPES.get(int(control_id or 0), "Control")
+        key = f"id:{auto}" if auto else f"name:{name}|type:{control_type}"
+        path = f"{parent}/{key}" if parent else key
+        if path == selector or name == selector:
+            found["element"] = element
+            return
+        child = uia.ControlViewWalker.GetFirstChildElement(element)
+        while child is not None and not found:
+            walk(child, path, depth + 1)
+            child = uia.ControlViewWalker.GetNextSiblingElement(child)
+
+    root = uia.GetRootElement()
+    child = uia.ControlViewWalker.GetFirstChildElement(root)
+    while child is not None and not found:
+        walk(child, "", 1)
+        child = uia.ControlViewWalker.GetNextSiblingElement(child)
+    element = found.get("element")
+    if element is None:
+        raise RuntimeError("control is not in the fresh tree")
+    ids = {
+        "Invoke": (10000, IUIAutomationInvokePattern, "Invoke"),
+        "Toggle": (10015, IUIAutomationTogglePattern, "Toggle"),
+        "SelectionItem": (10010, IUIAutomationSelectionItemPattern, "Select"),
+        "ExpandCollapse": (10005, IUIAutomationExpandCollapsePattern, "Expand"),
+        "Value": (10002, IUIAutomationValuePattern, "SetValue"),
+        "Scroll": (10004, IUIAutomationScrollPattern, "Scroll"),
+    }
+    spec = ids.get(pattern)
+    if not spec:
+        raise RuntimeError("no pattern")
+    prop_id, interface, method = spec
+    unknown = element.GetCurrentPattern(prop_id)
+    if unknown is None:
+        raise RuntimeError("no pattern")
+    target = unknown.QueryInterface(interface)
+    if method == "SetValue":
+        target.SetValue(value)
+    elif method == "Scroll":
+        target.Scroll(0, -1)
+    else:
+        getattr(target, method)()
+    return {
+        "ok": True,
+        "via": "pattern",
+        "pattern": pattern,
+        "selector": selector,
+        "undoHint": "reverse this pattern if the control still offers one",
+    }
+
+
 def _dpi_aware() -> None:
     import ctypes
 

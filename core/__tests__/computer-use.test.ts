@@ -6,6 +6,7 @@ import {
   createFakeDesktop,
   desktopAsk,
   planDesktop,
+  preferPattern,
   runComputerUse,
   setDesktopPort,
   type DeskWindow,
@@ -279,5 +280,89 @@ describe("desktop loop on a fake desktop", () => {
     expect(report.summary.includes("s3cret-value")).toBe(false);
     expect(report.lines.join(" ").includes("s3cret-value")).toBe(false);
     expect(desktop.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+  });
+
+  it("uses a pattern, and refuses a disabled, stale, or unfocused control", async () => {
+    expect(preferPattern({ role: "button", patterns: ["Invoke"] }, "click").pattern).toBe("Invoke");
+    expect(preferPattern({ role: "button" }, "click").via).toBe("input");
+    const desktop = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          slow: true,
+          controls: [
+            {
+              id: "group",
+              role: "text",
+              name: "Group",
+              value: "",
+              bounds: { x: 0, y: 0, w: 10, h: 10 },
+              children: [
+                {
+                  id: "save",
+                  role: "button",
+                  name: "Save",
+                  value: "",
+                  bounds: { x: 4, y: 4, w: 20, h: 12 },
+                  patterns: ["Invoke"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const report = await runComputerUse({ ...base, request: "click Save", desktop });
+    expect(report.ok).toBe(true);
+    expect(report.evidence[0]?.result).toContain("Invoke");
+    expect(desktop.state.slowHits).toBe(1);
+
+    const disabled = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          controls: [{ ...notes().controls[0]!, enabled: false }],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const blocked = await runComputerUse({ ...base, request: "click Save", desktop: disabled });
+    expect(blocked.stoppedReason).toBe("verify-failed");
+    expect(disabled.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+
+    const stale = createFakeDesktop({
+      windows: [
+        {
+          ...notes(),
+          controls: [{ ...notes().controls[0]!, stale: true }],
+        },
+      ],
+      focusedId: "notes",
+    });
+    const missed = await runComputerUse({ ...base, request: "click Save", desktop: stale });
+    expect(missed.evidence[0]?.result).toBe("stale");
+    expect(stale.state.windows[0]?.controls[0]?.pressed).toBe(undefined);
+
+    const other = createFakeDesktop({
+      focusedId: "mail",
+      windows: [
+        notes(),
+        {
+          id: "mail",
+          title: "Mail",
+          monitor: 1,
+          dpi: 96,
+          crashed: false,
+          sight: "uia",
+          controls: [],
+        },
+      ],
+    });
+    const guard = await runComputerUse({ ...base, request: "click Save", desktop: other });
+    expect(guard.evidence[0]?.result).toBe("wrong window");
+    expect(
+      other.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
+    ).toBe(undefined);
   });
 });

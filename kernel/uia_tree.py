@@ -30,6 +30,60 @@ _ROLE = {
 }
 
 
+_CLICK = ("Invoke", "Toggle", "SelectionItem", "ExpandCollapse")
+_HANDOFF_ROLES = {"password", "payment", "captcha", "uac"}
+
+
+def prefer_pattern(control: dict[str, Any] | None, intent: str) -> dict[str, str]:
+    """Use a control pattern before a synthetic mouse or key."""
+    row = control or {}
+    if row.get("enabled") is False:
+        return {"via": "disabled", "pattern": ""}
+    if str(row.get("role") or "") in _HANDOFF_ROLES:
+        return {"via": "handoff", "pattern": ""}
+    patterns = [str(item) for item in row.get("patterns") or []]
+    if intent == "type":
+        if "Value" in patterns:
+            return {"via": "pattern", "pattern": "Value"}
+        return {"via": "input", "pattern": "input.type"}
+    if intent == "scroll":
+        if "Scroll" in patterns:
+            return {"via": "pattern", "pattern": "Scroll"}
+        return {"via": "input", "pattern": "input.scroll"}
+    for name in _CLICK:
+        if name in patterns:
+            return {"via": "pattern", "pattern": name}
+    return {"via": "input", "pattern": "input.click"}
+
+
+def resolve_control(perception: dict[str, Any] | None, selector: str) -> dict[str, Any]:
+    """Re-find a control in a fresh tree. A match on the unfocused window is refused."""
+    windows = (perception or {}).get("windows") or []
+    wanted = str(selector or "")
+    focused = [window for window in windows if window.get("focused")]
+    pool = focused or windows[:1]
+
+    def hit(window: dict[str, Any]) -> dict[str, Any] | None:
+        for control in window.get("controls") or []:
+            if control.get("selector") == wanted or str(control.get("name") or "") == wanted:
+                return control
+        return None
+
+    for window in pool:
+        found = hit(window)
+        if not found:
+            continue
+        if found.get("enabled") is False:
+            return {"via": "disabled", "control": found}
+        return {"via": "ok", "control": found}
+    for window in windows:
+        if window in pool:
+            continue
+        if hit(window):
+            return {"via": "wrong-window", "control": None}
+    return {"via": "missing", "control": None}
+
+
 def choose_layer(layers: list[dict[str, Any]] | None) -> dict[str, Any]:
     """UIA, then OCR, then vision. A handoff never falls through to pixels."""
     rows = [row for row in (layers or []) if isinstance(row, dict)]
@@ -92,6 +146,7 @@ def perception_from_raw(
             {
                 "id": built["selector"],
                 "title": built["name"],
+                "focused": bool(root.get("focused")),
                 "controls": controls,
             }
         )

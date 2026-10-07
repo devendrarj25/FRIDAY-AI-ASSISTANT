@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from uia_tree import choose_layer, perception_from_raw  # noqa: E402
+from uia_tree import choose_layer, perception_from_raw, prefer_pattern, resolve_control  # noqa: E402
 
 
 def _monitors():
@@ -96,6 +96,22 @@ def test_budgets_stop_the_walk():
     timed = perception_from_raw(raw, 8, {"maxDepth": 8, "maxNodes": 50, "maxMs": 1500}, step_ms=1000)
     assert timed["truncated"] is True
     assert timed["nodeCount"] == 1
+
+
+def test_patterns_beat_the_mouse_and_the_focus_guard_holds():
+    seen = perception_from_raw(_tree(), 1)
+    save = next(row for row in seen["windows"][0]["controls"] if row["name"] == "Save")
+    assert prefer_pattern(save, "click") == {"via": "pattern", "pattern": "Invoke"}
+    assert prefer_pattern({"role": "button", "patterns": []}, "click") == {
+        "via": "input",
+        "pattern": "input.click",
+    }
+    assert prefer_pattern({"role": "password", "patterns": ["Value"]}, "type")["via"] == "handoff"
+    assert prefer_pattern({"role": "button", "enabled": False, "patterns": ["Invoke"]}, "click")["via"] == "disabled"
+    assert resolve_control(seen, "Save")["via"] == "ok"
+    seen["windows"][0]["focused"] = False
+    seen["windows"].append({"id": "mail", "title": "Mail", "focused": True, "controls": []})
+    assert resolve_control(seen, "Save")["via"] == "wrong-window"
 
 
 def test_layer_keeps_a_handoff_ahead_of_ocr():

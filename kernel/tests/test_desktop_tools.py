@@ -48,6 +48,12 @@ def test_structured_perception_refuses_off_windows():
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="Windows desktop is checked on the owner's PC")
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="Windows desktop is checked on the owner's PC")
+def test_pattern_actions_refuse_off_windows():
+    with pytest.raises(control.ControlError):
+        control.invoke_pattern("Save", "click")
+
+
 def test_clipboard_refuses_off_windows():
     with pytest.raises(control.ControlError):
         control.clipboard_read()

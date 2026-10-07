@@ -27,6 +27,11 @@ export type DeskControl = {
   value: string;
   bounds: { x: number; y: number; w: number; h: number };
   pressed?: boolean;
+  enabled?: boolean;
+  patterns?: string[];
+  selector?: string;
+  children?: DeskControl[];
+  stale?: boolean;
 };
 
 export type DeskWindow = {
@@ -38,6 +43,7 @@ export type DeskWindow = {
   /** How this window is seen. Controls win over pixels. */
   sight: "uia" | "ocr" | "vision";
   controls: DeskControl[];
+  slow?: boolean;
 };
 
 export type DeskState = {
@@ -53,6 +59,7 @@ export type DeskState = {
   maxWritesInFlight: number;
   readsInFlight: number;
   maxReadsInFlight: number;
+  slowHits: number;
 };
 
 export type Perception = {
@@ -135,6 +142,30 @@ const DEFAULT_BUDGET: TaskBudget = { timeMs: 120_000, maxSteps: 8, spend: 0, tok
 const HANDOFF_ROLE = new Set(["password", "payment", "captcha", "uac"]);
 
 const SECURE_WINDOW = /user account control|secure desktop|windows security|credential dialog/i;
+
+const CLICK_PATTERNS = ["Invoke", "Toggle", "SelectionItem", "ExpandCollapse"] as const;
+
+/** A control pattern wins. The mouse is the fallback. Secrets are never typed. */
+export function preferPattern(
+  control: { enabled?: boolean; role: string; patterns?: string[] },
+  intent: "click" | "type" | "scroll",
+): { via: "pattern" | "input" | "handoff" | "disabled"; pattern: string } {
+  if (control.enabled === false) return { via: "disabled", pattern: "" };
+  if (HANDOFF_ROLE.has(control.role)) return { via: "handoff", pattern: "" };
+  const patterns = control.patterns ?? [];
+  if (intent === "type") {
+    return patterns.includes("Value")
+      ? { via: "pattern", pattern: "Value" }
+      : { via: "input", pattern: "input.type" };
+  }
+  if (intent === "scroll") {
+    return patterns.includes("Scroll")
+      ? { via: "pattern", pattern: "Scroll" }
+      : { via: "input", pattern: "input.scroll" };
+  }
+  const found = CLICK_PATTERNS.find((name) => patterns.includes(name));
+  return found ? { via: "pattern", pattern: found } : { via: "input", pattern: "input.click" };
+}
 
 const INJECTION =
   /\b(ignore (all |any |previous |your )?instructions|system prompt|you must (now )?click|type the password|disregard the owner)\b/i;
@@ -336,6 +367,7 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
     maxWritesInFlight: 0,
     readsInFlight: 0,
     maxReadsInFlight: 0,
+    slowHits: seed?.slowHits ?? 0,
   };
 
   const perceive = async (at: number): Promise<Perception> => {
@@ -379,11 +411,7 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
         .map((window) => ({
           id: window.id,
           title: window.title,
-          controls: window.controls.map((control) => ({
-            ...control,
-            bounds: { ...control.bounds },
-            value: control.role === "password" ? "" : control.value,
-          })),
+          controls: flattenControls(window.controls),
         })),
       text,
     };
@@ -448,14 +476,67 @@ export function createFakeDesktop(seed?: Partial<DeskState>): DesktopPort {
 
 function controlText(control: DeskControl): string {
   if (control.role === "password") return control.name;
-  return `${control.name} ${control.value}`.trim();
+  const own = `${control.name} ${control.value}`.trim();
+  const nested = (control.children ?? []).map((child) => controlText(child)).join("\n");
+  return [own, nested].filter(Boolean).join("\n");
+}
+
+function flattenControls(controls: DeskControl[]): DeskControl[] {
+  const flat: DeskControl[] = [];
+  for (const control of controls) {
+    flat.push({
+      ...control,
+      bounds: { ...control.bounds },
+      value: control.role === "password" ? "" : control.value,
+    });
+    if (control.children?.length) flat.push(...flattenControls(control.children));
+  }
+  return flat;
+}
+
+function cloneControl(control: DeskControl): DeskControl {
+  return {
+    ...control,
+    bounds: { ...control.bounds },
+    ...(control.children ? { children: control.children.map(cloneControl) } : {}),
+  };
 }
 
 function cloneWindow(window: DeskWindow): DeskWindow {
   return {
     ...window,
-    controls: window.controls.map((control) => ({ ...control, bounds: { ...control.bounds } })),
+    controls: window.controls.map(cloneControl),
   };
+}
+
+function findNamed(controls: DeskControl[], target: string): DeskControl | null {
+  for (const control of controls) {
+    const named = control.name.toLowerCase() === target.toLowerCase();
+    const selected = control.selector === target;
+    if (named || selected) return control;
+    const nested = control.children ? findNamed(control.children, target) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
+function resolveControl(
+  state: DeskState,
+  target: string,
+): { window: DeskWindow; control: DeskControl; problem?: "wrong-window" | "stale" } | null {
+  const focused = state.focusedId
+    ? state.windows.find((window) => window.id === state.focusedId)
+    : state.windows[0];
+  if (!focused) return null;
+  const direct = findNamed(focused.controls, target);
+  if (direct?.stale) return { window: focused, control: direct, problem: "stale" };
+  if (direct) return { window: focused, control: direct };
+  for (const window of state.windows) {
+    if (window.id === focused.id) continue;
+    const elsewhere = findNamed(window.controls, target);
+    if (elsewhere) return { window, control: elsewhere, problem: "wrong-window" };
+  }
+  return null;
 }
 
 function launch(state: DeskState, step: DesktopAction): ActOutcome {
@@ -492,21 +573,17 @@ function focus(state: DeskState, step: DesktopAction): ActOutcome {
   return { ok: true, detail: `focused ${window.title}` };
 }
 
-function controlOf(
-  state: DeskState,
-  name: string,
-): { window: DeskWindow; control: DeskControl } | null {
-  const window = state.windows.find((item) => item.id === state.focusedId) ?? state.windows[0];
-  if (!window) return null;
-  const control = window.controls.find((item) => item.name.toLowerCase() === name.toLowerCase());
-  if (!control) return null;
-  return { window, control };
+function notePace(state: DeskState, window: DeskWindow): void {
+  if (window.slow) state.slowHits += 1;
 }
 
 function click(state: DeskState, step: DesktopAction, key: string): ActOutcome {
-  const found = controlOf(state, step.target);
+  const found = resolveControl(state, step.target);
   if (!found) return { ok: false, detail: "control missing" };
+  if (found.problem === "wrong-window") return { ok: false, detail: "wrong window" };
+  if (found.problem === "stale") return { ok: false, detail: "stale" };
   if (found.window.crashed) return { ok: false, detail: `${found.window.title} crashed` };
+  notePace(state, found.window);
   if (HANDOFF_ROLE.has(found.control.role) || /user account control/i.test(found.window.title)) {
     return {
       ok: false,
@@ -514,16 +591,44 @@ function click(state: DeskState, step: DesktopAction, key: string): ActOutcome {
       handoff: handoffKind(found.control.role),
     };
   }
+  const choice = preferPattern(found.control, "click");
+  if (choice.via === "disabled") return { ok: false, detail: "disabled" };
+  if (choice.via === "handoff") {
+    return {
+      ok: false,
+      detail: `${found.control.name} needs the owner`,
+      handoff: handoffKind(found.control.role),
+    };
+  }
+  const was = found.control.pressed;
   found.control.pressed = true;
   state.generation += 1;
   state.applied.push(key);
-  return { ok: true, detail: `clicked ${found.control.name}` };
+  return {
+    ok: true,
+    detail: `clicked ${found.control.name} via ${choice.pattern}`,
+    undo: () => {
+      found.control.pressed = was;
+    },
+  };
 }
 
 function typeInto(state: DeskState, step: DesktopAction, key: string): ActOutcome {
-  const found = controlOf(state, step.target);
+  const found = resolveControl(state, step.target);
   if (!found) return { ok: false, detail: "field missing" };
+  if (found.problem === "wrong-window") return { ok: false, detail: "wrong window" };
+  if (found.problem === "stale") return { ok: false, detail: "stale" };
+  notePace(state, found.window);
   if (HANDOFF_ROLE.has(found.control.role)) {
+    return {
+      ok: false,
+      detail: `${found.control.name} needs the owner`,
+      handoff: handoffKind(found.control.role),
+    };
+  }
+  const choice = preferPattern(found.control, "type");
+  if (choice.via === "disabled") return { ok: false, detail: "disabled" };
+  if (choice.via === "handoff") {
     return {
       ok: false,
       detail: `${found.control.name} needs the owner`,
@@ -536,7 +641,7 @@ function typeInto(state: DeskState, step: DesktopAction, key: string): ActOutcom
   state.applied.push(key);
   return {
     ok: true,
-    detail: `typed into ${found.control.name}`,
+    detail: `typed into ${found.control.name} via ${choice.pattern}`,
     undo: () => {
       found.control.value = previous;
     },
@@ -728,6 +833,7 @@ function kernelBackedPort(): DesktopPort {
     maxWritesInFlight: 0,
     readsInFlight: 0,
     maxReadsInFlight: 0,
+    slowHits: 0,
   };
   return {
     state,

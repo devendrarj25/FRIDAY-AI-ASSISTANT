@@ -163,6 +163,40 @@ def _focus_if_asked(target: str | None, hwnd: int | None) -> dict[str, Any] | No
     return None
 
 
+def invoke_pattern(selector: str, intent: str, value: str = "") -> dict[str, Any]:
+    """Prefer a UI Automation pattern. Off Windows this fails closed."""
+    if not WINDOWS:
+        raise ControlError("UI Automation actions are only available on Windows")
+    from uia_tree import perception_from_raw, prefer_pattern, resolve_control
+    from uia_windows import collect_uia_raw, perform_pattern
+
+    try:
+        raw = collect_uia_raw()
+    except Exception as exc:
+        raise ControlError(str(exc)) from exc
+    seen = perception_from_raw(raw, int(time.time() * 1000))
+    if seen.get("handoff"):
+        raise ControlError("A secure prompt needs the owner")
+    resolved = resolve_control(seen, selector)
+    if resolved["via"] == "wrong-window":
+        raise ControlError("focus is on a different window")
+    if resolved["via"] == "missing":
+        raise ControlError("control is not in the fresh tree")
+    if resolved["via"] == "disabled":
+        raise ControlError("That control is disabled")
+    choice = prefer_pattern(resolved.get("control"), intent)
+    if choice["via"] == "handoff":
+        raise ControlError("That control needs the owner")
+    if choice["via"] == "disabled":
+        raise ControlError("That control is disabled")
+    if choice["via"] != "pattern":
+        raise ControlError("no pattern")
+    try:
+        return perform_pattern(str(resolved["control"]["selector"]), choice["pattern"], value)
+    except Exception as exc:
+        raise ControlError(str(exc)) from exc
+
+
 def type_text(
     text: str,
     target: str | None = None,
@@ -171,6 +205,12 @@ def type_text(
 ) -> dict[str, Any]:
     if text is None:
         raise ControlError("text is required")
+    if WINDOWS and target:
+        try:
+            return invoke_pattern(str(target), "type", str(text))
+        except ControlError as exc:
+            if "no pattern" not in str(exc):
+                raise
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
     gui.typewrite(str(text), interval=max(0.0, float(interval)))
@@ -194,6 +234,12 @@ def click(
     target: str | None = None,
     hwnd: int | None = None,
 ) -> dict[str, Any]:
+    if WINDOWS and target and x is None and y is None:
+        try:
+            return invoke_pattern(str(target), "click")
+        except ControlError as exc:
+            if "no pattern" not in str(exc):
+                raise
     gui = _pyautogui()
     focused = _focus_if_asked(target, hwnd)
     if button not in {"left", "right", "middle"}:
