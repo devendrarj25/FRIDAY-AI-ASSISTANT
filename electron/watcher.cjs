@@ -52,7 +52,9 @@ function boundFolder(root, folder) {
 function isApproved(relative, approved) {
   const rel = String(relative || "").replace(/\\/g, "/");
   return (approved || []).some((folder) => {
-    const root = String(folder || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = String(folder || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
     return Boolean(root) && (rel === root || rel.startsWith(`${root}/`));
   });
 }
