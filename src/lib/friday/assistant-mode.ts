@@ -44,6 +44,7 @@ import {
   microphoneAllowed,
   pushVoiceAudit,
   speakerDecision,
+  prosodyAffect,
   speakingProsody,
   spokenReplyAllowed,
   takeSpeakable,
@@ -52,7 +53,15 @@ import {
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
-import { EMPTY_MIC_STATUS, probeMicrophone, voiceGate, type MicStatus } from "./voice-audio";
+import {
+  EMPTY_MIC_STATUS,
+  noteMicHolders,
+  probeMicrophone,
+  voiceGate,
+  type MicStatus,
+} from "./voice-audio";
+import { rememberDevice } from "./mic-truth";
+import { readFeeling } from "./brain/affect";
 import { DesktopDictation, sttInitialPrompt, sttStatus } from "./voice-stt";
 import { isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
 import { alertsAudible } from "./settings-runtime";
@@ -67,7 +76,8 @@ import {
 } from "./assistant-conduct";
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
-import { nextRetryDelayMs } from "./bounded-retry";
+import { persistentRetryDelayMs } from "./bounded-retry";
+import { failureCause, mayAnnounce, voiceFailureLine } from "./voice-recovery";
 import {
   TRANSCRIPT_ONLY,
   detectWake,
@@ -212,8 +222,7 @@ const MAX_CAPTIONS = 40;
  * the same number.
  */
 const AWAKE_MS = () => attentionWindowMs();
-/** The same voice failure is only announced again after this long. */
-const FAILURE_REPEAT_MS = 60_000;
+/** A spoken failure is once per cause for this session. The screen keeps the detail. */
 
 /** The configured name, matched through the shared local wake-word engine. */
 function wakeWord(): string {
@@ -242,7 +251,7 @@ type VoiceDesktop = {
     python: string | null;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
   }>;
-  meetingStatus?: () => Promise<{ meeting?: boolean }>;
+  meetingStatus?: () => Promise<{ meeting?: boolean; names?: string[] }>;
 };
 const desktop = (): VoiceDesktop | null =>
   typeof window === "undefined"
@@ -267,9 +276,9 @@ class AssistantModeStore {
   private sttRecoveryAttempt = 0;
   private sttRecoveryTimer: number | null = null;
   private sttGaveUp = false;
-  /** Last failure that was announced, so the same one is not repeated. */
+  /** Causes already spoken this session. */
+  private spokenCauses = new Set<string>();
   private lastFailure = "";
-  private lastFailureAt = 0;
   /** Last text handed to the speech synthesiser, used for echo rejection. */
   private spokenText = "";
   /**
@@ -521,6 +530,7 @@ class AssistantModeStore {
     });
     // A headset being plugged/unplugged kills the audio track: rebuild it.
     navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+      this.stopRecognition();
       void this.probeMic();
       if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
       if (this.state.mode === "auto" && !this.state.paused) {
@@ -693,7 +703,7 @@ class AssistantModeStore {
    */
   async probeMic(): Promise<MicStatus> {
     const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
-    const status = await probeMicrophone(preferred);
+    const status = await probeMicrophone(preferred, voiceGate.micStream());
     this.state.mic = status;
     this.state.micReady = status.available;
     if (status.available) {
@@ -729,15 +739,36 @@ class AssistantModeStore {
         return;
       }
       if (!opened) {
+        const failed = voiceGate.lastCaptureFailure();
+        if (failed) {
+          this.state.mic = {
+            ...EMPTY_MIC_STATUS,
+            state: failed.state,
+            available: false,
+            reason: failed.reason,
+          };
+          this.state.micReady = false;
+          this.reportFailure(
+            failed.reason
+              ? `I can't hear you — ${failed.reason}.`
+              : "I can't hear you — no working microphone was found.",
+            "Microphone unavailable",
+          );
+          this.scheduleSttRecovery(failed.reason || "microphone did not open");
+          this.emit();
+          return;
+        }
         const status = await this.probeMic();
         if (!status.available) {
           if (status.state === "permission-required") {
-            this.sttGaveUp = true;
             this.reportFailure(
               this.voiceOwnerGuidance(
                 status.reason || "Windows has not granted FRIDAY microphone permission.",
               ),
               "Voice needs you",
+            );
+            this.scheduleSttRecovery(
+              status.reason || "Windows has not granted FRIDAY microphone permission.",
             );
             return;
           }
@@ -768,6 +799,10 @@ class AssistantModeStore {
         reason: null,
       };
       this.state.micReady = true;
+      const worked = typeof settings.deviceId === "string" ? settings.deviceId : null;
+      const previous = preferences.getSnapshot().voice.inputDeviceId || null;
+      const next = rememberDevice(worked, previous);
+      if (next && next !== previous) preferences.setVoice({ inputDeviceId: next });
       if (this.state.error?.startsWith("microphone")) this.state.error = null;
       this.emit();
     });
@@ -785,8 +820,11 @@ class AssistantModeStore {
     }
     let meeting = false;
     try {
-      meeting = Boolean((await desktop()?.meetingStatus?.())?.meeting);
+      const row = await desktop()?.meetingStatus?.();
+      noteMicHolders(row?.names ?? []);
+      meeting = Boolean(row?.meeting);
     } catch {
+      noteMicHolders([]);
       /* the desktop bridge is absent in the browser preview */
     }
     if (meeting === this.callHold) return;
@@ -848,7 +886,7 @@ class AssistantModeStore {
     }
     this.wantRunning = true;
     if (this.dictation) return;
-    if (this.sttGaveUp || Date.now() < this.sttBlockedUntil) return;
+    if (Date.now() < this.sttBlockedUntil) return;
     this.state.status = "Checking local speech recognition…";
     this.emit();
     void sttStatus(false, true, true).then((state) => {
@@ -918,19 +956,13 @@ class AssistantModeStore {
   }
 
   private scheduleSttRecovery(reason: string) {
-    if (this.sttGaveUp || !this.wantRunning) return;
-    const delay = nextRetryDelayMs(this.sttRecoveryAttempt);
-    if (delay === null) {
-      this.sttGaveUp = true;
-      this.sttBlockedUntil = Number.MAX_SAFE_INTEGER;
-      this.reportFailure(this.voiceOwnerGuidance(reason), "Voice needs you");
-      return;
-    }
+    if (!this.wantRunning) return;
+    const delay = persistentRetryDelayMs(this.sttRecoveryAttempt);
     this.sttRecoveryAttempt += 1;
     this.cancelVoiceRecoveryTimer();
     this.sttRecoveryTimer = window.setTimeout(() => {
       this.sttRecoveryTimer = null;
-      if (this.wantRunning && !this.state.paused && this.state.mode === "auto" && !this.sttGaveUp) {
+      if (this.wantRunning && !this.state.paused && this.state.mode === "auto") {
         this.startRecognition();
       }
     }, delay);
@@ -1427,20 +1459,19 @@ class AssistantModeStore {
    */
   private reportFailure(message: string, status = "Voice error") {
     this.to("error");
-    this.state.error = message;
+    this.state.error = `${message}\nFix voice`;
     this.state.status = status;
-    const repeat =
-      message === this.lastFailure && Date.now() - this.lastFailureAt < FAILURE_REPEAT_MS;
-    this.lastFailure = message;
-    this.lastFailureAt = Date.now();
-    if (repeat) {
-      // Same fault, already announced — keep it visible, stop re-announcing it.
+    const cause = failureCause(message);
+    this.lastFailure = cause;
+    if (!mayAnnounce(cause, this.spokenCauses)) {
       this.emit();
       return;
     }
-    this.caption("friday", message);
+    this.spokenCauses.add(cause);
+    const spoken = voiceFailureLine(cause, this.spokenCauses.size);
+    this.caption("friday", spoken);
     this.emit();
-    this.speak(message);
+    this.speak(spoken);
   }
 
   /** Run a command through the existing brain pipeline. */
@@ -1582,11 +1613,13 @@ class AssistantModeStore {
     if (this.turnClock.audioAt == null) this.turnClock = { ...this.turnClock, audioAt: Date.now() };
     const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
+    const lastOwner =
+      [...this.state.captions].reverse().find((row) => row.who === "user")?.text ?? "";
     const tone = speakingProsody({
       baseRate: tuning.rate,
       basePitch: tuning.pitch,
       baseVolume: tuning.volume,
-      affect: /!/.test(spoken) ? "urgent" : "neutral",
+      affect: /!/.test(spoken) ? "urgent" : prosodyAffect(readFeeling(lastOwner).label),
       quiet: !alertsAudible(),
       whisper: voicePrefs.whisperMode === true,
     });

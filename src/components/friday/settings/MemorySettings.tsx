@@ -9,6 +9,7 @@ import { useMemory } from "@/lib/friday/self/use-self";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { formatOwnerDate, shouldRememberChats } from "@/lib/friday/settings-runtime";
+import { forgetOwner, ownerSnapshot } from "@/lib/friday/owner-model";
 
 /**
  * Memory *settings* — toggles, caps overview, and snapshot/transfer.
@@ -19,6 +20,7 @@ export function MemorySettings() {
   const state = useMemory();
   const prefs = usePreferences();
   const [backupAt, setBackupAt] = useState<number | null>(null);
+  const [noticedTick, setNoticedTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setBackupAt(memory.lastBackupAt()), [state.lastWriteAt]);
@@ -179,6 +181,25 @@ export function MemorySettings() {
             }}
           />
         </div>
+      </HudPanel>
+      <HudPanel title="What FRIDAY noticed">
+        <p className="text-xs text-muted-foreground">
+          Goals, habits, and names from this session. Local only.
+        </p>
+        <p className="mt-2 font-mono text-xs text-foreground">
+          {noticedTick >= 0 ? ownerSnapshot().goals.join(", ") || "No goals yet." : ""}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          onClick={() => {
+            forgetOwner("all");
+            setNoticedTick((tick) => tick + 1);
+          }}
+        >
+          Forget these notes
+        </Button>
       </HudPanel>
     </div>
   );

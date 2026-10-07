@@ -76,7 +76,8 @@ export function observeOpenLoops(history: { role: string; text: string }[]): Ope
       const pending = /\b(need to|still (need|have) to|don't forget|pending|unresolved)\b/i.exec(
         text,
       );
-      if (pending) addOpenLoop("task", text.slice(0, 240));
+      const remind = /\b(kal yaad dilana|remind me|bhool mat jana|yaad dilana)\b/i.test(text);
+      if (pending || remind) addOpenLoop("task", text.slice(0, 240));
     }
   }
   return listOpenLoops();

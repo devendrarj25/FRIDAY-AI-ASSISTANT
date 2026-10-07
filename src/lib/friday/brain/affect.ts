@@ -18,6 +18,7 @@
 
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { getConversationSession } from "./conversation-state";
+import { AFFECT_LEXICON, INTENSIFIERS, NEGATIONS } from "../data/affect-lexicon";
 
 export type UserSignal =
   "urgency" | "frustration" | "excitement" | "confusion" | "stress" | "satisfaction";
@@ -291,6 +292,72 @@ class AffectEngine {
 }
 
 export const affect = new AffectEngine();
+
+export type FeelingLabel =
+  | "neutral"
+  | "anger"
+  | "anxiety"
+  | "sadness"
+  | "excitement"
+  | "gratitude"
+  | "confusion"
+  | "hurry"
+  | "distress"
+  | "sarcasm";
+
+export type Feeling = {
+  label: FeelingLabel;
+  valence: number;
+  arousal: number;
+  intensity: number;
+  confidence: number;
+};
+
+/** Text-only read. Prosody is added by the caller and is not stored. */
+export function readFeeling(
+  text: string,
+  context?: { failures?: number; hour?: number; prosody?: number },
+): Feeling {
+  const raw = String(text || "");
+  const lower = raw.toLowerCase();
+  let best: Feeling = { label: "neutral", valence: 0, arousal: 0.2, intensity: 0, confidence: 0.2 };
+  const negated = NEGATIONS.test(lower);
+  for (const row of AFFECT_LEXICON) {
+    const hit = new RegExp(row.pattern, "i").test(lower);
+    if (!hit) continue;
+    const boost = (lower.match(new RegExp(INTENSIFIERS.source, "gi")) || []).length * 0.08;
+    const caps = raw.length > 8 && raw === raw.toUpperCase() ? 0.1 : 0;
+    const bangs = (raw.match(/!/g) || []).length > 1 ? 0.08 : 0;
+    let confidence = Math.min(0.95, row.weight + boost + caps + bangs);
+    if (negated && row.label !== "distress") confidence *= 0.35;
+    if ((context?.failures ?? 0) >= 2 && (row.label === "anger" || row.label === "anxiety")) {
+      confidence = Math.min(0.95, confidence + 0.05);
+    }
+    if (typeof context?.prosody === "number") {
+      confidence = Math.min(0.95, confidence + Math.max(0, context.prosody) * 0.05);
+    }
+    const intensity = Math.min(1, row.arousal * 0.6 + confidence * 0.4);
+    if (confidence > best.confidence) {
+      best = {
+        label: confidence < 0.45 ? "neutral" : row.label,
+        valence: negated && row.label !== "distress" ? -row.valence * 0.2 : row.valence,
+        arousal: row.arousal,
+        intensity: confidence < 0.45 ? 0.1 : intensity,
+        confidence,
+      };
+    }
+  }
+  if (best.confidence < 0.45) {
+    return {
+      label: "neutral",
+      valence: 0,
+      arousal: 0.2,
+      intensity: 0.1,
+      confidence: best.confidence,
+    };
+  }
+  return best;
+}
 
 /** Read confusion/urgency from the current prompt without mutating affect state. */
 export function readPromptSignals(text: string): { confusion: boolean; urgency: boolean } {

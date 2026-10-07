@@ -45,12 +45,15 @@ describe("Auto Mode local speech recognition contract", () => {
     expect(assistant).toContain("this.handleHeard(text, meta?.wake ?? null)");
   });
 
-  it("retries a dead STT/mic session with the kernel backoff, then hands off to owner guidance", () => {
+  it("keeps retrying a dead STT session and speaks each cause once", () => {
     const assistant = source("src/lib/friday/assistant-mode.ts");
-    expect(assistant).toContain("nextRetryDelayMs");
+    expect(assistant).toContain("persistentRetryDelayMs");
     expect(assistant).toContain("scheduleSttRecovery");
+    expect(assistant).toContain("mayAnnounce");
     expect(assistant).toContain("voiceOwnerGuidance");
     expect(assistant).toContain("formatGuidance");
+    expect(assistant).toContain("resumeAfterSpeech");
+    expect(assistant).not.toContain("Number.MAX_SAFE_INTEGER");
     expect(assistant).not.toContain("STT_RETRY_COOLDOWN_MS");
   });
 });
