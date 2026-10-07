@@ -1253,7 +1253,7 @@ class ModelRouter:
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
             async with nullcontext(_client()) as client:
                 async with client.stream("POST", url, json=body, headers=headers) as resp:
-                    self.note_response_headers(resp.headers)
+                    self.note_response_headers(getattr(resp, "headers", None))
                     await _raise_with_body(resp)
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):
@@ -1424,7 +1424,7 @@ class ModelRouter:
                     # nullcontext keeps the shared client alive across requests.
                     async with nullcontext(_client()) as client:
                         async with client.stream("POST", url, json=body, headers=headers) as resp:
-                            self.note_response_headers(resp.headers)
+                            self.note_response_headers(getattr(resp, "headers", None))
                             await _raise_with_body(resp)
                             async for line in resp.aiter_lines():
                                 if not line.startswith("data: "):
@@ -1537,7 +1537,7 @@ class ModelRouter:
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
             async with nullcontext(_client()) as client:
                 async with client.stream("POST", url, json=body) as resp:
-                    self.note_response_headers(resp.headers)
+                    self.note_response_headers(getattr(resp, "headers", None))
                     await _raise_with_body(resp)
                     async for line in resp.aiter_lines():
                         if not line.strip():
