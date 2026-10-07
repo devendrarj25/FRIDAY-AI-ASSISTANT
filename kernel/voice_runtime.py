@@ -91,6 +91,14 @@ def execution_providers() -> dict:
     }
 
 
+def session_providers(use_directml: bool = False) -> list[str]:
+    """CPU stays on the list. DirectML is an extra provider, never the only one."""
+    cpu = "CPUExecutionProvider"
+    if use_directml:
+        return ["DmlExecutionProvider", cpu]
+    return [cpu]
+
+
 SUPERTONIC_DIR = "supertonic-3"
 SUPERTONIC_VOICE = "F2"
 SMART_TURN_NAME = "smart-turn-v3.2-cpu.onnx"
@@ -135,12 +143,22 @@ def tts_status() -> dict:
     }
 
 
+SPEAKER_FILE = "wespeaker-ecapa.onnx"
+SPEAKER_LICENSE = "CC-BY-4.0"
+SPEAKER_ATTRIBUTION = "WeSpeaker ECAPA. CC-BY-4.0. Not bundled. Not downloaded here."
+
+
 def speaker_status() -> dict:
+    present = find_named(SPEAKER_FILE) is not None
     return {
-        "ready": False,
-        "engine": "none",
-        "reason": "not-ready",
+        "ready": present,
+        "engine": "wespeaker-ecapa" if present else "none",
+        "reason": "" if present else "model-not-on-disk",
         "gate": False,
+        "license": SPEAKER_LICENSE,
+        "attribution": SPEAKER_ATTRIBUTION,
+        "bundled": False,
+        "threshold": 0.75,
     }
 
 
@@ -185,7 +203,7 @@ def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> d
         import numpy as np  # type: ignore
         import onnxruntime as ort  # type: ignore
 
-        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(str(path), providers=session_providers(False))
         state = np.zeros((2, 1, 128), dtype=np.float32)
         audio = np.asarray(window, dtype=np.float32).reshape(1, 512)
         sr = np.array(16000, dtype=np.int64)
@@ -337,7 +355,7 @@ def score_turn(samples, sample_rate: int = 16000) -> dict:
             feat = feat[:, :800]
         elif feat.shape[1] < 800:
             feat = np.pad(feat, ((0, 0), (0, 800 - feat.shape[1])), constant_values=-1.5)
-        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(str(path), providers=session_providers(False))
         out = session.run(None, {"input_features": feat[None].astype(np.float32)})[0]
         probability = float(np.asarray(out).reshape(-1)[0])
     except Exception as exc:  # noqa: BLE001
@@ -360,6 +378,92 @@ def speaker_decision(similarity: float | None, enrolled: bool, sensitive: bool) 
     if similarity < 0.75:
         return {"allow": False, "execute": False, "reason": "speaker-mismatch"}
     return {"allow": True, "execute": False, "reason": "speaker-match"}
+
+
+def _cosine(left: list[float] | None, right: list[float] | None) -> float | None:
+    if not left or not right or len(left) != len(right):
+        return None
+    dot = 0.0
+    left_sq = 0.0
+    right_sq = 0.0
+    for raw_left, raw_right in zip(left, right, strict=True):
+        x = float(raw_left)
+        y = float(raw_right)
+        dot += x * y
+        left_sq += x * x
+        right_sq += y * y
+    if left_sq <= 0 or right_sq <= 0:
+        return None
+    return dot / ((left_sq ** 0.5) * (right_sq ** 0.5))
+
+
+def score_speaker(
+    probe: list[float] | None,
+    enrolled: list[float] | None,
+    threshold: float = 0.75,
+    model_present: bool = False,
+) -> dict:
+    """Score only. A match never executes, and a missing file is not a match."""
+    if not model_present:
+        return {
+            "ok": True,
+            "ready": False,
+            "score": None,
+            "match": False,
+            "execute": False,
+            "reason": "model-not-on-disk",
+            "license": SPEAKER_LICENSE,
+            "attribution": SPEAKER_ATTRIBUTION,
+        }
+    score = _cosine(probe, enrolled)
+    if score is None:
+        return {
+            "ok": False,
+            "ready": True,
+            "score": None,
+            "match": False,
+            "execute": False,
+            "reason": "voiceprint needs a numeric embedding",
+            "license": SPEAKER_LICENSE,
+        }
+    match = score >= float(threshold)
+    return {
+        "ok": True,
+        "ready": True,
+        "score": score,
+        "match": match,
+        "execute": False,
+        "reason": "speaker-match" if match else "speaker-mismatch",
+        "license": SPEAKER_LICENSE,
+    }
+
+
+def first_audio_latency(started_ms: int, heard_ms: int, budget_ms: int = 1000) -> dict:
+    elapsed = int(heard_ms) - int(started_ms)
+    return {"elapsedMs": elapsed, "budgetMs": int(budget_ms), "within": 0 <= elapsed <= int(budget_ms)}
+
+
+def voice_context(asked: bool, perception: dict | None) -> dict:
+    """Camera or screen text joins a voice turn only when the owner asked."""
+    if not asked:
+        return {"used": False, "text": "", "untrusted": True, "instruction": False, "reason": "not-asked"}
+    seen = perception or {}
+    if seen.get("handoff"):
+        return {
+            "used": False,
+            "text": "",
+            "untrusted": True,
+            "instruction": False,
+            "handoff": seen.get("handoff"),
+            "reason": "handoff",
+        }
+    return {
+        "used": True,
+        "text": str(seen.get("text") or ""),
+        "untrusted": True,
+        "instruction": False,
+        "reason": "data",
+    }
 
 
 def _download_checked(url: str, dest: Path, sha256: str, need_bytes: int) -> None:
@@ -467,7 +571,11 @@ def check_lines() -> list[str]:
         lines.append("PASS rnnoise")
     else:
         lines.append(f"FAIL rnnoise {noise['reason']}")
-    lines.append("FAIL speaker not-ready")
+    speaker = speaker_status()
+    if speaker["ready"]:
+        lines.append("PASS speaker wespeaker-ecapa")
+    else:
+        lines.append(f"FAIL speaker {speaker['reason']}")
     providers = execution_providers()
     lines.append(
         f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}"

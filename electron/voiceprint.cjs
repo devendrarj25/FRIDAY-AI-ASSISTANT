@@ -70,4 +70,60 @@ function clear() {
   return { ok: true, enrolled: false };
 }
 
-module.exports = { status, save, clear };
+function cosine(left, right) {
+  if (
+    !Array.isArray(left) ||
+    !Array.isArray(right) ||
+    left.length !== right.length ||
+    !left.length
+  ) {
+    return null;
+  }
+  let dot = 0;
+  let leftSq = 0;
+  let rightSq = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const x = Number(left[index]);
+    const y = Number(right[index]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    dot += x * y;
+    leftSq += x * x;
+    rightSq += y * y;
+  }
+  if (leftSq === 0 || rightSq === 0) return null;
+  return dot / Math.sqrt(leftSq * rightSq);
+}
+
+function score(probe, enrolled, threshold) {
+  const bar = Number(threshold);
+  const limit = Number.isFinite(bar) ? bar : 0.75;
+  const sim = cosine(probe, enrolled);
+  if (sim == null) {
+    return {
+      ok: false,
+      execute: false,
+      match: false,
+      score: null,
+      reason: "voiceprint needs a numeric embedding",
+    };
+  }
+  const match = sim >= limit;
+  return {
+    ok: true,
+    execute: false,
+    match,
+    score: sim,
+    reason: match ? "speaker-match" : "speaker-mismatch",
+    license: "CC-BY-4.0",
+  };
+}
+
+function enrol(vector) {
+  return save(vector);
+}
+
+function forget() {
+  return clear();
+}
+
+module.exports = { status, save, clear, score, enrol, forget, cosine };
