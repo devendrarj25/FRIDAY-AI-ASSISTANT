@@ -247,6 +247,9 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 | comtypes for the live walker | ADOPT | MIT, optional Windows extra, floor `comtypes>=1.4.0` in `kernel/requirements-capabilities.txt`. Install Manager can install it. The kernel boots without it. Source: github.com/enthought/comtypes (read 2026-10-07). The live walker was not run here. |
 | Reading a secure desktop with OCR | REJECT | A handoff stops the ladder. Pixel text of a credential or User Account Control prompt is not captured. |
 | Control patterns before the mouse | ADOPT | Invoke, Toggle, SelectionItem, ExpandCollapse, Value, and Scroll run when the fresh tree still shows them. A missing pattern falls back to `input.*`. A disabled control and a control on the unfocused window are refused. Source: learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controlpatternsoverview (read 2026-10-07). The live pattern call was not run here. |
+| Yield the pointer while the owner is active | ADAPT | A write yields, and an expired lease does not act. A read stays in the background. A second remote-desktop session was not added. Source: microsoft.github.io/UFO/ufo2/overview/ (read 2026-10-08). |
+| Name the relaxed check | ADAPT | A vision, OCR, or empty view tells the owner the success check was relaxed. API and UI Automation stay ahead of that view. A multi-agent research ladder was not added. Source: microsoft.github.io/UFO/ufo2/overview/ (read 2026-10-08). |
+| Phone cursor gap refreshes before another write | ADAPT | A gap or an unknown outcome blocks a duplicate write until the desktop snapshot is current. Push is not a second task store. A second WebRTC voice path was not added. Source: developer.mozilla.org/en-US/docs/Web/API/WebRTC_API (read 2026-10-08). |
 | Restart keeps an in-flight run | ADOPT | A reload does not cancel the row. A checked step is not replayed. An unchecked step, or a changed world, is checked again before it counts. Ask and Balanced wait. Full continues only when that dial is on and stop-everything is off. Source: learn.microsoft.com/en-us/azure/durable-task/common/durable-task-orchestrations (read 2026-10-07). |
 | Run timeline on the existing receipt | ADOPT | Each step keeps source, confidence, age, the postcondition, the undo hint, and a handoff reason. Passwords, tokens, and images are dropped. No screenshot is stored. Source: cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html and learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-serialization-and-persistence (read 2026-10-07). |
 | A second canvas or a screenshot log | REJECT | The Tasks page reads the same receipt. A picture of the desktop is not kept. |
@@ -263,6 +266,7 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 | llama.cpp Windows CPU zip b11243 | ADOPT, Install Manager | MIT. `llama-b11243-bin-win-cpu-x64.zip`, 19161151 bytes, SHA-256 `29f91327f4e98fcac93e3b44e6cc54beda26468eb9ffeb804a08cfa67bda8c5b`, hashed here 2026-10-07. A zip is unpacked. It is not executed. CUDA and DirectML builds are not this pin. Source: github.com/ggml-org/llama.cpp/releases/tag/b11243. A live Windows install was not run here. |
 | Memory export keeps source and age | ADOPT | The existing store already consolidates, remembers, forgets, and backs up. An export blanks credential text and stamps source and age. Profile fields enter the turn only when the ask matches, with unknown age until a time is stored. Source: cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html (read 2026-10-07). |
 | A separate evaluator for a self-change | ADOPT | The proposer only files a discovery. A second function refuses every protected policy file, asks unless the dial is Full, and never marks the change applied. Source: the existing governance gate in `src/lib/friday/self/governance.ts` (checked 2026-10-07). |
+| Practice band on the existing learning engine | ADOPT | A held-out task and a candidate that would score itself do not become practice. Repeated synthetic practice does not climb a band. The intelligence benchmark calls that gate and still files a code change as discovery only. Source: `src/lib/friday/self/learning-engine.ts` (checked 2026-10-08). An open-ended skill search was not added. |
 | Untrusted text from screen, page, file, calendar, and tools | ADOPT | The same hostile line stays data. A password assignment is blanked. A hosted tool URL is refused. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html (read 2026-10-07). |
 | Electron powerMonitor for lock, power, and idle | ADOPT | `lock-screen`, `unlock-screen`, `suspend`, `resume`, `on-battery`, and `on-ac` plus `getSystemIdleTime()` are the live signals. They subscribe only while that Settings switch is on. Source: electronjs.org/docs/latest/api/power-monitor (read 2026-10-07). The live Windows hook was not run here. |
 | Foreground caption via GetForegroundWindow and GetWindowText | ADAPT | A bounded poll reads the window caption only. It does not read keystrokes or pixels. A native event hook is not added. Source: learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getforegroundwindow and learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowtextw (read 2026-10-07). The live poll was not run here. |
@@ -287,7 +291,7 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 
 ## Wave 4 — voice that installs, and a mind that stays local
 
-Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Live Windows microphone, wake word, pip, model download, TTS audio, the packaged EXE, and hosted Actions were not run here.
+Checked 2026-10-07. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. Live Windows microphone, wake word, pip, model download, TTS audio, the packaged EXE, and hosted Actions were not run here.
 
 ### Plan table
 
@@ -303,7 +307,7 @@ Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Liv
 | Memory contract, one store | `src/lib/friday/self/memory-engine.ts` | DONE | ADOPT | 20, 25, 27 |
 | Selective context | `src/lib/friday/brain/context-engine.ts` | DONE | ADAPT | 24, 26 |
 | Evaluation without a hosted scorer | `src/lib/friday/self/run-receipt.ts` | DONE | ADOPT | 34 |
-| Mobile companion | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/01_MOBILE_COMPANION_FINAL_ARCHITECTURE.md` | MISSING | REJECT | — |
+| Mobile companion | `src/lib/friday/companion-live.ts` | DONE | ADAPT | cursor |
 | A second installer or a second speech engine | voice install note above | MISSING | REJECT | — |
 
 ### Research (2026-10-07)
@@ -319,7 +323,7 @@ Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Liv
 
 ## Wave 5 — a voice runtime that can install itself
 
-Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the Python bootstrap, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
+Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the Python bootstrap, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
 
 ### Plan table
 
@@ -373,7 +377,7 @@ Run these on the Windows PC, in order. Copy the Voice rows and the on-screen sta
 
 ## Wave 6 — Speech Core and an isolated toolchain
 
-Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
+Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
 
 ### Plan table
 
@@ -428,7 +432,7 @@ Run these on the Windows PC, in order. Copy the Voice rows, the Toolchain rows, 
 
 ## Wave 7 — Bundled runtime, warm speech, and free models
 
-Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay, because a live Windows microphone, a real pack download, and a keyed provider call were not run. The voice runtime pin is still the install_only CPython 3.12.15 archive. The embeddable zip is the bundled pack the pack hook stages. It is not a second voice runtime.
+Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay, because a live Windows microphone, a real pack download, and a keyed provider call were not run. The voice runtime pin is still the install_only CPython 3.12.15 archive. The embeddable zip is the bundled pack the pack hook stages. It is not a second voice runtime.
 
 ### Plan table
 

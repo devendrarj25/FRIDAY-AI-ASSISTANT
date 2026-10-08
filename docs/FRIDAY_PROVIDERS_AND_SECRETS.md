@@ -132,4 +132,16 @@ The routable catalogue swaps only when the next list is an array of unique ids. 
 | Circuit breaker with a recovery probe | ADAPT | Three retryable failures quarantine. A deterministic 400 never does. One probe success clears it. No second router. |
 | Learned semantic router | REJECT | Still the 2026-10-05 decision. No second scoring stack. |
 
+### Routing added (2026-10-08, escalation)
+
+The model plan's learned value estimator and a second providers package tree were not added. Bedrock, Foundry, and Vertex stay off the cloud list until the owner connects those accounts. vLLM stays an optional local serve command. The vLLM package is not a dependency. Video demos are not an implementation source, and a video index was not added.
+
+A model refusal, a failed tool call, a schema mismatch, and a low-confidence verification move to the next model that already passed privacy and billing. A content filter still stops. Those answer failures do not open a cooldown or a quarantine. A context overflow still moves only after the caller marks the prompt compacted. Catalogue refresh is by trigger: startup checks health and a stale catalogue, the Models page may read every layer, a background pass uses catalogue, health, and lifecycle with jitter, and a chat turn refreshes only when the catalogue is stale. A repair that would rotate a key, change privacy, upload weights, enable a paid provider, or replace a pinned model stays with the owner. `models:heal` calls that gate.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Separate fallback classes for context, policy, and other errors | ADAPT | LiteLLM keeps content-policy, context-window, and general fallbacks as different lists (https://docs.litellm.ai/docs/proxy/reliability, accessed 2026-10-08). FRIDAY moves a refusal, a tool failure, a schema miss, and low confidence. A content filter still stops. |
+| Refresh by trigger, not on every turn | ADAPT | OpenRouter and provider catalogues change, and a full sweep on each chat turn is wasted work. FRIDAY refreshes a stale catalogue before routing and leaves a fresh one alone. |
+| Owner-only repairs stay manual | ADOPT | Healing a stale endpoint cache is allowed. Rotating a key or turning paid access on is not. |
+
 Catalogue TTL is 10 minutes, pricing 30 minutes, entitlement 10 minutes, successful probes 30 minutes. Background refresh reuses `refreshRoutable` after the catalogue TTL; API key / endpoint / route-mode changes invalidate immediately. Lifecycle kinds (`MODEL_DISCOVERED`, `MODEL_VERIFIED`, `MODEL_FAILED`, `MODEL_RATE_LIMITED`, `MODEL_EXHAUSTED`, `MODEL_RETIRED`, `MODEL_REMOVED`, `PROVIDER_CONNECTED`, `API_KEY_CHANGED`, `ROUTE_CHANGED`) are stamped onto the existing `models:registry-changed` / `models:health-changed` / `models:route-mode` broadcasts — not a second event bus.

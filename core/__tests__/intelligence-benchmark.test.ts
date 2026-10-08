@@ -6,10 +6,22 @@ import { describe, expect, it } from "vitest";
 
 import { ALWAYS_ASK_KINDS, governance } from "../../src/lib/friday/self/governance";
 import { runIntelligenceBenchmark } from "../../src/lib/friday/self/intelligence-benchmark";
+import { nextCurriculumTask } from "../../src/lib/friday/self/learning-engine";
 import {
   limitationAlwaysAsks,
   proposeFabricLimitation,
 } from "../../src/lib/friday/self/limitation-loop";
+
+describe("practice curriculum", () => {
+  it("keeps a held-out task and a self-scoring candidate out of practice", () => {
+    expect(nextCurriculumTask({ weakness: "tools", heldOut: true, successes: 4 }).run).toBe(false);
+    expect(nextCurriculumTask({ weakness: "tools", candidateIsEvaluator: true }).run).toBe(false);
+    const next = nextCurriculumTask({ weakness: "tools", successes: 2, repeated: 0 });
+    expect(next.run).toBe(true);
+    expect(next.band).toBe("D2");
+    expect(nextCurriculumTask({ weakness: "tools", successes: 2, repeated: 3 }).band).toBe("D1");
+  });
+});
 
 describe("governed limitation loop", () => {
   it("discovers a code-change limitation and never applies it", () => {

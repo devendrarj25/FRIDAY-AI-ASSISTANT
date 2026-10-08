@@ -52,6 +52,14 @@ export type CompanionLive = {
   /** Desktop operating surface: Manual or Auto. Omitted when unpublished. */
   mode?: string;
   /**
+   * Set when the phone cursor is behind the desktop or an outcome is unknown.
+   * Omitted while the cursor is current so an idle snapshot stays stable.
+   */
+  sync?: {
+    phase: "stale" | "snapshot" | "resume";
+    mutate: boolean;
+  };
+  /**
    * Coarse Library + active project line. Omitted when both desks are idle
    * so companion tests that expect "healthy" stay exact.
    */
@@ -90,6 +98,10 @@ export function buildCompanionLive(input: {
   } | null;
   mode?: string;
   desk?: string;
+  lastCursor?: number;
+  nextCursor?: number;
+  durableMissed?: boolean;
+  outcomeKnown?: boolean;
 }): CompanionLive {
   const workGoal = input.workGoal || null;
   const workStep = input.workStep || null;
@@ -134,7 +146,55 @@ export function buildCompanionLive(input: {
     ...(input.mode ? { mode: input.mode } : {}),
     ...(input.desk ? { desk: input.desk } : {}),
   };
+  const sync = reconcileCompanionCursor({
+    lastCursor: input.lastCursor ?? 0,
+    nextCursor: input.nextCursor ?? input.lastCursor ?? 0,
+    durableMissed: input.durableMissed === true,
+    outcomeKnown: input.outcomeKnown !== false,
+  });
+  if (sync.phase !== "connected") {
+    live.sync = { phase: sync.phase, mutate: sync.mutate };
+  }
   return { ...live, line: companionLiveLine(live) };
+}
+
+/**
+ * The desktop owns the cursor. A gap or an unknown outcome blocks another
+ * write until a snapshot is current. Push is not a second task store.
+ */
+export function reconcileCompanionCursor(input: {
+  lastCursor: number;
+  nextCursor: number;
+  durableMissed: boolean;
+  outcomeKnown: boolean;
+}): {
+  phase: "connected" | "stale" | "snapshot" | "resume";
+  mutate: boolean;
+  reason: string;
+} {
+  const last = Math.floor(Number(input.lastCursor));
+  const next = Math.floor(Number(input.nextCursor));
+  if (!Number.isFinite(last) || !Number.isFinite(next) || next < last) {
+    return { phase: "snapshot", mutate: false, reason: "a broken cursor needs a fresh snapshot" };
+  }
+  if (input.durableMissed || next > last + 1) {
+    return {
+      phase: "snapshot",
+      mutate: false,
+      reason: "a gap needs the desktop snapshot before another write",
+    };
+  }
+  if (!input.outcomeKnown) {
+    return {
+      phase: "stale",
+      mutate: false,
+      reason: "an unknown outcome is reconciled before retry",
+    };
+  }
+  if (next === last + 1) {
+    return { phase: "resume", mutate: true, reason: "the next event continues the stream" };
+  }
+  return { phase: "connected", mutate: true, reason: "the cursor is current" };
 }
 
 /** One line the phone subtitle (and tests) can share. */
@@ -164,5 +224,6 @@ export function companionLiveLine(live: CompanionLive): string {
   if (live.remote?.url) bits.push("off-LAN ready");
   else if (live.remote?.enabled) bits.push("off-LAN: not ready");
   if (live.desk) bits.push(live.desk);
+  if (live.sync && live.sync.mutate === false) bits.push("refreshing");
   return bits.join(" · ");
 }

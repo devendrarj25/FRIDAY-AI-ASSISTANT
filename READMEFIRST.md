@@ -61,11 +61,10 @@ see §2. This folder holds only the disposable planning/workbench material:
 
 | Path | Role |
 |---|---|
-| `PRD.md` / `TRD.md` / `UI-UX-Design-Document.md` | Product, technical, and UI contracts still in this folder |
+| Product, technical, and UI contracts | Absorbed into `src/lib/friday/flow-chart.ts`, `docs/FRIDAY_FEATURES.md`, `src/lib/friday/navigation.ts`, and `docs/FRIDAY_CHANGE_CONTROL.md`. The copies in this folder were removed. |
 | `config/friday-version.json` | The only product version. The old document manifest was removed. |
-| `README.md` | This layer's own short intro |
 | `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `docs/FRIDAY_CHANGE_CONTROL.md`, then `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md` |
-| `FRIDAY-VISION/` | Area plans that are not landed yet, under `FRIDAY-VISION/AREAS/`. |
+| `FRIDAY-VISION/` | Absorbed. The area folder was removed after the plans lived in the product. |
 
 ### SHA policy (standing rule — read before adding any hash anywhere in this layer)
 This project has **one** authoritative SHA-256: the hash of the whole
@@ -100,16 +99,13 @@ and out of scope for this rule; don't touch it under this policy.
 | 14 | `14_TEMPLATES` | `TASK_PACKET_TEMPLATE.md` remains until this folder is removed. The packet is in `docs/FRIDAY_CHANGE_CONTROL.md`. |
 
 ### 3b. `FRIDAY-VISION/`
-The master, architecture, lifecycle, build, operations, implementation, and research notes now live in the product owners: `core/registry.ts`, `src/lib/friday/installer-engine.ts`, `electron/update-safety.cjs`, `config/friday-version.json`, and `docs/FRIDAY_CHANGE_CONTROL.md`. What remains under `FRIDAY-VISION/AREAS/` is the area plans that are not landed yet.
+The area plans now live in the product owners: the cognitive runtime, the memory fabric, the task graph, the desktop loop, the capability registry, chat, Auto voice, and the companion snapshot. The `FRIDAY-VISION/` folder was removed after those tests passed. A later upgrade is recorded in `FRIDAY_STATE.md` and the owning product document.
 
 ### How the two connect
 - **Doing a task today** → `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`
-  classifies it and sends you to one numbered area + the real source owner.
-- **Planning a major/future upgrade** → the one matching folder under `FRIDAY-VISION/AREAS/`.
-  runs the same kind of classify-then-narrow search over the vision corpus.
-- Either path can hand off to the other: a vision target you're about to
-  implement becomes a `FRIDAY-DEVELOPMENT` task; a development contract that
-  needs a long-term redesign gets logged as a vision gap.
+  classifies it and sends you to the real source owner.
+- **Planning a major/future upgrade** → `FRIDAY_STATE.md` and the owning product document.
+  There is no vision corpus left to search.
 
 ---
 
@@ -130,7 +126,7 @@ AFFECTED_BOUNDARIES, REQUIRED_TESTS, ROLLBACK_PLAN, and EVIDENCE.
 4. **`FRIDAY_STATE.md`** (repo root) — current facts, when the task needs them.
 5. Classify the task with **`FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`**.
 6. Open only the owner named by that router.
-7. For a future/major upgrade only, also open the one matching `FRIDAY-VISION` target file — not the whole tree.
+7. For a future/major upgrade, read `FRIDAY_STATE.md` and the owning product document. The vision folder was removed.
 8. Implement in the real product folder (§2). Depth and the removal of finished plan entries are the rules in `AGENTS.md`.
 9. Verify with the checks `AGENTS.md` names, then update `AUDIT.md` / `FRIDAY_STATE.md` (repo root) when a current fact changed. Fix indexes after a plan file or an empty folder is removed. A ledger line, if one is written, does not name a tool or a person other than `devendrarj25`. State PASS or BLOCK explicitly (see the workflow file) — a model's own claim that something works is not evidence; command output is.
 
@@ -144,6 +140,6 @@ Deleting `FRIDAY-DEVELOPMENT & VISION/` (and, if you no longer want it, this
 file) should leave a clean, complete, independent product — nothing else to
 check. `AGENTS.md`, `AUDIT.md`, and `FRIDAY_STATE.md` already live at repo
 root (§2), so the real test suite and `README.md`'s documentation map keep
-working with no further action. `PRD.md`, `TRD.md`, and
-`UI-UX-Design-Document.md` inside the folder are working contracts only —
-nothing in `src/`, `electron/`, `kernel/`, or `core/` reads them.
+working with no further action. The product, technical, and UI copies
+that used to sit in this folder were removed after they lived in the product
+documents. Nothing in `src/`, `electron/`, `kernel/`, or `core/` read them.

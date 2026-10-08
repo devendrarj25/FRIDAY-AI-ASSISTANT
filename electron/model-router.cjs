@@ -365,6 +365,26 @@ function classifyError(input) {
   if (has("context length", "context window", "context overflow", "too many tokens")) {
     return { category: "context_overflow", retryable: false, cooldownMs: 5 * 60_000 };
   }
+  if (
+    has(
+      "schema validation",
+      "response schema",
+      "does not match schema",
+      "json schema",
+      "schema_failure",
+    )
+  ) {
+    return { category: "schema_failure", retryable: true, cooldownMs: 0 };
+  }
+  if (has("tool call failed", "tool_call_failed", "function call failed", "tool_use_failed")) {
+    return { category: "tool_failure", retryable: true, cooldownMs: 0 };
+  }
+  if (has("low confidence", "confidence too low", "verification failed", "low_confidence")) {
+    return { category: "low_confidence", retryable: true, cooldownMs: 0 };
+  }
+  if (has("model refused", "model refusal", "refused the request")) {
+    return { category: "model_refusal", retryable: true, cooldownMs: 0 };
+  }
   if (has("stream failed", "stream failure", "stream closed", "invalid stream")) {
     return { category: "stream_failure", retryable: true, cooldownMs: 30_000 };
   }
@@ -406,6 +426,10 @@ const HEALTH_REASON = {
   model_unavailable: "model not available",
   timeout: "did not respond in time",
   context_overflow: "context window exceeded",
+  model_refusal: "model refused this request",
+  tool_failure: "tool call failed",
+  schema_failure: "answer did not match the schema",
+  low_confidence: "verification confidence was too low",
   stream_failure: "stream failed",
   offline: "not reachable",
   provider_error: "provider error",
@@ -1331,7 +1355,91 @@ function aggregationFor(strategy, mode) {
   return "single";
 }
 
-/** A bad request is the same on every model. Outages may move to another candidate. */
+const REFRESH_LAYERS = [
+  "manifest",
+  "credential",
+  "catalogue",
+  "detail",
+  "pricing",
+  "lifecycle",
+  "health",
+  "local-inventory",
+  "artifact-integrity",
+];
+
+/**
+ * Which catalogue layers a trigger may touch.
+ * A chat turn refreshes only a stale catalogue and health. It never walks
+ * every provider layer. The Models page is the one trigger that may.
+ */
+function planRefresh(trigger, state = {}) {
+  const ttl = Number(state.catalogueTtlMs) > 0 ? Number(state.catalogueTtlMs) : 10 * 60 * 1000;
+  const age = Number(state.catalogueAgeMs);
+  const stale = !Number.isFinite(age) || age >= ttl;
+  const name = String(trigger || "before-routing");
+  const jitter = Math.abs(Number(state.jitterMs) || 0) % 60_000;
+  if (name === "startup") {
+    return {
+      refresh: stale,
+      layers: stale ? ["health", "catalogue"] : ["health"],
+      reason: "startup checks health and a stale catalogue",
+      delayMs: 0,
+    };
+  }
+  if (name === "foreground") {
+    return {
+      refresh: true,
+      layers: REFRESH_LAYERS.slice(),
+      reason: "the Models page asked",
+      delayMs: 0,
+    };
+  }
+  if (name === "background") {
+    return {
+      refresh: true,
+      layers: ["catalogue", "health", "lifecycle"],
+      reason: "background interval",
+      delayMs: jitter,
+    };
+  }
+  if (name === "after-failure") {
+    return {
+      refresh: true,
+      layers: ["catalogue", "health"],
+      reason: "targeted refresh after a failure",
+      delayMs: 0,
+    };
+  }
+  if (!stale) {
+    return { refresh: false, layers: [], reason: "catalogue is fresh", delayMs: 0 };
+  }
+  return {
+    refresh: true,
+    layers: ["catalogue", "health"],
+    reason: "catalogue is stale enough to matter",
+    delayMs: 0,
+  };
+}
+
+const BLOCKED_REPAIRS = new Set([
+  "rotate-credentials",
+  "privacy-mode",
+  "upload-weights",
+  "enable-paid",
+  "delete-selected",
+  "replace-pinned",
+]);
+
+/** Owner-only repairs stay refused. A stale cache may still be healed. */
+function repairModelIssue(kind) {
+  const name = String(kind || "").trim();
+  if (!name || BLOCKED_REPAIRS.has(name)) {
+    return { allowed: false, reason: "that repair stays with the owner" };
+  }
+  return { allowed: true, reason: "" };
+}
+
+/** A bad request is the same on every model. Outages and a bad answer may move. */
 function fallbackAdvances(category, options = {}) {
   const name = String(category || "");
   if (name === "context_overflow" && options.compacted === true) return true;
@@ -2037,6 +2145,8 @@ module.exports = {
   accessRecordOf,
   capabilitiesOf,
   classifyError,
+  planRefresh,
+  repairModelIssue,
   fallbackAdvances,
   orderFallbacks,
   commitCatalogue,

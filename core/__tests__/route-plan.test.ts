@@ -610,3 +610,128 @@ describe("fallback order and catalogue swap", () => {
     expect(router.publicDecision("password=hunter2")).toBe("secret");
   });
 });
+
+describe("answer escalation and refresh", () => {
+  it("moves to another model after a refusal, a tool failure, a schema failure, or low confidence", () => {
+    const refusal = router.classifyError("the model refused the request");
+    expect(refusal.category).toBe("model_refusal");
+    expect(refusal.cooldownMs).toBe(0);
+    expect(router.fallbackAdvances(refusal.category)).toBe(true);
+    expect(router.classifyError("content filter blocked the prompt").category).toBe(
+      "content_filter",
+    );
+    expect(router.fallbackAdvances("content_filter")).toBe(false);
+    const tool = router.classifyError("tool call failed");
+    expect(tool.category).toBe("tool_failure");
+    expect(router.fallbackAdvances(tool.category)).toBe(true);
+    const schema = router.classifyError({
+      status: 422,
+      message: "response schema validation failed",
+    });
+    expect(schema.category).toBe("schema_failure");
+    expect(router.fallbackAdvances(schema.category)).toBe(true);
+    const low = router.classifyError("verification failed: confidence too low");
+    expect(low.category).toBe("low_confidence");
+    expect(router.fallbackAdvances(low.category)).toBe(true);
+    const health = new router.ProviderHealthManager();
+    const now = 1_700_000_000_000;
+    health.noteFailure("a", "schema validation failed", now);
+    health.noteFailure("a", "schema validation failed", now + 1);
+    const third = health.noteFailure("a", "schema validation failed", now + 2);
+    expect(third.quarantined).toBe(false);
+    expect(health.isCoolingDown("a", now + 2)).toBe(false);
+    const failed = { id: "a", providerId: "groq", canonicalModelId: "llama" };
+    const next = { id: "b", providerId: "gemini", canonicalModelId: "gemini" };
+    expect(
+      router
+        .orderFallbacks([failed, next], failed, "model_refusal")
+        .map((model: { id: string }) => model.id),
+    ).toEqual(["b"]);
+  });
+
+  it("refreshes a stale catalogue before routing and leaves a fresh one alone", () => {
+    const fresh = router.planRefresh("before-routing", {
+      catalogueAgeMs: 1000,
+      catalogueTtlMs: 30_000,
+    });
+    expect(fresh.refresh).toBe(false);
+    expect(fresh.layers).toEqual([]);
+    const stale = router.planRefresh("before-routing", {
+      catalogueAgeMs: 60_000,
+      catalogueTtlMs: 30_000,
+    });
+    expect(stale.refresh).toBe(true);
+    expect(stale.layers).toEqual(["catalogue", "health"]);
+    expect(stale.layers.length).toBeLessThan(9);
+    const startup = router.planRefresh("startup", { catalogueAgeMs: 1, catalogueTtlMs: 30_000 });
+    expect(startup.refresh).toBe(false);
+    expect(startup.layers).toEqual(["health"]);
+    const page = router.planRefresh("foreground", { catalogueAgeMs: 1, catalogueTtlMs: 30_000 });
+    expect(page.layers).toHaveLength(9);
+    expect(page.layers).toContain("pricing");
+    expect(page.layers).toContain("artifact-integrity");
+    const background = router.planRefresh("background", { jitterMs: 1500 });
+    expect(background.layers).toEqual(["catalogue", "health", "lifecycle"]);
+    expect(background.delayMs).toBe(1500);
+    const after = router.planRefresh("after-failure", {
+      catalogueAgeMs: 1,
+      catalogueTtlMs: 30_000,
+    });
+    expect(after.refresh).toBe(true);
+    expect(after.layers).toEqual(["catalogue", "health"]);
+  });
+
+  it("refuses an owner-only model repair", () => {
+    for (const kind of [
+      "rotate-credentials",
+      "privacy-mode",
+      "upload-weights",
+      "enable-paid",
+      "delete-selected",
+      "replace-pinned",
+    ]) {
+      expect(router.repairModelIssue(kind).allowed).toBe(false);
+    }
+    expect(router.repairModelIssue("stale-endpoint").allowed).toBe(true);
+    expect(router.repairModelIssue("").allowed).toBe(false);
+  });
+
+  it("scores deep-reasoning, research-grade, local-preferred, and cloud-preferred", () => {
+    const local = {
+      id: "local",
+      role: "brain",
+      type: "local",
+      access: "free",
+      accessRecord: {},
+      capabilities: { chat: true, reasoning: true, research: false },
+      qualityProfile: { chatScore: 0.5, speedScore: 0.5, reasoningScore: 0.95, codingScore: 0.5 },
+      contextK: 8,
+      health: "available",
+      latencyMs: 200,
+      failures: 0,
+      coolingDown: false,
+      lastFailureAt: 0,
+    };
+    const cloud = {
+      ...local,
+      id: "cloud",
+      type: "cloud",
+      capabilities: { chat: true, reasoning: true, research: true },
+      qualityProfile: { chatScore: 0.5, speedScore: 0.5, reasoningScore: 0.2, codingScore: 0.5 },
+      contextK: 128,
+    };
+    const base = { task: "chat", policy: "allow-paid", now: 1 };
+    expect(router.scoreModel(local, { ...base, qualityTarget: "deep-reasoning" })).toBeGreaterThan(
+      router.scoreModel(cloud, { ...base, qualityTarget: "deep-reasoning" }),
+    );
+    expect(router.scoreModel(cloud, { ...base, qualityTarget: "research-grade" })).toBeGreaterThan(
+      router.scoreModel(local, { ...base, qualityTarget: "research-grade" }),
+    );
+    expect(router.scoreModel(local, { ...base, qualityTarget: "local-preferred" })).toBeGreaterThan(
+      router.scoreModel(cloud, { ...base, qualityTarget: "local-preferred" }),
+    );
+    expect(router.scoreModel(cloud, { ...base, qualityTarget: "cloud-preferred" })).toBeGreaterThan(
+      router.scoreModel(local, { ...base, qualityTarget: "cloud-preferred" }),
+    );
+  });
+});
