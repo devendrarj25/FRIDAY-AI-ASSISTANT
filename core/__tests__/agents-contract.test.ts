@@ -91,6 +91,7 @@ describe("AGENTS.md anchors", () => {
       "test:fast",
       "lint",
       "typecheck",
+      "typecheck:py",
       "test:kernel",
       "docs:sync",
       "docs:check",

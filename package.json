@@ -44,6 +44,7 @@
     "build:portable": "npm run build:desktop && node scripts/electron-pack.cjs --win portable",
     "build:zip": "node builder/cli.mjs zip",
     "typecheck": "node scripts/print-public-version.cjs && tsc --noEmit",
+    "typecheck:py": "python -m pytest kernel/tests/test_pyright_baseline.py -q",
     "friday:plan": "node builder/cli.mjs plan",
     "friday:test": "node builder/cli.mjs test",
     "friday:release": "node builder/cli.mjs release",

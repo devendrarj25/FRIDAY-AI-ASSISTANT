@@ -142,7 +142,7 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) | ADOPT | contextIsolation, sandbox, CSP, IPC sender checks, and navigation limits stay the bar. |
 | [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADOPT | Startup and shutdown use one lifespan. Typed models and OpenAPI stay the contract. |
 | [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules. Floor `ruff>=0.15.0` in `kernel/requirements-dev.txt` (MIT, about 23 MB, not packaged). |
-| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | A shrinking baseline on the kernel. Full strict would churn unrelated files. |
+| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode. Dev-only `pyright>=1.1.400` (MIT, about 6 MB, not packaged). `kernel/pyright-baseline.txt` is a ceiling. Full strict would churn. |
 | [Knip](https://knip.dev/) | ADAPT | Dev-only dead-export check. A finding is removed only when no caller remains. |
 | [Madge](https://github.com/pahen/madge) | ADAPT | Dev-only cycle check. A cycle is fixed in the existing modules. |
 | [Dependabot groups](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#groups) | ADOPT | The monthly wildcard group per ecosystem stays. Majors stay ignored. |
