@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { buildCompanionLive, companionLiveLine } from "../../src/lib/friday/companion-live";
+import {
+  buildCompanionLive,
+  companionLiveLine,
+  reconcileCompanionCursor,
+} from "../../src/lib/friday/companion-live";
 
 describe("companion live snapshot", () => {
   it("omits high-frequency voice fields and summarises coarse facts", () => {
@@ -175,6 +179,47 @@ describe("companion live snapshot", () => {
     expect(live.mode).toBe("auto");
     expect(live.line).toBe("auto · healthy");
     expect(live.line).toBe(companionLiveLine(live));
+  });
+
+  it("blocks a phone write when the cursor gap or the outcome is unknown", () => {
+    const gap = buildCompanionLive({
+      voice: "OFF",
+      listening: false,
+      error: false,
+      doctorProblems: 0,
+      doctorWarnings: 0,
+      doctorScanning: false,
+      connectors: [],
+      cloud: [],
+      lastCursor: 4,
+      nextCursor: 7,
+    });
+    expect(gap.sync).toEqual({ phase: "snapshot", mutate: false });
+    expect(gap.line).toContain("refreshing");
+
+    const unknown = reconcileCompanionCursor({
+      lastCursor: 4,
+      nextCursor: 4,
+      durableMissed: false,
+      outcomeKnown: false,
+    });
+    expect(unknown.phase).toBe("stale");
+    expect(unknown.mutate).toBe(false);
+
+    const current = buildCompanionLive({
+      voice: "OFF",
+      listening: false,
+      error: false,
+      doctorProblems: 0,
+      doctorWarnings: 0,
+      doctorScanning: false,
+      connectors: [],
+      cloud: [],
+      lastCursor: 4,
+      nextCursor: 4,
+    });
+    expect(current.sync).toBeUndefined();
+    expect(current.line).toBe("healthy");
   });
 
   it("publishes live model cooldowns from the authoritative usage registry", () => {

@@ -142,6 +142,12 @@ export type DesktopRunInput = {
   signal?: AbortSignal;
   /** Resume payload from a previous report's evidence plus the same desktop. */
   appliedKeys?: string[];
+  /** True while the owner is using the pointer. A write then yields. */
+  ownerActive?: boolean;
+  /** Epoch ms. Missing means one minute from now. */
+  leaseExpiresAt?: number;
+  /** The owner explicitly handed the pointer over for this run. */
+  ownerPermitsFocus?: boolean;
 };
 
 const DEFAULT_BUDGET: TaskBudget = { timeMs: 120_000, maxSteps: 8, spend: 0, tokens: 0 };
@@ -727,6 +733,60 @@ function postconditionMet(step: DesktopAction, seen: Perception, outcome: ActOut
 
 type Gate = { allow: boolean; needsOwner: boolean; reason: string };
 
+export type ExecutionLease = {
+  decision: "act" | "yield" | "expired" | "background";
+  reason: string;
+};
+
+/**
+ * Foreground control is leased. A write yields while the owner is at the
+ * desktop. An expired lease does not act. A read stays in the background.
+ * A second desktop session is not opened.
+ */
+export function decideExecutionLease(input: {
+  runId: string;
+  target: string;
+  expiresAt: number;
+  now: number;
+  ownerActive: boolean;
+  readOnly: boolean;
+  ownerPermitsFocus?: boolean;
+}): ExecutionLease {
+  const runId = String(input.runId || "").trim();
+  const target = String(input.target || "").trim();
+  if (!runId || !target) {
+    return { decision: "yield", reason: "a lease needs a run and a target" };
+  }
+  if (!(input.expiresAt > input.now)) {
+    return { decision: "expired", reason: "the foreground lease expired" };
+  }
+  if (input.readOnly) {
+    return { decision: "background", reason: "a read does not take the pointer" };
+  }
+  if (input.ownerActive && input.ownerPermitsFocus !== true) {
+    return { decision: "yield", reason: "the owner is using the desktop" };
+  }
+  return { decision: "act", reason: "the lease is current and the desktop is free" };
+}
+
+/** A weaker view keeps the step only when the success check still holds. */
+export function degradeFeature(input: {
+  seen: PerceptionSource | "handoff";
+  predicateHeld: boolean;
+}): { tellOwner: boolean; reason: string } {
+  if (input.seen === "handoff") {
+    return { tellOwner: true, reason: "the success check moved to the owner" };
+  }
+  if (input.predicateHeld) return { tellOwner: false, reason: "" };
+  if (input.seen === "vision" || input.seen === "ocr" || input.seen === "none") {
+    return {
+      tellOwner: true,
+      reason: `a ${input.seen} view relaxed the success check`,
+    };
+  }
+  return { tellOwner: false, reason: "" };
+}
+
 export function gateAction(level: ApprovalLevel, halted: boolean, step: DesktopAction): Gate {
   if (halted) return { allow: false, needsOwner: true, reason: "Stopped." };
   if (level === "strict" || (level !== "full" && !step.readOnly)) {
@@ -990,6 +1050,20 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       lines.push(statusLine("budget", block));
       return finish(false, true, lines[lines.length - 1] ?? block, block);
     }
+    const lease = decideExecutionLease({
+      runId: input.request.slice(0, 80) || "desk",
+      target: step.target || step.kind,
+      expiresAt: input.leaseExpiresAt ?? now() + 60_000,
+      now: now(),
+      ownerActive: input.ownerActive === true,
+      readOnly: step.readOnly,
+      ...(input.ownerPermitsFocus === true ? { ownerPermitsFocus: true } : {}),
+    });
+    if (lease.decision === "yield" || lease.decision === "expired") {
+      lines.push(statusLine("ask", lease.reason));
+      audit.push({ at: now(), action: step.tool, result: lease.decision });
+      return finish(false, true, lines[lines.length - 1] ?? lease.reason, lease.decision);
+    }
     const gate = gateAction(input.level, input.halted, step);
     if (!gate.allow) {
       const approved = input.approve ? await input.approve(gate.reason) : false;
@@ -1042,7 +1116,9 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
         return finish(false, true, lines[lines.length - 1] ?? "Injection.", "injection");
       }
       if (before.confidence > 0 && before.confidence < 0.45 && step.kind !== "file-read") {
-        lines.push(statusLine("ask", "The screen is too uncertain to act."));
+        const drop = degradeFeature({ seen: before.source, predicateHeld: false });
+        const detail = drop.tellOwner ? drop.reason : "The screen is too uncertain to act.";
+        lines.push(statusLine("ask", detail));
         return finish(false, true, lines[lines.length - 1] ?? "Low confidence.", "low-confidence");
       }
       const acted = already

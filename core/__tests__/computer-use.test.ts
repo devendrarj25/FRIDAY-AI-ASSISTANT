@@ -4,6 +4,7 @@ import { considerDesktopTask } from "../../src/lib/friday/self/task-runners";
 import { configureFlowSession, desktopFromFlow } from "../../src/lib/friday/flow-tools";
 import {
   createFakeDesktop,
+  decideExecutionLease,
   desktopAsk,
   planDesktop,
   preferPattern,
@@ -203,6 +204,7 @@ describe("desktop loop on a fake desktop", () => {
     });
     const unsure = await runComputerUse({ ...base, request: "click Save", desktop: blurry });
     expect(unsure.stoppedReason).toBe("low-confidence");
+    expect(unsure.summary).toContain("a vision view relaxed the success check");
     expect(unsure.evidence).toHaveLength(0);
   });
 
@@ -385,5 +387,53 @@ describe("desktop loop on a fake desktop", () => {
     expect(
       other.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
     ).toBe(undefined);
+  });
+
+  it("yields the pointer when the owner is at the desktop and refuses an expired lease", async () => {
+    const desktop = createFakeDesktop({ windows: [notes()], focusedId: "notes" });
+    const yielded = await runComputerUse({
+      ...base,
+      request: "click Save",
+      desktop,
+      ownerActive: true,
+      leaseExpiresAt: 10_000,
+    });
+    expect(yielded.ok).toBe(false);
+    expect(yielded.stoppedReason).toBe("yield");
+    expect(yielded.needsOwner).toBe(true);
+    expect(desktop.state.applied).toEqual([]);
+
+    const expired = await runComputerUse({
+      ...base,
+      request: "click Save",
+      desktop,
+      ownerActive: false,
+      leaseExpiresAt: 1,
+    });
+    expect(expired.stoppedReason).toBe("expired");
+    expect(desktop.state.applied).toEqual([]);
+
+    const read = decideExecutionLease({
+      runId: "desk",
+      target: "Notes",
+      expiresAt: 10_000,
+      now: 50,
+      ownerActive: true,
+      readOnly: true,
+    });
+    expect(read.decision).toBe("background");
+
+    const handed = await runComputerUse({
+      ...base,
+      request: "click Save",
+      desktop,
+      ownerActive: true,
+      ownerPermitsFocus: true,
+      leaseExpiresAt: 10_000,
+    });
+    expect(handed.ok).toBe(true);
+    expect(
+      desktop.state.windows[0]?.controls.find((control) => control.name === "Save")?.pressed,
+    ).toBe(true);
   });
 });

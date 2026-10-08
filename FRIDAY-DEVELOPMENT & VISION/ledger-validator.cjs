@@ -62,7 +62,12 @@ function headingPresent(filePath, heading) {
 function namePresent(testFile, name) {
   const text = fs.readFileSync(path.join(ROOT, testFile), "utf8");
   if (testFile.endsWith(".py")) return text.includes(`def ${name}`);
-  const patterns = [`it(${JSON.stringify(name)}`, `test(${JSON.stringify(name)}`, `it('${name}'`, `test('${name}'`];
+  const patterns = [
+    `it(${JSON.stringify(name)}`,
+    `test(${JSON.stringify(name)}`,
+    `it('${name}'`,
+    `test('${name}'`,
+  ];
   return patterns.some((pattern) => text.includes(pattern));
 }
 
@@ -144,7 +149,8 @@ function validate(ledger) {
     const copies = filePath.endsWith(".md")
       ? heads.filter((head) => head === heading).length
       : text.split(heading).length - 1;
-    if (copies < count) errors.push(`duplicate row ${key} appears ${count} times but the file has ${copies}`);
+    if (copies < count)
+      errors.push(`duplicate row ${key} appears ${count} times but the file has ${copies}`);
   }
 
   for (const key of ["DONE", "SUPERSEDED", "REJECT", "MISSING"]) {
