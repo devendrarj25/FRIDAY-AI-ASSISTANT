@@ -1,3 +1,10 @@
+import {
+  applyCorrections,
+  biasPrompt as biasLine,
+  learnCorrection,
+  resetCorrections,
+} from "./asr-bias";
+
 /** Hindi and Hinglish numbers, clock phrases, and relative days. No calendar date is required. */
 
 const ONES: Record<string, number> = {
@@ -154,27 +161,19 @@ export function phoneticHit(heard: string, names: readonly string[]): string | n
   return best;
 }
 
-const corrections = new Map<string, string>();
-
 export function rememberCorrection(heard: string, fixed: string): void {
-  const key = heard.trim().toLowerCase();
-  const value = fixed.trim();
-  if (key && value) corrections.set(key, value);
+  learnCorrection(heard, fixed);
 }
 
 export function applyCorrection(heard: string): string {
-  return corrections.get(heard.trim().toLowerCase()) ?? heard;
+  return applyCorrections(heard);
 }
 
 export function resetSpeechCorrections(): void {
-  corrections.clear();
+  resetCorrections();
 }
 
 export function biasPrompt(names: readonly string[]): string {
-  const clean = names
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .slice(0, 12);
-  if (!clean.length) return "";
-  return `Names and apps: ${clean.join(", ")}.`;
+  const line = biasLine(names, "");
+  return line.replace(/^\s+/, "");
 }

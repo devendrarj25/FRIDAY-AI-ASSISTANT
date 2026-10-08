@@ -1,3 +1,5 @@
+import { negotiateRate } from "./mic-session";
+
 /** Why a microphone open failed, and the next capture to try. */
 
 export type MicCause =
@@ -79,6 +81,7 @@ export function relaxedCapture(step: number, deviceId?: string): RelaxedStep | n
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
+        sampleRate: negotiateRate([16000, 48000]),
       },
     };
   }

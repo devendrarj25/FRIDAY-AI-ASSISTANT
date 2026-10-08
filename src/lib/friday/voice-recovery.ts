@@ -12,8 +12,13 @@ export function recoveryDelayMs(attempt: number): number {
 export function failureCause(message: string): string {
   const text = message.toLowerCase();
   if (text.includes("download")) return "downloading";
-  if (text.includes("could not load") || text.includes("model failed") || text.includes("weights"))
+  if (
+    text.includes("model failed") ||
+    text.includes("could not load") ||
+    text.includes("weights")
+  ) {
     return "model-failed";
+  }
   if (text.includes("not installed") || text.includes("python") || text.includes("import"))
     return "install";
   if (text.includes("permission")) return "permission";
@@ -22,73 +27,121 @@ export function failureCause(message: string): string {
   if (
     text.includes("no audio") ||
     text.includes("no working microphone") ||
+    text.includes("no microphone") ||
     text.includes("no device")
-  )
+  ) {
     return "device";
+  }
   return "voice";
 }
 
-const LINES: Record<string, Record<string, string[]>> = {
-  install: {
-    en: ["Voice is not ready yet. The screen has the install step."],
-    hi: ["Awaaz abhi taiyar nahi hai. Screen par kadam likha hai."],
-    hinglish: ["Voice abhi ready nahi hai. Screen par step likha hai."],
-  },
-  permission: {
-    en: ["The microphone permission is off. The screen has the switch."],
-    hi: ["Microphone ki anumati band hai. Screen par switch hai."],
-    hinglish: ["Mic permission off hai. Screen par switch hai."],
-  },
-  busy: {
-    en: ["Another app is using the microphone. I will try again when it is free."],
-    hi: ["Koi aur app microphone use kar rahi hai. Khali hote hi main sunungi."],
-    hinglish: ["Mic abhi kisi aur app ke paas hai. Free hote hi sunungi."],
-  },
-  exclusive: {
-    en: ["The microphone is in exclusive mode. The screen has the sound setting."],
-    hi: ["Microphone exclusive mode mein hai. Screen par sound setting hai."],
-    hinglish: ["Mic exclusive mode mein hai. Screen par sound setting hai."],
-  },
-  device: {
-    en: ["I cannot find a microphone. Plug one in, then try again."],
-    hi: ["Microphone nahi mila. Laga kar phir se kaho."],
-    hinglish: ["Mic nahi mila. Laga kar phir try karo."],
-  },
-  downloading: {
-    en: ["The speech model is still downloading. Listening continues on what is already here."],
-    hi: ["Speech model abhi aa raha hai. Jo yahin hai usi par sunungi."],
-    hinglish: ["Model abhi download ho raha hai. Jo local hai usi par sunungi."],
-  },
-  "model-failed": {
-    en: ["That speech model did not load. I am stepping down to a smaller one."],
-    hi: ["Yeh model nahi khula. Main chhote model par aa rahi hoon."],
-    hinglish: ["Yeh model load nahi hua. Smaller model par aa rahi hoon."],
-  },
-  voice: {
-    en: ["Voice hit a problem. The screen has the detail."],
-    hi: ["Awaaz mein dikkat aayi. Screen par detail hai."],
-    hinglish: ["Voice mein problem aayi. Screen par detail hai."],
-  },
-};
+export type VoiceLang = "en" | "hi" | "hinglish";
 
-export function ownerVoiceLang(language: string): "en" | "hi" | "hinglish" {
-  const lang = language.toLowerCase();
-  if (!lang) return "en";
-  if (lang.startsWith("hi") && !lang.includes("en")) return "hi";
-  if (lang.includes("hinglish") || lang.includes("en-in") || lang === "hi-en") return "hinglish";
-  if (lang.startsWith("en")) return "en";
+/** Map the stored recognition language onto a spoken repair language. */
+export function ownerVoiceLang(pref: string): VoiceLang {
+  const value = String(pref || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (!value) return "en";
+  if (value === "hinglish" || value === "hi-en" || value === "en-in") return "hinglish";
+  if (value.startsWith("hi")) return "hi";
+  if (value.startsWith("en")) return "en";
   return "hinglish";
 }
 
-export function voiceFailureLine(cause: string, salt: number, lang?: string): string {
-  const language = ownerVoiceLang(lang || "");
-  const bank =
-    LINES[cause]?.[language] ?? LINES["voice"]?.[language] ?? LINES["voice"]?.["en"] ?? [];
+const LINES: Record<string, Record<VoiceLang, readonly string[]>> = {
+  install: {
+    en: [
+      "Voice is not set up yet. Use Fix voice and I will try again.",
+      "The speech setup is missing. Fix voice starts it.",
+    ],
+    hi: [
+      "Awaaz abhi set up nahi hai. Fix voice dabao.",
+      "Speech setup baaki hai. Fix voice se shuru hogi.",
+    ],
+    hinglish: [
+      "Voice install nahi hui. Fix voice se ho jayegi.",
+      "Speech setup missing hai. Fix voice try karegi.",
+    ],
+  },
+  permission: {
+    en: [
+      "I can't use the microphone until you allow it.",
+      "Microphone permission is off. Allow it, then try again.",
+    ],
+    hi: ["Microphone ki permission nahi hai. Allow karo.", "Awaaz sunne ki permission band hai."],
+    hinglish: [
+      "Mic permission nahi mili. Allow karke try karo.",
+      "Microphone allow nahi hai abhi.",
+    ],
+  },
+  busy: {
+    en: [
+      "Another app is using the microphone.",
+      "The microphone is busy. I'll try again when it is free.",
+    ],
+    hi: ["Microphone kisi aur app ke paas hai.", "Mic abhi vyast hai."],
+    hinglish: ["Mic kisi aur app ne pakad rakha hai.", "Microphone busy hai abhi."],
+  },
+  exclusive: {
+    en: [
+      "The microphone is locked in exclusive mode.",
+      "Another app has exclusive use of the microphone.",
+    ],
+    hi: ["Microphone exclusive mode mein hai.", "Mic lock ho gaya hai."],
+    hinglish: ["Mic exclusive mode mein lock hai.", "Microphone exclusive use mein hai."],
+  },
+  device: {
+    en: ["I can't find a microphone.", "No microphone is available right now."],
+    hi: ["Koi microphone nahi mila.", "Mic device nahi dikh raha."],
+    hinglish: ["Koi mic nahi mila.", "Microphone device missing hai."],
+  },
+  downloading: {
+    en: [
+      "The speech model is still downloading. Listening waits for it.",
+      "A voice download is in progress.",
+    ],
+    hi: ["Speech model abhi download ho raha hai.", "Download chal raha hai. Sunna baad mein."],
+    hinglish: [
+      "Model download ho raha hai. Listening rukegi tab tak.",
+      "Voice download chal rahi hai.",
+    ],
+  },
+  "model-failed": {
+    en: [
+      "The speech model did not load. I'll try a smaller one.",
+      "That voice model failed. Fix voice retries it.",
+    ],
+    hi: ["Speech model load nahi hua. Chhota model try karungi.", "Model fail ho gaya."],
+    hinglish: ["Model load nahi hua. Smaller one try karungi.", "Voice model fail ho gaya."],
+  },
+  voice: {
+    en: [
+      "Voice hit a problem. The screen has the detail.",
+      "Something went wrong with voice. Use Fix voice.",
+    ],
+    hi: ["Awaaz mein dikkat hai. Screen par detail hai.", "Voice ruk gayi. Fix voice dabao."],
+    hinglish: [
+      "Voice mein problem hai. Detail screen par hai.",
+      "Voice fail ho gayi. Fix voice try karo.",
+    ],
+  },
+};
+
+/**
+ * A short spoken line for this cause, in the owner's language.
+ * The screen keeps the longer detail. Internals are not spoken.
+ */
+export function voiceFailureLine(cause: string, salt: number, lang?: VoiceLang): string {
+  const key = LINES[cause] ? cause : "voice";
+  const language = lang || ownerVoiceLang("");
+  const bank = LINES[key]?.[language] ?? LINES["voice"]?.en ?? [];
   const index = bank.length ? Math.abs(Math.floor(salt)) % bank.length : 0;
   return bank[index] ?? "Voice hit a problem. The screen has the detail.";
 }
 
-/** Listening starts again after a spoken reply. */
+/** Listening starts again after a spoken reply when Auto is still the session. */
 export function resumeAfterSpokenReply(input: {
   mode: string;
   paused: boolean;

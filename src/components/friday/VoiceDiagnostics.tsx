@@ -132,11 +132,12 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </button>
         <button
           type="button"
-          onClick={() =>
-            void navigator.clipboard?.writeText(
-              redactDiagnostics(rows.map((row) => `${row.label}: ${row.value}`).join("\n")),
-            )
-          }
+          onClick={() => {
+            const report = redactDiagnostics(
+              rows.map((row) => `${row.label}: ${row.value}`).join("\n"),
+            );
+            void navigator.clipboard?.writeText(report);
+          }}
           className="font-mono text-[10px] uppercase text-accent"
         >
           copy diagnostics

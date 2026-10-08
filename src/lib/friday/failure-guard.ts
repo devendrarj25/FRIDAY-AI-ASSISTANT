@@ -92,20 +92,57 @@ export function idleWithin(
  * Chat, tasks, and memory stay available without a network.
  * A cloud call stays closed while offline. A local model is used only when one is present.
  */
-export function offlineFlows(input: { online: boolean; hasLocalModel: boolean }): {
+export function offlineFlows(input: {
+  online: boolean;
+  hasLocalModel: boolean;
+  localStt?: boolean;
+  offlineTts?: boolean;
+}): {
   chat: true;
   tasks: true;
   memory: true;
   localModel: boolean;
+  localStt: boolean;
+  offlineTts: boolean;
   cloud: boolean;
+  status: string;
 } {
+  const localStt = input.localStt !== false;
+  const offlineTts = input.offlineTts !== false;
+  const status = input.online
+    ? "online"
+    : localStt && offlineTts
+      ? "offline — local chat, memory, tasks, and on-device voice stay available"
+      : "offline — a local speech piece is missing";
   return {
     chat: true,
     tasks: true,
     memory: true,
     localModel: input.hasLocalModel,
+    localStt,
+    offlineTts,
     cloud: input.online,
+    status,
   };
+}
+
+export function voiceBudgets(input: {
+  listenMs: number;
+  audioMs: number;
+  idleCpu: number[];
+  memoryMb: number[];
+}): { id: string; ok: boolean }[] {
+  const newest = input.memoryMb[input.memoryMb.length - 1];
+  const oldest = input.memoryMb[0];
+  const growth =
+    input.memoryMb.length > 1 && newest !== undefined && oldest !== undefined ? newest - oldest : 0;
+  const idle = input.idleCpu.length ? Math.max(...input.idleCpu) : 0;
+  return [
+    { id: "first-listen", ok: input.listenMs <= 45000 },
+    { id: "first-audio", ok: input.audioMs <= 1500 },
+    { id: "idle-cpu", ok: idle <= 2 },
+    { id: "memory", ok: growth <= 64 },
+  ];
 }
 
 export type WaveCheck = {

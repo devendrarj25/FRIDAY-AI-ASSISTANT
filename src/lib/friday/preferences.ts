@@ -162,6 +162,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     quietStart: "22:00",
     quietEnd: "07:00",
     talk: "balanced",
+    warmth: "steady",
   },
   voice: {
     wakeWord: "friday",

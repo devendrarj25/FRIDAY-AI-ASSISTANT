@@ -3,6 +3,7 @@ import { styleFor, type StyleContext } from "./character-bible";
 import { pickPhrase } from "./phrase-bank";
 
 export type TalkLevel = "reserved" | "balanced" | "chatty";
+export type Warmth = "plain" | "steady" | "warm";
 export type Register = "en" | "hi" | "hinglish";
 
 const HUMAN = /i am human|i'm human|i am conscious|i'm conscious|i feel your pain|i truly feel/i;
@@ -25,19 +26,39 @@ export function talkCap(level: TalkLevel, stressed: boolean): number {
   return 420;
 }
 
+let softenAnger = false;
+
+/** The owner said the anger reading was wrong. Later anger lines stay neutral. */
+export function noteStyleCorrection(text: string): boolean {
+  if (/\b(gussa nahi|not angry|nahi gussa|main gussa nahi)\b/i.test(text)) {
+    softenAnger = true;
+    return true;
+  }
+  return false;
+}
+
+export function resetStyleCorrection(): void {
+  softenAnger = false;
+}
+
 export function shapeReply(input: {
   prompt: string;
   text: string;
   talk?: TalkLevel;
+  warmth?: Warmth;
   context?: StyleContext;
   hour?: number;
 }): { text: string; feeling: Feeling; register: Register } {
-  const feeling = readFeeling(
+  let feeling = readFeeling(
     input.prompt,
     input.hour === undefined ? undefined : { hour: input.hour },
   );
+  if (softenAnger && feeling.label === "anger") {
+    feeling = { ...feeling, label: "neutral", confidence: 0.2 };
+  }
   const register = registerOf(input.prompt);
   const talk = input.talk ?? "balanced";
+  const warmth = input.warmth ?? "steady";
   const context = input.context ?? (feeling.label === "hurry" ? "hurry" : "work");
   const stressed =
     feeling.label === "hurry" || feeling.label === "distress" || feeling.intensity >= 0.75;
@@ -54,7 +75,7 @@ export function shapeReply(input: {
       kind: "ack",
     });
     body = help;
-  } else if (feeling.confidence >= 0.45 && feeling.label !== "neutral") {
+  } else if (warmth !== "plain" && feeling.confidence >= 0.45 && feeling.label !== "neutral") {
     const ack = pickPhrase({
       lang: register === "en" ? "en" : register,
       emotion: feeling.label,
@@ -68,6 +89,12 @@ export function shapeReply(input: {
   if (body.length > cap) body = `${body.slice(0, cap - 1).trim()}…`;
   if (talk === "chatty" && !stressed && feeling.label === "excitement") {
     body = `${body} ${styleFor("relaxed")}`.trim();
+  }
+  if (warmth === "warm" && feeling.label === "excitement" && !stressed) {
+    body = `That's a real win. ${body}`.trim();
+  }
+  if (warmth === "plain") {
+    body = body.replace(/^That's a real win\.\s*/, "");
   }
   return { text: body, feeling, register };
 }

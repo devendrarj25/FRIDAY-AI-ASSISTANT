@@ -12,6 +12,7 @@
  */
 import { desktopApi as desktop } from "./desktop";
 import { preferences } from "./preferences";
+import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
 
@@ -50,7 +51,11 @@ export function whisperLanguageArg(pref?: string | null): string {
 }
 
 /** Bias faster-whisper toward mixed speech without rewriting technical terms. */
-export function sttInitialPrompt(opts?: { preference?: string; topic?: string }): string {
+export function sttInitialPrompt(opts?: {
+  preference?: string;
+  topic?: string;
+  vocab?: readonly string[];
+}): string {
   const bits = [
     "Hinglish: mixed Hindi and English in one utterance.",
     "Preserve filenames, paths, code identifiers, application names, project names, commands, FRIDAY, and technical terms.",
@@ -64,6 +69,8 @@ export function sttInitialPrompt(opts?: { preference?: string; topic?: string })
     .trim()
     .slice(0, 120);
   if (topic) bits.push(`Current work: ${topic}.`);
+  const names = biasPrompt(opts?.vocab || []);
+  if (names) bits.push(names);
   return bits.join(" ");
 }
 

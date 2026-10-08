@@ -222,6 +222,7 @@ export const FLOW_REGISTRY = {
     "fields.timeFormat",
     "fields.timezone",
     "fields.updateChannel",
+    "fields.warmth",
     "theme",
     "toggles.alwaysOnTop",
     "toggles.animations",
@@ -8411,8 +8412,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 103,
-      total: 103,
+      mapped: 104,
+      total: 104,
     },
     capabilities: {
       mapped: 1014,

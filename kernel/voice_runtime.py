@@ -477,39 +477,6 @@ def voice_context(asked: bool, perception: dict | None) -> dict:
     }
 
 
-def _download_checked(url: str, dest: Path, sha256: str, need_bytes: int) -> None:
-    """Save one file only when the hash matches. A network failure stays offline."""
-    import hashlib
-    import urllib.request
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    room = disk_room(dest.parent, need_bytes)
-    if not room["ok"]:
-        raise RuntimeError(room["reason"] or "disk full")
-    tmp = dest.with_suffix(dest.suffix + ".part")
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "FRIDAY"})
-        with urllib.request.urlopen(request, timeout=120) as response, tmp.open("wb") as handle:
-            while True:
-                chunk = response.read(1024 * 256)
-                if not chunk:
-                    break
-                handle.write(chunk)
-        digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
-        if digest != sha256:
-            raise RuntimeError("checksum mismatch")
-        tmp.replace(dest)
-    except Exception as exc:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        text = str(exc)
-        if "checksum" in text or "disk" in text:
-            raise
-        raise RuntimeError(f"offline: {text[:200]}") from exc
-
-
 def fetch_models() -> dict:
     """On-demand weights. Called only from ``--fetch``, never from status."""
     root = voice_root()
@@ -522,40 +489,34 @@ def fetch_models() -> dict:
         return {"ok": False, "reason": room["reason"] or "disk full", "results": []}
     results: list[dict] = []
 
-    dest = root / SUPERTONIC_DIR
-    try:
-        if supertonic_dir() is None:
-            from supertonic.loader import download_model  # type: ignore
+    if supertonic_dir() is None:
+        results.append(
+            {
+                "id": "supertonic-3",
+                "ok": False,
+                "reason": "weights are fetched by the app downloader",
+            }
+        )
+    else:
+        results.append({"id": "supertonic-3", "ok": True})
 
-            download_model(dest, "supertonic-3")
-        results.append({"id": "supertonic-3", "ok": supertonic_dir() is not None})
-    except Exception as exc:  # noqa: BLE001
-        results.append({"id": "supertonic-3", "ok": False, "reason": str(exc)[:300]})
-
-    try:
-        if smart_turn_path() is None:
-            _download_checked(
-                "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx",
-                root / "smart-turn" / SMART_TURN_NAME,
-                SMART_TURN_SHA256,
-                SMART_TURN_BYTES,
-            )
-        results.append({"id": "smart-turn", "ok": smart_turn_path() is not None})
-    except Exception as exc:  # noqa: BLE001
-        results.append({"id": "smart-turn", "ok": False, "reason": str(exc)[:300]})
+    results.append(
+        {
+            "id": "smart-turn",
+            "ok": smart_turn_path() is not None,
+            "reason": None if smart_turn_path() is not None else "weights are fetched by the app downloader",
+        }
+    )
 
     moon = root / "moonshine-en"
-    try:
-        from moonshine_voice import ModelArch, get_model_for_language  # type: ignore
-
-        path, _arch = get_model_for_language(
-            "en",
-            ModelArch.TINY_STREAMING,
-            cache_root=moon,
-        )
-        results.append({"id": "moonshine-en", "ok": bool(path)})
-    except Exception as exc:  # noqa: BLE001
-        results.append({"id": "moonshine-en", "ok": False, "reason": str(exc)[:300]})
+    ready = moon.is_dir() and any(moon.rglob("*.onnx"))
+    results.append(
+        {
+            "id": "moonshine-en",
+            "ok": ready,
+            "reason": None if ready else "weights are fetched by the app downloader",
+        }
+    )
 
     return {"ok": any(item.get("ok") for item in results), "results": results}
 

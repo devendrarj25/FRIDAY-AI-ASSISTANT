@@ -317,9 +317,63 @@ Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Liv
 | Prompt injection stays outside the prompt | ADOPT | Transcripts, phrase lines, memory notes, and research text are data. A password assignment is blanked. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html and the OWASP LLM Top 10 2025 (read 2026-10-07). |
 | A second memory store, a second scheduler, piper as the runtime, or a new sidebar row | REJECT | The existing memory store, Tasks ledger, and Voice settings page stay the owners. piper stays blocked because the manual text says FRIDAY does not install it. |
 
+## Wave 5 — a voice runtime that can install itself
+
+Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the Python bootstrap, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
+
+### Plan table
+
+| Idea | Source file | Status | Decision | Step |
+| --- | --- | --- | --- | --- |
+| Spoken failure names the cause, in the owner's language | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 4 |
+| Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
+| One speech-size plan, then a local load | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/01_VOICE_FINAL_ARCHITECTURE.md` | PARTIAL | ADOPT | 6 |
+| Weights fetched before the worker, with a hash where one is pinned | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 6 |
+| Think, a short offer, sight, and the eval set sit on the live path | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/EVALUATION_CONTRACT.md` | PARTIAL | ADOPT | 7 |
+| A Windows PC with no system Python and no WinGet still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 8–9 |
+| A clean-PC script covers bootstrap through resume | same install note | PARTIAL | ADOPT | 10, 26 |
+| Headset profile, hot-plug, sleep, and a stuck track reopen capture | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADAPT | 11 |
+| Wake energy against a room floor | same device note | PARTIAL | ADAPT | 12 |
+| Echo stays in the browser constraint; playback can duck other apps | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/02_VOICE_REALTIME_BARGE_IN.md` | PARTIAL | ADAPT | 13 |
+| Neural, then local, then the system voice | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 14 |
+| One self-test list and an owner checklist on the existing Voice page | diagnostics note above | PARTIAL | ADOPT | 15, 31 |
+| Hinglish numbers, names, and a weak-confidence repeat | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/00_MERGED_DETAIL/VOICE_COMPLETE_SOURCE_INTEGRATION.md` | PARTIAL | ADOPT | 17–18 |
+| Distress points at iCall or AASRA and does not diagnose | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/MEMORY_CONTRACT.md` | PARTIAL | ADOPT | 19–21 |
+| Voice stays on a short think budget; chat may take more steps | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADAPT | 22–25 |
+| A native WASAPI echo canceller | barge-in note above | MISSING | REJECT | — |
+| The silero-vad pip package | voice-stack rule | MISSING | REJECT | — |
+| The official embeddable zip as the runtime | install note above | MISSING | REJECT | — |
+
+### Research (2026-10-08)
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| `install_only` is a relocatable CPython archive. Windows builds follow the official Windows floor. | ADOPT | A PC with no system Python and no WinGet can still create the runtime. py and WinGet stay the second path. Source: https://docs.astral.sh/python-build-standalone/running/ (read 2026-10-08). |
+| CPython 3.12.15+20261003 Windows x64 `install_only` tar.gz | ADOPT, Install Manager | PSF-2.0 for the interpreter. 46509797 bytes. SHA-256 `4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08`. Downloaded into the runtime folder. Not bundled in the installer. The build scripts of that project are MPL-2.0 and are not vendored. Source: https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz (checksum file read 2026-10-08). A live Windows extract was not run. |
+| Official embeddable CPython zip as the voice runtime | REJECT | It is not the venv layout this runtime already creates. `install_only` is the voice runtime. The zip stays an additional Install Manager row. |
+| `WhisperModel` downloads from the Hub unless `local_files_only` is set or the argument is a directory. | ADOPT | The app downloader runs first. The worker then opens that folder and does not fetch. Source: https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py (read 2026-10-08). A live download was not run. |
+| Hugging Face still copies into the default hub cache when `download_root` is set on some versions. | ADAPT | The app downloader writes the snapshot under the FRIDAY cache. The worker is not the client that fills that cache. Source: https://github.com/SYSTRAN/faster-whisper/issues/181 (read 2026-10-08). |
+| Bluetooth HFP capture is 8 kHz or 16 kHz mono. A2DP is the media profile. Opening the microphone switches the headset. | ADAPT | A profile change reopens capture at 16000 or 48000. Shared mode stays. Exclusive mode is a failure the owner can hear. Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/bluetooth-classic-audio (read 2026-10-08). A live headset was not used. |
+| WASAPI exclusive mode refuses a shared open. | ADAPT | The existing classifier already separates that case. A native loopback canceller is not added. Source: https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording (read 2026-10-08). |
+| openWakeWord's included models start near a 0.5 score, and a room should be tuned on its own noise. | ADAPT | The threshold moves with a local energy floor. Audio samples are not stored. The silero-vad pip package stays forbidden. Source: https://github.com/dscripka/openWakeWord (read 2026-10-08). A live wake word was not run. |
+| A second speech engine, torch, or a new sidebar row | REJECT | The existing Install Manager, Doctor Voice rows, and Voice settings page stay the owners. |
+
+### Owner checklist
+
+Run these on the Windows PC, in order. Copy the Voice rows and the on-screen status if one fails. Do not send a recording.
+
+1. Open Doctor and run the voice self-test. Each layer should say pass or the failing cause.
+2. Say the wake word, then one sentence, and wait for a spoken reply.
+3. Hold a 3-turn conversation.
+4. Start talking while FRIDAY is speaking. She should stop and listen.
+5. Disconnect the network mid-reply. Speech should move to the offline voice.
+6. Unplug the microphone and plug it back in. Listening should return.
+7. Sleep the PC and wake it. Listening should return.
+8. If a step fails, copy the Voice rows and the on-screen status. Do not send a recording.
+
 ## Wave 6 — Speech Core and an isolated toolchain
 
-Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
+Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
 
 ### Plan table
 
@@ -348,9 +402,9 @@ Bundled pins sum to 205084080 bytes: CPython 3.12.10 embeddable (11133606), get-
 
 | Finding | Decision | Reason |
 | --- | --- | --- |
-| The official Windows embeddable zip plus get-pip is the no-install CPython route. `python312._pth` must enable site. | ADOPT | CPython 3.12.10 embed-amd64, 11133606 bytes, SHA-256 `4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3`, hashed here on 2026-10-08. PSF-2.0. Source: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip |
+| The official Windows embeddable zip plus get-pip | ADAPT | Additional Install Manager row, not the voice runtime. `python312._pth` must enable site when that zip is used. CPython 3.12.10 embed-amd64, 11133606 bytes, SHA-256 `4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3`, hashed here on 2026-10-08. PSF-2.0. Source: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip |
 | get-pip.py for this date | ADOPT | 2230488 bytes, SHA-256 `fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6`. MIT. Source: https://bootstrap.pypa.io/get-pip.py |
-| python-build-standalone install_only | ADAPT | Secondary pin only. 46509797 bytes, SHA-256 `4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08`, from the 20261003 checksum file. The embeddable zip matches the runtime FRIDAY already creates more closely. |
+| python-build-standalone install_only | ADOPT | This is the voice runtime. 46509797 bytes, SHA-256 `4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08`, from the 20261003 checksum file. py and WinGet stay the later path. |
 | Node.js 22.23.3 Windows zip | ADOPT | SHA-256 `2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71` from https://nodejs.org/dist/v22.23.3/SHASUMS256.txt . 35574076 bytes. MIT. |
 | whisper.cpp 1.9.2 win-x64 and ggml base | ADOPT | The zip was hashed here: 8194445 bytes, SHA-256 `49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a`. MIT. ggml base is 147951465 bytes. The hash is the Hugging Face file id `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe` read 2026-10-08. The file was not stored in git. Source: https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.2 |
 | MinGit and Temurin JDK | ADAPT | On demand, separate processes. MinGit 2.56.0.2 hashed here, GPL-2.0. Temurin 21.0.12.1 checksum from the Adoptium API, GPL-2.0 with the classpath exception. |

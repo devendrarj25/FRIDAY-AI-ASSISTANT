@@ -190,8 +190,15 @@ export function AutoMode() {
             </span>
           ) : null}
           {voice.error ? (
-            <span className="rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
+            <span className="inline-flex items-center gap-1 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
               {voice.error}
+              <button
+                type="button"
+                className="rounded-sm border border-destructive/40 px-1.5 py-0.5"
+                onClick={() => assistantMode.fixVoice()}
+              >
+                Fix voice
+              </button>
             </span>
           ) : null}
 

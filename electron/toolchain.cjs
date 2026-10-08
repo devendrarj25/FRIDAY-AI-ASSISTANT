@@ -9,7 +9,7 @@
  * Nothing here downloads from a mirror, and every job is de-duplicated so the
  * same package can never be installed twice at the same time.
  */
-const { execFile, spawn } = require("child_process");
+const { execFile, execFileSync, spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
@@ -272,6 +272,48 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
     if (bundled) return { exe: bundled, prefix: [] };
   }
 
+  if (WIN && series === "3.12") {
+    try {
+      const boot = require("./python-bootstrap.cjs");
+      const spec = boot.standaloneSpec();
+      const chain = boot.installChain({
+        python: fs.existsSync(boot.interpreterPath(base)),
+      });
+      onLine(
+        chain.ok
+          ? `pinned runtime ${spec.version} is already in the runtime folder`
+          : `pinned runtime ${spec.version} · ${chain.step}`,
+      );
+      const stood = await boot.materialise({
+        runtimeDir: base,
+        platform: "win32",
+        exists: (file) => fs.existsSync(file),
+        onLine,
+        download: async (spec) => {
+          const downloads = require("./model-download.cjs");
+          const dest = path.join(base, "downloads", spec.file);
+          await downloads.downloadUrl(spec.url, dest, {
+            sha256: spec.sha256,
+            needBytes: spec.bytes,
+            label: "Python runtime",
+          });
+          return dest;
+        },
+        extract: async (file, dest) => {
+          fs.mkdirSync(dest, { recursive: true });
+          execFileSync("tar", ["-xzf", file, "-C", dest], { stdio: "ignore" });
+        },
+        run: async (cmd, args) => {
+          await run(cmd, args, 10 * 60 * 1000);
+        },
+      });
+      if (stood?.exe && fs.existsSync(stood.exe)) return { exe: stood.exe, prefix: [] };
+    } catch (error) {
+      const boot = require("./python-bootstrap.cjs");
+      onLine(boot.classifyBootstrapError(String(error?.message || error)).line);
+    }
+  }
+
   // Find a real 3.12 interpreter to build the environment from.
   const bases = WIN
     ? [
@@ -477,6 +519,17 @@ const TOOLS = [
     required: true,
   }),
   T("FRIDAY Python", "Languages & Runtimes", {
+    url: "https://github.com/astral-sh/python-build-standalone",
+    source: "github.com/astral-sh",
+    installerUrl:
+      "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+    sha256: "4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08",
+    needBytes: 46509797,
+    archiveBin: "python/python.exe",
+    manual:
+      "Relocatable CPython 3.12.15, PSF-2.0, 46509797 bytes, release 20261003. WinGet is the later path.",
+  }),
+  T("FRIDAY Python embed", "Languages & Runtimes", {
     url: "https://www.python.org/downloads/",
     source: "python.org",
     installerUrl: "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
@@ -484,7 +537,8 @@ const TOOLS = [
     needBytes: 11133606,
     archiveBin: "python.exe",
     embedPth: true,
-    manual: "Embeddable CPython 3.12.10. PSF-2.0. Hashed 2026-10-08.",
+    manual:
+      "Embeddable CPython 3.12.10. PSF-2.0. Hashed 2026-10-08. Additional pin. The voice runtime stays install_only.",
   }),
   T("FRIDAY pip bootstrap", "Languages & Runtimes", {
     url: "https://pip.pypa.io/",
@@ -2396,6 +2450,12 @@ function installerCommand(file, tool, root) {
     fs.mkdirSync(plan.dest, { recursive: true });
     extractZip(file, plan.dest);
     if (tool.embedPth) require("./toolchain-pack.cjs").writeEmbedPth(plan.dest);
+    return plan.command;
+  }
+  if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
+    const plan = archiveInstallCommand(file, root, tool);
+    fs.mkdirSync(plan.dest, { recursive: true });
+    execFileSync("tar", ["-xzf", file, "-C", plan.dest], { stdio: "ignore" });
     return plan.command;
   }
   const args = Array.isArray(tool.installerArgs) ? [...tool.installerArgs] : ["/S"];

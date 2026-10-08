@@ -13,6 +13,7 @@
  *                  installed without a model for the configured wake word.
  */
 import { desktopApi as desktop } from "./desktop";
+import { falseWake, noiseFloor, scoreWake, wakeSelfTest, wakeThreshold } from "./wake-room";
 
 export type WakeEngineId = "openwakeword" | "friday-linear" | "transcript";
 
@@ -91,6 +92,24 @@ export type WakeProbe = {
   detail: string;
 };
 
+/** Room floor, threshold, hit, and a false wake. Samples stay numbers. */
+export function roomWakeDecision(
+  samples: readonly number[],
+  energy: number,
+  noiseEnergy: number,
+): { floor: number; threshold: number; mark: "hit" | "miss"; falseHit: boolean; pass: boolean } {
+  const floor = noiseFloor(samples);
+  const threshold = wakeThreshold(floor, null);
+  const test = wakeSelfTest({ energy, floor });
+  return {
+    floor,
+    threshold,
+    mark: scoreWake(energy, threshold),
+    falseHit: falseWake(noiseEnergy, threshold),
+    pass: test.pass,
+  };
+}
+
 /**
  * Score one captured utterance with openWakeWord. Returns null when the engine
  * is unavailable, which is the caller's signal to use the transcript fallback.
@@ -105,8 +124,9 @@ export async function detectWake(payload: {
   if (!api?.detectWakeWord) return null;
   const status = await wakeEngineStatus(payload.wakeWord || "friday");
   if (!status.ready) return null;
+  const threshold = payload.threshold ?? wakeThreshold(0.02, null);
   try {
-    const result = await api.detectWakeWord(payload);
+    const result = await api.detectWakeWord({ ...payload, threshold });
     if (!result?.ok) return null;
     return {
       engine: nativeEngine(result),

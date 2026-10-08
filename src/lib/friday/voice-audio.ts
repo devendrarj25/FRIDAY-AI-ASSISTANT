@@ -12,6 +12,7 @@
  * this renderer graph. A second kernel capture path is not added.
  */
 
+import { captureRate } from "./mic-session";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 
@@ -191,7 +192,13 @@ type CaptureAttempt =
 async function tryCapture(md: MediaDevices, deviceId?: string): Promise<CaptureAttempt> {
   let last: unknown = null;
   for (let step = 0; step < 3; step += 1) {
-    const plan = relaxedCapture(step, deviceId);
+    const plan =
+      step === 0
+        ? {
+            ...(deviceId && deviceId !== "default" ? { deviceId } : {}),
+            audio: audioConstraints(deviceId),
+          }
+        : relaxedCapture(step, deviceId);
     if (!plan) break;
     try {
       const stream = await md.getUserMedia({ audio: plan.audio });
@@ -254,6 +261,7 @@ export function audioConstraints(deviceId?: string): MediaTrackConstraints {
     noiseSuppression: true,
     autoGainControl: true,
     channelCount: 1,
+    sampleRate: captureRate(),
   };
 }
 
@@ -506,7 +514,10 @@ export class VoiceGate {
     let last: unknown = null;
     for (const id of ids) {
       for (let step = 0; step < 3; step += 1) {
-        const plan = relaxedCapture(step, id);
+        const plan =
+          step === 0
+            ? { ...(id && id !== "default" ? { deviceId: id } : {}), audio: audioConstraints(id) }
+            : relaxedCapture(step, id);
         if (!plan) break;
         try {
           return await md.getUserMedia({ audio: plan.audio });

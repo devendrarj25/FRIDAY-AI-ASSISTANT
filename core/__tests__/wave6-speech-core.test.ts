@@ -121,7 +121,7 @@ describe("wave 6 speech core and toolchain", () => {
     expect(recoveryDelayMs(3)).toBe(8000);
     expect(voiceInstall.bootModel({ requested: "auto" }).model).toBe("base");
     const worker = readFileSync(path.join(process.cwd(), "kernel/stt.py"), "utf8");
-    expect(worker).toContain("local_files_only=True");
+    expect(worker).toContain('"local_files_only": True');
     expect(worker).not.toContain("def boot_model");
   });
 

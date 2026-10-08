@@ -48,6 +48,8 @@ describe("Auto Mode local speech recognition contract", () => {
   it("keeps retrying a dead STT session and speaks each cause once", () => {
     const assistant = source("src/lib/friday/assistant-mode.ts");
     expect(assistant).toContain("recoveryDelayMs");
+    expect(source("src/lib/friday/voice-recovery.ts")).toContain("persistentRetryDelayMs");
+    expect(assistant).toContain("scheduleSttRecovery");
     expect(assistant).toContain("resumeAfterSpokenReply");
     expect(assistant).toContain("shouldRetryNow");
     expect(assistant).toContain('noteVoiceTrigger("install-finished")');
@@ -57,8 +59,6 @@ describe("Auto Mode local speech recognition contract", () => {
     expect(assistant).toContain('noteVoiceTrigger("focus")');
     expect(assistant).toContain('noteVoiceTrigger("toggle")');
     expect(assistant).toContain('noteVoiceTrigger("fix-voice")');
-    expect(assistant).toContain("scheduleSttRecovery");
-    expect(source("src/lib/friday/voice-recovery.ts")).toContain("persistentRetryDelayMs");
     expect(assistant).toContain("mayAnnounce");
     expect(assistant).toContain("voiceOwnerGuidance");
     expect(assistant).toContain("formatGuidance");
