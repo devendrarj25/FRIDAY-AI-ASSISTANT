@@ -362,7 +362,7 @@ function memoryInformedMeaning(resolved: string, topic: string | null, literal: 
     return resolved;
   }
   try {
-    const hits = memory.search(resolved, { k: 4, context: topic || resolved });
+    const hits = memory.search(resolved, { k: 4, context: topic || resolved, scope: "task" });
     const terms = retrievalTerms(`${resolved} ${topic || ""}`);
     const relevant = hits.filter((hit) => {
       const hay = retrievalTerms(`${hit.title} ${hit.text}`);

@@ -1,26 +1,24 @@
 # Task → Area Router
 
-Use the first matching category; if multiple categories match, load the listed cross-area contract.
+Use the first matching category. The product owner is the read-next path.
+The numbered development folders for these areas were removed after the
+tests passed.
 
 | Task signal | Primary area | Read next |
 |---|---|---|
-| model/provider/fallback/cost/latency | Intelligence | `03_INTELLIGENCE_FABRIC/*` |
-| memory/knowledge/recall/personalization | Memory | `06_MEMORY_KNOWLEDGE/*` |
-| agent/delegation/handoff/worker | Agents | `04_AGENT_RUNTIME/*` |
-| tool/skill/plugin/module/connector | Capability | `05_CAPABILITY_FABRIC/*` |
-| browser/screen/device/app action | Execution | `07_EXECUTION_VERIFICATION/*` |
-| permission/approval/privacy/secret | Security | `09_SECURITY_GOVERNANCE/*` and `src/lib/friday/self/run-receipt.ts` |
-| task/resume/retry/checkpoint | Task Runtime | `src/lib/friday/self/task-graph.ts` and `src/lib/friday/self/run-receipt.ts` |
-| UI/chat/voice/realtime interaction | Experience | existing `UI-UX-Design-Document.md` + runtime contract |
-| build/installer/update/uninstall | Lifecycle | `11_TESTING_RELEASE/*` |
-| test/regression/release | Quality | `11_TESTING_RELEASE/*` |
-| self-learning/evolution | Improvement | `08_OBSERVABILITY_EVALUATION/*` + `12_MIGRATION_ROADMAP/*` |
+| model/provider/fallback/cost/latency | Intelligence | `electron/model-router.cjs` |
+| memory/knowledge/recall/personalization | Memory | `src/lib/friday/self/memory-engine.ts` |
+| agent/delegation/handoff/worker | Agents | `src/lib/friday/self/agent-scheduler.ts` |
+| tool/skill/plugin/module/connector | Capability | `kernel/tools.py` and `src/lib/friday/self/run-receipt.ts` |
+| browser/screen/device/app action | Execution | `src/lib/friday/self/computer-use.ts` |
+| permission/approval/privacy/secret | Security | `src/lib/friday/self/run-receipt.ts` |
+| task/resume/retry/checkpoint | Task Runtime | `src/lib/friday/self/task-graph.ts` |
+| UI/chat/voice/realtime interaction | Experience | the existing chat and Auto session |
+| build/installer/update/uninstall | Lifecycle | `docs/FRIDAY_CHANGE_CONTROL.md` |
+| test/regression/release | Quality | `docs/FRIDAY_CHANGE_CONTROL.md` |
+| self-learning/evolution | Improvement | `src/lib/friday/self/run-receipt.ts` |
 
 Never infer ownership from filenames alone. Confirm the existing owner and tests.
 
-**Major/future-upgrade task** (not a routine fix — see `12_MIGRATION_ROADMAP/`)
-→ before designing anything, refresh `13_RESEARCH/PRIMARY_RESEARCH_URLS.md`
-against its listed official sources and fold real findings into
-`13_RESEARCH/RESEARCH_SYNTHESIS_2026.md` and the relevant
-`FRIDAY-VISION/AREAS/*` target spec. Don't design "latest and
-future-proof" from memory.
+A major upgrade refreshes the research notes in `docs/FRIDAY_CHANGE_CONTROL.md`
+before designing. Don't design from memory.

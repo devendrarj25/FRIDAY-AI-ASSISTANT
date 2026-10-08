@@ -189,6 +189,25 @@ class ToolRegistry:
             for n in RISK
         ]
 
+    def shortlist(self, intent: str, limit: int = 8) -> list[dict]:
+        """Tools for this goal only. The planner does not send the whole catalog."""
+        catalog = [tool for tool in self.describe() if tool.get("enabled", True)]
+        words = {word.lower() for word in str(intent or "").split() if len(word) > 2}
+        cap = max(1, int(limit))
+        if not words:
+            return catalog[:cap]
+        scored = []
+        for tool in catalog:
+            hay = f"{tool['name']} {tool['summary']}".lower()
+            score = sum(1 for word in words if word in hay)
+            if score:
+                scored.append((score, tool["name"], tool))
+        scored.sort(key=lambda row: (-row[0], row[1]))
+        picked = [tool for _, _, tool in scored[:cap]]
+        if picked:
+            return picked
+        return [tool for tool in catalog if tool.get("risk") != "exec"][:cap]
+
     def model_schemas(self) -> list[dict]:
         """OpenAI-shaped function tools the model may call during a chat turn.
 

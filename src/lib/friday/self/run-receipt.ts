@@ -258,7 +258,7 @@ export function sealRuntimeEvent(input: {
     task_id: input.taskId,
     run_id: input.runId,
     producer: input.producer,
-    payload: cleanPayload(input.payload),
+    payload: { span: traceSpan(input.eventType), ...cleanPayload(input.payload) },
   };
 }
 
@@ -422,6 +422,7 @@ export function scoreEvaluation(input: {
   costBudget: number;
   recovered: boolean;
   userHeldControl: boolean;
+  regression?: boolean;
 }): { pass: boolean; failed: string[] } {
   const failed: string[] = [];
   if (!input.completed) failed.push("task completion");
@@ -434,7 +435,39 @@ export function scoreEvaluation(input: {
   if (input.cost > input.costBudget) failed.push("cost");
   if (!input.recovered) failed.push("recovery");
   if (!input.userHeldControl) failed.push("user control");
+  if (input.regression === false) failed.push("regression");
   return { pass: failed.length === 0, failed };
+}
+
+export type AgentManifest = {
+  id: string;
+  version: string;
+  role: string;
+  capabilities: string[];
+  dataClasses: string[];
+  authority: "owner" | "scoped";
+  budget: number;
+  timeLimitMs: number;
+  memoryScope: "session";
+  network: false;
+  verification: "postcondition";
+};
+
+/** The bounded worker record. Defaults stay inside the parent grant. */
+export function agentManifest(agent: { id: string; risk: string }): AgentManifest {
+  return {
+    id: agent.id,
+    version: "1",
+    role: agent.id,
+    capabilities: [agent.id],
+    dataClasses: ["internal"],
+    authority: agent.risk === "exec" ? "scoped" : "owner",
+    budget: 0,
+    timeLimitMs: 120_000,
+    memoryScope: "session",
+    network: false,
+    verification: "postcondition",
+  };
 }
 
 /** Logical records. They validate the task graph and the kernel tables. They are not a second database. */
@@ -749,4 +782,71 @@ export function backendInvariants(input: {
 /** Secret content stays out of ordinary semantic memory. */
 export function secretStaysOutOfMemory(sensitivity: string | undefined): boolean {
   return sensitivity === "secret";
+}
+
+export type HandoffPacket = {
+  result: string;
+  evidence: string;
+  confidence: number;
+  unresolved: string[];
+  artifacts: string[];
+  verification: "passed" | "failed" | "unchecked";
+};
+
+/** A specialist returns evidence. A bare success string is not a checked handoff. */
+export function completeHandoff(input: {
+  result: string;
+  evidence: string;
+  confidence: number;
+  unresolved: string[];
+  artifacts: string[];
+  checked: boolean;
+}): HandoffPacket {
+  const evidence = input.evidence.trim();
+  const verification = input.checked && evidence ? "passed" : evidence ? "failed" : "unchecked";
+  return {
+    result: input.result.trim(),
+    evidence,
+    confidence: Math.max(0, Math.min(1, input.confidence)),
+    unresolved: input.unresolved.filter((item) => item.trim()),
+    artifacts: input.artifacts.filter((item) => item.trim()),
+    verification,
+  };
+}
+
+/** Two writes of the same target cannot run together. */
+export function mustSerialize(left: { writes: string[] }, right: { writes: string[] }): boolean {
+  return left.writes.some((item) => item.length > 0 && right.writes.includes(item));
+}
+
+/** A peer that has only connected does not receive FRIDAY authority. The grant is the owner flag. */
+export function authorityFromConnection(_connected: boolean, ownerGranted: boolean): boolean {
+  return ownerGranted;
+}
+
+export function observationCurrent(stale: boolean, ageMs = 0, ttlMs = 8_000): boolean {
+  if (stale) return false;
+  return ageMs >= 0 && ageMs <= ttlMs;
+}
+
+/** Task-local facts outrank project, user, general, then external research. */
+export function retrievalTier(scope: string): number {
+  if (scope === "task") return 0;
+  if (scope === "project") return 1;
+  if (scope === "user") return 2;
+  if (scope === "general") return 3;
+  if (scope === "external") return 4;
+  return 5;
+}
+
+export function traceSpan(eventType: string): string {
+  const name = eventType.toLowerCase();
+  if (name.includes("verif")) return "verification";
+  if (name.includes("handoff")) return "handoff";
+  if (name.includes("guard") || name.includes("approval")) return "guardrail";
+  if (name.includes("tool")) return "tool";
+  if (name.includes("model")) return "model";
+  if (name.includes("agent")) return "agent";
+  if (name.includes("task")) return "task";
+  return "turn";
 }

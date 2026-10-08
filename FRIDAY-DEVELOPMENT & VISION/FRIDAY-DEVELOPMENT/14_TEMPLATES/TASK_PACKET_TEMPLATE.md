@@ -9,8 +9,7 @@ Steps 1–3 for how to derive each field.
 ```
 TASK_ID:              <short slug, e.g. voice-interim-transcript-2026-09-18>
 REQUEST:              <what the owner actually asked for, in one or two lines>
-CANONICAL_OWNER:      <the file(s)/module from SOURCE_OWNER_CATALOG.md or
-                        SOURCE_OWNERSHIP_MAP.json that own this behavior>
+CANONICAL_OWNER:      <the live source file that already owns this behavior>
 ALLOWED_FILES:        <every file you expect to edit — start narrow, add to
                         this list only when Step 4 (inspect) proves a real
                         need, never edit outside it silently>

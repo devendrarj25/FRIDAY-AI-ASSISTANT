@@ -15,6 +15,7 @@ import {
   budgetBlock,
   idempotencyKey,
   mintIdentity,
+  observationCurrent,
   redactRunText,
   revalidateApproval,
   retryBackoffMs,
@@ -551,7 +552,9 @@ function resolveControl(
     : state.windows[0];
   if (!focused) return null;
   const direct = findNamed(focused.controls, target);
-  if (direct?.stale) return { window: focused, control: direct, problem: "stale" };
+  if (direct && !observationCurrent(Boolean(direct.stale))) {
+    return { window: focused, control: direct, problem: "stale" };
+  }
   if (direct) return { window: focused, control: direct };
   for (const window of state.windows) {
     if (window.id === focused.id) continue;

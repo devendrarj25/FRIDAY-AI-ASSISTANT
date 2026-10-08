@@ -100,6 +100,14 @@ The live spine is the 17 layers in `src/lib/friday/flow-chart.ts`. These planes 
 
 A model response is not proof of an external effect. Load only the owner for the task. The product version lives only in `config/friday-version.json`.
 
+## Validation states
+
+SOURCE_READY means this checkout passes typecheck, lint, unit tests, and the docs registry. A missing installer is not a source failure. BUILD_READY means a Windows NSIS install, boot, and uninstall actually ran. A Linux run does not report BUILD_READY.
+
+The tool floor lives in `config/toolchain-versions.json`. A brain change re-runs brain, retrieval, and memory tests. A tool change re-runs authority, execution, and verification. A lifecycle change re-runs install, update, and recovery tests.
+
+Research checked 2026-09, freshness unverified this session: [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ADAPT (the context packet already drops stale and redundant lines). [MCP](https://modelcontextprotocol.io/) ADAPT (a connector stays under FRIDAY authority). [A2A v1.0](https://a2a-protocol.org/v1.0.0/) REJECT (no second agent protocol). [OWASP GenAI](https://genai.owasp.org/) ADOPT (model output and external content stay data). [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) ADOPT (the existing sandbox and preload boundary stay). [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) ADAPT (release artifacts stay integrity-checked in the existing publish path).
+
 ## Definition of done
 
 A change is done when the behaviour exists in the canonical owner, a test from this change passes, the owning document matches the code, and PASS is backed by command output. A written plan is not done. Windows install, boot, microphone, and hosted Actions stay unverified until a Windows run or the owner's PC shows them.

@@ -24,7 +24,14 @@ import {
   resetRuntimeEvents,
   revalidateApproval,
   scoreEvaluation,
+  agentManifest,
+  authorityFromConnection,
+  completeHandoff,
+  mustSerialize,
+  observationCurrent,
+  retrievalTier,
   sealRuntimeEvent,
+  traceSpan,
 } from "../../src/lib/friday/self/run-receipt";
 
 const ROOT = path.resolve(__dirname, "../..");
@@ -409,5 +416,65 @@ describe("development contracts", () => {
     const rows = memory.getSnapshot().items.filter((item) => item.title === marker);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.text).toBe("visible fact");
+  });
+
+  it("returns a checked handoff, serializes shared writes, and ignores a bare connection", () => {
+    const packet = completeHandoff({
+      result: "applied",
+      evidence: "file removed",
+      confidence: 0.9,
+      unresolved: [],
+      artifacts: ["notes.txt"],
+      checked: true,
+    });
+    expect(packet.verification).toBe("passed");
+    expect(
+      completeHandoff({
+        result: "done",
+        evidence: "",
+        confidence: 1,
+        unresolved: [],
+        artifacts: [],
+        checked: true,
+      }).verification,
+    ).toBe("unchecked");
+    expect(mustSerialize({ writes: ["C:/notes"] }, { writes: ["C:/notes"] })).toBe(true);
+    expect(mustSerialize({ writes: ["C:/notes"] }, { writes: ["C:/other"] })).toBe(false);
+    expect(authorityFromConnection(true, false)).toBe(false);
+    expect(authorityFromConnection(true, true)).toBe(true);
+    expect(agentManifest({ id: "files", risk: "exec" }).network).toBe(false);
+    expect(agentManifest({ id: "files", risk: "exec" }).authority).toBe("scoped");
+    expect(observationCurrent(true)).toBe(false);
+    expect(observationCurrent(false, 1000)).toBe(true);
+    expect(observationCurrent(false, 9000)).toBe(false);
+    expect(retrievalTier("task")).toBeLessThan(retrievalTier("external"));
+    expect(traceSpan("task.verifying")).toBe("verification");
+    resetRuntimeEvents();
+    const sealed = sealRuntimeEvent({
+      eventType: "task.succeeded",
+      now: NOW,
+      requestId: "req_span",
+      sessionId: "local",
+      taskId: "task_span",
+      runId: "run_span",
+      producer: "task-graph",
+    });
+    expect(sealed.payload["span"]).toBe("task");
+    const versions = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "config/toolchain-versions.json"), "utf8"),
+    ) as { nodeMinimum: string; pythonMinimum: string };
+    expect(versions.nodeMinimum).toBe("22.19.0");
+    expect(versions.pythonMinimum).toBe("3.12.10");
+    const scheduler = fs.readFileSync(
+      path.join(ROOT, "src/lib/friday/self/agent-scheduler.ts"),
+      "utf8",
+    );
+    expect(scheduler).toContain("completeHandoff(");
+    expect(scheduler).toContain("mustSerialize(");
+    const planner = fs.readFileSync(path.join(ROOT, "kernel/planner.py"), "utf8");
+    expect(planner).toContain("shortlist(");
+    const control = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_CHANGE_CONTROL.md"), "utf8");
+    expect(control).toContain("SOURCE_READY");
+    expect(control).toContain("BUILD_READY");
   });
 });
