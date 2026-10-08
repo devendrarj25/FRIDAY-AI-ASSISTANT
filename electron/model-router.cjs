@@ -449,6 +449,10 @@ class ProviderHealthManager {
       lastError: null,
       lastOkAt: Date.now(),
       latencyMs: latencyMs ?? entry.latencyMs,
+      consecutive: 0,
+      recent: [],
+      quarantined: false,
+      recoveryProbe: "passed",
     });
     return this.state.get(modelId);
   }
@@ -460,6 +464,12 @@ class ProviderHealthManager {
     const failures = entry.failures + 1;
     // Exponential backoff, capped, so a flaky provider is retried sensibly.
     const backoff = Math.min(classified.cooldownMs * Math.min(2 ** (failures - 1), 8), 60 * 60_000);
+    const recent = [...(entry.recent || []), { at: now, category: classified.category }]
+      .filter((row) => now - row.at < 10 * 60_000)
+      .slice(-8);
+    const consecutive = classified.category === entry.category ? (entry.consecutive || 0) + 1 : 1;
+    // A deterministic 400 is the request. It never opens a provider quarantine.
+    const quarantined = classified.cooldownMs > 0 && consecutive >= 3;
     const next = {
       ...entry,
       modelId,
@@ -467,12 +477,31 @@ class ProviderHealthManager {
       category: classified.category,
       cooldownUntil: now + backoff,
       failures,
+      consecutive,
+      recent,
+      quarantined,
+      failureClass: classified.category,
       lastFailureAt: now,
       lastError: String(error?.message || error || "").slice(0, 400),
     };
 
     this.state.set(modelId, next);
     return { ...next, ...classified, cooldownMs: backoff };
+  }
+
+  /** A recovery probe after cooldown. Success clears the breaker; failure stays recorded. */
+  noteRecovery(modelId, ok, now = Date.now()) {
+    if (ok) {
+      this.noteSuccess(modelId);
+      const entry = this.get(modelId);
+      const next = { ...entry, recoveryProbe: "passed", recoveryAt: now };
+      this.state.set(modelId, next);
+      return next;
+    }
+    const entry = this.get(modelId);
+    const next = { ...entry, modelId, recoveryProbe: "failed", recoveryAt: now };
+    this.state.set(modelId, next);
+    return next;
   }
 
   isCoolingDown(modelId, now = Date.now()) {
@@ -1283,6 +1312,118 @@ function planTypeFor(strategy, count) {
   return strategy;
 }
 
+/** The owner-facing sentence. Hidden reasoning and secret material stay out. */
+function publicDecision(text) {
+  return String(text || "")
+    .replace(/chain[- ]of[- ]thought/gi, "the decision")
+    .replace(/\b(?:api[_ -]?key|secret|password)\s*[:=]\s*\S+/gi, "secret")
+    .slice(0, 400);
+}
+
+function aggregationFor(strategy, mode) {
+  if (strategy === "parallel" || strategy === "race") return "parallel";
+  if (strategy === "cascade" || strategy === "pipeline") return "staged";
+  if (strategy === "primary-critic") return "critic";
+  if (strategy === "primary-verifier") return "verifier";
+  if (strategy === "candidate-judge") return "judge";
+  if (strategy === "fallback") return "fallback";
+  if (mode === "multi") return "parallel";
+  return "single";
+}
+
+/** A bad request is the same on every model. Outages may move to another candidate. */
+function fallbackAdvances(category, options = {}) {
+  const name = String(category || "");
+  if (name === "context_overflow" && options.compacted === true) return true;
+  return ![
+    "invalid_request",
+    "context_overflow",
+    "content_filter",
+    "region_block",
+    "billing_required",
+  ].includes(name);
+}
+
+function fallbackTier(candidate, failed) {
+  const sameModel =
+    candidate.id !== failed.id &&
+    ((candidate.canonicalModelId && candidate.canonicalModelId === failed.canonicalModelId) ||
+      (candidate.providerModelId && candidate.providerModelId === failed.providerModelId));
+  if (sameModel) return 0;
+  const provider = candidate.providerId || candidate.meta?.providerId || candidate.provider;
+  const failedProvider = failed.providerId || failed.meta?.providerId || failed.provider;
+  if (provider && provider === failedProvider) return 1;
+  if (familyOf(candidate) === familyOf(failed) && provider !== failedProvider) return 2;
+  return 3;
+}
+
+/**
+ * Order the models still allowed after one failure.
+ * Same model on another endpoint, then a sibling, then the same family, then
+ * any other model that already passed privacy and billing. A provider outage
+ * tries a different backend before another endpoint on the failed one.
+ */
+function orderFallbacks(candidates, failed, category, options = {}) {
+  if (!failed || !fallbackAdvances(category, options)) return [];
+  const providerWide =
+    category === "offline" || category === "provider_error" || category === "invalid_key";
+  const failedBackend = backendOf(failed);
+  const rest = (candidates || []).filter((model) => model && model.id && model.id !== failed.id);
+  const pool =
+    category === "invalid_key" ? rest.filter((model) => backendOf(model) !== failedBackend) : rest;
+  return pool
+    .map((model, index) => ({
+      model,
+      index,
+      tier: fallbackTier(model, failed),
+      skip: providerWide && backendOf(model) === failedBackend ? 1 : 0,
+    }))
+    .sort((a, b) => a.skip - b.skip || a.tier - b.tier || a.index - b.index)
+    .map((row) => row.model);
+}
+
+/** Keep the previous catalogue when the next generation is not a list of unique ids. */
+function commitCatalogue(previous, next) {
+  const prior = Array.isArray(previous) ? previous : [];
+  if (!Array.isArray(next)) {
+    return { ok: false, snapshot: prior, reason: "catalogue is not a list" };
+  }
+  const ids = new Set();
+  for (const row of next) {
+    const id = row && typeof row.id === "string" ? row.id.trim() : "";
+    if (!id) return { ok: false, snapshot: prior, reason: "catalogue row has no id" };
+    if (ids.has(id)) return { ok: false, snapshot: prior, reason: "catalogue row repeats an id" };
+    ids.add(id);
+  }
+  return { ok: true, snapshot: next.slice(), reason: "" };
+}
+
+/** Internal trace. It is not the sentence the owner sees. */
+function modelExecutionTrace(input = {}) {
+  const rejected = Array.isArray(input.rejected) ? input.rejected : [];
+  return {
+    task: input.task || "chat",
+    mode: input.mode || "auto",
+    candidateCount: Array.isArray(input.candidates) ? input.candidates.length : 0,
+    filtered: rejected
+      .slice(0, 8)
+      .map((row) => publicDecision(`${row.id || "model"}: ${row.reason || row.category || ""}`)),
+    chosen: input.selected || null,
+    planType: input.planType || "single",
+    startedAt: Number(input.startedAt) || 0,
+    endedAt: Number(input.endedAt) || 0,
+    ttftMs: input.ttftMs ?? null,
+    tokensPerSec: input.tokensPerSec ?? null,
+    tokensIn: input.tokensIn ?? null,
+    tokensOut: input.tokensOut ?? null,
+    retries: Number(input.retries) || 0,
+    fallbacks: Number(input.fallbacks) || 0,
+    category: input.category || null,
+    validation: input.validation || "unchecked",
+    cost: input.cost ?? null,
+  };
+}
+
 function planKey(parts) {
   let hash = 2166136261;
   const text = parts.join("|");
@@ -1535,12 +1676,38 @@ function compileRoleTurn({ strategy, role, prompt, drafts = [] }) {
  */
 function planRoute(models, options = {}) {
   const route = prepareRoute(models, options);
-  const candidates = route.chosen.map((model) => model.id);
-  const strategy = route.strategy;
+  let chosen = route.chosen;
+  let held = "";
+  if (options.failed && options.failed.id) {
+    const known =
+      chosen.find((model) => model.id === options.failed.id) ||
+      (models || []).find((model) => model && model.id === options.failed.id) ||
+      options.failed;
+    const category = options.failed.category || classifyError(options.failed.error).category;
+    if (!fallbackAdvances(category, options)) {
+      chosen = [];
+      held = "a deterministic request error does not move to another model";
+    } else {
+      chosen = orderFallbacks(chosen, known, category, options);
+    }
+  }
+  const candidates = chosen.map((model) => model.id);
+  const strategy = chosen.length ? route.strategy : "single";
   const planType = planTypeFor(strategy, candidates.length);
-  const why = explainPlan(route);
-  const steps = assignSteps(route.chosen, strategy);
-  const explanation = [why, ...route.rejected.slice(0, 8).map((row) => `${row.id}: ${row.reason}`)];
+  const why = publicDecision(held || explainPlan({ ...route, chosen }));
+  const steps = assignSteps(chosen, strategy);
+  const explanation = [
+    why,
+    ...route.rejected.slice(0, 8).map((row) => publicDecision(`${row.id}: ${row.reason}`)),
+  ];
+  const trace = [
+    { stage: "filter", kept: candidates.length, dropped: route.rejected.length },
+    { stage: "score", qualityTarget: route.qualityTarget },
+    { stage: "plan", strategy, planType },
+  ];
+  if (options.failed && options.failed.id) {
+    trace.push({ stage: "fallback", kept: candidates.length });
+  }
   return {
     planId: planKey([route.mode, route.task, route.policy, strategy, candidates.join(",")]),
     planType,
@@ -1568,11 +1735,15 @@ function planRoute(models, options = {}) {
         strategy === "parallel" || strategy === "race" ? Math.max(candidates.length, 1) : 1,
       retries: 1,
     },
-    trace: [
-      { stage: "filter", kept: candidates.length, dropped: route.rejected.length },
-      { stage: "score", qualityTarget: route.qualityTarget },
-      { stage: "plan", strategy, planType },
-    ],
+    aggregation: aggregationFor(strategy, route.mode),
+    information: {
+      fanOut: strategy === "parallel" || strategy === "race",
+      reason:
+        strategy === "parallel" || strategy === "race"
+          ? "the owner asked for more than one model"
+          : "one answer is enough until a declared multi strategy",
+    },
+    trace,
     explanation,
     why,
   };
@@ -1705,6 +1876,18 @@ function explainFailure({
   policy = DEFAULT_POLICY,
   offline = false,
 } = {}) {
+  if (
+    failures.length > 0 &&
+    failures.every(
+      (failure) =>
+        (failure.category || classifyError(failure.error).category) === "invalid_request",
+    )
+  ) {
+    return [
+      "This request was rejected as written, so FRIDAY did not send it to another model.",
+      "Doosra model par nahi bheja.",
+    ].join("\n");
+  }
   const lines = [
     offline
       ? "FRIDAY is offline, so only local models can answer — and none is running."
@@ -1854,6 +2037,11 @@ module.exports = {
   accessRecordOf,
   capabilitiesOf,
   classifyError,
+  fallbackAdvances,
+  orderFallbacks,
+  commitCatalogue,
+  publicDecision,
+  modelExecutionTrace,
   ProviderHealthManager,
   describe,
   scoreModel,

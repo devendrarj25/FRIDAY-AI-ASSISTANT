@@ -10,7 +10,7 @@ Read:
 - `FRIDAY-main/AGENTS.md`;
 - `FRIDAY-main/ARCHITECTURE.md`;
 - `FRIDAY-main/FRIDAY_STATE.md`;
-- all current model/provider/router files listed in `01_CURRENT_SOURCE_TRUTH`;
+- the model, provider, and router files named in `01_CURRENT_SOURCE_TRUTH/WHAT_ALREADY_EXISTS.md` and `01_CURRENT_SOURCE_TRUTH/current_inventory.json`;
 - current model/provider tests.
 
 Do not start coding after reading only the README.

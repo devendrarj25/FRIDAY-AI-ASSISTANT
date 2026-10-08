@@ -119,4 +119,17 @@ Recorded once from public write-ups read that day. This is not a second router.
 
 Race and cascade are strategies on this same router. A cascade orders cheaper models first and continues when the cheap answer is short or uncertain. A race keeps the first successful answer and does not cancel the others. After three recorded trials, success rate, latency, and owner feedback adjust the existing score. They do not skip privacy or the billing firewall. A separate learned router stays out. The 2026-10-05 rejection of that second router still stands.
 
+### Routing added (2026-10-08)
+
+After one failed candidate, the same router orders what is left: the same model on another endpoint, then a sibling on that provider, then the same family on another provider, then any other model that already passed privacy and billing. A provider outage tries a different backend before another endpoint on the failed one. A deterministic 400 or 422, a content filter, a region block, a billing refusal, and a context overflow do not move to another model. A context overflow may move only after the caller says the prompt was compacted. Three provider errors quarantine that model; three deterministic 400s do not. A passed recovery probe clears the cooldown.
+
+The routable catalogue swaps only when the next list is an array of unique ids. A broken refresh keeps the previous generation. Multi plans name their aggregation (`parallel`, `staged`, `critic`, `verifier`, `judge`, or `fallback`). A parallel or race plan is the only fan-out. The chat path logs one execution trace and does not send that trace to the owner. The sentence drops hidden reasoning and any secret assignment.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Advance a fallback only when another provider could succeed | ADOPT | A 400 is the request. Timeouts, 429, and 5xx may move. Sources: nRouter fallback chains (nrouter.ai/blog/engineering/provider-fallback-chains); LiteLLM deployment order (docs.litellm.ai/docs/routing). Accessed 2026-10-08. |
+| Try another endpoint of the same model before a different model | ADAPT | LiteLLM weighted failover stays inside the group first. FRIDAY's order is endpoint, sibling, family, then any other allowed model, and a provider-wide outage prefers a different backend. |
+| Circuit breaker with a recovery probe | ADAPT | Three retryable failures quarantine. A deterministic 400 never does. One probe success clears it. No second router. |
+| Learned semantic router | REJECT | Still the 2026-10-05 decision. No second scoring stack. |
+
 Catalogue TTL is 10 minutes, pricing 30 minutes, entitlement 10 minutes, successful probes 30 minutes. Background refresh reuses `refreshRoutable` after the catalogue TTL; API key / endpoint / route-mode changes invalidate immediately. Lifecycle kinds (`MODEL_DISCOVERED`, `MODEL_VERIFIED`, `MODEL_FAILED`, `MODEL_RATE_LIMITED`, `MODEL_EXHAUSTED`, `MODEL_RETIRED`, `MODEL_REMOVED`, `PROVIDER_CONNECTED`, `API_KEY_CHANGED`, `ROUTE_CHANGED`) are stamped onto the existing `models:registry-changed` / `models:health-changed` / `models:route-mode` broadcasts — not a second event bus.

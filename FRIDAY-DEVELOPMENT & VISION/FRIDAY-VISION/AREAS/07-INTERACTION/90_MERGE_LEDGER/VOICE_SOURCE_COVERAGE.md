@@ -49,7 +49,7 @@ This ledger proves that the supplied source package was inspected and reconciled
 - `14_REFERENCE/02_LICENSE_ARTIFACT_REGISTER.md` → `11_IMPLEMENTATION/` — License Artifact Register Template
 - `14_REFERENCE/03_TERMINOLOGY.md` → `01_SHARED_SYSTEM/` — Terminology
 - `14_REFERENCE/04_SOURCE_INDEX.md` → `09_RESEARCH/` — Source Index
-- `14_REFERENCE/05_PACKAGE_FILE_HASHES.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
+- The old package file-size list `14_REFERENCE/05_PACKAGE_FILE_HASHES.json` was removed. Speech pack identity lives in the Install Manager catalog.
 - `14_REFERENCE/contracts/artifact.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
 - `14_REFERENCE/contracts/audio-frame.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.
 - `14_REFERENCE/contracts/capability-parity.schema.json` → `10_CONTRACTS/` or integrated contract model — machine-readable requirement reconciled.

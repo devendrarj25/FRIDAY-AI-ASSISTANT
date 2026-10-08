@@ -48,14 +48,16 @@ This package is an architecture/upgrade plan, not proof that every planned behav
 6. `04_MOBILE/`
 7. `05_MANUAL_AUTO/`
 8. `06_CROSS_SURFACE/`
-9. `07_REALTIME_PRESENTATION/`
+9. `07_FAILURES/` and `07_REALTIME_PRESENTATION/` (both keep 07)
 10. `08_SECURITY/`
 11. `09_RESEARCH/`
 12. `10_CONTRACTS/`
 13. `11_IMPLEMENTATION/`
 14. `12_ACCEPTANCE/`
-15. `90_MERGE_LEDGER/`
-16. `15_INTEGRATED_SOURCE_CONTRACTS/`
+15. `13_DIAGRAMS/`
+16. `14_DOCUMENT_CONTROL/`
+17. `15_INTEGRATED_SOURCE_CONTRACTS/`
+18. `90_MERGE_LEDGER/`
 ## Mobile Companion Deep Upgrade (2026-09-15)
 
 The Mobile Companion is explicitly upgraded from a remote companion surface into a **complete mobile-optimized FRIDAY operating surface** while preserving the one-runtime architecture.

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "fileCount": 54,
+  "fileCount": 55,
   "files": [
     {
       "path": "00_MASTER/DEFINITION_OF_DONE.md",
@@ -164,7 +164,7 @@
     },
     {
       "path": "14_IMPLEMENTATION/AGENT_MASTER_PROMPT.md",
-      "bytes": 2121
+      "bytes": 2127
     },
     {
       "path": "15_COMMANDS/INSTALL_MANAGER_COMPONENTS.md",
@@ -183,12 +183,16 @@
       "bytes": 727
     },
     {
+      "path": "AREA-MANIFEST.json",
+      "bytes": 2431
+    },
+    {
       "path": "CHANGE_MANIFEST.json",
       "bytes": 702
     },
     {
       "path": "README.md",
-      "bytes": 3014
+      "bytes": 3264
     },
     {
       "path": "config/core-payload-policy.json",

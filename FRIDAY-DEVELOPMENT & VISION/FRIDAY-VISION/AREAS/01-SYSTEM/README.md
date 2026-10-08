@@ -2,7 +2,9 @@
 
 This is the **final consolidated architecture + implementation handoff package** for the existing FRIDAY Windows AI OS. It keeps everything already present in the supplied package and adds the research-expanded architecture, contracts, failure handling, real-time behavior, cognitive OS layers, self-improvement controls, computer-use strategy, remote operation, and future-proof extension points gathered from a broad 2026 ecosystem review.
 
-**This ZIP is the final design/contract/handoff artifact, not the FRIDAY application source itself.** The current FRIDAY source remains the implementation authority. Nothing in this package authorizes deleting working code, changing UI, replacing the build/release pipeline, or creating duplicate subsystems.
+**This folder is the design and handoff plan. The FRIDAY source remains the implementation authority.** Nothing in this package authorizes deleting working code, changing UI, replacing the build/release pipeline, or creating duplicate subsystems.
+
+`00_MASTER_CONTROL` and `01_CURRENT_SOURCE_TRUTH` were removed after the live owners took those facts: `docs/FRIDAY_ARCHITECTURE_BASELINE.md`, `docs/FRIDAY_FEATURES.md`, and `src/lib/friday/flow-chart.ts`. The remaining plans run from `02_TARGET_SYSTEM` through `25_DOCUMENT_CONTROL`.
 
 ## Final target
 FRIDAY is designed as one persistent, governed, multimodal AI operating system with:

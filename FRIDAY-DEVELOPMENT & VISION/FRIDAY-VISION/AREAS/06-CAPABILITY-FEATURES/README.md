@@ -10,27 +10,48 @@ FRIDAY should operate as one unified capability fabric:
 Durable Execution → Verification → Evidence → Memory`
 
 ## What is inside
-- deep ecosystem research
-- FRIDAY current-state/source-truth mapping
-- canonical capability contract
-- capability broker + progressive discovery
-- capability lifecycle/readiness/health/evidence
-- feature OS + feature dependency graph
-- large feature inventory
-- realtime durable execution
-- scheduler/background/event-driven work
-- browser + Windows computer use
-- multimodal artifact/provenance system
-- MCP/A2A/plugins/skills/connectors
-- multi-device/remote-worker routing
-- trust/policy/authority/sandbox/secrets
-- observability/tracing/SLO
-- conformance/evaluation/golden workflows
-- Capability Center / Feature Center / Live Task UX
-- file-level FRIDAY migration plan
-- implementation notes for this package
-- JSON schemas + inventories
-- architecture diagrams
+Two packages share this folder. They keep the numbers they already have, including places where the same number is used twice. Read both folders that share a number before changing that topic.
+
+Later complete package:
+
+- `00_MASTER` — rules and glossary
+- `01_RESEARCH` — research notes and source lists
+- `02_TARGET_ARCH` — target architecture
+- `03_CAPABILITY_FABRIC` — broker and fabric
+- `04_FEATURE_SYSTEM` — feature system and inventory
+- `05_REALTIME_RUNTIME` — durable and realtime work
+- `06_MULTIMODAL_COMPUTER` — computer use and artifacts
+- `07_INTEROP_ECOSYSTEM` — MCP, plugins, skills, connectors
+- `08_SECURITY_GOVERNANCE` — trust, policy, and secrets
+- `09_QUALITY_EVAL` — evaluation
+- `10_UI_PRODUCT` — capability center, feature center, live task
+- `11_MIGRATION` — migration notes
+- `12_IMPLEMENTATION` — file-level plan
+- `13_SCHEMAS` — schemas and inventories
+- `14_DIAGRAMS` — diagrams
+- `17_MIGRATION` — upgrade plan
+- `18_AGENT_HANDOFF` — handoff notes
+
+Earlier package, beside the later one:
+
+- `02_FRIDAY_TRUTH` — baseline and gaps
+- `03_CAPABILITY_OS`
+- `04_FEATURE_OS`
+- `05_EXECUTION`
+- `06_COMPUTER_USE`
+- `07_MULTIMODAL`
+- `08_INTEROP`
+- `09_MEMORY`
+- `10_AUTONOMY`
+- `11_SECURITY`
+- `12_OBSERVABILITY`
+- `13_EVALUATION`
+- `14_UI_UX`
+- `15_FINAL` — roadmap and definition of done
+- `15_SCHEMAS`
+- `16_DIAGRAMS`
+
+`PACKAGE_MANIFEST.json` and `AREA-MANIFEST.json` sit next to these folders.
 
 ## Critical implementation instruction
 Do NOT replace FRIDAY blindly. Build adapters around the existing capability systems,

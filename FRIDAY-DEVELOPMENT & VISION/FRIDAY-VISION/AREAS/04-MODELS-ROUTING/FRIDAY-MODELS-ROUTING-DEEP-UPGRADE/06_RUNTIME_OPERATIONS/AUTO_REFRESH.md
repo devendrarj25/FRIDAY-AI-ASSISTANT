@@ -21,7 +21,3 @@
 - before routing: refresh only when snapshot is stale enough to matter
 
 Never refresh every provider on every chat turn.
-
-## Atomic snapshot
-
-Write a new snapshot to a temporary generation, validate it, then swap the pointer. If refresh fails, keep the previous good generation.
