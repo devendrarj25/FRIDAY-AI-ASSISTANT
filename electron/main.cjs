@@ -1217,9 +1217,16 @@ let routableCache = { at: 0, models: [] };
 let routableInFlight = null;
 let kernelSyncInFlight = null;
 
-async function refreshRoutable(force = false) {
+async function refreshRoutable(force = false, trigger = "") {
   const ttl = routableCache.models.length ? ROUTABLE_TTL_MS : EMPTY_ROUTABLE_TTL_MS;
-  if (!force && routableCache.at && Date.now() - routableCache.at < ttl) return routableCache;
+  const age = routableCache.at ? Date.now() - routableCache.at : Number.POSITIVE_INFINITY;
+  const named = trigger || (force ? "foreground" : "before-routing");
+  const plan = modelRouter.planRefresh(named, {
+    catalogueAgeMs: age,
+    catalogueTtlMs: ttl,
+    jitterMs: Date.now() % 1000,
+  });
+  if (!force && !plan.refresh) return routableCache;
   if (routableInFlight) return routableInFlight;
   routableInFlight = modelsApi
     .routable(modelsContext())
@@ -1266,7 +1273,7 @@ function emitModelLifecycle(kind, extra = {}) {
 function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
   modelRefreshTimer = setInterval(() => {
-    void refreshRoutable(true).then((result) => {
+    void refreshRoutable(true, "background").then((result) => {
       void syncKernelModels();
       emitModelLifecycle("MODEL_UPDATED", {
         reason: "ttl-refresh",
@@ -2216,11 +2223,14 @@ async function startChat(request) {
         send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
         return;
       }
-      if (!modelRouter.fallbackAdvances(noted.category)) {
+      const compacted = request.compacted === true;
+      if (!modelRouter.fallbackAdvances(noted.category, { compacted })) {
         log(`chat ${requestId}: ${noted.category} stays on this request`);
         break;
       }
-      const rest = modelRouter.orderFallbacks(candidates.slice(index), model, noted.category);
+      const rest = modelRouter.orderFallbacks(candidates.slice(index), model, noted.category, {
+        compacted,
+      });
       candidates = candidates.slice(0, index + 1).concat(rest);
       index += 1;
     }
@@ -2230,7 +2240,7 @@ async function startChat(request) {
       failures.every((f) => f.category === "model_unavailable" || f.category === "unknown");
     if (pass === 0 && rotated) {
       log(`chat ${requestId}: refreshing the live model catalogue before giving up`);
-      const fresh = await refreshRoutable(true);
+      const fresh = await refreshRoutable(true, "after-failure");
       await syncKernelModels();
       candidates = await resolveChatModels(wanted, task, requestedMode, routingOptions);
       log(
@@ -4026,11 +4036,18 @@ ipcMain.handle("models:sync-catalog", () => {
     })),
   };
 });
-ipcMain.handle("models:heal", () => {
+ipcMain.handle("models:heal", (_e, request = {}) => {
+  const kind =
+    request && typeof request === "object" && request.kind
+      ? String(request.kind)
+      : "stale-endpoint";
+  const gate = modelRouter.repairModelIssue(kind);
+  if (!gate.allowed) return { ok: false, applied: false, reason: gate.reason };
   const federation = require("./provider-federation.cjs");
   const healed = federation.healSnapshot({ ids: [], disabled: [] }, { dead: [], recovered: [] });
   return {
     ok: true,
+    applied: true,
     disabled: healed.disabled || [],
     note: "No dead models are recorded.",
   };

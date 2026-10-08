@@ -18,10 +18,10 @@
     "hostedActions": "unverified"
   },
   "inventory": {
-    "files": 721,
-    "bytes": 1229577,
+    "files": 717,
+    "bytes": 1226327,
     "byType": {
-      "behaviour": 421,
+      "behaviour": 417,
       "diagram": 121,
       "index": 5,
       "manifest": 13,
@@ -35,13 +35,13 @@
       "development:14_TEMPLATES": 1,
       "layer-root": 5,
       "vision:01-SYSTEM": 194,
-      "vision:04-MODELS-ROUTING": 39,
+      "vision:04-MODELS-ROUTING": 35,
       "vision:05-AUTONOMY-LEARNING-EVOLUTION": 52,
       "vision:06-CAPABILITY-FEATURES": 209,
       "vision:07-INTERACTION": 163,
       "vision:08-PACKAGING-BUILD-UPDATE": 56
     },
-    "filesIncludingLedger": 723,
+    "filesIncludingLedger": 719,
     "checked": "2026-10-08"
   },
   "order": [
@@ -65,10 +65,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 91,
-    "SUPERSEDED": 274,
+    "DONE": 96,
+    "SUPERSEDED": 279,
     "REJECT": 2,
-    "MISSING": 1744
+    "MISSING": 1734
   },
   "rows": [
     {
@@ -13820,11 +13820,20 @@
       "heading": "Escalation-worthy",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A refusal, a tool failure, a schema miss, and low confidence move to the next allowed model. A content filter still stops. Chat passes compacted on context overflow.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves to another model after a refusal, a tool failure, a schema failure, or low confidence",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0831",
@@ -13895,11 +13904,20 @@
       "heading": "1. AUTO \u2014 default intelligent mode",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Auto already mixes local and connected free cloud and excludes paid cloud.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0835",
@@ -13907,11 +13925,20 @@
       "heading": "2. LOCAL ONLY",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Local only never selects a cloud provider.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0836",
@@ -13919,11 +13946,20 @@
       "heading": "3. CLOUD ONLY",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Cloud only never selects a local engine.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "cloud-only never selects a local engine",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0837",
@@ -13931,11 +13967,20 @@
       "heading": "4. MULTI",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Multi already assigns parallel, critic, verifier, judge, and pipeline roles on the same shortlist.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0838",
@@ -13943,11 +13988,20 @@
       "heading": "5. MANUAL",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/manual-multi-routing.test.ts"
+      ],
+      "notes": "Manual uses only the models the owner selected.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/manual-multi-routing.test.ts",
+        "name": "uses only the selected models, never an unrelated one",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0839",
@@ -13955,11 +14009,20 @@
       "heading": "6. Mode modifiers",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1581
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The quality targets include deep-reasoning, research-grade, local-preferred, and cloud-preferred on the existing score.",
+      "bytes": 1581,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "scores deep-reasoning, research-grade, local-preferred, and cloud-preferred",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0840",
@@ -14207,11 +14270,20 @@
       "heading": "Never auto-fix",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 670
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "models:heal refuses a key rotation, a privacy change, an upload, paid access, and a pinned-model swap.",
+      "bytes": 670,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refuses an owner-only model repair",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0861",
@@ -14219,11 +14291,20 @@
       "heading": "Refresh layers",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 762
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Refresh names the nine layers. A chat turn touches only a stale catalogue and health.",
+      "bytes": 762,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refreshes a stale catalogue before routing and leaves a fresh one alone",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0862",
@@ -14231,11 +14312,20 @@
       "heading": "Scheduling",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 762
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Startup, the Models page, the background interval, a failure, and a chat turn each have their own refresh.",
+      "bytes": 762,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refreshes a stale catalogue before routing and leaves a fresh one alone",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0863",
