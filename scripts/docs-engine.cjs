@@ -192,6 +192,16 @@ const DOCUMENTS = [
     role: "developer",
   },
   {
+    file: "docs/FRIDAY_CHANGE_CONTROL.md",
+    title: "FRIDAY — Change Control",
+    section: "governance",
+    audience: "owner, AI tools",
+    answers:
+      "How a change is classified, bounded, tested, and recorded, and which product module owns each development contract",
+    topic: "Change control, task packet, and development contracts",
+    role: "developer",
+  },
+  {
     file: "CONTRIBUTING.md",
     title: "Contributing to FRIDAY",
     section: "governance",

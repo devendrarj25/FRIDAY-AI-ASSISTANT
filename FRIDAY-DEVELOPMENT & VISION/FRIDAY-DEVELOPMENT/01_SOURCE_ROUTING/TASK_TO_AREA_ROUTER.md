@@ -9,8 +9,8 @@ Use the first matching category; if multiple categories match, load the listed c
 | agent/delegation/handoff/worker | Agents | `04_AGENT_RUNTIME/*` |
 | tool/skill/plugin/module/connector | Capability | `05_CAPABILITY_FABRIC/*` |
 | browser/screen/device/app action | Execution | `07_EXECUTION_VERIFICATION/*` |
-| permission/approval/privacy/secret | Security | `09_SECURITY_GOVERNANCE/*` |
-| task/resume/retry/checkpoint | Task Runtime | `02_RUNTIME_CONTRACTS/*` |
+| permission/approval/privacy/secret | Security | `09_SECURITY_GOVERNANCE/*` and `src/lib/friday/self/run-receipt.ts` |
+| task/resume/retry/checkpoint | Task Runtime | `src/lib/friday/self/task-graph.ts` and `src/lib/friday/self/run-receipt.ts` |
 | UI/chat/voice/realtime interaction | Experience | existing `UI-UX-Design-Document.md` + runtime contract |
 | build/installer/update/uninstall | Lifecycle | `11_TESTING_RELEASE/*` |
 | test/regression/release | Quality | `11_TESTING_RELEASE/*` |

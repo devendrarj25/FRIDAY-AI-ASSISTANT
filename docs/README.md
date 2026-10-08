@@ -44,6 +44,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | Document | Answers | For |
 | --- | --- | --- |
 | [docs/FRIDAY_MERGE_FLOW.md](FRIDAY_MERGE_FLOW.md) | How a change reaches main, how Safe Merge, cleanup, and Repository Control behave, and why an official release stays a separate step | owner, AI tools |
+| [docs/FRIDAY_CHANGE_CONTROL.md](FRIDAY_CHANGE_CONTROL.md) | How a change is classified, bounded, tested, and recorded, and which product module owns each development contract | owner, AI tools |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | How a human contributor branches, verifies, and updates documents in the same PR | developers, AI tools |
 | [SECURITY.md](../SECURITY.md) | Threat model, GitHub Secrets, workflow least privilege, and how to report a flaw | owner, developers |
 | [LICENSE](../LICENSE) | Ownership, personal-use rights, contribution, no-redistribution and attribution terms | everyone |
@@ -66,7 +67,7 @@ notes keep the version they were published with.
 | Role | Meaning | Documents |
 | --- | --- | --- |
 | history | Published What's New, in plain language, on the current public line; once published, a section is not rewritten | `CHANGELOG.md` |
-| developer | Contributor, audit, and repository-governance procedure | `docs/FRIDAY_MERGE_FLOW.md`, `CONTRIBUTING.md`, `AUDIT.md` |
+| developer | Contributor, audit, and repository-governance procedure | `docs/FRIDAY_MERGE_FLOW.md`, `docs/FRIDAY_CHANGE_CONTROL.md`, `CONTRIBUTING.md`, `AUDIT.md` |
 | session | Live working briefing for humans and AI tools | `FRIDAY_STATE.md`, `AGENTS.md` |
 | legal | Licence and ownership terms | `LICENSE` |
 

@@ -85,7 +85,7 @@ and out of scope for this rule; don't touch it under this policy.
 |---|---|---|
 | 00 | `00_MASTER` | Entry point + `DEVELOPMENT_MASTER_CONTRACT.md` (architecture law) |
 | 01 | `01_SOURCE_ROUTING` | `TASK_TO_AREA_ROUTER.md` (classify a task) + `SOURCE_OWNER_CATALOG.md`/`SOURCE_OWNERSHIP_MAP.json` (real file anchors, callers, tests, locked files) |
-| 02 | `02_RUNTIME_CONTRACTS` | Durable task runtime, event contract |
+| 02 | adopted | Durable task runtime and the event envelope now live in `src/lib/friday/self/run-receipt.ts`. The folder was removed after those tests passed. |
 | 03 | `03_INTELLIGENCE_FABRIC` | Context engineering, model routing contract |
 | 04 | `04_AGENT_RUNTIME` | Agent runtime contract, handoff/parallelism |
 | 05 | `05_CAPABILITY_FABRIC` | Capability contract, tool discovery |
@@ -120,14 +120,14 @@ files inside it.
 
 ## 4. Mandatory session order (every task)
 
-Rules live in `AGENTS.md`. This section only names the path. The workflow
-itself is
-`FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md`
-(the 11-step TASK→ROUTE→OWNER→...→PASS/BLOCK gate). For anything beyond a
-one-line fix, open that file and fill in
-`FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/14_TEMPLATES/TASK_PACKET_TEMPLATE.md`
-(TASK_ID, CANONICAL_OWNER, ALLOWED_FILES, FORBIDDEN_FILES, DIRECT_DEPENDENCIES,
-AFFECTED_BOUNDARIES, REQUIRED_TESTS, ROLLBACK_PLAN, EVIDENCE) as you go.
+Rules live in `AGENTS.md`. This section only names the path. The canonical
+workflow is [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md)
+(the TASK→ROUTE→OWNER→...→PASS/BLOCK gate and the task packet). The copies
+under `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md`
+and `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/14_TEMPLATES/TASK_PACKET_TEMPLATE.md`
+remain until that folder is removed. For anything beyond a one-line fix, fill
+in TASK_ID, CANONICAL_OWNER, ALLOWED_FILES, FORBIDDEN_FILES, DIRECT_DEPENDENCIES,
+AFFECTED_BOUNDARIES, REQUIRED_TESTS, ROLLBACK_PLAN, and EVIDENCE.
 
 1. **`AGENTS.md`** (repo root) — first. Follow it.
 2. **This file** (`READMEFIRST.md`) — the map and the working flow.

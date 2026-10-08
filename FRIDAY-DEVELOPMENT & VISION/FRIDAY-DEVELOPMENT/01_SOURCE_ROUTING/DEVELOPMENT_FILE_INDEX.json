@@ -3,9 +3,13 @@
   "scope": "Root docs of FRIDAY-DEVELOPMENT & VISION/ + the entire FRIDAY-DEVELOPMENT/ workbench. AGENTS.md, AUDIT.md, and FRIDAY_STATE.md live at repo root, not here. FRIDAY-VISION/ is indexed separately via its own per-folder INDEX.md and per-area AREA-MANIFEST.json files, not here.",
   "sha_policy": "This index intentionally carries no content hashes. Per-file/folder/tree SHAs were removed from the whole FRIDAY-DEVELOPMENT & VISION layer -- the only authoritative SHA-256 for this project is for the whole main/release FRIDAY ZIP, kept alongside that ZIP, not duplicated per-file here.",
   "regeneration_rule": "Regenerate immediately, in the same change, whenever any file listed in 'scope' above is added, removed, or renamed. Re-running the generator script is the only supported way to update this file.",
-  "regenerated": "2026-09-21",
-  "file_count": 47,
+  "regenerated": "2026-10-08",
+  "file_count": 46,
   "files": [
+    {
+      "path": "ADOPTION_LEDGER.json",
+      "bytes": 846297
+    },
     {
       "path": "Backend-Schema.md",
       "bytes": 6117
@@ -16,7 +20,7 @@
     },
     {
       "path": "FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md",
-      "bytes": 1215
+      "bytes": 1275
     },
     {
       "path": "FRIDAY-DEVELOPMENT/00_MASTER/ARCHITECTURE_MAP.md",
@@ -39,6 +43,10 @@
       "bytes": 745
     },
     {
+      "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/DEVELOPMENT_FILE_INDEX.json",
+      "bytes": 5800
+    },
+    {
       "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/SOURCE_OWNERSHIP_MAP.json",
       "bytes": 43784
     },
@@ -48,15 +56,7 @@
     },
     {
       "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md",
-      "bytes": 1532
-    },
-    {
-      "path": "FRIDAY-DEVELOPMENT/02_RUNTIME_CONTRACTS/DURABLE_TASK_RUNTIME.md",
-      "bytes": 683
-    },
-    {
-      "path": "FRIDAY-DEVELOPMENT/02_RUNTIME_CONTRACTS/EVENT_CONTRACT.md",
-      "bytes": 614
+      "bytes": 1625
     },
     {
       "path": "FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md",
@@ -107,10 +107,6 @@
       "bytes": 512
     },
     {
-      "path": "FRIDAY-DEVELOPMENT/09_SECURITY_GOVERNANCE/APPROVAL_CONTRACT.md",
-      "bytes": 373
-    },
-    {
       "path": "FRIDAY-DEVELOPMENT/09_SECURITY_GOVERNANCE/SECURITY_INVARIANTS.md",
       "bytes": 613
     },
@@ -120,11 +116,11 @@
     },
     {
       "path": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/CHANGE_LEDGER.md",
-      "bytes": 27465
+      "bytes": 633
     },
     {
       "path": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "bytes": 3144
+      "bytes": 3220
     },
     {
       "path": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/ENVIRONMENT_REQUIREMENTS.md",
@@ -176,7 +172,7 @@
     },
     {
       "path": "INDEX.md",
-      "bytes": 2452
+      "bytes": 2468
     },
     {
       "path": "PRD.md",
