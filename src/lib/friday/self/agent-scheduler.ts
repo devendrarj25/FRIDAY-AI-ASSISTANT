@@ -16,13 +16,17 @@ import {
   acceptArtifact,
   acceptRouteDecision,
   agentManifest,
+  argumentHash,
   authorityFromConnection,
+  capabilityLifecycleRecord,
   capabilityMayRun,
   childStaysInsideParent,
   completeHandoff,
   mustSerialize,
   policyRootAllows,
+  policyRootSnapshot,
   routeCapability,
+  type CapabilityLife,
 } from "./run-receipt";
 import { projectWorkspaces } from "../project-workspace-engine";
 
@@ -320,13 +324,30 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             rationale: rationale.slice(0, 180),
           });
           if (!route.ok) return { ok: false, detail: route.reason };
+          const root = policyRootSnapshot();
+          if (!root.ok) return { ok: false, detail: root.reason };
           const policy = policyRootAllows({
             privileged: true,
-            policyVersion: "1",
+            policyVersion: root.version,
+            citedHash: root.hash,
             selfChange: plan["selfChange"] === true,
             sandboxed: plan["sandboxed"] === true,
           });
           if (!policy.ok) return { ok: false, detail: policy.reason };
+          const rawPhase = plan["phase"];
+          const phase: CapabilityLife =
+            rawPhase === "retired" || rawPhase === "quarantined" ? rawPhase : "active";
+          const life = capabilityLifecycleRecord({
+            id: agent.id,
+            phase,
+            version: "1",
+            manifestHash: argumentHash(agent.id),
+            healthEvidence: agent.enabled ? "enabled" : "",
+            authority: "owner",
+            retirementReason:
+              phase === "retired" ? String(plan["retirementReason"] ?? "retired") : "",
+          });
+          if (!life.ok || !life.keepHistory) return { ok: false, detail: life.reason };
           const routed = routeCapability(plan["phase"] === "retired" ? "retired" : "available");
           if (!routed.ok) return { ok: false, detail: routed.reason };
           const rawArtifact = plan["artifact"];

@@ -945,20 +945,100 @@ export function routeCapability(phase: CapabilityPhase | "retired"): {
   return { ok: true, reason: "" };
 }
 
-/** Privileged work and self-change both name a policy. Self-change stays sandboxed. */
+/** Read-only owner policy. A model, skill, or runtime config cannot replace this text. */
+export const POLICY_ROOT_VERSION = "1";
+export const POLICY_ROOT_TEXT =
+  "auto_approve_exec=false; handsFree=false; secrets=safeStorage; privacy=fail-closed; billing=fail-closed; protected=governance";
+
+/** The trusted snapshot. A different text or version is a replaced policy and fails closed. */
+export function policyRootSnapshot(input?: { text?: string; version?: string }): {
+  ok: boolean;
+  version: string;
+  hash: string;
+  reason: string;
+} {
+  const text = input?.text ?? POLICY_ROOT_TEXT;
+  const version = input?.version ?? POLICY_ROOT_VERSION;
+  if (!text.trim() || !version.trim()) {
+    return { ok: false, version: "", hash: "", reason: "policy root is missing" };
+  }
+  if (text !== POLICY_ROOT_TEXT || version !== POLICY_ROOT_VERSION) {
+    return { ok: false, version, hash: "", reason: "policy root was replaced" };
+  }
+  return { ok: true, version, hash: argumentHash(text), reason: "" };
+}
+
+/** Privileged work cites the verified policy. Self-change stays sandboxed. */
 export function policyRootAllows(input: {
   privileged: boolean;
   policyVersion: string;
   selfChange: boolean;
   sandboxed: boolean;
+  citedHash?: string;
 }): { ok: boolean; reason: string } {
+  const root = policyRootSnapshot();
+  if (!root.ok) return { ok: false, reason: root.reason };
   if (input.privileged && !input.policyVersion.trim()) {
     return { ok: false, reason: "privileged action has no policy" };
+  }
+  if (input.privileged && input.policyVersion !== root.version) {
+    return { ok: false, reason: "privileged action cites a different policy" };
+  }
+  if (input.citedHash && input.citedHash !== root.hash) {
+    return { ok: false, reason: "policy root was replaced" };
   }
   if (input.selfChange && !input.sandboxed) {
     return { ok: false, reason: "self-change is not direct" };
   }
   return { ok: true, reason: "" };
+}
+
+export type CapabilityLife =
+  | "discovered"
+  | "validated"
+  | "registered"
+  | "healthy"
+  | "degraded"
+  | "active"
+  | "quarantined"
+  | "retired";
+
+/**
+ * Discovery is not execution. Retirement keeps the record and does not route.
+ * Quarantine is reversible and is not execution either.
+ */
+export function capabilityLifecycleRecord(input: {
+  id: string;
+  phase: CapabilityLife;
+  version: string;
+  manifestHash: string;
+  healthEvidence: string;
+  authority: string;
+  retirementReason: string;
+}): { ok: boolean; reason: string; keepHistory: boolean } {
+  const keepHistory = true;
+  if (!input.id.trim() || !input.version.trim() || !input.manifestHash.trim()) {
+    return { ok: false, reason: "lifecycle record is incomplete", keepHistory };
+  }
+  if (input.phase === "retired") {
+    if (!input.retirementReason.trim()) {
+      return { ok: false, reason: "retirement names a reason", keepHistory };
+    }
+    return { ok: false, reason: "retired capabilities are not routed", keepHistory };
+  }
+  if (input.phase === "quarantined") {
+    return { ok: false, reason: "quarantine is reversible and is not execution", keepHistory };
+  }
+  if (
+    (input.phase === "active" || input.phase === "healthy") &&
+    (!input.healthEvidence.trim() || !input.authority.trim())
+  ) {
+    return { ok: false, reason: "activation needs health and authority", keepHistory };
+  }
+  if (input.phase !== "active") {
+    return { ok: false, reason: "capability is not active", keepHistory };
+  }
+  return { ok: true, reason: "", keepHistory };
 }
 
 /** A failed preview is not a valid artifact. The chat text is not the file. */

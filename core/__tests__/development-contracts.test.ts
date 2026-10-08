@@ -31,13 +31,17 @@ import {
   acceptSelfChange,
   admitResources,
   agentManifest,
+  capabilityLifecycleRecord,
   authorityFromConnection,
   completeHandoff,
   continuityKey,
   executionEnvelope,
   mustSerialize,
   observationCurrent,
+  POLICY_ROOT_TEXT,
+  POLICY_ROOT_VERSION,
   policyRootAllows,
+  policyRootSnapshot,
   retrievalTier,
   routeCapability,
   sealRuntimeEvent,
@@ -658,5 +662,62 @@ describe("development contracts", () => {
     expect(turns).toContain("continuityKey(");
     const forge = fs.readFileSync(path.join(ROOT, "src/lib/friday/self/dev-pipeline.ts"), "utf8");
     expect(forge).toContain("acceptSelfChange(");
+    const root = policyRootSnapshot();
+    expect(root.ok).toBe(true);
+    expect(root.version).toBe(POLICY_ROOT_VERSION);
+    expect(root.hash).toBe(argumentHash(POLICY_ROOT_TEXT));
+    expect(policyRootSnapshot({ text: "replaced" }).reason).toBe("policy root was replaced");
+    expect(
+      policyRootAllows({
+        privileged: true,
+        policyVersion: "2",
+        selfChange: false,
+        sandboxed: true,
+      }).reason,
+    ).toBe("privileged action cites a different policy");
+    expect(
+      policyRootAllows({
+        privileged: true,
+        policyVersion: root.version,
+        citedHash: "other",
+        selfChange: false,
+        sandboxed: true,
+      }).reason,
+    ).toBe("policy root was replaced");
+    const retired = capabilityLifecycleRecord({
+      id: "files",
+      phase: "retired",
+      version: "1",
+      manifestHash: "abc",
+      healthEvidence: "enabled",
+      authority: "owner",
+      retirementReason: "",
+    });
+    expect(retired.keepHistory).toBe(true);
+    expect(retired.reason).toBe("retirement names a reason");
+    expect(
+      capabilityLifecycleRecord({
+        id: "files",
+        phase: "quarantined",
+        version: "1",
+        manifestHash: "abc",
+        healthEvidence: "enabled",
+        authority: "owner",
+        retirementReason: "",
+      }).ok,
+    ).toBe(false);
+    expect(
+      capabilityLifecycleRecord({
+        id: "files",
+        phase: "active",
+        version: "1",
+        manifestHash: "abc",
+        healthEvidence: "enabled",
+        authority: "owner",
+        retirementReason: "",
+      }).ok,
+    ).toBe(true);
+    expect(scheduler).toContain("policyRootSnapshot(");
+    expect(scheduler).toContain("capabilityLifecycleRecord(");
   });
 });

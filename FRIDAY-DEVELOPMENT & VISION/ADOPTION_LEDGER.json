@@ -76,10 +76,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 46,
-    "SUPERSEDED": 221,
+    "DONE": 56,
+    "SUPERSEDED": 223,
     "REJECT": 2,
-    "MISSING": 1842
+    "MISSING": 1830
   },
   "rows": [
     {
@@ -4568,10 +4568,15 @@
       "heading": "02_PACKAGE_STRUCTURE.md",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "config/project-structure.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The package folders are a design index. The live owners are the change-control planes and the project structure. File removed after the test passed.",
       "bytes": 1612
     },
     {
@@ -4580,10 +4585,16 @@
       "heading": "03_FINAL_ARCHITECTURE_PRINCIPLES.md",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "src/lib/friday/brain/priority.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "One brain, one owner, durable state, evidence, policy before effect, yield to foreground work, and provider-independent task state already live in those owners. Mobile is not a second store. File removed after the test passed.",
       "bytes": 1625
     },
     {
@@ -6484,10 +6495,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "capabilityLifecycleRecord. Active needs health and authority. Quarantine does not execute. Retirement keeps history and is not routed. File removed after the test passed.",
       "bytes": 567
     },
     {
@@ -6496,10 +6512,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "capabilityLifecycleRecord. Active needs health and authority. Quarantine does not execute. Retirement keeps history and is not routed. File removed after the test passed.",
       "bytes": 567
     },
     {
@@ -6508,10 +6529,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "capabilityLifecycleRecord. Active needs health and authority. Quarantine does not execute. Retirement keeps history and is not routed. File removed after the test passed.",
       "bytes": 567
     },
     {
@@ -6520,10 +6546,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "capabilityLifecycleRecord. Active needs health and authority. Quarantine does not execute. Retirement keeps history and is not routed. File removed after the test passed.",
       "bytes": 567
     },
     {
@@ -6532,10 +6563,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "capabilityLifecycleRecord. Active needs health and authority. Quarantine does not execute. Retirement keeps history and is not routed. File removed after the test passed.",
       "bytes": 567
     },
     {
@@ -8213,10 +8249,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "policyRootSnapshot hashes the fixed owner policy. A replaced text or a mismatched hash fails closed. File removed after the test passed.",
       "bytes": 895
     },
     {
@@ -8225,10 +8266,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "policyRootSnapshot hashes the fixed owner policy. A replaced text or a mismatched hash fails closed. File removed after the test passed.",
       "bytes": 895
     },
     {
@@ -8237,10 +8283,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "policyRootSnapshot hashes the fixed owner policy. A replaced text or a mismatched hash fails closed. File removed after the test passed.",
       "bytes": 895
     },
     {
@@ -8249,10 +8300,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "policyRootSnapshot hashes the fixed owner policy. A replaced text or a mismatched hash fails closed. File removed after the test passed.",
       "bytes": 895
     },
     {
@@ -8261,10 +8317,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "policyRootSnapshot hashes the fixed owner policy. A replaced text or a mismatched hash fails closed. File removed after the test passed.",
       "bytes": 895
     },
     {

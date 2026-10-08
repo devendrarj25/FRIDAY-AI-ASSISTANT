@@ -75,6 +75,8 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Self-change | Files, tests, and rollback are required. A direct promotion is refused. The apply stays sandboxed on the existing pipeline. |
 | Resource admission | Extra concurrency is refused, then quality is reduced, before a safety break. |
 | Failure domain | Model, tool, browser, device, network, task, and artifact share one classifier. Disk-full, permission, clock, and corrupt faults do not retry. |
+| Policy root | The owner policy text and version are fixed. A replaced text, a different version, or a mismatched hash fails closed before a privileged action. |
+| Capability life | Active needs health and authority. Quarantine does not execute and stays reversible. Retirement keeps the record and is not routed. |
 
 ## Research (2026-10-08)
 
