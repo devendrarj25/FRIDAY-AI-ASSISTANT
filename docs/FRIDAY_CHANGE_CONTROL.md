@@ -69,6 +69,12 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Capability phase | Registered is not healthy. Healthy is not authorized. Authorized is not execution. |
 | Evaluation | Completion, facts, tools, authorization, verification, latency, tokens, cost, recovery, and user control. Deterministic. No provider call. |
 | Knowledge clash | A contradiction is kept as two rows unless an explicit correction may supersede. A first-run row is protected. |
+| Execution chain | Turn, conversation, task, plan, route, capability, action, result, and a passed verification. Chat and voice share the conversation id. Mobile is not a second store. An incomplete chain stays unverified. |
+| Route decision | Selected path, policy version, and confidence. Private reasoning is refused. An unscoped id is not selected. A retired capability is not routed. |
+| Artifact | Id, type, mime, path, generator, checksum, size, sensitivity, and a passed validation. A failed preview is not a valid file. |
+| Self-change | Files, tests, and rollback are required. A direct promotion is refused. The apply stays sandboxed on the existing pipeline. |
+| Resource admission | Extra concurrency is refused, then quality is reduced, before a safety break. |
+| Failure domain | Model, tool, browser, device, network, task, and artifact share one classifier. Disk-full, permission, clock, and corrupt faults do not retry. |
 
 ## Research (2026-10-08)
 
@@ -107,6 +113,8 @@ SOURCE_READY means this checkout passes typecheck, lint, unit tests, and the doc
 The tool floor lives in `config/toolchain-versions.json`. A brain change re-runs brain, retrieval, and memory tests. A tool change re-runs authority, execution, and verification. A lifecycle change re-runs install, update, and recovery tests.
 
 Research checked 2026-09, freshness unverified this session: [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ADAPT (the context packet already drops stale and redundant lines). [MCP](https://modelcontextprotocol.io/) ADAPT (a connector stays under FRIDAY authority). [A2A v1.0](https://a2a-protocol.org/v1.0.0/) REJECT (no second agent protocol). [OWASP GenAI](https://genai.owasp.org/) ADOPT (model output and external content stay data). [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) ADOPT (the existing sandbox and preload boundary stay). [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) ADAPT (release artifacts stay integrity-checked in the existing publish path).
+
+Research checked 2026-10-08: [CALM-MAS](https://dl.acm.org/doi/10.1145/3838177.3841735) ADAPT (lower concurrency and quality before a safety break; no second serving stack). [Cognitive admission control](https://arxiv.org/abs/2609.16313) ADAPT (a privileged action with missing evidence does not run). [OpenTelemetry GenAI spans](https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/gen-ai/gen-ai-spans.md) ADAPT (model and tool faults share the existing task log; no collector). [ISACA agent change management](https://www.isaca.org/resources/white-papers/2026/cybersecurity-recommendations-for-securing-ai-agents) ADOPT (a self-change names files, tests, and rollback). The unapproved `gen_ai.repair` span proposal is REJECT (recovery already lives on `recoverFailure`).
 
 ## Definition of done
 

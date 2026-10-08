@@ -47,6 +47,30 @@ export function classifyFailure(message: string, code = ""): FailureKind {
   return "other";
 }
 
+export type FailureDomain =
+  "model" | "tool" | "browser" | "device" | "network" | "task" | "artifact" | "other";
+
+const DOMAIN_MODEL = /\b(model|provider|429|quota)\b/i;
+const DOMAIN_BROWSER = /\b(browser|page|dom|redirect)\b/i;
+const DOMAIN_DEVICE = /\b(microphone|camera|device|audio)\b/i;
+const DOMAIN_NETWORK = /\b(network|offline|econnrefused|timeout|dns)\b/i;
+const DOMAIN_ARTIFACT = /\b(artifact|checksum|mime)\b/i;
+const DOMAIN_TOOL = /\b(tool|runner)\b/i;
+const DOMAIN_TASK = /\b(task|graph|checkpoint)\b/i;
+
+/** One domain for model, tool, browser, device, network, task, and artifact faults. */
+export function failureDomain(message: string, code = ""): FailureDomain {
+  const text = `${code} ${message}`;
+  if (DOMAIN_BROWSER.test(text)) return "browser";
+  if (DOMAIN_DEVICE.test(text)) return "device";
+  if (DOMAIN_NETWORK.test(text)) return "network";
+  if (DOMAIN_ARTIFACT.test(text)) return "artifact";
+  if (DOMAIN_MODEL.test(text)) return "model";
+  if (DOMAIN_TOOL.test(text)) return "tool";
+  if (DOMAIN_TASK.test(text)) return "task";
+  return "other";
+}
+
 /** What to do next. A provider fault retries once, then falls back. */
 export function recoverFailure(kind: FailureKind, attempts = 0): Recovery {
   if (kind === "kernel-crash") {

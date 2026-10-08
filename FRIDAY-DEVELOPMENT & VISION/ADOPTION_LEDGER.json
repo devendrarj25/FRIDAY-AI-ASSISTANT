@@ -76,10 +76,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 27,
-    "SUPERSEDED": 210,
+    "DONE": 46,
+    "SUPERSEDED": 221,
     "REJECT": 2,
-    "MISSING": 1872
+    "MISSING": 1842
   },
   "rows": [
     {
@@ -4398,10 +4398,15 @@
       "heading": "Authority order",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Authority order and non-negotiables already live in AGENTS.md and the change gate. File removed after the test passed.",
       "bytes": 2256
     },
     {
@@ -4410,10 +4415,15 @@
       "heading": "Non-negotiables",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Authority order and non-negotiables already live in AGENTS.md and the change gate. File removed after the test passed.",
       "bytes": 2256
     },
     {
@@ -4422,10 +4432,15 @@
       "heading": "What the implementing AI must do",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Authority order and non-negotiables already live in AGENTS.md and the change gate. File removed after the test passed.",
       "bytes": 2256
     },
     {
@@ -4434,10 +4449,15 @@
       "heading": "Preservation",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4446,10 +4466,15 @@
       "heading": "Source-of-truth discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4458,10 +4483,15 @@
       "heading": "Build discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4470,10 +4500,15 @@
       "heading": "Security discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4482,10 +4517,15 @@
       "heading": "Self-change discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4494,10 +4534,15 @@
       "heading": "Data discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4506,10 +4551,15 @@
       "heading": "UX discipline",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Preservation, one owner, protected build paths, brokered execution, staged self-change, separated stores, and no screen redesign already live in AGENTS.md. File removed after the test passed.",
       "bytes": 1514
     },
     {
@@ -4590,10 +4640,17 @@
       "heading": "Highest priority gaps",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "src/lib/friday/self/agent-scheduler.ts",
+        "src/lib/friday/failure-guard.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Execution chain, route record, artifact check, self-change gate, resource admission, and failure domain are called from the task graph, the agent scheduler, conversation state, and the self-change pipeline. File removed after the test passed.",
       "bytes": 1438
     },
     {
@@ -5826,10 +5883,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision records the selected path and refuses private reasoning and an unscoped id. File removed after the test passed.",
       "bytes": 834
     },
     {
@@ -5838,10 +5900,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision records the selected path and refuses private reasoning and an unscoped id. File removed after the test passed.",
       "bytes": 834
     },
     {
@@ -5850,10 +5917,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision records the selected path and refuses private reasoning and an unscoped id. File removed after the test passed.",
       "bytes": 834
     },
     {
@@ -5862,10 +5934,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision records the selected path and refuses private reasoning and an unscoped id. File removed after the test passed.",
       "bytes": 834
     },
     {
@@ -5874,10 +5951,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision records the selected path and refuses private reasoning and an unscoped id. File removed after the test passed.",
       "bytes": 834
     },
     {
@@ -6738,10 +6820,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptArtifact requires identity, checksum, and a passed validation. A failed preview is not valid. File removed after the test passed.",
       "bytes": 816
     },
     {
@@ -6750,10 +6837,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptArtifact requires identity, checksum, and a passed validation. A failed preview is not valid. File removed after the test passed.",
       "bytes": 816
     },
     {
@@ -6762,10 +6854,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptArtifact requires identity, checksum, and a passed validation. A failed preview is not valid. File removed after the test passed.",
       "bytes": 816
     },
     {
@@ -6774,10 +6871,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptArtifact requires identity, checksum, and a passed validation. A failed preview is not valid. File removed after the test passed.",
       "bytes": 816
     },
     {
@@ -6786,10 +6888,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptArtifact requires identity, checksum, and a passed validation. A failed preview is not valid. File removed after the test passed.",
       "bytes": 816
     },
     {
@@ -8778,10 +8885,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "admitResources refuses extra concurrency and reduces quality before a safety break. File removed after the test passed.",
       "bytes": 585
     },
     {
@@ -8790,10 +8902,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "admitResources refuses extra concurrency and reduces quality before a safety break. File removed after the test passed.",
       "bytes": 585
     },
     {
@@ -8802,10 +8919,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "admitResources refuses extra concurrency and reduces quality before a safety break. File removed after the test passed.",
       "bytes": 585
     },
     {
@@ -8814,10 +8936,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "admitResources refuses extra concurrency and reduces quality before a safety break. File removed after the test passed.",
       "bytes": 585
     },
     {
@@ -8826,10 +8953,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "admitResources refuses extra concurrency and reduces quality before a safety break. File removed after the test passed.",
       "bytes": 585
     },
     {
@@ -9294,10 +9426,15 @@
       "heading": "route-decision.schema.json",
       "area": "vision:01-SYSTEM",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptRouteDecision. File removed after the test passed.",
       "bytes": 509
     },
     {
@@ -9306,10 +9443,15 @@
       "heading": "self-change.schema.json",
       "area": "vision:01-SYSTEM",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/dev-pipeline.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptSelfChange requires files, tests, and rollback, and refuses a direct promotion. File removed after the test passed.",
       "bytes": 467
     },
     {
@@ -9318,10 +9460,15 @@
       "heading": "task.schema.json",
       "area": "vision:01-SYSTEM",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/task-graph.ts",
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph already owns task id, objective, and state. Policy version is on the execution envelope. File removed after the test passed.",
       "bytes": 438
     },
     {
@@ -9330,10 +9477,15 @@
       "heading": "turn-envelope.schema.json",
       "area": "vision:01-SYSTEM",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/brain/conversation-state.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "executionEnvelope and continuityKey. Chat and voice share one conversation id. Mobile is refused. File removed after the test passed.",
       "bytes": 463
     },
     {

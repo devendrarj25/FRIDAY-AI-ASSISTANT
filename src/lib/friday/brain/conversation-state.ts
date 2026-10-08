@@ -18,6 +18,7 @@
 import { writeState, readLocalState } from "../persist";
 import { consolidateEvent } from "../self/memory-consolidate";
 import { memory } from "../self/memory-engine";
+import { continuityKey } from "../self/run-receipt";
 import { graphProgress, taskGraph } from "../self/task-graph";
 import { retrievalTerms, termJaccard } from "./retrieval";
 
@@ -622,7 +623,12 @@ export function persistAndResetConversation(): void {
   resetConversationSession();
 }
 
-export function noteUserTurn(text: string): ConversationSession {
+export function noteUserTurn(
+  text: string,
+  endpoint: "chat" | "voice" | "system" = "chat",
+): ConversationSession {
+  const continuity = continuityKey(endpoint, session.id);
+  if (!continuity.ok) return session;
   const value = String(text || "").trim();
   if (!value) return session;
   decayConversationState();

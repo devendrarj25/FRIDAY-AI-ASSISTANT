@@ -17,6 +17,7 @@
  * the inspection stage instead of pretending anything was built.
  */
 
+import { acceptSelfChange } from "./run-receipt";
 import { governance, protectedPolicyPaths, type GovRisk } from "./governance";
 import { adviseDependencies, ciReport, proposeDiff, registerSkill, scaffold } from "./own-work";
 import { ledger } from "./task-ledger";
@@ -632,6 +633,16 @@ class DevPipeline {
           : `${impact.files.length} file(s), verdict ${impact.verdict}`,
       }),
       apply: async () => {
+        const proposal = acceptSelfChange({
+          proposal_id: impact.id || runId,
+          scope: request.slice(0, 120) || "self-change",
+          files: impact.files.map((file) => file.path).filter((file) => file.trim()),
+          tests: ["core/__tests__/development-contracts.test.ts"],
+          rollback: "restore the backup taken before apply",
+          risk: riskForVerdict(impact.verdict) || "review",
+          status: "sandboxed",
+        });
+        if (!proposal.ok) return { ok: false, detail: proposal.reason };
         const result = await selfApply(impact.id, "manual");
         backup = result.backup;
         if (result.backup) {

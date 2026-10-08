@@ -13,12 +13,16 @@ import { personalDesk } from "../personal-desk";
 import { listCapabilities } from "../capability-trees";
 import { planAgent, runAgent } from "../agent-runtime";
 import {
+  acceptArtifact,
+  acceptRouteDecision,
   agentManifest,
   authorityFromConnection,
   capabilityMayRun,
   childStaysInsideParent,
   completeHandoff,
   mustSerialize,
+  policyRootAllows,
+  routeCapability,
 } from "./run-receipt";
 import { projectWorkspaces } from "../project-workspace-engine";
 
@@ -304,6 +308,32 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             true,
           );
           if (!runnable.ok) return { ok: false, detail: runnable.reason };
+          const route = acceptRouteDecision({
+            routeId: agent.id,
+            taskId: id,
+            selected: [{ kind: "agent", id: agent.id }],
+            alternatives: Array.isArray(plan["alternatives"])
+              ? plan["alternatives"].map((item) => String(item))
+              : [],
+            policyVersion: "1",
+            confidence: 1,
+            rationale: rationale.slice(0, 180),
+          });
+          if (!route.ok) return { ok: false, detail: route.reason };
+          const policy = policyRootAllows({
+            privileged: true,
+            policyVersion: "1",
+            selfChange: plan["selfChange"] === true,
+            sandboxed: plan["sandboxed"] === true,
+          });
+          if (!policy.ok) return { ok: false, detail: policy.reason };
+          const routed = routeCapability(plan["phase"] === "retired" ? "retired" : "available");
+          if (!routed.ok) return { ok: false, detail: routed.reason };
+          const rawArtifact = plan["artifact"];
+          if (rawArtifact && typeof rawArtifact === "object") {
+            const artifact = acceptArtifact(rawArtifact as Record<string, unknown>);
+            if (!artifact.ok) return { ok: false, detail: artifact.reason };
+          }
           const result = await host.runAgent(agent.id, { ...input, dryRun: false, approved: true });
           const packet = completeHandoff({
             result: result.ok ? "agent run applied after owner approval" : "failed",

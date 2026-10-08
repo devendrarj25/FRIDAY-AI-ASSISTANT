@@ -850,3 +850,174 @@ export function traceSpan(eventType: string): string {
   if (name.includes("task")) return "task";
   return "turn";
 }
+
+export type TurnEndpoint = "chat" | "voice" | "mobile" | "system";
+
+/** Chat and voice share one conversation id. Mobile is not a second store. */
+export function continuityKey(
+  endpoint: TurnEndpoint,
+  conversationId: string,
+): { ok: boolean; key: string; reason: string } {
+  if (endpoint === "mobile") {
+    return { ok: false, key: "", reason: "mobile is not a second conversation store" };
+  }
+  const key = conversationId.trim();
+  if (!key) return { ok: false, key: "", reason: "conversation is missing" };
+  return { ok: true, key, reason: "" };
+}
+
+/**
+ * One chain from the turn through verification. An incomplete chain, or a
+ * chain whose verification did not pass, is not a finished execution.
+ */
+export function executionEnvelope(input: {
+  turnId: string;
+  conversationId: string;
+  endpoint: TurnEndpoint;
+  taskId: string;
+  planId: string;
+  routeId: string;
+  capabilityId: string;
+  actionId: string;
+  result: string;
+  verified: boolean;
+  policyVersion: string;
+}): { ok: boolean; reason: string } {
+  const continuity = continuityKey(input.endpoint, input.conversationId);
+  if (!continuity.ok) return { ok: false, reason: continuity.reason };
+  const links = [
+    input.turnId,
+    input.taskId,
+    input.planId,
+    input.routeId,
+    input.capabilityId,
+    input.actionId,
+    input.result,
+    input.policyVersion,
+  ];
+  if (links.some((item) => !item.trim())) {
+    return { ok: false, reason: "execution chain is incomplete" };
+  }
+  if (!input.verified) return { ok: false, reason: "verification did not pass" };
+  return { ok: true, reason: "" };
+}
+
+const PRIVATE_REASONING = /chain[- ]of[- ]thought/i;
+
+/** The selected path, without private reasoning, and never an unscoped id. */
+export function acceptRouteDecision(input: {
+  routeId: string;
+  taskId: string;
+  selected: { kind: string; id: string }[];
+  alternatives: string[];
+  policyVersion: string;
+  confidence: number;
+  rationale: string;
+}): { ok: boolean; reason: string } {
+  if (!input.routeId.trim() || !input.taskId.trim() || !input.policyVersion.trim()) {
+    return { ok: false, reason: "route record is incomplete" };
+  }
+  if (
+    !input.selected.length ||
+    input.selected.some((item) => !item.kind.trim() || !item.id.trim())
+  ) {
+    return { ok: false, reason: "selected path is incomplete" };
+  }
+  if (input.confidence < 0 || input.confidence > 1) {
+    return { ok: false, reason: "confidence is out of range" };
+  }
+  if (PRIVATE_REASONING.test(input.rationale)) {
+    return { ok: false, reason: "route record exposed private reasoning" };
+  }
+  if (input.selected.some((item) => item.id.startsWith("unscoped:"))) {
+    return { ok: false, reason: "selected path lacks policy scope" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/** Retired capabilities are not routed. Only available is. */
+export function routeCapability(phase: CapabilityPhase | "retired"): {
+  ok: boolean;
+  reason: string;
+} {
+  if (phase === "retired") return { ok: false, reason: "retired capabilities are not routed" };
+  if (phase !== "available") return { ok: false, reason: "only an available capability is routed" };
+  return { ok: true, reason: "" };
+}
+
+/** Privileged work and self-change both name a policy. Self-change stays sandboxed. */
+export function policyRootAllows(input: {
+  privileged: boolean;
+  policyVersion: string;
+  selfChange: boolean;
+  sandboxed: boolean;
+}): { ok: boolean; reason: string } {
+  if (input.privileged && !input.policyVersion.trim()) {
+    return { ok: false, reason: "privileged action has no policy" };
+  }
+  if (input.selfChange && !input.sandboxed) {
+    return { ok: false, reason: "self-change is not direct" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/** A failed preview is not a valid artifact. The chat text is not the file. */
+export function acceptArtifact(raw: Record<string, unknown>): { ok: boolean; reason: string } {
+  for (const key of ["id", "type", "mime", "path", "generator", "checksum", "sensitivity"]) {
+    if (!text(raw, key)) return { ok: false, reason: `artifact missing ${key}` };
+  }
+  if (typeof raw["size"] !== "number" || raw["size"] < 0) {
+    return { ok: false, reason: "artifact size is missing" };
+  }
+  if (raw["validation"] !== "passed") {
+    return { ok: false, reason: "a failed preview is not a valid artifact" };
+  }
+  return { ok: true, reason: "" };
+}
+
+const SELF_CHANGE_STATUS = [
+  "proposed",
+  "sandboxed",
+  "tested",
+  "reviewed",
+  "canary",
+  "rejected",
+  "rolled_back",
+] as const;
+
+/** Files, tests, and rollback are required. Promotion is not a direct apply. */
+export function acceptSelfChange(raw: Record<string, unknown>): { ok: boolean; reason: string } {
+  for (const key of ["proposal_id", "scope", "rollback", "risk"]) {
+    if (!text(raw, key)) return { ok: false, reason: `self-change missing ${key}` };
+  }
+  if (!Array.isArray(raw["files"]) || raw["files"].length === 0) {
+    return { ok: false, reason: "self-change names no files" };
+  }
+  if (!Array.isArray(raw["tests"]) || raw["tests"].length === 0) {
+    return { ok: false, reason: "self-change names no tests" };
+  }
+  const status = String(raw["status"] ?? "proposed");
+  if (status === "promoted") return { ok: false, reason: "promotion is not a direct apply" };
+  if (!SELF_CHANGE_STATUS.includes(status as (typeof SELF_CHANGE_STATUS)[number])) {
+    return { ok: false, reason: "self-change status is unknown" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/**
+ * Drop extra concurrency, then drop quality, before a safety or data rule is broken.
+ * A full-quality run is allowed only inside the limit and outside the constraint.
+ */
+export function admitResources(input: {
+  concurrent: number;
+  limit: number;
+  constrained: boolean;
+}): { run: boolean; quality: "full" | "reduced"; reason: string } {
+  if (input.concurrent > input.limit) {
+    return { run: false, quality: "reduced", reason: "concurrency reduced before a safety break" };
+  }
+  if (input.constrained) {
+    return { run: true, quality: "reduced", reason: "quality reduced before a safety break" };
+  }
+  return { run: true, quality: "full", reason: "" };
+}

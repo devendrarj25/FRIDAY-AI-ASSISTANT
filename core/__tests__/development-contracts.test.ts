@@ -26,15 +26,24 @@ import {
   resetRuntimeEvents,
   revalidateApproval,
   scoreEvaluation,
+  acceptArtifact,
+  acceptRouteDecision,
+  acceptSelfChange,
+  admitResources,
   agentManifest,
   authorityFromConnection,
   completeHandoff,
+  continuityKey,
+  executionEnvelope,
   mustSerialize,
   observationCurrent,
+  policyRootAllows,
   retrievalTier,
+  routeCapability,
   sealRuntimeEvent,
   traceSpan,
 } from "../../src/lib/friday/self/run-receipt";
+import { failureDomain } from "../../src/lib/friday/failure-guard";
 
 const ROOT = path.resolve(__dirname, "../..");
 const require = createRequire(import.meta.url);
@@ -522,5 +531,132 @@ describe("development contracts", () => {
     );
     const storage = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_STORAGE_CONTRACT.md"), "utf8");
     expect(storage).toContain("FRIDAY_ROOT");
+  });
+
+  it("keeps one execution chain, a scoped route, and a checked artifact", () => {
+    expect(
+      executionEnvelope({
+        turnId: "turn",
+        conversationId: "talk",
+        endpoint: "chat",
+        taskId: "task",
+        planId: "plan",
+        routeId: "route",
+        capabilityId: "files",
+        actionId: "act",
+        result: "wrote the note",
+        verified: true,
+        policyVersion: "1",
+      }).ok,
+    ).toBe(true);
+    expect(
+      executionEnvelope({
+        turnId: "turn",
+        conversationId: "talk",
+        endpoint: "voice",
+        taskId: "task",
+        planId: "plan",
+        routeId: "route",
+        capabilityId: "files",
+        actionId: "act",
+        result: "wrote the note",
+        verified: false,
+        policyVersion: "1",
+      }).reason,
+    ).toBe("verification did not pass");
+    expect(continuityKey("mobile", "talk").ok).toBe(false);
+    expect(continuityKey("chat", "talk").key).toBe("talk");
+    expect(continuityKey("voice", "talk").key).toBe("talk");
+    expect(
+      acceptRouteDecision({
+        routeId: "route",
+        taskId: "task",
+        selected: [{ kind: "agent", id: "unscoped:remote" }],
+        alternatives: [],
+        policyVersion: "1",
+        confidence: 1,
+        rationale: "use the local agent",
+      }).reason,
+    ).toBe("selected path lacks policy scope");
+    expect(
+      acceptRouteDecision({
+        routeId: "route",
+        taskId: "task",
+        selected: [{ kind: "agent", id: "files" }],
+        alternatives: [],
+        policyVersion: "1",
+        confidence: 1,
+        rationale: "chain-of-thought: first I would...",
+      }).ok,
+    ).toBe(false);
+    expect(routeCapability("retired").ok).toBe(false);
+    expect(routeCapability("available").ok).toBe(true);
+    expect(
+      policyRootAllows({
+        privileged: true,
+        policyVersion: "1",
+        selfChange: true,
+        sandboxed: false,
+      }).reason,
+    ).toBe("self-change is not direct");
+    expect(
+      acceptArtifact({
+        id: "art",
+        type: "note",
+        mime: "text/plain",
+        path: "notes.txt",
+        generator: "files",
+        checksum: "abc",
+        size: 12,
+        sensitivity: "internal",
+        validation: "failed",
+      }).reason,
+    ).toBe("a failed preview is not a valid artifact");
+    expect(
+      acceptArtifact({
+        id: "art",
+        type: "note",
+        mime: "text/plain",
+        path: "notes.txt",
+        generator: "files",
+        checksum: "abc",
+        size: 12,
+        sensitivity: "internal",
+        validation: "passed",
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptSelfChange({
+        proposal_id: "p",
+        scope: "notes",
+        files: ["src/lib/friday/self/run-receipt.ts"],
+        tests: ["core/__tests__/development-contracts.test.ts"],
+        rollback: "restore the backup",
+        risk: "review",
+        status: "promoted",
+      }).reason,
+    ).toBe("promotion is not a direct apply");
+    expect(admitResources({ concurrent: 2, limit: 1, constrained: false }).run).toBe(false);
+    expect(admitResources({ concurrent: 1, limit: 1, constrained: true }).quality).toBe("reduced");
+    expect(failureDomain("checksum mismatch on the artifact")).toBe("artifact");
+    expect(failureDomain("provider 429")).toBe("model");
+    expect(failureDomain("browser redirect")).toBe("browser");
+    const graph = fs.readFileSync(path.join(ROOT, "src/lib/friday/self/task-graph.ts"), "utf8");
+    expect(graph).toContain("executionEnvelope(");
+    expect(graph).toContain("admitResources(");
+    expect(graph).toContain("classifyFailure(");
+    const scheduler = fs.readFileSync(
+      path.join(ROOT, "src/lib/friday/self/agent-scheduler.ts"),
+      "utf8",
+    );
+    expect(scheduler).toContain("acceptRouteDecision(");
+    expect(scheduler).toContain("acceptArtifact(");
+    const turns = fs.readFileSync(
+      path.join(ROOT, "src/lib/friday/brain/conversation-state.ts"),
+      "utf8",
+    );
+    expect(turns).toContain("continuityKey(");
+    const forge = fs.readFileSync(path.join(ROOT, "src/lib/friday/self/dev-pipeline.ts"), "utf8");
+    expect(forge).toContain("acceptSelfChange(");
   });
 });
