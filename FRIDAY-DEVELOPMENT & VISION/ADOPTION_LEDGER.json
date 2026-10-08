@@ -18,16 +18,16 @@
     "hostedActions": "unverified"
   },
   "inventory": {
-    "files": 626,
-    "bytes": 1096253,
+    "files": 574,
+    "bytes": 1007224,
     "byType": {
       "index": 1,
-      "process": 13,
-      "behaviour": 330,
-      "research": 45,
-      "manifest": 9,
-      "schema": 110,
-      "diagram": 118
+      "process": 11,
+      "behaviour": 303,
+      "research": 41,
+      "manifest": 7,
+      "schema": 100,
+      "diagram": 111
     },
     "byArea": {
       "development:01_SOURCE_ROUTING": 1,
@@ -35,11 +35,10 @@
       "development:14_TEMPLATES": 1,
       "layer-root": 5,
       "vision:01-SYSTEM": 194,
-      "vision:05-AUTONOMY-LEARNING-EVOLUTION": 52,
       "vision:06-CAPABILITY-FEATURES": 209,
       "vision:07-INTERACTION": 163
     },
-    "filesIncludingLedger": 628,
+    "filesIncludingLedger": 576,
     "checked": "2026-10-08"
   },
   "order": [
@@ -55,7 +54,8 @@
     "AREAS/06-CAPABILITY",
     "AREAS/07-INTERACTION",
     "top-level PRD TRD schema UI",
-    "AREAS/04-MODELS-ROUTING absorbed"
+    "AREAS/04-MODELS-ROUTING absorbed",
+    "AREAS/05-AUTONOMY absorbed"
   ],
   "lockedBatches": [
     "vision 02-LIFECYCLE",
@@ -63,10 +63,10 @@
     "vision 04-OPERATIONS"
   ],
   "totals": {
-    "DONE": 96,
-    "SUPERSEDED": 473,
-    "REJECT": 14,
-    "MISSING": 1525
+    "DONE": 103,
+    "SUPERSEDED": 633,
+    "REJECT": 30,
+    "MISSING": 1342
   },
   "rows": [
     {
@@ -16479,11 +16479,20 @@
       "heading": "AREA-MANIFEST.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4801
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4801,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0941",
@@ -16491,11 +16500,20 @@
       "heading": "What the coding AI must understand",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2341
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2341,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0942",
@@ -16503,11 +16521,20 @@
       "heading": "Existing foundation to extend",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2341
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2341,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0943",
@@ -16515,11 +16542,20 @@
       "heading": "Main problem to solve",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2341
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 2341,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0944",
@@ -16527,11 +16563,20 @@
       "heading": "Do not do",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2341
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 2341,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E0945",
@@ -16539,11 +16584,20 @@
       "heading": "INTEGRATION_MAP.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1818
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1818,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0946",
@@ -16572,11 +16626,20 @@
       "heading": "Existing autonomy",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0948",
@@ -16584,11 +16647,20 @@
       "heading": "Existing autonomous core",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/autonomous-core.ts"
+      ],
+      "tests": [
+        "core/__tests__/agent-scheduler.test.ts"
+      ],
+      "notes": "Background planning still runs on the existing idle cycle and does not skip the dial.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/agent-scheduler.test.ts",
+        "name": "the autonomous-core idle cycle calls plan() even when autonomy is off",
+        "caller": "src/lib/friday/self/autonomous-core.ts"
+      }
     },
     {
       "id": "E0949",
@@ -16596,11 +16668,20 @@
       "heading": "Existing learning",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0950",
@@ -16608,11 +16689,20 @@
       "heading": "Existing local fine-tuning",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0951",
@@ -16620,11 +16710,20 @@
       "heading": "Existing capability learning",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0952",
@@ -16632,11 +16731,20 @@
       "heading": "Existing self-development",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0953",
@@ -16644,11 +16752,20 @@
       "heading": "Existing governance",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0954",
@@ -16656,11 +16773,20 @@
       "heading": "Existing tests",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2880
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2880,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0955",
@@ -16668,11 +16794,20 @@
       "heading": "AIOS pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0956",
@@ -16680,11 +16815,20 @@
       "heading": "MemGPT/Letta pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0957",
@@ -16692,11 +16836,20 @@
       "heading": "Voyager pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "The Voyager idea kept here is the next reachable band. Open-ended skill search was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0958",
@@ -16704,11 +16857,20 @@
       "heading": "Reflexion / Self-Refine pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0959",
@@ -16716,11 +16878,20 @@
       "heading": "SWE-agent / OpenHands pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0960",
@@ -16728,11 +16899,20 @@
       "heading": "DSPy / MIPRO / GEPA pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0961",
@@ -16740,11 +16920,20 @@
       "heading": "AFlow / ADAS pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0962",
@@ -16752,10 +16941,12 @@
       "heading": "AlphaEvolve pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A population code-evolution loop was not added.",
       "bytes": 2577
     },
     {
@@ -16764,10 +16955,12 @@
       "heading": "Darwin G\u00f6del Machine / Hyperagents pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A self-rewriting production agent was not added.",
       "bytes": 2577
     },
     {
@@ -16776,11 +16969,20 @@
       "heading": "AI Scientist-v2 pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0965",
@@ -16788,11 +16990,20 @@
       "heading": "LangMem / Graphiti pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2577
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2577,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0966",
@@ -16800,11 +17011,20 @@
       "heading": "The five planes",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0967",
@@ -16812,11 +17032,20 @@
       "heading": "1. Autonomy Plane",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0968",
@@ -16824,11 +17053,20 @@
       "heading": "2. Learning Plane",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0969",
@@ -16836,11 +17074,20 @@
       "heading": "3. Growth Plane",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0970",
@@ -16848,11 +17095,20 @@
       "heading": "4. Development Plane",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0971",
@@ -16860,11 +17116,20 @@
       "heading": "5. Evolution Plane",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0972",
@@ -16872,11 +17137,20 @@
       "heading": "Shared kernel",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0973",
@@ -16884,11 +17158,20 @@
       "heading": "Hot path vs background",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/autonomous-core.ts"
+      ],
+      "tests": [
+        "core/__tests__/agent-scheduler.test.ts"
+      ],
+      "notes": "Background planning still runs on the existing idle cycle and does not skip the dial.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/agent-scheduler.test.ts",
+        "name": "the autonomous-core idle cycle calls plan() even when autonomy is off",
+        "caller": "src/lib/friday/self/autonomous-core.ts"
+      }
     },
     {
       "id": "E0974",
@@ -16896,11 +17179,20 @@
       "heading": "Improvement hierarchy",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0975",
@@ -16908,11 +17200,20 @@
       "heading": "Central loop",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1881
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1881,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0976",
@@ -16920,11 +17221,20 @@
       "heading": "Candidate lifecycle",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 690
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 690,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0977",
@@ -16932,11 +17242,20 @@
       "heading": "Autonomy levels",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0978",
@@ -16944,11 +17263,20 @@
       "heading": "L0 \u2014 Assist",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/computer-use.ts"
+      ],
+      "tests": [
+        "core/__tests__/computer-use.test.ts"
+      ],
+      "notes": "Safe reversible work still asks on Balanced and stops on the budget.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/computer-use.test.ts",
+        "name": "asks on Balanced, stops on a step budget, and resumes without repeating a finished action",
+        "caller": "src/lib/friday/self/computer-use.ts"
+      }
     },
     {
       "id": "E0979",
@@ -16956,11 +17284,20 @@
       "heading": "L1 \u2014 Reactive",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/computer-use.ts"
+      ],
+      "tests": [
+        "core/__tests__/computer-use.test.ts"
+      ],
+      "notes": "Safe reversible work still asks on Balanced and stops on the budget.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/computer-use.test.ts",
+        "name": "asks on Balanced, stops on a step budget, and resumes without repeating a finished action",
+        "caller": "src/lib/friday/self/computer-use.ts"
+      }
     },
     {
       "id": "E0980",
@@ -16968,11 +17305,20 @@
       "heading": "L2 \u2014 Background",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/autonomous-core.ts"
+      ],
+      "tests": [
+        "core/__tests__/agent-scheduler.test.ts"
+      ],
+      "notes": "Background planning still runs on the existing idle cycle and does not skip the dial.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/agent-scheduler.test.ts",
+        "name": "the autonomous-core idle cycle calls plan() even when autonomy is off",
+        "caller": "src/lib/friday/self/autonomous-core.ts"
+      }
     },
     {
       "id": "E0981",
@@ -16980,11 +17326,20 @@
       "heading": "L3 \u2014 Delegated",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0982",
@@ -16992,11 +17347,20 @@
       "heading": "L4 \u2014 Improvement",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0983",
@@ -17004,10 +17368,12 @@
       "heading": "L5 \u2014 Evolution Lab",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "An evolution lab with population search was not added. It does not receive production privileges.",
       "bytes": 1426
     },
     {
@@ -17016,11 +17382,20 @@
       "heading": "Scoped autonomy",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0985",
@@ -17028,11 +17403,20 @@
       "heading": "Autonomy budget",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1426
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1426,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0986",
@@ -17040,11 +17424,20 @@
       "heading": "Auto-allowed candidates",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 955
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/computer-use.ts"
+      ],
+      "tests": [
+        "core/__tests__/computer-use.test.ts"
+      ],
+      "notes": "Safe reversible work still asks on Balanced and stops on the budget.",
+      "bytes": 955,
+      "evidence": {
+        "test": "core/__tests__/computer-use.test.ts",
+        "name": "asks on Balanced, stops on a step budget, and resumes without repeating a finished action",
+        "caller": "src/lib/friday/self/computer-use.ts"
+      }
     },
     {
       "id": "E0987",
@@ -17052,11 +17445,20 @@
       "heading": "Review-required",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 955
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/limitation-loop.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "A code change is discovered and never applied from the limitation loop. Protected classes stay always-ask.",
+      "bytes": 955,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "discovers a code-change limitation and never applies it",
+        "caller": "src/lib/friday/self/limitation-loop.ts"
+      }
     },
     {
       "id": "E0988",
@@ -17064,11 +17466,20 @@
       "heading": "Always-review / protected",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 955
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 955,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E0989",
@@ -17076,11 +17487,20 @@
       "heading": "Preferred order",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1358
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1358,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0990",
@@ -17088,11 +17508,20 @@
       "heading": "Adapter training gate",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1358
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1358,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0991",
@@ -17100,11 +17529,20 @@
       "heading": "Training data lineage",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1358
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A secret payload is not ordinary memory. Training data does not get a second store.",
+      "bytes": 1358,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "seals a versioned event and refuses a secret payload",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E0992",
@@ -17112,10 +17550,12 @@
       "heading": "Useful training methods",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "GRPO, a new trainer, and full base-model training were not added to the runtime.",
       "bytes": 1358
     },
     {
@@ -17124,11 +17564,20 @@
       "heading": "Learning is not one thing",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1265
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 1265,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0994",
@@ -17136,11 +17585,20 @@
       "heading": "Learning pipeline",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1265
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 1265,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0995",
@@ -17148,11 +17606,20 @@
       "heading": "Evidence hierarchy",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1265
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A secret payload is not ordinary memory. Training data does not get a second store.",
+      "bytes": 1265,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "seals a versioned event and refuses a secret payload",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E0996",
@@ -17160,11 +17627,20 @@
       "heading": "Failure learning",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1265
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 1265,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0997",
@@ -17172,11 +17648,20 @@
       "heading": "Policy learning",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1265
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1265,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E0998",
@@ -17184,11 +17669,20 @@
       "heading": "Difficulty bands",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 807
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Difficulty bands D0 through D5 are the practice gate. A repeated synthetic run does not climb.",
+      "bytes": 807,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E0999",
@@ -17196,11 +17690,20 @@
       "heading": "Curriculum loop",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 807
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "The benchmark calls the practice gate. A held-out task does not run as practice.",
+      "bytes": 807,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1000",
@@ -17208,11 +17711,20 @@
       "heading": "Anti-gaming rules",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 807
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "A candidate cannot score itself, and a held-out task is not practice material.",
+      "bytes": 807,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1001",
@@ -17220,11 +17732,20 @@
       "heading": "Inputs",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 964
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 964,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1002",
@@ -17232,11 +17753,20 @@
       "heading": "Capability graph",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 964
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 964,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1003",
@@ -17244,11 +17774,20 @@
       "heading": "Growth priority score",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 964
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 964,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1004",
@@ -17256,11 +17795,20 @@
       "heading": "Pipeline",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 572
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 572,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1005",
@@ -17268,11 +17816,20 @@
       "heading": "Golden rule",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 572
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/limitation-loop.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "A code change is discovered and never applied from the limitation loop. Protected classes stay always-ask.",
+      "bytes": 572,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "discovers a code-change limitation and never applies it",
+        "caller": "src/lib/friday/self/limitation-loop.ts"
+      }
     },
     {
       "id": "E1006",
@@ -17280,11 +17837,20 @@
       "heading": "Artifact types",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1007",
@@ -17292,11 +17858,20 @@
       "heading": "Common contract",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1008",
@@ -17304,11 +17879,20 @@
       "heading": "Development loop",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1009",
@@ -17316,11 +17900,20 @@
       "heading": "Artifact-specific checks",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1010",
@@ -17328,11 +17921,20 @@
       "heading": "Skill",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1011",
@@ -17340,11 +17942,20 @@
       "heading": "Tool",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1012",
@@ -17352,11 +17963,20 @@
       "heading": "Workflow",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1013",
@@ -17364,11 +17984,20 @@
       "heading": "Agent",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1014",
@@ -17376,11 +18005,20 @@
       "heading": "Code",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/limitation-loop.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "A code change is discovered and never applied from the limitation loop. Protected classes stay always-ask.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "discovers a code-change limitation and never applies it",
+        "caller": "src/lib/friday/self/limitation-loop.ts"
+      }
     },
     {
       "id": "E1015",
@@ -17388,11 +18026,20 @@
       "heading": "Adapter",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1016",
@@ -17400,10 +18047,12 @@
       "heading": "Purpose",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A separate evolution lab was not added.",
       "bytes": 1157
     },
     {
@@ -17412,10 +18061,12 @@
       "heading": "Candidate population",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A candidate population archive was not added.",
       "bytes": 1157
     },
     {
@@ -17424,10 +18075,12 @@
       "heading": "Search methods",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Evolutionary search methods were not added.",
       "bytes": 1157
     },
     {
@@ -17436,10 +18089,12 @@
       "heading": "Archive",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "An evolution archive was not added.",
       "bytes": 1157
     },
     {
@@ -17448,10 +18103,12 @@
       "heading": "Promotion rule",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Lab promotion into production was not added. Protected changes still ask.",
       "bytes": 1157
     },
     {
@@ -17460,10 +18117,12 @@
       "heading": "Meta-evolution",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Meta-evolution of the evaluator was not added.",
       "bytes": 1157
     },
     {
@@ -17472,11 +18131,20 @@
       "heading": "EVOLUTION_LEVELS.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 709
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 709,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1023",
@@ -17484,11 +18152,20 @@
       "heading": "One evidence record",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 628
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A secret payload is not ordinary memory. Training data does not get a second store.",
+      "bytes": 628,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "seals a versioned event and refuses a secret payload",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1024",
@@ -17496,11 +18173,20 @@
       "heading": "Experience classes",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 628
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 628,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1025",
@@ -17508,11 +18194,20 @@
       "heading": "Replay",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 628
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 628,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1026",
@@ -17520,11 +18215,20 @@
       "heading": "MEMORY_PROMOTION.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 437
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A secret payload is not ordinary memory. Training data does not get a second store.",
+      "bytes": 437,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "seals a versioned event and refuses a secret payload",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1027",
@@ -17532,11 +18236,20 @@
       "heading": "Why evals are part of self-improvement",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 901
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A run is scored without calling a provider. The candidate's own word is not the score.",
+      "bytes": 901,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "scores a run without calling a provider, and keeps a knowledge clash",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1028",
@@ -17544,11 +18257,20 @@
       "heading": "Evaluation layers",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 901
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A run is scored without calling a provider. The candidate's own word is not the score.",
+      "bytes": 901,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "scores a run without calling a provider, and keeps a knowledge clash",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1029",
@@ -17556,11 +18278,20 @@
       "heading": "Metrics",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 901
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A run is scored without calling a provider. The candidate's own word is not the score.",
+      "bytes": 901,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "scores a run without calling a provider, and keeps a knowledge clash",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1030",
@@ -17568,11 +18299,20 @@
       "heading": "Statistical discipline",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 901
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A run is scored without calling a provider. The candidate's own word is not the score.",
+      "bytes": 901,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "scores a run without calling a provider, and keeps a knowledge clash",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1031",
@@ -17580,11 +18320,20 @@
       "heading": "Shadow",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 544
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 544,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1032",
@@ -17592,11 +18341,20 @@
       "heading": "Canary",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 544
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 544,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1033",
@@ -17604,11 +18362,20 @@
       "heading": "Automatic rollback triggers",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 544
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 544,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1034",
@@ -17616,11 +18383,20 @@
       "heading": "Never use only the candidate's own self-rating as the rollback signal.",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 544
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Rollback does not trust a candidate's own score. The practice gate refuses a self-scoring candidate.",
+      "bytes": 544,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1035",
@@ -17628,11 +18404,20 @@
       "heading": "Non-negotiable invariants",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 936
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 936,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1036",
@@ -17640,11 +18425,20 @@
       "heading": "Capability escalation",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 936
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 936,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1037",
@@ -17652,11 +18446,20 @@
       "heading": "Recursive self-improvement boundary",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 936
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 936,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1038",
@@ -17664,11 +18467,20 @@
       "heading": "Threats",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 682
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 682,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1039",
@@ -17676,11 +18488,20 @@
       "heading": "Controls",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 682
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 682,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1040",
@@ -17688,11 +18509,20 @@
       "heading": "Extend, do not duplicate",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1041",
@@ -17700,11 +18530,20 @@
       "heading": "src/lib/friday/self/autonomy.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1042",
@@ -17712,11 +18551,20 @@
       "heading": "src/lib/friday/self/autonomous-core.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1043",
@@ -17724,11 +18572,20 @@
       "heading": "src/lib/friday/self/learning-engine.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1044",
@@ -17736,11 +18593,20 @@
       "heading": "src/lib/friday/self/task-ledger.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1045",
@@ -17748,11 +18614,20 @@
       "heading": "src/lib/friday/self/capability-matrix.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1046",
@@ -17760,11 +18635,20 @@
       "heading": "src/lib/friday/self/finetune.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1047",
@@ -17772,11 +18656,20 @@
       "heading": "src/lib/friday/self/governance.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1048",
@@ -17784,11 +18677,20 @@
       "heading": "src/lib/friday/self/self-manager.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1049",
@@ -17796,11 +18698,20 @@
       "heading": "src/lib/friday/self/limitation-loop.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/limitation-loop.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "A code change is discovered and never applied from the limitation loop. Protected classes stay always-ask.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "discovers a code-change limitation and never applies it",
+        "caller": "src/lib/friday/self/limitation-loop.ts"
+      }
     },
     {
       "id": "E1050",
@@ -17808,11 +18719,20 @@
       "heading": "src/lib/friday/brain/*forge.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1051",
@@ -17820,11 +18740,20 @@
       "heading": "src/lib/friday/brain/workflow-introspection.ts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1694
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1694,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1052",
@@ -17832,11 +18761,20 @@
       "heading": "Phase 0 \u2014 Inventory and contracts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1053",
@@ -17844,11 +18782,20 @@
       "heading": "Phase 1 \u2014 SelfOS kernel",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1054",
@@ -17856,11 +18803,20 @@
       "heading": "Phase 2 \u2014 Learning upgrade",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1055",
@@ -17868,11 +18824,20 @@
       "heading": "Phase 3 \u2014 Growth engine",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1056",
@@ -17880,11 +18845,20 @@
       "heading": "Phase 4 \u2014 Development forge",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/brain/workflow-forge.ts"
+      ],
+      "tests": [
+        "core/__tests__/workflow-forge.test.ts"
+      ],
+      "notes": "A forged workflow is sandbox-verified and stays disabled until install. It is not a second forge.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/workflow-forge.test.ts",
+        "name": "sandbox-verifies then installPack writes workflow.json disabled",
+        "caller": "src/lib/friday/brain/workflow-forge.ts"
+      }
     },
     {
       "id": "E1057",
@@ -17892,10 +18866,12 @@
       "heading": "Phase 5 \u2014 Evolution lab",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Phase 5's evolution lab was not built.",
       "bytes": 1427
     },
     {
@@ -17904,11 +18880,20 @@
       "heading": "Phase 6 \u2014 Local training",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1059",
@@ -17916,11 +18901,20 @@
       "heading": "Phase 7 \u2014 Autonomy upgrade",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1060",
@@ -17928,11 +18922,20 @@
       "heading": "Phase 8 \u2014 UI",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1061",
@@ -17940,11 +18943,20 @@
       "heading": "Phase 9 \u2014 Hardening",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1427
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1427,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1062",
@@ -17952,11 +18964,20 @@
       "heading": "Unit",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 922
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A run is scored without calling a provider. The candidate's own word is not the score.",
+      "bytes": 922,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "scores a run without calling a provider, and keeps a knowledge clash",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1063",
@@ -17964,11 +18985,20 @@
       "heading": "Integration",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 922
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 922,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1064",
@@ -17976,11 +19006,20 @@
       "heading": "Safety",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 922
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 922,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1065",
@@ -17988,11 +19027,20 @@
       "heading": "Chaos/failure injection",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 922
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 922,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1066",
@@ -18000,11 +19048,20 @@
       "heading": "Acceptance target",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 922
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 922,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1067",
@@ -18012,11 +19069,20 @@
       "heading": "Main sections",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 889
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 889,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1068",
@@ -18024,11 +19090,20 @@
       "heading": "Important UX",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 889
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 889,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1069",
@@ -18036,11 +19111,20 @@
       "heading": "1. AIOS \u2014 agent operating system",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1070",
@@ -18048,11 +19132,20 @@
       "heading": "2. Letta / MemGPT",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1071",
@@ -18060,11 +19153,20 @@
       "heading": "3. Voyager",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Voyager is adapted as the practice band only. A lifelong skill explorer was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1072",
@@ -18072,11 +19174,20 @@
       "heading": "4. Reflexion / Self-Refine",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1073",
@@ -18084,11 +19195,20 @@
       "heading": "5. SWE-agent / OpenHands",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1074",
@@ -18096,11 +19216,20 @@
       "heading": "6. DSPy / MIPRO / GEPA",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1075",
@@ -18108,11 +19237,20 @@
       "heading": "7. AFlow / ADAS",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1076",
@@ -18120,10 +19258,12 @@
       "heading": "8. AlphaEvolve",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "AlphaEvolve-style code search was not added.",
       "bytes": 3005
     },
     {
@@ -18132,11 +19272,20 @@
       "heading": "9. AI Scientist-v2",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1078",
@@ -18144,10 +19293,12 @@
       "heading": "10. Darwin G\u00f6del Machine",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A Darwin G\u00f6del self-rewrite loop was not added.",
       "bytes": 3005
     },
     {
@@ -18156,10 +19307,12 @@
       "heading": "11. Hyperagents",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A hyperagent swarm that rewrites FRIDAY was not added.",
       "bytes": 3005
     },
     {
@@ -18168,11 +19321,20 @@
       "heading": "12. LangMem / Graphiti",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3005
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3005,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1081",
@@ -18180,11 +19342,20 @@
       "heading": "RESEARCH_DECISIONS.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1034
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1034,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1082",
@@ -18192,11 +19363,20 @@
       "heading": "RESEARCH_URLS.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1126
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1126,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1083",
@@ -18204,11 +19384,20 @@
       "heading": "Papers / research",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1084",
@@ -18216,11 +19405,20 @@
       "heading": "Frameworks / GitHub",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1085",
@@ -18228,11 +19426,20 @@
       "heading": "Official / engineering sources",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1086",
@@ -18240,11 +19447,20 @@
       "heading": "Videos checked / useful references",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1087",
@@ -18252,11 +19468,20 @@
       "heading": "How to use sources",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1088",
@@ -18264,11 +19489,20 @@
       "heading": "Additional current research checked",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1981
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1981,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1089",
@@ -18276,11 +19510,20 @@
       "heading": "autonomy-policy.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1520
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1520,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1090",
@@ -18288,11 +19531,20 @@
       "heading": "capability-node.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 843
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 843,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1091",
@@ -18300,11 +19552,20 @@
       "heading": "change-permission.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 578
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 578,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1092",
@@ -18312,11 +19573,20 @@
       "heading": "evaluation-result.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 721
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 721,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1093",
@@ -18324,11 +19594,20 @@
       "heading": "evolution-policy.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 726
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 726,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1094",
@@ -18336,11 +19615,20 @@
       "heading": "experience-event.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1342
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1342,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1095",
@@ -18348,11 +19636,20 @@
       "heading": "experiment.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 820
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 820,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1096",
@@ -18360,11 +19657,20 @@
       "heading": "growth-opportunity.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 625
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 625,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1097",
@@ -18372,11 +19678,20 @@
       "heading": "improvement-candidate.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1222
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1222,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1098",
@@ -18384,11 +19699,20 @@
       "heading": "learning-record.schema.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 860
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 860,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1099",
@@ -18396,11 +19720,20 @@
       "heading": "01_master_selfos.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4349
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4349,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1100",
@@ -18408,11 +19741,20 @@
       "heading": "02_autonomy_loop.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4178
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4178,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1101",
@@ -18420,11 +19762,20 @@
       "heading": "03_learning_loop.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4157
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4157,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1102",
@@ -18432,11 +19783,20 @@
       "heading": "04_growth_curriculum.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4118
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "The curriculum drawing is the practice band now in the learning engine.",
+      "bytes": 4118,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1103",
@@ -18444,11 +19804,20 @@
       "heading": "05_evolution_lab.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4044
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4044,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1104",
@@ -18456,11 +19825,20 @@
       "heading": "06_promotion_gate.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3748
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 3748,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1105",
@@ -18468,10 +19846,12 @@
       "heading": "07_self_evolution_hierarchy.svg",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "The evolution-lab drawing was not built as a product surface.",
       "bytes": 3034
     },
     {
@@ -18480,11 +19860,20 @@
       "heading": "Mission",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1107",
@@ -18492,11 +19881,20 @@
       "heading": "First action \u2014 inspect current source",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1108",
@@ -18504,11 +19902,20 @@
       "heading": "Implementation rules",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1109",
@@ -18516,10 +19923,12 @@
       "heading": "New conceptual modules",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_FEATURES.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "New conceptual modules beside the existing self files were not added.",
       "bytes": 4296
     },
     {
@@ -18528,11 +19937,20 @@
       "heading": "Required flow",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1111",
@@ -18540,11 +19958,20 @@
       "heading": "Learning requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/intelligence-benchmark.ts"
+      ],
+      "tests": [
+        "core/__tests__/intelligence-benchmark.test.ts"
+      ],
+      "notes": "Learning stays the existing engine plus the practice band. Wrong output is not promoted as knowledge.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/intelligence-benchmark.test.ts",
+        "name": "keeps a held-out task and a self-scoring candidate out of practice",
+        "caller": "src/lib/friday/self/intelligence-benchmark.ts"
+      }
     },
     {
       "id": "E1112",
@@ -18552,11 +19979,20 @@
       "heading": "Growth requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1113",
@@ -18564,11 +20000,20 @@
       "heading": "Development requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1114",
@@ -18576,11 +20021,20 @@
       "heading": "Evolution requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1115",
@@ -18588,11 +20042,20 @@
       "heading": "Evaluation requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1116",
@@ -18600,11 +20063,20 @@
       "heading": "Safety requirements",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A self-change that skips the sandbox or the policy root is refused. Governance is not weakened by the change it governs.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/development-contracts.test.ts",
+        "name": "keeps one execution chain, a scoped route, and a checked artifact",
+        "caller": "src/lib/friday/self/run-receipt.ts"
+      }
     },
     {
       "id": "E1117",
@@ -18612,11 +20084,20 @@
       "heading": "Completion criteria",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4296
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 4296,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1118",
@@ -18624,11 +20105,20 @@
       "heading": "REPAIR_AND_AUDIT_PROMPT.md",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 776
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 776,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1119",
@@ -18636,11 +20126,20 @@
       "heading": "PACKAGE_MANIFEST.json",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1062
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 1062,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1120",
@@ -18648,11 +20147,20 @@
       "heading": "Purpose",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2181
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2181,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1121",
@@ -18660,11 +20168,20 @@
       "heading": "Core design rule",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2181
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2181,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1122",
@@ -18672,11 +20189,20 @@
       "heading": "Package contents",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2181
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2181,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1123",
@@ -18684,11 +20210,20 @@
       "heading": "Important boundary",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2181
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/self/governance.ts"
+      ],
+      "tests": [
+        "core/__tests__/governance-gate.test.ts"
+      ],
+      "notes": "This already lives in the autonomy dial, the governance gate, and the learning engine. A second self system was not added.",
+      "bytes": 2181,
+      "evidence": {
+        "test": "core/__tests__/governance-gate.test.ts",
+        "name": "lets Full autonomy apply an install, and Stop everything halts that",
+        "caller": "src/lib/friday/self/governance.ts"
+      }
     },
     {
       "id": "E1124",

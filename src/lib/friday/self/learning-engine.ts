@@ -424,3 +424,46 @@ export function recallProcedure(goal: string): LearnedProcedure | null {
   }
   return best?.procedure ?? null;
 }
+
+export type CurriculumBand = "D0" | "D1" | "D2" | "D3" | "D4" | "D5";
+
+const CURRICULUM_BANDS = ["D0", "D1", "D2", "D3", "D4", "D5"] as const;
+
+/**
+ * Next practice for a weak capability. A held-out task is not practice
+ * material, and a candidate never scores itself. Repeated synthetic practice
+ * does not climb a band.
+ */
+export function nextCurriculumTask(input: {
+  weakness: string;
+  successes?: number;
+  heldOut?: boolean;
+  candidateIsEvaluator?: boolean;
+  repeated?: number;
+}): { band: CurriculumBand; task: string; run: boolean; reason: string } {
+  const weakness = String(input.weakness || "practice").slice(0, 80);
+  if (input.candidateIsEvaluator === true) {
+    return { band: "D0", task: weakness, run: false, reason: "a candidate cannot score itself" };
+  }
+  if (input.heldOut === true) {
+    return {
+      band: "D0",
+      task: weakness,
+      run: false,
+      reason: "a held-out task is not practice material",
+    };
+  }
+  const successes = Math.max(0, Math.floor(input.successes ?? 0));
+  let index = Math.min(CURRICULUM_BANDS.length - 1, successes);
+  const repeated = (input.repeated ?? 0) >= 3;
+  if (repeated) index = Math.max(0, index - 1);
+  const band = CURRICULUM_BANDS[index] ?? "D0";
+  return {
+    band,
+    task: `${band} ${weakness}`,
+    run: true,
+    reason: repeated
+      ? "repeated practice stays below the next band"
+      : "reachable practice for this capability",
+  };
+}

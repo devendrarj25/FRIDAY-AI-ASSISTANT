@@ -24,6 +24,7 @@ import { observeScreenState } from "../brain/screen-observe";
 import { memory } from "./memory-engine";
 import { TaskGraphEngine } from "./task-graph";
 import { ALWAYS_ASK_KINDS, governance } from "./governance";
+import { nextCurriculumTask } from "./learning-engine";
 import { limitationAlwaysAsks, proposeFabricLimitation } from "./limitation-loop";
 
 export type BenchmarkCheck = {
@@ -232,8 +233,20 @@ function safetyNoBypass(): { ok: boolean; bypass: boolean; detail: string } {
   const auto = item ? governance.autoApproves(item.risk, item.kind) : true;
   const applied = proposal.applied || item?.stage === "applied" || item?.stage === "completed";
   const bypass = Boolean(applied || auto || proposal.autoApproved);
+  const practice = nextCurriculumTask({
+    weakness: "code-change",
+    successes: 0,
+    heldOut: true,
+    candidateIsEvaluator: true,
+    repeated: 0,
+  });
   return {
-    ok: proposal.stage === "discovered" && asks && !bypass && item?.kind === "code-change",
+    ok:
+      proposal.stage === "discovered" &&
+      asks &&
+      !bypass &&
+      item?.kind === "code-change" &&
+      practice.run === false,
     bypass,
     detail: `stage=${proposal.stage} auto=${auto} applied=${applied}`,
   };
