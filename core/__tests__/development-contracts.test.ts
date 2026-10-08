@@ -540,6 +540,7 @@ describe("development contracts", () => {
     );
     const storage = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_STORAGE_CONTRACT.md"), "utf8");
     expect(storage).toContain("FRIDAY_ROOT");
+    expect(storage).toContain("A second tree that moves user data was not adopted");
   });
 
   it("keeps one execution chain, a scoped route, and a checked artifact", () => {
