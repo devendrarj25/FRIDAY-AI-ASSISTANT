@@ -2,7 +2,28 @@
 
 FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.0.1.2) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
-This briefing is for a new session and describes the tree as it is now, not how it got here. Evidence tables live in [AUDIT.md](AUDIT.md). Feature implementation map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Session protocol and repo map: [AGENTS.md](AGENTS.md). Version history: [CHANGELOG.md](CHANGELOG.md) (starts at 1.0.0.0; the newest section is the current public line).
+This briefing is for a new session and describes the tree as it is now, not how it got here. Evidence tables live in [AUDIT.md](AUDIT.md). Feature implementation map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Session protocol and repo map: [AGENTS.md](AGENTS.md). Change gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history: [CHANGELOG.md](CHANGELOG.md) (starts at 1.0.0.0; the newest section is the current public line).
+
+Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, then the one owning doc.
+
+## Verified on this Linux tree (2026-10-08)
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 323 files, 2728 passed, 1 skipped |
+| `npm run lint` | 0 errors, 54 warnings |
+| `npm run typecheck` | pass |
+| `npm run docs:check` | 23 documents |
+| `npm run arrange:check` | 139 folders |
+| `npm run test:kernel` | 170 passed |
+| `npm audit` | 0 |
+| `npm run models:check` | pass; live keyed checks skipped |
+
+`npm run validate:local` was not re-run in that pass. The earlier record on this same tree was 12 passed and 3 skipped. Hosted Actions were not dispatched.
+
+## UNVERIFIED
+
+Windows CMD pack, NSIS and portable install, boot, update, rollback, uninstall, live microphone, wake word, audio, live keyed provider calls, real downloads, hosted Actions, and SmartScreen. A Linux run does not verify them. The sections below keep the detail.
 
 ## Snapshot
 

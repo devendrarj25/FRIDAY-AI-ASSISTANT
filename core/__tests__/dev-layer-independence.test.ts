@@ -88,6 +88,7 @@ describe("development/vision layer independence", () => {
       "core/__tests__/development-contracts.test.ts",
       "core/__tests__/pr-scope.test.ts",
       "core/__tests__/docs-registry.test.ts",
+      "core/__tests__/agents-contract.test.ts",
     ]);
 
     const offenders: string[] = [];
