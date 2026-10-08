@@ -47,12 +47,78 @@ const isModule = (value: unknown): value is FridayModule =>
   typeof (value as FridayModule).id === "string" &&
   typeof (value as FridayModule).init === "function";
 
+export type ComponentCandidate<T> = {
+  id: string;
+  owner: "official" | "user" | "imported" | "managed";
+  version: string;
+  compatible: boolean;
+  healthy: boolean;
+  required: boolean;
+  item: T;
+};
+
+/**
+ * One identity. Official and user copies do not share it.
+ * Order: requirement, compatibility, trust, version, then a stable id.
+ */
+export function resolveComponentChoice<T>(
+  items: ComponentCandidate<T>[],
+): ComponentCandidate<T> | null {
+  const compatible = items.filter((item) => item.compatible);
+  if (!compatible.length) return null;
+  const required = compatible.filter((item) => item.required);
+  const pool = required.length ? required : compatible;
+  const trust: Record<ComponentCandidate<T>["owner"], number> = {
+    official: 3,
+    managed: 2,
+    user: 1,
+    imported: 0,
+  };
+  return (
+    [...pool].sort((left, right) => {
+      const health = Number(right.healthy) - Number(left.healthy);
+      if (health) return health;
+      const owner = trust[right.owner] - trust[left.owner];
+      if (owner) return owner;
+      const version = right.version.localeCompare(left.version);
+      if (version) return version;
+      return left.id.localeCompare(right.id);
+    })[0] ?? null
+  );
+}
+
 /** Every FridayModule exported by a barrel, de-duplicated by module id. */
 export function collectModules(...barrels: Record<string, unknown>[]): FridayModule[] {
   const found = new Map<string, FridayModule>();
   for (const barrel of barrels) {
     for (const value of Object.values(barrel)) {
-      if (isModule(value)) found.set(value.id, value);
+      if (!isModule(value)) continue;
+      const current = found.get(value.id);
+      if (!current) {
+        found.set(value.id, value);
+        continue;
+      }
+      const chosen = resolveComponentChoice([
+        {
+          id: current.id,
+          owner: "official",
+          version: "1",
+          compatible: true,
+          healthy: true,
+          required: true,
+          item: current,
+        },
+        {
+          id: value.id,
+          owner: "imported",
+          version: "1",
+          compatible: true,
+          healthy: true,
+          required: false,
+          item: value,
+        },
+      ]);
+      if (chosen) found.set(value.id, chosen.item);
     }
   }
   return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));

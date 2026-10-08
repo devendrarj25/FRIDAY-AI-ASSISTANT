@@ -41,6 +41,8 @@ export type CatalogEntry = {
   size: string;
   requirement: Requirement;
   notes?: string;
+  /** Other catalog ids this package needs before it can activate. */
+  needs?: readonly string[];
 };
 
 export type CatalogStatus = "Up to date" | "Update available" | "Not installed" | "Unknown";

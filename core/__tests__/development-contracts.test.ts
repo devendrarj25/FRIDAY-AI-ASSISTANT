@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { resolveComponentChoice } from "../../core/registry";
+import { dependencyIssues } from "../../src/lib/friday/installer-engine";
 import { memory, resolveKnowledgeClash } from "../../src/lib/friday/self/memory-engine";
 import {
   acceptActionReceipt,
@@ -476,5 +478,49 @@ describe("development contracts", () => {
     const control = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_CHANGE_CONTROL.md"), "utf8");
     expect(control).toContain("SOURCE_READY");
     expect(control).toContain("BUILD_READY");
+    const chosen = resolveComponentChoice([
+      {
+        id: "same",
+        owner: "user" as const,
+        version: "2",
+        compatible: true,
+        healthy: true,
+        required: false,
+        item: "user",
+      },
+      {
+        id: "same",
+        owner: "official" as const,
+        version: "1",
+        compatible: true,
+        healthy: true,
+        required: true,
+        item: "official",
+      },
+    ]);
+    expect(chosen?.item).toBe("official");
+    expect(
+      resolveComponentChoice([
+        {
+          id: "old",
+          owner: "official" as const,
+          version: "1",
+          compatible: false,
+          healthy: true,
+          required: true,
+          item: "nope",
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      dependencyIssues({ app: ["runtime"], runtime: ["app"] }).some((issue) =>
+        issue.includes("circular"),
+      ),
+    ).toBe(true);
+    expect(dependencyIssues({ app: ["missing"] }).some((issue) => issue.includes("missing"))).toBe(
+      true,
+    );
+    const storage = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_STORAGE_CONTRACT.md"), "utf8");
+    expect(storage).toContain("FRIDAY_ROOT");
   });
 });

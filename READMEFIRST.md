@@ -65,7 +65,7 @@ see §2. This folder holds only the disposable planning/workbench material:
 | `config/friday-version.json` | The only product version. The old document manifest was removed. |
 | `README.md` | This layer's own short intro |
 | `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `docs/FRIDAY_CHANGE_CONTROL.md`, then `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md` |
-| `FRIDAY-VISION/` | **Long-term architecture corpus** — where FRIDAY is headed, for major/future upgrades. Entry: `FRIDAY-VISION/00-MASTER/00_READ_FIRST.md` |
+| `FRIDAY-VISION/` | Area plans that are not landed yet, under `FRIDAY-VISION/AREAS/`. |
 
 ### SHA policy (standing rule — read before adding any hash anywhere in this layer)
 This project has **one** authoritative SHA-256: the hash of the whole
@@ -99,18 +99,13 @@ and out of scope for this rule; don't touch it under this policy.
 | 13 | adopted | The research decisions are in `docs/FRIDAY_CHANGE_CONTROL.md`. Freshness of the 2026-09 list is unverified. |
 | 14 | `14_TEMPLATES` | `TASK_PACKET_TEMPLATE.md` remains until this folder is removed. The packet is in `docs/FRIDAY_CHANGE_CONTROL.md`. |
 
-### 3b. `FRIDAY-VISION/` — same shape as before
-`00-MASTER` (entry, contracts, context router, dependency/file-routing maps)
-→ `01-ARCHITECTURE` → `02-LIFECYCLE` → `03-BUILD` → `04-OPERATIONS` →
-`05-IMPLEMENTATION` → `06-RESEARCH`, plus `AREAS/01-SYSTEM` …
-`AREAS/08-PACKAGING-BUILD-UPDATE` for the deep per-system target specs. Every
-folder in this tree has its own `INDEX.md` — open that before opening the
-files inside it.
+### 3b. `FRIDAY-VISION/`
+The master, architecture, lifecycle, build, operations, implementation, and research notes now live in the product owners: `core/registry.ts`, `src/lib/friday/installer-engine.ts`, `electron/update-safety.cjs`, `config/friday-version.json`, and `docs/FRIDAY_CHANGE_CONTROL.md`. What remains under `FRIDAY-VISION/AREAS/` is the area plans that are not landed yet.
 
 ### How the two connect
 - **Doing a task today** → `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`
   classifies it and sends you to one numbered area + the real source owner.
-- **Planning a major/future upgrade** → `FRIDAY-VISION/00-MASTER/03_AI_CONTEXT_ROUTER.md`
+- **Planning a major/future upgrade** → the one matching folder under `FRIDAY-VISION/AREAS/`.
   runs the same kind of classify-then-narrow search over the vision corpus.
 - Either path can hand off to the other: a vision target you're about to
   implement becomes a `FRIDAY-DEVELOPMENT` task; a development contract that

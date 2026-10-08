@@ -77,11 +77,9 @@
   ],
   "totals": {
     "DONE": 27,
-    "SUPERSEDED": 104,
-    "PARTIAL": 0,
-    "MISSING": 1980,
-    "REJECT": 0,
-    "BACKLOG": 0
+    "SUPERSEDED": 210,
+    "REJECT": 2,
+    "MISSING": 1872
   },
   "rows": [
     {
@@ -2354,10 +2352,17 @@
       "heading": "What this folder is",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2366,10 +2371,17 @@
       "heading": "What this folder is NOT",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2378,10 +2390,17 @@
       "heading": "Source authority",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2390,10 +2409,17 @@
       "heading": "Core product goal",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2402,10 +2428,17 @@
       "heading": "Non-negotiable preservation rule",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2414,10 +2447,17 @@
       "heading": "Related",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1858
     },
     {
@@ -2426,10 +2466,17 @@
       "heading": "Principle",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2677
     },
     {
@@ -2438,10 +2485,17 @@
       "heading": "Control loop",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2677
     },
     {
@@ -2450,10 +2504,17 @@
       "heading": "Identity",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1021
     },
     {
@@ -2462,10 +2523,17 @@
       "heading": "Ownership",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1021
     },
     {
@@ -2474,10 +2542,17 @@
       "heading": "Authority",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1021
     },
     {
@@ -2486,10 +2561,17 @@
       "heading": "Lifecycle",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1021
     },
     {
@@ -2498,10 +2580,17 @@
       "heading": "State separation",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1021
     },
     {
@@ -2510,10 +2599,17 @@
       "heading": "Query-to-context algorithm",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1183
     },
     {
@@ -2522,10 +2618,17 @@
       "heading": "Context tiers",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1183
     },
     {
@@ -2534,10 +2637,17 @@
       "heading": "Landed areas",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1183
     },
     {
@@ -2546,10 +2656,17 @@
       "heading": "Never",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1183
     },
     {
@@ -2558,10 +2675,17 @@
       "heading": "A. Understand",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2570,10 +2694,17 @@
       "heading": "B. Inspect",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2582,10 +2713,17 @@
       "heading": "C. Design",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2594,10 +2732,17 @@
       "heading": "D. Implement",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2606,10 +2751,17 @@
       "heading": "E. Verify",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2618,10 +2770,17 @@
       "heading": "F. Retire the plan",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2630,10 +2789,17 @@
       "heading": "G. Report",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1411
     },
     {
@@ -2642,10 +2808,17 @@
       "heading": "Purpose",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2654,10 +2827,17 @@
       "heading": "1. Identify",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2666,10 +2846,17 @@
       "heading": "2. Route",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2678,10 +2865,17 @@
       "heading": "3. Inspect",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2690,10 +2884,17 @@
       "heading": "4. Plan",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2702,10 +2903,17 @@
       "heading": "5. Implement",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2714,10 +2922,17 @@
       "heading": "6. Verify",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2726,10 +2941,17 @@
       "heading": "7. Sync",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 997
     },
     {
@@ -2738,10 +2960,17 @@
       "heading": "Rules",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1157
     },
     {
@@ -2750,10 +2979,17 @@
       "heading": "CHANGE-CONTROL-TEMPLATE.md",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 350
     },
     {
@@ -2762,10 +2998,17 @@
       "heading": "01-ai-os.svg",
       "area": "vision:00-MASTER",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2295
     },
     {
@@ -2774,10 +3017,17 @@
       "heading": "02-update-transaction.svg",
       "area": "vision:00-MASTER",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2096
     },
     {
@@ -2786,10 +3036,17 @@
       "heading": "03-storage-ownership.svg",
       "area": "vision:00-MASTER",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1755
     },
     {
@@ -2798,10 +3055,17 @@
       "heading": "FILE-ROUTING-MAP.md",
       "area": "vision:00-MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1793
     },
     {
@@ -2810,10 +3074,17 @@
       "heading": "Landed",
       "area": "vision:00-MASTER",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2201
     },
     {
@@ -2822,10 +3093,17 @@
       "heading": "Areas",
       "area": "vision:00-MASTER",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2201
     },
     {
@@ -2834,10 +3112,17 @@
       "heading": "Cross-area dependency direction",
       "area": "vision:00-MASTER",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2201
     },
     {
@@ -2846,10 +3131,17 @@
       "heading": "AI entry point",
       "area": "vision:00-MASTER",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2201
     },
     {
@@ -2858,10 +3150,17 @@
       "heading": "Key product decisions",
       "area": "vision:00-MASTER",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2201
     },
     {
@@ -2870,10 +3169,17 @@
       "heading": "MASTER-MANIFEST.json",
       "area": "vision:00-MASTER",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 1837
     },
     {
@@ -2882,10 +3188,17 @@
       "heading": "Goals",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 912
     },
     {
@@ -2894,10 +3207,17 @@
       "heading": "Working rule",
       "area": "vision:00-MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 912
     },
     {
@@ -2906,10 +3226,17 @@
       "heading": "Responsibilities",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 629
     },
     {
@@ -2918,10 +3245,17 @@
       "heading": "Event envelope",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 629
     },
     {
@@ -2930,10 +3264,17 @@
       "heading": "Types",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 793
     },
     {
@@ -2942,10 +3283,17 @@
       "heading": "Component manifest",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 793
     },
     {
@@ -2954,10 +3302,17 @@
       "heading": "Critical rule",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 793
     },
     {
@@ -2966,10 +3321,17 @@
       "heading": "Resolution",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 793
     },
     {
@@ -2978,10 +3340,17 @@
       "heading": "Runtime record",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 739
     },
     {
@@ -2990,10 +3359,17 @@
       "heading": "Policy",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 739
     },
     {
@@ -3002,10 +3378,17 @@
       "heading": "Isolation",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 739
     },
     {
@@ -3014,10 +3397,17 @@
       "heading": "Health",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 739
     },
     {
@@ -3026,10 +3416,14 @@
       "heading": "Ownership",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A second folder tree was not adopted. FRIDAY_ROOT stays the layout.",
       "bytes": 985
     },
     {
@@ -3038,10 +3432,14 @@
       "heading": "External OS state",
       "area": "vision:01-ARCHITECTURE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "A second folder tree was not adopted. FRIDAY_ROOT stays the layout.",
       "bytes": 985
     },
     {
@@ -3050,10 +3448,17 @@
       "heading": "Pipeline",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3062,10 +3467,17 @@
       "heading": "Download",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3074,10 +3486,17 @@
       "heading": "Staging",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3086,10 +3505,17 @@
       "heading": "Dependencies",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3098,10 +3524,17 @@
       "heading": "Repair",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3110,10 +3543,17 @@
       "heading": "Uninstall",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 918
     },
     {
@@ -3122,10 +3562,17 @@
       "heading": "Official update",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 865
     },
     {
@@ -3134,10 +3581,17 @@
       "heading": "Preservation",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 865
     },
     {
@@ -3146,10 +3600,17 @@
       "heading": "Failure",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 865
     },
     {
@@ -3158,10 +3619,17 @@
       "heading": "Journal",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 865
     },
     {
@@ -3170,10 +3638,17 @@
       "heading": "UPDATE",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 538
     },
     {
@@ -3182,10 +3657,17 @@
       "heading": "REBUILD",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 538
     },
     {
@@ -3194,10 +3676,17 @@
       "heading": "User choices",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3206,10 +3695,17 @@
       "heading": "Keep Data",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3218,10 +3714,17 @@
       "heading": "Remove All FRIDAY Data",
       "area": "vision:02-LIFECYCLE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3230,10 +3733,17 @@
       "heading": "Required checks",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 567
     },
     {
@@ -3242,10 +3752,17 @@
       "heading": "Core",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 694
     },
     {
@@ -3254,10 +3771,17 @@
       "heading": "Heavy",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 694
     },
     {
@@ -3266,10 +3790,17 @@
       "heading": "Evidence",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 694
     },
     {
@@ -3278,10 +3809,17 @@
       "heading": "Cache",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 694
     },
     {
@@ -3290,10 +3828,17 @@
       "heading": "Release artifact",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3302,10 +3847,17 @@
       "heading": "CI",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3314,10 +3866,17 @@
       "heading": "Verification",
       "area": "vision:03-BUILD",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3326,10 +3885,17 @@
       "heading": "States",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3338,10 +3904,17 @@
       "heading": "Health domains",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3350,10 +3923,17 @@
       "heading": "Refresh",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3362,10 +3942,17 @@
       "heading": "Performance",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 686
     },
     {
@@ -3374,10 +3961,17 @@
       "heading": "Recovery entry",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3386,10 +3980,17 @@
       "heading": "Last-known-good",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3398,10 +3999,17 @@
       "heading": "Do not",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 566
     },
     {
@@ -3410,10 +4018,17 @@
       "heading": "Install",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 835
     },
     {
@@ -3422,10 +4037,17 @@
       "heading": "Update",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 835
     },
     {
@@ -3434,10 +4056,17 @@
       "heading": "Components",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 835
     },
     {
@@ -3446,10 +4075,17 @@
       "heading": "Runtime",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 835
     },
     {
@@ -3458,10 +4094,17 @@
       "heading": "Uninstall",
       "area": "vision:04-OPERATIONS",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 835
     },
     {
@@ -3470,10 +4113,17 @@
       "heading": "Phase 0 — inventory",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3482,10 +4132,17 @@
       "heading": "Phase 1 — contracts",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3494,10 +4151,17 @@
       "heading": "Phase 2 — registries",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3506,10 +4170,17 @@
       "heading": "Phase 3 — lifecycle",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3518,10 +4189,17 @@
       "heading": "Phase 4 — storage",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3530,10 +4208,17 @@
       "heading": "Phase 5 — build/release",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3542,10 +4227,17 @@
       "heading": "Phase 6 — uninstall",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3554,10 +4246,17 @@
       "heading": "Phase 7 — hardening",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3566,10 +4265,17 @@
       "heading": "Phase 8 — optimization",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 933
     },
     {
@@ -3578,10 +4284,17 @@
       "heading": "02_DEFINITION_OF_DONE.md",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 909
     },
     {
@@ -3590,10 +4303,17 @@
       "heading": "Microsoft Windows",
       "area": "vision:06-RESEARCH",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2596
     },
     {
@@ -3602,10 +4322,17 @@
       "heading": "Electron / electron-builder",
       "area": "vision:06-RESEARCH",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2596
     },
     {
@@ -3614,10 +4341,17 @@
       "heading": "GitHub",
       "area": "vision:06-RESEARCH",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2596
     },
     {
@@ -3626,10 +4360,17 @@
       "heading": "npm",
       "area": "vision:06-RESEARCH",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2596
     },
     {
@@ -3638,10 +4379,17 @@
       "heading": "Design conclusion",
       "area": "vision:06-RESEARCH",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "core/registry.ts",
+        "src/lib/friday/installer-engine.ts",
+        "electron/update-safety.cjs",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live installer, update, version, and registry already do this. MSIX and a generated SBOM stay in FRIDAY_STATE as future work. File removed.",
       "bytes": 2596
     },
     {

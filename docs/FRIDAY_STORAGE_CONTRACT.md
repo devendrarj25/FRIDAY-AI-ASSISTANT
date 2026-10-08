@@ -26,7 +26,11 @@ Typed in `installer/uninstall/index.ts` (`KEEP_DATA_PLAN` / `DELETE_EVERYTHING_P
 
 TEST installs use `dev.friday.desk.test` so they cannot overwrite Official data. Isolation: [FRIDAY_BUILD_AND_RELEASE.md](FRIDAY_BUILD_AND_RELEASE.md).
 
-## 5. Logical records
+## 5. Layout boundary
+
+The folders under `FRIDAY_ROOT` stay the storage layout. A second tree that moves user data was not adopted. Official payload can be replaced. User components, user runtimes, and user data stay.
+
+## 6. Logical records
 
 Request, task, run, capability, provider, action, observation, verification, and evidence records are checked in `src/lib/friday/self/run-receipt.ts` (`acceptRequest`, `backendInvariants`). The task graph calls them when a request is queued and when a run finishes. Secret rows are refused by `secretStaysOutOfMemory` before `memory.remember` writes. The kernel keeps one SQLite file. `kernel/db.py` `migrate()` copies that file before new columns, then stores `schema_version`. The same idempotency key does not open a second task. There is no second task database, model registry, approval store, memory system, or connector registry.
 
