@@ -33,7 +33,7 @@ function runtimeScript() {
   return fs.existsSync(packaged) ? packaged : RUNTIME_SCRIPT;
 }
 
-function run(exe, args, timeout = 120000) {
+function run(exe, args, timeout = 120000, env) {
   return new Promise((resolve) => {
     execFile(
       exe,
@@ -42,7 +42,11 @@ function run(exe, args, timeout = 120000) {
         timeout,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
-        env: { ...process.env, FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "" },
+        env: {
+          ...process.env,
+          FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
+          ...(env || {}),
+        },
       },
       (error, stdout, stderr) =>
         resolve({
@@ -100,22 +104,39 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
   });
 
   if (whisperImport.ok && loadModel) {
-    const load = await run(exe, [...prefix, sttScript(), "--load-probe"], 600000);
-    let parsed = null;
-    try {
-      const text = load.stdout.trim();
-      parsed = JSON.parse(text.slice(text.lastIndexOf("{")));
-    } catch {
-      parsed = null;
-    }
-    checks.push({
-      id: "stt-model",
-      label: "speech model loads",
-      ok: Boolean(parsed?.ok),
-      detail: parsed?.ok
-        ? `model "${parsed.model}" loaded in ${parsed.elapsedMs}ms`
-        : tail(parsed?.error || load.stderr, "the speech model could not be loaded"),
+    const weights = require("./voice-weights.cjs");
+    const prepared = await weights.ensureSttWeights("base", paths.root() || "", {
+      exists: (file) => fs.existsSync(file),
+      downloadModel: require("./model-download.cjs").downloadModel,
     });
+    if (!prepared.ok) {
+      checks.push({
+        id: "stt-model",
+        label: "speech model loads",
+        ok: false,
+        detail: prepared.error || "speech weights are not on disk",
+      });
+    } else {
+      const load = await run(exe, [...prefix, sttScript(), "--load-probe"], 600000, {
+        ...process.env,
+        FRIDAY_STT_MODEL_PATH: prepared.dir,
+      });
+      let parsed = null;
+      try {
+        const text = load.stdout.trim();
+        parsed = JSON.parse(text.slice(text.lastIndexOf("{")));
+      } catch {
+        parsed = null;
+      }
+      checks.push({
+        id: "stt-model",
+        label: "speech model loads",
+        ok: Boolean(parsed?.ok),
+        detail: parsed?.ok
+          ? `model "${parsed.model}" loaded in ${parsed.elapsedMs}ms`
+          : tail(parsed?.error || load.stderr, "the speech model could not be loaded"),
+      });
+    }
   } else if (loadModel) {
     checks.push({
       id: "stt-model",

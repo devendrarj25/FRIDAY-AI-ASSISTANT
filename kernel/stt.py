@@ -90,53 +90,16 @@ def owner_model(size: str, requested: str) -> str:
     return resolve_model_name(requested)
 
 
-def boot_model(
-    requested: str,
-    base_cached: bool = False,
-    small_cached: bool = False,
-    failed: bool = False,
-    elapsed_ms: float = 0,
-    budget_ms: float = 0,
-) -> dict:
-    """Start on base, then small. A slow or failed load steps down one size."""
-    order = ["large-v3", "medium", "small", "base", "tiny"]
-    known = set(order)
-
-    def smaller(name: str) -> str:
-        if name not in order:
-            return "base"
-        index = order.index(name)
-        return order[min(len(order) - 1, index + 1)]
-
-    locked = requested if requested in known else ""
-    slow = bool(failed) or (budget_ms > 0 and elapsed_ms > budget_ms)
-    if locked:
-        if slow:
-            return {
-                "model": smaller(locked),
-                "upgrade": None,
-                "reason": "load failed or ran past the budget, so a smaller model is used",
-            }
-        return {"model": locked, "upgrade": None, "reason": "the owner locked this size"}
-    if slow:
-        return {
-            "model": "base" if base_cached else "tiny",
-            "upgrade": None,
-            "reason": "the first load was slow, so listening starts on a smaller model",
-        }
-    if base_cached and not small_cached:
-        return {
-            "model": "base",
-            "upgrade": "small",
-            "reason": "base is on disk, so listening starts now and small loads after",
-        }
-    if not base_cached and not small_cached:
-        return {
-            "model": "base",
-            "upgrade": "small",
-            "reason": "base loads first so listening starts sooner, then small",
-        }
-    return {"model": "small", "upgrade": None, "reason": "small is ready"}
+def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
+    """The worker opens a local folder. It does not download weights."""
+    target = (model_path or "").strip() or (name or DEFAULT_MODEL)
+    return {
+        "target": target,
+        "device": "auto",
+        "compute_type": "int8",
+        "download_root": cache_dir(),
+        "local_files_only": True,
+    }
 
 
 def resolve_model_name(requested: str) -> str:
@@ -195,16 +158,23 @@ def _import_whisper():
         return None
 
 
-def get_model(name: str):
-    """Load WhisperModel once per worker; reload only when the size changes."""
+def get_model(name: str, model_path: str | None = None):
+    """Load WhisperModel once per worker. `local_files_only` blocks a silent download."""
     global _model, _model_name, _load_count
     cls = _import_whisper()
     if cls is None:
         raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
-    wanted = name or DEFAULT_MODEL
+    spec = model_load_kwargs(name, model_path or os.environ.get("FRIDAY_STT_MODEL_PATH"))
+    wanted = spec["target"]
     if _model is not None and _model_name == wanted:
         return _model
-    _model = cls(wanted, device="auto", compute_type="int8", download_root=cache_dir())
+    _model = cls(
+        wanted,
+        device=spec["device"],
+        compute_type=spec["compute_type"],
+        download_root=spec["download_root"],
+        local_files_only=spec["local_files_only"],
+    )
     _model_name = wanted
     _load_count += 1
     return _model
@@ -310,6 +280,7 @@ def transcribe_file(
     on_partial=None,
     speech_pref: str = "",
     owner_size: str = "",
+    model_path: str = "",
 ) -> dict:
     prepared, samples, cleanup = prepare_audio(audio)
     try:
@@ -322,6 +293,7 @@ def transcribe_file(
             on_partial,
             speech_pref,
             owner_size,
+            model_path,
         )
     finally:
         if cleanup and os.path.exists(cleanup):
@@ -340,6 +312,7 @@ def _transcribe_prepared(
     on_partial,
     speech_pref: str,
     owner_size: str = "",
+    model_path: str = "",
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
@@ -371,7 +344,7 @@ def _transcribe_prepared(
             "engine": engine,
             "turnProbability": turn_probability,
         }
-    model = get_model(owner_model(owner_size, model_name))
+    model = get_model(owner_model(owner_size, model_name), model_path or None)
     lang = resolve_language(language)
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
@@ -439,7 +412,7 @@ def handle_request(req: dict) -> dict:
 
         started = time.time()
         try:
-            get_model(str(req.get("model") or DEFAULT_MODEL))
+            get_model(str(req.get("model") or DEFAULT_MODEL), str(req.get("model_path") or "") or None)
             return {
                 "ok": True,
                 "model": _model_name,
@@ -476,6 +449,7 @@ def handle_request(req: dict) -> dict:
                 on_partial if rid is not None else None,
                 str(req.get("speech_pref") or req.get("speechPref") or ""),
                 str(req.get("sttSize") or req.get("stt_size") or ""),
+                str(req.get("model_path") or ""),
             )
         except Exception as exc:  # noqa: BLE001
             reason = "missing-dependency" if _whisper_cls is None else "transcribe-failed"

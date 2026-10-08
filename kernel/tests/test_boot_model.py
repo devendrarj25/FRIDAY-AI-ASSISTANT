@@ -1,24 +1,28 @@
-"""Speech model boot plan. No download and no microphone."""
+"""The speech worker loads a local folder. The size plan lives in the app."""
 
 import unittest
+from pathlib import Path
 
 from kernel import stt
 
 
-class BootModelTests(unittest.TestCase):
-    def test_auto_starts_on_base_then_small(self):
-        plan = stt.boot_model("auto")
-        self.assertEqual(plan["model"], "base")
-        self.assertEqual(plan["upgrade"], "small")
+class ModelLoadTests(unittest.TestCase):
+    def test_loader_stays_on_local_files(self):
+        spec = stt.model_load_kwargs("base", "/models/base")
+        self.assertEqual(spec["target"], "/models/base")
+        self.assertTrue(spec["local_files_only"])
+        self.assertNotIn("boot_model", dir(stt))
 
-    def test_a_slow_locked_model_steps_down(self):
-        plan = stt.boot_model("small", failed=True, elapsed_ms=10, budget_ms=1)
-        self.assertEqual(plan["model"], "base")
+    def test_a_size_name_still_refuses_a_download(self):
+        spec = stt.model_load_kwargs("small", None)
+        self.assertEqual(spec["target"], "small")
+        self.assertTrue(spec["local_files_only"])
 
-    def test_a_ready_small_model_stays(self):
-        plan = stt.boot_model("auto", base_cached=True, small_cached=True)
-        self.assertEqual(plan["model"], "small")
-        self.assertIsNone(plan["upgrade"])
+    def test_the_size_plan_is_not_copied_here(self):
+        source = Path("kernel/stt.py").read_text(encoding="utf-8")
+        self.assertNotIn("def boot_model", source)
+        self.assertIn('"local_files_only": True', source)
+        self.assertNotIn("snapshot_download", source)
 
 
 if __name__ == "__main__":

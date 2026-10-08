@@ -123,7 +123,7 @@ export const AFFECT_LEXICON: readonly LexiconRow[] = [
     label: "sarcasm",
     valence: -0.2,
     arousal: 0.4,
-    weight: 0.4,
+    weight: 0.55,
   },
 ];
 

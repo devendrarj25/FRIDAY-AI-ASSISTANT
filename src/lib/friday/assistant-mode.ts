@@ -54,6 +54,24 @@ import {
   type VoiceAudit,
 } from "./voice-session";
 import {
+  applyCorrections,
+  confidenceRepeat,
+  languageId,
+  learnCorrection,
+  utteranceConfidence,
+} from "./asr-bias";
+import { noteArc } from "./conversation-arc";
+import { voiceBudgets } from "./failure-guard";
+import { applySession } from "./mic-session";
+import { noteStyleCorrection } from "./response-policy";
+import {
+  outputReachable,
+  voiceForLanguage,
+  chooseTtsEngine,
+  firstAudioLatency,
+  switchMidSentence,
+} from "./tts-ladder";
+import {
   EMPTY_MIC_STATUS,
   noteMicHolders,
   probeMicrophone,
@@ -76,8 +94,15 @@ import {
 } from "./assistant-conduct";
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
-import { persistentRetryDelayMs } from "./bounded-retry";
-import { failureCause, mayAnnounce, voiceFailureLine } from "./voice-recovery";
+import {
+  failureCause,
+  mayAnnounce,
+  ownerVoiceLang,
+  recoveryDelayMs,
+  resumeAfterSpokenReply,
+  shouldRetryNow,
+  voiceFailureLine,
+} from "./voice-recovery";
 import {
   TRANSCRIPT_ONLY,
   detectWake,
@@ -202,7 +227,7 @@ export type AssistantModeState = {
   };
   /** Which engine actually produced the last spoken line. */
   tts: {
-    engine: "neural" | "system" | "none" | null;
+    engine: "neural" | "supertonic" | "sapi" | "system" | "none" | null;
     voice: string;
     lastSpokenAt: number | null;
     lastError: string | null;
@@ -266,6 +291,10 @@ class AssistantModeStore {
   /** On-device transcription is Auto Mode's only recognition engine. */
   private dictation: DesktopDictation | null = null;
   private wantRunning = false;
+  /** A start already in flight must not open a second capture. */
+  private recognitionPending = false;
+  /** True after Install Manager reports the offline voice package. */
+  private offlineVoiceReady = false;
   /**
    * When local speech recognition is genuinely unavailable, starting it again
    * immediately only repeats the same failure. Bounded retry uses the kernel
@@ -452,11 +481,17 @@ class AssistantModeStore {
       this.conduct = loadConduct(value);
     });
     let pauseCalls = preferences.getSnapshot().voice.pauseDuringCalls !== false;
+    let voiceSnap = JSON.stringify(preferences.getSnapshot().voice);
     preferences.subscribe(() => {
       const next = preferences.getSnapshot().voice.pauseDuringCalls !== false;
-      if (next === pauseCalls) return;
-      pauseCalls = next;
-      if (this.state.mode === "auto") void this.refreshMeeting();
+      const nextVoice = JSON.stringify(preferences.getSnapshot().voice);
+      const voiceChanged = nextVoice !== voiceSnap;
+      voiceSnap = nextVoice;
+      if (next !== pauseCalls) {
+        pauseCalls = next;
+        if (this.state.mode === "auto") void this.refreshMeeting();
+      }
+      if (voiceChanged) this.noteVoiceTrigger("settings");
     });
 
     // The window can be hidden in the tray while FRIDAY stays alive, so the
@@ -465,8 +500,7 @@ class AssistantModeStore {
     // Only re-arm recognition when the page becomes visible again in case
     // Chromium dropped the stream while the window was down.
     document.addEventListener("visibilitychange", () => {
-      if (this.state.mode !== "auto" || this.state.paused) return;
-      if (!document.hidden && !this.dictation?.active) this.startRecognition();
+      if (!document.hidden && !this.dictation?.active) this.noteVoiceTrigger("focus");
     });
     // "Pause listening" from the tray really stops the microphone here.
     desktop()?.onVoicePause?.((payload) => this.setPaused(Boolean(payload?.paused)));
@@ -533,14 +567,9 @@ class AssistantModeStore {
       this.stopRecognition();
       void this.probeMic();
       if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
-      if (this.state.mode === "auto" && !this.state.paused) {
-        this.stopRecognition();
-        this.hotplugTimer = window.setTimeout(() => {
-          this.hotplugTimer = null;
-          if (this.state.mode === "auto" && !this.state.paused && !this.callHold)
-            this.startRecognition();
-        }, 500);
-      }
+      this.hotplugTimer = null;
+      const session = applySession("hotplug", "a2dp");
+      if (session.reopen) this.noteVoiceTrigger("device");
     });
     if (this.state.mode === "auto") this.enterAuto();
     this.emit();
@@ -548,9 +577,9 @@ class AssistantModeStore {
       let lastWhisper = Boolean(installer.getSnapshot().installed["faster-whisper"]);
       installer.subscribe(() => {
         const now = Boolean(installer.getSnapshot().installed["faster-whisper"]);
+        if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
         if (now && (!lastWhisper || this.sttGaveUp)) {
-          this.resetVoiceRecovery();
-          if (this.state.mode === "auto" && !this.state.paused) this.startRecognition();
+          this.noteVoiceTrigger("install-finished");
         }
         lastWhisper = now;
       });
@@ -567,8 +596,10 @@ class AssistantModeStore {
     } catch {
       /* non-fatal */
     }
-    if (mode === "auto") this.enterAuto();
-    else this.leaveAuto();
+    if (mode === "auto") {
+      this.noteVoiceTrigger("toggle");
+      this.enterAuto();
+    } else this.leaveAuto();
     this.emit();
   }
 
@@ -884,40 +915,52 @@ class AssistantModeStore {
       this.wantRunning = false;
       return;
     }
+    if (this.recognitionPending || this.dictation?.active) return;
+    this.recognitionPending = true;
     this.wantRunning = true;
-    if (this.dictation) return;
-    if (Date.now() < this.sttBlockedUntil) return;
+    if (this.dictation) {
+      this.recognitionPending = false;
+      return;
+    }
+    if (Date.now() < this.sttBlockedUntil) {
+      this.recognitionPending = false;
+      return;
+    }
     this.state.status = "Checking local speech recognition…";
     this.emit();
-    void sttStatus(false, true, true).then((state) => {
-      if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
-      this.state.stt = {
-        ...this.state.stt,
-        engine: state.engine,
-        model: state.model ?? this.state.stt.model,
-        ready: Boolean(state.ready && state.engine === "faster-whisper"),
-        lastError: state.ready
-          ? this.state.stt.lastError
-          : state.reason || this.state.stt.lastError,
-      };
-      if (!state.available || state.engine !== "faster-whisper" || state.ready === false) {
-        this.state.listening = false;
-        this.state.supported = false;
-        this.reportFailure(
-          state.reason ||
-            "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-          "Local speech recognition not installed",
-        );
-        this.scheduleSttRecovery(
-          state.reason ||
-            "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-        );
-        return;
-      }
-      this.resetVoiceRecovery();
-      this.state.supported = true;
-      this.startDesktopDictation();
-    });
+    void sttStatus(false, true, true)
+      .then((state) => {
+        if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
+        this.state.stt = {
+          ...this.state.stt,
+          engine: state.engine,
+          model: state.model ?? this.state.stt.model,
+          ready: Boolean(state.ready && state.engine === "faster-whisper"),
+          lastError: state.ready
+            ? this.state.stt.lastError
+            : state.reason || this.state.stt.lastError,
+        };
+        if (!state.available || state.engine !== "faster-whisper" || state.ready === false) {
+          this.state.listening = false;
+          this.state.supported = false;
+          this.reportFailure(
+            state.reason ||
+              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
+            "Local speech recognition not installed",
+          );
+          this.scheduleSttRecovery(
+            state.reason ||
+              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
+          );
+          return;
+        }
+        this.resetVoiceRecovery();
+        this.state.supported = true;
+        this.startDesktopDictation();
+      })
+      .finally(() => {
+        this.recognitionPending = false;
+      });
   }
 
   /** Owner (or a real install) asked again — same as a manual kernel restart. */
@@ -955,9 +998,21 @@ class AssistantModeStore {
     return formatGuidance(guidance);
   }
 
+  /** Immediate retry for install, model, settings, device, focus, toggle, and Fix voice. */
+  noteVoiceTrigger(trigger: string) {
+    if (!shouldRetryNow(trigger)) return;
+    if (this.state.mode !== "auto" || this.state.paused) return;
+    this.resetVoiceRecovery();
+    this.startRecognition();
+  }
+
+  fixVoice() {
+    this.noteVoiceTrigger("fix-voice");
+  }
+
   private scheduleSttRecovery(reason: string) {
     if (!this.wantRunning) return;
-    const delay = persistentRetryDelayMs(this.sttRecoveryAttempt);
+    const delay = recoveryDelayMs(this.sttRecoveryAttempt);
     this.sttRecoveryAttempt += 1;
     this.cancelVoiceRecoveryTimer();
     this.sttRecoveryTimer = window.setTimeout(() => {
@@ -976,11 +1031,14 @@ class AssistantModeStore {
       localOnly: true,
       silenceMs: () =>
         endpointSilenceMs(Date.now() < this.awakeUntil || this.state.handsFree, this.state.interim),
-      initialPrompt: () =>
-        sttInitialPrompt({
-          preference: preferences.getSnapshot().voice.recognitionLang,
+      initialPrompt: () => {
+        const voice = preferences.getSnapshot().voice;
+        return sttInitialPrompt({
+          preference: voice.recognitionLang,
           topic: conversationDigest(),
-        }),
+          vocab: [voice.addressName, voice.wakeWord, voice.voiceName].filter(Boolean),
+        });
+      },
       onSpeechStart: () => {
         this.turnClock = {
           heardAt: Date.now(),
@@ -1147,6 +1205,7 @@ class AssistantModeStore {
       };
     const result = await api.verifyVoiceRuntime({ loadModel: true });
     this.state.stt = { ...this.state.stt, ready: Boolean(result?.ok) };
+    if (result?.ok) this.noteVoiceTrigger("model-ready");
     for (const check of result?.checks ?? [])
       this.trace(check.ok ? "segment" : "error", `${check.label}: ${check.detail}`);
     this.emit();
@@ -1215,6 +1274,25 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    const corrected = applyCorrections(text);
+    const heardLang = languageId(corrected);
+    noteStyleCorrection(corrected);
+    const repeat = confidenceRepeat(corrected, utteranceConfidence(corrected));
+    if (/\bnot\b.+\bbut\b/i.test(text)) learnCorrection(text, corrected);
+    noteArc({
+      topic: corrected.slice(0, 120),
+      feeling: heardLang,
+      at: Date.now(),
+      source: "voice",
+    });
+    if (repeat && !isStopCommand(corrected)) {
+      this.caption("friday", repeat);
+      this.speak(repeat);
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
+    text = corrected;
     this.state.heard = text.slice(0, 160);
 
     // 1. A consequential command is waiting for a yes/no.
@@ -1469,7 +1547,11 @@ class AssistantModeStore {
       return;
     }
     this.spokenCauses.add(cause);
-    const spoken = voiceFailureLine(cause, this.spokenCauses.size);
+    const spoken = voiceFailureLine(
+      cause,
+      this.spokenCauses.size,
+      ownerVoiceLang(preferences.getSnapshot().voice.recognitionLang),
+    );
     this.emit();
     this.speak(spoken);
   }
@@ -1610,9 +1692,29 @@ class AssistantModeStore {
   private playSpoken(spoken: string, gen: number): Promise<void> {
     if (gen !== this.speechGen) return Promise.resolve();
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
-    if (this.turnClock.audioAt == null) this.turnClock = { ...this.turnClock, audioAt: Date.now() };
+    if (this.turnClock.audioAt == null) {
+      this.turnClock = { ...this.turnClock, audioAt: Date.now() };
+      const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
+      if (latency != null) {
+        voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
+      }
+    }
+    const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+    const engine = chooseTtsEngine({
+      network: online,
+      supertonicReady: this.offlineVoiceReady,
+      privacy: preferences.getSnapshot().voice.privacyMode === true,
+      prefer: "auto",
+    });
+    const fallen = switchMidSentence({
+      networkDropped: !online,
+      current: engine,
+      supertonicReady: this.offlineVoiceReady,
+    });
+    this.state.tts = { ...this.state.tts, engine: fallen };
     const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
+    const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
     const lastOwner =
       [...this.state.captions].reverse().find((row) => row.who === "user")?.text ?? "";
     const tone = speakingProsody({
@@ -1624,16 +1726,24 @@ class AssistantModeStore {
       whisper: voicePrefs.whisperMode === true,
     });
     const privacy = voicePrefs.privacyMode === true;
+    const localVoice = fallen !== "neural" || privacy;
+    const out = outputReachable({ deviceId: "default", volume: tone.volume });
+    if (!out.ok) this.state.status = out.reason;
     this.spokenText = spoken;
     return speakText(
       spoken,
       {
         ...tuning,
-        lang: tuning.lang || "hi-IN",
+        lang: spokenLang.lang || tuning.lang || "hi-IN",
         rate: tone.rate,
         pitch: tone.pitch,
         volume: tone.volume,
-        ...(privacy ? { voiceName: "", kind: "system" as const } : {}),
+        ...(localVoice
+          ? {
+              voiceName: "",
+              kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
+            }
+          : {}),
       },
       {
         onStart: () => {
@@ -1735,8 +1845,15 @@ class AssistantModeStore {
   private resumeAfterSpeech() {
     voiceGate.setSpeakingGuard(false);
     voiceGate.duck(false);
-    if (this.state.mode === "auto" && !this.state.paused && !this.dictation?.active)
+    if (
+      resumeAfterSpokenReply({
+        mode: this.state.mode,
+        paused: this.state.paused,
+        dictationActive: Boolean(this.dictation?.active),
+      })
+    ) {
       this.startRecognition();
+    }
   }
 
   /**

@@ -5,8 +5,11 @@ export function voicePackPaths(root: string): { id: string; path: string }[] {
   return [
     { id: "python", path: `${base}/runtime/.venv` },
     { id: "python-managed", path: `${base}/runtime/py312` },
+    { id: "cpython", path: `${base}/runtime/FRIDAY_Python/python/python.exe` },
     { id: "cache", path: `${base}/cache/stt` },
     { id: "models", path: `${base}/models` },
+    { id: "wake", path: `${base}/resources/wake/friday.onnx` },
+    { id: "wake-meta", path: `${base}/resources/wake/friday-wake.json` },
   ];
 }
 
