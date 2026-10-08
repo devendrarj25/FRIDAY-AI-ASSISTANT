@@ -1,8 +1,8 @@
 /**
  * FRIDAY - development/vision layer independence contract.
  *
- * `FRIDAY-DEVELOPMENT & VISION/` and `READMEFIRST.md` are a disposable
- * AI-working/planning layer (see READMEFIRST.md). Deleting them must leave a
+ * `FRIDAY-DEVELOPMENT & VISION/` and `READMEFIRST.md` were a disposable
+ * planning layer. The owner removed both. Deleting them must leave a
  * complete, independently working FRIDAY product: nothing under `src/`,
  * `electron/`, `kernel/`, `core/`, `agents/`, `skills/`, `tools/`, `plugins/`,
  * `modules/`, `workflows/`, `config/`, `scripts/`, `builder/`, `installer/`,
@@ -20,7 +20,7 @@
  *     physically excluded) into a temp directory and run a real
  *     `npm install` + `npm run typecheck` there, plus a kernel `py_compile`
  *     pass. This is the SOURCE_READY state from
- *     `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/VALIDATION_STATES.md`.
+ *     `docs/FRIDAY_CHANGE_CONTROL.md` (Validation states).
  *     A full Electron/NSIS build and an actual GUI boot (BUILD_READY) need
  *     Windows and are not attempted here -- that stays NOT VERIFIED on this
  *     environment rather than faked.
@@ -68,6 +68,11 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 describe("development/vision layer independence", () => {
+  it("this checkout does not contain the removed working layer or its index", () => {
+    expect(fs.existsSync(path.join(ROOT, WORKING_LAYER_DIR))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, WORKING_LAYER_INDEX))).toBe(false);
+  });
+
   it("no product source file references the disposable working layer", () => {
     // Known-legitimate mentions: the string itself is data here, not a
     // runtime dependency on the folder.
@@ -82,8 +87,7 @@ describe("development/vision layer independence", () => {
       "core/__tests__/dev-layer-independence.test.ts",
       "core/__tests__/development-contracts.test.ts",
       "core/__tests__/pr-scope.test.ts",
-      "scripts/docs-engine.cjs",
-      "scripts/pr-scope.cjs",
+      "core/__tests__/docs-registry.test.ts",
     ]);
 
     const offenders: string[] = [];
@@ -266,6 +270,36 @@ describe("development/vision layer independence", () => {
         timeout: 120_000,
       });
 
+      execFileSync(process.execPath, ["scripts/docs-engine.cjs"], {
+        cwd: tmpRoot,
+        stdio: "pipe",
+        timeout: 60_000,
+      });
+      execFileSync(process.execPath, ["scripts/arrange-project.cjs"], {
+        cwd: tmpRoot,
+        stdio: "pipe",
+        timeout: 60_000,
+      });
+      execFileSync(
+        process.execPath,
+        [
+          "-e",
+          [
+            'const s = require("./scripts/pr-scope.cjs");',
+            'if (!s.isDocsOnly(["docs/FRIDAY_CHANGE_CONTROL.md", "AGENTS.md"])) process.exit(2);',
+            'if (s.isDocsOnly(["src/lib/a.ts"])) process.exit(3);',
+            'if (s.isDocsOnly(["FRIDAY-DEVELOPMENT & VISION/x.md"])) process.exit(4);',
+            'if (s.isDocsOnly(["READMEFIRST.md"])) process.exit(5);',
+          ].join(""),
+        ],
+        { cwd: tmpRoot, stdio: "pipe", timeout: 30_000 },
+      );
+      execFileSync(
+        npmBin,
+        ["exec", "--", "vitest", "run", "core/__tests__/project-independence.test.ts"],
+        { ...npmOpts, timeout: 180_000 },
+      );
+
       // Lightweight kernel proxy: every kernel .py file must at least
       // parse on its own in the isolated copy. This is not a boot test
       // (no server is started, no dependencies imported) -- it only
@@ -293,5 +327,5 @@ describe("development/vision layer independence", () => {
       }
     }
     if (cleanupError) throw cleanupError;
-  }, 360_000);
+  }, 480_000);
 });

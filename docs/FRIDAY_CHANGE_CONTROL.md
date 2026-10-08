@@ -1,9 +1,7 @@
 # FRIDAY — Change Control
 
-This is the product copy of the change gate. A task is classified, bounded,
-implemented in the existing owner, and reported as PASS or BLOCK from command
-output. The working-layer copies, while that folder is still in the tree, are
-not a second process.
+This is the only change gate. A task is classified, bounded, implemented in
+the existing owner, and reported as PASS or BLOCK from command output.
 
 ## Gate
 
@@ -121,6 +119,37 @@ The tool floor lives in `config/toolchain-versions.json`. A brain change re-runs
 Research checked 2026-09, freshness unverified this session: [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ADAPT (the context packet already drops stale and redundant lines). [MCP](https://modelcontextprotocol.io/) ADAPT (a connector stays under FRIDAY authority). [A2A v1.0](https://a2a-protocol.org/v1.0.0/) REJECT (no second agent protocol). [OWASP GenAI](https://genai.owasp.org/) ADOPT (model output and external content stay data). [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) ADOPT (the existing sandbox and preload boundary stay). [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) ADAPT (release artifacts stay integrity-checked in the existing publish path).
 
 Research checked 2026-10-08: [CALM-MAS](https://dl.acm.org/doi/10.1145/3838177.3841735) ADAPT (lower concurrency and quality before a safety break; no second serving stack). [Cognitive admission control](https://arxiv.org/abs/2609.16313) ADAPT (a privileged action with missing evidence does not run). [OpenTelemetry GenAI spans](https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/gen-ai/gen-ai-spans.md) ADAPT (model and tool faults share the existing task log; no collector). [ISACA agent change management](https://www.isaca.org/resources/white-papers/2026/cybersecurity-recommendations-for-securing-ai-agents) ADOPT (a self-change names files, tests, and rollback). The unapproved `gen_ai.repair` span proposal is REJECT (recovery already lives on `recoverFailure`).
+
+## Removed working layer
+
+The owner removed `FRIDAY-DEVELOPMENT & VISION/` and `READMEFIRST.md` on 2026-10-08. The gate, the task packet, and the route table in this file are the process that those copies repeated. The repo map lives in `AGENTS.md`.
+
+Ideas that were not done, superseded, or rejected:
+
+| Idea | Where it lives |
+| --- | --- |
+| Bedrock, Foundry, and Vertex need the owner's cloud accounts | `docs/FRIDAY_PROVIDERS_AND_SECRETS.md` |
+| MSIX stays a future channel. NSIS remains primary | `docs/FRIDAY_BUILD_AND_RELEASE.md` |
+| A generated SBOM was not added. A hash mismatch already fails closed | `docs/FRIDAY_BUILD_AND_RELEASE.md` |
+
+## Research record (2026-10-08)
+
+Checked against the tree. One line each. Long write-ups stay out.
+
+| Source | Decision | Reason |
+| --- | --- | --- |
+| [AGENTS.md](https://agents.md/) | ADOPT | Commands first, one root file, nest another file only when a subtree breaks a root rule. |
+| [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) | ADOPT | contextIsolation, sandbox, CSP, IPC sender checks, and navigation limits stay the bar. |
+| [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADOPT | Startup and shutdown use one lifespan. Typed models and OpenAPI stay the contract. |
+| [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules. |
+| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | A shrinking baseline on the kernel. Full strict would churn unrelated files. |
+| [Knip](https://knip.dev/) | ADAPT | Dev-only dead-export check. A finding is removed only when no caller remains. |
+| [Madge](https://github.com/pahen/madge) | ADAPT | Dev-only cycle check. A cycle is fixed in the existing modules. |
+| [Dependabot groups](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#groups) | ADOPT | The monthly wildcard group per ecosystem stays. Majors stay ignored. |
+| [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) | ADOPT | A clean audit is the gate. A new advisory fails the check. |
+| [pip-audit](https://pypi.org/project/pip-audit/) | ADAPT | Dev-only advisory check for kernel requirements. It does not become a runtime dependency. |
+| [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning) | ADOPT | The existing secret-scan workflow stays. A second scanner is not added. |
+| Generated SBOM | REJECT | A hash mismatch already fails closed. A new bill-of-materials generator is future work in the build doc. |
 
 ## Definition of done
 

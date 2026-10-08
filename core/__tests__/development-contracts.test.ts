@@ -215,7 +215,7 @@ describe("development contracts", () => {
     expect(registered.has("docs/FRIDAY_CHANGE_CONTROL.md")).toBe(true);
     const productMarkdown = docs
       .markdownFiles()
-      .filter((rel) => !rel.startsWith("FRIDAY-DEVELOPMENT & VISION/"));
+      .filter((rel) => rel !== "READMEFIRST.md" && !rel.startsWith("FRIDAY-DEVELOPMENT & VISION/"));
     const orphans = productMarkdown.filter(
       (rel) => !registered.has(rel) && !docs.UNREGISTERED_OK.some((rule) => rule.test(rel)),
     );
@@ -254,6 +254,8 @@ describe("development contracts", () => {
     expect(control).toContain("src/lib/friday/flow-chart.ts");
     expect(control).toContain("kernel/planner.py");
     expect(control).toContain("exact, then high, then medium, then a broad search");
+    expect(fs.existsSync(path.join(ROOT, "FRIDAY-DEVELOPMENT & VISION"))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, "READMEFIRST.md"))).toBe(false);
     expect(
       fs.existsSync(path.join(ROOT, "FRIDAY-DEVELOPMENT & VISION/DOCUMENT-MANIFEST.json")),
     ).toBe(false);

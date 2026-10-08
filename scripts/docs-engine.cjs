@@ -280,9 +280,7 @@ const UNREGISTERED_OK = [
   /^\.lovable\//,
   /^dist/,
   /^\.pytest_cache\//,
-  /^FRIDAY-DEVELOPMENT & VISION\//, // disposable AI working/vision layer -- deletable, never part of the product docs registry (see READMEFIRST.md)
   /^CLAUDE\.md$/, // one-line `@AGENTS.md` import, never a second copy of AGENTS.md
-  /^READMEFIRST\.md$/, // index for the disposable layer above, not a product doc itself
   /^recovery\/[^/]+\.md$/, // Main Safety Recovery preservation records, not product documentation
 ];
 

@@ -23,7 +23,6 @@
 
 const ROOT_DOCS = [
   "README.md",
-  "READMEFIRST.md",
   "AGENTS.md",
   "CLAUDE.md",
   "ARCHITECTURE.md",
@@ -36,7 +35,7 @@ const ROOT_DOCS = [
   "FRIDAY_STATE.md",
 ];
 
-const DOC_PREFIXES = ["docs/", "FRIDAY-DEVELOPMENT & VISION/", ".github/ISSUE_TEMPLATE/"];
+const DOC_PREFIXES = ["docs/", ".github/ISSUE_TEMPLATE/"];
 
 const DOC_FILES = [...ROOT_DOCS, ".github/pull_request_template.md"];
 
