@@ -364,8 +364,20 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
     const cause = packApi.classifyBootstrapError("python was not found");
     const site = packApi.embedPthText().includes("import site");
     const probe = packApi.windowsLongPath(base);
+    const staged = packApi.previewBundledStage(listed);
+    const resolved = packApi.resolvePackagedTool({
+      id: "python-embed",
+      entry: "python.exe",
+      roots: [base],
+    });
+    const refresh = packApi.applyPackRefresh(
+      { version: pinned?.version, sha256: pinned?.sha256 },
+      pinned,
+    );
+    const drift = packApi.driftRows({});
+    const extraction = packApi.planExtraction(pinned, base);
     onLine(
-      `Pinned ${pinned?.name || "Python"} ${pinned?.version || ""} is not extracted (${layout.step}, ${chain.step}, ${cause}, ${listed.packs?.length || 0} packs, site ${site ? "on" : "off"}, ${probe}). Install it from Install Manager.`,
+      `Pinned ${pinned?.name || "Python"} ${pinned?.version || ""} is not extracted (${layout.step}, ${chain.step}, ${cause}, ${listed.packs?.length || 0} packs, site ${site ? "on" : "off"}, ${probe}, stage ${staged.errors?.length || 0}, ${resolved ? "found" : "absent"}, ${refresh.action}, drift ${drift.length}, ${extraction.step}). Install it from Install Manager.`,
     );
     return null;
   }

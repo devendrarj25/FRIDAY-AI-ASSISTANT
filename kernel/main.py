@@ -752,6 +752,9 @@ async def dispatch(method: str, params: dict, send) -> dict:
             privacy_confirmed=bool(params.get("privacyConfirmed", False)),
             route_mode=route_mode,
             privacy=str(privacy_mode) if privacy_mode else None,
+            surface=params.get("routingSurface")
+            if params.get("routingSurface") in ("voice", "chat")
+            else None,
         ):
             if delta.get("delta"):
                 replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])

@@ -425,3 +425,58 @@ Run these on the Windows PC, in order. Copy the Voice rows, the Toolchain rows, 
 7. Sleep the PC and wake it. Listening should return.
 8. Ask for Python, Node, a C compile, Git status, and the local CI report.
 9. If a step fails, copy the Voice and Toolchain rows and the on-screen status. Do not send a recording.
+
+## Wave 7 — Bundled runtime, warm speech, and free models
+
+Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay, because a live Windows microphone, a real pack download, and a keyed provider call were not run. The voice runtime pin is still the install_only CPython 3.12.15 archive. The embeddable zip is the bundled pack the pack hook stages. It is not a second voice runtime.
+
+### Plan table
+
+| Idea | Source file | Status | Decision | Step |
+| --- | --- | --- | --- | --- |
+| Evidence before a model is called free | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/04_MODEL_INTELLIGENCE/MODEL_CARD_SYSTEM.md` | PARTIAL | ADOPT | 14–15 |
+| One router, ordered fallback | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/FALLBACK_POLICY.md` | PARTIAL | ADOPT | 18–19 |
+| Refresh without blocking startup | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/06_RUNTIME_OPERATIONS/AUTO_REFRESH.md` | PARTIAL | ADAPT | 16 |
+| Provider adapters with a source | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/03_PROVIDER_FEDERATION/PROVIDER_MATRIX.md` | PARTIAL | ADOPT | 14 |
+| Failure injection for 429, auth, and a removed model | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/11_TESTS/FAILURE_INJECTION.md` | PARTIAL | ADOPT | 26 |
+| A free board on the existing Models page | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/13_UI_MODEL_SECTION/MODELS_PAGE_BLUEPRINT.md` | PARTIAL | ADAPT | 25 |
+| A second router or a new sidebar row | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/MASTER_ARCHITECTURE.md` | MISSING | REJECT | — |
+| Warm local speech and a measured engine | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 9–12 |
+| Chat and Auto share one pool | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/06_CROSS_SURFACE/02_SURFACE_PARITY_AND_DEGRADATION.md` | PARTIAL | ADOPT | 13, 24 |
+| Stage the pinned packs at pack time | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 4–8 |
+
+### Research (2026-10-08)
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| electron-builder `beforePack` plus `extraResources` | ADOPT | The hook stages pinned archives before the pack. A hash or size miss fails the build. Source: https://www.electron.build/hooks |
+| whisper.cpp `whisper-server` | ADOPT | One process keeps the model loaded and listens on `127.0.0.1`. The one-shot cli remains the fallback. Source: https://github.com/ggml-org/whisper.cpp/tree/master/examples/server |
+| GitHub release asset limit | ADAPT | The bundled tier is 205084080 bytes under a 220000000 byte budget, inside a 2GB asset. Copyleft packs stay on demand. |
+| Cerebras pricing | ADAPT | No always-free model list. A promotional credit still flows through account credits. A published price stays paid. Sources: https://inference-docs.cerebras.ai/support/rate-limits and https://www.cerebras.ai/pricing |
+| GitHub Models | ADAPT | Retired 2026-07-30. The adapter is not eligible and is not a cloud row. Source: https://github.blog/changelog/2026-07-30-github-models-is-now-retired/ |
+| Cloudflare Workers AI | ADAPT | 10,000 Neurons a day. Three documented free ids and three paid-plan ids. Anything else stays unknown. Sources: https://developers.cloudflare.com/workers-ai/platform/pricing/ and https://developers.cloudflare.com/changelog/post/2026-07-28-models-require-workers-paid/ |
+| SiliconFlow | ADAPT | A `Pro/` id is paid. A zero catalogue price is free. No third-party id list. Source: https://docs.siliconflow.com/en/userguide/rate-limits/rate-limit-and-upgradation |
+| Hyperbolic and SambaNova | REJECT | No verified always-free model list on 2026-10-08. Unknown cost stays hidden. |
+| A model name that contains "free" | REJECT | Proof is a documented tier, a zero price, or a verified credit. |
+
+### What the pack hook does
+
+`scripts/stage-toolchain.cjs` reads `config/toolchain-manifest.json`, checks SHA-256 and size, and writes the archive under `resources/toolchain` or `resources/speech`. `electron-builder.yml` calls it from `beforePack`. The archives are gitignored. Install Manager remains the repair path. Doctor shows Ready only after a verify proof. A Windows pack was not run here.
+
+### Free models
+
+Chat and Auto call the same router. Auto asks for the latency surface. Chat asks for the quality surface. Paid and unknown-cost models stay hidden until paid access is on. A sensitive or private turn stays on a local model. Startup does not download provider pages. Refresh keeps the last good table when a page does not parse.
+
+### Owner checklist
+
+Run these on the Windows PC, in order. Copy the Doctor rows and the on-screen status if one fails. Do not send a recording.
+
+1. Clean-install the voice test from Doctor.
+2. Say the wake word, then one sentence.
+3. Hold a 3-turn conversation.
+4. Start talking while FRIDAY is speaking.
+5. Disconnect the network mid-reply.
+6. Choose Refresh free list on Models.
+7. Choose Test my free models. It must not spend and must not send a secret.
+8. Send one Chat turn and one Auto turn. Both use the same free pool.
+9. If a step fails, copy the Doctor rows and the on-screen status.

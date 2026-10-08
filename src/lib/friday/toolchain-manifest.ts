@@ -133,15 +133,43 @@ export type DoctorRow = {
   fixable: false;
 };
 
-export function toolchainDoctorRows(present: Record<string, boolean> = {}): DoctorRow[] {
+export function toolchainDoctorRows(
+  present: Record<string, boolean> = {},
+  verified?: Record<string, boolean>,
+): DoctorRow[] {
   return toolchainManifest().packs.map((pack) => {
     const here = present[pack.id] === true;
+    const proved = verified ? verified[pack.id] === true : here;
+    const status = here && proved ? "Ready" : here ? "Warning" : "Missing";
+    const detail =
+      here && !proved
+        ? `${pack.name} is on disk and has not been verified by running it.`
+        : explainTool(pack.id, here && proved);
     return {
       id: `toolchain:${pack.id}`,
       label: pack.name,
       group: "Toolchain",
-      status: here ? "Ready" : "Missing",
-      detail: explainTool(pack.id, here),
+      status,
+      detail,
+      fixable: false,
+    };
+  });
+}
+
+export function toolchainDriftRows(installed: Record<string, string> = {}): DoctorRow[] {
+  return toolchainManifest().packs.map((pack) => {
+    const have = installed[pack.id];
+    const drifted = Boolean(have) && have !== pack.version;
+    return {
+      id: `toolchain-drift:${pack.id}`,
+      label: pack.name,
+      group: "Toolchain",
+      status: drifted ? "Warning" : have ? "Ready" : "Missing",
+      detail: drifted
+        ? `${pack.name} is ${have}; the manifest pins ${pack.version}.`
+        : have
+          ? `${pack.name} matches ${pack.version}.`
+          : explainTool(pack.id, false),
       fixable: false,
     };
   });

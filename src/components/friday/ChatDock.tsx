@@ -440,6 +440,7 @@ export function ChatDock() {
       ...(combined ? { extra: combined } : {}),
       ...(pinned.length ? { modelIds: pinned } : {}),
       routeMode: registry.routeMode,
+      routingSurface: "chat",
     });
     if (!sent.accepted) clearDiagramExplanation();
 

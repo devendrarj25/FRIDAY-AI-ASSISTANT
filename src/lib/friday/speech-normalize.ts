@@ -37,6 +37,10 @@ export function normalizeSpoken(text: string): string {
   return line.replace(/\s+/g, " ").trim();
 }
 
+export function chunkSentences(text: string): string[] {
+  return sentenceChunks(text);
+}
+
 export function sentenceChunks(text: string): string[] {
   const parts = normalizeSpoken(text)
     .split(/(?<=[.!?])\s+/)

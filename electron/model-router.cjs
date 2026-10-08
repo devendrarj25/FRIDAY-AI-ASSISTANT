@@ -291,6 +291,12 @@ const ROLE_BY_TASK = {
  * decides whether we fall back, how long the model sits out, and what the
  * owner is told.
  */
+function cooldownJitter(ms, salt = 0) {
+  const base = Number(ms) || 0;
+  const wobble = Math.abs(Number(salt) || 0) % 1000;
+  return base + wobble;
+}
+
 function classifyError(input) {
   const text = String(input?.message || input || "").toLowerCase();
   const status = Number(input?.status || /http (\d{3})/.exec(text)?.[1] || 0);
@@ -323,8 +329,35 @@ function classifyError(input) {
   if (status === 401 || status === 403 || has("api key", "unauthorized", "invalid_api_key")) {
     return { category: "invalid_key", retryable: false, cooldownMs: 15 * 60_000 };
   }
+  if (has("content_filter", "content filter", "content policy")) {
+    return {
+      category: "content_filter",
+      retryable: false,
+      cooldownMs: cooldownJitter(60_000, 1),
+    };
+  }
+  if (has("region block", "not available in your region", "geo-blocked")) {
+    return {
+      category: "region_block",
+      retryable: false,
+      cooldownMs: cooldownJitter(60 * 60_000, 2),
+    };
+  }
+  if (has("has been deprecated", "was renamed", "model was removed")) {
+    return {
+      category: "model_unavailable",
+      retryable: false,
+      cooldownMs: 10 * 60_000,
+      delist: true,
+    };
+  }
   if (status === 404 || has("model not found", "does not exist", "unknown model")) {
-    return { category: "model_unavailable", retryable: false, cooldownMs: 10 * 60_000 };
+    return {
+      category: "model_unavailable",
+      retryable: false,
+      cooldownMs: 10 * 60_000,
+      delist: has("model not found", "does not exist", "unknown model", "deprecated", "renamed"),
+    };
   }
   if (status === 408 || has("timeout", "timed out", "deadline")) {
     return { category: "timeout", retryable: true, cooldownMs: 30_000 };
@@ -526,7 +559,7 @@ function describe(model, health, now = Date.now()) {
       sources: caps.sources || {},
       verification: accessRecord?.verification || "UNVERIFIED",
     },
-    qualityProfile,
+    qualityProfile: model.qualityProfile || qualityProfile,
     supportsStreaming:
       model.supportsStreaming !== undefined ? model.supportsStreaming : caps.streaming !== false,
     supportsTools: caps.tools,
@@ -537,7 +570,7 @@ function describe(model, health, now = Date.now()) {
     coolingDown: Boolean(state && state.cooldownUntil > now),
     failures: state?.failures || 0,
     lastFailureAt: state?.lastFailureAt || 0,
-    latencyMs: state?.latencyMs ?? null,
+    latencyMs: state?.latencyMs ?? model.latencyMs ?? null,
     available: !(state && state.cooldownUntil > now),
   };
 }
@@ -589,6 +622,7 @@ function scoreModel(
     now = Date.now(),
     requirements = {},
     qualityTarget = null,
+    surface = null,
   } = {},
 ) {
   const normTask = normaliseRoutingTask(task);
@@ -645,6 +679,11 @@ function scoreModel(
   // Proven behaviour & Latency
   if (model.health === "available") score += 1.2;
   if (model.latencyMs) score += Math.max(-1, 1 - model.latencyMs / 2000);
+  if (surface === "voice" && model.latencyMs) {
+    score += Math.max(-1, 1 - model.latencyMs / 2000) * 2;
+  } else if (surface === "chat") {
+    score += (qp.chatScore || qp.reasoningScore || 0.5) * 2;
+  }
   if (requirements.maxLatencyMs && model.latencyMs && model.latencyMs > requirements.maxLatencyMs) {
     score -= 3;
   }
@@ -890,6 +929,7 @@ function freeNowBoard(models, options = {}) {
       reason: row.disabledReason || null,
       marks,
       quota: quotaLine(model),
+      dataUse: String(evidence.dataUse || ""),
     });
   }
   return rows;
@@ -1137,7 +1177,14 @@ function prepareRoute(models, options = {}) {
     .filter((m) => !pinned.includes(m))
     .map((m) => ({
       m,
-      score: scoreModel(m, { task, policy: usage, now, requirements, qualityTarget }),
+      score: scoreModel(m, {
+        task,
+        policy: usage,
+        now,
+        requirements,
+        qualityTarget,
+        surface: options.surface,
+      }),
     }))
     .sort((a, b) => b.score - a.score || a.m.id.localeCompare(b.m.id))
     .map((row) => row.m);
@@ -1305,23 +1352,84 @@ function classifyTask(text) {
   const value = String(text || "");
   const lower = value.toLowerCase();
   const hindi = /[\u0900-\u097F]/.test(value);
-  if (!lower.trim()) return { task: "chat", source: "rules", confidence: 0, hindi };
+  const finish = (row) => ({
+    ...row,
+    hindi,
+    hinglish: hindi && /[A-Za-z]/.test(value),
+    longContext: value.length > 4000,
+  });
+  if (!lower.trim()) return finish({ task: "chat", source: "rules", confidence: 0 });
   if (/\b(ocr|screenshot|read this image)\b/.test(lower)) {
-    return { task: "vision", source: "rules", confidence: 0.6, hindi, preset: "ocr" };
+    return finish({ task: "vision", source: "rules", confidence: 0.6, preset: "ocr" });
   }
   if (/\b(code|function|bug|typescript|python)\b/.test(lower)) {
-    return { task: "coding", source: "rules", confidence: 0.55, hindi };
+    return finish({ task: "coding", source: "rules", confidence: 0.55 });
   }
   if (/\b(prove|reason|why)\b/.test(lower)) {
-    return { task: "reasoning", source: "rules", confidence: 0.4, hindi };
+    return finish({ task: "reasoning", source: "rules", confidence: 0.4 });
   }
   if (/\b(embed|embedding)\b/.test(lower)) {
-    return { task: "embeddings", source: "rules", confidence: 0.7, hindi };
+    return finish({ task: "embeddings", source: "rules", confidence: 0.7 });
   }
   if (/summar/.test(lower)) {
-    return { task: "chat", source: "rules", confidence: 0.45, hindi, preset: "summarization" };
+    return finish({ task: "chat", source: "rules", confidence: 0.45, preset: "summarization" });
   }
-  return { task: "chat", source: "rules", confidence: 0.3, hindi };
+  if (/\b(translate|translation|anuvad)\b/.test(lower)) {
+    return finish({ task: "chat", source: "rules", confidence: 0.5, preset: "translation" });
+  }
+  if (/\btools\b/.test(lower)) {
+    return finish({ task: "tools", source: "rules", confidence: 0.45 });
+  }
+  return finish({ task: "chat", source: "rules", confidence: 0.3 });
+}
+
+function nudgePrior(prior, feedback) {
+  const text = String(feedback || "");
+  const current = Number(prior);
+  const base = Number.isFinite(current) ? current : 0.5;
+  if (!text.trim()) return { prior: base, reversible: true, changed: false };
+  const bad = /achha nahi|not good|poor/i.test(text);
+  const next = Math.max(0, Math.min(1, base + (bad ? -0.05 : 0.05)));
+  return { prior: next, reversible: true, changed: true };
+}
+
+function localSafetyNet(models) {
+  const local = (models || []).find(
+    (model) => model && (model.type === "local" || model.kind === "local"),
+  );
+  return local?.id || null;
+}
+
+function routeFreeTurn(models, options = {}) {
+  const privacy = options.privacy || options.requirements?.privacy;
+  const sensitive = options.sensitive === true || !modelAccess.cloudAllowed(privacy);
+  const quotaBlocked = options.quota && modelAccess.fitsQuota(options.quota) === false;
+  const pool =
+    sensitive || quotaBlocked
+      ? (models || []).filter((model) => model.type === "local" || model.kind === "local")
+      : models;
+  const nudged = nudgePrior(options.prior, options.feedback);
+  return prepareRoute(pool, {
+    ...options,
+    policy: "free-only",
+    prior: nudged.prior,
+    requirements: {
+      ...(options.requirements || {}),
+      ...(sensitive ? { privacy: "private" } : {}),
+    },
+  });
+}
+
+function hedgeFree(models, options = {}) {
+  const decision = routeFreeTurn(models, { ...options, limit: 2 });
+  const ids = (decision.chosen || []).map((model) => model.id);
+  const local = localSafetyNet(models);
+  return {
+    candidates: ids.length ? ids : local ? [local] : [],
+    cancelLoser: ids.length === 2,
+    local,
+    reasons: (decision.rejected || []).slice(0, 6).map((row) => `${row.id}: ${row.reason}`),
+  };
 }
 
 function previewRoute(models, prompt, options = {}) {
@@ -1761,6 +1869,11 @@ module.exports = {
   selectVerificationCandidates,
   usableModels,
   freeNowBoard,
+  routeFreeTurn,
+  hedgeFree,
+  nudgePrior,
+  cooldownJitter,
+  localSafetyNet,
   modelAvailability,
   formatAnsweredBy,
   choiceLabelOf,

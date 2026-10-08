@@ -75,6 +75,10 @@ backup/**
 !backup/**/
 !backup/**/.gitkeep
 
+# Pack-time toolchain and speech archives. The notices file stays tracked.
+resources/toolchain/**/pack.bin
+resources/speech/**/pack.bin
+
 # Generated runtime indexes (desktop connectivity scan / architecture index).
 # Rebuilt by the installed app and by tests; never a second source of truth.
 database/connectivity-graph.json

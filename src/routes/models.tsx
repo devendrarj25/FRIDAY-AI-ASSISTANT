@@ -40,6 +40,12 @@ import {
 } from "@/lib/friday/knowledge-age";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  explainChoice,
+  probeOwnerMessage,
+  refreshOwnerMessage,
+  signupGuide,
+} from "@/lib/friday/free-board";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -230,6 +236,30 @@ function ModelsPage() {
       }
     >
       <div className="space-y-4">
+        <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium">Free models</h2>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
+                Refresh free list
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => toast(probeOwnerMessage())}>
+                Test my free models
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {signupGuide().map((row) => (
+              <li key={row.id}>
+                <a className="underline" href={row.href} target="_blank" rel="noreferrer">
+                  {row.label}
+                </a>
+                <span> — {row.dataUse}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
         {/* -------------------------------------------------------- overview */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile

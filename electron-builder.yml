@@ -12,6 +12,7 @@ afterPack: scripts/brand-windows.cjs
 # the overwrite and before NSIS/portable consume win-unpacked. Do not set
 # signAndEditExecutable: false — that previously shipped electron.exe.
 afterSign: scripts/brand-windows.cjs
+beforePack: scripts/stage-toolchain.cjs
 # The renderer bundle, the Electron main process and the app manifest.
 # node_modules is added by electron-builder automatically.
 # dist-desktop/** is what the main process loads at runtime through
