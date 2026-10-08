@@ -30,6 +30,7 @@ import {
   budgetBlock,
   durableOutcome,
   executionEnvelope,
+  failedToolKeepsTask,
   resumeOffer,
   sideEffectRetry,
   retryBackoffMs,
@@ -101,6 +102,8 @@ export type GraphNode = {
   /** Delay the bounded-retry helper assigns before the next attempt. */
   retryDelayMs?: number | null;
   idempotencyKey?: string;
+  /** Scoped capability that may replace this one if the tool fails. */
+  alternative?: string;
   startedAt?: number;
   endedAt?: number;
   error?: string;
@@ -919,6 +922,24 @@ export class TaskGraphEngine {
         this.emit();
         return this.finish(graph, "failed");
       }
+      const substitute = failedToolKeepsTask({
+        toolFailed: true,
+        alternative: node.alternative ?? "",
+        policyAllows: true,
+      });
+      if (substitute.continueTask) {
+        const next = graph.nodes.find(
+          (item) => item.state === "pending" && !item.dependsOn.includes(node.id),
+        );
+        if (next) {
+          node.state = "failed";
+          node.checkpoint = { ...checkpoint, compensation: checkpoint.compensation ?? "" };
+          next.state = "ready";
+          this.log(graph, substitute.reason, "warn");
+          this.emit();
+          return true;
+        }
+      }
       const replay = sideEffectRetry(
         `${node.title} ${node.error ?? ""}`,
         checkpoint.checked === true,
@@ -985,7 +1006,10 @@ export class TaskGraphEngine {
       planId: node.id,
       routeId: node.kind,
       capabilityId: node.kind,
+      capabilityVersion: "1",
       actionId: checkpoint.actionId || `${node.id}-action`,
+      artifactId: "none",
+      traceId: graph.runId || graph.id,
       result: checkpoint.result || "",
       verified: outcome.phase === "succeeded",
       policyVersion: "1",

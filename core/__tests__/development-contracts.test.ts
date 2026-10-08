@@ -36,6 +36,7 @@ import {
   completeHandoff,
   continuityKey,
   executionEnvelope,
+  failedToolKeepsTask,
   mustSerialize,
   observationCurrent,
   POLICY_ROOT_TEXT,
@@ -549,7 +550,10 @@ describe("development contracts", () => {
         planId: "plan",
         routeId: "route",
         capabilityId: "files",
+        capabilityVersion: "1",
         actionId: "act",
+        artifactId: "none",
+        traceId: "trace",
         result: "wrote the note",
         verified: true,
         policyVersion: "1",
@@ -564,7 +568,10 @@ describe("development contracts", () => {
         planId: "plan",
         routeId: "route",
         capabilityId: "files",
+        capabilityVersion: "1",
         actionId: "act",
+        artifactId: "none",
+        traceId: "trace",
         result: "wrote the note",
         verified: false,
         policyVersion: "1",
@@ -721,6 +728,35 @@ describe("development contracts", () => {
     ).toBe(true);
     expect(scheduler).toContain("policyRootSnapshot(");
     expect(scheduler).toContain("capabilityLifecycleRecord(");
+    expect(
+      failedToolKeepsTask({ toolFailed: true, alternative: "", policyAllows: true }).continueTask,
+    ).toBe(false);
+    expect(
+      failedToolKeepsTask({ toolFailed: true, alternative: "unscoped:remote", policyAllows: true })
+        .reason,
+    ).toBe("substitute lacks policy scope");
+    expect(
+      failedToolKeepsTask({ toolFailed: true, alternative: "files", policyAllows: true })
+        .continueTask,
+    ).toBe(true);
+    expect(
+      executionEnvelope({
+        turnId: "turn",
+        conversationId: "talk",
+        endpoint: "chat",
+        taskId: "task",
+        planId: "plan",
+        routeId: "route",
+        capabilityId: "files",
+        capabilityVersion: "",
+        actionId: "act",
+        artifactId: "none",
+        traceId: "trace",
+        result: "wrote the note",
+        verified: true,
+        policyVersion: "1",
+      }).reason,
+    ).toBe("execution chain is incomplete");
     expect(sideEffectRetry("delete the note", false).retry).toBe(false);
     expect(sideEffectRetry("read the note", false).retry).toBe(true);
     expect(sideEffectRetry("delete the note", true).retry).toBe(true);
@@ -730,6 +766,7 @@ describe("development contracts", () => {
     expect(tainted.instruction).toBe(false);
     expect(tainted.untrusted).toBe(true);
     expect(tainted.text.toLowerCase()).not.toContain("ignore previous instructions");
+    expect(graph).toContain("failedToolKeepsTask(");
     expect(graph).toContain("sideEffectRetry(");
     expect(graph).toContain("eventCursor");
     const research = fs.readFileSync(path.join(ROOT, "src/lib/friday/brain/research.ts"), "utf8");

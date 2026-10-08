@@ -76,10 +76,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 71,
-    "SUPERSEDED": 224,
+    "DONE": 76,
+    "SUPERSEDED": 236,
     "REJECT": 2,
-    "MISSING": 1814
+    "MISSING": 1797
   },
   "rows": [
     {
@@ -4620,10 +4620,15 @@
       "heading": "CURRENT (this checkout, right now)",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "FRIDAY_STATE.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Current facts live in the checkout and FRIDAY_STATE. The historical archive count is not a product fact. File removed after the owners were checked.",
       "bytes": 1957
     },
     {
@@ -4632,10 +4637,15 @@
       "heading": "HISTORICAL (source-reference only — do not use for current facts)",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "FRIDAY_STATE.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Current facts live in the checkout and FRIDAY_STATE. The historical archive count is not a product fact. File removed after the owners were checked.",
       "bytes": 1957
     },
     {
@@ -4644,10 +4654,14 @@
       "heading": "02_OWNER_MAP.md",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Every named owner path exists. The live map is the change gate. File removed after the path check.",
       "bytes": 2081
     },
     {
@@ -4675,10 +4689,15 @@
       "heading": "04_CURRENT_CAPABILITY_SURFACE.md",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "FRIDAY_STATE.md",
+        "src/lib/friday/brain/capability-registry.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Capability trees stay the registry. The snapshot count of 116 workflows and 27 kernel tools is stale. Live counts stay in FRIDAY_STATE. File removed after the check.",
       "bytes": 838
     },
     {
@@ -4687,10 +4706,15 @@
       "heading": "05_CURRENT_TEST_AND_BUILD_SURFACE.md",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "package.json",
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The test and pack scripts already exist. New contracts add their own tests. File removed after the check.",
       "bytes": 742
     },
     {
@@ -4699,10 +4723,14 @@
       "heading": "06_PROTECTED_AREAS.md",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Locked build, workflow, installer, and storage paths already live in AGENTS.md. File removed after the check.",
       "bytes": 473
     },
     {
@@ -4711,10 +4739,16 @@
       "heading": "1. Layers",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -4723,10 +4757,16 @@
       "heading": "2. IPC",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -4735,10 +4775,16 @@
       "heading": "3. Kernel surface",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -4747,10 +4793,16 @@
       "heading": "4. Intelligence",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -4759,10 +4811,16 @@
       "heading": "5. Navigation",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -4771,10 +4829,16 @@
       "heading": "6. Build output",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
+        "docs/FRIDAY_MASTER_FLOW.md",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "Layers, IPC, kernel, intelligence, navigation, and pack output match the live docs. The snapshot version 1.0.0.2 is not adopted. Public version stays 1.0.1.2. File removed after the check.",
       "bytes": 2654
     },
     {
@@ -5095,10 +5159,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The execution chain names capability version, artifact, and trace. A failed tool keeps the task only when a scoped substitute is waiting. File removed after the test passed.",
       "bytes": 1447
     },
     {
@@ -5107,10 +5176,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The execution chain names capability version, artifact, and trace. A failed tool keeps the task only when a scoped substitute is waiting. File removed after the test passed.",
       "bytes": 1447
     },
     {
@@ -5119,10 +5193,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The execution chain names capability version, artifact, and trace. A failed tool keeps the task only when a scoped substitute is waiting. File removed after the test passed.",
       "bytes": 1447
     },
     {
@@ -5131,10 +5210,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The execution chain names capability version, artifact, and trace. A failed tool keeps the task only when a scoped substitute is waiting. File removed after the test passed.",
       "bytes": 1447
     },
     {
@@ -5143,10 +5227,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The execution chain names capability version, artifact, and trace. A failed tool keeps the task only when a scoped substitute is waiting. File removed after the test passed.",
       "bytes": 1447
     },
     {

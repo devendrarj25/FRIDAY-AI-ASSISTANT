@@ -878,7 +878,10 @@ export function executionEnvelope(input: {
   planId: string;
   routeId: string;
   capabilityId: string;
+  capabilityVersion: string;
   actionId: string;
+  artifactId: string;
+  traceId: string;
   result: string;
   verified: boolean;
   policyVersion: string;
@@ -891,7 +894,10 @@ export function executionEnvelope(input: {
     input.planId,
     input.routeId,
     input.capabilityId,
+    input.capabilityVersion,
     input.actionId,
+    input.artifactId,
+    input.traceId,
     input.result,
     input.policyVersion,
   ];
@@ -1088,6 +1094,29 @@ export function acceptSelfChange(raw: Record<string, unknown>): { ok: boolean; r
  * Drop extra concurrency, then drop quality, before a safety or data rule is broken.
  * A full-quality run is allowed only inside the limit and outside the constraint.
  */
+/**
+ * A failed tool is not a failed task when policy allows a scoped substitute.
+ * No substitute, or an unscoped one, still fails the task.
+ */
+export function failedToolKeepsTask(input: {
+  toolFailed: boolean;
+  alternative: string;
+  policyAllows: boolean;
+}): { continueTask: boolean; reason: string } {
+  if (!input.toolFailed) return { continueTask: true, reason: "" };
+  if (!input.policyAllows) {
+    return { continueTask: false, reason: "policy does not allow a substitute" };
+  }
+  const alternative = input.alternative.trim();
+  if (!alternative) {
+    return { continueTask: false, reason: "a failed tool needs a substitute to keep the task" };
+  }
+  if (alternative.startsWith("unscoped:")) {
+    return { continueTask: false, reason: "substitute lacks policy scope" };
+  }
+  return { continueTask: true, reason: "substitute the capability" };
+}
+
 const UNSAFE_BLIND_RETRY = /\b(payment|delete|uninstall|credential|system change)\b/i;
 
 /** An uncertain payment, deletion, or system change waits. It is not retried blind. */

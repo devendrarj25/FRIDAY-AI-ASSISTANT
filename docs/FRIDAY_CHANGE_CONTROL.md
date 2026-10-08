@@ -69,7 +69,7 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Capability phase | Registered is not healthy. Healthy is not authorized. Authorized is not execution. |
 | Evaluation | Completion, facts, tools, authorization, verification, latency, tokens, cost, recovery, and user control. Deterministic. No provider call. |
 | Knowledge clash | A contradiction is kept as two rows unless an explicit correction may supersede. A first-run row is protected. |
-| Execution chain | Turn, conversation, task, plan, route, capability, action, result, and a passed verification. Chat and voice share the conversation id. Mobile is not a second store. An incomplete chain stays unverified. |
+| Execution chain | Turn, conversation, task, plan, route, capability, capability version, action, artifact, trace, result, and a passed verification. Chat and voice share the conversation id. Mobile is not a second store. An incomplete chain stays unverified. A failed tool keeps the task only when a scoped substitute is waiting. |
 | Route decision | Selected path, policy version, and confidence. Private reasoning is refused. An unscoped id is not selected. A retired capability is not routed. |
 | Artifact | Id, type, mime, path, generator, checksum, size, sensitivity, and a passed validation. A failed preview is not a valid file. |
 | Self-change | Files, tests, and rollback are required. A direct promotion is refused. The apply stays sandboxed on the existing pipeline. |
