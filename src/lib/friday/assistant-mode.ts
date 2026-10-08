@@ -76,8 +76,17 @@ import {
 } from "./assistant-conduct";
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
-import { persistentRetryDelayMs } from "./bounded-retry";
-import { failureCause, mayAnnounce, voiceFailureLine } from "./voice-recovery";
+import { speechTurnPlan } from "./speech-core";
+import { chooseStt } from "./speech-stt";
+import { chooseTts, switchMidSentence } from "./speech-tts";
+import {
+  failureCause,
+  mayAnnounce,
+  recoveryDelayMs,
+  resumeAfterSpokenReply,
+  shouldRetryNow,
+  voiceFailureLine,
+} from "./voice-recovery";
 import {
   TRANSCRIPT_ONLY,
   detectWake,
@@ -202,7 +211,7 @@ export type AssistantModeState = {
   };
   /** Which engine actually produced the last spoken line. */
   tts: {
-    engine: "neural" | "system" | "none" | null;
+    engine: "neural" | "supertonic" | "sapi" | "formant" | "system" | "none" | null;
     voice: string;
     lastSpokenAt: number | null;
     lastError: string | null;
@@ -307,6 +316,7 @@ class AssistantModeStore {
   private lastWakeAt = 0;
   private conduct: ConductState = { ...EMPTY_CONDUCT, orders: [], journal: [] };
   private hotplugTimer: number | null = null;
+  private recognitionPending = false;
   private callHold = false;
   private speculative = "";
   /** "brain" already dispatched. "conduct" waits for the final line. */
@@ -452,8 +462,13 @@ class AssistantModeStore {
       this.conduct = loadConduct(value);
     });
     let pauseCalls = preferences.getSnapshot().voice.pauseDuringCalls !== false;
+    let voiceKey = "";
     preferences.subscribe(() => {
-      const next = preferences.getSnapshot().voice.pauseDuringCalls !== false;
+      const voice = preferences.getSnapshot().voice;
+      const nextKey = `${voice.inputDeviceId}|${voice.recognitionLang}`;
+      if (voiceKey && nextKey !== voiceKey) this.noteVoiceTrigger("settings");
+      voiceKey = nextKey;
+      const next = voice.pauseDuringCalls !== false;
       if (next === pauseCalls) return;
       pauseCalls = next;
       if (this.state.mode === "auto") void this.refreshMeeting();
@@ -466,7 +481,7 @@ class AssistantModeStore {
     // Chromium dropped the stream while the window was down.
     document.addEventListener("visibilitychange", () => {
       if (this.state.mode !== "auto" || this.state.paused) return;
-      if (!document.hidden && !this.dictation?.active) this.startRecognition();
+      if (!document.hidden && !this.dictation?.active) this.noteVoiceTrigger("focus");
     });
     // "Pause listening" from the tray really stops the microphone here.
     desktop()?.onVoicePause?.((payload) => this.setPaused(Boolean(payload?.paused)));
@@ -533,14 +548,8 @@ class AssistantModeStore {
       this.stopRecognition();
       void this.probeMic();
       if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
-      if (this.state.mode === "auto" && !this.state.paused) {
-        this.stopRecognition();
-        this.hotplugTimer = window.setTimeout(() => {
-          this.hotplugTimer = null;
-          if (this.state.mode === "auto" && !this.state.paused && !this.callHold)
-            this.startRecognition();
-        }, 500);
-      }
+      this.hotplugTimer = null;
+      this.noteVoiceTrigger("device");
     });
     if (this.state.mode === "auto") this.enterAuto();
     this.emit();
@@ -550,7 +559,8 @@ class AssistantModeStore {
         const now = Boolean(installer.getSnapshot().installed["faster-whisper"]);
         if (now && (!lastWhisper || this.sttGaveUp)) {
           this.resetVoiceRecovery();
-          if (this.state.mode === "auto" && !this.state.paused) this.startRecognition();
+          this.noteVoiceTrigger("install-finished");
+          this.noteVoiceTrigger("model-ready");
         }
         lastWhisper = now;
       });
@@ -567,8 +577,10 @@ class AssistantModeStore {
     } catch {
       /* non-fatal */
     }
-    if (mode === "auto") this.enterAuto();
-    else this.leaveAuto();
+    if (mode === "auto") {
+      this.noteVoiceTrigger("toggle");
+      this.enterAuto();
+    } else this.leaveAuto();
     this.emit();
   }
 
@@ -878,6 +890,17 @@ class AssistantModeStore {
   }
 
   /** Start FRIDAY's own on-device transcriber. Browser cloud speech is never used. */
+  fixVoice() {
+    speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
+    this.noteVoiceTrigger("fix-voice");
+  }
+
+  private noteVoiceTrigger(trigger: string) {
+    if (!shouldRetryNow(trigger)) return;
+    if (this.state.mode !== "auto" || this.state.paused) return;
+    this.startRecognition();
+  }
+
   private startRecognition() {
     if (this.callHold) return;
     if (!microphoneAllowed(this.state.mode, this.state.paused)) {
@@ -886,38 +909,58 @@ class AssistantModeStore {
     }
     this.wantRunning = true;
     if (this.dictation) return;
+    if (this.recognitionPending) return;
     if (Date.now() < this.sttBlockedUntil) return;
+    this.recognitionPending = true;
     this.state.status = "Checking local speech recognition…";
     this.emit();
-    void sttStatus(false, true, true).then((state) => {
-      if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
-      this.state.stt = {
-        ...this.state.stt,
-        engine: state.engine,
-        model: state.model ?? this.state.stt.model,
-        ready: Boolean(state.ready && state.engine === "faster-whisper"),
-        lastError: state.ready
-          ? this.state.stt.lastError
-          : state.reason || this.state.stt.lastError,
-      };
-      if (!state.available || state.engine !== "faster-whisper" || state.ready === false) {
-        this.state.listening = false;
-        this.state.supported = false;
-        this.reportFailure(
-          state.reason ||
-            "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-          "Local speech recognition not installed",
-        );
-        this.scheduleSttRecovery(
-          state.reason ||
-            "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-        );
-        return;
-      }
-      this.resetVoiceRecovery();
-      this.state.supported = true;
-      this.startDesktopDictation();
+    const ladder = chooseStt({
+      whisperCpp: false,
+      modelReady: false,
+      fasterWhisper: true,
+      moonshine: false,
+      english: false,
+      cloudAllowed: false,
+      network: typeof navigator === "undefined" ? false : navigator.onLine,
+      cli: "whisper-cli",
+      model: "ggml-base.bin",
+      wav: "turn.wav",
     });
+    this.state.stt = { ...this.state.stt, engine: ladder.engine };
+    void sttStatus(false, true, true)
+      .then((state) => {
+        this.recognitionPending = false;
+        if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
+        this.state.stt = {
+          ...this.state.stt,
+          engine: state.engine,
+          model: state.model ?? this.state.stt.model,
+          ready: Boolean(state.ready && state.engine === "faster-whisper"),
+          lastError: state.ready
+            ? this.state.stt.lastError
+            : state.reason || this.state.stt.lastError,
+        };
+        if (!state.available || state.engine !== "faster-whisper" || state.ready === false) {
+          this.state.listening = false;
+          this.state.supported = false;
+          this.reportFailure(
+            state.reason ||
+              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
+            "Local speech recognition not installed",
+          );
+          this.scheduleSttRecovery(
+            state.reason ||
+              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
+          );
+          return;
+        }
+        this.resetVoiceRecovery();
+        this.state.supported = true;
+        this.startDesktopDictation();
+      })
+      .catch(() => {
+        this.recognitionPending = false;
+      });
   }
 
   /** Owner (or a real install) asked again — same as a manual kernel restart. */
@@ -957,7 +1000,7 @@ class AssistantModeStore {
 
   private scheduleSttRecovery(reason: string) {
     if (!this.wantRunning) return;
-    const delay = persistentRetryDelayMs(this.sttRecoveryAttempt);
+    const delay = recoveryDelayMs(this.sttRecoveryAttempt);
     this.sttRecoveryAttempt += 1;
     this.cancelVoiceRecoveryTimer();
     this.sttRecoveryTimer = window.setTimeout(() => {
@@ -1469,7 +1512,11 @@ class AssistantModeStore {
       return;
     }
     this.spokenCauses.add(cause);
-    const spoken = voiceFailureLine(cause, this.spokenCauses.size);
+    const spoken = voiceFailureLine(
+      cause,
+      this.spokenCauses.size,
+      preferences.getSnapshot().voice.recognitionLang,
+    );
     this.emit();
     this.speak(spoken);
   }
@@ -1624,6 +1671,19 @@ class AssistantModeStore {
       whisper: voicePrefs.whisperMode === true,
     });
     const privacy = voicePrefs.privacyMode === true;
+    const planned = chooseTts({
+      network: typeof navigator === "undefined" ? false : navigator.onLine,
+      privacy,
+      supertonicReady: false,
+      windows: typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent || ""),
+    });
+    const fallen = switchMidSentence(
+      planned.engine,
+      typeof navigator === "undefined" ? false : navigator.onLine,
+      false,
+      planned.engine === "sapi",
+    );
+    this.state.tts = { ...this.state.tts, engine: fallen === "neural" ? "neural" : fallen };
     this.spokenText = spoken;
     return speakText(
       spoken,
@@ -1735,8 +1795,15 @@ class AssistantModeStore {
   private resumeAfterSpeech() {
     voiceGate.setSpeakingGuard(false);
     voiceGate.duck(false);
-    if (this.state.mode === "auto" && !this.state.paused && !this.dictation?.active)
+    if (
+      resumeAfterSpokenReply({
+        mode: this.state.mode,
+        paused: this.state.paused,
+        dictationActive: this.dictation?.active === true,
+      })
+    ) {
       this.startRecognition();
+    }
   }
 
   /**

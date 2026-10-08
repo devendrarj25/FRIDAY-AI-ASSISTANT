@@ -1,0 +1,139 @@
+{
+  "checked": "2026-10-08",
+  "budgetBytes": 220000000,
+  "budgetReason": "The bundled tier is the embeddable interpreter, pip bootstrap, portable Node, whisper.cpp, and the ggml base model. Their pinned sizes sum to 205084080 bytes. 220000000 bytes leaves a small margin inside a GitHub release asset. Copyleft and heavy packs stay on demand.",
+  "packs": [
+    {
+      "id": "python-embed",
+      "name": "CPython embeddable",
+      "version": "3.12.10",
+      "sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+      "bytes": 11133606,
+      "license": "PSF-2.0",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
+      "tier": "bundled",
+      "entry": "python.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "get-pip",
+      "name": "pip bootstrap",
+      "version": "2026-10-08",
+      "sha256": "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6",
+      "bytes": 2230488,
+      "license": "MIT",
+      "url": "https://bootstrap.pypa.io/get-pip.py",
+      "tier": "bundled",
+      "entry": "get-pip.py",
+      "kind": "file"
+    },
+    {
+      "id": "node-win",
+      "name": "Node.js",
+      "version": "22.23.3",
+      "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+      "bytes": 35574076,
+      "license": "MIT",
+      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+      "tier": "bundled",
+      "entry": "node-v22.23.3-win-x64/node.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "whisper-cpp",
+      "name": "whisper.cpp",
+      "version": "1.9.2",
+      "sha256": "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
+      "bytes": 8194445,
+      "license": "MIT",
+      "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+      "tier": "bundled",
+      "entry": "Release/whisper-cli.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "ggml-base",
+      "name": "ggml base",
+      "version": "base",
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "bytes": 147951465,
+      "license": "MIT",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+      "tier": "bundled",
+      "entry": "ggml-base.bin",
+      "kind": "file"
+    },
+    {
+      "id": "ggml-tiny",
+      "name": "ggml tiny",
+      "version": "tiny",
+      "sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+      "bytes": 77691713,
+      "license": "MIT",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+      "tier": "on-demand",
+      "entry": "ggml-tiny.bin",
+      "kind": "file"
+    },
+    {
+      "id": "python-standalone",
+      "name": "CPython standalone",
+      "version": "3.12.15+20261003",
+      "sha256": "4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08",
+      "bytes": 46509797,
+      "license": "PSF-2.0",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+      "tier": "on-demand",
+      "entry": "python/python.exe",
+      "kind": "tar.gz"
+    },
+    {
+      "id": "gh-cli",
+      "name": "GitHub CLI",
+      "version": "2.102.0",
+      "sha256": "ae64e556ecc240b200f7eba60d550e4bb60d78e860e69dd88c449405b86067f4",
+      "bytes": 15512013,
+      "license": "MIT",
+      "url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_windows_amd64.zip",
+      "tier": "on-demand",
+      "entry": "bin/gh.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "mingit",
+      "name": "MinGit",
+      "version": "2.56.0.2",
+      "sha256": "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be",
+      "bytes": 39806486,
+      "license": "GPL-2.0",
+      "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip",
+      "tier": "on-demand",
+      "entry": "cmd/git.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "temurin-jdk",
+      "name": "Temurin JDK",
+      "version": "21.0.12.1",
+      "sha256": "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+      "bytes": 205073461,
+      "license": "GPL-2.0-with-classpath-exception",
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+      "tier": "on-demand",
+      "entry": "jdk-21.0.12.1+1/bin/java.exe",
+      "kind": "zip"
+    },
+    {
+      "id": "w64devkit",
+      "name": "w64devkit",
+      "version": "2.10.0",
+      "sha256": "18d0a4c71a166f8401ab6305781bec5882b40b5e06ba9807c61cb5f3b3c6325e",
+      "bytes": 67127496,
+      "license": "Unlicense-wrapper-with-GPL-3.0-GCC",
+      "url": "https://github.com/skeeto/w64devkit/releases/download/v2.10.0/w64devkit-x64-2.10.0.7z.exe",
+      "tier": "on-demand",
+      "entry": "w64devkit/bin/gcc.exe",
+      "kind": "file"
+    }
+  ]
+}

@@ -90,55 +90,6 @@ def owner_model(size: str, requested: str) -> str:
     return resolve_model_name(requested)
 
 
-def boot_model(
-    requested: str,
-    base_cached: bool = False,
-    small_cached: bool = False,
-    failed: bool = False,
-    elapsed_ms: float = 0,
-    budget_ms: float = 0,
-) -> dict:
-    """Start on base, then small. A slow or failed load steps down one size."""
-    order = ["large-v3", "medium", "small", "base", "tiny"]
-    known = set(order)
-
-    def smaller(name: str) -> str:
-        if name not in order:
-            return "base"
-        index = order.index(name)
-        return order[min(len(order) - 1, index + 1)]
-
-    locked = requested if requested in known else ""
-    slow = bool(failed) or (budget_ms > 0 and elapsed_ms > budget_ms)
-    if locked:
-        if slow:
-            return {
-                "model": smaller(locked),
-                "upgrade": None,
-                "reason": "load failed or ran past the budget, so a smaller model is used",
-            }
-        return {"model": locked, "upgrade": None, "reason": "the owner locked this size"}
-    if slow:
-        return {
-            "model": "base" if base_cached else "tiny",
-            "upgrade": None,
-            "reason": "the first load was slow, so listening starts on a smaller model",
-        }
-    if base_cached and not small_cached:
-        return {
-            "model": "base",
-            "upgrade": "small",
-            "reason": "base is on disk, so listening starts now and small loads after",
-        }
-    if not base_cached and not small_cached:
-        return {
-            "model": "base",
-            "upgrade": "small",
-            "reason": "base loads first so listening starts sooner, then small",
-        }
-    return {"model": "small", "upgrade": None, "reason": "small is ready"}
-
-
 def resolve_model_name(requested: str) -> str:
     auto = os.environ.get("FRIDAY_STT_TIER", "").strip().lower() == "auto"
     try:
@@ -204,7 +155,13 @@ def get_model(name: str):
     wanted = name or DEFAULT_MODEL
     if _model is not None and _model_name == wanted:
         return _model
-    _model = cls(wanted, device="auto", compute_type="int8", download_root=cache_dir())
+    _model = cls(
+        wanted,
+        device="auto",
+        compute_type="int8",
+        download_root=cache_dir(),
+        local_files_only=True,
+    )
     _model_name = wanted
     _load_count += 1
     return _model

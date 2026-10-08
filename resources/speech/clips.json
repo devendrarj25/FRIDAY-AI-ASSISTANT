@@ -1,0 +1,16 @@
+{
+  "clips": [
+    {
+      "id": "tone",
+      "hz": 440,
+      "seconds": 0.2,
+      "label": "tone"
+    },
+    {
+      "id": "quiet",
+      "hz": 0,
+      "seconds": 0.2,
+      "label": "silence"
+    }
+  ]
+}

@@ -45,7 +45,9 @@ import { considerCollaboration, type CollaborationDecision } from "./brain/multi
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
 import { baselineRespond, type BaselineReply } from "./brain/baseline-responder";
 import { everydayPlan } from "./everyday";
+import { conversationSight } from "./conversation-sight";
 import { shapeReply } from "./response-policy";
+import { thinkBudget, tracePlan, withinBudget } from "./think-budget";
 import { understandTurn, toUnderstandingTrace } from "./brain/intent-engine";
 import { decideAction } from "./brain/decision-engine";
 import { bindActiveGraph, persistAndResetConversation } from "./brain/conversation-state";
@@ -1570,9 +1572,19 @@ class BrainStore {
     this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);
     this.state.activeRunId = runId;
     this.state.stats.requests += 1;
+    const surface = /\bvoice\b/i.test(String(options.extra || "")) ? "voice" : "chat";
+    const budget = thinkBudget(surface);
+    const traced = tracePlan(["hear", "decide", "answer", "check"], surface);
+    const sight = conversationSight({
+      asked: /\b(screen|camera|what do you see)\b/i.test(text),
+      handoff: /\b(password|captcha|payment)\b/i.test(text),
+      text: String(options.extra || ""),
+    });
+    const paced = withinBudget(budget.ms, surface);
     this.push(
       "info",
-      `run ${runId} — intent ${rule.label} (${Math.round(score * 100)}%), ${multi.length} agent(s)`,
+      `run ${runId} — intent ${rule.label} (${Math.round(score * 100)}%), ${multi.length} agent(s)` +
+        ` · ${traced.length} steps${paced ? "" : " over budget"}${sight.text ? " · screen data held" : ""}`,
     );
     dispatchPluginHook("on-turn-start", { runId, intent: rule.id });
     this.emit();

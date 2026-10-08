@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
+import { redactDiagnostics } from "@/lib/friday/voice-doctor";
 import type { AssistantModeState } from "@/lib/friday/assistant-mode";
 import { voiceGate } from "@/lib/friday/voice-audio";
 
@@ -121,6 +122,24 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           className="font-mono text-[10px] uppercase text-accent"
         >
           recheck wake engine
+        </button>
+        <button
+          type="button"
+          onClick={() => assistantMode.fixVoice()}
+          className="font-mono text-[10px] uppercase text-accent"
+        >
+          fix voice
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void navigator.clipboard?.writeText(
+              redactDiagnostics(rows.map((row) => `${row.label}: ${row.value}`).join("\n")),
+            )
+          }
+          className="font-mono text-[10px] uppercase text-accent"
+        >
+          copy diagnostics
         </button>
       </div>
       {checks.length ? (

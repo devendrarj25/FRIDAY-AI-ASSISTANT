@@ -7,6 +7,7 @@
  * existing approval policy still own those.
  */
 
+import { personalOffer } from "./proactive-line";
 import { redactRunText } from "./self/run-receipt";
 import {
   emptySenseMemory,
@@ -552,7 +553,14 @@ export function dailyBrief(input: {
     events.length ? `Calendar: ${events.join("; ")}.` : "Nothing on the calendar.",
     `${tasks} open task${tasks === 1 ? "" : "s"}.`,
   ];
-  return { slot, text: `${head} ${bits.join(" ")}` };
+  const offer = personalOffer({
+    hour: input.hour,
+    quiet: false,
+    budgetLeft: 1,
+    name: "",
+    openLoops: tasks,
+  });
+  return { slot, text: `${head} ${bits.join(" ")}${offer ? ` ${offer}` : ""}` };
 }
 
 /**

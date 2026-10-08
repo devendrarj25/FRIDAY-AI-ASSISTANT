@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { desktopApi } from "@/lib/friday/desktop";
+import { ownerAcceptanceSteps } from "@/lib/friday/speech-core";
 import { voiceSelfTestPlan } from "@/lib/friday/voice-doctor";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -243,6 +244,11 @@ export function VoiceSettings() {
               {voiceSelfTestPlan().join(" → ")}. This page does not open the microphone. The live
               check runs in Auto mode.
             </p>
+            <ol className="mt-2 list-decimal pl-4 font-mono text-[11px] text-muted-foreground">
+              {ownerAcceptanceSteps().map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
