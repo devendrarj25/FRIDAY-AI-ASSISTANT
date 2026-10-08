@@ -31,6 +31,7 @@ import {
   durableOutcome,
   executionEnvelope,
   resumeOffer,
+  sideEffectRetry,
   retryBackoffMs,
   scoreEvaluation,
   sealRuntimeEvent,
@@ -77,6 +78,10 @@ export type Checkpoint = {
   quarantine?: boolean;
   /** Set when a resume must re-check the postcondition before trusting the step. */
   reverify?: boolean;
+  /** How to undo the side effect. Empty means nothing was compensated. */
+  compensation?: string;
+  /** Last sealed event for this step. Resume starts after this cursor. */
+  eventCursor?: string;
   /** Redacted step notes for the Tasks page. Never a screenshot. */
   timeline?: TimelineRow[];
 };
@@ -846,6 +851,7 @@ export class TaskGraphEngine {
     if (!checkpoint.idempotencyKey && node.idempotencyKey) {
       checkpoint.idempotencyKey = node.idempotencyKey;
     }
+    if (checkpoint.compensation === undefined) checkpoint.compensation = "";
     node.checkpoint = { ...checkpoint };
     const context: RunnerContext = {
       graph,
@@ -913,6 +919,18 @@ export class TaskGraphEngine {
         this.emit();
         return this.finish(graph, "failed");
       }
+      const replay = sideEffectRetry(
+        `${node.title} ${node.error ?? ""}`,
+        checkpoint.checked === true,
+      );
+      if (!replay.retry) {
+        node.state = "waiting";
+        graph.state = "paused";
+        node.checkpoint = { ...checkpoint, compensation: checkpoint.compensation ?? "" };
+        this.log(graph, replay.reason, "warn");
+        this.emit();
+        return false;
+      }
       if (node.attempts < node.maxAttempts) {
         node.state = "retrying";
         node.retryDelayMs = retryBackoffMs(node.attempts);
@@ -940,6 +958,9 @@ export class TaskGraphEngine {
         producer: "task-graph",
         payload: { title: node.title, phase: exhausted.phase },
       });
+      checkpoint.eventCursor = sealed.event_id;
+      if (checkpoint.compensation === undefined) checkpoint.compensation = "";
+      node.checkpoint = { ...checkpoint };
       this.log(graph, `${node.title} failed: ${node.error} (${sealed.event_id})`, "error");
       this.emit();
       return this.finish(graph, "failed");
@@ -995,6 +1016,9 @@ export class TaskGraphEngine {
       producer: "task-graph",
       payload: { title: node.title, phase: outcome.phase },
     });
+    checkpoint.eventCursor = sealed.event_id;
+    if (checkpoint.compensation === undefined) checkpoint.compensation = "";
+    node.checkpoint = { ...checkpoint };
     this.log(graph, `${node.title} — ${node.state} (${sealed.event_id})`, "ok");
 
     const next = graph.nodes.find((n) => n.state === "pending");

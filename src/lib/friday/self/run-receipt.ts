@@ -1088,6 +1088,19 @@ export function acceptSelfChange(raw: Record<string, unknown>): { ok: boolean; r
  * Drop extra concurrency, then drop quality, before a safety or data rule is broken.
  * A full-quality run is allowed only inside the limit and outside the constraint.
  */
+const UNSAFE_BLIND_RETRY = /\b(payment|delete|uninstall|credential|system change)\b/i;
+
+/** An uncertain payment, deletion, or system change waits. It is not retried blind. */
+export function sideEffectRetry(
+  description: string,
+  outcomeKnown: boolean,
+): { retry: boolean; reason: string } {
+  if (UNSAFE_BLIND_RETRY.test(description) && !outcomeKnown) {
+    return { retry: false, reason: "uncertain side effect needs reconciliation" };
+  }
+  return { retry: true, reason: "" };
+}
+
 export function admitResources(input: {
   concurrent: number;
   limit: number;

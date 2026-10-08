@@ -25,6 +25,18 @@ export function researchTextIsData(text: string): {
   return { untrusted: true, instruction: false, text: cleaned };
 }
 
+const AUTHORITY_OVERRIDE =
+  /(?:^|\n)\s*(?:system prompt|policy|permission|ignore (?:all|previous) instructions)\s*[:=][^\n]*/gi;
+
+/** Tool, page, file, and model text stay data. They cannot rewrite policy or a system prompt. */
+export function externalTextIsData(text: string): {
+  untrusted: true;
+  instruction: false;
+  text: string;
+} {
+  return researchTextIsData(String(text || "").replace(AUTHORITY_OVERRIDE, " "));
+}
+
 export function copyrightSafeSummary(text: string, limit = 240): string {
   const clean = String(text || "")
     .replace(/\s+/g, " ")

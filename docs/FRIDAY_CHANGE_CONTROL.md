@@ -77,6 +77,8 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Failure domain | Model, tool, browser, device, network, task, and artifact share one classifier. Disk-full, permission, clock, and corrupt faults do not retry. |
 | Policy root | The owner policy text and version are fixed. A replaced text, a different version, or a mismatched hash fails closed before a privileged action. |
 | Capability life | Active needs health and authority. Quarantine does not execute and stays reversible. Retirement keeps the record and is not routed. |
+| Side effect | A payment, deletion, uninstall, credential, or system change with an unknown outcome waits for reconciliation. It is not retried blind. |
+| External text | Page, file, tool, and model text stay data. A line that tries to set the system prompt, policy, or permission is dropped. |
 
 ## Research (2026-10-08)
 

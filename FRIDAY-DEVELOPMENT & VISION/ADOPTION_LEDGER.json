@@ -76,10 +76,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 56,
-    "SUPERSEDED": 223,
+    "DONE": 71,
+    "SUPERSEDED": 224,
     "REJECT": 2,
-    "MISSING": 1830
+    "MISSING": 1814
   },
   "rows": [
     {
@@ -4603,10 +4603,15 @@
       "heading": "04_FINAL_INDEX.md",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "AGENTS.md",
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The package read order is a design index. The live read order is AGENTS.md and the change gate. File removed after the test passed.",
       "bytes": 756
     },
     {
@@ -8394,10 +8399,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/knowledge-claim.ts",
+        "src/lib/friday/brain/research.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "externalTextIsData keeps external text as data and drops a system-prompt, policy, or permission override. Called from research. File removed after the test passed.",
       "bytes": 650
     },
     {
@@ -8406,10 +8416,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/knowledge-claim.ts",
+        "src/lib/friday/brain/research.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "externalTextIsData keeps external text as data and drops a system-prompt, policy, or permission override. Called from research. File removed after the test passed.",
       "bytes": 650
     },
     {
@@ -8418,10 +8433,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/knowledge-claim.ts",
+        "src/lib/friday/brain/research.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "externalTextIsData keeps external text as data and drops a system-prompt, policy, or permission override. Called from research. File removed after the test passed.",
       "bytes": 650
     },
     {
@@ -8430,10 +8450,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/knowledge-claim.ts",
+        "src/lib/friday/brain/research.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "externalTextIsData keeps external text as data and drops a system-prompt, policy, or permission override. Called from research. File removed after the test passed.",
       "bytes": 650
     },
     {
@@ -8442,10 +8467,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/knowledge-claim.ts",
+        "src/lib/friday/brain/research.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "externalTextIsData keeps external text as data and drops a system-prompt, policy, or permission override. Called from research. File removed after the test passed.",
       "bytes": 650
     },
     {
@@ -8538,10 +8568,14 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph checkpoints before the side effect and stores compensation plus the event cursor. Resume does not blindly replay a checked step. File removed after the test passed.",
       "bytes": 599
     },
     {
@@ -8550,10 +8584,14 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph checkpoints before the side effect and stores compensation plus the event cursor. Resume does not blindly replay a checked step. File removed after the test passed.",
       "bytes": 599
     },
     {
@@ -8562,10 +8600,14 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph checkpoints before the side effect and stores compensation plus the event cursor. Resume does not blindly replay a checked step. File removed after the test passed.",
       "bytes": 599
     },
     {
@@ -8574,10 +8616,14 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph checkpoints before the side effect and stores compensation plus the event cursor. Resume does not blindly replay a checked step. File removed after the test passed.",
       "bytes": 599
     },
     {
@@ -8586,10 +8632,14 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The task graph checkpoints before the side effect and stores compensation plus the event cursor. Resume does not blindly replay a checked step. File removed after the test passed.",
       "bytes": 599
     },
     {
@@ -8598,10 +8648,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "sideEffectRetry waits on an uncertain payment, deletion, uninstall, credential, or system change. File removed after the test passed.",
       "bytes": 568
     },
     {
@@ -8610,10 +8665,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "sideEffectRetry waits on an uncertain payment, deletion, uninstall, credential, or system change. File removed after the test passed.",
       "bytes": 568
     },
     {
@@ -8622,10 +8682,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "sideEffectRetry waits on an uncertain payment, deletion, uninstall, credential, or system change. File removed after the test passed.",
       "bytes": 568
     },
     {
@@ -8634,10 +8699,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "sideEffectRetry waits on an uncertain payment, deletion, uninstall, credential, or system change. File removed after the test passed.",
       "bytes": 568
     },
     {
@@ -8646,10 +8716,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "sideEffectRetry waits on an uncertain payment, deletion, uninstall, credential, or system change. File removed after the test passed.",
       "bytes": 568
     },
     {
