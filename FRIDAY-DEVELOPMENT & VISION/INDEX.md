@@ -18,14 +18,14 @@ test suite reads them from there) — see `../AGENTS.md`, `../AUDIT.md`,
 | Folder | Use for |
 |---|---|
 | [`FRIDAY-DEVELOPMENT/`](FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md) | A task you're doing **right now** — routes to the exact real-code owner |
-| [`FRIDAY-VISION/`](FRIDAY-VISION/00-MASTER/00_READ_FIRST.md) | A **future/major** upgrade aligned with the long-term architecture |
+| [`FRIDAY-VISION/`](FRIDAY-VISION/AREAS/01-SYSTEM/README.md) | Area plans that are not landed yet |
 
 ## Picking the right one
 Start with `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`.
 If the task is "fix/add something in the current app," it resolves entirely
 inside `FRIDAY-DEVELOPMENT/`. If it needs a design that doesn't exist yet in
 the current app, `FRIDAY-DEVELOPMENT`'s router will tell you to also check
-`FRIDAY-VISION/00-MASTER/03_AI_CONTEXT_ROUTER.md` for the target spec — read
+`FRIDAY-VISION/AREAS/` for the target spec — read
 only the one matching area under `FRIDAY-VISION/AREAS/`, not the whole tree.
 
 ## Keeping this layer duplicate-free

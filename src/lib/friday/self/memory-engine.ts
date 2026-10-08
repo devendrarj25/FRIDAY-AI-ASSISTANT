@@ -16,7 +16,7 @@ import {
   type VectorSnippet,
 } from "../brain/retrieval";
 import { coerceMemoryTier, shouldStoreLongTerm, shouldAutoClearMemory } from "../settings-runtime";
-import { secretStaysOutOfMemory } from "./run-receipt";
+import { retrievalTier, secretStaysOutOfMemory } from "./run-receipt";
 
 export type MemoryTier =
   "working" | "temporary" | "episodic" | "semantic" | "permanent" | "archived";
@@ -683,17 +683,36 @@ class MemoryEngine {
 
   search(
     query: string,
-    options: { tiers?: MemoryTier[]; k?: number; context?: string } = {},
+    options: {
+      tiers?: MemoryTier[];
+      k?: number;
+      context?: string;
+      scope?: "task" | "project" | "user" | "general" | "external";
+    } = {},
   ): MemoryItem[] {
     this.load();
     const k = options.k ?? 20;
     const pool = this.items.filter((i) => !options.tiers || options.tiers.includes(i.tier));
-    if (!retrievalTerms(query).length) return pool.slice(0, k);
-    return rankByRetrieval(pool, query, memorySignals, {
-      k,
-      minScore: 0.05,
-      taskHint: options.context ?? query,
-    }).map((row) => row.item);
+    const ranked = !retrievalTerms(query).length
+      ? pool.slice(0, k)
+      : rankByRetrieval(pool, query, memorySignals, {
+          k,
+          minScore: 0.05,
+          taskHint: options.context ?? query,
+        }).map((row) => row.item);
+    if (!options.scope) return ranked;
+    const preferred = retrievalTier(options.scope);
+    const matches = (scope: MemoryItem["scope"]): boolean => {
+      if (options.scope === "task") return scope === "session";
+      if (options.scope === "project") return scope === "project";
+      if (options.scope === "user") return scope === "owner";
+      return false;
+    };
+    return [...ranked].sort((left, right) => {
+      const leftTier = matches(left.scope) ? preferred : 9;
+      const rightTier = matches(right.scope) ? preferred : 9;
+      return leftTier - rightTier;
+    });
   }
 
   /** Context injected before planning. Marks the hits as used. */

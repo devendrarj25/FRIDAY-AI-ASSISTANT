@@ -300,9 +300,9 @@ Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Liv
 | Wake, device, and display stay on the existing voice page | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADOPT | 10, 12 |
 | Failure recovery without a second planner | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 11, 33 |
 | Input trust boundary | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/08_SECURITY/03_INPUT_TRUST_BOUNDARIES.md` | PARTIAL | ADOPT | 31, 35 |
-| Memory contract, one store | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/MEMORY_CONTRACT.md` | PARTIAL | ADOPT | 20, 25, 27 |
-| Selective context | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADAPT | 24, 26 |
-| Evaluation without a hosted scorer | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/EVALUATION_CONTRACT.md` | PARTIAL | ADOPT | 34 |
+| Memory contract, one store | `src/lib/friday/self/memory-engine.ts` | DONE | ADOPT | 20, 25, 27 |
+| Selective context | `src/lib/friday/brain/context-engine.ts` | DONE | ADAPT | 24, 26 |
+| Evaluation without a hosted scorer | `src/lib/friday/self/run-receipt.ts` | DONE | ADOPT | 34 |
 | Mobile companion | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/01_MOBILE_COMPANION_FINAL_ARCHITECTURE.md` | MISSING | REJECT | — |
 | A second installer or a second speech engine | voice install note above | MISSING | REJECT | — |
 
@@ -329,7 +329,7 @@ Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A s
 | Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
 | One speech-size plan, then a local load | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/01_VOICE_FINAL_ARCHITECTURE.md` | PARTIAL | ADOPT | 6 |
 | Weights fetched before the worker, with a hash where one is pinned | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 6 |
-| Think, a short offer, sight, and the eval set sit on the live path | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/EVALUATION_CONTRACT.md` | PARTIAL | ADOPT | 7 |
+| Think, a short offer, sight, and the eval set sit on the live path | `src/lib/friday/self/run-receipt.ts` | DONE | ADOPT | 7 |
 | A Windows PC with no system Python and no WinGet still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 8–9 |
 | A clean-PC script covers bootstrap through resume | same install note | PARTIAL | ADOPT | 10, 26 |
 | Headset profile, hot-plug, sleep, and a stuck track reopen capture | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADAPT | 11 |
@@ -338,8 +338,8 @@ Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A s
 | Neural, then local, then the system voice | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 14 |
 | One self-test list and an owner checklist on the existing Voice page | diagnostics note above | PARTIAL | ADOPT | 15, 31 |
 | Hinglish numbers, names, and a weak-confidence repeat | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/00_MERGED_DETAIL/VOICE_COMPLETE_SOURCE_INTEGRATION.md` | PARTIAL | ADOPT | 17–18 |
-| Distress points at iCall or AASRA and does not diagnose | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/MEMORY_CONTRACT.md` | PARTIAL | ADOPT | 19–21 |
-| Voice stays on a short think budget; chat may take more steps | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADAPT | 22–25 |
+| Distress points at iCall or AASRA and does not diagnose | `src/lib/friday/brain-engine.ts` | DONE | ADOPT | 19–21 |
+| Voice stays on a short think budget; chat may take more steps | `src/lib/friday/brain/context-engine.ts` | DONE | ADAPT | 22–25 |
 | A native WASAPI echo canceller | barge-in note above | MISSING | REJECT | — |
 | The silero-vad pip package | voice-stack rule | MISSING | REJECT | — |
 | The official embeddable zip as the runtime | install note above | MISSING | REJECT | — |
@@ -384,7 +384,7 @@ Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A s
 | Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
 | A PC with no system Python still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 5–9 |
 | Capture, VAD, and a low-quality last-resort voice live in FRIDAY's code | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADAPT | 15–24 |
-| Think, a short offer, and sight sit on the live path | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADOPT | 7 |
+| Think, a short offer, and sight sit on the live path | `src/lib/friday/brain/context-engine.ts` | DONE | ADOPT | 7 |
 | Self-edits stay reviewable and never merge | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md` | PARTIAL | ADOPT | 26–29 |
 | torch, a pip VAD package, or a second installer | voice install note above | MISSING | REJECT | — |
 

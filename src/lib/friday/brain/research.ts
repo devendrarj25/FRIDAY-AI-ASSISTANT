@@ -11,7 +11,7 @@
 
 import type { SearchResult } from "../browser-engine";
 import type { KnowledgeStatus } from "./knowledge-base";
-import { claimLabel, researchTextIsData } from "../knowledge-claim";
+import { claimLabel, externalTextIsData } from "../knowledge-claim";
 import { expandQuery, gradeRetrieval, retrievalTerms, type RetrievalGrade } from "./retrieval";
 
 export type RankedSource = {
@@ -50,7 +50,7 @@ export function researchNote(sources: RankedSource[]): string {
       .sort((a, b) => b.score - a.score)
       .slice(0, 6)
       .map((s, i) => {
-        const snippet = researchTextIsData(s.snippet).text;
+        const snippet = externalTextIsData(s.snippet).text;
         return `${i + 1}. ${s.title} — ${s.url} (score ${s.score.toFixed(2)}, ${freshness})\n   ${snippet}`;
       }),
   ].join("\n");

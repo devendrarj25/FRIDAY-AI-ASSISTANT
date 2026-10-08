@@ -12,7 +12,23 @@ import { ledger } from "./task-ledger";
 import { personalDesk } from "../personal-desk";
 import { listCapabilities } from "../capability-trees";
 import { planAgent, runAgent } from "../agent-runtime";
-import { capabilityMayRun, childStaysInsideParent } from "./run-receipt";
+import {
+  acceptArtifact,
+  acceptRouteDecision,
+  agentManifest,
+  argumentHash,
+  authorityFromConnection,
+  capabilityLifecycleRecord,
+  capabilityMayRun,
+  childStaysInsideParent,
+  completeHandoff,
+  controlPlaneAllows,
+  mustSerialize,
+  policyRootAllows,
+  policyRootSnapshot,
+  routeCapability,
+  type CapabilityLife,
+} from "./run-receipt";
 import { projectWorkspaces } from "../project-workspace-engine";
 
 export type ScheduledAgent = {
@@ -193,9 +209,22 @@ function evidenceFrom(plan: AgentPlanValue): string[] {
  * governance.submit (always-ask `system` kind). Read-only findings are
  * discovered into the same queue without an apply that mutates.
  */
+function writeTargets(plan: AgentPlanValue): string[] {
+  const targets: string[] = [];
+  if (typeof plan.folder === "string" && plan.folder.trim()) targets.push(plan.folder.trim());
+  if (Array.isArray(plan.candidates)) {
+    for (const candidate of plan.candidates) {
+      const path = String(candidate?.path || candidate?.name || "").trim();
+      if (path) targets.push(path);
+    }
+  }
+  return targets;
+}
+
 export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<number> {
   const agents = await host.listEnabledAgents();
   let queued = 0;
+  const writesThisPass: { writes: string[] }[] = [];
   for (const agent of agents) {
     if (!agent.enabled) continue;
     const input = host.inputFor?.(agent) ?? {};
@@ -226,6 +255,10 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
     const day = new Date().toISOString().slice(0, 10);
     const id = `gov:agent:${agent.id}:${fingerprint(plan)}:${day}`;
     if (host.getItem(id)) continue;
+    const writes = writeTargets(plan);
+    if (agent.risk !== "safe" && writesThisPass.some((prior) => mustSerialize(prior, { writes }))) {
+      continue;
+    }
 
     const prompt = fillApprovalPrompt(agent.approvalPrompt || "", plan);
     const rationale =
@@ -234,6 +267,7 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
     const title = `Agent — ${agent.name}`;
     const evidence = evidenceFrom(plan);
 
+    if (agent.risk !== "safe") writesThisPass.push({ writes });
     if (agent.risk === "safe") {
       host.discover({
         id,
@@ -260,11 +294,12 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             prompt || `${Array.isArray(plan.candidates) ? plan.candidates.length : 0} candidate(s)`,
         }),
         apply: async () => {
+          const parent = agentManifest(agent);
           const childCapabilities = Array.isArray(plan["capabilities"])
             ? plan["capabilities"].map((item) => String(item))
-            : [agent.id];
+            : parent.capabilities;
           const bound = childStaysInsideParent(
-            { capabilities: [agent.id], network: false, spend: 0 },
+            { capabilities: parent.capabilities, network: parent.network, spend: parent.budget },
             {
               capabilities: childCapabilities,
               network: plan["network"] === true,
@@ -272,11 +307,81 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             },
           );
           if (!bound.ok) return { ok: false, detail: bound.reason };
-          const runnable = capabilityMayRun("available", agent.enabled, true);
+          const runnable = capabilityMayRun(
+            "available",
+            authorityFromConnection(plan["peer"] === true, agent.enabled),
+            true,
+          );
           if (!runnable.ok) return { ok: false, detail: runnable.reason };
+          const route = acceptRouteDecision({
+            routeId: agent.id,
+            taskId: id,
+            selected: [{ kind: "agent", id: agent.id }],
+            alternatives: Array.isArray(plan["alternatives"])
+              ? plan["alternatives"].map((item) => String(item))
+              : [],
+            policyVersion: "1",
+            confidence: 1,
+            rationale: rationale.slice(0, 180),
+          });
+          if (!route.ok) return { ok: false, detail: route.reason };
+          const root = policyRootSnapshot();
+          if (!root.ok) return { ok: false, detail: root.reason };
+          const control = controlPlaneAllows({
+            controlReady: root.ok,
+            privileged: true,
+            policyVersion: root.version,
+            capabilityId: agent.id,
+            capabilityVersion: "1",
+            scope: "owner",
+            risk: agent.risk,
+            approval: "approved",
+            idempotencyKey: id,
+            resourceLimit: "1",
+          });
+          if (!control.ok) return { ok: false, detail: control.reason };
+          const policy = policyRootAllows({
+            privileged: true,
+            policyVersion: root.version,
+            citedHash: root.hash,
+            selfChange: plan["selfChange"] === true,
+            sandboxed: plan["sandboxed"] === true,
+          });
+          if (!policy.ok) return { ok: false, detail: policy.reason };
+          const rawPhase = plan["phase"];
+          const phase: CapabilityLife =
+            rawPhase === "retired" || rawPhase === "quarantined" ? rawPhase : "active";
+          const life = capabilityLifecycleRecord({
+            id: agent.id,
+            phase,
+            version: "1",
+            manifestHash: argumentHash(agent.id),
+            healthEvidence: agent.enabled ? "enabled" : "",
+            authority: "owner",
+            retirementReason:
+              phase === "retired" ? String(plan["retirementReason"] ?? "retired") : "",
+          });
+          if (!life.ok || !life.keepHistory) return { ok: false, detail: life.reason };
+          const routed = routeCapability(plan["phase"] === "retired" ? "retired" : "available");
+          if (!routed.ok) return { ok: false, detail: routed.reason };
+          const rawArtifact = plan["artifact"];
+          if (rawArtifact && typeof rawArtifact === "object") {
+            const artifact = acceptArtifact(rawArtifact as Record<string, unknown>);
+            if (!artifact.ok) return { ok: false, detail: artifact.reason };
+          }
           const result = await host.runAgent(agent.id, { ...input, dryRun: false, approved: true });
-          if (!result.ok) return { ok: false, detail: result.error || "agent run failed" };
-          return { ok: true, detail: "agent run applied after owner approval" };
+          const packet = completeHandoff({
+            result: result.ok ? "agent run applied after owner approval" : "failed",
+            evidence: result.ok ? "owner-approved run" : "",
+            confidence: result.ok ? 1 : 0,
+            unresolved: result.ok ? [] : [result.error || "agent run failed"],
+            artifacts: [],
+            checked: result.ok,
+          });
+          if (!result.ok || packet.verification !== "passed") {
+            return { ok: false, detail: packet.unresolved[0] || "agent run failed" };
+          }
+          return { ok: true, detail: packet.result };
         },
       })
       .catch(() => undefined);

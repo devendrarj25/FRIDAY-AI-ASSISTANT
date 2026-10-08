@@ -22,12 +22,18 @@ import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure, rememberProcedure } from "./learning-engine";
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
 import { autonomy, type ApprovalLevel } from "./autonomy";
+import { classifyFailure, failureDomain, recoverFailure } from "../failure-guard";
 import {
   acceptRequest,
+  acceptStateTransition,
+  admitResources,
   backendInvariants,
   budgetBlock,
   durableOutcome,
+  executionEnvelope,
+  failedToolKeepsTask,
   resumeOffer,
+  sideEffectRetry,
   retryBackoffMs,
   scoreEvaluation,
   sealRuntimeEvent,
@@ -74,6 +80,10 @@ export type Checkpoint = {
   quarantine?: boolean;
   /** Set when a resume must re-check the postcondition before trusting the step. */
   reverify?: boolean;
+  /** How to undo the side effect. Empty means nothing was compensated. */
+  compensation?: string;
+  /** Last sealed event for this step. Resume starts after this cursor. */
+  eventCursor?: string;
   /** Redacted step notes for the Tasks page. Never a screenshot. */
   timeline?: TimelineRow[];
 };
@@ -93,6 +103,8 @@ export type GraphNode = {
   /** Delay the bounded-retry helper assigns before the next attempt. */
   retryDelayMs?: number | null;
   idempotencyKey?: string;
+  /** Scoped capability that may replace this one if the tool fails. */
+  alternative?: string;
   startedAt?: number;
   endedAt?: number;
   error?: string;
@@ -800,6 +812,20 @@ export class TaskGraphEngine {
     }
 
     if (graph.budget) {
+      const usedMs = Date.now() - graph.createdAt;
+      const admission = admitResources({
+        concurrent: graph.nodes.filter((item) => item.state === "running").length,
+        limit: 1,
+        constrained: usedMs > graph.budget.timeMs * 0.8 && usedMs <= graph.budget.timeMs,
+      });
+      if (!admission.run) {
+        node.state = "waiting";
+        graph.state = "paused";
+        this.log(graph, admission.reason, "warn");
+        this.emit();
+        return false;
+      }
+      if (admission.quality === "reduced") this.log(graph, admission.reason, "warn");
       const doneSteps = graph.nodes.filter((item) => DONE.includes(item.state)).length;
       const block = budgetBlock(graph.budget, {
         ms: Date.now() - graph.createdAt,
@@ -829,6 +855,7 @@ export class TaskGraphEngine {
     if (!checkpoint.idempotencyKey && node.idempotencyKey) {
       checkpoint.idempotencyKey = node.idempotencyKey;
     }
+    if (checkpoint.compensation === undefined) checkpoint.compensation = "";
     node.checkpoint = { ...checkpoint };
     const context: RunnerContext = {
       graph,
@@ -882,6 +909,50 @@ export class TaskGraphEngine {
 
     if (failure || (result && result.ok === false)) {
       node.error = failure ?? checkpoint.result ?? "subtask failed";
+      const kind = classifyFailure(node.error);
+      const domain = failureDomain(node.error);
+      const recovery = recoverFailure(kind, node.attempts);
+      if (
+        recovery.action === "stop" ||
+        recovery.action === "expire" ||
+        recovery.action === "restore"
+      ) {
+        node.state = "failed";
+        node.checkpoint = { ...checkpoint };
+        this.log(graph, `${node.title} ${domain} ${recovery.action}: ${recovery.reason}`, "error");
+        this.emit();
+        return this.finish(graph, "failed");
+      }
+      const substitute = failedToolKeepsTask({
+        toolFailed: true,
+        alternative: node.alternative ?? "",
+        policyAllows: true,
+      });
+      if (substitute.continueTask) {
+        const next = graph.nodes.find(
+          (item) => item.state === "pending" && !item.dependsOn.includes(node.id),
+        );
+        if (next) {
+          node.state = "failed";
+          node.checkpoint = { ...checkpoint, compensation: checkpoint.compensation ?? "" };
+          next.state = "ready";
+          this.log(graph, substitute.reason, "warn");
+          this.emit();
+          return true;
+        }
+      }
+      const replay = sideEffectRetry(
+        `${node.title} ${node.error ?? ""}`,
+        checkpoint.checked === true,
+      );
+      if (!replay.retry) {
+        node.state = "waiting";
+        graph.state = "paused";
+        node.checkpoint = { ...checkpoint, compensation: checkpoint.compensation ?? "" };
+        this.log(graph, replay.reason, "warn");
+        this.emit();
+        return false;
+      }
       if (node.attempts < node.maxAttempts) {
         node.state = "retrying";
         node.retryDelayMs = retryBackoffMs(node.attempts);
@@ -909,6 +980,9 @@ export class TaskGraphEngine {
         producer: "task-graph",
         payload: { title: node.title, phase: exhausted.phase },
       });
+      checkpoint.eventCursor = sealed.event_id;
+      if (checkpoint.compensation === undefined) checkpoint.compensation = "";
+      node.checkpoint = { ...checkpoint };
       this.log(graph, `${node.title} failed: ${node.error} (${sealed.event_id})`, "error");
       this.emit();
       return this.finish(graph, "failed");
@@ -925,7 +999,30 @@ export class TaskGraphEngine {
       if (!checkpoint.evidenceId) checkpoint.evidenceId = `${node.id}-evidence`;
       if (!checkpoint.actionId) checkpoint.actionId = `${node.id}-action`;
     }
-    if (outcome.phase === "succeeded") {
+    const chain = executionEnvelope({
+      turnId: graph.id,
+      conversationId: graph.id,
+      endpoint: "system",
+      taskId: graph.id,
+      planId: node.id,
+      routeId: node.kind,
+      capabilityId: node.kind,
+      capabilityVersion: "1",
+      actionId: checkpoint.actionId || `${node.id}-action`,
+      artifactId: "none",
+      traceId: graph.runId || graph.id,
+      result: checkpoint.result || "",
+      verified: outcome.phase === "succeeded",
+      policyVersion: "1",
+    });
+    const transition = acceptStateTransition({
+      previous: "EXECUTING",
+      next: outcome.phase === "succeeded" ? "VERIFYING" : "RECOVERING",
+      actor: "task-graph",
+      cause: outcome.phase,
+      evidence: checkpoint.evidenceId || node.id,
+    });
+    if (outcome.phase === "succeeded" && chain.ok && transition.ok) {
       node.state = "verified";
       delete checkpoint.reverify;
       if (!checkpoint.postcondition && checkpoint.result) {
@@ -936,6 +1033,12 @@ export class TaskGraphEngine {
       }
     } else {
       node.state = "completed";
+      if (outcome.phase === "succeeded" && !chain.ok) {
+        this.log(graph, `envelope held: ${chain.reason}`, "warn");
+      }
+      if (outcome.phase === "succeeded" && !transition.ok) {
+        this.log(graph, `transition held: ${transition.reason}`, "warn");
+      }
     }
     node.checkpoint = { ...checkpoint };
     const sealed = sealRuntimeEvent({
@@ -948,6 +1051,9 @@ export class TaskGraphEngine {
       producer: "task-graph",
       payload: { title: node.title, phase: outcome.phase },
     });
+    checkpoint.eventCursor = sealed.event_id;
+    if (checkpoint.compensation === undefined) checkpoint.compensation = "";
+    node.checkpoint = { ...checkpoint };
     this.log(graph, `${node.title} — ${node.state} (${sealed.event_id})`, "ok");
 
     const next = graph.nodes.find((n) => n.state === "pending");

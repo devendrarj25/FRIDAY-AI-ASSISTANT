@@ -65,7 +65,7 @@ see §2. This folder holds only the disposable planning/workbench material:
 | `config/friday-version.json` | The only product version. The old document manifest was removed. |
 | `README.md` | This layer's own short intro |
 | `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `docs/FRIDAY_CHANGE_CONTROL.md`, then `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md` |
-| `FRIDAY-VISION/` | **Long-term architecture corpus** — where FRIDAY is headed, for major/future upgrades. Entry: `FRIDAY-VISION/00-MASTER/00_READ_FIRST.md` |
+| `FRIDAY-VISION/` | Area plans that are not landed yet, under `FRIDAY-VISION/AREAS/`. |
 
 ### SHA policy (standing rule — read before adding any hash anywhere in this layer)
 This project has **one** authoritative SHA-256: the hash of the whole
@@ -84,33 +84,28 @@ and out of scope for this rule; don't touch it under this policy.
 | # | Folder | Covers |
 |---|---|---|
 | 00 | adopted | The read-first order, the plane map, and the master laws now live in `docs/FRIDAY_CHANGE_CONTROL.md` and `src/lib/friday/flow-chart.ts`. The folder was removed after those tests passed. |
-| 01 | `01_SOURCE_ROUTING` | `TASK_TO_AREA_ROUTER.md` (classify a task) + `SOURCE_OWNER_CATALOG.md`/`SOURCE_OWNERSHIP_MAP.json` (real file anchors, callers, tests, locked files) |
+| 01 | `01_SOURCE_ROUTING` | `TASK_TO_AREA_ROUTER.md` still classifies a task. The owner catalog was removed; the live files are the catalog. |
 | 02 | adopted | Durable task runtime and the event envelope now live in `src/lib/friday/self/run-receipt.ts`. The folder was removed after those tests passed. |
-| 03 | `03_INTELLIGENCE_FABRIC` | Context engineering, model routing contract |
-| 04 | `04_AGENT_RUNTIME` | Agent runtime contract, handoff/parallelism |
-| 05 | `05_CAPABILITY_FABRIC` | Capability contract, tool discovery |
-| 06 | `06_MEMORY_KNOWLEDGE` | Memory contract, retrieval/context policy |
-| 07 | `07_EXECUTION_VERIFICATION` | Evidence contract, world-state freshness |
-| 08 | `08_OBSERVABILITY_EVALUATION` | Evaluation contract, tracing/telemetry |
-| 09 | `09_SECURITY_GOVERNANCE` | Approval contract, security invariants |
-| 10 | `10_DEVELOPMENT_WORKFLOW` | Fast/safe change workflow, change ledger, AI handoff template |
-| 11 | `11_TESTING_RELEASE` | Test strategy, regression matrix, release gates |
-| 12 | `12_MIGRATION_ROADMAP` | No-big-bang rule, phased implementation |
-| 13 | `13_RESEARCH` | Primary research + synthesis |
-| 14 | `14_TEMPLATES` | Contract-change and source-card templates |
+| 03 | adopted | Context budgets and policy routing live in `src/lib/friday/brain/context-engine.ts` and `electron/model-router.cjs`. |
+| 04 | adopted | Bounded agents, handoff packets, and serialized writes live in `src/lib/friday/self/agent-scheduler.ts`. |
+| 05 | adopted | Capability phases live in `src/lib/friday/self/run-receipt.ts`. The planner loads a tool shortlist. |
+| 06 | adopted | Memory tiers, clashes, and retrieval order live in `src/lib/friday/self/memory-engine.ts`. |
+| 07 | adopted | Evidence and stale observations live in the task graph and `src/lib/friday/self/computer-use.ts`. |
+| 08 | adopted | Evaluation scores and trace spans live in `src/lib/friday/self/run-receipt.ts`. |
+| 09 | adopted | Approval grants and the peer-connection rule live in `src/lib/friday/self/run-receipt.ts`. |
+| 10 | `10_DEVELOPMENT_WORKFLOW` | `FAST_SAFE_CHANGE_WORKFLOW.md` remains until this folder is removed. The change gate is `docs/FRIDAY_CHANGE_CONTROL.md`. |
+| 11 | adopted | Source versus build validation and the tool floor live in `docs/FRIDAY_CHANGE_CONTROL.md` and `config/toolchain-versions.json`. |
+| 12 | adopted | Changes stay on the existing owners. A paper design does not delete a working path. |
+| 13 | adopted | The research decisions are in `docs/FRIDAY_CHANGE_CONTROL.md`. Freshness of the 2026-09 list is unverified. |
+| 14 | `14_TEMPLATES` | `TASK_PACKET_TEMPLATE.md` remains until this folder is removed. The packet is in `docs/FRIDAY_CHANGE_CONTROL.md`. |
 
-### 3b. `FRIDAY-VISION/` — same shape as before
-`00-MASTER` (entry, contracts, context router, dependency/file-routing maps)
-→ `01-ARCHITECTURE` → `02-LIFECYCLE` → `03-BUILD` → `04-OPERATIONS` →
-`05-IMPLEMENTATION` → `06-RESEARCH`, plus `AREAS/01-SYSTEM` …
-`AREAS/08-PACKAGING-BUILD-UPDATE` for the deep per-system target specs. Every
-folder in this tree has its own `INDEX.md` — open that before opening the
-files inside it.
+### 3b. `FRIDAY-VISION/`
+The master, architecture, lifecycle, build, operations, implementation, and research notes now live in the product owners: `core/registry.ts`, `src/lib/friday/installer-engine.ts`, `electron/update-safety.cjs`, `config/friday-version.json`, and `docs/FRIDAY_CHANGE_CONTROL.md`. What remains under `FRIDAY-VISION/AREAS/` is the area plans that are not landed yet.
 
 ### How the two connect
 - **Doing a task today** → `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`
   classifies it and sends you to one numbered area + the real source owner.
-- **Planning a major/future upgrade** → `FRIDAY-VISION/00-MASTER/03_AI_CONTEXT_ROUTER.md`
+- **Planning a major/future upgrade** → the one matching folder under `FRIDAY-VISION/AREAS/`.
   runs the same kind of classify-then-narrow search over the vision corpus.
 - Either path can hand off to the other: a vision target you're about to
   implement becomes a `FRIDAY-DEVELOPMENT` task; a development contract that
@@ -134,7 +129,7 @@ AFFECTED_BOUNDARIES, REQUIRED_TESTS, ROLLBACK_PLAN, and EVIDENCE.
 3. The workflow file and the task packet named above.
 4. **`FRIDAY_STATE.md`** (repo root) — current facts, when the task needs them.
 5. Classify the task with **`FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md`**.
-6. Open only the matching numbered area + the exact source owner from `SOURCE_OWNER_CATALOG.md`.
+6. Open only the owner named by that router.
 7. For a future/major upgrade only, also open the one matching `FRIDAY-VISION` target file — not the whole tree.
 8. Implement in the real product folder (§2). Depth and the removal of finished plan entries are the rules in `AGENTS.md`.
 9. Verify with the checks `AGENTS.md` names, then update `AUDIT.md` / `FRIDAY_STATE.md` (repo root) when a current fact changed. Fix indexes after a plan file or an empty folder is removed. A ledger line, if one is written, does not name a tool or a person other than `devendrarj25`. State PASS or BLOCK explicitly (see the workflow file) — a model's own claim that something works is not evidence; command output is.

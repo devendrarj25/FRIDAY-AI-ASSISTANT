@@ -24,10 +24,9 @@ anything clearly outside this task).
 Search callers, imports, interfaces and state transitions. Write
 `DIRECT_DEPENDENCIES`. If this reveals a file genuinely needed beyond the
 original `ALLOWED_FILES`, add it there explicitly — don't edit outside the
-declared list silently. Check `SOURCE_OWNER_CATALOG.md`/`SOURCE_OWNERSHIP_MAP.json`
-for whether a canonical implementation already exists before writing
-anything new — a duplicate registry/router/memory/authority/task-system is
-a scope failure, not a style choice.
+declared list silently. Confirm the live source file and its tests
+before writing anything new — a duplicate registry, router, memory store,
+authority, or task system is a scope failure, not a style choice.
 
 ### Step 5 — implement
 Make the smallest coherent change.

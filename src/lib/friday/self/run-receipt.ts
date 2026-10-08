@@ -258,7 +258,7 @@ export function sealRuntimeEvent(input: {
     task_id: input.taskId,
     run_id: input.runId,
     producer: input.producer,
-    payload: cleanPayload(input.payload),
+    payload: { span: traceSpan(input.eventType), ...cleanPayload(input.payload) },
   };
 }
 
@@ -422,6 +422,7 @@ export function scoreEvaluation(input: {
   costBudget: number;
   recovered: boolean;
   userHeldControl: boolean;
+  regression?: boolean;
 }): { pass: boolean; failed: string[] } {
   const failed: string[] = [];
   if (!input.completed) failed.push("task completion");
@@ -434,7 +435,39 @@ export function scoreEvaluation(input: {
   if (input.cost > input.costBudget) failed.push("cost");
   if (!input.recovered) failed.push("recovery");
   if (!input.userHeldControl) failed.push("user control");
+  if (input.regression === false) failed.push("regression");
   return { pass: failed.length === 0, failed };
+}
+
+export type AgentManifest = {
+  id: string;
+  version: string;
+  role: string;
+  capabilities: string[];
+  dataClasses: string[];
+  authority: "owner" | "scoped";
+  budget: number;
+  timeLimitMs: number;
+  memoryScope: "session";
+  network: false;
+  verification: "postcondition";
+};
+
+/** The bounded worker record. Defaults stay inside the parent grant. */
+export function agentManifest(agent: { id: string; risk: string }): AgentManifest {
+  return {
+    id: agent.id,
+    version: "1",
+    role: agent.id,
+    capabilities: [agent.id],
+    dataClasses: ["internal"],
+    authority: agent.risk === "exec" ? "scoped" : "owner",
+    budget: 0,
+    timeLimitMs: 120_000,
+    memoryScope: "session",
+    network: false,
+    verification: "postcondition",
+  };
 }
 
 /** Logical records. They validate the task graph and the kernel tables. They are not a second database. */
@@ -749,4 +782,435 @@ export function backendInvariants(input: {
 /** Secret content stays out of ordinary semantic memory. */
 export function secretStaysOutOfMemory(sensitivity: string | undefined): boolean {
   return sensitivity === "secret";
+}
+
+export type HandoffPacket = {
+  result: string;
+  evidence: string;
+  confidence: number;
+  unresolved: string[];
+  artifacts: string[];
+  verification: "passed" | "failed" | "unchecked";
+};
+
+/** A specialist returns evidence. A bare success string is not a checked handoff. */
+export function completeHandoff(input: {
+  result: string;
+  evidence: string;
+  confidence: number;
+  unresolved: string[];
+  artifacts: string[];
+  checked: boolean;
+}): HandoffPacket {
+  const evidence = input.evidence.trim();
+  const verification = input.checked && evidence ? "passed" : evidence ? "failed" : "unchecked";
+  return {
+    result: input.result.trim(),
+    evidence,
+    confidence: Math.max(0, Math.min(1, input.confidence)),
+    unresolved: input.unresolved.filter((item) => item.trim()),
+    artifacts: input.artifacts.filter((item) => item.trim()),
+    verification,
+  };
+}
+
+/** Two writes of the same target cannot run together. */
+export function mustSerialize(left: { writes: string[] }, right: { writes: string[] }): boolean {
+  return left.writes.some((item) => item.length > 0 && right.writes.includes(item));
+}
+
+/** A peer that has only connected does not receive FRIDAY authority. The grant is the owner flag. */
+export function authorityFromConnection(_connected: boolean, ownerGranted: boolean): boolean {
+  return ownerGranted;
+}
+
+export function observationCurrent(stale: boolean, ageMs = 0, ttlMs = 8_000): boolean {
+  if (stale) return false;
+  return ageMs >= 0 && ageMs <= ttlMs;
+}
+
+/** Task-local facts outrank project, user, general, then external research. */
+export function retrievalTier(scope: string): number {
+  if (scope === "task") return 0;
+  if (scope === "project") return 1;
+  if (scope === "user") return 2;
+  if (scope === "general") return 3;
+  if (scope === "external") return 4;
+  return 5;
+}
+
+export function traceSpan(eventType: string): string {
+  const name = eventType.toLowerCase();
+  if (name.includes("verif")) return "verification";
+  if (name.includes("handoff")) return "handoff";
+  if (name.includes("guard") || name.includes("approval")) return "guardrail";
+  if (name.includes("tool")) return "tool";
+  if (name.includes("model")) return "model";
+  if (name.includes("agent")) return "agent";
+  if (name.includes("task")) return "task";
+  return "turn";
+}
+
+export type TurnEndpoint = "chat" | "voice" | "mobile" | "system";
+
+/** Chat and voice share one conversation id. Mobile is not a second store. */
+export function continuityKey(
+  endpoint: TurnEndpoint,
+  conversationId: string,
+): { ok: boolean; key: string; reason: string } {
+  if (endpoint === "mobile") {
+    return { ok: false, key: "", reason: "mobile is not a second conversation store" };
+  }
+  const key = conversationId.trim();
+  if (!key) return { ok: false, key: "", reason: "conversation is missing" };
+  return { ok: true, key, reason: "" };
+}
+
+/**
+ * One chain from the turn through verification. An incomplete chain, or a
+ * chain whose verification did not pass, is not a finished execution.
+ */
+export function executionEnvelope(input: {
+  turnId: string;
+  conversationId: string;
+  endpoint: TurnEndpoint;
+  taskId: string;
+  planId: string;
+  routeId: string;
+  capabilityId: string;
+  capabilityVersion: string;
+  actionId: string;
+  artifactId: string;
+  traceId: string;
+  result: string;
+  verified: boolean;
+  policyVersion: string;
+}): { ok: boolean; reason: string } {
+  const continuity = continuityKey(input.endpoint, input.conversationId);
+  if (!continuity.ok) return { ok: false, reason: continuity.reason };
+  const links = [
+    input.turnId,
+    input.taskId,
+    input.planId,
+    input.routeId,
+    input.capabilityId,
+    input.capabilityVersion,
+    input.actionId,
+    input.artifactId,
+    input.traceId,
+    input.result,
+    input.policyVersion,
+  ];
+  if (links.some((item) => !item.trim())) {
+    return { ok: false, reason: "execution chain is incomplete" };
+  }
+  if (!input.verified) return { ok: false, reason: "verification did not pass" };
+  return { ok: true, reason: "" };
+}
+
+const PRIVATE_REASONING = /chain[- ]of[- ]thought/i;
+
+/** The selected path, without private reasoning, and never an unscoped id. */
+export function acceptRouteDecision(input: {
+  routeId: string;
+  taskId: string;
+  selected: { kind: string; id: string }[];
+  alternatives: string[];
+  policyVersion: string;
+  confidence: number;
+  rationale: string;
+}): { ok: boolean; reason: string } {
+  if (!input.routeId.trim() || !input.taskId.trim() || !input.policyVersion.trim()) {
+    return { ok: false, reason: "route record is incomplete" };
+  }
+  if (
+    !input.selected.length ||
+    input.selected.some((item) => !item.kind.trim() || !item.id.trim())
+  ) {
+    return { ok: false, reason: "selected path is incomplete" };
+  }
+  if (input.confidence < 0 || input.confidence > 1) {
+    return { ok: false, reason: "confidence is out of range" };
+  }
+  if (PRIVATE_REASONING.test(input.rationale)) {
+    return { ok: false, reason: "route record exposed private reasoning" };
+  }
+  if (input.selected.some((item) => item.id.startsWith("unscoped:"))) {
+    return { ok: false, reason: "selected path lacks policy scope" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/** Retired capabilities are not routed. Only available is. */
+export function routeCapability(phase: CapabilityPhase | "retired"): {
+  ok: boolean;
+  reason: string;
+} {
+  if (phase === "retired") return { ok: false, reason: "retired capabilities are not routed" };
+  if (phase !== "available") return { ok: false, reason: "only an available capability is routed" };
+  return { ok: true, reason: "" };
+}
+
+/** Read-only owner policy. A model, skill, or runtime config cannot replace this text. */
+export const POLICY_ROOT_VERSION = "1";
+export const POLICY_ROOT_TEXT =
+  "auto_approve_exec=false; handsFree=false; secrets=safeStorage; privacy=fail-closed; billing=fail-closed; protected=governance";
+
+/** The trusted snapshot. A different text or version is a replaced policy and fails closed. */
+export function policyRootSnapshot(input?: { text?: string; version?: string }): {
+  ok: boolean;
+  version: string;
+  hash: string;
+  reason: string;
+} {
+  const text = input?.text ?? POLICY_ROOT_TEXT;
+  const version = input?.version ?? POLICY_ROOT_VERSION;
+  if (!text.trim() || !version.trim()) {
+    return { ok: false, version: "", hash: "", reason: "policy root is missing" };
+  }
+  if (text !== POLICY_ROOT_TEXT || version !== POLICY_ROOT_VERSION) {
+    return { ok: false, version, hash: "", reason: "policy root was replaced" };
+  }
+  return { ok: true, version, hash: argumentHash(text), reason: "" };
+}
+
+/** Privileged work cites the verified policy. Self-change stays sandboxed. */
+export function policyRootAllows(input: {
+  privileged: boolean;
+  policyVersion: string;
+  selfChange: boolean;
+  sandboxed: boolean;
+  citedHash?: string;
+}): { ok: boolean; reason: string } {
+  const root = policyRootSnapshot();
+  if (!root.ok) return { ok: false, reason: root.reason };
+  if (input.privileged && !input.policyVersion.trim()) {
+    return { ok: false, reason: "privileged action has no policy" };
+  }
+  if (input.privileged && input.policyVersion !== root.version) {
+    return { ok: false, reason: "privileged action cites a different policy" };
+  }
+  if (input.citedHash && input.citedHash !== root.hash) {
+    return { ok: false, reason: "policy root was replaced" };
+  }
+  if (input.selfChange && !input.sandboxed) {
+    return { ok: false, reason: "self-change is not direct" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export type CapabilityLife =
+  | "discovered"
+  | "validated"
+  | "registered"
+  | "healthy"
+  | "degraded"
+  | "active"
+  | "quarantined"
+  | "retired";
+
+/**
+ * Discovery is not execution. Retirement keeps the record and does not route.
+ * Quarantine is reversible and is not execution either.
+ */
+export function capabilityLifecycleRecord(input: {
+  id: string;
+  phase: CapabilityLife;
+  version: string;
+  manifestHash: string;
+  healthEvidence: string;
+  authority: string;
+  retirementReason: string;
+}): { ok: boolean; reason: string; keepHistory: boolean } {
+  const keepHistory = true;
+  if (!input.id.trim() || !input.version.trim() || !input.manifestHash.trim()) {
+    return { ok: false, reason: "lifecycle record is incomplete", keepHistory };
+  }
+  if (input.phase === "retired") {
+    if (!input.retirementReason.trim()) {
+      return { ok: false, reason: "retirement names a reason", keepHistory };
+    }
+    return { ok: false, reason: "retired capabilities are not routed", keepHistory };
+  }
+  if (input.phase === "quarantined") {
+    return { ok: false, reason: "quarantine is reversible and is not execution", keepHistory };
+  }
+  if (
+    (input.phase === "active" || input.phase === "healthy") &&
+    (!input.healthEvidence.trim() || !input.authority.trim())
+  ) {
+    return { ok: false, reason: "activation needs health and authority", keepHistory };
+  }
+  if (input.phase !== "active") {
+    return { ok: false, reason: "capability is not active", keepHistory };
+  }
+  return { ok: true, reason: "", keepHistory };
+}
+
+/** A failed preview is not a valid artifact. The chat text is not the file. */
+export function acceptArtifact(raw: Record<string, unknown>): { ok: boolean; reason: string } {
+  for (const key of ["id", "type", "mime", "path", "generator", "checksum", "sensitivity"]) {
+    if (!text(raw, key)) return { ok: false, reason: `artifact missing ${key}` };
+  }
+  if (typeof raw["size"] !== "number" || raw["size"] < 0) {
+    return { ok: false, reason: "artifact size is missing" };
+  }
+  if (raw["validation"] !== "passed") {
+    return { ok: false, reason: "a failed preview is not a valid artifact" };
+  }
+  return { ok: true, reason: "" };
+}
+
+const SELF_CHANGE_STATUS = [
+  "proposed",
+  "sandboxed",
+  "tested",
+  "reviewed",
+  "canary",
+  "rejected",
+  "rolled_back",
+] as const;
+
+/** Files, tests, and rollback are required. Promotion is not a direct apply. */
+export function acceptSelfChange(raw: Record<string, unknown>): { ok: boolean; reason: string } {
+  for (const key of ["proposal_id", "scope", "rollback", "risk"]) {
+    if (!text(raw, key)) return { ok: false, reason: `self-change missing ${key}` };
+  }
+  if (!Array.isArray(raw["files"]) || raw["files"].length === 0) {
+    return { ok: false, reason: "self-change names no files" };
+  }
+  if (!Array.isArray(raw["tests"]) || raw["tests"].length === 0) {
+    return { ok: false, reason: "self-change names no tests" };
+  }
+  const status = String(raw["status"] ?? "proposed");
+  if (status === "promoted") return { ok: false, reason: "promotion is not a direct apply" };
+  if (!SELF_CHANGE_STATUS.includes(status as (typeof SELF_CHANGE_STATUS)[number])) {
+    return { ok: false, reason: "self-change status is unknown" };
+  }
+  return { ok: true, reason: "" };
+}
+
+/**
+ * Drop extra concurrency, then drop quality, before a safety or data rule is broken.
+ * A full-quality run is allowed only inside the limit and outside the constraint.
+ */
+/**
+ * A failed tool is not a failed task when policy allows a scoped substitute.
+ * No substitute, or an unscoped one, still fails the task.
+ */
+export function failedToolKeepsTask(input: {
+  toolFailed: boolean;
+  alternative: string;
+  policyAllows: boolean;
+}): { continueTask: boolean; reason: string } {
+  if (!input.toolFailed) return { continueTask: true, reason: "" };
+  if (!input.policyAllows) {
+    return { continueTask: false, reason: "policy does not allow a substitute" };
+  }
+  const alternative = input.alternative.trim();
+  if (!alternative) {
+    return { continueTask: false, reason: "a failed tool needs a substitute to keep the task" };
+  }
+  if (alternative.startsWith("unscoped:")) {
+    return { continueTask: false, reason: "substitute lacks policy scope" };
+  }
+  return { continueTask: true, reason: "substitute the capability" };
+}
+
+/**
+ * The control plane decides. A closed control plane blocks privileged work.
+ * A read-only step may continue. An unapproved privileged request does not run.
+ */
+export function controlPlaneAllows(input: {
+  controlReady: boolean;
+  privileged: boolean;
+  policyVersion: string;
+  capabilityId: string;
+  capabilityVersion: string;
+  scope: string;
+  risk: string;
+  approval: string;
+  idempotencyKey: string;
+  resourceLimit: string;
+}): { ok: boolean; reason: string } {
+  if (!input.controlReady && input.privileged) {
+    return { ok: false, reason: "control plane is closed" };
+  }
+  if (!input.controlReady) return { ok: true, reason: "read-only work may continue" };
+  if (!input.privileged) return { ok: true, reason: "" };
+  const fields = [
+    input.policyVersion,
+    input.capabilityId,
+    input.capabilityVersion,
+    input.scope,
+    input.risk,
+    input.approval,
+    input.idempotencyKey,
+    input.resourceLimit,
+  ];
+  if (fields.some((item) => !item.trim())) {
+    return { ok: false, reason: "action request is incomplete" };
+  }
+  if (input.approval !== "approved") {
+    return { ok: false, reason: "privileged work is not approved" };
+  }
+  return { ok: true, reason: "" };
+}
+
+const SYSTEM_NEXT: Record<string, readonly string[]> = {
+  IDLE: ["ACTIVE_THINKING", "PLANNED", "WAITING_APPROVAL", "DEGRADED"],
+  PLANNED: ["AUTHORIZED", "WAITING_APPROVAL", "FAILED"],
+  AUTHORIZED: ["EXECUTING", "FAILED", "CANCELLING"],
+  EXECUTING: ["VERIFYING", "RECOVERING", "FAILED", "WAITING_EXTERNAL", "CANCELLING"],
+  VERIFYING: ["COMPLETED", "RECOVERING", "FAILED"],
+  RECOVERING: ["EXECUTING", "FAILED", "DEGRADED"],
+  WAITING_APPROVAL: ["AUTHORIZED", "FAILED", "CANCELLING"],
+  DEGRADED: ["IDLE", "FAILED", "RECOVERING"],
+  FAILED: ["RECOVERING", "ROLLING_BACK"],
+  CANCELLING: ["FAILED", "COMPLETED"],
+  ROLLING_BACK: ["FAILED", "IDLE"],
+};
+
+/** Invalid lifecycle jumps are refused. The UI does not own this state. */
+export function acceptStateTransition(input: {
+  previous: string;
+  next: string;
+  actor: string;
+  cause: string;
+  evidence: string;
+}): { ok: boolean; reason: string } {
+  if (!input.actor.trim() || !input.cause.trim() || !input.evidence.trim()) {
+    return { ok: false, reason: "transition is incomplete" };
+  }
+  const allowed = SYSTEM_NEXT[input.previous];
+  if (!allowed) return { ok: false, reason: "unknown state" };
+  if (!allowed.includes(input.next)) return { ok: false, reason: "invalid transition" };
+  return { ok: true, reason: "" };
+}
+
+const UNSAFE_BLIND_RETRY = /\b(payment|delete|uninstall|credential|system change)\b/i;
+
+/** An uncertain payment, deletion, or system change waits. It is not retried blind. */
+export function sideEffectRetry(
+  description: string,
+  outcomeKnown: boolean,
+): { retry: boolean; reason: string } {
+  if (UNSAFE_BLIND_RETRY.test(description) && !outcomeKnown) {
+    return { retry: false, reason: "uncertain side effect needs reconciliation" };
+  }
+  return { retry: true, reason: "" };
+}
+
+export function admitResources(input: {
+  concurrent: number;
+  limit: number;
+  constrained: boolean;
+}): { run: boolean; quality: "full" | "reduced"; reason: string } {
+  if (input.concurrent > input.limit) {
+    return { run: false, quality: "reduced", reason: "concurrency reduced before a safety break" };
+  }
+  if (input.constrained) {
+    return { run: true, quality: "reduced", reason: "quality reduced before a safety break" };
+  }
+  return { run: true, quality: "full", reason: "" };
 }

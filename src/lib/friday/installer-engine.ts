@@ -182,6 +182,29 @@ const INSTALL_NICKNAMES: Record<string, string> = {
 
 /* ------------------------------------------------------------------ helpers */
 
+/** Missing edges and cycles in a component dependency graph. */
+export function dependencyIssues(graph: Record<string, readonly string[]>): string[] {
+  const issues: string[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const walk = (id: string, stack: string[]) => {
+    if (visiting.has(id)) {
+      issues.push(`circular dependency: ${[...stack, id].join(" -> ")}`);
+      return;
+    }
+    if (visited.has(id)) return;
+    visiting.add(id);
+    for (const dep of graph[id] ?? []) {
+      if (graph[dep] === undefined) issues.push(`missing dependency: ${id} needs ${dep}`);
+      else walk(dep, [...stack, id]);
+    }
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const id of Object.keys(graph)) walk(id, []);
+  return [...new Set(issues)];
+}
+
 export function sizeToMb(size: string): number {
   const m = /([\d.]+)\s*(KB|MB|GB|TB)/i.exec(size);
   if (!m) return 40;
@@ -677,6 +700,14 @@ class InstallerStore {
       const slots = Math.max(0, this.state.concurrency - active.length);
       const queued = this.state.jobs.filter((j) => j.phase === "Queued").slice(0, slots);
       for (const job of queued) {
+        const issues = dependencyIssues({ [job.pkg]: entryOf(job.pkg)?.needs ?? [] });
+        if (issues.length) {
+          job.phase = "Failed";
+          job.detail = issues[0] ?? "dependency conflict";
+          this.push("warn", `${job.pkg}: ${job.detail}`);
+          changed = true;
+          continue;
+        }
         job.phase = "Resolving";
         job.detail = `resolving dependencies · ${entryOf(job.pkg)?.source ?? "official source"}`;
         this.push(

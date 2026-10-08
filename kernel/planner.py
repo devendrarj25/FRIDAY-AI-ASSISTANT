@@ -121,7 +121,15 @@ class Planner:
 
         plan_messages = [
             {"role": "system", "content": PLAN_SYSTEM},
-            {"role": "system", "content": "Tools: " + json.dumps(self.tools.describe())},
+            {
+                "role": "system",
+                "content": "Tools: "
+                + json.dumps(
+                    self.tools.shortlist(goal)
+                    if hasattr(self.tools, "shortlist")
+                    else self.tools.describe()
+                ),
+            },
             {"role": "system", "content": "Lessons: " + json.dumps([l["title"] for l in lessons])},
             {"role": "user", "content": goal},
         ]

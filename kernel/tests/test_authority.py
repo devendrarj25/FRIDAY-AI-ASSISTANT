@@ -28,6 +28,14 @@ def test_hash_is_key_order_independent():
     assert hash_args({"a": 1, "b": "x"}) == hash_args({"b": "x", "a": 1})
 
 
+def test_shortlist_keeps_the_matching_tool(tmp_path):
+    tools = _registry(tmp_path)
+    picked = tools.shortlist("read the note from disk")
+    names = [tool["name"] for tool in picked]
+    assert "fs.read" in names
+    assert len(picked) < len(tools.describe())
+
+
 def test_safe_tool_needs_no_authorization(tmp_path):
     tools = _registry(tmp_path)
     (tmp_path / "note.txt").write_text("hello", encoding="utf-8")
