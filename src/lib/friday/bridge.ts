@@ -70,6 +70,7 @@ declare global {
         task?: string;
         /** auto | local-only | cloud-only | hybrid | manual | multi */
         routeMode?: string;
+        routingSurface?: "voice" | "chat";
         system?: string;
       }) => string;
       abortChat?: (requestId: string) => void;

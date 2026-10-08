@@ -103,6 +103,67 @@ function installChain(facts) {
   return { ok: true, step: "ready", cause: "ok", retry: false };
 }
 
+function previewBundledStage(manifest) {
+  const stage = require("../scripts/stage-toolchain.cjs");
+  if (manifest && manifest.fetchImpl) return stage.stageBundledPacks(manifest);
+  return stage.stagePlan(manifest);
+}
+
+function planExtraction(pack, dest) {
+  const target = dest || "";
+  if (!pack || !pack.sha256) return { ok: false, step: "hash", retry: true, dest: target };
+  return {
+    ok: true,
+    step: "extract",
+    dest: target,
+    longPath: windowsLongPath(target || "."),
+    skip: false,
+  };
+}
+
+function applyPackRefresh(current, incoming) {
+  if (!incoming) return { action: "keep", rollback: current?.version || null };
+  if (current && current.version === incoming.version && current.sha256 === incoming.sha256) {
+    return { action: "keep", rollback: current.version };
+  }
+  return {
+    action: "stage-new",
+    rollback: current?.version || null,
+    version: incoming.version || null,
+  };
+}
+
+function driftRows(installed) {
+  const manifest = readManifest();
+  const have = installed && typeof installed === "object" ? installed : {};
+  return (manifest.packs || []).map((pack) => ({
+    id: pack.id,
+    drifted: Boolean(have[pack.id]) && have[pack.id] !== pack.version,
+    expected: pack.version,
+    have: have[pack.id] || null,
+  }));
+}
+
+function resolvePackagedTool(spec) {
+  const id = spec?.id;
+  const entry = spec?.entry;
+  const roots = Array.isArray(spec?.roots) ? spec.roots : [];
+  if (!id || !entry) return null;
+  const relatives = [
+    path.join("resources", "toolchain", id, entry),
+    path.join("resources", "speech", id, entry),
+    path.join("runtime", id, entry),
+    path.join("resources", "app.asar.unpacked", "resources", "toolchain", id, entry),
+  ];
+  for (const root of roots) {
+    for (const rel of relatives) {
+      const full = path.join(root, rel);
+      if (fs.existsSync(full)) return { id, file: full };
+    }
+  }
+  return null;
+}
+
 module.exports = {
   readManifest,
   packById,
@@ -113,4 +174,9 @@ module.exports = {
   findPythonExe,
   materialisePython,
   installChain,
+  previewBundledStage,
+  planExtraction,
+  applyPackRefresh,
+  driftRows,
+  resolvePackagedTool,
 };

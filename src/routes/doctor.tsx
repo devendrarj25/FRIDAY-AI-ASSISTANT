@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
 import { Button } from "@/components/ui/button";
+import { ownerWave7Steps, verifyPackPlan } from "@/lib/friday/free-board";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -321,6 +322,14 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
+            onClick={() => toast(verifyPackPlan().join(" "))}
+            disabled={busy}
+          >
+            <ShieldCheck className="size-4" /> Verify all packs
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => void navigate({ to: "/install-manager" })}
           >
             Install Manager →
@@ -328,6 +337,14 @@ function DoctorPage() {
         </div>
       }
     >
+      <details className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
+        <summary>Windows voice and free-model check</summary>
+        <ol className="mt-2 list-decimal space-y-1 pl-4">
+          {ownerWave7Steps().map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </details>
       <div className="grid gap-3 sm:grid-cols-4">
         <StatTile
           label="Healthy"

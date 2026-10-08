@@ -1383,6 +1383,148 @@ function classifyMistral(input, now) {
   );
 }
 
+const EVIDENCE_AT = Date.parse("2026-10-08T00:00:00.000Z");
+
+const PROVIDER_EVIDENCE = {
+  cerebras: {
+    sourceUrl: "https://inference-docs.cerebras.ai/support/rate-limits",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "Promotional credit only. No always-free model list.",
+  },
+  sambanova: {
+    sourceUrl: "https://cloud.sambanova.ai/",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "No free model list was verified on 2026-10-08.",
+  },
+  together: {
+    sourceUrl: "https://www.together.ai/pricing",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "A zero catalogue price is the evidence.",
+  },
+  fireworks: {
+    sourceUrl: "https://docs.fireworks.ai/guides/pricing",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "Trial credit is not a permanent free model.",
+  },
+  xai: {
+    sourceUrl: "https://docs.x.ai/docs/models",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "Published token prices are paid.",
+  },
+  moonshot: {
+    sourceUrl: "https://platform.moonshot.ai/",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "No always-free model list was verified.",
+  },
+  nebius: {
+    sourceUrl: "https://docs.nebius.com/",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "No always-free model list was verified.",
+  },
+  deepinfra: {
+    sourceUrl: "https://deepinfra.com/pricing",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "A zero catalogue price is the evidence.",
+  },
+  siliconflow: {
+    sourceUrl: "https://docs.siliconflow.com/en/userguide/rate-limits/rate-limit-and-upgradation",
+    checkedAt: EVIDENCE_AT,
+    prefixPaid: "Pro/",
+    freeIds: [],
+    dataUse: "Free models are billed at zero after identity verification. Prompts may be logged.",
+  },
+  hyperbolic: {
+    sourceUrl: "https://docs.hyperbolic.xyz/",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [],
+    dataUse: "No free inference tier was verified.",
+  },
+  github: {
+    sourceUrl: "https://github.blog/changelog/2026-07-30-github-models-is-now-retired/",
+    checkedAt: EVIDENCE_AT,
+    retired: true,
+    freeIds: [],
+    dataUse: "Retired on 2026-07-30. Do not send prompts.",
+  },
+  cloudflare: {
+    sourceUrl: "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+    checkedAt: EVIDENCE_AT,
+    freeIds: [
+      "@cf/zai-org/glm-4.7-flash",
+      "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/nvidia/nemotron-3-120b-a12b",
+    ],
+    paidIds: ["@cf/moonshotai/kimi-k2.6", "@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.2"],
+    dataUse: "Free allocation is 10,000 Neurons a day. Some models require a paid Workers plan.",
+  },
+};
+
+function classifyDocumented(providerId, input, now) {
+  const spec = PROVIDER_EVIDENCE[providerId];
+  if (!spec) return classifyCreditProvider(input, now);
+  const id = String(input.modelId || input.model?.id || input.catalogue?.id || "");
+  const evidence = {
+    source: "provider_docs",
+    sourceUrl: spec.sourceUrl,
+    checkedAt: spec.checkedAt,
+    confidence: 0.8,
+    dataUse: spec.dataUse,
+  };
+  if (spec.retired) {
+    return makeRecord(
+      {
+        billingMode: "UNKNOWN",
+        eligibility: "NOT_ELIGIBLE",
+        verification: "UNVERIFIED",
+        evidence,
+      },
+      now,
+    );
+  }
+  if ((spec.prefixPaid && id.startsWith(spec.prefixPaid)) || (spec.paidIds || []).includes(id)) {
+    return makeRecord(
+      {
+        billingMode: "PAID",
+        eligibility: "ELIGIBLE",
+        verification: "UNVERIFIED",
+        evidence,
+      },
+      now,
+    );
+  }
+  let record = classifyCreditProvider(input, now);
+  if (
+    record.billingMode === "UNKNOWN" &&
+    (spec.freeIds || []).includes(id) &&
+    knowledgeFresh({ checkedAt: spec.checkedAt, ttlMs: DOC_TTL_MS }, now)
+  ) {
+    record = makeRecord(
+      {
+        billingMode: "FREE_QUOTA",
+        eligibility: "ELIGIBLE",
+        verification: "UNVERIFIED",
+        evidence: { ...evidence, source: "provider_free_plan" },
+      },
+      now,
+    );
+    if (input.account) record = applyAccountCredits(record, input.account, now);
+  }
+  record.evidence = {
+    ...record.evidence,
+    sourceUrl: record.evidence.sourceUrl || spec.sourceUrl,
+    dataUse: record.evidence.dataUse || spec.dataUse,
+  };
+  return record;
+}
+
 const ADAPTERS = {
   openrouter: classifyOpenRouter,
   groq: classifyGroq,
@@ -1391,20 +1533,62 @@ const ADAPTERS = {
   cohere: classifyCohere,
   nvidia: classifyNvidia,
   mistral: classifyMistral,
-  cerebras: (input, now) => classifyCreditProvider(input, now),
-  fireworks: (input, now) => classifyCreditProvider(input, now),
-  sambanova: (input, now) => classifyCreditProvider(input, now),
-  moonshot: (input, now) => classifyCreditProvider(input, now),
+  cerebras: (input, now) => classifyDocumented("cerebras", input, now),
+  fireworks: (input, now) => classifyDocumented("fireworks", input, now),
+  sambanova: (input, now) => classifyDocumented("sambanova", input, now),
+  moonshot: (input, now) => classifyDocumented("moonshot", input, now),
   zhipu: classifyZhipu,
-  together: (input, now) => classifyCreditProvider(input, now),
-  xai: (input, now) => classifyCreditProvider(input, now),
-  nebius: (input, now) => classifyCreditProvider(input, now),
-  deepinfra: (input, now) => classifyCreditProvider(input, now),
+  together: (input, now) => classifyDocumented("together", input, now),
+  xai: (input, now) => classifyDocumented("xai", input, now),
+  nebius: (input, now) => classifyDocumented("nebius", input, now),
+  deepinfra: (input, now) => classifyDocumented("deepinfra", input, now),
+  siliconflow: (input, now) => classifyDocumented("siliconflow", input, now),
+  hyperbolic: (input, now) => classifyDocumented("hyperbolic", input, now),
+  github: (input, now) => classifyDocumented("github", input, now),
+  cloudflare: (input, now) => classifyDocumented("cloudflare", input, now),
   openai: (input, now) => classifyMeteredDefault("openai", input, now),
   anthropic: (input, now) => classifyMeteredDefault("anthropic", input, now),
   deepseek: (input, now) => classifyMeteredDefault("deepseek", input, now),
   perplexity: (input, now) => classifyMeteredDefault("perplexity", input, now),
 };
+
+function fitsQuota({ limit, used, need, headroom } = {}) {
+  const cap = Number(limit);
+  if (!Number.isFinite(cap)) return false;
+  const spent = Number(used) || 0;
+  const want = Number(need) || 0;
+  const reserve = Number(headroom) || 0;
+  return spent + want + reserve <= cap;
+}
+
+function refreshFreeKnowledge(previous, fetchResult) {
+  const prior = previous && typeof previous === "object" ? previous : { models: [] };
+  const models = Array.isArray(prior.models) ? prior.models : [];
+  const parsed = fetchResult && fetchResult.ok === true ? fetchResult.parsed : null;
+  if (!Array.isArray(parsed)) {
+    return { kept: true, models, diff: { added: [], removed: [] }, reason: "kept-last-good" };
+  }
+  const before = new Set(models.map((row) => (typeof row === "string" ? row : row.id)));
+  const after = new Set(parsed.map((row) => (typeof row === "string" ? row : row.id)));
+  return {
+    kept: false,
+    models: parsed,
+    diff: {
+      added: [...after].filter((id) => id && !before.has(id)),
+      removed: [...before].filter((id) => id && !after.has(id)),
+    },
+    reason: "parsed",
+  };
+}
+
+function cloudAllowed(privacy) {
+  const tier = String(privacy || "standard").toLowerCase();
+  return tier !== "sensitive" && tier !== "private";
+}
+
+function scheduleFreeRefresh(enabled) {
+  return { download: Boolean(enabled), blockStartup: false, optIn: true };
+}
 
 function parseRateLimitHeaders(headers) {
   if (!headers || typeof headers !== "object") return null;
@@ -2001,4 +2185,10 @@ module.exports = {
   knowledgeFresh,
   KNOWLEDGE_CHECKED_AT,
   DOC_TTL_MS,
+  PROVIDER_EVIDENCE,
+  classifyDocumented,
+  fitsQuota,
+  refreshFreeKnowledge,
+  cloudAllowed,
+  scheduleFreeRefresh,
 };

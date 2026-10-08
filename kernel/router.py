@@ -811,7 +811,7 @@ class ModelRouter:
         return None
 
 
-    def best_available(self, role: str = "brain") -> Model | None:
+    def best_available(self, role: str = "brain", *, surface: str | None = None) -> Model | None:
         """Auto mode inside the kernel: score ready models, never spend on its own.
 
         Ranking (FRIDAY remains the owner; models are interchangeable specialists):
@@ -834,7 +834,7 @@ class ModelRouter:
                 reliability = float(raw)
             latency = float(options.get("avg_ms") or options.get("latency_ms") or 0)
             latency_score = (1.0 / latency) if latency > 0 else 0.0
-            return (
+            base = (
                 1 if model.role == role else 0,
                 1 if is_local_model(model) else 0,
                 reliability,
@@ -842,6 +842,12 @@ class ModelRouter:
                 int(model.context_k or 0),
                 min(float(options.get("wins") or 0), 5.0),
             )
+            if surface == "voice":
+                return (base[0], base[1], latency_score, reliability, base[4], base[5])
+            if surface == "chat":
+                quality = float(options.get("quality") or 0.0)
+                return (base[0], base[1], quality, reliability, latency_score, base[4], base[5])
+            return base
 
         ready.sort(key=score, reverse=True)
         return ready[0]
@@ -982,6 +988,7 @@ class ModelRouter:
         parallel: bool | None = None,
         route_mode: str | None = None,
         privacy: str | None = None,
+        surface: str | None = None,
     ) -> AsyncIterator[dict]:
         """Fan out to the chosen models, or auto-select with ordered fallback."""
         norm_mode = str(route_mode).strip().lower() if route_mode else None
@@ -999,7 +1006,7 @@ class ModelRouter:
 
         auto = not targets
         if auto:
-            best = self.best_available("brain")
+            best = self.best_available("brain", surface=surface)
             if best:
                 if norm_mode == "local-only" and not is_local_model(best):
                     best = next((m for m in self._models.values() if m.status == "ready" and is_local_model(m) and self.can_chat(m)), None)

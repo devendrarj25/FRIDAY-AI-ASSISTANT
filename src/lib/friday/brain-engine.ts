@@ -84,11 +84,13 @@ export function withRoutingDefaults(options: {
   modelIds?: string[];
   routeMode?: string;
   routingContract?: ModelRoutingContract;
+  routingSurface?: "voice" | "chat";
 }): {
   extra?: string;
   modelIds?: string[];
   routeMode?: string;
   routingContract?: ModelRoutingContract;
+  routingSurface?: "voice" | "chat";
 } {
   let routeMode = options.routeMode;
   let modelIds = options.modelIds;
@@ -115,6 +117,7 @@ export function withRoutingDefaults(options: {
     ...(modelIds?.length ? { modelIds } : {}),
     ...(routeMode ? { routeMode } : {}),
     ...(routingContract ? { routingContract } : {}),
+    ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
   };
 }
 
@@ -1392,6 +1395,7 @@ class BrainStore {
       modelIds?: string[];
       routeMode?: string;
       routingContract?: ModelRoutingContract;
+      routingSurface?: "voice" | "chat";
     } = {},
   ): SendResult {
     // One routing decision for every surface: chat used to pass the owner's
@@ -1474,6 +1478,7 @@ class BrainStore {
       modelIds?: string[];
       routeMode?: string;
       routingContract?: ModelRoutingContract;
+      routingSurface?: "voice" | "chat";
     } = {},
   ) {
     const surface = this.autoMode ? "voice" : "chat";
@@ -1758,6 +1763,7 @@ class BrainStore {
         ...(options.modelIds ? { modelIds: options.modelIds } : {}),
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
+        routingSurface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
       });
       this.emit(false);
       return;
@@ -1783,6 +1789,7 @@ class BrainStore {
       modelIds?: string[];
       routeMode?: string;
       routingContract?: ModelRoutingContract;
+      routingSurface?: "voice" | "chat";
     },
   ) {
     const memoryStage = run.stages.find((stage) => stage.id === "memory");
@@ -1923,6 +1930,7 @@ class BrainStore {
         // The owner's local/cloud/auto/manual/multi choice for this turn.
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
+        ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
         system: cognition.system,
       });
       this.armWatchdog();

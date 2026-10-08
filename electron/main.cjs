@@ -1362,7 +1362,14 @@ async function resolveChatModels(
     qualityTarget: extraOptions.qualityTarget || modelQualityTarget(),
     strategy: extraOptions.strategy || modelRouteStrategy(),
     now: Date.now(),
+    ...(extraOptions.surface === "voice" || extraOptions.surface === "chat"
+      ? { surface: extraOptions.surface }
+      : {}),
   };
+  if (routeOptions.surface === "voice") {
+    const hedge = modelRouter.hedgeFree(models, routeOptions);
+    if (hedge.candidates.length) log(`voice free ladder: ${hedge.candidates.join(", ")}`);
+  }
   await modelsApi.lazyVerifyForRoute(models, routeOptions);
   // The live probe may have promoted a free-class candidate to VERIFIED.
   // Mirror that exact record into the kernel before its independent billing
@@ -1944,6 +1951,9 @@ async function streamOnce({
                 // Private is a hard local filter. The kernel must not widen it.
                 privacy:
                   request.requirements?.privacy || request.routingContract?.requirements?.privacy,
+                ...(request.routingSurface === "voice" || request.routingSurface === "chat"
+                  ? { routingSurface: request.routingSurface }
+                  : {}),
               },
             }),
           );
@@ -2097,6 +2107,9 @@ async function startChat(request) {
     costPolicy: request.costPolicy || contract?.costPolicy,
     qualityTarget: request.qualityTarget || contract?.qualityTarget || modelQualityTarget(),
     strategy: request.strategy || contract?.strategy || modelRouteStrategy(),
+    ...(request.routingSurface === "voice" || request.routingSurface === "chat"
+      ? { surface: request.routingSurface }
+      : {}),
   };
   let candidates = await resolveChatModels(wanted, task, requestedMode, routingOptions);
 
@@ -2947,6 +2960,7 @@ ipcMain.handle("app:quit", () => {
 // listening state the tray shows. Pausing from the tray is forwarded back and
 // really stops recognition there (assistant-mode.ts).
 ipcMain.on("voice:state", (_e, state) => {
+  if (state?.paused || state?.muted) stt.onMute(true);
   tray.setState({
     mode: state?.mode === "auto" ? "auto" : "manual",
     listening: Boolean(state?.listening),
@@ -3958,7 +3972,9 @@ ipcMain.handle("models:test-provider", (_e, id, apiKey, options) => {
 });
 ipcMain.handle("models:sync-catalog", () => {
   const due = modelAccess.planKnowledgeRefresh(Date.now());
+  const schedule = modelAccess.scheduleFreeRefresh(false);
   return {
+    schedule,
     due: due.map((row) => ({
       id: row.id,
       source: row.source,
@@ -4146,6 +4162,12 @@ ipcMain.handle("models:registry", async (_e, force) => {
     providersWithoutFree: view.providersWithoutFree,
     billing: billingState(),
     billingSummary: billingPolicy.describeBilling(billingState()),
+    freeBoard: modelRouter.freeNowBoard(models, {
+      policy,
+      health: providerHealth,
+      now,
+    }),
+    knowledgeKept: modelAccess.refreshFreeKnowledge({ models: [] }, { ok: false }).kept,
     models: view.rows.map((row) => {
       const described = row.model;
       // The renderer never receives credentials: the key stays in the main
@@ -6867,6 +6889,7 @@ app
       onQuit: () => quitFriday(),
       onPauseToggle: (paused) => {
         tray.setState({ paused });
+        stt.onMute(Boolean(paused));
         // The renderer owns the microphone; it really stops/starts it and then
         // reports the resulting state back through voice:state.
         send("voice:pause", { paused });

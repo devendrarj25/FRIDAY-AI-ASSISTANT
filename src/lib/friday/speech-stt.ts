@@ -74,6 +74,20 @@ export function chooseStt(input: {
   return local("command", "fallback-keywords", []);
 }
 
+/** Hold the last word until a later partial repeats it. */
+export function whisperMutePlan(muted: boolean): { stop: boolean } {
+  return { stop: muted };
+}
+
+export function holdUnstable(partial: string, priorHeld = ""): { stable: string; held: string } {
+  const words = partial.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return { stable: "", held: "" };
+  const held = words[words.length - 1] ?? "";
+  if (priorHeld && held === priorHeld) return { stable: words.join(" "), held: "" };
+  if (words.length === 1) return { stable: "", held };
+  return { stable: words.slice(0, -1).join(" "), held };
+}
+
 export function sttQualityLabel(engine: SttEngine): string {
   if (engine === "command") return "keyword fallback, not a full transcriber";
   if (engine === "whisper.cpp") return "pretrained base model, not a from-scratch model";

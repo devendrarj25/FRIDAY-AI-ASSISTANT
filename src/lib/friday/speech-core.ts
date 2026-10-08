@@ -1,5 +1,12 @@
 import { buildEvalCorpus } from "./eval-corpus";
-import { cachePhrase, cachedPhrase, resetPhraseCache } from "./speech-cache";
+import {
+  cachePhrase,
+  cachedPhrase,
+  phraseCacheKey,
+  resetPhraseCache,
+  storeCachedPhrase,
+  takeCachedPhrase,
+} from "./speech-cache";
 import {
   enrollCommand,
   forgetCommand,
@@ -7,12 +14,30 @@ import {
   resetCommandTemplates,
 } from "./speech-command";
 import { agc, polyphaseResample, removeDc, rms, sine, spectralGate } from "./speech-dsp";
-import { advanceFlow, freshMachine, voiceBudgets, wordError, type FlowEvent } from "./speech-eval";
+import {
+  advanceFlow,
+  freshMachine,
+  pickEngine,
+  voiceBudgets,
+  wordError,
+  type FlowEvent,
+} from "./speech-eval";
 import { featuresFor, peakBin } from "./speech-features";
-import { normalizeSpoken, sentenceChunks, voiceForLanguage } from "./speech-normalize";
+import {
+  chunkSentences,
+  normalizeSpoken,
+  sentenceChunks,
+  voiceForLanguage,
+} from "./speech-normalize";
 import { bargeBoundMs, playbackPlan } from "./speech-playback";
 import { backchannelLine, planProsody } from "./speech-prosody";
-import { chooseStt, rememberBenchmark, resetSttMemory, sttQualityLabel } from "./speech-stt";
+import {
+  chooseStt,
+  holdUnstable,
+  rememberBenchmark,
+  resetSttMemory,
+  sttQualityLabel,
+} from "./speech-stt";
 import {
   chooseTts,
   firstAudioLatency,
@@ -30,6 +55,7 @@ import {
   licenseNotices,
   packById,
   toolchainDoctorRows,
+  toolchainDriftRows,
   toolchainManifest,
   validateManifest,
 } from "./toolchain-manifest";
@@ -173,6 +199,7 @@ export function speechTurnPlan(text: string, language: string): string {
   const tool = explainTool("python-embed", false);
   const dev = developNote("");
   const back = backchannelLine(language);
+  storeCachedPhrase(heard, samples);
   return [
     heard,
     String(chunks.length),
@@ -196,5 +223,10 @@ export function speechTurnPlan(text: string, language: string): string {
     back,
     String(buildEvalCorpus().length),
     toolchainDoctorRows().length ? "rows" : "none",
+    pickEngine([{ id: "faster-whisper", ms: 12, ok: true }], "cpu", "cpu").id ?? "",
+    holdUnstable(heard).held,
+    takeCachedPhrase(phraseCacheKey(heard)) ? "cached" : "fresh",
+    String(toolchainDriftRows({}).length),
+    String(chunkSentences(heard).length),
   ].join(" | ");
 }

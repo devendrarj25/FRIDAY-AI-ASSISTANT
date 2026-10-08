@@ -645,7 +645,8 @@ async function transcribe(req = {}, onPartial) {
       return await cloudTranscribe(engine, file, req.language);
     }
     if (state.engine === "whisper.cpp") {
-      const found = require("./whisper-cpp.cjs").locateFrom([paths.root(), process.resourcesPath]);
+      const whisperApi = require("./whisper-cpp.cjs");
+      const found = whisperApi.locateFrom([paths.root(), process.resourcesPath]);
       if (!found) {
         return { ok: false, reason: "unavailable", error: "whisper.cpp files are missing" };
       }
@@ -656,9 +657,33 @@ async function transcribe(req = {}, onPartial) {
           error: "whisper.cpp needs a wav capture. This clip is not wav.",
         };
       }
-      const argv = require("./whisper-cpp.cjs").transcribeArgv(found.cli, found.model, file);
+      const warm = await openWhisperServer(found);
+      if (warm && warm.mode() === "server") {
+        const job = await warm.submit(file);
+        if (job?.url) {
+          try {
+            const res = await fetch(job.url, { method: "POST" });
+            const body = await res.json().catch(() => ({}));
+            const heard = String(body?.text || "").trim();
+            if (res.ok && heard) {
+              return {
+                ok: true,
+                text: heard,
+                language: "",
+                model: "base",
+                elapsedMs: Date.now() - started,
+                engine: "whisper.cpp",
+                mode: "server",
+              };
+            }
+          } catch {
+            /* fall through to the one-shot cli */
+          }
+        }
+      }
+      const argv = whisperApi.transcribeArgv(found.cli, found.model, file);
       const result = await run(argv[0], argv.slice(1), 120000);
-      const text = require("./whisper-cpp.cjs").parseWhisperText(result.stdout);
+      const text = whisperApi.parseWhisperText(result.stdout);
       if (!result.ok || !text) {
         return {
           ok: false,
@@ -806,7 +831,52 @@ async function scoreTurn(req = {}) {
   }
 }
 
+let whisperSession = null;
+let whisperServerTried = false;
+
+function onMute(muted) {
+  if (!muted) return { stopped: false };
+  if (whisperSession && typeof whisperSession.stop === "function") whisperSession.stop();
+  whisperSession = null;
+  whisperServerTried = false;
+  return { stopped: true };
+}
+
+async function openWhisperServer(found) {
+  const whisperApi = require("./whisper-cpp.cjs");
+  if (!found?.server || whisperServerTried) return whisperSession;
+  whisperServerTried = true;
+  const session = whisperApi.createWhisperSession({
+    binary: found.server,
+    cli: found.cli,
+    model: found.model,
+    port: whisperApi.WHISPER_PORT,
+    spawn: (argv) => {
+      const { spawn } = require("child_process");
+      return spawn(argv[0], argv.slice(1), { windowsHide: true, stdio: "ignore" });
+    },
+    health: async () => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 400);
+        const res = await fetch(`http://127.0.0.1:${whisperApi.WHISPER_PORT}/health`, {
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        return res.ok;
+      } catch {
+        return false;
+      }
+    },
+  });
+  const started = await session.start();
+  if (!started.ok) return null;
+  whisperSession = session;
+  return session;
+}
+
 function shutdown() {
+  onMute(true);
   const session = worker;
   worker = null;
   lastLocalLayers.worker = "stopped";
@@ -855,6 +925,7 @@ module.exports = {
   scoreTurn,
   sweep,
   shutdown,
+  onMute,
   MODELS,
   DEFAULT_MODEL,
   tmpdir: os.tmpdir,

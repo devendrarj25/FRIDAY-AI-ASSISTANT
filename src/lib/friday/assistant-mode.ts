@@ -95,7 +95,7 @@ import {
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
 import { speechTurnPlan } from "./speech-core";
-import { chooseStt } from "./speech-stt";
+import { chooseStt, whisperMutePlan } from "./speech-stt";
 import {
   failureCause,
   mayAnnounce,
@@ -269,7 +269,12 @@ export { spokenSummary } from "./voice-library";
 /** The desktop bridge (tray + window control). Null in the browser preview. */
 type VoiceDesktop = {
   showWindow?: () => void;
-  reportVoiceState?: (state: { mode: string; listening: boolean; paused: boolean }) => void;
+  reportVoiceState?: (state: {
+    mode: string;
+    listening: boolean;
+    paused: boolean;
+    muted?: boolean;
+  }) => void;
   onVoicePause?: (cb: (payload: { paused: boolean }) => void) => () => void;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   /** Real faster-whisper / edge-tts probes run by the main process. */
@@ -413,7 +418,7 @@ class AssistantModeStore {
 
   /** The tray tooltip must always show the REAL microphone state. */
   private reportToTray() {
-    const signature = `${this.state.mode}|${this.state.listening}|${this.state.paused}`;
+    const signature = `${this.state.mode}|${this.state.listening}|${this.state.paused}|${this.state.muted}`;
     if (signature === this.traySignature) return;
     this.traySignature = signature;
     try {
@@ -421,6 +426,7 @@ class AssistantModeStore {
         mode: this.state.mode,
         listening: this.state.listening,
         paused: this.state.paused,
+        muted: this.state.muted,
       });
     } catch {
       /* browser preview — no tray to update */
@@ -715,7 +721,7 @@ class AssistantModeStore {
   setMuted(muted: boolean) {
     if (this.state.muted === muted) return;
     this.state.muted = muted;
-    if (muted) this.cancelSpeech();
+    if (whisperMutePlan(muted).stop) this.cancelSpeech();
     this.emit();
   }
 
@@ -1590,6 +1596,7 @@ class AssistantModeStore {
     const payload = {
       ...(merged ? { extra: merged } : {}),
       ...(modelIds.length ? { modelIds } : {}),
+      routingSurface: "voice" as const,
     };
     let result = brain.send(command, payload);
     // A new spoken command is an interrupt: stop the in-flight turn, then start.
