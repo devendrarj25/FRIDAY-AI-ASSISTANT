@@ -134,6 +134,8 @@ The routable catalogue swaps only when the next list is an array of unique ids. 
 
 ### Routing added (2026-10-08, escalation)
 
+The model plan's learned value estimator and a second providers package tree were not added. Bedrock, Foundry, and Vertex stay off the cloud list until the owner connects those accounts. vLLM stays an optional local serve command. The vLLM package is not a dependency. Video demos are not an implementation source, and a video index was not added.
+
 A model refusal, a failed tool call, a schema mismatch, and a low-confidence verification move to the next model that already passed privacy and billing. A content filter still stops. Those answer failures do not open a cooldown or a quarantine. A context overflow still moves only after the caller marks the prompt compacted. Catalogue refresh is by trigger: startup checks health and a stale catalogue, the Models page may read every layer, a background pass uses catalogue, health, and lifecycle with jitter, and a chat turn refreshes only when the catalogue is stale. A repair that would rotate a key, change privacy, upload weights, enable a paid provider, or replace a pinned model stays with the owner. `models:heal` calls that gate.
 
 | Topic | Decision | Why, for FRIDAY |

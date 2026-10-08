@@ -18,15 +18,15 @@
     "hostedActions": "unverified"
   },
   "inventory": {
-    "files": 661,
-    "bytes": 1171443,
+    "files": 626,
+    "bytes": 1096253,
     "byType": {
-      "index": 2,
-      "process": 16,
-      "behaviour": 349,
-      "research": 48,
-      "manifest": 12,
-      "schema": 116,
+      "index": 1,
+      "process": 13,
+      "behaviour": 330,
+      "research": 45,
+      "manifest": 9,
+      "schema": 110,
       "diagram": 118
     },
     "byArea": {
@@ -35,12 +35,11 @@
       "development:14_TEMPLATES": 1,
       "layer-root": 5,
       "vision:01-SYSTEM": 194,
-      "vision:04-MODELS-ROUTING": 35,
       "vision:05-AUTONOMY-LEARNING-EVOLUTION": 52,
       "vision:06-CAPABILITY-FEATURES": 209,
       "vision:07-INTERACTION": 163
     },
-    "filesIncludingLedger": 663,
+    "filesIncludingLedger": 628,
     "checked": "2026-10-08"
   },
   "order": [
@@ -55,7 +54,8 @@
     "AREAS/05-AUTONOMY",
     "AREAS/06-CAPABILITY",
     "AREAS/07-INTERACTION",
-    "top-level PRD TRD schema UI"
+    "top-level PRD TRD schema UI",
+    "AREAS/04-MODELS-ROUTING absorbed"
   ],
   "lockedBatches": [
     "vision 02-LIFECYCLE",
@@ -64,9 +64,9 @@
   ],
   "totals": {
     "DONE": 96,
-    "SUPERSEDED": 347,
-    "REJECT": 6,
-    "MISSING": 1660
+    "SUPERSEDED": 473,
+    "REJECT": 14,
+    "MISSING": 1525
   },
   "rows": [
     {
@@ -13182,11 +13182,20 @@
       "heading": "AREA-MANIFEST.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3917
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The area index only listed the model plan. That plan now lives in the router and the provider document.",
+      "bytes": 3917,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0781",
@@ -13194,11 +13203,20 @@
       "heading": "Mission",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1533
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "The mission is the existing router: local first when it can, cloud only when privacy and billing allow.",
+      "bytes": 1533,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0782",
@@ -13206,11 +13224,20 @@
       "heading": "Deliverable",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1533
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "This already runs in the existing model router, catalogue, and local engines. A second model system was not added.",
+      "bytes": 1533,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0783",
@@ -13218,11 +13245,20 @@
       "heading": "Key architectural decision",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1533
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "One router stays after the privacy firewall and the billing firewall. A second learned router was not added.",
+      "bytes": 1533,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0784",
@@ -13230,11 +13266,20 @@
       "heading": "Evidence rule",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1533
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Capability claims keep a source. A name guess is not treated as declared evidence.",
+      "bytes": 1533,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0785",
@@ -13242,11 +13287,20 @@
       "heading": "01_NON_NEGOTIABLES.md",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1974
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Local-only still sends no prompt to a cloud model. Credentials stay out of logs. A broken catalogue keeps the previous list.",
+      "bytes": 1974,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0786",
@@ -13254,11 +13308,20 @@
       "heading": "Existing strengths",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2223
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The live catalogue, router, and local engines are the strengths this snapshot named.",
+      "bytes": 2223,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0787",
@@ -13266,11 +13329,20 @@
       "heading": "Why the next upgrade is still necessary",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2223
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Endpoint, sibling, family, and answer escalation already landed. A second fabric was not added.",
+      "bytes": 2223,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0788",
@@ -13278,11 +13350,20 @@
       "heading": "current_inventory.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3612
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The September inventory matches the live provider list. The suggested plugin federation was not built as a second catalogue.",
+      "bytes": 3612,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0789",
@@ -13311,11 +13392,20 @@
       "heading": "1. AIOS \u2014 operating-system kernel thinking",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "The brain asks. The existing router chooses the resource. A second kernel was not added.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0791",
@@ -13323,10 +13413,12 @@
       "heading": "2. Microsoft Foundry Model Router \u2014 learned model choice",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A trained Foundry-style router was not added. Learned model choice stays rejected.",
       "bytes": 3616
     },
     {
@@ -13335,11 +13427,20 @@
       "heading": "3. Amazon Bedrock Intelligent Prompt Routing \u2014 predicted quality vs cost",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Quality and cost already move the score only when that target is set. Bedrock itself was not added.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves cheapest, best-quality, and reliable only when that target is set",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0793",
@@ -13347,11 +13448,20 @@
       "heading": "4. OpenRouter \u2014 provider endpoint routing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The same model on another endpoint is tried before a different model.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0794",
@@ -13359,11 +13469,20 @@
       "heading": "5. Hugging Face Inference Providers \u2014 provider selection abstraction",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Hugging Face stays a direct provider. A second inference gateway was not added.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0795",
@@ -13371,11 +13490,20 @@
       "heading": "6. LiteLLM / Portkey \u2014 gateway operations",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Fallback, cooldown, and error class stay in this router. FRIDAY does not depend on LiteLLM or Portkey.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "still retries a provider 500 and still refuses a bad key",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0796",
@@ -13383,11 +13511,20 @@
       "heading": "7. Research warning \u2014 routing is not magic",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A learned router stays out. Hard constraints and the task class stay first.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0797",
@@ -13395,11 +13532,20 @@
       "heading": "Resulting FRIDAY principle",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3616
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The router allocates an allowed resource. It does not pick a name and skip privacy or billing.",
+      "bytes": 3616,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0798",
@@ -13407,11 +13553,20 @@
       "heading": "Control plane vs data plane",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2284
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Catalogue refresh does not replace an in-flight decision. The previous catalogue stays until the next list is valid.",
+      "bytes": 2284,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "keeps the previous catalogue when the next generation is broken",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0799",
@@ -13419,11 +13574,20 @@
       "heading": "Control plane",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2284
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Credentials, catalogue, health, pricing, and lifecycle stay on the existing refresh. Learned performance profiles stay out.",
+      "bytes": 2284,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refreshes a stale catalogue before routing and leaves a fresh one alone",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0800",
@@ -13431,11 +13595,20 @@
       "heading": "Data plane",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2284
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Streaming, tool calls, and answer checks stay on the chat path. A second data plane was not added.",
+      "bytes": 2284,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves to another model after a refusal, a tool failure, a schema failure, or low confidence",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0801",
@@ -13443,11 +13616,20 @@
       "heading": "Resource graph",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2284
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider, endpoint, capabilities, limits, and pricing already sit on the live model record.",
+      "bytes": 2284,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0802",
@@ -13455,11 +13637,20 @@
       "heading": "Critical design rule",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2284
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The same canonical model can move to another endpoint. The live id the tests already use was not replaced.",
+      "bytes": 2284,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0803",
@@ -13467,11 +13658,20 @@
       "heading": "Manifest responsibilities",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 754
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider identity, wire, discovery, and pricing source already live in the catalogue. A separate manifest package was not added.",
+      "bytes": 754,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0804",
@@ -13479,11 +13679,20 @@
       "heading": "Never put these in a manifest",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 754
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Keys, prompts, and learned scores stay out of provider declarations. Owner-only repairs stay manual.",
+      "bytes": 754,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refuses an owner-only model repair",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0805",
@@ -13491,11 +13700,20 @@
       "heading": "Adapter interface",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1401
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Discover, invoke, stream, health, and error class already exist on the catalogue and the router.",
+      "bytes": 1401,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "still retries a provider 500 and still refuses a bad key",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0806",
@@ -13503,10 +13721,12 @@
       "heading": "Provider package boundary",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A second providers package tree was not added. The router keeps using the existing catalogue.",
       "bytes": 1401
     },
     {
@@ -13515,11 +13735,20 @@
       "heading": "Adapter priority",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4050
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The twenty cloud providers and the local engines stay the adapter set. No provider was added or removed.",
+      "bytes": 4050,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0808",
@@ -13527,11 +13756,20 @@
       "heading": "provider_catalogue.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 8569
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The live catalogue is the existing models module. A second provider catalogue file was not added.",
+      "bytes": 8569,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0809",
@@ -13539,11 +13777,20 @@
       "heading": "Why graph form matters",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 940
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Capabilities resolve from declared metadata, then the curated registry, then a labeled guess.",
+      "bytes": 940,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0810",
@@ -13551,11 +13798,20 @@
       "heading": "Required groups",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Identity, capability, limits, price, and runtime already have owners. A second model-card store was not added.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0811",
@@ -13563,11 +13819,20 @@
       "heading": "Identity",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Provider id and canonical model id are both fields. The live route id was not replaced.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0812",
@@ -13575,11 +13840,20 @@
       "heading": "Lifecycle",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Health categories already map to cooldown, quarantine, and recovery. A retired-model side system was not added.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "does not quarantine a provider for a deterministic 400",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0813",
@@ -13587,11 +13861,20 @@
       "heading": "Capability",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Chat, vision, tools, audio, embeddings, coding, and reasoning resolve with a source.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0814",
@@ -13599,11 +13882,20 @@
       "heading": "Limits",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Context overflow stays a hard stop unless the caller compacted the prompt.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0815",
@@ -13611,11 +13903,20 @@
       "heading": "Economics",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-access.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Price, free-tier state, source, and age already show. Unknown cost stays hidden until paid access is on.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "lists what is free now with source and age",
+        "caller": "electron/model-access.cjs"
+      }
     },
     {
       "id": "E0816",
@@ -13623,11 +13924,20 @@
       "heading": "Performance",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Latency and quality targets already move the existing score. A separate performance warehouse was not added.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "scores deep-reasoning, research-grade, local-preferred, and cloud-preferred",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0817",
@@ -13635,11 +13945,20 @@
       "heading": "Runtime",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "Local and cloud stay distinct. GGUF quantization and the runtime stay separate from the cloud catalogue.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "builds llama-server -m when exactly one GGUF exists",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0818",
@@ -13647,11 +13966,20 @@
       "heading": "Evidence hierarchy",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1763
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Declared metadata wins, then the curated registry, then a labeled heuristic. Missing evidence is not invented.",
+      "bytes": 1763,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0819",
@@ -13659,11 +13987,20 @@
       "heading": "Lifecycle states",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "Install, start, and refuse-to-start already cover the local engines. A second lifecycle state machine was not added.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "keeps a documented zero-argument start for Ollama, LM Studio, and LocalAI",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0820",
@@ -13671,11 +14008,20 @@
       "heading": "Download/install pipeline",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-download.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-sources.test.ts"
+      ],
+      "notes": "A download picks a real quant, skips a shard it cannot use, and fails honestly when no source can deliver.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/model-sources.test.ts",
+        "name": "prefers the requested quant and skips sharded builds",
+        "caller": "electron/model-download.cjs"
+      }
     },
     {
       "id": "E0821",
@@ -13683,11 +14029,20 @@
       "heading": "Runtime-specific rules",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "Each local runtime keeps its own start rule. They are not one shared model list.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "keeps a documented zero-argument start for Ollama, LM Studio, and LocalAI",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0822",
@@ -13695,11 +14050,20 @@
       "heading": "Ollama",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/model-sources.ts"
+      ],
+      "tests": [
+        "core/__tests__/model-sources.test.ts"
+      ],
+      "notes": "Ollama stays a native registry pull. The filesystem is not scraped as the source of truth.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/model-sources.test.ts",
+        "name": "puts the Ollama registry first and keeps a Hugging Face fallback",
+        "caller": "src/lib/friday/model-sources.ts"
+      }
     },
     {
       "id": "E0823",
@@ -13707,11 +14071,20 @@
       "heading": "LM Studio",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "LM Studio stays a local server with its own start. Loaded state is not the same as downloaded state.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "keeps a documented zero-argument start for Ollama, LM Studio, and LocalAI",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0824",
@@ -13719,11 +14092,20 @@
       "heading": "llama.cpp",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "A GGUF file, the quant, and llama-server stay separate. Several GGUFs are not guessed.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "builds llama-server -m when exactly one GGUF exists",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0825",
@@ -13731,11 +14113,20 @@
       "heading": "vLLM/SGLang",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "vLLM is an optional local serve of a safetensors folder. GGUF-only inventories do not start it. The vLLM package is not installed by FRIDAY.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "refuses vLLM start for GGUF-only inventories",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0826",
@@ -13743,11 +14134,20 @@
       "heading": "LocalAI/Jan/MLX-LM",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1487
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "LocalAI and Jan stay documented local engines. MLX-LM is not offered on Windows or Linux.",
+      "bytes": 1487,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "never offers MLX-LM install on Windows or Linux",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0827",
@@ -14028,11 +14428,20 @@
       "heading": "Why multi-model is not just voting",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Diverse mode interleaves families. The same family is not treated as three independent opinions.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "interleaves model families when the quality target is diverse",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0841",
@@ -14040,11 +14449,20 @@
       "heading": "Execution patterns",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Parallel, critic, verifier, judge, and pipeline are roles on the one plan.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0842",
@@ -14052,11 +14470,20 @@
       "heading": "Parallel",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A parallel run happens only for multi with at least two candidates.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "plans a parallel run only for multi with at least two candidates",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0843",
@@ -14064,11 +14491,20 @@
       "heading": "Primary + critic",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Critic is a second step on the same plan. It does not replace the draft.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0844",
@@ -14076,11 +14512,20 @@
       "heading": "Primary + verifier",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Verifier is a role on the same plan and still passes privacy and billing.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0845",
@@ -14088,11 +14533,20 @@
       "heading": "Specialist panel",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Task class already prefers a local, cloud, research, or reasoning model when that target is set.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "scores deep-reasoning, research-grade, local-preferred, and cloud-preferred",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0846",
@@ -14100,11 +14554,20 @@
       "heading": "Candidate + judge",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The judge is a different backend when one exists.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0847",
@@ -14112,11 +14575,20 @@
       "heading": "Pipeline",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Pipeline stays an ordered plan on the same shortlist.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0848",
@@ -14124,11 +14596,20 @@
       "heading": "Aggregation rules",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1212
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Multi names its aggregation. Hidden reasoning and secrets stay out of the trace.",
+      "bytes": 1212,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "declares multi aggregation and keeps hidden reasoning out of the trace",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0849",
@@ -14136,11 +14617,20 @@
       "heading": "Stage 0 \u2014 Compile task contract",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The route contract already carries task, mode, tools, privacy, and quality target.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "scores deep-reasoning, research-grade, local-preferred, and cloud-preferred",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0850",
@@ -14148,11 +14638,20 @@
       "heading": "Stage 1 \u2014 hard policy filter",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Mode, privacy, billing, and missing capability remove a candidate before scoring.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0851",
@@ -14160,11 +14659,20 @@
       "heading": "Stage 2 \u2014 candidate expansion",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "One model expands to another endpoint, then a sibling, then the family.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0852",
@@ -14172,11 +14680,20 @@
       "heading": "Stage 3 \u2014 capability evidence gate",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "A capability whose only source is a name guess does not pass as declared evidence.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0853",
@@ -14184,11 +14701,20 @@
       "heading": "Stage 4 \u2014 deterministic utility score",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The existing score moves for cost, quality, and reliability only when that target is set.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves cheapest, best-quality, and reliable only when that target is set",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0854",
@@ -14196,10 +14722,12 @@
       "heading": "Stage 5 \u2014 learned/value estimation (optional)",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A learned success estimator was not added. It must not override the hard filters, and it stays out.",
       "bytes": 2901
     },
     {
@@ -14208,11 +14736,20 @@
       "heading": "Stage 6 \u2014 value-of-information decision",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Extra models run only for multi with two candidates. A single plan does not shop for more.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "plans a parallel run only for multi with at least two candidates",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0856",
@@ -14220,11 +14757,20 @@
       "heading": "Stage 7 \u2014 plan type",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The plan type is single, fallback, parallel, critic, verifier, judge, or pipeline.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0857",
@@ -14232,11 +14778,20 @@
       "heading": "Stage 8 \u2014 execute with budgets",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A deterministic failure does not spend another model call. Retries stay classified.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0858",
@@ -14244,11 +14799,20 @@
       "heading": "Stage 9 \u2014 validate output",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Schema, tool, and low-confidence failures move. A content filter does not.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves to another model after a refusal, a tool failure, a schema failure, or low confidence",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0859",
@@ -14256,11 +14820,20 @@
       "heading": "Stage 10 \u2014 learn",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2901
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The trace records task, latency, tokens, fallbacks, category, and cost. It does not train on private content.",
+      "bytes": 2901,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "declares multi aggregation and keeps hidden reasoning out of the trace",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0860",
@@ -14373,11 +14946,20 @@
       "heading": "execution-trace.schema.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 923
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The execution trace already has that shape in the router. A second schema file was not added.",
+      "bytes": 923,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "declares multi aggregation and keeps hidden reasoning out of the trace",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0866",
@@ -14385,11 +14967,20 @@
       "heading": "model-card.schema.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2345
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "The model card fields that FRIDAY uses already live on the catalogue and the capability record.",
+      "bytes": 2345,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0867",
@@ -14397,11 +14988,20 @@
       "heading": "model-task-request.schema.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1818
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The task request already lives on the route contract. A second request schema was not added.",
+      "bytes": 1818,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "scores deep-reasoning, research-grade, local-preferred, and cloud-preferred",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0868",
@@ -14409,11 +15009,20 @@
       "heading": "provider-manifest.schema.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 799
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider identity already lives in the catalogue. A second manifest schema was not added.",
+      "bytes": 799,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0869",
@@ -14421,11 +15030,20 @@
       "heading": "route-plan.schema.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1104
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The route plan already has a stable id, roles, and aggregation.",
+      "bytes": 1104,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0870",
@@ -14559,11 +15177,20 @@
       "heading": "Finding A \u2014 two-level routing is essential",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Task to model to endpoint is the existing fallback order.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0877",
@@ -14571,11 +15198,20 @@
       "heading": "Finding B \u2014 capability metadata must be endpoint-aware",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Capabilities are resolved per model record, not from the provider name alone.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0878",
@@ -14583,11 +15219,20 @@
       "heading": "Finding C \u2014 health is not one boolean",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Auth, quota, timeout, and server errors are different categories. Health is not one boolean.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "still retries a provider 500 and still refuses a bad key",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0879",
@@ -14595,11 +15240,20 @@
       "heading": "Finding D \u2014 routing needs empirical performance memory",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Recent failures and a recovery probe are the short-lived performance memory. They are not a learned router.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "does not quarantine a provider for a deterministic 400",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0880",
@@ -14607,11 +15261,20 @@
       "heading": "Finding E \u2014 multi-model should optimize information, not quantity",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Multi runs only when a second candidate adds a real plan. Quantity alone does not fan out.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "plans a parallel run only for multi with at least two candidates",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0881",
@@ -14619,11 +15282,20 @@
       "heading": "Finding F \u2014 strong models are not always the right model",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Fastest, cheapest, and best-quality move only when that target is set.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves cheapest, best-quality, and reliable only when that target is set",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0882",
@@ -14631,11 +15303,20 @@
       "heading": "Finding G \u2014 local/cloud should be a policy boundary",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Local-only cannot send the prompt to a cloud model. The trace keeps the mode.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0883",
@@ -14643,11 +15324,20 @@
       "heading": "Finding H \u2014 model lifecycle is a first-class problem",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Repeated provider failure quarantines. A deterministic 400 does not.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "does not quarantine a provider for a deterministic 400",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0884",
@@ -14655,11 +15345,20 @@
       "heading": "Finding I \u2014 model identity is multi-dimensional",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Canonical model id and provider model id both travel with the candidate.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0885",
@@ -14667,11 +15366,20 @@
       "heading": "Finding J \u2014 provider adapters are the future-proofing layer",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2720
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The router sees the catalogue. Provider wires stay in the existing provider modules.",
+      "bytes": 2720,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0886",
@@ -14679,10 +15387,12 @@
       "heading": "Microsoft",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "The Foundry video shows a learned router endpoint. That router was not added.",
       "bytes": 1237
     },
     {
@@ -14691,11 +15401,20 @@
       "heading": "Video-research rule",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1237
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A video demo is not an implementation source. Official behaviour already in the router stays the authority.",
+      "bytes": 1237,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0888",
@@ -14703,10 +15422,12 @@
       "heading": "Future video ingestion",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A video index of claims was not added. Videos stay secondary and are not turned into instructions.",
       "bytes": 1237
     },
     {
@@ -14715,11 +15436,20 @@
       "heading": "research_index.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 6036
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The research decision is in the provider document. A second research index was not added.",
+      "bytes": 6036,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0890",
@@ -14727,11 +15457,20 @@
       "heading": "AGENT_EXECUTION_ORDER.md",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 875
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The implementation order already landed in the existing router. The prompt was removed with the plan.",
+      "bytes": 875,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0891",
@@ -14739,11 +15478,20 @@
       "heading": "Keep and extend",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1708
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The named files stayed the owners. They were extended, not replaced.",
+      "bytes": 1708,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0892",
@@ -14751,10 +15499,12 @@
       "heading": "New target directories (suggested)",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "The suggested core/models and providers directories were not added. One model system stays.",
       "bytes": 1708
     },
     {
@@ -14763,11 +15513,20 @@
       "heading": "Important",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1708
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "No second model tree was left beside the current catalogue.",
+      "bytes": 1708,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0894",
@@ -14775,11 +15534,20 @@
       "heading": "Phase 0 \u2014 freeze and audit",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The live provider list and the router tests are the freeze. A migration flag was not added.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0895",
@@ -14787,11 +15555,20 @@
       "heading": "Phase 1 \u2014 canonical resource contracts",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Route plan, capability evidence, and health already exist. A second contract package was not added.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0896",
@@ -14799,11 +15576,20 @@
       "heading": "Phase 2 \u2014 provider adapter registry",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider behaviour stays behind the existing catalogue and kernel wires.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0897",
@@ -14811,11 +15597,20 @@
       "heading": "Phase 3 \u2014 catalogue + evidence engine",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Discovery and the atomic catalogue snapshot already exist. Stale data does not replace a good list.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "keeps the previous catalogue when the next generation is broken",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0898",
@@ -14823,11 +15618,20 @@
       "heading": "Phase 4 \u2014 local lifecycle manager",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-download.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-sources.test.ts"
+      ],
+      "notes": "Download, quant choice, and honest failure already exist for local artifacts.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/model-sources.test.ts",
+        "name": "prefers the requested quant and skips sharded builds",
+        "caller": "electron/model-download.cjs"
+      }
     },
     {
       "id": "E0899",
@@ -14835,11 +15639,20 @@
       "heading": "Phase 5 \u2014 route planner",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Hard filters run before the score. Learned estimation stays out.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0900",
@@ -14847,11 +15660,20 @@
       "heading": "Phase 6 \u2014 Multi engine",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Multi roles already exist on the one plan.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0901",
@@ -14859,11 +15681,20 @@
       "heading": "Phase 7 \u2014 self-healing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Error class, fallback, cooldown, and owner-only repair already exist.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "moves to another model after a refusal, a tool failure, a schema failure, or low confidence",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0902",
@@ -14871,11 +15702,20 @@
       "heading": "Phase 8 \u2014 UI",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "src/routes/models.tsx"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The Models page already shows the router rows. A restyle into new tabs was not adopted.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "shows the same rows the router would use",
+        "caller": "src/routes/models.tsx"
+      }
     },
     {
       "id": "E0903",
@@ -14883,10 +15723,12 @@
       "heading": "Phase 9 \u2014 learned routing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Learned routing was not shipped. Deterministic routing stays the only router.",
       "bytes": 1984
     },
     {
@@ -14895,11 +15737,20 @@
       "heading": "Phase 10 \u2014 remove duplicate truth",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1984
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Duplicate provider truth was not added. The existing catalogue stays.",
+      "bytes": 1984,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0905",
@@ -14907,11 +15758,20 @@
       "heading": "Tier 1 \u2014 already strong in current FRIDAY",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1078
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The tier-1 providers are the live cloud list. They were not rewritten into new adapter packages.",
+      "bytes": 1078,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0906",
@@ -14919,10 +15779,12 @@
       "heading": "Tier 2 \u2014 gateway/enterprise expansion",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "BACKLOG",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Bedrock, Foundry, and Vertex need the owner's cloud accounts. They were not added to the cloud list.",
       "bytes": 1078
     },
     {
@@ -14931,11 +15793,20 @@
       "heading": "Tier 3 \u2014 local runtimes",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1078
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "Ollama, LM Studio, llama.cpp, LocalAI, and Jan stay local engines. vLLM is an optional serve, not a pip install.",
+      "bytes": 1078,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "keeps a documented zero-argument start for Ollama, LM Studio, and LocalAI",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0908",
@@ -14943,11 +15814,20 @@
       "heading": "Tier 4 \u2014 future providers",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1078
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A future provider still has to pass privacy and billing. No generic adapter SDK was added, and GitHub and Cloudflare were not added.",
+      "bytes": 1078,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0909",
@@ -14955,11 +15835,20 @@
       "heading": "Provider",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider discovery and the official source check already exist.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0910",
@@ -14967,11 +15856,20 @@
       "heading": "Model intelligence",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Capability evidence is the registry and declared metadata, not a name guess.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0911",
@@ -14979,11 +15877,20 @@
       "heading": "Local",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/engine-control.test.ts"
+      ],
+      "notes": "Local start rules already distinguish GGUF, safetensors, and a missing file.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/engine-control.test.ts",
+        "name": "builds llama-server -m when exactly one GGUF exists",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0912",
@@ -14991,11 +15898,20 @@
       "heading": "Modes",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Auto, local-only, cloud-only, hybrid, and manual stay the modes.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0913",
@@ -15003,11 +15919,20 @@
       "heading": "Routing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Fallback order and the privacy boundary already have tests.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0914",
@@ -15015,11 +15940,20 @@
       "heading": "Regression",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1731
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "A deterministic request still does not move, and a content filter still stops.",
+      "bytes": 1731,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0915",
@@ -15027,11 +15961,20 @@
       "heading": "FAILURE_INJECTION.md",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 724
+      "status": "SUPERSEDED",
+      "target": [
+        "kernel/router.py"
+      ],
+      "tests": [
+        "kernel/tests/test_router_fallback.py"
+      ],
+      "notes": "DNS, timeout, 429, 500, and a bad key already classify before retry. The trace records the category.",
+      "bytes": 724,
+      "evidence": {
+        "test": "kernel/tests/test_router_fallback.py",
+        "name": "test_dns_failures_are_classified_as_network_not_inference",
+        "caller": "kernel/router.py"
+      }
     },
     {
       "id": "E0916",
@@ -15039,11 +15982,20 @@
       "heading": "1. Read before editing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0917",
@@ -15051,11 +16003,20 @@
       "heading": "2. Preserve existing architecture",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0918",
@@ -15063,11 +16024,20 @@
       "heading": "3. Build the Model Intelligence Fabric",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0919",
@@ -15075,11 +16045,20 @@
       "heading": "4. Provider adapters",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0920",
@@ -15087,11 +16066,20 @@
       "heading": "5. Discovery",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0921",
@@ -15099,11 +16087,20 @@
       "heading": "6. Model identity",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0922",
@@ -15111,11 +16108,20 @@
       "heading": "7. Modes",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0923",
@@ -15123,11 +16129,20 @@
       "heading": "8. Router",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The handoff repeated contracts that now live in the router. The prompt was removed with those rows.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0924",
@@ -15135,11 +16150,20 @@
       "heading": "9. Auto fix / refresh / fallback",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Refresh, fallback, and owner-only repair already exist. Auto-fix does not rotate a key.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refuses an owner-only model repair",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0925",
@@ -15147,11 +16171,20 @@
       "heading": "10. Local model system",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/model-sources.ts"
+      ],
+      "tests": [
+        "core/__tests__/model-sources.test.ts"
+      ],
+      "notes": "Local install stays Ollama, GGUF, and the documented engines.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/model-sources.test.ts",
+        "name": "puts the Ollama registry first and keeps a Hugging Face fallback",
+        "caller": "src/lib/friday/model-sources.ts"
+      }
     },
     {
       "id": "E0926",
@@ -15159,11 +16192,20 @@
       "heading": "11. UI",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "src/routes/models.tsx"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The Models page stays the current page. A blueprint restyle was not adopted.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "shows the same rows the router would use",
+        "caller": "src/routes/models.tsx"
+      }
     },
     {
       "id": "E0927",
@@ -15171,11 +16213,20 @@
       "heading": "12. Testing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4269
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Mode, privacy, and failure tests already cover the router.",
+      "bytes": 4269,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0928",
@@ -15183,11 +16234,20 @@
       "heading": "REPAIR_AUDIT_PROMPT.md",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 692
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The repair prompt's owner-only boundary is the live repair gate.",
+      "bytes": 692,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "refuses an owner-only model repair",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0929",
@@ -15195,10 +16255,12 @@
       "heading": "Header",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A six-tab restyle of the Models page was not adopted. The current page stays.",
       "bytes": 1068
     },
     {
@@ -15207,11 +16269,20 @@
       "heading": "Mode selector",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1068
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Auto, local-only, cloud-only, multi, and manual already exist.",
+      "bytes": 1068,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0931",
@@ -15219,11 +16290,20 @@
       "heading": "Provider cards",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1068
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Provider name, source, and connection state already come from the catalogue. The secret is not shown.",
+      "bytes": 1068,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0932",
@@ -15231,11 +16311,20 @@
       "heading": "Model explorer",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1068
+      "status": "SUPERSEDED",
+      "target": [
+        "src/routes/models.tsx"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Local models group first and each row reads Provider \u00b7 Model.",
+      "bytes": 1068,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "names models Provider \u00b7 Model and groups Local first",
+        "caller": "src/routes/models.tsx"
+      }
     },
     {
       "id": "E0933",
@@ -15243,11 +16332,20 @@
       "heading": "Model detail drawer",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1068
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-access.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "Source, age, and price already show on the free board. A new detail drawer was not added.",
+      "bytes": 1068,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "lists what is free now with source and age",
+        "caller": "electron/model-access.cjs"
+      }
     },
     {
       "id": "E0934",
@@ -15255,11 +16353,20 @@
       "heading": "Routing preview",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1068
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The route trace already shows candidates, the choice, and the fallback. It is not sent to the window as hidden reasoning.",
+      "bytes": 1068,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "declares multi aggregation and keeps hidden reasoning out of the trace",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0935",
@@ -15267,11 +16374,20 @@
       "heading": "PACKAGE_MANIFEST.json",
       "area": "vision:04-MODELS-ROUTING",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 450
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/usable-models.test.ts"
+      ],
+      "notes": "The package manifest only indexed this plan. The live owners stay the catalogue and the router.",
+      "bytes": 450,
+      "evidence": {
+        "test": "core/__tests__/usable-models.test.ts",
+        "name": "classifies each connected provider from its official source",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0936",
@@ -15279,11 +16395,20 @@
       "heading": "The core goal",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1735
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "Discovery, modes, routing, fallback, and health already exist. Performance learning stays the health record, not a trained router.",
+      "bytes": 1735,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "hybrid and auto include connected free cloud but exclude paid cloud",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0937",
@@ -15291,11 +16416,20 @@
       "heading": "What this package intentionally does NOT do",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1735
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-modes.test.ts"
+      ],
+      "notes": "This plan does not replace Brain, Chat, or Voice. Those paths stay as they are.",
+      "bytes": 1735,
+      "evidence": {
+        "test": "core/__tests__/route-modes.test.ts",
+        "name": "local-only never selects a cloud provider",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0938",
@@ -15303,11 +16437,20 @@
       "heading": "Start here",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1735
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "The reading order pointed at contracts that now live in the router. The folder was removed after those rows closed.",
+      "bytes": 1735,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "assigns critic, judge, and pipeline roles and keeps a stable plan id",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0939",
@@ -15315,11 +16458,20 @@
       "heading": "Important distinction",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1735
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-capabilities.cjs"
+      ],
+      "tests": [
+        "core/__tests__/model-routing.test.ts"
+      ],
+      "notes": "Providers keep their own wires. The router normalizes the decision, not the provider protocol.",
+      "bytes": 1735,
+      "evidence": {
+        "test": "core/__tests__/model-routing.test.ts",
+        "name": "classifies Code Llama as coding without marking every Llama model as coding",
+        "caller": "electron/model-capabilities.cjs"
+      }
     },
     {
       "id": "E0940",
