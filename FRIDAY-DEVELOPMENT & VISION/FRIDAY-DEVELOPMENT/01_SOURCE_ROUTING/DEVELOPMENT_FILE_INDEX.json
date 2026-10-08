@@ -4,19 +4,15 @@
   "sha_policy": "This index intentionally carries no content hashes. Per-file/folder/tree SHAs were removed from the whole FRIDAY-DEVELOPMENT & VISION layer -- the only authoritative SHA-256 for this project is for the whole main/release FRIDAY ZIP, kept alongside that ZIP, not duplicated per-file here.",
   "regeneration_rule": "Regenerate immediately, in the same change, whenever any file listed in 'scope' above is added, removed, or renamed. Re-running the generator script is the only supported way to update this file.",
   "regenerated": "2026-10-08",
-  "file_count": 46,
+  "file_count": 45,
   "files": [
     {
       "path": "ADOPTION_LEDGER.json",
-      "bytes": 846297
-    },
-    {
-      "path": "Backend-Schema.md",
-      "bytes": 6117
+      "bytes": 849619
     },
     {
       "path": "DOCUMENT-MANIFEST.json",
-      "bytes": 2643
+      "bytes": 2520
     },
     {
       "path": "FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md",
@@ -44,7 +40,7 @@
     },
     {
       "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/DEVELOPMENT_FILE_INDEX.json",
-      "bytes": 5800
+      "bytes": 5586
     },
     {
       "path": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/SOURCE_OWNERSHIP_MAP.json",
@@ -172,7 +168,7 @@
     },
     {
       "path": "INDEX.md",
-      "bytes": 2468
+      "bytes": 2388
     },
     {
       "path": "PRD.md",

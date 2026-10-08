@@ -6,6 +6,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+# Bumped when ADDED_COLUMNS changes. migrate() writes this after the backup.
+SCHEMA_VERSION = 2
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS models (
@@ -80,6 +83,7 @@ class Storage:
         ("task_steps", "attempt", "INTEGER DEFAULT 1"),
         ("task_steps", "duration_ms", "INTEGER"),
         ("chats", "origin", "TEXT"),
+        ("tasks", "idempotency_key", "TEXT"),
     )
 
     def backup_database(self) -> str:
@@ -107,6 +111,7 @@ class Storage:
             self.backup_database()
             for table, column, decl in pending:
                 self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        self.set_setting("schema_version", SCHEMA_VERSION)
         # Older builds persisted provider API keys in this table. Scrub them
         # once on open; the desktop re-supplies keys from its secure store.
         self.conn.execute("UPDATE models SET api_key=NULL WHERE api_key IS NOT NULL")
@@ -252,11 +257,24 @@ class Storage:
         return {r["name"]: bool(r["enabled"]) for r in rows}
 
     def create_task(
-        self, task_id: str, goal: str, *, priority: int = 0, agent: str | None = None
-    ) -> None:
+        self,
+        task_id: str,
+        goal: str,
+        *,
+        priority: int = 0,
+        agent: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        key = (idempotency_key or "").strip() or None
+        if key:
+            existing = self.conn.execute(
+                "SELECT id FROM tasks WHERE idempotency_key=?", (key,)
+            ).fetchone()
+            if existing is not None:
+                return str(existing["id"])
         self.conn.execute(
-            "INSERT INTO tasks(id, goal, state, priority, agent) VALUES(?,?,'running',?,?)",
-            (task_id, goal, int(priority), agent),
+            "INSERT INTO tasks(id, goal, state, priority, agent, idempotency_key) VALUES(?,?,'running',?,?,?)",
+            (task_id, goal, int(priority), agent, key),
         )
         self.conn.execute(
             "INSERT INTO task_control(task_id, cancelled) VALUES(?,0) "
@@ -264,6 +282,7 @@ class Storage:
             (task_id,),
         )
         self.conn.commit()
+        return task_id
 
     def finish_task(self, task_id: str, state: str, error: str | None = None) -> None:
         self.conn.execute(

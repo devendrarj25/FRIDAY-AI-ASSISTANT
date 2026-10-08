@@ -16,6 +16,7 @@ import {
   type VectorSnippet,
 } from "../brain/retrieval";
 import { coerceMemoryTier, shouldStoreLongTerm, shouldAutoClearMemory } from "../settings-runtime";
+import { secretStaysOutOfMemory } from "./run-receipt";
 
 export type MemoryTier =
   "working" | "temporary" | "episodic" | "semantic" | "permanent" | "archived";
@@ -343,6 +344,8 @@ export type RememberInput = {
   projectId?: string;
   relatedIds?: string[];
   relevance?: number;
+  /** Secret rows are refused. They are never written into ordinary memory. */
+  sensitivity?: "public" | "internal" | "private" | "secret";
 };
 
 class MemoryEngine {
@@ -427,6 +430,23 @@ class MemoryEngine {
   /* ------------------------------------------------------------- writing */
 
   remember(input: RememberInput): MemoryItem {
+    if (secretStaysOutOfMemory(input.sensitivity)) {
+      const now = Date.now();
+      return {
+        id: "withheld",
+        tier: "archived",
+        title: "withheld",
+        text: "",
+        tags: [],
+        source: "withheld",
+        confidence: 0,
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: now,
+        uses: 0,
+        pinned: false,
+      };
+    }
     this.load();
     const now = Date.now();
     const tier = coerceMemoryTier(input.tier);

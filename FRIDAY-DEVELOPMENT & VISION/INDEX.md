@@ -11,9 +11,8 @@ test suite reads them from there) — see `../AGENTS.md`, `../AUDIT.md`,
 |---|---|
 | [`PRD.md`](PRD.md) | Product requirements for the next-level upgrade |
 | [`TRD.md`](TRD.md) | Technical architecture / implementation constraints |
-| [`Backend-Schema.md`](Backend-Schema.md) | Data contracts / invariants |
 | [`UI-UX-Design-Document.md`](UI-UX-Design-Document.md) | UI/UX preservation + interaction contract |
-| [`DOCUMENT-MANIFEST.json`](DOCUMENT-MANIFEST.json) | Provenance of the four contract docs above |
+| [`DOCUMENT-MANIFEST.json`](DOCUMENT-MANIFEST.json) | Provenance of the contract docs above |
 | [`README.md`](README.md) | Short intro to this layer |
 
 ## Subfolders
@@ -31,7 +30,7 @@ the current app, `FRIDAY-DEVELOPMENT`'s router will tell you to also check
 only the one matching area under `FRIDAY-VISION/AREAS/`, not the whole tree.
 
 ## Keeping this layer duplicate-free
-- Product contracts (`PRD.md`, `TRD.md`, `Backend-Schema.md`,
+- Product contracts still in this folder (`PRD.md`, `TRD.md`,
   `UI-UX-Design-Document.md`) live **only here** — there is no second copy
   in `docs/`. If one is ever copied elsewhere, delete the copy and link
   back to this one instead.

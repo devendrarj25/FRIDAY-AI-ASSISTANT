@@ -436,3 +436,317 @@ export function scoreEvaluation(input: {
   if (!input.userHeldControl) failed.push("user control");
   return { pass: failed.length === 0, failed };
 }
+
+/** Logical records. They validate the task graph and the kernel tables. They are not a second database. */
+export const BACKEND_SCHEMA_VERSION = 1;
+
+const CHANNELS = ["chat", "voice", "device", "event"] as const;
+const TASK_STATUSES = [
+  "created",
+  "planned",
+  "waiting_approval",
+  "ready",
+  "running",
+  "waiting_external",
+  "verifying",
+  "succeeded",
+  "failed",
+  "recovered",
+  "cancelled",
+  "expired",
+  "quarantined",
+] as const;
+const RUN_TYPES = ["cognition", "agent", "workflow", "tool"] as const;
+const CAPABILITY_KINDS = ["skill", "tool", "module", "connector", "workflow", "agent"] as const;
+const RISKS = ["none", "low", "medium", "high", "critical"] as const;
+const AUTHORITIES = ["none", "owner", "scoped", "privileged"] as const;
+const VERIFY_STRATEGIES = ["receipt", "postcondition", "independent-check", "human"] as const;
+const MODEL_CAPS = ["text", "vision", "audio", "coding", "tool-use"] as const;
+const PROVIDER_HEALTH = ["unknown", "healthy", "degraded", "unavailable"] as const;
+const PRIVACY_PROFILES = ["local", "trusted-cloud", "restricted-cloud"] as const;
+const APPROVAL_DECISIONS = ["pending", "approved", "rejected", "expired", "revoked"] as const;
+const ACTION_RESULTS = ["success", "failure", "partial", "cancelled"] as const;
+const EXTERNAL_EFFECTS = ["none", "unknown", "changed"] as const;
+const OBSERVATION_SOURCES = [
+  "screen",
+  "browser",
+  "device",
+  "filesystem",
+  "network",
+  "user",
+  "tool",
+] as const;
+const SENSITIVITIES = ["public", "internal", "private", "secret"] as const;
+const VERIFY_STATUSES = ["passed", "failed", "inconclusive"] as const;
+const EVIDENCE_KINDS = [
+  "source",
+  "observation",
+  "action-receipt",
+  "verification",
+  "artifact",
+] as const;
+
+export type RequestRecord = {
+  request_id: string;
+  session_id: string;
+  channel: (typeof CHANNELS)[number];
+  input: string;
+  received_at: string;
+  policy_context_id: string;
+};
+
+export type ObservationRecord = {
+  observation_id: string;
+  source: (typeof OBSERVATION_SOURCES)[number];
+  captured_at: string;
+  fresh_until: string;
+  confidence: number;
+  content_ref: string;
+  sensitivity: (typeof SENSITIVITIES)[number];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function text(row: Record<string, unknown>, key: string): string {
+  const value = row[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function oneOf<T extends string>(value: string, allowed: readonly T[]): value is T {
+  return (allowed as readonly string[]).includes(value);
+}
+
+function iso(value: string): boolean {
+  return value.length > 0 && !Number.isNaN(Date.parse(value));
+}
+
+/** A chat, voice, device, or event turn. Empty input is not a request. */
+export function acceptRequest(
+  raw: unknown,
+): { ok: true; request: RequestRecord } | { ok: false; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "request must be an object" };
+  const request: RequestRecord = {
+    request_id: text(raw, "request_id"),
+    session_id: text(raw, "session_id"),
+    channel: text(raw, "channel") as RequestRecord["channel"],
+    input: text(raw, "input"),
+    received_at: text(raw, "received_at"),
+    policy_context_id: text(raw, "policy_context_id"),
+  };
+  if (!request.request_id || !request.session_id || !request.policy_context_id) {
+    return { ok: false, reason: "request is missing an id" };
+  }
+  if (!oneOf(request.channel, CHANNELS)) return { ok: false, reason: "unknown channel" };
+  if (!request.input) return { ok: false, reason: "empty input" };
+  if (!iso(request.received_at)) return { ok: false, reason: "received_at is not a time" };
+  return { ok: true, request };
+}
+
+/** Durable task row. A child lists its parent. A side effect names an idempotency key. */
+export function acceptTaskRecord(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "task must be an object" };
+  if (!text(raw, "task_id") || !text(raw, "request_id") || !text(raw, "goal")) {
+    return { ok: false, reason: "task is missing an id or a goal" };
+  }
+  const status = text(raw, "status");
+  if (!oneOf(status, TASK_STATUSES)) return { ok: false, reason: "unknown task status" };
+  if (!iso(text(raw, "created_at")) || !iso(text(raw, "updated_at"))) {
+    return { ok: false, reason: "task times are missing" };
+  }
+  const retries = raw["retry_budget"];
+  if (typeof retries !== "number" || retries < 0)
+    return { ok: false, reason: "retry budget is missing" };
+  if (!Array.isArray(raw["dependencies"]))
+    return { ok: false, reason: "dependencies must be a list" };
+  if (raw["side_effect"] === true && !text(raw, "idempotency_key")) {
+    return { ok: false, reason: "a side effect needs an idempotency key" };
+  }
+  if (raw["async"] === true && raw["cancellable"] !== true) {
+    return { ok: false, reason: "an async task needs a cancellation path" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function acceptRunRecord(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "run must be an object" };
+  if (!text(raw, "run_id") || !text(raw, "task_id") || !text(raw, "worker_id")) {
+    return { ok: false, reason: "run is missing an id" };
+  }
+  if (!oneOf(text(raw, "run_type"), RUN_TYPES)) return { ok: false, reason: "unknown run type" };
+  if (!oneOf(text(raw, "status"), TASK_STATUSES))
+    return { ok: false, reason: "unknown run status" };
+  if (!iso(text(raw, "started_at"))) return { ok: false, reason: "started_at is not a time" };
+  return { ok: true, reason: "" };
+}
+
+export function acceptCapabilityRecord(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "capability must be an object" };
+  if (!text(raw, "capability_id") || !text(raw, "version") || !text(raw, "owner_registry")) {
+    return { ok: false, reason: "capability is missing an id" };
+  }
+  if (!oneOf(text(raw, "kind"), CAPABILITY_KINDS))
+    return { ok: false, reason: "unknown capability kind" };
+  if (!oneOf(text(raw, "risk"), RISKS)) return { ok: false, reason: "unknown risk" };
+  if (!oneOf(text(raw, "authority"), AUTHORITIES))
+    return { ok: false, reason: "unknown authority" };
+  const privacy = raw["privacy"];
+  const verification = raw["verification"];
+  if (!isRecord(privacy) || typeof privacy["network"] !== "boolean") {
+    return { ok: false, reason: "capability privacy is missing" };
+  }
+  if (!Array.isArray(privacy["data_classes"]))
+    return { ok: false, reason: "data classes must be a list" };
+  if (!isRecord(verification) || typeof verification["required"] !== "boolean") {
+    return { ok: false, reason: "verification is missing" };
+  }
+  if (!oneOf(String(verification["strategy"] ?? ""), VERIFY_STRATEGIES)) {
+    return { ok: false, reason: "unknown verification strategy" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function acceptProviderRecord(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "provider must be an object" };
+  if (!text(raw, "provider_id") || !text(raw, "model_id")) {
+    return { ok: false, reason: "a result needs a provider and a model" };
+  }
+  const caps = raw["capabilities"];
+  if (!Array.isArray(caps) || caps.some((item) => !oneOf(String(item), MODEL_CAPS))) {
+    return { ok: false, reason: "unknown model capability" };
+  }
+  if (!oneOf(text(raw, "availability"), PROVIDER_HEALTH)) {
+    return { ok: false, reason: "unknown availability" };
+  }
+  if (!oneOf(text(raw, "privacy_profile"), PRIVACY_PROFILES)) {
+    return { ok: false, reason: "unknown privacy profile" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function acceptActionReceipt(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "action must be an object" };
+  if (!text(raw, "action_id") || !text(raw, "task_id") || !text(raw, "capability_id")) {
+    return { ok: false, reason: "action is missing an id" };
+  }
+  if (!text(raw, "arguments_hash")) return { ok: false, reason: "arguments must be hashed" };
+  if (!oneOf(text(raw, "result"), ACTION_RESULTS))
+    return { ok: false, reason: "unknown action result" };
+  if (!oneOf(text(raw, "external_effect"), EXTERNAL_EFFECTS)) {
+    return { ok: false, reason: "unknown external effect" };
+  }
+  if (!iso(text(raw, "started_at"))) return { ok: false, reason: "started_at is not a time" };
+  if (raw["side_effect"] === true && !text(raw, "idempotency_key")) {
+    return { ok: false, reason: "a side effect needs an idempotency key" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function acceptObservation(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "observation must be an object" };
+  if (!text(raw, "observation_id") || !text(raw, "content_ref")) {
+    return { ok: false, reason: "observation is missing an id" };
+  }
+  if (!oneOf(text(raw, "source"), OBSERVATION_SOURCES))
+    return { ok: false, reason: "unknown source" };
+  if (!oneOf(text(raw, "sensitivity"), SENSITIVITIES))
+    return { ok: false, reason: "unknown sensitivity" };
+  if (!iso(text(raw, "captured_at")) || !iso(text(raw, "fresh_until"))) {
+    return { ok: false, reason: "an observation needs a freshness boundary" };
+  }
+  const confidence = raw["confidence"];
+  if (typeof confidence !== "number" || confidence < 0 || confidence > 1) {
+    return { ok: false, reason: "confidence is out of range" };
+  }
+  return { ok: true, reason: "" };
+}
+
+export function acceptVerification(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "verification must be an object" };
+  if (!text(raw, "verification_id") || !text(raw, "action_id")) {
+    return { ok: false, reason: "verification is missing an id" };
+  }
+  if (!oneOf(text(raw, "strategy"), VERIFY_STRATEGIES))
+    return { ok: false, reason: "unknown strategy" };
+  if (!oneOf(text(raw, "status"), VERIFY_STATUSES))
+    return { ok: false, reason: "unknown verification status" };
+  if (!iso(text(raw, "verified_at"))) return { ok: false, reason: "verified_at is not a time" };
+  return { ok: true, reason: "" };
+}
+
+export function acceptEvidenceRecord(raw: unknown): { ok: boolean; reason: string } {
+  if (!isRecord(raw)) return { ok: false, reason: "evidence must be an object" };
+  if (!text(raw, "evidence_id") || !text(raw, "source_ref") || !text(raw, "content_hash")) {
+    return { ok: false, reason: "evidence is missing a hash" };
+  }
+  if (!oneOf(text(raw, "kind"), EVIDENCE_KINDS))
+    return { ok: false, reason: "unknown evidence kind" };
+  if (!oneOf(text(raw, "sensitivity"), SENSITIVITIES))
+    return { ok: false, reason: "unknown sensitivity" };
+  if (!iso(text(raw, "captured_at"))) return { ok: false, reason: "captured_at is not a time" };
+  if (text(raw, "sensitivity") === "secret")
+    return { ok: false, reason: "a secret is not evidence text" };
+  return { ok: true, reason: "" };
+}
+
+/**
+ * The ten storage invariants. A tool saying success is not external proof.
+ * A secret is not promoted into ordinary memory.
+ */
+export function backendInvariants(input: {
+  taskStatus: string;
+  verificationRequired: boolean;
+  verificationPassed: boolean;
+  approval: (typeof APPROVAL_DECISIONS)[number];
+  scopeMatches: boolean;
+  toolSaidSuccess: boolean;
+  externalEffect: (typeof EXTERNAL_EFFECTS)[number];
+  observationFreshUntil: string;
+  nowIso: string;
+  sensitivity: (typeof SENSITIVITIES)[number];
+  promotedToMemory: boolean;
+  sideEffect: boolean;
+  idempotencyKey: string;
+  cancellable: boolean;
+  providerId: string;
+  modelId: string;
+  externalFact: boolean;
+  provenance: string;
+}): { ok: boolean; failed: string[] } {
+  const failed: string[] = [];
+  if (input.taskStatus === "succeeded" && input.verificationRequired && !input.verificationPassed) {
+    failed.push("succeeded without verification");
+  }
+  if (input.approval === "approved" && !input.scopeMatches) failed.push("approval scope drifted");
+  if (
+    (input.approval === "expired" || input.approval === "revoked") &&
+    input.taskStatus === "running"
+  ) {
+    failed.push("expired approval cannot authorize");
+  }
+  if (input.toolSaidSuccess && input.externalEffect === "unknown") {
+    failed.push("tool success is not proof");
+  }
+  if (
+    !iso(input.observationFreshUntil) ||
+    Date.parse(input.observationFreshUntil) < Date.parse(input.nowIso)
+  ) {
+    failed.push("observation is stale");
+  }
+  if (input.sensitivity === "secret" && input.promotedToMemory)
+    failed.push("secret entered memory");
+  if (input.sideEffect && !input.idempotencyKey.trim())
+    failed.push("side effect has no idempotency key");
+  if (!input.cancellable) failed.push("task has no cancellation path");
+  if (!input.providerId.trim() || !input.modelId.trim())
+    failed.push("provider result is unattributed");
+  if (input.externalFact && !input.provenance.trim())
+    failed.push("external fact has no provenance");
+  return { ok: failed.length === 0, failed };
+}
+
+/** Secret content stays out of ordinary semantic memory. */
+export function secretStaysOutOfMemory(sensitivity: string | undefined): boolean {
+  return sensitivity === "secret";
+}

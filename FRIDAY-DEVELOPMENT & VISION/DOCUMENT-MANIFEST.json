@@ -17,10 +17,6 @@
       "purpose": "UI/UX preservation and next-level interaction contract"
     },
     {
-      "file": "Backend-Schema.md",
-      "purpose": "Logical backend entities, invariants and JSON contracts"
-    },
-    {
       "file": "Audit.md",
       "purpose": "Current-to-target architecture audit and gap priorities"
     },

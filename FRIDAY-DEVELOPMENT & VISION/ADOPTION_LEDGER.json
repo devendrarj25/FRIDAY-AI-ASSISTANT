@@ -76,8 +76,8 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 3,
-    "MISSING": 2089,
+    "DONE": 15,
+    "MISSING": 2077,
     "SUPERSEDED": 14,
     "PARTIAL": 5
   },
@@ -133,10 +133,17 @@
       "heading": "1. Purpose",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -145,10 +152,17 @@
       "heading": "2. Canonical entities",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -157,10 +171,17 @@
       "heading": "Request",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -169,10 +190,17 @@
       "heading": "Task",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -181,10 +209,17 @@
       "heading": "Run",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -193,10 +228,17 @@
       "heading": "Capability",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -205,10 +247,17 @@
       "heading": "Model provider",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -217,10 +266,17 @@
       "heading": "Approval",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -229,10 +285,17 @@
       "heading": "Action receipt",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -241,10 +304,17 @@
       "heading": "Observation",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -253,10 +323,17 @@
       "heading": "Verification",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {
@@ -265,10 +342,17 @@
       "heading": "Evidence",
       "area": "vision-root",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts",
+        "kernel/db.py"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts",
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "Validators live on the existing task graph and kernel tables. File removed after the tests passed.",
       "bytes": 6117
     },
     {

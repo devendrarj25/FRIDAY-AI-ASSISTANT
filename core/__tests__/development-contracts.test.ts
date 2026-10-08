@@ -2,10 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { resolveKnowledgeClash } from "../../src/lib/friday/self/memory-engine";
+import { memory, resolveKnowledgeClash } from "../../src/lib/friday/self/memory-engine";
 import {
+  acceptActionReceipt,
+  acceptCapabilityRecord,
+  acceptEvidenceRecord,
+  acceptObservation,
+  acceptProviderRecord,
+  acceptRequest,
+  acceptRunRecord,
   acceptRuntimeEvent,
+  acceptTaskRecord,
+  acceptVerification,
   argumentHash,
+  backendInvariants,
   bindApproval,
   capabilityMayRun,
   childStaysInsideParent,
@@ -197,5 +207,194 @@ describe("development contracts", () => {
       "utf8",
     );
     expect(scheduler).toContain("childStaysInsideParent(");
+    expect(graph).toContain("acceptRequest(");
+    expect(graph).toContain("backendInvariants(");
+    const memorySource = fs.readFileSync(
+      path.join(ROOT, "src/lib/friday/self/memory-engine.ts"),
+      "utf8",
+    );
+    expect(memorySource).toContain("secretStaysOutOfMemory(");
+    const database = fs.readFileSync(path.join(ROOT, "kernel/db.py"), "utf8");
+    expect(database).toContain('self.set_setting("schema_version", SCHEMA_VERSION)');
+    expect(database).toContain("idempotency_key");
+  });
+
+  it("accepts the backend records and refuses a broken one", () => {
+    const at = "2023-11-14T22:13:20.000Z";
+    const request = acceptRequest({
+      request_id: "req_1",
+      session_id: "local",
+      channel: "chat",
+      input: "note the meeting",
+      received_at: at,
+      policy_context_id: "balanced",
+    });
+    expect(request.ok).toBe(true);
+    expect(
+      acceptRequest({
+        request_id: "req_1",
+        session_id: "local",
+        channel: "chat",
+        input: "  ",
+        received_at: at,
+        policy_context_id: "balanced",
+      }).ok,
+    ).toBe(false);
+    expect(
+      acceptTaskRecord({
+        task_id: "task_1",
+        request_id: "req_1",
+        goal: "note the meeting",
+        status: "running",
+        parent_task_id: "",
+        dependencies: [],
+        created_at: at,
+        updated_at: at,
+        retry_budget: 2,
+        side_effect: true,
+        idempotency_key: "note-1",
+        async: true,
+        cancellable: true,
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptTaskRecord({
+        task_id: "task_1",
+        request_id: "req_1",
+        goal: "note the meeting",
+        status: "running",
+        dependencies: [],
+        created_at: at,
+        updated_at: at,
+        retry_budget: 2,
+        side_effect: true,
+        idempotency_key: "note-1",
+        async: true,
+        cancellable: false,
+      }).reason,
+    ).toMatch(/cancellation/);
+    expect(
+      acceptRunRecord({
+        run_id: "run_1",
+        task_id: "task_1",
+        run_type: "tool",
+        status: "running",
+        started_at: at,
+        worker_id: "desktop",
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptCapabilityRecord({
+        capability_id: "files",
+        version: "1",
+        kind: "tool",
+        owner_registry: "tools",
+        risk: "low",
+        authority: "scoped",
+        privacy: { network: false, data_classes: ["internal"] },
+        verification: { required: true, strategy: "postcondition" },
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptProviderRecord({
+        provider_id: "local",
+        model_id: "local",
+        capabilities: ["text"],
+        availability: "healthy",
+        privacy_profile: "local",
+      }).ok,
+    ).toBe(true);
+    expect(acceptProviderRecord({ provider_id: "", model_id: "" }).reason).toMatch(/provider/);
+    expect(
+      acceptActionReceipt({
+        action_id: "act_1",
+        task_id: "task_1",
+        capability_id: "files",
+        arguments_hash: "abcd1234",
+        result: "success",
+        external_effect: "unknown",
+        started_at: at,
+        side_effect: true,
+      }).reason,
+    ).toMatch(/idempotency/);
+    expect(
+      acceptObservation({
+        observation_id: "obs_1",
+        source: "tool",
+        captured_at: at,
+        fresh_until: at,
+        confidence: 0.9,
+        content_ref: "local:obs_1",
+        sensitivity: "internal",
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptObservation({
+        observation_id: "obs_1",
+        source: "tool",
+        content_ref: "local:obs_1",
+        sensitivity: "internal",
+        confidence: 0.9,
+      }).reason,
+    ).toMatch(/freshness/);
+    expect(
+      acceptVerification({
+        verification_id: "ver_1",
+        action_id: "act_1",
+        strategy: "postcondition",
+        status: "passed",
+        verified_at: at,
+      }).ok,
+    ).toBe(true);
+    expect(
+      acceptEvidenceRecord({
+        evidence_id: "ev_1",
+        kind: "verification",
+        source_ref: "ver_1",
+        captured_at: at,
+        content_hash: "abcd",
+        sensitivity: "secret",
+      }).reason,
+    ).toMatch(/secret/);
+    const broken = backendInvariants({
+      taskStatus: "succeeded",
+      verificationRequired: true,
+      verificationPassed: false,
+      approval: "expired",
+      scopeMatches: false,
+      toolSaidSuccess: true,
+      externalEffect: "unknown",
+      observationFreshUntil: "2020-01-01T00:00:00.000Z",
+      nowIso: at,
+      sensitivity: "secret",
+      promotedToMemory: true,
+      sideEffect: true,
+      idempotencyKey: "",
+      cancellable: false,
+      providerId: "",
+      modelId: "",
+      externalFact: true,
+      provenance: "",
+    });
+    expect(broken.ok).toBe(false);
+    expect(broken.failed).toContain("succeeded without verification");
+    expect(broken.failed).toContain("tool success is not proof");
+    expect(broken.failed).toContain("secret entered memory");
+    const marker = "schema-probe";
+    memory.remember({
+      tier: "working",
+      title: marker,
+      text: "visible fact",
+      sensitivity: "public",
+    });
+    memory.remember({
+      tier: "working",
+      title: marker,
+      text: "api_key=hidden",
+      sensitivity: "secret",
+    });
+    const rows = memory.getSnapshot().items.filter((item) => item.title === marker);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.text).toBe("visible fact");
   });
 });

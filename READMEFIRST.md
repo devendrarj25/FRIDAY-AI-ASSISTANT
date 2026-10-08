@@ -61,7 +61,7 @@ see §2. This folder holds only the disposable planning/workbench material:
 
 | Path | Role |
 |---|---|
-| `PRD.md` / `TRD.md` / `Backend-Schema.md` / `UI-UX-Design-Document.md` | Product/technical/UI/data contracts for the next-level upgrade |
+| `PRD.md` / `TRD.md` / `UI-UX-Design-Document.md` | Product, technical, and UI contracts still in this folder |
 | `DOCUMENT-MANIFEST.json` | Provenance of the four contract docs above |
 | `README.md` | This layer's own short intro |
 | `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md` |
@@ -149,6 +149,6 @@ Deleting `FRIDAY-DEVELOPMENT & VISION/` (and, if you no longer want it, this
 file) should leave a clean, complete, independent product — nothing else to
 check. `AGENTS.md`, `AUDIT.md`, and `FRIDAY_STATE.md` already live at repo
 root (§2), so the real test suite and `README.md`'s documentation map keep
-working with no further action. `PRD.md`, `TRD.md`, `Backend-Schema.md`,
+working with no further action. `PRD.md`, `TRD.md`, and
 `UI-UX-Design-Document.md` inside the folder are working contracts only —
 nothing in `src/`, `electron/`, `kernel/`, or `core/` reads them.

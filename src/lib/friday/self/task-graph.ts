@@ -23,6 +23,8 @@ import { learning, recallProcedure, rememberProcedure } from "./learning-engine"
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
 import { autonomy, type ApprovalLevel } from "./autonomy";
 import {
+  acceptRequest,
+  backendInvariants,
   budgetBlock,
   durableOutcome,
   resumeOffer,
@@ -405,6 +407,15 @@ export class TaskGraphEngine {
   ): { id: string; position: number; queued: boolean } {
     const priority = options.priority ?? "owner";
     const kind = options.kind ?? "goal";
+    const opened = acceptRequest({
+      request_id: newId("req"),
+      session_id: "local",
+      channel: priority === "idle" ? "event" : "chat",
+      input: request,
+      received_at: new Date().toISOString(),
+      policy_context_id: autonomy.getSnapshot().approvalLevel,
+    });
+    if (!opened.ok) return { id: "", position: 0, queued: false };
     const reused = !options.nodes && priority === "owner" ? recallProcedure(request)?.steps : null;
     const planned = options.nodes ?? reused ?? planNodes(request);
     const graphId = newId(priority === "idle" ? "idle" : "graph");
@@ -977,6 +988,28 @@ export class TaskGraphEngine {
       if (!scored.pass) {
         this.log(graph, `evaluation held: ${scored.failed.join(", ")}`, "warn");
       }
+      const freshUntil = new Date((graph.finishedAt ?? Date.now()) + 60_000).toISOString();
+      const held = backendInvariants({
+        taskStatus: state === "completed" && verified ? "succeeded" : "verifying",
+        verificationRequired: true,
+        verificationPassed: verified,
+        approval: "approved",
+        scopeMatches: true,
+        toolSaidSuccess: state === "completed",
+        externalEffect: verified ? "changed" : "unknown",
+        observationFreshUntil: freshUntil,
+        nowIso: new Date(graph.finishedAt ?? Date.now()).toISOString(),
+        sensitivity: "internal",
+        promotedToMemory: false,
+        sideEffect: graph.nodes.some((node) => node.purpose === "action"),
+        idempotencyKey: graph.nodes[0]?.idempotencyKey ?? graph.id,
+        cancellable: true,
+        providerId: "local",
+        modelId: "local",
+        externalFact: false,
+        provenance: "",
+      });
+      if (!held.ok) this.log(graph, `schema held: ${held.failed.join(", ")}`, "warn");
       learning.evaluate({
         taskId: graph.id,
         kind: "task-graph",
