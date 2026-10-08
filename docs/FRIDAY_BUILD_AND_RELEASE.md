@@ -84,3 +84,16 @@ Candidates are ordered by `compareBuilds` in `scripts/release-engine.cjs` (four-
 ## 5. 🔏 Signing
 
 Unsigned is the honest default (`signExecutable: false`). Optional Authenticode is described in [SECURITY.md](../SECURITY.md).
+
+## 6. Packaging plan (2026-10-08)
+
+The install, update, uninstall, and release rules from the packaging plan already run in this guide, `electron/update-safety.cjs`, `scripts/release-engine.cjs`, `electron/github-sync.cjs`, and `electron-builder.yml`. User data stays beside `App` under the one FRIDAY root.
+
+| Source | Decision | Reason |
+| --- | --- | --- |
+| [electron-builder auto-update](https://www.electron.build/docs/features/auto-update), accessed 2026-10-08 | ADOPT | Windows update stays on NSIS. Squirrel is not the path. |
+| [electron-builder NSIS](https://www.electron.build/docs/nsis), accessed 2026-10-08 | ADAPT | The installer stays the existing NSIS pack. Silent install-on-next-launch stays off. The owner still approves an update. |
+| [Microsoft MSIX overview](https://learn.microsoft.com/en-us/windows/msix/overview), accessed 2026-10-08 | REJECT as primary | MSIX is not a second installer. It stays future work. |
+| [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security-for-github-actions/artifact-attestations), accessed 2026-10-08 | ADAPT | A checksum mismatch already fails closed. Hosted attestations were not run. A generated SBOM was not added. |
+
+A second root that adds an app/current tree and a versions tree was not adopted. A second release-script set and a thirteenth workflow were not added. The durable update record stays `updates/pending-update.json` plus `updates/stable.json`.

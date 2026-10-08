@@ -18,16 +18,16 @@
     "hostedActions": "unverified"
   },
   "inventory": {
-    "files": 717,
-    "bytes": 1226327,
+    "files": 661,
+    "bytes": 1171443,
     "byType": {
-      "behaviour": 417,
-      "diagram": 121,
-      "index": 5,
-      "manifest": 13,
-      "process": 3,
-      "research": 35,
-      "schema": 123
+      "index": 2,
+      "process": 16,
+      "behaviour": 349,
+      "research": 48,
+      "manifest": 12,
+      "schema": 116,
+      "diagram": 118
     },
     "byArea": {
       "development:01_SOURCE_ROUTING": 1,
@@ -38,10 +38,9 @@
       "vision:04-MODELS-ROUTING": 35,
       "vision:05-AUTONOMY-LEARNING-EVOLUTION": 52,
       "vision:06-CAPABILITY-FEATURES": 209,
-      "vision:07-INTERACTION": 163,
-      "vision:08-PACKAGING-BUILD-UPDATE": 56
+      "vision:07-INTERACTION": 163
     },
-    "filesIncludingLedger": 719,
+    "filesIncludingLedger": 663,
     "checked": "2026-10-08"
   },
   "order": [
@@ -50,8 +49,8 @@
     "vision 02-LIFECYCLE locked",
     "vision 03-BUILD and 04-OPERATIONS locked",
     "vision 05-IMPLEMENTATION and 06-RESEARCH",
+    "AREAS/08-PACKAGING absorbed",
     "AREAS/01-SYSTEM",
-    "AREAS/08-PACKAGING locked",
     "AREAS/04-MODELS-ROUTING",
     "AREAS/05-AUTONOMY",
     "AREAS/06-CAPABILITY",
@@ -61,14 +60,13 @@
   "lockedBatches": [
     "vision 02-LIFECYCLE",
     "vision 03-BUILD",
-    "vision 04-OPERATIONS",
-    "AREAS/08-PACKAGING"
+    "vision 04-OPERATIONS"
   ],
   "totals": {
     "DONE": 96,
-    "SUPERSEDED": 279,
-    "REJECT": 2,
-    "MISSING": 1734
+    "SUPERSEDED": 347,
+    "REJECT": 6,
+    "MISSING": 1660
   },
   "rows": [
     {
@@ -27983,11 +27981,20 @@
       "heading": "DEFINITION_OF_DONE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2031
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "The packaging gates already live in the release engine, the update guard, and the install contract. A live clean Windows machine was not run here.",
+      "bytes": 2031,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E1994",
@@ -27995,11 +28002,20 @@
       "heading": "READ_FIRST.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1191
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "This contract already runs in the existing release, install, and update owners. A second packaging system was not added.",
+      "bytes": 1191,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E1995",
@@ -28007,11 +28023,20 @@
       "heading": "OWNERSHIP_MODEL.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 695
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "Official payload can be replaced. Models and the other protected user folders are not deleted by an update.",
+      "bytes": 695,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "never copies models into the per-update backup and never lists them as deletable",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E1996",
@@ -28019,11 +28044,20 @@
       "heading": "Source-controlled",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 890
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/friday-contract.cjs"
+      ],
+      "tests": [
+        "core/__tests__/single-root-install.test.ts"
+      ],
+      "notes": "The program lives in App and the data folders sit beside it. Source trees stay source trees.",
+      "bytes": 890,
+      "evidence": {
+        "test": "core/__tests__/single-root-install.test.ts",
+        "name": "puts the program in <root>/App and every data folder beside it",
+        "caller": "electron/friday-contract.cjs"
+      }
     },
     {
       "id": "E1997",
@@ -28031,11 +28065,20 @@
       "heading": "Generated release payload",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 890
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/release-notes-sot.test.ts"
+      ],
+      "notes": "Release notes, the changelog, the tag, and the EXE name already have to match before a release is accepted.",
+      "bytes": 890,
+      "evidence": {
+        "test": "core/__tests__/release-notes-sot.test.ts",
+        "name": "accepts matching package, tag, changelog, notes file and EXE name",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E1998",
@@ -28043,11 +28086,20 @@
       "heading": "Machine runtime",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 890
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/init-runtime.cjs"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "An installed build resolves an isolated Python runtime. That runtime is not a second FRIDAY root.",
+      "bytes": 890,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "provisions and resolves an isolated Python runtime for installed builds",
+        "caller": "scripts/init-runtime.cjs"
+      }
     },
     {
       "id": "E1999",
@@ -28055,11 +28107,20 @@
       "heading": "User-owned state",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 890
+      "status": "SUPERSEDED",
+      "target": [
+        "installer/build/installer.nsh"
+      ],
+      "tests": [
+        "core/__tests__/single-root-install.test.ts"
+      ],
+      "notes": "Keep-data uninstall removes only App and leaves the data folders byte for byte.",
+      "bytes": 890,
+      "evidence": {
+        "test": "core/__tests__/single-root-install.test.ts",
+        "name": "keep mode removes only <root>/App and leaves all data byte-for-byte",
+        "caller": "installer/build/installer.nsh"
+      }
     },
     {
       "id": "E2000",
@@ -28067,11 +28128,20 @@
       "heading": "TARGET_ARCHITECTURE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1016
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/github-release-installer.test.ts"
+      ],
+      "notes": "NSIS stays the Windows installer. MSIX was not built and stays future work.",
+      "bytes": 1016,
+      "evidence": {
+        "test": "core/__tests__/github-release-installer.test.ts",
+        "name": "prefers the NSIS setup over the portable build",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2001",
@@ -28079,11 +28149,20 @@
       "heading": "REBUILD_CONTRACT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 539
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "A rebuild keeps the public version even when the commits would otherwise move a counter.",
+      "bytes": 539,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "never bumps during an explicit rebuild, even with feat commits",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2002",
@@ -28091,11 +28170,20 @@
       "heading": "Public format",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 876
+      "status": "SUPERSEDED",
+      "target": [
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "The public number stays four-part in config/friday-version.json. The fourth place is the patch counter. A fifth build suffix was not added, and the revision field was not removed.",
+      "bytes": 876,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "PATCH / FIX increments only the fourth number",
+        "caller": "config/friday-version.json"
+      }
     },
     {
       "id": "E2003",
@@ -28103,11 +28191,20 @@
       "heading": "Operations",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 876
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "Update moves one counter. Extreme moves only when the owner asks. Rebuild keeps the number.",
+      "bytes": 876,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "maps conventional commits onto PATCH / MINOR / MAJOR and never extreme",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2004",
@@ -28115,11 +28212,20 @@
       "heading": "UPDATE",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 876
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "An update applies the classified level and changes the public version. A rebuild does not.",
+      "bytes": 876,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "applies PATCH / FIX for a classified bug fix",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2005",
@@ -28127,11 +28233,20 @@
       "heading": "REBUILD",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 876
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "Rebuild and the revision release type keep the same public version.",
+      "bytes": 876,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "REBUILD and revision keep the public version exactly",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2006",
@@ -28139,11 +28254,20 @@
       "heading": "Single source of truth",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 876
+      "status": "SUPERSEDED",
+      "target": [
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/version-sync.test.ts"
+      ],
+      "notes": "config/friday-version.json stays the only version the release engine writes. Drift fails the check.",
+      "bytes": 876,
+      "evidence": {
+        "test": "core/__tests__/version-sync.test.ts",
+        "name": "has no stale version declaration in any governed document",
+        "caller": "config/friday-version.json"
+      }
     },
     {
       "id": "E2007",
@@ -28151,11 +28275,20 @@
       "heading": "One pipeline, two launchers",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1047
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/build-windows.cmd"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "Official Publish and the local CMD pack call the same Windows build scripts.",
+      "bytes": 1047,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "publish runs the same real CMD build scripts as scripts/build-windows.cmd",
+        "caller": "scripts/build-windows.cmd"
+      }
     },
     {
       "id": "E2008",
@@ -28163,11 +28296,20 @@
       "heading": "Build stages",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1047
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/electron-pack.cjs"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "Windows EXEs are packed only through scripts/electron-pack.cjs.",
+      "bytes": 1047,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "packages Windows EXEs only through electron-pack.cjs",
+        "caller": "scripts/electron-pack.cjs"
+      }
     },
     {
       "id": "E2009",
@@ -28175,11 +28317,20 @@
       "heading": "Core installer payload",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 965
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/electron-pack.cjs"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The core installer is the electron-builder pack. Heavy models stay on the Install Manager path.",
+      "bytes": 965,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "packages Windows EXEs only through electron-pack.cjs",
+        "caller": "scripts/electron-pack.cjs"
+      }
     },
     {
       "id": "E2010",
@@ -28187,11 +28338,20 @@
       "heading": "Optional/heavy payload",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 965
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/catalog.ts"
+      ],
+      "tests": [
+        "core/__tests__/catalog-installer-coverage.test.ts"
+      ],
+      "notes": "Optional catalog components install through Install Manager. They are not a silent part of the core EXE.",
+      "bytes": 965,
+      "evidence": {
+        "test": "core/__tests__/catalog-installer-coverage.test.ts",
+        "name": "backs every non-credential catalog row with a real installer",
+        "caller": "src/lib/friday/catalog.ts"
+      }
     },
     {
       "id": "E2011",
@@ -28199,11 +28359,20 @@
       "heading": "DEPENDENCY_FREEZE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 703
+      "status": "SUPERSEDED",
+      "target": [
+        "package-lock.json"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Clean installs resolve the lockfile with npm ci. The lockfile stays authoritative.",
+      "bytes": 703,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "resolves every declared dependency in the lockfile (npm ci contract)",
+        "caller": "package-lock.json"
+      }
     },
     {
       "id": "E2012",
@@ -28211,11 +28380,20 @@
       "heading": "HEALTH_READINESS.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 462
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "The next launch marks the new version stable only when that version is the one running.",
+      "bytes": 462,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "marks the new version stable when it starts up",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2013",
@@ -28223,11 +28401,20 @@
       "heading": "RUNTIME_AND_COMPONENT_OWNERSHIP.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 571
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "User models and the other preserved folders are not copied into the per-update backup and are not listed as deletable.",
+      "bytes": 571,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "never copies models into the per-update backup and never lists them as deletable",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2014",
@@ -28235,11 +28422,20 @@
       "heading": "RUNTIME_REGISTRY_CONTRACT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 510
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/catalog.ts"
+      ],
+      "tests": [
+        "core/__tests__/catalog-installer-coverage.test.ts"
+      ],
+      "notes": "Install Manager catalog rows are the runtime registry. A second component registry was not added.",
+      "bytes": 510,
+      "evidence": {
+        "test": "core/__tests__/catalog-installer-coverage.test.ts",
+        "name": "backs every non-credential catalog row with a real installer",
+        "caller": "src/lib/friday/catalog.ts"
+      }
     },
     {
       "id": "E2015",
@@ -28247,11 +28443,20 @@
       "heading": "BOOTSTRAP_AND_INSTALL.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 536
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/init-runtime.cjs"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Setup and Doctor stay the one idempotent Windows bootstrap.",
+      "bytes": 536,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "exposes one idempotent Windows setup and final doctor",
+        "caller": "scripts/init-runtime.cjs"
+      }
     },
     {
       "id": "E2016",
@@ -28259,10 +28464,12 @@
       "heading": "FRIDAY_ROOT_LAYOUT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "The folders under FRIDAY_ROOT stay the storage layout. A second app/current and versions tree was not adopted.",
       "bytes": 1015
     },
     {
@@ -28271,11 +28478,20 @@
       "heading": "INSTALL_MANAGER.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 670
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/toolchain.cjs"
+      ],
+      "tests": [
+        "core/__tests__/install-manager.test.ts"
+      ],
+      "notes": "An install is not success unless the machine state agrees. Exit code alone is not enough.",
+      "bytes": 670,
+      "evidence": {
+        "test": "core/__tests__/install-manager.test.ts",
+        "name": "never calls an install successful when the machine state disagrees",
+        "caller": "electron/toolchain.cjs"
+      }
     },
     {
       "id": "E2018",
@@ -28283,11 +28499,20 @@
       "heading": "MANAGED_DOWNLOADS.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 558
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/github-sync.cjs"
+      ],
+      "tests": [
+        "core/__tests__/update-download.test.ts"
+      ],
+      "notes": "A download whose checksum does not match the release is deleted. The bytes are staged before they replace the installer.",
+      "bytes": 558,
+      "evidence": {
+        "test": "core/__tests__/update-download.test.ts",
+        "name": "deletes a download whose checksum does not match the release",
+        "caller": "electron/github-sync.cjs"
+      }
     },
     {
       "id": "E2019",
@@ -28295,11 +28520,20 @@
       "heading": "DATA_MIGRATION.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 428
+      "status": "SUPERSEDED",
+      "target": [
+        "kernel/db.py"
+      ],
+      "tests": [
+        "kernel/tests/test_failure_guard.py"
+      ],
+      "notes": "A schema change copies the database before new columns. Activation does not claim success when that migration fails.",
+      "bytes": 428,
+      "evidence": {
+        "test": "kernel/tests/test_failure_guard.py",
+        "name": "test_schema_change_backs_up_before_the_new_columns",
+        "caller": "kernel/db.py"
+      }
     },
     {
       "id": "E2020",
@@ -28307,11 +28541,20 @@
       "heading": "ROLLBACK_CONTRACT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 541
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "A failed update restores the backup and reports the previous installer. FRIDAY does not run that installer by herself.",
+      "bytes": 541,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "reports failure and restores the backup when the update did not come up",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2021",
@@ -28319,11 +28562,20 @@
       "heading": "UPDATE_ARCHITECTURE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 636
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/github-release-installer.test.ts"
+      ],
+      "notes": "The kernel stops before backup or rollback. The application update stays on the verified GitHub release channel.",
+      "bytes": 636,
+      "evidence": {
+        "test": "core/__tests__/github-release-installer.test.ts",
+        "name": "stops the kernel before backing up or rolling back protected folders",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E2022",
@@ -28331,11 +28583,20 @@
       "heading": "UPDATE_TRANSACTION.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 573
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "Startup already reads updates/pending-update.json and updates/stable.json, then keeps the new version or rolls back. A second phase-name journal was not added.",
+      "bytes": 573,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "marks the new version stable when it starts up",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2023",
@@ -28343,11 +28604,20 @@
       "heading": "USER_COMPONENT_PRESERVATION.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 584
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "User components and models survive the official update. The backup does not treat them as replaceable payload.",
+      "bytes": 584,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "never copies models into the per-update backup and never lists them as deletable",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2024",
@@ -28355,11 +28625,20 @@
       "heading": "GITHUB_ACTIONS_CONTRACT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 554
+      "status": "SUPERSEDED",
+      "target": [
+        ".github/workflows/pr-validation.yml"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The twelve workflows stay the matrix. A thirteenth workflow was not added.",
+      "bytes": 554,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "has exactly the expected workflows and no duplicates",
+        "caller": ".github/workflows/pr-validation.yml"
+      }
     },
     {
       "id": "E2025",
@@ -28367,11 +28646,20 @@
       "heading": "RELEASE_EVIDENCE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 496
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/release-notes-sot.test.ts"
+      ],
+      "notes": "Release evidence is the matching package, tag, changelog, notes, and EXE name, plus the checksum. A generated SBOM was not added.",
+      "bytes": 496,
+      "evidence": {
+        "test": "core/__tests__/release-notes-sot.test.ts",
+        "name": "accepts matching package, tag, changelog, notes file and EXE name",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2026",
@@ -28379,11 +28667,20 @@
       "heading": "WORKFLOW_MATRIX.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 419
+      "status": "SUPERSEDED",
+      "target": [
+        ".github/workflows/pr-validation.yml"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The workflow set is exactly the twelve files already in .github/workflows.",
+      "bytes": 419,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "has exactly the expected workflows and no duplicates",
+        "caller": ".github/workflows/pr-validation.yml"
+      }
     },
     {
       "id": "E2027",
@@ -28391,11 +28688,20 @@
       "heading": "CLEAN_MACHINE_MATRIX.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 957
+      "status": "SUPERSEDED",
+      "target": [
+        "installer/build/installer.nsh"
+      ],
+      "tests": [
+        "core/__tests__/single-root-install.test.ts"
+      ],
+      "notes": "Keep-data and delete-all are tested against the installer script. A live clean Windows machine was not run here.",
+      "bytes": 957,
+      "evidence": {
+        "test": "core/__tests__/single-root-install.test.ts",
+        "name": "keep mode removes only <root>/App and leaves all data byte-for-byte",
+        "caller": "installer/build/installer.nsh"
+      }
     },
     {
       "id": "E2028",
@@ -28403,11 +28709,20 @@
       "heading": "Uninstall application, keep FRIDAY data",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 834
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Uninstall keeps the data folder unless delete was explicitly confirmed. deleteAppDataOnUninstall stays false.",
+      "bytes": 834,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "keeps the data folder untouched unless delete was explicitly confirmed",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2029",
@@ -28415,11 +28730,20 @@
       "heading": "Uninstall + Remove All FRIDAY Data",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 834
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Delete-all removes the FRIDAY root only after that confirmation. It does not walk unrelated folders.",
+      "bytes": 834,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "leaves nothing of FRIDAY behind when delete-all is confirmed",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2030",
@@ -28427,11 +28751,20 @@
       "heading": "Immediate implementation",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 729
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/github-release-installer.test.ts"
+      ],
+      "notes": "The immediate Windows path stays Electron, electron-builder, and NSIS.",
+      "bytes": 729,
+      "evidence": {
+        "test": "core/__tests__/github-release-installer.test.ts",
+        "name": "prefers the NSIS setup over the portable build",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2031",
@@ -28439,10 +28772,12 @@
       "heading": "Future option",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "BACKLOG",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "MSIX stays a future channel. The primary installer remains the existing NSIS pack. It was not built.",
       "bytes": 729
     },
     {
@@ -28451,11 +28786,20 @@
       "heading": "Architecture requirement",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 729
+      "status": "SUPERSEDED",
+      "target": [
+        "installer/build/installer.nsh"
+      ],
+      "tests": [
+        "core/__tests__/single-root-install.test.ts"
+      ],
+      "notes": "The installer format does not fork user data. Keep mode leaves every data folder in place.",
+      "bytes": 729,
+      "evidence": {
+        "test": "core/__tests__/single-root-install.test.ts",
+        "name": "keep mode removes only <root>/App and leaves all data byte-for-byte",
+        "caller": "installer/build/installer.nsh"
+      }
     },
     {
       "id": "E2033",
@@ -28463,11 +28807,20 @@
       "heading": "DOCUMENT_SYNC.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 661
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/docs-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "Documentation sync stays in scripts/docs-engine.cjs. A second docs registry was not added.",
+      "bytes": 661,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "keeps the documentation-sync rule written down",
+        "caller": "scripts/docs-engine.cjs"
+      }
     },
     {
       "id": "E2034",
@@ -28475,11 +28828,20 @@
       "heading": "RELEASE_NOTES_CONTRACT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 459
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-sync.test.ts"
+      ],
+      "notes": "The shipping version already has release notes and a changelog entry. Those files were not rewritten from this plan.",
+      "bytes": 459,
+      "evidence": {
+        "test": "core/__tests__/version-sync.test.ts",
+        "name": "ships release notes and a changelog entry for the shipping version",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2035",
@@ -28487,10 +28849,12 @@
       "heading": "SUPPLY_CHAIN.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "BACKLOG",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Downloaded artifacts already fail closed on a hash mismatch. A generated SBOM was not added and stays future work.",
       "bytes": 549
     },
     {
@@ -28499,11 +28863,20 @@
       "heading": "TRUST_MODEL.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 491
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/toolchain.cjs"
+      ],
+      "tests": [
+        "core/__tests__/install-manager.test.ts"
+      ],
+      "notes": "Official installs are verified. A user package stays untrusted until Install Manager accepts the machine state. User ownership does not auto-approve it.",
+      "bytes": 491,
+      "evidence": {
+        "test": "core/__tests__/install-manager.test.ts",
+        "name": "never calls an install successful when the machine state disagrees",
+        "caller": "electron/toolchain.cjs"
+      }
     },
     {
       "id": "E2037",
@@ -28511,11 +28884,20 @@
       "heading": "RELEASE_GATES.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 398
+      "status": "SUPERSEDED",
+      "target": [
+        ".github/workflows/pr-validation.yml"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "PR Validation is the gate for tests, typecheck, integrity, and the Windows installer. Hosted Actions were not dispatched.",
+      "bytes": 398,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "validates tests, typecheck, integrity and a real Windows installer",
+        "caller": ".github/workflows/pr-validation.yml"
+      }
     },
     {
       "id": "E2038",
@@ -28523,11 +28905,20 @@
       "heading": "UPDATE_SCENARIOS.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 790
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "The update scenarios already covered are checksum failure, a healthy start, and rollback when the new version does not come up.",
+      "bytes": 790,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "reports failure and restores the backup when the update did not come up",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2039",
@@ -28535,11 +28926,20 @@
       "heading": "Existing owners to extend, not duplicate",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2150
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/electron-pack.cjs"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The named owners already exist. This plan extends them and does not duplicate them.",
+      "bytes": 2150,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "packages Windows EXEs only through electron-pack.cjs",
+        "caller": "scripts/electron-pack.cjs"
+      }
     },
     {
       "id": "E2040",
@@ -28547,10 +28947,12 @@
       "heading": "New logical responsibilities",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "A second release manifest, component registry, journal tree, or SBOM generator was not added. Those jobs stay in the release engine and the update guard.",
       "bytes": 2150
     },
     {
@@ -28559,10 +28961,12 @@
       "heading": "Suggested files (adapt names to actual repository)",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_GITHUB_ACTIONS.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "Suggested extra scripts and a thirteenth workflow were not added. The existing release engine, update guard, and workflows keep those jobs.",
       "bytes": 2150
     },
     {
@@ -28571,11 +28975,20 @@
       "heading": "Current source-specific integration points",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2150
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/build-windows.cmd"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "CMD and GitHub already meet in the shared pack scripts. No parallel packaging framework was added.",
+      "bytes": 2150,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "publish runs the same real CMD build scripts as scripts/build-windows.cmd",
+        "caller": "scripts/build-windows.cmd"
+      }
     },
     {
       "id": "E2043",
@@ -28583,11 +28996,20 @@
       "heading": "MIGRATION_PLAN.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 986
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "Inventory, backup, health, and the two uninstall modes already landed on the existing root. A one-shot move of user data was not added.",
+      "bytes": 986,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "copies protected data aside before an install",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2044",
@@ -28595,11 +29017,20 @@
       "heading": "01_ownership_update.svg",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2374
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "The drawing splits official payload, user components, and user data. That split is already what the update guard preserves.",
+      "bytes": 2374,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "never copies models into the per-update backup and never lists them as deletable",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2045",
@@ -28607,10 +29038,12 @@
       "heading": "02_managed_root.svg",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
+      "status": "REJECT",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
       "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "notes": "The drawing asks for app/current plus versions. That second tree was not adopted. The live root stays the one FRIDAY root.",
       "bytes": 2046
     },
     {
@@ -28619,11 +29052,20 @@
       "heading": "03_install_transaction.svg",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1902
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "The drawing's check, verify, health, and rollback path is the existing update guard.",
+      "bytes": 1902,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "marks the new version stable when it starts up",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2047",
@@ -28631,11 +29073,20 @@
       "heading": "README.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 146
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "Packaging drawings are planning pictures. The live product chart remains src/lib/friday/flow-chart.ts.",
+      "bytes": 146,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E2048",
@@ -28643,11 +29094,20 @@
       "heading": "AGENT_MASTER_PROMPT.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2127
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "The handoff prompt repeated contracts that now live in the build guide. It was removed with those rows.",
+      "bytes": 2127,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2049",
@@ -28655,11 +29115,20 @@
       "heading": "INSTALL_MANAGER_COMPONENTS.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 405
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/catalog.ts"
+      ],
+      "tests": [
+        "core/__tests__/catalog-installer-coverage.test.ts"
+      ],
+      "notes": "Install Manager components stay the catalog. A second component manager was not added.",
+      "bytes": 405,
+      "evidence": {
+        "test": "core/__tests__/catalog-installer-coverage.test.ts",
+        "name": "backs every non-credential catalog row with a real installer",
+        "caller": "src/lib/friday/catalog.ts"
+      }
     },
     {
       "id": "E2050",
@@ -28667,11 +29136,20 @@
       "heading": "WINDOWS_CMD_RUNBOOK.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 567
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/build-windows.cmd"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The local Windows entry remains scripts/build-windows.cmd. It was not replaced.",
+      "bytes": 567,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "runs the same real CMD build scripts as scripts/build-windows.cmd",
+        "caller": "scripts/build-windows.cmd"
+      }
     },
     {
       "id": "E2051",
@@ -28679,11 +29157,20 @@
       "heading": "WEB_RESEARCH_SOURCES.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1848
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "NSIS stays, from the electron-builder Windows guide checked 2026-10-08. MSIX and a generated SBOM stay future work.",
+      "bytes": 1848,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2052",
@@ -28691,11 +29178,20 @@
       "heading": "KNOWN_BASELINE.md",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 727
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/electron-pack.cjs"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "The baseline owner list matches the live pack scripts. It was a snapshot, not a new requirement.",
+      "bytes": 727,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "packages Windows EXEs only through electron-pack.cjs",
+        "caller": "scripts/electron-pack.cjs"
+      }
     },
     {
       "id": "E2053",
@@ -28703,11 +29199,20 @@
       "heading": "AREA-MANIFEST.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 2431
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "This index only listed the packaging plan. That plan now lives in the build guide and the existing installer. The index file was removed.",
+      "bytes": 2431,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2054",
@@ -28715,11 +29220,20 @@
       "heading": "CHANGE_MANIFEST.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 702
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "This index only listed the packaging plan. That plan now lives in the build guide and the existing installer. The index file was removed.",
+      "bytes": 702,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2055",
@@ -28727,11 +29241,20 @@
       "heading": "FILE_INDEX.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "index",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4494
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "This index only listed the packaging plan. That plan now lives in the build guide and the existing installer. The index file was removed.",
+      "bytes": 4494,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2056",
@@ -28739,11 +29262,20 @@
       "heading": "Purpose",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3014
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "The public number stays four-part in config/friday-version.json. The fourth place is the patch counter. A fifth build suffix was not added, and the revision field was not removed. CMD and GitHub share the release engine. Heavy components stay on Install Manager.",
+      "bytes": 3014,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2057",
@@ -28751,11 +29283,20 @@
       "heading": "Important implementation boundary",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3014
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/electron-pack.cjs"
+      ],
+      "tests": [
+        "core/__tests__/ci-workflows.test.ts"
+      ],
+      "notes": "No duplicate release, version, runtime, or update owner was added.",
+      "bytes": 3014,
+      "evidence": {
+        "test": "core/__tests__/ci-workflows.test.ts",
+        "name": "packages Windows EXEs only through electron-pack.cjs",
+        "caller": "scripts/electron-pack.cjs"
+      }
     },
     {
       "id": "E2058",
@@ -28763,11 +29304,20 @@
       "heading": "Primary Windows distribution direction",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3014
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/github-release-installer.test.ts"
+      ],
+      "notes": "NSIS stays the Windows installer. MSIX was not built and stays future work.",
+      "bytes": 3014,
+      "evidence": {
+        "test": "core/__tests__/github-release-installer.test.ts",
+        "name": "prefers the NSIS setup over the portable build",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2059",
@@ -28775,11 +29325,20 @@
       "heading": "Research basis",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 3014
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/documentation-contract.test.ts"
+      ],
+      "notes": "The research decision is recorded in docs/FRIDAY_BUILD_AND_RELEASE.md. NSIS stays. MSIX stays future work.",
+      "bytes": 3014,
+      "evidence": {
+        "test": "core/__tests__/documentation-contract.test.ts",
+        "name": "states the release modes and the rebuild-keeps-the-version rule",
+        "caller": "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      }
     },
     {
       "id": "E2060",
@@ -28787,11 +29346,20 @@
       "heading": "core-payload-policy.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 245
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/catalog.ts"
+      ],
+      "tests": [
+        "core/__tests__/catalog-installer-coverage.test.ts"
+      ],
+      "notes": "Core versus optional stays the electron-builder pack plus the Install Manager catalog. A second payload policy file was not added.",
+      "bytes": 245,
+      "evidence": {
+        "test": "core/__tests__/catalog-installer-coverage.test.ts",
+        "name": "backs every non-credential catalog row with a real installer",
+        "caller": "src/lib/friday/catalog.ts"
+      }
     },
     {
       "id": "E2061",
@@ -28799,11 +29367,20 @@
       "heading": "release-policy.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 274
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/version-release-levels.test.ts"
+      ],
+      "notes": "Release policy stays scripts/release-engine.cjs. A second release-policy file was not added.",
+      "bytes": 274,
+      "evidence": {
+        "test": "core/__tests__/version-release-levels.test.ts",
+        "name": "REBUILD and revision keep the public version exactly",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2062",
@@ -28811,11 +29388,20 @@
       "heading": "uninstall-policy.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 400
+      "status": "SUPERSEDED",
+      "target": [
+        "electron-builder.yml"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Uninstall policy stays the NSIS keep-data default and the confirmed delete-all path.",
+      "bytes": 400,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "keeps the data folder untouched unless delete was explicitly confirmed",
+        "caller": "electron-builder.yml"
+      }
     },
     {
       "id": "E2063",
@@ -28823,11 +29409,20 @@
       "heading": "update-policy.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "schema",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 401
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/update-safety.cjs"
+      ],
+      "tests": [
+        "core/__tests__/safe-update.test.ts"
+      ],
+      "notes": "Update policy stays the update guard: verify, preserve user data, health-check, and roll back.",
+      "bytes": 401,
+      "evidence": {
+        "test": "core/__tests__/safe-update.test.ts",
+        "name": "never copies models into the per-update backup and never lists them as deletable",
+        "caller": "electron/update-safety.cjs"
+      }
     },
     {
       "id": "E2064",
@@ -28835,11 +29430,20 @@
       "heading": "component-manifest.schema.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1112
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/catalog.ts"
+      ],
+      "tests": [
+        "core/__tests__/catalog-installer-coverage.test.ts"
+      ],
+      "notes": "Component identity stays the Install Manager catalog and the folder manifests. A second schema file was not added.",
+      "bytes": 1112,
+      "evidence": {
+        "test": "core/__tests__/catalog-installer-coverage.test.ts",
+        "name": "backs every non-credential catalog row with a real installer",
+        "caller": "src/lib/friday/catalog.ts"
+      }
     },
     {
       "id": "E2065",
@@ -28847,11 +29451,20 @@
       "heading": "release-manifest.schema.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 791
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/release-engine.cjs"
+      ],
+      "tests": [
+        "core/__tests__/release-notes-sot.test.ts"
+      ],
+      "notes": "The release manifest stays friday-update.json and the checksum list produced by the release engine.",
+      "bytes": 791,
+      "evidence": {
+        "test": "core/__tests__/release-notes-sot.test.ts",
+        "name": "accepts matching package, tag, changelog, notes file and EXE name",
+        "caller": "scripts/release-engine.cjs"
+      }
     },
     {
       "id": "E2066",
@@ -28859,11 +29472,20 @@
       "heading": "runtime-manifest.schema.json",
       "area": "vision:08-PACKAGING-BUILD-UPDATE",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 605
+      "status": "SUPERSEDED",
+      "target": [
+        "scripts/init-runtime.cjs"
+      ],
+      "tests": [
+        "core/__tests__/clean-install-contract.test.ts"
+      ],
+      "notes": "Runtime identity stays the existing runtime bootstrap and the Install Manager catalog.",
+      "bytes": 605,
+      "evidence": {
+        "test": "core/__tests__/clean-install-contract.test.ts",
+        "name": "provisions and resolves an isolated Python runtime for installed builds",
+        "caller": "scripts/init-runtime.cjs"
+      }
     },
     {
       "id": "E2067",
