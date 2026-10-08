@@ -1,18 +1,17 @@
 # FRIDAY — DEVELOPMENT WORKING — Vision-Aligned Final
 
-This package is the **development workbench**, not the Vision archive.
+This folder is the remaining plan layer. Landed contracts and stale snapshots have been removed.
 
 ## Non-negotiable
-- This package is based only on `FRIDAY-DEVELOPMENT-WORKING.zip`.
-- No legacy upgrade ZIPs are embedded.
-- No Vision ZIP is embedded.
-- Existing development documents remain present and are the baseline contract.
-- New material extends and organizes the development workflow around the FRIDAY Vision architecture.
-- This package does not claim source-code changes that have not actually been applied and tested.
+- Open plans stay here, one copy, on the path the adoption ledger already uses.
+- Adopted development contracts and current-source snapshots were removed. The product files are the authority.
+- The task router, the fast-safe workflow, and the task packet stay until this folder is empty.
+- No upgrade ZIP is embedded.
+- A behaviour is in FRIDAY when its ledger row is DONE and names a passing test.
 
 ## Goal
-Make FRIDAY development fast, precise, safe and future-proof:
+Make the next change fast, precise, and safe:
 
-`Task → Route → Read minimum required context → Change → Test → Verify → Record`
+`Task → Route → Read the one open plan → Change the existing owner → Test → Verify → Record`
 
-A small change should not require an AI to read the whole repository.
+A small change reads one area, then the owning product file.

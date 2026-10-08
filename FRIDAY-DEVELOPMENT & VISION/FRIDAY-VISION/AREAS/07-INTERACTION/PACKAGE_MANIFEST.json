@@ -2,7 +2,7 @@
   "name": "FRIDAY-INTERACTION-SYSTEM-CHAT-VOICE-MOBILE-MANUAL-AUTO-COMPLETE-V2",
   "purpose": "Complete merged interaction architecture and upgrade plan",
   "source_inputs": {
-    "status": "HISTORICAL -- the zips below were the design-time inputs merged into this Vision area; none of them describe current FRIDAY source. For current source truth, see FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/01-SYSTEM/01_CURRENT_SOURCE_TRUTH/CURRENT_SOURCE_INVENTORY.json's 'current' section.",
+    "status": "HISTORICAL. The zips below were design-time inputs merged into this area. Current source truth is the repository: docs/FRIDAY_ARCHITECTURE_BASELINE.md and docs/FRIDAY_FEATURES.md. The 2026-09 inventory snapshot was removed.",
     "chat_zip": "FRIDAY-CHAT-MANUAL-GOD-MODE-FINAL(1).zip",
     "chat_files_inspected": 141,
     "chat_markdown_merged": 130,
@@ -15,9 +15,9 @@
     "brain_files_inspected": 79
   },
   "counts": {
-    "files": 163,
+    "files": 162,
     "markdown": 85,
-    "json": 53,
+    "json": 52,
     "svg": 25
   },
   "principles": [

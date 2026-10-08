@@ -43,6 +43,8 @@ It does not redesign FRIDAY's Brain, System, Chat, Voice or Mobile Companion. Th
 8. `10_IMPLEMENTATION/FILE_LEVEL_MIGRATION_MAP.md`
 9. `12_AI_HANDOFF/AGENT_MASTER_PROMPT.md`
 
+Folder order on disk: `00_MASTER_CONTROL`, `01_CURRENT_SOURCE_TRUTH`, `02_TARGET_ARCHITECTURE`, `03_PROVIDER_FEDERATION`, `04_MODEL_INTELLIGENCE`, `05_ROUTING_MODES`, `06_RUNTIME_OPERATIONS`, `07_CONTRACTS`, `09_RESEARCH`, `10_IMPLEMENTATION`, `11_TESTS`, `12_AI_HANDOFF`, `13_UI_MODEL_SECTION`. The diagram folder was removed. The live chart is `src/lib/friday/flow-chart.ts`.
+
 ## Important distinction
 
 Do not implement “one universal chat API.” Different providers expose different model classes, metadata, lifecycle, endpoints and native capabilities. Normalize the contracts, not the provider reality.

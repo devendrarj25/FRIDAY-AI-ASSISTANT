@@ -1,6 +1,6 @@
 # REPAIR/AUDIT PROMPT
 
-Audit FRIDAY against `00_MASTER_CONTROL` through `24_ACCEPTANCE`.
+Audit the remaining system plans from `02_TARGET_SYSTEM` through `25_DOCUMENT_CONTROL`. `00_MASTER_CONTROL` and the current-source snapshots were removed after the product owners took those facts.
 
 For every gap:
 - locate the existing owner;

@@ -54,4 +54,4 @@
 - installer/release scripts
 - package scripts/dependency graph
 
-The exact full inventory is machine-generated in `01_CURRENT_SOURCE_TRUTH/CURRENT_SOURCE_INVENTORY.json`.
+The live inventory is the repository. The 2026-09 machine inventory was removed after `docs/FRIDAY_ARCHITECTURE_BASELINE.md` became the owner.

@@ -18,6 +18,8 @@ This V2 incorporates the final decisions from the design discussion:
 - Updates are staged, verified, journaled, health-checked and rollback-capable.
 - Application payload is replaceable; user data and user-owned components are not.
 
+Folder order: `00_MASTER` through `13_MIGRATION`, then `14_DIAGRAMS` and `14_IMPLEMENTATION` (both keep 14), then `15_COMMANDS`, `16_RESEARCH`, `17_SOURCE_INSPECTION`, `config/`, and `schemas/`. `FILE_INDEX.json` lists those files by path and size.
+
 ## Important implementation boundary
 This is an architecture/implementation plan, not a claim that the existing source has already been changed. Apply it to the repository after reviewing the file map and existing owners. Do not create duplicate release/version/runtime/update owners.
 
