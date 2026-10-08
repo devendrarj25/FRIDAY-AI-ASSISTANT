@@ -54,7 +54,8 @@ def test_pattern_actions_refuse_off_windows():
         control.invoke_pattern("Save", "click")
 
 
-def test_clipboard_refuses_off_windows():
+def test_clipboard_refuses_off_windows(monkeypatch):
+    monkeypatch.setattr(control, "WINDOWS", False)
     with pytest.raises(control.ControlError):
         control.clipboard_read()
     with pytest.raises(control.ControlError):

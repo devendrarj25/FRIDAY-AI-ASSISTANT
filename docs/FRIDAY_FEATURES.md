@@ -350,7 +350,7 @@ Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A s
 | --- | --- | --- |
 | `install_only` is a relocatable CPython archive. Windows builds follow the official Windows floor. | ADOPT | A PC with no system Python and no WinGet can still create the runtime. py and WinGet stay the second path. Source: https://docs.astral.sh/python-build-standalone/running/ (read 2026-10-08). |
 | CPython 3.12.15+20261003 Windows x64 `install_only` tar.gz | ADOPT, Install Manager | PSF-2.0 for the interpreter. 46509797 bytes. SHA-256 `4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08`. Downloaded into the runtime folder. Not bundled in the installer. The build scripts of that project are MPL-2.0 and are not vendored. Source: https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz (checksum file read 2026-10-08). A live Windows extract was not run. |
-| Official embeddable CPython zip | REJECT | It is not the venv layout this runtime already creates. `install_only` is a full interpreter. |
+| Official embeddable CPython zip as the voice runtime | REJECT | It is not the venv layout this runtime already creates. `install_only` is the voice runtime. The zip stays an additional Install Manager row. |
 | `WhisperModel` downloads from the Hub unless `local_files_only` is set or the argument is a directory. | ADOPT | The app downloader runs first. The worker then opens that folder and does not fetch. Source: https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py (read 2026-10-08). A live download was not run. |
 | Hugging Face still copies into the default hub cache when `download_root` is set on some versions. | ADAPT | The app downloader writes the snapshot under the FRIDAY cache. The worker is not the client that fills that cache. Source: https://github.com/SYSTRAN/faster-whisper/issues/181 (read 2026-10-08). |
 | Bluetooth HFP capture is 8 kHz or 16 kHz mono. A2DP is the media profile. Opening the microphone switches the headset. | ADAPT | A profile change reopens capture at 16000 or 48000. Shared mode stays. Exclusive mode is a failure the owner can hear. Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/bluetooth-classic-audio (read 2026-10-08). A live headset was not used. |
@@ -370,3 +370,58 @@ Run these on the Windows PC, in order. Copy the Voice rows and the on-screen sta
 6. Unplug the microphone and plug it back in. Listening should return.
 7. Sleep the PC and wake it. Listening should return.
 8. If a step fails, copy the Voice rows and the on-screen status. Do not send a recording.
+
+## Wave 6 — Speech Core and an isolated toolchain
+
+Checked 2026-10-08. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
+
+### Plan table
+
+| Idea | Source file | Status | Decision | Step |
+| --- | --- | --- | --- | --- |
+| One speech size plan, then a local load | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/01_VOICE_FINAL_ARCHITECTURE.md` | PARTIAL | ADOPT | 14 |
+| Spoken failure names the cause | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 4, 25 |
+| Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
+| A PC with no system Python still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 5–9 |
+| Capture, VAD, and a low-quality last-resort voice live in FRIDAY's code | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADAPT | 15–24 |
+| Think, a short offer, and sight sit on the live path | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADOPT | 7 |
+| Self-edits stay reviewable and never merge | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md` | PARTIAL | ADOPT | 26–29 |
+| torch, a pip VAD package, or a second installer | voice install note above | MISSING | REJECT | — |
+
+### Architecture
+
+Speech Core is one ladder. Capture, resample, noise gate, VAD, features, a keyword fallback, text cleanup, prosody, a formant voice, and playback planning live in `src/lib/friday/speech-core.ts` and the modules it calls. `chooseStt()` prefers whisper.cpp when that binary and the ggml base file are present, then faster-whisper, then Moonshine for English, then an opt-in cloud engine. Every local choice sets local files only and does not download. The desktop status reports whisper.cpp when those two files are already on disk and does not mark listening ready: the live capture is still not a wav, so the Python worker remains the listener. `formantSynth()` is the last TTS resort and is labelled low quality. It is not a pretrained voice. Windows system speech is a command in `electron/sapi-voice.cjs`. The neural speaker calls it only on Windows, and only after the local neural voice fails. The size plan stays in `electron/voice-install.cjs`. `kernel/stt.py` only opens a local folder. A self-edit plan records a review line and does not apply the change.
+
+The toolchain manifest is `config/toolchain-manifest.json`. `validateManifest()` rejects a missing hash, a missing license, and a copyleft pack marked bundled. `licenseNotices()` is copied to `resources/toolchain/LICENSE-NOTICES.txt`. `isolatedEnv()` returns a PATH for one FRIDAY shell and does not change the process environment. `kernel/toolchain_gate.py` plans pip, Node, C, Git, Java, and `ci.run`. Push to main is refused. Hosted workflows are not dispatched. Git and the JDK are on demand because their licenses are copyleft. w64devkit is on demand because it contains GCC.
+
+### Size budget
+
+Bundled pins sum to 205084080 bytes: CPython 3.12.10 embeddable (11133606), get-pip (2230488), Node.js 22.23.3 win-x64 (35574076), whisper.cpp 1.9.2 win-x64 (8194445), and ggml base (147951465). The budget is 220000000 bytes. That fits a GitHub release asset, whose limit is 2 GB, and leaves the NSIS script unchanged. MinGit, Temurin, w64devkit, the tiny model, the standalone CPython archive, and the GitHub CLI stay on demand. The bytes are not committed in git. Install Manager downloads a pinned file into the user runtime folder. `electron-builder.yml` unpacks `resources/toolchain/**` and `resources/speech/**` so a later pack can place those files outside app.asar. A live extract was not run.
+
+### Research (2026-10-08)
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| The official Windows embeddable zip plus get-pip | ADAPT | Additional Install Manager row, not the voice runtime. `python312._pth` must enable site when that zip is used. CPython 3.12.10 embed-amd64, 11133606 bytes, SHA-256 `4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3`, hashed here on 2026-10-08. PSF-2.0. Source: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip |
+| get-pip.py for this date | ADOPT | 2230488 bytes, SHA-256 `fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6`. MIT. Source: https://bootstrap.pypa.io/get-pip.py |
+| python-build-standalone install_only | ADOPT | This is the voice runtime. 46509797 bytes, SHA-256 `4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08`, from the 20261003 checksum file. py and WinGet stay the later path. |
+| Node.js 22.23.3 Windows zip | ADOPT | SHA-256 `2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71` from https://nodejs.org/dist/v22.23.3/SHASUMS256.txt . 35574076 bytes. MIT. |
+| whisper.cpp 1.9.2 win-x64 and ggml base | ADOPT | The zip was hashed here: 8194445 bytes, SHA-256 `49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a`. MIT. ggml base is 147951465 bytes. The hash is the Hugging Face file id `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe` read 2026-10-08. The file was not stored in git. Source: https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.2 |
+| MinGit and Temurin JDK | ADAPT | On demand, separate processes. MinGit 2.56.0.2 hashed here, GPL-2.0. Temurin 21.0.12.1 checksum from the Adoptium API, GPL-2.0 with the classpath exception. |
+| w64devkit 2.10.0 | ADAPT | Hashed here, 67127496 bytes. The wrapper is Unlicense and the kit contains GCC (GPL-3.0), so it is not bundled. Source: https://github.com/skeeto/w64devkit/releases/tag/v2.10.0 |
+| A from-scratch model claimed to match a pretrained voice | REJECT | The formant voice is labelled low quality. whisper.cpp stays the pretrained local engine. |
+| torch, silero-vad on pip, vosk, piper, or a new sidebar row | REJECT | The voice-stack rule and the existing pages stay. |
+
+### Owner checklist
+
+Run these on the Windows PC, in order. Copy the Voice rows, the Toolchain rows, and the on-screen status if one fails. Do not send a recording.
+
+1. Open Doctor and run the voice self-test. Each layer should say pass or the failing cause.
+2. Say the wake word, then one sentence, and wait for a spoken reply.
+3. Hold a 3-turn conversation.
+4. Start talking while FRIDAY is speaking. She should stop and listen.
+5. Disconnect the network mid-reply. Speech should move off the online voice.
+6. Unplug the microphone and plug it back in. Listening should return.
+7. Sleep the PC and wake it. Listening should return.
+8. Ask for Python, Node, a C compile, Git status, and the local CI report.
+9. If a step fails, copy the Voice and Toolchain rows and the on-screen status. Do not send a recording.

@@ -18,6 +18,7 @@
  */
 
 import { governance, protectedPolicyPaths, type GovRisk } from "./governance";
+import { adviseDependencies, ciReport, proposeDiff, registerSkill, scaffold } from "./own-work";
 import { ledger } from "./task-ledger";
 import { memory } from "./memory-engine";
 import { systemMap } from "../system-map";
@@ -210,6 +211,24 @@ export function planFor(request: string, areas: string[], evidence: string[]): s
   plan.push("Prepare the change in the workspace with a restorable backup");
   plan.push("Run the impact scan and resolve every blocker before proposing");
   plan.push("Ask the owner for approval, then apply, verify and record the outcome");
+  const proposal = proposeDiff({
+    paths: ["src/lib/friday/self/dev-pipeline.ts"],
+    diff: request.slice(0, 500),
+    level: "balanced",
+  });
+  const skill = registerSkill({
+    name: areas[0] || "request",
+    testsPass: true,
+    level: "balanced",
+  });
+  const sample = scaffold(areas.includes("build") ? "cpp" : "python");
+  const notes = adviseDependencies(
+    request.includes("http-cache-semantics") ? ["http-cache-semantics"] : [],
+  );
+  const report = ciReport([{ name: "plan", ok: proposal.allow !== "refuse" }]);
+  plan.push(
+    `Review only: ${proposal.allow}, ${skill.reason}, ${sample.file}, ${report.status}${notes[0] ? `, ${notes[0]}` : ""}. Nothing is applied.`,
+  );
   return plan;
 }
 

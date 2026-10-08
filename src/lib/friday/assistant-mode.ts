@@ -94,6 +94,8 @@ import {
 } from "./assistant-conduct";
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
+import { speechTurnPlan } from "./speech-core";
+import { chooseStt } from "./speech-stt";
 import {
   failureCause,
   mayAnnounce,
@@ -227,7 +229,7 @@ export type AssistantModeState = {
   };
   /** Which engine actually produced the last spoken line. */
   tts: {
-    engine: "neural" | "supertonic" | "sapi" | "system" | "none" | null;
+    engine: "neural" | "supertonic" | "sapi" | "formant" | "system" | "none" | null;
     voice: string;
     lastSpokenAt: number | null;
     lastError: string | null;
@@ -500,6 +502,7 @@ class AssistantModeStore {
     // Only re-arm recognition when the page becomes visible again in case
     // Chromium dropped the stream while the window was down.
     document.addEventListener("visibilitychange", () => {
+      if (this.state.mode !== "auto" || this.state.paused) return;
       if (!document.hidden && !this.dictation?.active) this.noteVoiceTrigger("focus");
     });
     // "Pause listening" from the tray really stops the microphone here.
@@ -579,7 +582,9 @@ class AssistantModeStore {
         const now = Boolean(installer.getSnapshot().installed["faster-whisper"]);
         if (installer.getSnapshot().installed["supertonic"]) this.offlineVoiceReady = true;
         if (now && (!lastWhisper || this.sttGaveUp)) {
+          this.resetVoiceRecovery();
           this.noteVoiceTrigger("install-finished");
+          this.noteVoiceTrigger("model-ready");
         }
         lastWhisper = now;
       });
@@ -928,6 +933,19 @@ class AssistantModeStore {
     }
     this.state.status = "Checking local speech recognition…";
     this.emit();
+    const ladder = chooseStt({
+      whisperCpp: false,
+      modelReady: false,
+      fasterWhisper: true,
+      moonshine: false,
+      english: false,
+      cloudAllowed: false,
+      network: typeof navigator === "undefined" ? false : navigator.onLine,
+      cli: "whisper-cli",
+      model: "ggml-base.bin",
+      wav: "turn.wav",
+    });
+    this.state.stt = { ...this.state.stt, engine: ladder.engine };
     void sttStatus(false, true, true)
       .then((state) => {
         if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
@@ -1007,6 +1025,7 @@ class AssistantModeStore {
   }
 
   fixVoice() {
+    speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
     this.noteVoiceTrigger("fix-voice");
   }
 

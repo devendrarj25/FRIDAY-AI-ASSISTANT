@@ -26,6 +26,14 @@ files:
 
 
 
+# Native packs under resources/ stay outside app.asar because that folder is
+# already an extraResource. These patterns keep a later copy inside the asar
+# runnable. The bundled-tier budget is 220000000 bytes in
+# config/toolchain-manifest.json.
+asarUnpack:
+  - "resources/toolchain/**"
+  - "resources/speech/**"
+
 extraResources:
   - from: kernel
     to: kernel

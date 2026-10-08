@@ -365,6 +365,22 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
   };
 }
 
+async function speakSystem(text) {
+  const sapi = require("./sapi-voice.cjs");
+  if (!sapi.sapiAvailable()) return { ok: false, engine: "sapi", reason: "not-windows" };
+  const { execFile } = require("child_process");
+  const command = sapi.sapiCommand(text);
+  const exe = command[0];
+  const args = command.slice(1);
+  const result = await new Promise((resolve) => {
+    execFile(exe, args, { timeout: 20000, windowsHide: true }, (error) => {
+      resolve({ ok: !error, error: error ? String(error.message || error) : "" });
+    });
+  });
+  if (!result.ok) return { ok: false, engine: "sapi", reason: result.error.slice(0, 240) };
+  return { ok: true, engine: "sapi", cloud: false, mime: "", audioBase64: "", path: "" };
+}
+
 async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" } = {}) {
   const spoken = String(text || "").trim();
   if (!spoken) throw new Error("Nothing to speak.");
@@ -377,6 +393,8 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" }
   }
   const local = await speakLocal({ text: spoken, rate, lang });
   if (local.ok) return local;
+  const system = await speakSystem(spoken);
+  if (system.ok) return system;
   return {
     ok: false,
     engine: wantsCloud && !sensitive ? "edge-tts" : "local",

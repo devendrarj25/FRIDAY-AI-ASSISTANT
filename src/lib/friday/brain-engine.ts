@@ -1601,9 +1601,12 @@ class BrainStore {
     this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);
     this.state.activeRunId = runId;
     this.state.stats.requests += 1;
+    const traced = tracePlan(["hear", "decide", "answer", "check"], surface);
+    const paced = withinBudget(budget.ms, surface);
     this.push(
       "info",
-      `run ${runId} — intent ${rule.label} (${Math.round(score * 100)}%), ${multi.length} agent(s)`,
+      `run ${runId} — intent ${rule.label} (${Math.round(score * 100)}%), ${multi.length} agent(s)` +
+        ` · ${traced.length} steps${paced ? "" : " over budget"}${sight.text ? " · screen data held" : ""}`,
     );
     dispatchPluginHook("on-turn-start", { runId, intent: rule.id });
     this.emit();

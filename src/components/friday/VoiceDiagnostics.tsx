@@ -125,6 +125,13 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </button>
         <button
           type="button"
+          onClick={() => assistantMode.fixVoice()}
+          className="font-mono text-[10px] uppercase text-accent"
+        >
+          fix voice
+        </button>
+        <button
+          type="button"
           onClick={() => {
             const report = redactDiagnostics(
               rows.map((row) => `${row.label}: ${row.value}`).join("\n"),

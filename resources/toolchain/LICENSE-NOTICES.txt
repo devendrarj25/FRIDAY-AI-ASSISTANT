@@ -1,0 +1,79 @@
+FRIDAY toolchain and speech pack notices
+Checked 2026-10-08. Bundled bytes 205084080. Budget 220000000.
+
+CPython embeddable 3.12.10
+License: PSF-2.0
+Source: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip
+SHA-256: 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3
+Bytes: 11133606
+Tier: bundled
+
+pip bootstrap 2026-10-08
+License: MIT
+Source: https://bootstrap.pypa.io/get-pip.py
+SHA-256: fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6
+Bytes: 2230488
+Tier: bundled
+
+Node.js 22.23.3
+License: MIT
+Source: https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip
+SHA-256: 2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71
+Bytes: 35574076
+Tier: bundled
+
+whisper.cpp 1.9.2
+License: MIT
+Source: https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip
+SHA-256: 49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a
+Bytes: 8194445
+Tier: bundled
+
+ggml base base
+License: MIT
+Source: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+SHA-256: 60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe
+Bytes: 147951465
+Tier: bundled
+
+ggml tiny tiny
+License: MIT
+Source: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+SHA-256: be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21
+Bytes: 77691713
+Tier: on-demand
+
+CPython standalone 3.12.15+20261003
+License: PSF-2.0
+Source: https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz
+SHA-256: 4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08
+Bytes: 46509797
+Tier: on-demand
+
+GitHub CLI 2.102.0
+License: MIT
+Source: https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_windows_amd64.zip
+SHA-256: ae64e556ecc240b200f7eba60d550e4bb60d78e860e69dd88c449405b86067f4
+Bytes: 15512013
+Tier: on-demand
+
+MinGit 2.56.0.2
+License: GPL-2.0
+Source: https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip
+SHA-256: da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be
+Bytes: 39806486
+Tier: on-demand
+
+Temurin JDK 21.0.12.1
+License: GPL-2.0-with-classpath-exception
+Source: https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip
+SHA-256: f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e
+Bytes: 205073461
+Tier: on-demand
+
+w64devkit 2.10.0
+License: Unlicense-wrapper-with-GPL-3.0-GCC
+Source: https://github.com/skeeto/w64devkit/releases/download/v2.10.0/w64devkit-x64-2.10.0.7z.exe
+SHA-256: 18d0a4c71a166f8401ab6305781bec5882b40b5e06ba9807c61cb5f3b3c6325e
+Bytes: 67127496
+Tier: on-demand

@@ -19,10 +19,14 @@ class ModelLoadTests(unittest.TestCase):
         self.assertTrue(spec["local_files_only"])
 
     def test_the_size_plan_is_not_copied_here(self):
-        source = Path("kernel/stt.py").read_text(encoding="utf-8")
-        self.assertNotIn("def boot_model", source)
-        self.assertIn('"local_files_only": True', source)
-        self.assertNotIn("snapshot_download", source)
+        root = Path(__file__).resolve().parents[2]
+        app = (root / "electron" / "voice-install.cjs").read_text(encoding="utf-8")
+        worker = Path(stt.__file__).read_text(encoding="utf-8")
+        self.assertIn("function bootModel", app)
+        self.assertNotIn("def boot_model", worker)
+        self.assertNotIn("boot_model", dir(stt))
+        self.assertIn('"local_files_only": True', worker)
+        self.assertNotIn("snapshot_download", worker)
 
 
 if __name__ == "__main__":

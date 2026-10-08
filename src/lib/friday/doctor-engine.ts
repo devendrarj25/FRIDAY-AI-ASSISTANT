@@ -10,6 +10,8 @@ import { rerunStartup } from "./startup";
 import { recentFailedStages } from "./brain/turn-timing";
 import { recentSkillGapDrafts } from "./brain/skill-forge";
 import { repairWaveCapability, waveCapabilityChecks } from "./failure-guard";
+import { speechDoctorRows } from "./speech-core";
+import { toolchainDoctorRows } from "./toolchain-manifest";
 import { voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
 
@@ -703,6 +705,8 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
   checks.push(...voiceLayerChecks());
+  checks.push(...speechDoctorRows());
+  checks.push(...toolchainDoctorRows());
   return checks;
 }
 

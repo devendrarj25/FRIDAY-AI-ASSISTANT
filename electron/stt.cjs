@@ -478,6 +478,24 @@ async function status(force = false, options = {}) {
 
   const py = await python();
   if (!py) {
+    const whisper = require("./whisper-cpp.cjs").locateFrom([paths.root(), process.resourcesPath]);
+    if (whisper) {
+      const value = {
+        available: true,
+        ready: false,
+        engine: "whisper.cpp",
+        model: "base",
+        python: null,
+        dependency: "ready",
+        worker: "stopped",
+        inference: "unverified",
+        loadCount: 0,
+        reason:
+          "whisper.cpp is on disk. Listening still needs a wav capture; this build does not mark it ready.",
+      };
+      if (!localOnly) cachedStatus = { at: Date.now(), value };
+      return value;
+    }
     lastLocalLayers = {
       dependency: "missing",
       worker: worker?.alive ? lastLocalLayers.worker : "stopped",
@@ -618,12 +636,44 @@ async function transcribe(req = {}, onPartial) {
   }
 
   inFlight += 1;
+  const started = Date.now();
   try {
     if (String(state.engine || "").startsWith("cloud:")) {
       const engine = cloudEngine();
       if (!engine)
         return { ok: false, reason: "unavailable", error: "the connected transcriber went away" };
       return await cloudTranscribe(engine, file, req.language);
+    }
+    if (state.engine === "whisper.cpp") {
+      const found = require("./whisper-cpp.cjs").locateFrom([paths.root(), process.resourcesPath]);
+      if (!found) {
+        return { ok: false, reason: "unavailable", error: "whisper.cpp files are missing" };
+      }
+      if (!/\.wav$/i.test(file)) {
+        return {
+          ok: false,
+          reason: "format",
+          error: "whisper.cpp needs a wav capture. This clip is not wav.",
+        };
+      }
+      const argv = require("./whisper-cpp.cjs").transcribeArgv(found.cli, found.model, file);
+      const result = await run(argv[0], argv.slice(1), 120000);
+      const text = require("./whisper-cpp.cjs").parseWhisperText(result.stdout);
+      if (!result.ok || !text) {
+        return {
+          ok: false,
+          reason: "engine-failed",
+          error: (result.stderr || "whisper.cpp returned no text").slice(-400),
+        };
+      }
+      return {
+        ok: true,
+        text,
+        language: "",
+        model: "base",
+        elapsedMs: Date.now() - started,
+        engine: "whisper.cpp",
+      };
     }
     const voiceInstall = require("./voice-install.cjs");
     const explicit = MODELS.includes(req.model) ? req.model : "";
@@ -632,7 +682,6 @@ async function transcribe(req = {}, onPartial) {
     const loadBudget = voiceInstall.loadBudgetMs(model);
     const locked = whisperLanguage(req.language);
     const prompt = String(req.initialPrompt || req.initial_prompt || "").trim();
-    const started = Date.now();
     let parsed;
     try {
       const session = await ensureWorker(model);

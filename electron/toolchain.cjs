@@ -267,6 +267,10 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
   const envDir = path.join(base, `py${series.replace(".", "")}`);
   const exe = WIN ? path.join(envDir, "Scripts", "python.exe") : path.join(envDir, "bin", "python");
   if (fs.existsSync(exe)) return { exe, prefix: [] };
+  if (series === "3.12") {
+    const bundled = require("./toolchain-pack.cjs").findPythonExe(base);
+    if (bundled) return { exe: bundled, prefix: [] };
+  }
 
   if (WIN && series === "3.12") {
     try {
@@ -351,7 +355,20 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
     );
     if ((out || "").trim() === series) chosen = { exe: "py", prefix: [`-${series}`] };
   }
-  if (!chosen) return null;
+  if (!chosen) {
+    const packApi = require("./toolchain-pack.cjs");
+    const pinned = packApi.packById("python-embed");
+    const listed = packApi.readManifest();
+    const layout = packApi.materialisePython({ root: base, network: false });
+    const chain = packApi.installChain({ python: false });
+    const cause = packApi.classifyBootstrapError("python was not found");
+    const site = packApi.embedPthText().includes("import site");
+    const probe = packApi.windowsLongPath(base);
+    onLine(
+      `Pinned ${pinned?.name || "Python"} ${pinned?.version || ""} is not extracted (${layout.step}, ${chain.step}, ${cause}, ${listed.packs?.length || 0} packs, site ${site ? "on" : "off"}, ${probe}). Install it from Install Manager.`,
+    );
+    return null;
+  }
 
   fs.mkdirSync(base, { recursive: true });
   onLine(`creating a managed Python ${series} runtime at ${envDir}`);
@@ -511,6 +528,111 @@ const TOOLS = [
     archiveBin: "python/python.exe",
     manual:
       "Relocatable CPython 3.12.15, PSF-2.0, 46509797 bytes, release 20261003. WinGet is the later path.",
+  }),
+  T("FRIDAY Python embed", "Languages & Runtimes", {
+    url: "https://www.python.org/downloads/",
+    source: "python.org",
+    installerUrl: "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
+    sha256: "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+    needBytes: 11133606,
+    archiveBin: "python.exe",
+    embedPth: true,
+    manual:
+      "Embeddable CPython 3.12.10. PSF-2.0. Hashed 2026-10-08. Additional pin. The voice runtime stays install_only.",
+  }),
+  T("FRIDAY pip bootstrap", "Languages & Runtimes", {
+    url: "https://pip.pypa.io/",
+    source: "pypa.io",
+    installerUrl: "https://bootstrap.pypa.io/get-pip.py",
+    sha256: "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6",
+    needBytes: 2230488,
+    archiveBin: "get-pip.py",
+    storeOnly: true,
+    manual: "Pinned get-pip.py. MIT. Hashed 2026-10-08.",
+  }),
+  T("FRIDAY Node", "Languages & Runtimes", {
+    url: "https://nodejs.org/",
+    source: "nodejs.org",
+    installerUrl: "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+    sha256: "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+    needBytes: 35574076,
+    archiveBin: "node-v22.23.3-win-x64/node.exe",
+    manual:
+      "Portable Node.js 22.23.3 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-10-08.",
+  }),
+  T("whisper.cpp", "Voice", {
+    url: "https://github.com/ggml-org/whisper.cpp",
+    source: "github.com/ggml-org",
+    installerUrl:
+      "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+    sha256: "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
+    needBytes: 8194445,
+    archiveBin: "Release/whisper-cli.exe",
+    manual: "whisper.cpp 1.9.2 Windows zip. MIT. Hashed 2026-10-08.",
+  }),
+  T("ggml-base", "Voice", {
+    url: "https://huggingface.co/ggerganov/whisper.cpp",
+    source: "huggingface.co",
+    installerUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+    sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    needBytes: 147951465,
+    archiveBin: "ggml-base.bin",
+    storeOnly: true,
+    manual:
+      "ggml base weights. MIT. Size and hash read from the Hugging Face file id on 2026-10-08.",
+  }),
+  T("ggml-tiny", "Voice", {
+    url: "https://huggingface.co/ggerganov/whisper.cpp",
+    source: "huggingface.co",
+    installerUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+    sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+    needBytes: 77691713,
+    archiveBin: "ggml-tiny.bin",
+    storeOnly: true,
+    manual: "ggml tiny weights. MIT. On demand.",
+  }),
+  T("MinGit", "Developer Tools", {
+    url: "https://git-scm.com/",
+    source: "git-scm.com",
+    installerUrl:
+      "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip",
+    sha256: "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be",
+    needBytes: 39806486,
+    archiveBin: "cmd/git.exe",
+    manual: "MinGit 2.56.0.2. GPL-2.0. Separate process. Hashed 2026-10-08.",
+  }),
+  T("Temurin JDK zip", "Languages & Runtimes", {
+    url: "https://adoptium.net/",
+    source: "adoptium.net",
+    installerUrl:
+      "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+    sha256: "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+    needBytes: 205073461,
+    archiveBin: "jdk-21.0.12.1+1/bin/java.exe",
+    manual:
+      "Temurin 21 zip. GPL-2.0 with the classpath exception. Checksum from Adoptium on 2026-10-08.",
+  }),
+  T("FRIDAY GitHub CLI", "Developer Tools", {
+    url: "https://cli.github.com/",
+    source: "cli.github.com",
+    installerUrl:
+      "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_windows_amd64.zip",
+    sha256: "ae64e556ecc240b200f7eba60d550e4bb60d78e860e69dd88c449405b86067f4",
+    needBytes: 15512013,
+    archiveBin: "bin/gh.exe",
+    manual: "GitHub CLI 2.102.0. MIT. Checksum file read 2026-10-08.",
+  }),
+  T("w64devkit", "Developer Tools", {
+    url: "https://github.com/skeeto/w64devkit",
+    source: "github.com/skeeto/w64devkit",
+    installerUrl:
+      "https://github.com/skeeto/w64devkit/releases/download/v2.10.0/w64devkit-x64-2.10.0.7z.exe",
+    sha256: "18d0a4c71a166f8401ab6305781bec5882b40b5e06ba9807c61cb5f3b3c6325e",
+    needBytes: 67127496,
+    archiveBin: "w64devkit-x64-2.10.0.7z.exe",
+    storeOnly: true,
+    manual:
+      "w64devkit 2.10.0. The kit contains GCC (GPL-3.0). Stored, not executed. Hashed 2026-10-08.",
   }),
   T("pip", "Python AI Libraries", {
     cmd: PY,
@@ -2327,6 +2449,7 @@ function installerCommand(file, tool, root) {
     const plan = archiveInstallCommand(file, root, tool);
     fs.mkdirSync(plan.dest, { recursive: true });
     extractZip(file, plan.dest);
+    if (tool.embedPth) require("./toolchain-pack.cjs").writeEmbedPth(plan.dest);
     return plan.command;
   }
   if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
@@ -2674,6 +2797,21 @@ function runJob({ id, action, root }, emit) {
           tried.push("sha256 (failed)");
           file = null;
         }
+      }
+      if (file && tool.storeOnly) {
+        const destDir = path.join(root || os.tmpdir(), "runtime", safeToolDir(tool.id));
+        fs.mkdirSync(destDir, { recursive: true });
+        const target = path.join(destDir, tool.archiveBin || path.basename(file));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(file, target);
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          line: `stored ${path.basename(target)} after the hash check`,
+        });
+        return { ok: true, via: "store" };
       }
       if (file) {
         const cmd = installerCommand(file, tool, root);

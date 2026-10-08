@@ -13,6 +13,7 @@ import control
 import devices_android
 import devices_bluetooth
 import devices_network
+import toolchain_gate
 from authority import Authority
 
 # Subprocess environment scrubbing and SSRF screening live in one shared
@@ -58,6 +59,25 @@ RISK = {
     "bluetooth.send_file": "exec",
     "network.discover": "safe",
     "network.cast": "exec",
+    "pip.list": "safe",
+    "pip.show": "safe",
+    "pip.freeze": "safe",
+    "pip.install": "write",
+    "pip.uninstall": "write",
+    "node.run": "exec",
+    "npm.install": "write",
+    "npm.run": "exec",
+    "cpp.build": "exec",
+    "cpp.run": "exec",
+    "git.status": "safe",
+    "git.diff": "safe",
+    "git.log": "safe",
+    "git.branch": "write",
+    "git.commit": "write",
+    "git.push": "exec",
+    "java.run": "exec",
+    "java.compile": "exec",
+    "ci.run": "exec",
 }
 
 
@@ -94,6 +114,25 @@ SUMMARY = {
     "bluetooth.send_file": "Send a file to a paired Bluetooth device",
     "network.discover": "Discover devices advertising themselves on this WiFi network",
     "network.cast": "Play media on a DLNA/UPnP device on this network",
+    "pip.list": "List packages in FRIDAY's own Python",
+    "pip.show": "Show one package in FRIDAY's own Python",
+    "pip.freeze": "Freeze FRIDAY's own Python",
+    "pip.install": "Install an allow-listed package into FRIDAY's own Python",
+    "pip.uninstall": "Remove a package from FRIDAY's own Python",
+    "node.run": "Run a workspace script with the portable Node",
+    "npm.install": "Install a package into the workspace with an isolated cache",
+    "npm.run": "Run an npm script in the workspace",
+    "cpp.build": "Compile a workspace C or C++ file",
+    "cpp.run": "Run a workspace binary that FRIDAY just compiled",
+    "git.status": "Show Git status in the workspace",
+    "git.diff": "Show the workspace diff",
+    "git.log": "Show recent workspace commits",
+    "git.branch": "Create or list branches in the workspace",
+    "git.commit": "Commit workspace files",
+    "git.push": "Push a branch. main is refused",
+    "java.run": "Run a workspace Java class",
+    "java.compile": "Compile a workspace Java file",
+    "ci.run": "Run the local validation report. Hosted workflows are not dispatched",
 }
 
 
@@ -251,7 +290,13 @@ class ToolRegistry:
                 resp = await client.get(target)
         return {"ok": resp.is_success, "status": resp.status_code, "text": resp.text[:200_000]}
 
-    async def _run(self, cmd: list[str] | str, shell: bool = False, cwd: Path | None = None) -> dict:
+    async def _run(
+        self,
+        cmd: list[str] | str,
+        shell: bool = False,
+        cwd: Path | None = None,
+        timeout: int = 900,
+    ) -> dict:
         proc = await asyncio.to_thread(
             subprocess.run,
             cmd,
@@ -259,7 +304,7 @@ class ToolRegistry:
             cwd=str(cwd or self.workspace),
             capture_output=True,
             text=True,
-            timeout=900,
+            timeout=timeout,
             env=child_env(),
         )
         return {
@@ -441,3 +486,66 @@ class ToolRegistry:
         return await asyncio.to_thread(
             devices_network.cast, args["controlUrl"], args.get("mediaUrl", "")
         )
+
+    async def _planned(self, plan: dict) -> dict:
+        if not plan.get("ok") or plan.get("dryRun") or not plan.get("argv"):
+            return plan
+        timeout = int(plan.get("timeout") or 900)
+        return await self._run(plan["argv"], cwd=Path(plan["cwd"]) if plan.get("cwd") else None, timeout=timeout)
+
+    async def _pip_list(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_pip("list", args, self.workspace))
+
+    async def _pip_show(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_pip("show", args, self.workspace))
+
+    async def _pip_freeze(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_pip("freeze", args, self.workspace))
+
+    async def _pip_install(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_pip("install", args, self.workspace))
+
+    async def _pip_uninstall(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_pip("uninstall", args, self.workspace))
+
+    async def _node_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_node("script", args, self.workspace))
+
+    async def _npm_install(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_node("install", args, self.workspace))
+
+    async def _npm_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_node("npm-run", args, self.workspace))
+
+    async def _cpp_build(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_cpp("build", args, self.workspace))
+
+    async def _cpp_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_cpp("run", args, self.workspace))
+
+    async def _git_status(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("status", args, self.workspace))
+
+    async def _git_diff(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("diff", args, self.workspace))
+
+    async def _git_log(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("log", args, self.workspace))
+
+    async def _git_branch(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("branch", args, self.workspace))
+
+    async def _git_commit(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("commit", args, self.workspace))
+
+    async def _git_push(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_git("push", args, self.workspace))
+
+    async def _java_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_java("run", args, self.workspace))
+
+    async def _java_compile(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_java("compile", args, self.workspace))
+
+    async def _ci_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_ci(args, self.workspace))

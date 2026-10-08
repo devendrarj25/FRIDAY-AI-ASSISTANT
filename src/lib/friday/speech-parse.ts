@@ -49,8 +49,8 @@ export type WhenPhrase = {
 };
 
 function hourOf(word: string): number | null {
-  const value = ONES[word];
-  if (value === undefined || value < 1 || value > 12) return null;
+  const value = parseNumberToken(word);
+  if (value === null || value < 1 || value > 12 || !Number.isInteger(value)) return null;
   return value;
 }
 
