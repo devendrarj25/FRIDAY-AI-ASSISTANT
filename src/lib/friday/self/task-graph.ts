@@ -25,6 +25,7 @@ import { autonomy, type ApprovalLevel } from "./autonomy";
 import { classifyFailure, failureDomain, recoverFailure } from "../failure-guard";
 import {
   acceptRequest,
+  acceptStateTransition,
   admitResources,
   backendInvariants,
   budgetBlock,
@@ -1014,7 +1015,14 @@ export class TaskGraphEngine {
       verified: outcome.phase === "succeeded",
       policyVersion: "1",
     });
-    if (outcome.phase === "succeeded" && chain.ok) {
+    const transition = acceptStateTransition({
+      previous: "EXECUTING",
+      next: outcome.phase === "succeeded" ? "VERIFYING" : "RECOVERING",
+      actor: "task-graph",
+      cause: outcome.phase,
+      evidence: checkpoint.evidenceId || node.id,
+    });
+    if (outcome.phase === "succeeded" && chain.ok && transition.ok) {
       node.state = "verified";
       delete checkpoint.reverify;
       if (!checkpoint.postcondition && checkpoint.result) {
@@ -1027,6 +1035,9 @@ export class TaskGraphEngine {
       node.state = "completed";
       if (outcome.phase === "succeeded" && !chain.ok) {
         this.log(graph, `envelope held: ${chain.reason}`, "warn");
+      }
+      if (outcome.phase === "succeeded" && !transition.ok) {
+        this.log(graph, `transition held: ${transition.reason}`, "warn");
       }
     }
     node.checkpoint = { ...checkpoint };

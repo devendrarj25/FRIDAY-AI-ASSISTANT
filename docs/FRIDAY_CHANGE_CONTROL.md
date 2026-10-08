@@ -79,6 +79,8 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Capability life | Active needs health and authority. Quarantine does not execute and stays reversible. Retirement keeps the record and is not routed. |
 | Side effect | A payment, deletion, uninstall, credential, or system change with an unknown outcome waits for reconciliation. It is not retried blind. |
 | External text | Page, file, tool, and model text stay data. A line that tries to set the system prompt, policy, or permission is dropped. |
+| Control plane | A closed control plane blocks privileged work. Read-only work may continue. An unapproved privileged request does not run. |
+| System state | A lifecycle jump names an actor, a cause, and evidence. An invalid jump is refused. The task graph does not keep a second state store. |
 
 ## Research (2026-10-08)
 

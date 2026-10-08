@@ -33,8 +33,10 @@ import {
   agentManifest,
   capabilityLifecycleRecord,
   authorityFromConnection,
+  acceptStateTransition,
   completeHandoff,
   continuityKey,
+  controlPlaneAllows,
   executionEnvelope,
   failedToolKeepsTask,
   mustSerialize,
@@ -771,5 +773,67 @@ describe("development contracts", () => {
     expect(graph).toContain("eventCursor");
     const research = fs.readFileSync(path.join(ROOT, "src/lib/friday/brain/research.ts"), "utf8");
     expect(research).toContain("externalTextIsData(");
+    expect(
+      controlPlaneAllows({
+        controlReady: false,
+        privileged: true,
+        policyVersion: "1",
+        capabilityId: "files",
+        capabilityVersion: "1",
+        scope: "owner",
+        risk: "write",
+        approval: "approved",
+        idempotencyKey: "k",
+        resourceLimit: "1",
+      }).reason,
+    ).toBe("control plane is closed");
+    expect(
+      controlPlaneAllows({
+        controlReady: false,
+        privileged: false,
+        policyVersion: "",
+        capabilityId: "",
+        capabilityVersion: "",
+        scope: "",
+        risk: "",
+        approval: "",
+        idempotencyKey: "",
+        resourceLimit: "",
+      }).ok,
+    ).toBe(true);
+    expect(
+      controlPlaneAllows({
+        controlReady: true,
+        privileged: true,
+        policyVersion: "1",
+        capabilityId: "files",
+        capabilityVersion: "1",
+        scope: "owner",
+        risk: "write",
+        approval: "pending",
+        idempotencyKey: "k",
+        resourceLimit: "1",
+      }).reason,
+    ).toBe("privileged work is not approved");
+    expect(
+      acceptStateTransition({
+        previous: "EXECUTING",
+        next: "IDLE",
+        actor: "task-graph",
+        cause: "jump",
+        evidence: "step",
+      }).reason,
+    ).toBe("invalid transition");
+    expect(
+      acceptStateTransition({
+        previous: "EXECUTING",
+        next: "VERIFYING",
+        actor: "task-graph",
+        cause: "succeeded",
+        evidence: "step",
+      }).ok,
+    ).toBe(true);
+    expect(scheduler).toContain("controlPlaneAllows(");
+    expect(graph).toContain("acceptStateTransition(");
   });
 });

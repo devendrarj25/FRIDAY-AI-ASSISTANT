@@ -22,6 +22,7 @@ import {
   capabilityMayRun,
   childStaysInsideParent,
   completeHandoff,
+  controlPlaneAllows,
   mustSerialize,
   policyRootAllows,
   policyRootSnapshot,
@@ -326,6 +327,19 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
           if (!route.ok) return { ok: false, detail: route.reason };
           const root = policyRootSnapshot();
           if (!root.ok) return { ok: false, detail: root.reason };
+          const control = controlPlaneAllows({
+            controlReady: root.ok,
+            privileged: true,
+            policyVersion: root.version,
+            capabilityId: agent.id,
+            capabilityVersion: "1",
+            scope: "owner",
+            risk: agent.risk,
+            approval: "approved",
+            idempotencyKey: id,
+            resourceLimit: "1",
+          });
+          if (!control.ok) return { ok: false, detail: control.reason };
           const policy = policyRootAllows({
             privileged: true,
             policyVersion: root.version,

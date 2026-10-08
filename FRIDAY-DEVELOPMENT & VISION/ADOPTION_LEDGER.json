@@ -76,10 +76,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 76,
-    "SUPERSEDED": 236,
+    "DONE": 86,
+    "SUPERSEDED": 243,
     "REJECT": 2,
-    "MISSING": 1797
+    "MISSING": 1780
   },
   "rows": [
     {
@@ -4847,10 +4847,14 @@
       "heading": "1. Three pack paths",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "CMD, TEST, and Official packs already live in the build document. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 1788
     },
     {
@@ -4859,10 +4863,14 @@
       "heading": "2. Rebuild vs update vs auto",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "CMD, TEST, and Official packs already live in the build document. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 1788
     },
     {
@@ -4871,10 +4879,14 @@
       "heading": "3. Signing",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_BUILD_AND_RELEASE.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "CMD, TEST, and Official packs already live in the build document. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 1788
     },
     {
@@ -5111,10 +5123,14 @@
       "heading": "1. FRIDAY_ROOT",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "FRIDAY_ROOT, backup, and keep-data uninstall already live in the storage contract. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 2533
     },
     {
@@ -5123,10 +5139,14 @@
       "heading": "2. What lives under the root",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "FRIDAY_ROOT, backup, and keep-data uninstall already live in the storage contract. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 2533
     },
     {
@@ -5135,10 +5155,14 @@
       "heading": "3. Update backup / rollback",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "FRIDAY_ROOT, backup, and keep-data uninstall already live in the storage contract. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 2533
     },
     {
@@ -5147,10 +5171,14 @@
       "heading": "4. Uninstall",
       "area": "vision:01-SYSTEM",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_STORAGE_CONTRACT.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "FRIDAY_ROOT, backup, and keep-data uninstall already live in the storage contract. The snapshot version 1.0.0.2 is not adopted. File removed after the check.",
       "bytes": 2533
     },
     {
@@ -5244,10 +5272,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "controlPlaneAllows blocks privileged work when the control plane is closed and refuses an unapproved request. Read-only work may continue. File removed after the test passed.",
       "bytes": 993
     },
     {
@@ -5256,10 +5289,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "controlPlaneAllows blocks privileged work when the control plane is closed and refuses an unapproved request. Read-only work may continue. File removed after the test passed.",
       "bytes": 993
     },
     {
@@ -5268,10 +5306,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "controlPlaneAllows blocks privileged work when the control plane is closed and refuses an unapproved request. Read-only work may continue. File removed after the test passed.",
       "bytes": 993
     },
     {
@@ -5280,10 +5323,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "controlPlaneAllows blocks privileged work when the control plane is closed and refuses an unapproved request. Read-only work may continue. File removed after the test passed.",
       "bytes": 993
     },
     {
@@ -5292,10 +5340,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/agent-scheduler.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "controlPlaneAllows blocks privileged work when the control plane is closed and refuses an unapproved request. Read-only work may continue. File removed after the test passed.",
       "bytes": 993
     },
     {
@@ -5316,10 +5369,15 @@
       "heading": "Purpose",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptStateTransition refuses an invalid jump. The task graph calls it and does not add a second state store. File removed after the test passed.",
       "bytes": 913
     },
     {
@@ -5328,10 +5386,15 @@
       "heading": "Canonical flow",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptStateTransition refuses an invalid jump. The task graph calls it and does not add a second state store. File removed after the test passed.",
       "bytes": 913
     },
     {
@@ -5340,10 +5403,15 @@
       "heading": "Required contracts",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptStateTransition refuses an invalid jump. The task graph calls it and does not add a second state store. File removed after the test passed.",
       "bytes": 913
     },
     {
@@ -5352,10 +5420,15 @@
       "heading": "Failure and recovery",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptStateTransition refuses an invalid jump. The task graph calls it and does not add a second state store. File removed after the test passed.",
       "bytes": 913
     },
     {
@@ -5364,10 +5437,15 @@
       "heading": "Implementation guidance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "DONE",
+      "target": [
+        "src/lib/friday/self/run-receipt.ts",
+        "src/lib/friday/self/task-graph.ts"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "acceptStateTransition refuses an invalid jump. The task graph calls it and does not add a second state store. File removed after the test passed.",
       "bytes": 913
     },
     {

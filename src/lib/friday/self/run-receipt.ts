@@ -1117,6 +1117,77 @@ export function failedToolKeepsTask(input: {
   return { continueTask: true, reason: "substitute the capability" };
 }
 
+/**
+ * The control plane decides. A closed control plane blocks privileged work.
+ * A read-only step may continue. An unapproved privileged request does not run.
+ */
+export function controlPlaneAllows(input: {
+  controlReady: boolean;
+  privileged: boolean;
+  policyVersion: string;
+  capabilityId: string;
+  capabilityVersion: string;
+  scope: string;
+  risk: string;
+  approval: string;
+  idempotencyKey: string;
+  resourceLimit: string;
+}): { ok: boolean; reason: string } {
+  if (!input.controlReady && input.privileged) {
+    return { ok: false, reason: "control plane is closed" };
+  }
+  if (!input.controlReady) return { ok: true, reason: "read-only work may continue" };
+  if (!input.privileged) return { ok: true, reason: "" };
+  const fields = [
+    input.policyVersion,
+    input.capabilityId,
+    input.capabilityVersion,
+    input.scope,
+    input.risk,
+    input.approval,
+    input.idempotencyKey,
+    input.resourceLimit,
+  ];
+  if (fields.some((item) => !item.trim())) {
+    return { ok: false, reason: "action request is incomplete" };
+  }
+  if (input.approval !== "approved") {
+    return { ok: false, reason: "privileged work is not approved" };
+  }
+  return { ok: true, reason: "" };
+}
+
+const SYSTEM_NEXT: Record<string, readonly string[]> = {
+  IDLE: ["ACTIVE_THINKING", "PLANNED", "WAITING_APPROVAL", "DEGRADED"],
+  PLANNED: ["AUTHORIZED", "WAITING_APPROVAL", "FAILED"],
+  AUTHORIZED: ["EXECUTING", "FAILED", "CANCELLING"],
+  EXECUTING: ["VERIFYING", "RECOVERING", "FAILED", "WAITING_EXTERNAL", "CANCELLING"],
+  VERIFYING: ["COMPLETED", "RECOVERING", "FAILED"],
+  RECOVERING: ["EXECUTING", "FAILED", "DEGRADED"],
+  WAITING_APPROVAL: ["AUTHORIZED", "FAILED", "CANCELLING"],
+  DEGRADED: ["IDLE", "FAILED", "RECOVERING"],
+  FAILED: ["RECOVERING", "ROLLING_BACK"],
+  CANCELLING: ["FAILED", "COMPLETED"],
+  ROLLING_BACK: ["FAILED", "IDLE"],
+};
+
+/** Invalid lifecycle jumps are refused. The UI does not own this state. */
+export function acceptStateTransition(input: {
+  previous: string;
+  next: string;
+  actor: string;
+  cause: string;
+  evidence: string;
+}): { ok: boolean; reason: string } {
+  if (!input.actor.trim() || !input.cause.trim() || !input.evidence.trim()) {
+    return { ok: false, reason: "transition is incomplete" };
+  }
+  const allowed = SYSTEM_NEXT[input.previous];
+  if (!allowed) return { ok: false, reason: "unknown state" };
+  if (!allowed.includes(input.next)) return { ok: false, reason: "invalid transition" };
+  return { ok: true, reason: "" };
+}
+
 const UNSAFE_BLIND_RETRY = /\b(payment|delete|uninstall|credential|system change)\b/i;
 
 /** An uncertain payment, deletion, or system change waits. It is not retried blind. */
