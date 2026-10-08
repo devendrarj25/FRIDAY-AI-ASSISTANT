@@ -39,6 +39,8 @@ DIFF/EVIDENCE, then PASS or BLOCK.
 
 More than one boundary is high-impact: analyse both sides and add the tests each side would otherwise miss.
 
+A change loads a compact packet: the task statement, the owner, the direct dependencies, the tests, the contract, the constraints, and the verification. Prefer an index over the whole tree. Read a full file only when it is the owner or it is being edited. Read a neighbour only for an import, a type, a lifecycle, or a test. Stop once ownership and the direct dependencies are known. Confidence order is exact, then high, then medium, then a broad search. A low confidence means search before editing.
+
 ## Route
 
 | Signal | Owner area |

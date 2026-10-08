@@ -226,6 +226,7 @@ describe("development contracts", () => {
     const control = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_CHANGE_CONTROL.md"), "utf8");
     expect(control).toContain("src/lib/friday/flow-chart.ts");
     expect(control).toContain("kernel/planner.py");
+    expect(control).toContain("exact, then high, then medium, then a broad search");
     expect(
       fs.existsSync(path.join(ROOT, "FRIDAY-DEVELOPMENT & VISION/DOCUMENT-MANIFEST.json")),
     ).toBe(false);

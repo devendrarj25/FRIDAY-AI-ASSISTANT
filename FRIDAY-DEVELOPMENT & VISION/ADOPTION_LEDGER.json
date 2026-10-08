@@ -77,8 +77,8 @@
   ],
   "totals": {
     "DONE": 15,
-    "MISSING": 2066,
-    "SUPERSEDED": 25,
+    "MISSING": 2064,
+    "SUPERSEDED": 27,
     "PARTIAL": 5
   },
   "rows": [
@@ -559,10 +559,14 @@
       "heading": "Context budget policy",
       "area": "development:01_SOURCE_ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The compact packet and the confidence order live in the change gate. File removed after the test passed.",
       "bytes": 745
     },
     {
@@ -571,10 +575,14 @@
       "heading": "Routing confidence",
       "area": "development:01_SOURCE_ROUTING",
       "type": "research",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The compact packet and the confidence order live in the change gate. File removed after the test passed.",
       "bytes": 745
     },
     {
