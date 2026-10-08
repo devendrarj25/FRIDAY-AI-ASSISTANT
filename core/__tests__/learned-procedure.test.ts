@@ -41,7 +41,10 @@ describe("learned procedures", () => {
 
   it("reuses the learned steps on a later similar owner graph", async () => {
     const engine = new TaskGraphEngine();
-    engine.registerRunner("goal", async ({ node }) => ({ result: `handled ${node.title}` }));
+    engine.registerRunner("goal", async ({ node }) => ({
+      result: `handled ${node.title}`,
+      checked: true,
+    }));
     const first = engine.submit(GOAL);
     const end = Date.now() + 800;
     while (Date.now() < end && engine.get(first.id)?.state !== "completed") {

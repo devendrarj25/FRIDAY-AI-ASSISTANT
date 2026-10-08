@@ -37,6 +37,6 @@ User-owned components and user data must not be deleted or overwritten by an off
 ## Related
 For a task that fixes or extends something that already exists in the
 current app, don't start here — use
-`../../FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md` instead, which routes
+`../../../docs/FRIDAY_CHANGE_CONTROL.md` instead, which routes
 straight to the real source owner with far less context. Come here only for
 a future/major upgrade. Repo-root order is `../../../AGENTS.md`, then `../../../READMEFIRST.md`.

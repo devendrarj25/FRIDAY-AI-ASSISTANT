@@ -59,6 +59,7 @@ Each topic has one document. Open that document for the detail, and follow its l
 | Release runbook | [RELEASE.md](RELEASE.md) |
 | GitHub Actions catalog | [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) |
 | Repository workflow: branch, merge, cleanup, and revert | [docs/FRIDAY_MERGE_FLOW.md](docs/FRIDAY_MERGE_FLOW.md) |
+| Change control, task packet, and development contracts | [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md) |
 | Contributor workflow and documentation contract | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security policy and reporting | [SECURITY.md](SECURITY.md) |
 | Licence and ownership terms | [LICENSE](LICENSE) |

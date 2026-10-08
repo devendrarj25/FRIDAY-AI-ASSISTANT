@@ -16,6 +16,7 @@ import {
   type VectorSnippet,
 } from "../brain/retrieval";
 import { coerceMemoryTier, shouldStoreLongTerm, shouldAutoClearMemory } from "../settings-runtime";
+import { secretStaysOutOfMemory } from "./run-receipt";
 
 export type MemoryTier =
   "working" | "temporary" | "episodic" | "semantic" | "permanent" | "archived";
@@ -61,7 +62,24 @@ export type MemoryItem = {
   contradiction?: boolean;
   /** When set, this record is no longer current. Retrieval skips it. */
   supersededAt?: number;
+  /** Who wrote the row. A clash never erases the older provenance. */
+  provenance?: string;
 };
+
+/**
+ * A clash is kept as two rows unless the owner (or an explicit correction)
+ * is allowed to supersede. A protected first-run row is never overwritten.
+ */
+export function resolveKnowledgeClash(input: {
+  clashes: boolean;
+  explicit: boolean;
+  protectedSource: boolean;
+  kindAllows: boolean;
+}): "store" | "keep-both" | "supersede" {
+  if (!input.clashes) return "store";
+  if (!input.explicit || input.protectedSource || !input.kindAllows) return "keep-both";
+  return "supersede";
+}
 
 export type MemoryTierSpec = {
   id: MemoryTier;
@@ -326,6 +344,8 @@ export type RememberInput = {
   projectId?: string;
   relatedIds?: string[];
   relevance?: number;
+  /** Secret rows are refused. They are never written into ordinary memory. */
+  sensitivity?: "public" | "internal" | "private" | "secret";
 };
 
 class MemoryEngine {
@@ -410,6 +430,23 @@ class MemoryEngine {
   /* ------------------------------------------------------------- writing */
 
   remember(input: RememberInput): MemoryItem {
+    if (secretStaysOutOfMemory(input.sensitivity)) {
+      const now = Date.now();
+      return {
+        id: "withheld",
+        tier: "archived",
+        title: "withheld",
+        text: "",
+        tags: [],
+        source: "withheld",
+        confidence: 0,
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: now,
+        uses: 0,
+        pinned: false,
+      };
+    }
     this.load();
     const now = Date.now();
     const tier = coerceMemoryTier(input.tier);
@@ -502,6 +539,7 @@ class MemoryEngine {
       freshnessAt: now,
       scope: input.scope ?? "owner",
       verified: input.verified ?? false,
+      provenance: input.source ?? "friday",
     };
     if (input.context) item.context = input.context;
     if (input.projectId) item.projectId = input.projectId;
@@ -511,23 +549,24 @@ class MemoryEngine {
       Boolean(input.verified) ||
       input.source === "user" ||
       (input.tags ?? []).includes("correction");
-    const maySupersede =
-      explicit &&
-      candidate &&
-      clashes &&
-      candidate.source !== "first-run" &&
-      (kind === "decision" ||
+    const clash = resolveKnowledgeClash({
+      clashes: Boolean(candidate && clashes),
+      explicit,
+      protectedSource: candidate?.source === "first-run",
+      kindAllows:
+        kind === "decision" ||
         kind === "preference" ||
         kind === "project" ||
-        (input.tags ?? []).includes("correction"));
-    if (candidate && clashes && !maySupersede) {
+        (input.tags ?? []).includes("correction"),
+    });
+    if (clash === "keep-both" && candidate) {
       item.contradiction = true;
       item.relatedIds = [...new Set([...(item.relatedIds ?? []), candidate.id])];
       candidate.contradiction = true;
       candidate.relatedIds = [...new Set([...(candidate.relatedIds ?? []), item.id])];
     }
     this.items = [item, ...this.items];
-    if (maySupersede && candidate) this.supersede(candidate.id, item.id);
+    if (clash === "supersede" && candidate) this.supersede(candidate.id, item.id);
     this.sweep();
     this.emit();
     return item;

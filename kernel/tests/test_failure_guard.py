@@ -94,10 +94,32 @@ class MigrationTests(unittest.TestCase):
         self.assertTrue(bak.is_file())
         saved = sqlite3.connect(bak)
         names = {row[1] for row in saved.execute("PRAGMA table_info(tasks)")}
-        saved.close()
         self.assertNotIn("priority", names)
+        self.assertNotIn("idempotency_key", names)
+        versions = saved.execute(
+            "SELECT key FROM settings WHERE key='schema_version'"
+        ).fetchall()
+        saved.close()
+        self.assertEqual(versions, [])
         live = {row["name"] for row in storage.conn.execute("PRAGMA table_info(tasks)")}
         self.assertIn("priority", live)
+        self.assertIn("idempotency_key", live)
+        self.assertEqual(storage.settings()["schema_version"], 2)
+
+    def test_the_same_idempotency_key_does_not_open_a_second_task(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        storage = Storage(Path(folder.name) / "friday.sqlite3")
+        self.addCleanup(storage.close)
+        storage.migrate()
+        first = storage.create_task("task-a", "send the note", idempotency_key="note-1")
+        second = storage.create_task("task-b", "send the note again", idempotency_key="note-1")
+        other = storage.create_task("task-c", "a different note", idempotency_key="note-2")
+        self.assertEqual(first, "task-a")
+        self.assertEqual(second, "task-a")
+        self.assertEqual(other, "task-c")
+        count = storage.conn.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
+        self.assertEqual(count, 2)
 
     def test_a_corrupt_database_restores_the_backup(self):
         folder = tempfile.TemporaryDirectory()

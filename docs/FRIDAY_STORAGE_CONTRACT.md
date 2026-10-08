@@ -25,3 +25,16 @@ Python live venv: `<root>\runtime\.venv` when a folder is chosen.
 Typed in `installer/uninstall/index.ts` (`KEEP_DATA_PLAN` / `DELETE_EVERYTHING_PLAN`). NSIS welcome: default keep-data removes `<root>\App` only. Tick “Delete all FRIDAY data and resources” (`StrCpy $FridayUnMode "delete"`) to remove the whole root. `electron-builder.yml` `nsis.deleteAppDataOnUninstall: false`.
 
 TEST installs use `dev.friday.desk.test` so they cannot overwrite Official data. Isolation: [FRIDAY_BUILD_AND_RELEASE.md](FRIDAY_BUILD_AND_RELEASE.md).
+
+## 5. Logical records
+
+Request, task, run, capability, provider, action, observation, verification, and evidence records are checked in `src/lib/friday/self/run-receipt.ts` (`acceptRequest`, `backendInvariants`). The task graph calls them when a request is queued and when a run finishes. Secret rows are refused by `secretStaysOutOfMemory` before `memory.remember` writes. The kernel keeps one SQLite file. `kernel/db.py` `migrate()` copies that file before new columns, then stores `schema_version`. The same idempotency key does not open a second task. There is no second task database, model registry, approval store, memory system, or connector registry.
+
+Research, 2026-10-08:
+
+| Source | Decision | Reason |
+| --- | --- | --- |
+| [OpenAI Agents SDK](https://openai.com/index/the-next-evolution-of-the-agents-sdk/) and [Agents API](https://openai.com/index/introducing-the-agents-api/) | ADAPT | Long runs stay on the existing task graph. No hosted agent sandbox. |
+| [Gemini background execution](https://ai.google.dev/gemini-api/docs/background-execution) and [computer use](https://ai.google.dev/gemini-api/docs/computer-use) | ADAPT | The desktop loop already checkpoints. A tool success is not external proof. |
+| [Claude Opus 4.6](https://www.anthropic.com/news/claude-opus-4-6) | REJECT | No hosted agent team. Child authority stays inside the parent scope. |
+| [MCP revision 2026-07-28](https://blog.modelcontextprotocol.io/posts/2026-07-28/) and [Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks) | ADAPT | Tasks stay in the existing kernel tables. No second protocol server. |

@@ -23,9 +23,14 @@ import { learning, recallProcedure, rememberProcedure } from "./learning-engine"
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
 import { autonomy, type ApprovalLevel } from "./autonomy";
 import {
+  acceptRequest,
+  backendInvariants,
   budgetBlock,
+  durableOutcome,
   resumeOffer,
   retryBackoffMs,
+  scoreEvaluation,
+  sealRuntimeEvent,
   shouldReplay,
   type TaskBudget,
   type TimelineRow,
@@ -65,6 +70,8 @@ export type Checkpoint = {
   idempotencyKey?: string;
   /** The desktop changed after this checkpoint, so the step must be checked again. */
   worldChanged?: boolean;
+  /** Set when retries ended without a checked observation. Success is not invented. */
+  quarantine?: boolean;
   /** Set when a resume must re-check the postcondition before trusting the step. */
   reverify?: boolean;
   /** Redacted step notes for the Tasks page. Never a screenshot. */
@@ -400,6 +407,15 @@ export class TaskGraphEngine {
   ): { id: string; position: number; queued: boolean } {
     const priority = options.priority ?? "owner";
     const kind = options.kind ?? "goal";
+    const opened = acceptRequest({
+      request_id: newId("req"),
+      session_id: "local",
+      channel: priority === "idle" ? "event" : "chat",
+      input: request,
+      received_at: new Date().toISOString(),
+      policy_context_id: autonomy.getSnapshot().approvalLevel,
+    });
+    if (!opened.ok) return { id: "", position: 0, queued: false };
     const reused = !options.nodes && priority === "owner" ? recallProcedure(request)?.steps : null;
     const planned = options.nodes ?? reused ?? planNodes(request);
     const graphId = newId(priority === "idle" ? "idle" : "graph");
@@ -873,29 +889,66 @@ export class TaskGraphEngine {
         this.emit();
         return true;
       }
+      const exhausted = durableOutcome({
+        modelSaidDone: Boolean(result),
+        observation: "",
+        postconditionChecked: false,
+        attempts: node.attempts,
+        maxAttempts: node.maxAttempts,
+      });
       node.state = "failed";
-      this.log(graph, `${node.title} failed: ${node.error}`, "error");
+      if (exhausted.phase === "quarantined") checkpoint.quarantine = true;
+      node.checkpoint = { ...checkpoint };
+      const sealed = sealRuntimeEvent({
+        eventType: "task.quarantined",
+        now: node.endedAt,
+        requestId: graph.id,
+        sessionId: graph.id,
+        taskId: graph.id,
+        runId: graph.runId || graph.id,
+        producer: "task-graph",
+        payload: { title: node.title, phase: exhausted.phase },
+      });
+      this.log(graph, `${node.title} failed: ${node.error} (${sealed.event_id})`, "error");
       this.emit();
       return this.finish(graph, "failed");
     }
 
-    node.state = "completed";
-    // Verification is part of the state machine, not an afterthought: a node
-    // only counts as verified when it produced a real, recorded result.
-    node.state = checkpoint.result ? "verified" : "completed";
-    if (node.state === "verified") {
+    const outcome = durableOutcome({
+      modelSaidDone: Boolean(checkpoint.result),
+      observation: checkpoint.result || "",
+      postconditionChecked: checkpoint.checked === true,
+      attempts: node.attempts,
+      maxAttempts: node.maxAttempts,
+    });
+    if (checkpoint.result) {
       if (!checkpoint.evidenceId) checkpoint.evidenceId = `${node.id}-evidence`;
       if (!checkpoint.actionId) checkpoint.actionId = `${node.id}-action`;
-      if (checkpoint.checked == null) checkpoint.checked = true;
+    }
+    if (outcome.phase === "succeeded") {
+      node.state = "verified";
       delete checkpoint.reverify;
-      if (!checkpoint.postcondition && checkpoint.result)
+      if (!checkpoint.postcondition && checkpoint.result) {
         checkpoint.postcondition = checkpoint.result;
+      }
       if (!checkpoint.idempotencyKey && node.idempotencyKey) {
         checkpoint.idempotencyKey = node.idempotencyKey;
       }
-      node.checkpoint = { ...checkpoint };
+    } else {
+      node.state = "completed";
     }
-    this.log(graph, `${node.title} — ${node.state}`, "ok");
+    node.checkpoint = { ...checkpoint };
+    const sealed = sealRuntimeEvent({
+      eventType: outcome.claimed ? "task.succeeded" : "task.verifying",
+      now: node.endedAt,
+      requestId: graph.id,
+      sessionId: graph.id,
+      taskId: graph.id,
+      runId: graph.runId || graph.id,
+      producer: "task-graph",
+      payload: { title: node.title, phase: outcome.phase },
+    });
+    this.log(graph, `${node.title} — ${node.state} (${sealed.event_id})`, "ok");
 
     const next = graph.nodes.find((n) => n.state === "pending");
     if (next) next.state = "ready";
@@ -917,6 +970,46 @@ export class TaskGraphEngine {
     if (graph.priority === "owner") {
       const verified = graph.nodes.every((node) => node.state === "verified");
       const ms = Math.max(0, (graph.finishedAt ?? Date.now()) - graph.createdAt);
+      const scored = scoreEvaluation({
+        completed: state === "completed",
+        factual: verified,
+        toolCorrect: verified,
+        authorized: true,
+        verified,
+        latencyMs: ms,
+        latencyBudgetMs: graph.budget?.timeMs ?? 120_000,
+        tokens: 0,
+        tokenBudget: graph.budget?.tokens ?? 0,
+        cost: 0,
+        costBudget: graph.budget?.spend ?? 0,
+        recovered: state !== "failed",
+        userHeldControl: true,
+      });
+      if (!scored.pass) {
+        this.log(graph, `evaluation held: ${scored.failed.join(", ")}`, "warn");
+      }
+      const freshUntil = new Date((graph.finishedAt ?? Date.now()) + 60_000).toISOString();
+      const held = backendInvariants({
+        taskStatus: state === "completed" && verified ? "succeeded" : "verifying",
+        verificationRequired: true,
+        verificationPassed: verified,
+        approval: "approved",
+        scopeMatches: true,
+        toolSaidSuccess: state === "completed",
+        externalEffect: verified ? "changed" : "unknown",
+        observationFreshUntil: freshUntil,
+        nowIso: new Date(graph.finishedAt ?? Date.now()).toISOString(),
+        sensitivity: "internal",
+        promotedToMemory: false,
+        sideEffect: graph.nodes.some((node) => node.purpose === "action"),
+        idempotencyKey: graph.nodes[0]?.idempotencyKey ?? graph.id,
+        cancellable: true,
+        providerId: "local",
+        modelId: "local",
+        externalFact: false,
+        provenance: "",
+      });
+      if (!held.ok) this.log(graph, `schema held: ${held.failed.join(", ")}`, "warn");
       learning.evaluate({
         taskId: graph.id,
         kind: "task-graph",

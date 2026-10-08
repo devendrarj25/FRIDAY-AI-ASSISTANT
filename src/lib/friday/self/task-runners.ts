@@ -38,6 +38,8 @@ export function registerTaskRunners(): void {
       ok: done,
       result: done ? `kernel completed: ${node.title}` : "kernel did not report completion",
       tools: ["kernel.task.run"],
+      checked: done,
+      postcondition: done ? "kernel reported the task done" : "",
     };
   });
 

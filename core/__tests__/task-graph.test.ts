@@ -30,7 +30,12 @@ describe("task graph — durable multi-step work", () => {
     const seen: string[] = [];
     engine.registerRunner("goal", async ({ node }) => {
       seen.push(node.title);
-      return { result: `handled ${node.title}`, files: ["ledger.csv"], tools: ["kernel.task.run"] };
+      return {
+        result: `handled ${node.title}`,
+        files: ["ledger.csv"],
+        tools: ["kernel.task.run"],
+        checked: true,
+      };
     });
 
     const { id } = engine.submit(
@@ -60,7 +65,7 @@ describe("task graph — durable multi-step work", () => {
         });
         return { result: "" };
       }
-      return { result: `done ${node.title}` };
+      return { result: `done ${node.title}`, checked: true };
     });
     const { id } = first.submit("step one of the job\nthen step two of the job\nthen step three");
     await sleep(50);
@@ -75,7 +80,7 @@ describe("task graph — durable multi-step work", () => {
     const after: string[] = [];
     second.registerRunner("goal", async ({ node }) => {
       after.push(node.title);
-      return { result: `done ${node.title}` };
+      return { result: `done ${node.title}`, checked: true };
     });
     second.hydrateFrom(stored);
     second.resume(id);
@@ -171,7 +176,7 @@ describe("task graph — durable multi-step work", () => {
         blows += 1;
         return { ok: false, result: "bank export missing" };
       }
-      return { result: `done ${node.title}` };
+      return { result: `done ${node.title}`, checked: true };
     });
     const { id } = engine.submit("step one of the job\nthen step two of the job");
     await settle(engine, 800);
@@ -196,7 +201,7 @@ describe("task graph — durable multi-step work", () => {
         });
         return { result: "" };
       }
-      return { result: "done" };
+      return { result: "done", checked: true };
     });
     const { id } = engine.submit("one shot filing job");
     await sleep(30);
@@ -287,7 +292,10 @@ describe("task intake — chat stays free", () => {
 describe("task graph budgets and receipts", () => {
   it("stops at the step budget and keeps an evidence id on the finished step", async () => {
     const engine = new TaskGraphEngine();
-    engine.registerRunner("goal", async ({ node }) => ({ result: `done ${node.title}` }));
+    engine.registerRunner("goal", async ({ node }) => ({
+      result: `done ${node.title}`,
+      checked: true,
+    }));
     const { id } = engine.submit("step one of the job\nthen step two of the job", {
       budget: { timeMs: 60_000, maxSteps: 1, spend: 0, tokens: 0 },
     });

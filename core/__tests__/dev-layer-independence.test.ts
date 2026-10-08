@@ -80,6 +80,7 @@ describe("development/vision layer independence", () => {
     //    works, and its test (pr-scope.test.ts) asserts that classification.
     const KNOWN_SAFE_MENTIONS = new Set([
       "core/__tests__/dev-layer-independence.test.ts",
+      "core/__tests__/development-contracts.test.ts",
       "core/__tests__/pr-scope.test.ts",
       "scripts/docs-engine.cjs",
       "scripts/pr-scope.cjs",

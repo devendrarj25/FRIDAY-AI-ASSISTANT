@@ -10,10 +10,13 @@
 import type { ApprovalLevel } from "./autonomy";
 import { kernelApi } from "../kernel-api";
 import {
+  argumentHash,
+  bindApproval,
   budgetBlock,
   idempotencyKey,
   mintIdentity,
   redactRunText,
+  revalidateApproval,
   retryBackoffMs,
   type EvidenceReceipt,
   type TaskBudget,
@@ -991,6 +994,26 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
         lines.push(statusLine("ask", gate.reason));
         audit.push({ at: now(), action: step.tool, result: "asked" });
         return finish(false, true, lines[lines.length - 1] ?? gate.reason, "approval");
+      }
+      const grant = bindApproval({
+        taskId: input.request.slice(0, 80),
+        action: step.kind,
+        args: step.payload,
+        target: step.target,
+        dataClass: step.readOnly ? "read" : "write",
+        risk: step.readOnly ? "safe" : "write",
+        now: now(),
+        approver: "owner",
+      });
+      const still = revalidateApproval(grant, now(), {
+        action: step.kind,
+        target: step.target,
+        argumentHash: argumentHash(step.payload),
+      });
+      if (!still.ok) {
+        lines.push(statusLine("ask", still.reason));
+        audit.push({ at: now(), action: step.tool, result: still.reason });
+        return finish(false, true, lines[lines.length - 1] ?? still.reason, "approval");
       }
     }
     const key = idempotencyKey(step.kind, step.target, step.payload);

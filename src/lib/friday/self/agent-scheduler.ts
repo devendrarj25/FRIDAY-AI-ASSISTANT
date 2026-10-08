@@ -12,6 +12,7 @@ import { ledger } from "./task-ledger";
 import { personalDesk } from "../personal-desk";
 import { listCapabilities } from "../capability-trees";
 import { planAgent, runAgent } from "../agent-runtime";
+import { capabilityMayRun, childStaysInsideParent } from "./run-receipt";
 import { projectWorkspaces } from "../project-workspace-engine";
 
 export type ScheduledAgent = {
@@ -259,6 +260,20 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             prompt || `${Array.isArray(plan.candidates) ? plan.candidates.length : 0} candidate(s)`,
         }),
         apply: async () => {
+          const childCapabilities = Array.isArray(plan["capabilities"])
+            ? plan["capabilities"].map((item) => String(item))
+            : [agent.id];
+          const bound = childStaysInsideParent(
+            { capabilities: [agent.id], network: false, spend: 0 },
+            {
+              capabilities: childCapabilities,
+              network: plan["network"] === true,
+              spend: typeof plan["spend"] === "number" ? plan["spend"] : 0,
+            },
+          );
+          if (!bound.ok) return { ok: false, detail: bound.reason };
+          const runnable = capabilityMayRun("available", agent.enabled, true);
+          if (!runnable.ok) return { ok: false, detail: runnable.reason };
           const result = await host.runAgent(agent.id, { ...input, dryRun: false, approved: true });
           if (!result.ok) return { ok: false, detail: result.error || "agent run failed" };
           return { ok: true, detail: "agent run applied after owner approval" };
