@@ -133,15 +133,15 @@ def launch_app(app: str, args: list[str] | None = None, cwd: str | None = None) 
         if os.path.exists(target):
             # A launched application inherits the environment MINUS FRIDAY's
             # own credentials — a model-chosen app is not a trusted child.
-            proc = subprocess.Popen(
-                [target, *args], cwd=cwd or None, close_fds=True, env=child_env()
-            )
+            proc = subprocess.Popen([target, *args], cwd=cwd or None, close_fds=True, env=child_env())
             pid = proc.pid
         elif WINDOWS:
-            # Shell resolution (Start-menu names, file associations, URLs).
-            quoted = " ".join(f'"{a}"' if " " in a else a for a in args)
+            # `start` is a cmd builtin. An argument vector keeps Start-menu names
+            # without concatenating a shell string.
             proc = subprocess.Popen(
-                f'start "" "{app}" {quoted}'.strip(), shell=True, cwd=cwd or None, env=child_env()
+                ["cmd", "/c", "start", "", app, *args],
+                cwd=cwd or None,
+                env=child_env(),
             )
             pid = proc.pid
         else:
@@ -388,9 +388,7 @@ def read_text(region: list[int] | None = None, lang: str = "eng") -> dict[str, A
     """OCR the current screen (or a [left, top, width, height] region)."""
     mss_mod = _require("mss", "mss")
     pytesseract = _require("pytesseract", "pytesseract")
-    if not shutil.which("tesseract") and not getattr(
-        pytesseract.pytesseract, "tesseract_cmd", None
-    ):
+    if not shutil.which("tesseract") and not getattr(pytesseract.pytesseract, "tesseract_cmd", None):
         raise ControlError(
             "the Tesseract OCR engine was not found on PATH. Install “Tesseract OCR” "
             "from the Install Manager, then retry."

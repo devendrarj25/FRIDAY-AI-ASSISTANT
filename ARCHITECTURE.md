@@ -23,7 +23,28 @@ The renderer never runs shell. Every call is `ipcRenderer.invoke` / `send` on na
 
 ## 3. Kernel surface
 
-`kernel/main.py` mounts `GET /health` and `WebSocket /bridge`. Companion HTTP routes come from `kernel/companion.py`. `kernel/router.py` is the **model** router, not FastAPI routes. Tools: `kernel/tools.py` (32 named tools, exec-tier for PC control).
+`kernel/main.py` mounts `GET /health`, `GET /version`, and `WebSocket /bridge`. Companion HTTP routes come from `kernel/companion.py`. `kernel/router.py` is the **model** router, not FastAPI routes. Tools: `kernel/tools.py` (32 named tools, exec-tier for PC control). `/health` and `/version` are the unauthenticated loopback reads. The bridge checks the per-launch token. Companion routes that change state check the phone switch and the pair token. FastAPI's error envelope is `{ "detail": "..." }`.
+<!-- docs-engine: generated kernel routes. Edit scripts/docs-engine.cjs, not this. -->
+
+| Method | Path |
+| --- | --- |
+| GET | `/companion` |
+| GET | `/companion/` |
+| GET | `/companion/features` |
+| GET | `/companion/icon-192.png` |
+| GET | `/companion/icon-512.png` |
+| GET | `/companion/manifest.json` |
+| POST | `/companion/pair` |
+| POST | `/companion/speak` |
+| GET | `/companion/sw.js` |
+| GET | `/companion/whats-new` |
+| GET | `/health` |
+| GET | `/version` |
+| WEBSOCKET | `/bridge` |
+| WEBSOCKET | `/companion/ws` |
+
+<!-- docs-engine: end generated kernel routes -->
+
 
 ## 4. Intelligence
 

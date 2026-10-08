@@ -7,12 +7,11 @@ import asyncio
 import subprocess
 from pathlib import Path
 
-import httpx
-
 import control
 import devices_android
 import devices_bluetooth
 import devices_network
+import httpx
 import toolchain_gate
 from authority import Authority
 
@@ -136,7 +135,6 @@ SUMMARY = {
 }
 
 
-
 #: JSON-Schema arguments for the tools a MODEL is allowed to call on its own.
 #: Only "safe" (read-only) tools live here: anything that writes, executes or
 #: touches another device stays with the planner, which mints an owner-approved
@@ -161,6 +159,7 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
     },
     "network.discover": {"type": "object", "properties": {}},
 }
+
 
 #: OpenAI/Anthropic tool names allow [A-Za-z0-9_-] only, so the dotted FRIDAY
 #: id is flattened on the wire and mapped back before execution.
@@ -237,10 +236,7 @@ class ToolRegistry:
         if tool not in MODEL_TOOL_PARAMS or self.risk(tool) != "safe":
             return {
                 "ok": False,
-                "error": (
-                    f"{tool} needs the owner's approval — ask him to run it, "
-                    "or use a read-only tool instead"
-                ),
+                "error": (f"{tool} needs the owner's approval — ask him to run it, or use a read-only tool instead"),
             }
         return await self.execute(tool, args if isinstance(args, dict) else {})
 
@@ -335,12 +331,12 @@ class ToolRegistry:
         }
 
     async def _shell_cmd(self, args: dict) -> dict:
-        return await self._run(args["command"], shell=True)
+        # Exec tier: execute() already refused this until the desktop approved it.
+        # The command is a shell string (pipes and redirects), so argv-only would drop the feature.
+        return await self._run(args["command"], shell=True)  # noqa: S604
 
     async def _shell_powershell(self, args: dict) -> dict:
-        return await self._run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", args["command"]]
-        )
+        return await self._run(["powershell", "-NoProfile", "-NonInteractive", "-Command", args["command"]])
 
     async def _git(self, args: dict) -> dict:
         return await self._run(["git", *args["args"]])
@@ -349,16 +345,15 @@ class ToolRegistry:
         return await self._run(["python", "-c", args["code"]])
 
     async def _test_run(self, args: dict) -> dict:
-        return await self._run(args.get("command", "npm test"), shell=True)
+        # Same approval gate as shell.cmd. The default is a shell test command.
+        return await self._run(args.get("command", "npm test"), shell=True)  # noqa: S604
 
     # ---------------------------------------------------------- PC control
     # All of these are "exec" risk in RISK above, so `execute()` refuses to run
     # them until the desktop approval prompt returns approved=True.
 
     async def _app_launch(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            control.launch_app, args.get("app", ""), args.get("args"), args.get("cwd")
-        )
+        return await asyncio.to_thread(control.launch_app, args.get("app", ""), args.get("args"), args.get("cwd"))
 
     async def _app_focus(self, args: dict) -> dict:
         return await asyncio.to_thread(control.focus_window, args.get("title"), args.get("hwnd"))
@@ -379,9 +374,7 @@ class ToolRegistry:
         )
 
     async def _input_hotkey(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            control.hotkey, args.get("keys") or [], args.get("target"), args.get("hwnd")
-        )
+        return await asyncio.to_thread(control.hotkey, args.get("keys") or [], args.get("target"), args.get("hwnd"))
 
     async def _input_click(self, args: dict) -> dict:
         return await asyncio.to_thread(
@@ -425,9 +418,7 @@ class ToolRegistry:
         return await asyncio.to_thread(control.perceive)
 
     async def _screen_read_text(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            control.read_text, args.get("region"), args.get("lang", "eng")
-        )
+        return await asyncio.to_thread(control.read_text, args.get("region"), args.get("lang", "eng"))
 
     # ------------------------------------------------- other devices (A1–A3)
     # Cable / Bluetooth / same-WiFi. FRIDAY never stores or replays another
@@ -438,9 +429,7 @@ class ToolRegistry:
         return await asyncio.to_thread(devices_android.list_devices)
 
     async def _android_open_app(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            devices_android.open_app, args.get("app", ""), args.get("serial")
-        )
+        return await asyncio.to_thread(devices_android.open_app, args.get("app", ""), args.get("serial"))
 
     async def _android_input(self, args: dict) -> dict:
         action = args.get("action", "tap")
@@ -450,22 +439,19 @@ class ToolRegistry:
         if action == "swipe":
             return await asyncio.to_thread(
                 devices_android.swipe,
-                int(args.get("x1", 0)), int(args.get("y1", 0)),
-                int(args.get("x2", 0)), int(args.get("y2", 0)),
-                int(args.get("ms", 300)), serial,
+                int(args.get("x1", 0)),
+                int(args.get("y1", 0)),
+                int(args.get("x2", 0)),
+                int(args.get("y2", 0)),
+                int(args.get("ms", 300)),
+                serial,
             )
-        return await asyncio.to_thread(
-            devices_android.tap, int(args.get("x", 0)), int(args.get("y", 0)), serial
-        )
+        return await asyncio.to_thread(devices_android.tap, int(args.get("x", 0)), int(args.get("y", 0)), serial)
 
     async def _android_transfer(self, args: dict) -> dict:
         if args.get("direction") == "pull":
-            return await asyncio.to_thread(
-                devices_android.pull, args["remote"], args["local"], args.get("serial")
-            )
-        return await asyncio.to_thread(
-            devices_android.push, args["local"], args["remote"], args.get("serial")
-        )
+            return await asyncio.to_thread(devices_android.pull, args["remote"], args["local"], args.get("serial"))
+        return await asyncio.to_thread(devices_android.push, args["local"], args["remote"], args.get("serial"))
 
     async def _android_mirror(self, args: dict) -> dict:
         return await asyncio.to_thread(devices_android.mirror, args.get("serial"))
@@ -480,9 +466,7 @@ class ToolRegistry:
         return await asyncio.to_thread(devices_bluetooth.media, args.get("command", "play"))
 
     async def _bluetooth_send_file(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            devices_bluetooth.send_file, args["path"], args.get("device", "")
-        )
+        return await asyncio.to_thread(devices_bluetooth.send_file, args["path"], args.get("device", ""))
 
     async def _network_discover(self, args: dict) -> dict:
         kind = args.get("kind", "all")
@@ -502,9 +486,7 @@ class ToolRegistry:
     async def _network_cast(self, args: dict) -> dict:
         if args.get("stop"):
             return await asyncio.to_thread(devices_network.stop, args["controlUrl"])
-        return await asyncio.to_thread(
-            devices_network.cast, args["controlUrl"], args.get("mediaUrl", "")
-        )
+        return await asyncio.to_thread(devices_network.cast, args["controlUrl"], args.get("mediaUrl", ""))
 
     async def _planned(self, plan: dict) -> dict:
         if not plan.get("ok") or plan.get("dryRun") or not plan.get("argv"):

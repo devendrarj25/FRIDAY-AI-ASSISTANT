@@ -10,9 +10,6 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
 from companion import (  # noqa: E402
     COMPANION_HTML,
     COMPANION_SW,
@@ -24,6 +21,8 @@ from companion import (  # noqa: E402
     companion_whats_new,
     parse_changelog_sections,
 )
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -205,9 +204,7 @@ def test_service_worker_and_whats_new_http(tmp_path):
     assert MANIFEST["serviceworker"]["src"] == "/companion/sw.js"
 
     pending = store.new_code()
-    token = client.post("/companion/pair", json={"code": pending["code"], "label": "test"}).json()[
-        "token"
-    ]
+    token = client.post("/companion/pair", json={"code": pending["code"], "label": "test"}).json()["token"]
     features = client.get("/companion/features", params={"token": token})
     assert features.status_code == 200
     body = features.json()

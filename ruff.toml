@@ -1,0 +1,17 @@
+# Dev-only kernel lint. The packaged app does not run ruff.
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = [
+  # argv-form subprocess is the safe form; S602 and S604 still catch shell=True
+  "S603",
+  # PATH lookup is how git, python, and powershell are found
+  "S607",
+]
+
+[lint.per-file-ignores]
+"kernel/tests/**" = ["S101", "S105", "S107"]
+# The phone page is one HTML document. Wrapping those source lines would edit CSS and JS.
+"kernel/companion.py" = ["E501"]

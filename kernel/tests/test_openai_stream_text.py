@@ -18,11 +18,7 @@ def test_delta_text_and_choices_text():
 
 
 def test_content_parts_join():
-    frame = {
-        "choices": [
-            {"delta": {"content": [{"type": "text", "text": "Hel"}, {"type": "text", "text": "lo"}]}}
-        ]
-    }
+    frame = {"choices": [{"delta": {"content": [{"type": "text", "text": "Hel"}, {"type": "text", "text": "lo"}]}}]}
     assert openai_frame_text(frame) == "Hello"
 
 

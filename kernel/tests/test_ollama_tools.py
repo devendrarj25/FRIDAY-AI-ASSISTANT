@@ -161,11 +161,7 @@ async def test_stream_ollama_runs_one_read_only_tool_and_skips_thinking(monkeypa
             }
         ),
     ]
-    second = [
-        json.dumps(
-            {"message": {"role": "assistant", "content": "The file says hello."}, "done": True}
-        )
-    ]
+    second = [json.dumps({"message": {"role": "assistant", "content": "The file says hello."}, "done": True})]
     client = Scripted([first, second])
     monkeypatch.setattr(router, "_client", lambda: client)
     engine = ModelRouter(Store())
@@ -176,12 +172,7 @@ async def test_stream_ollama_runs_one_read_only_tool_and_skips_thinking(monkeypa
         provider="ollama",
         endpoint="http://127.0.0.1:11434",
     )
-    chunks = [
-        piece
-        async for piece in engine._stream_ollama(
-            model, [{"role": "user", "content": "read notes"}]
-        )
-    ]
+    chunks = [piece async for piece in engine._stream_ollama(model, [{"role": "user", "content": "read notes"}])]
     text = "".join(chunks)
     assert "secret plan" not in text
     assert f"{TOOL_NOTICE}fs_read" in chunks
@@ -199,20 +190,11 @@ async def test_stream_ollama_runs_one_read_only_tool_and_skips_thinking(monkeypa
 @pytest.mark.asyncio
 async def test_stream_ollama_without_tools_still_yields_content(monkeypatch):
     client = Scripted(
-        [
-            [
-                json.dumps(
-                    {"message": {"role": "assistant", "content": "Hi.", "thinking": "nope"}, "done": True}
-                )
-            ]
-        ]
+        [[json.dumps({"message": {"role": "assistant", "content": "Hi.", "thinking": "nope"}, "done": True})]]
     )
     monkeypatch.setattr(router, "_client", lambda: client)
     engine = ModelRouter(Store())
     model = Model(id="llama", label="llama", provider="ollama", endpoint="http://127.0.0.1:11434")
-    chunks = [
-        piece
-        async for piece in engine._stream_ollama(model, [{"role": "user", "content": "hi"}])
-    ]
+    chunks = [piece async for piece in engine._stream_ollama(model, [{"role": "user", "content": "hi"}])]
     assert chunks == ["Hi."]
     assert "tools" not in client.bodies[0]["json"]

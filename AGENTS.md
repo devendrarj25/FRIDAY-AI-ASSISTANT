@@ -6,7 +6,7 @@ Run these from the repo root. `npm ci` installs Node dependencies. `npm run setu
 
 - `npm run test:fast` — tests for the files you changed
 - `npm test` — the full Vitest suite
-- `npm run lint` — ESLint, and the Python lint once that entry point exists
+- `npm run lint` — ESLint plus kernel ruff (`ruff check` and `ruff format --check`)
 - `npm run typecheck`
 - `npm run test:kernel`
 - `npm run docs:sync` then `npm run docs:check`

@@ -67,7 +67,7 @@ class Storage:
             return
         try:
             conn.close()
-        except Exception:
+        except Exception:  # noqa: S110 — a second close on Windows is already finished
             pass
 
     # Columns added after the first release. Adding them here (instead of
@@ -102,9 +102,7 @@ class Storage:
         self.conn.executescript(SCHEMA)
         pending = []
         for table, column, decl in self.ADDED_COLUMNS:
-            have = {
-                r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
-            }
+            have = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if column not in have:
                 pending.append((table, column, decl))
         if pending:
@@ -116,7 +114,6 @@ class Storage:
         # once on open; the desktop re-supplies keys from its secure store.
         self.conn.execute("UPDATE models SET api_key=NULL WHERE api_key IS NOT NULL")
         self.conn.commit()
-
 
     # settings -----------------------------------------------------------
     def settings(self) -> dict:
@@ -212,8 +209,7 @@ class Storage:
     def chat_history(self, session: str, limit: int = 200) -> list[dict]:
         """Full transcript of one conversation in chronological order."""
         rows = self.conn.execute(
-            "SELECT id, role, model_id, text, origin, created_at FROM chats WHERE session=? "
-            "ORDER BY id DESC LIMIT ?",
+            "SELECT id, role, model_id, text, origin, created_at FROM chats WHERE session=? ORDER BY id DESC LIMIT ?",
             (session, int(limit)),
         ).fetchall()
         return [
@@ -267,9 +263,7 @@ class Storage:
     ) -> str:
         key = (idempotency_key or "").strip() or None
         if key:
-            existing = self.conn.execute(
-                "SELECT id FROM tasks WHERE idempotency_key=?", (key,)
-            ).fetchone()
+            existing = self.conn.execute("SELECT id FROM tasks WHERE idempotency_key=?", (key,)).fetchone()
             if existing is not None:
                 return str(existing["id"])
         self.conn.execute(
@@ -324,9 +318,7 @@ class Storage:
         self.conn.commit()
 
     def task_steps(self, task_id: str) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM task_steps WHERE task_id=? ORDER BY id", (task_id,)
-        ).fetchall()
+        rows = self.conn.execute("SELECT * FROM task_steps WHERE task_id=? ORDER BY id", (task_id,)).fetchall()
         return [
             {
                 "stepId": r["step_id"],
@@ -354,17 +346,12 @@ class Storage:
         self.conn.commit()
 
     def cancel_requested(self, task_id: str) -> bool:
-        row = self.conn.execute(
-            "SELECT cancelled FROM task_control WHERE task_id=?", (task_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT cancelled FROM task_control WHERE task_id=?", (task_id,)).fetchone()
         return bool(row and row["cancelled"])
 
     def clear_cancel(self, task_id: str) -> None:
-        self.conn.execute(
-            "UPDATE task_control SET cancelled=0, reason=NULL WHERE task_id=?", (task_id,)
-        )
+        self.conn.execute("UPDATE task_control SET cancelled=0, reason=NULL WHERE task_id=?", (task_id,))
         self.conn.commit()
-
 
     def record_permission(self, task_id: str, step_id: str, allowed: bool) -> None:
         self.conn.execute(
@@ -399,9 +386,7 @@ class Storage:
         self.conn.commit()
 
     def load_checkpoint(self, task_id: str) -> dict | None:
-        row = self.conn.execute(
-            "SELECT * FROM task_checkpoints WHERE task_id=?", (task_id,)
-        ).fetchone()
+        row = self.conn.execute("SELECT * FROM task_checkpoints WHERE task_id=?", (task_id,)).fetchone()
         if row is None:
             return None
         return {
@@ -443,6 +428,5 @@ class Storage:
                 "createdAt": r["created_at"],
                 "finishedAt": r["finished_at"],
             }
-
             for r in rows
         ]

@@ -75,6 +75,12 @@ const CODE_GATES = [
     args: ["test"],
   },
   {
+    id: "lint",
+    name: "eslint and kernel ruff",
+    command: npmBin,
+    args: ["run", "lint"],
+  },
+  {
     id: "kernel",
     name: "kernel tests",
     command: npmBin,

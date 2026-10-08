@@ -75,7 +75,12 @@ def plan_pip(action: str, args: dict, workspace: Path) -> dict:
         return {"ok": False, "error": "package is not on the allow list", "cause": "allow"}
     exe = str(args.get("python") or "")
     if not exe:
-        return {"ok": False, "error": "FRIDAY Python is not in the runtime folder", "cause": "no-python", "fatal": False}
+        return {
+            "ok": False,
+            "error": "FRIDAY Python is not in the runtime folder",
+            "cause": "no-python",
+            "fatal": False,
+        }
     argv = [exe, "-m", "pip", action]
     if package:
         argv.append(package)
@@ -101,7 +106,12 @@ def plan_node(action: str, args: dict, workspace: Path) -> dict:
     cache = str(workspace / ".friday-npm-cache")
     if action == "script":
         if not node:
-            return {"ok": False, "error": "portable Node is not in the runtime folder", "cause": "missing", "fatal": False}
+            return {
+                "ok": False,
+                "error": "portable Node is not in the runtime folder",
+                "cause": "missing",
+                "fatal": False,
+            }
         script = str(args.get("script") or "")
         try:
             target = contained(workspace, script)
@@ -131,7 +141,12 @@ def plan_node(action: str, args: dict, workspace: Path) -> dict:
 def plan_cpp(action: str, args: dict, workspace: Path) -> dict:
     compiler = str(args.get("compiler") or "")
     if not compiler:
-        return {"ok": False, "error": "the C toolchain is not in the runtime folder", "cause": "missing", "fatal": False}
+        return {
+            "ok": False,
+            "error": "the C toolchain is not in the runtime folder",
+            "cause": "missing",
+            "fatal": False,
+        }
     source = str(args.get("source") or "")
     try:
         src = contained(workspace, source)

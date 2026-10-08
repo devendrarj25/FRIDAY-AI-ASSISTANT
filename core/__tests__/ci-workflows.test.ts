@@ -225,6 +225,7 @@ describe("PR validation", () => {
     for (const cmd of [
       "npm test",
       "npm run typecheck",
+      "npm run lint",
       "scripts/verify-deps.cjs",
       "scripts/audit-architecture.cjs --strict",
       "scripts/electron-pack.cjs --win nsis",
@@ -1064,6 +1065,7 @@ describe("automatic-health workflows", () => {
     expect(doc.jobs.validate.if).toContain("needs.gate.result == 'success'");
     expect(doc.jobs["docs-only"].if).toContain("needs.gate.result == 'success'");
     expect(doc.jobs.secrets.if).toBeUndefined();
+    expect(src).toContain("npm run lint");
     expect(src).toContain("npm run test:kernel");
     expect(src).toContain("scripts/tests-required.cjs");
     expect(src).toContain("scripts/check-provenance.cjs");

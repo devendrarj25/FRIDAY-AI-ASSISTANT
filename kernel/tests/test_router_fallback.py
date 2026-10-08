@@ -23,9 +23,7 @@ def local(label="Ollama llama3"):
 def test_local_models_are_recognised_as_offline_routes():
     assert is_local_model(local()) is True
     assert is_local_model(cloud()) is False
-    assert is_local_model(
-        Model(id="x", label="x", provider="openai-compatible", endpoint="http://127.0.0.1:8080/v1")
-    )
+    assert is_local_model(Model(id="x", label="x", provider="openai-compatible", endpoint="http://127.0.0.1:8080/v1"))
 
 
 def test_dns_failures_are_classified_as_network_not_inference():
@@ -63,9 +61,7 @@ def test_burst_429_and_gateways_are_transient_daily_quota_is_not():
     assert is_transient_http(RuntimeError("HTTP 429 — provider rate limit reached (per-minute burst)"))
     assert is_transient_http(RuntimeError("HTTP 503: unavailable"))
     assert is_transient_http(RuntimeError("HTTP 502: bad gateway"))
-    assert not is_transient_http(
-        RuntimeError("HTTP 429 — provider DAILY request limit reached for this account")
-    )
+    assert not is_transient_http(RuntimeError("HTTP 429 — provider DAILY request limit reached for this account"))
     assert not is_transient_http(RuntimeError("HTTP 401 — check this provider's API key"))
     assert not is_transient_http(RuntimeError("HTTP 400: invalid request"))
     assert not is_transient_http(RuntimeError("HTTP 422: unsupported parameter"))

@@ -103,9 +103,7 @@ class PlannerResumeTests(unittest.TestCase):
         # Simulate a kernel restart: a brand new planner over the same file.
         restarted_storage = Storage(self.db)
         self._extra_storage = [restarted_storage]
-        restarted = Planner(
-            FakeRouter(PLAN), self.tools, FakeMemory(), restarted_storage
-        )
+        restarted = Planner(FakeRouter(PLAN), self.tools, FakeMemory(), restarted_storage)
         decision = restarted.approve(task_id, "s2", True)
         self.assertTrue(decision["ok"])
 

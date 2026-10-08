@@ -9,9 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from env_guard import child_env, guard_public_url  # noqa: E402
-import tools as tools_module  # noqa: E402
 from authority import Authority  # noqa: E402
+from env_guard import child_env, guard_public_url  # noqa: E402
+
+import tools as tools_module  # noqa: E402
 
 
 def test_child_env_drops_authority_secret_and_api_keys():

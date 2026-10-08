@@ -38,9 +38,7 @@ def test_pip_refuses_denied_and_typos_and_dry_runs(tmp_path):
     assert denied["cause"] == "denied"
     typo = toolchain_gate.plan_pip("install", {"package": "numpyy", "python": "python"}, tmp_path)
     assert typo["cause"] == "typosquat"
-    dry = toolchain_gate.plan_pip(
-        "install", {"package": "numpy", "python": "python", "confirm": False}, tmp_path
-    )
+    dry = toolchain_gate.plan_pip("install", {"package": "numpy", "python": "python", "confirm": False}, tmp_path)
     assert dry["dryRun"] is True
     assert "--dry-run" in dry["argv"]
     missing = toolchain_gate.plan_pip("list", {}, tmp_path)

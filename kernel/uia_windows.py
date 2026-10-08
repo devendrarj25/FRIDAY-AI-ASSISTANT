@@ -88,7 +88,9 @@ def collect_uia_raw(max_depth: int = 8, max_nodes: int = 400) -> dict[str, Any]:
     return guarded_collect(_body, comtypes.CoInitialize, comtypes.CoUninitialize)
 
 
-def _node(walker: Any, element: Any, depth: int, max_depth: int, max_nodes: int, state: dict[str, int]) -> dict[str, Any] | None:
+def _node(
+    walker: Any, element: Any, depth: int, max_depth: int, max_nodes: int, state: dict[str, int]
+) -> dict[str, Any] | None:
     if state["count"] >= max_nodes or depth > max_depth:
         return None
     state["count"] += 1
@@ -139,7 +141,7 @@ def _patterns(element: Any) -> list[str]:
         try:
             if element.GetCurrentPattern(prop_id) is not None:
                 found.append(name)
-        except Exception:
+        except Exception:  # noqa: S112 — this element does not support the pattern
             continue
     return found
 
@@ -251,7 +253,7 @@ def _monitors() -> list[dict[str, int]]:
         dpi_y = ctypes.c_uint(96)
         try:
             ctypes.windll.shcore.GetDpiForMonitor(ctypes.c_void_p(hmon), 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
-        except Exception:
+        except Exception:  # noqa: S110 — older Windows keeps the 96 DPI default
             pass
         found.append(
             {

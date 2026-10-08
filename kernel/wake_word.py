@@ -32,7 +32,6 @@ import os
 import sys
 from pathlib import Path
 
-
 N_BANDS = 32
 FEATURE_DIM = N_BANDS
 MIN_NORM = 1e-4
@@ -54,7 +53,7 @@ def wake_model_dir() -> Path:
     base = Path(root) / "models" / "wake" if root else Path.home() / ".friday" / "models" / "wake"
     try:
         base.mkdir(parents=True, exist_ok=True)
-    except Exception:  # noqa: BLE001 — read-only disk is reported by the caller
+    except Exception:  # noqa: BLE001,S110 — read-only disk is reported by the caller
         pass
     return base
 
@@ -98,7 +97,7 @@ def pick_model(wake_word: str, explicit: str | None) -> str | None:
     return None
 
 
-def decode_pcm16(path: str) -> "list[int] | None":
+def decode_pcm16(path: str) -> list[int] | None:
     """Decode any container the recorder produced to 16 kHz mono int16."""
     try:
         import av  # type: ignore
@@ -215,7 +214,7 @@ def score_linear(pcm, model_path: str, threshold: float) -> dict | None:
     if weights is None:
         return None
     try:
-        logit = sum(float(w) * float(x) for w, x in zip(weights, feats)) + float(bias or 0)
+        logit = sum(float(w) * float(x) for w, x in zip(weights, feats, strict=False)) + float(bias or 0)
         score = 1.0 / (1.0 + math.exp(-max(-60.0, min(60.0, logit))))
         return {
             "ok": True,
@@ -270,10 +269,7 @@ def engine_for_path(model_path: str | None) -> str | None:
 def missing_model_error(wake_word: str) -> str:
     wanted = normalise(wake_word or "friday")
     extra = " or let FRIDAY copy the bundled friday.onnx there" if wanted == "friday" else ""
-    return (
-        f"No wake model for “{wake_word}”. "
-        f"Drop a trained {wanted}.onnx into {wake_model_dir()}{extra}."
-    )
+    return f"No wake model for “{wake_word}”. Drop a trained {wanted}.onnx into {wake_model_dir()}{extra}."
 
 
 def probe_payload(wake_word: str, explicit: str | None = None) -> dict:
@@ -344,7 +340,7 @@ def serve() -> int:
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
     for raw in sys.stdin:
         line = raw.strip()

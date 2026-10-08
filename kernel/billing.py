@@ -85,7 +85,7 @@ def paid_unlocked(billing: Any, now: int | None = None) -> tuple[bool, str]:
 
 
 def billing_class(model: Any) -> str:
-    """"free" | "paid" | "unknown". Unknown remains distinct from paid."""
+    """ "free" | "paid" | "unknown". Unknown remains distinct from paid."""
     if model is None:
         return "unknown"
     options = getattr(model, "options", None)
@@ -113,9 +113,14 @@ def billing_class(model: Any) -> str:
         ver = str(record.get("verification") or "").upper()
         if elig in ("EXHAUSTED", "NOT_ELIGIBLE"):
             return "paid" if mode == "PAID" else "unknown"
-        if ver == "VERIFIED" and mode in ("ZERO_COST", "FREE_QUOTA", "FREE_CREDIT") and elig in (
-            "ELIGIBLE",
-            "RATE_LIMITED",
+        if (
+            ver == "VERIFIED"
+            and mode in ("ZERO_COST", "FREE_QUOTA", "FREE_CREDIT")
+            and elig
+            in (
+                "ELIGIBLE",
+                "RATE_LIMITED",
+            )
         ):
             return "free"
         if mode == "PAID":
@@ -200,4 +205,3 @@ def describe_block(verdict: dict[str, Any], model: Any) -> str:
     kind = verdict.get("billingClass")
     prefix = "paid model" if kind == "paid" else "model with unverified billing"
     return f"{label} is a {prefix} — blocked: {verdict.get('reason', 'not authorised')}"
-

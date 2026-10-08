@@ -96,9 +96,7 @@ class MigrationTests(unittest.TestCase):
         names = {row[1] for row in saved.execute("PRAGMA table_info(tasks)")}
         self.assertNotIn("priority", names)
         self.assertNotIn("idempotency_key", names)
-        versions = saved.execute(
-            "SELECT key FROM settings WHERE key='schema_version'"
-        ).fetchall()
+        versions = saved.execute("SELECT key FROM settings WHERE key='schema_version'").fetchall()
         saved.close()
         self.assertEqual(versions, [])
         live = {row["name"] for row in storage.conn.execute("PRAGMA table_info(tasks)")}

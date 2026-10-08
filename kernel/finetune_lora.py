@@ -52,7 +52,7 @@ def fail(message: str, code: int = 1) -> None:
 def load_dataset(path: str):
     """Read the JSONL experience dataset: {"prompt": ..., "response": ...}."""
     rows = []
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:
@@ -74,7 +74,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        with open(args.config, "r", encoding="utf-8") as handle:
+        with open(args.config, encoding="utf-8") as handle:
             job = json.load(handle)
     except OSError as error:
         fail(f"Could not read the training job: {error}")
@@ -117,7 +117,7 @@ def main() -> None:
     emit("dataset", examples=len(rows))
 
     quantised = bool(job.get("quantised", True))
-    cuda = bool(getattr(__import__("torch"), "cuda").is_available())
+    cuda = bool(__import__("torch").cuda.is_available())
     load_kwargs = {}
     if quantised and cuda:
         try:
@@ -140,9 +140,7 @@ def main() -> None:
         tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=False)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            base_model, trust_remote_code=False, **load_kwargs
-        )
+        model = AutoModelForCausalLM.from_pretrained(base_model, trust_remote_code=False, **load_kwargs)
     except Exception as error:
         fail(f"The base model could not be loaded locally: {error}")
         return
@@ -163,10 +161,7 @@ def main() -> None:
     max_len = int(job.get("maxLength", 1024))
 
     def render(example):
-        text = (
-            f"<|user|>\n{example['prompt']}\n<|assistant|>\n{example['response']}"
-            f"{tokenizer.eos_token or ''}"
-        )
+        text = f"<|user|>\n{example['prompt']}\n<|assistant|>\n{example['response']}{tokenizer.eos_token or ''}"
         return tokenizer(text, truncation=True, max_length=max_len)
 
     data = Dataset.from_list(rows).map(render, remove_columns=["prompt", "response"])

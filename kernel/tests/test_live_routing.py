@@ -45,9 +45,7 @@ class LiveRoutingTests(unittest.TestCase):
     def test_paid_only_auto_keeps_only_paid_when_kernel_policy_matches(self):
         router = make_router()
         router.set_billing({"paidAccess": True, "autoPaidUsage": True}, "paid-only")
-        ids = router.ids_for_live(
-            {"routeMode": "auto", "policy": "paid-only", "selected": []}
-        )
+        ids = router.ids_for_live({"routeMode": "auto", "policy": "paid-only", "selected": []})
         self.assertEqual(ids, ["openai:gpt-4o"])
 
     def test_local_only_plus_paid_only_is_empty_and_explains(self):
@@ -86,9 +84,7 @@ class LiveRoutingTests(unittest.TestCase):
         """The bug Part B found: live says paid-only but kernel still free-preferred."""
         router = make_router()
         # Default kernel policy is free-preferred; paid is not spendable.
-        ids = router.ids_for_live(
-            {"routeMode": "auto", "policy": "paid-only", "selected": []}
-        )
+        ids = router.ids_for_live({"routeMode": "auto", "policy": "paid-only", "selected": []})
         self.assertEqual(ids, [])
         router.set_billing({"paidAccess": True, "autoPaidUsage": True}, "paid-only")
         self.assertEqual(

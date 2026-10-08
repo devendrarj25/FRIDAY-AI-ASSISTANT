@@ -128,8 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path.endswith("/messages"):
             if wants_tool:
                 frames = [
-                    'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"fs_read"}}',
-                    'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"path\\":\\"a.txt\\"}"}}',
+                    'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"fs_read"}}',  # noqa: E501
+                    'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"path\\":\\"a.txt\\"}"}}',  # noqa: E501
                 ]
             else:
                 frames = [
@@ -139,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             if wants_tool:
                 frames = [
-                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"fs_read","arguments":"{\\"path\\":\\"a.txt\\"}"}}]}}]}',
+                    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"fs_read","arguments":"{\\"path\\":\\"a.txt\\"}"}}]}}]}',  # noqa: E501
                     "data: [DONE]",
                 ]
             else:
@@ -189,9 +189,7 @@ def _drain(engine: ModelRouter, model_ids: list[str]) -> dict[str, str]:
         try:
             for model_id in model_ids:
                 parts: list[str] = []
-                async for piece in engine.stream(
-                    "Hi", [model_id], allow_fallback=False, privacy_confirmed=True
-                ):
+                async for piece in engine.stream("Hi", [model_id], allow_fallback=False, privacy_confirmed=True):
                     if isinstance(piece, dict) and piece.get("delta"):
                         parts.append(str(piece["delta"]))
                     elif isinstance(piece, dict) and piece.get("error"):
@@ -205,7 +203,7 @@ def _drain(engine: ModelRouter, model_ids: list[str]) -> dict[str, str]:
 
 
 def test_every_provider_lists_and_streams(stub):
-    with urlopen(f"{stub}/v1/models", timeout=5) as res:
+    with urlopen(f"{stub}/v1/models", timeout=5) as res:  # noqa: S310
         listed = json.loads(res.read().decode())
     assert listed["data"][0]["id"] == "stub-model"
 
@@ -228,7 +226,9 @@ def test_every_provider_lists_and_streams(stub):
                 "api_key": "test-key-not-a-secret",
                 "contextK": 8,
                 "status": "ready",
-                "type": "local" if provider in {"ollama", "lmstudio", "llamacpp", "vllm", "localai", "jan", "mlx", "local"} else "cloud",
+                "type": "local"
+                if provider in {"ollama", "lmstudio", "llamacpp", "vllm", "localai", "jan", "mlx", "local"}
+                else "cloud",
                 "access": "free",
                 "options": options,
             }

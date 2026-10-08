@@ -194,6 +194,7 @@ describe("node toolchain version set", () => {
     expect(testWorkflow).toContain("windows-installer-smoke.ps1");
     expect(releaseWorkflow).toContain("windows-installer-smoke.ps1");
     expect(prWorkflow).toContain("windows-installer-smoke.ps1");
+    expect(prWorkflow).toContain("npm run lint");
   });
 
   it("uses the workspace selected by Setup after reinstall or repair", () => {

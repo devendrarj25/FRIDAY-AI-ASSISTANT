@@ -141,7 +141,7 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [AGENTS.md](https://agents.md/) | ADOPT | Commands first, one root file, nest another file only when a subtree breaks a root rule. |
 | [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) | ADOPT | contextIsolation, sandbox, CSP, IPC sender checks, and navigation limits stay the bar. |
 | [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADOPT | Startup and shutdown use one lifespan. Typed models and OpenAPI stay the contract. |
-| [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules. |
+| [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules. Floor `ruff>=0.15.0` in `kernel/requirements-dev.txt` (MIT, about 23 MB, not packaged). |
 | [Pyright](https://microsoft.github.io/pyright/) | ADAPT | A shrinking baseline on the kernel. Full strict would churn unrelated files. |
 | [Knip](https://knip.dev/) | ADAPT | Dev-only dead-export check. A finding is removed only when no caller remains. |
 | [Madge](https://github.com/pahen/madge) | ADAPT | Dev-only cycle check. A cycle is fixed in the existing modules. |

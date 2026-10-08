@@ -19,10 +19,7 @@ from tests.test_planner_resume import (  # noqa: E402
     drain,
 )
 
-PLAN_SAFE = (
-    '{"steps":[{"title":"one","tool":"read","args":{}},'
-    '{"title":"two","tool":"read","args":{}}]}'
-)
+PLAN_SAFE = '{"steps":[{"title":"one","tool":"read","args":{}},{"title":"two","tool":"read","args":{}}]}'
 
 
 class FlakyTools:
@@ -133,8 +130,14 @@ class PlannerControlTests(unittest.TestCase):
         self.storage.create_task("task-x", "unfinished")
         self.storage.save_checkpoint(
             "task-x",
-            {"goal": "unfinished", "plan": [{"title": "one", "tool": "read"}], "stepIndex": 0,
-             "state": "running", "modelIds": [], "results": []},
+            {
+                "goal": "unfinished",
+                "plan": [{"title": "one", "tool": "read"}],
+                "stepIndex": 0,
+                "state": "running",
+                "modelIds": [],
+                "results": [],
+            },
         )
         recovered = self._planner(FlakyTools(failures=0)).recover()
         self.assertEqual([c["taskId"] for c in recovered], ["task-x"])
@@ -148,10 +151,14 @@ class PlannerControlTests(unittest.TestCase):
         self.storage.create_task("task-y", "half done")
         self.storage.save_checkpoint(
             "task-y",
-            {"goal": "half done",
-             "plan": [{"title": "one", "tool": "read", "args": {}},
-                      {"title": "two", "tool": "read", "args": {}}],
-             "stepIndex": 1, "state": "interrupted", "modelIds": [], "results": []},
+            {
+                "goal": "half done",
+                "plan": [{"title": "one", "tool": "read", "args": {}}, {"title": "two", "tool": "read", "args": {}}],
+                "stepIndex": 1,
+                "state": "interrupted",
+                "modelIds": [],
+                "results": [],
+            },
         )
         events = asyncio.run(drain(planner.resume("task-y")))
         self.assertEqual(events[0]["type"], "resumed")

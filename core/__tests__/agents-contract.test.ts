@@ -101,7 +101,7 @@ describe("AGENTS.md anchors", () => {
       expect(named).toContain(required);
     }
     expect(text).toContain("`npm test`");
-    expect(pkg.scripts.test).toBeTruthy();
+    expect(pkg.scripts["test"]).toBeTruthy();
   });
 
   it("only names registered product docs", () => {

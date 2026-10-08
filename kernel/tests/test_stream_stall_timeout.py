@@ -58,9 +58,7 @@ async def test_a_stalled_server_fails_within_the_read_timeout_instead_of_hanging
 
     server = await asyncio.start_server(stall, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(None, connect=20.0, read=1.0, write=1.0, pool=1.0)
-    ) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=20.0, read=1.0, write=1.0, pool=1.0)) as client:
         started = time.monotonic()
         with pytest.raises(httpx.TimeoutException) as caught:
             await client.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={})

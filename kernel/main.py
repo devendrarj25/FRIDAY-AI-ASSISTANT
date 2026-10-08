@@ -14,24 +14,27 @@ import os
 import secrets
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-import yaml
+from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import devices_network
 import uvicorn
-
-from companion import CompanionStore, build_router, phone_broadcast, phones_connected
+import yaml
+from authority import Authority
+from companion import _PHONE_SENDER, CompanionStore, build_router, phone_broadcast, phones_connected
 from db import Storage
-from memory import VectorMemory
-from modules import ModuleRegistry
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from http_contract import HealthBody, VersionBody, product_version
 from planner import Planner
 from router import ModelRouter, describe_failure, is_local_model
 from runner import ProjectRunner
 from runtimes import RuntimeManager
-from authority import Authority
-from tools import ToolRegistry
-import devices_network
 from workspace import Workspace
+
+from memory import VectorMemory
+from modules import ModuleRegistry
+from tools import ToolRegistry
 
 HOST = os.environ.get("FRIDAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("FRIDAY_PORT", "8765"))
@@ -45,10 +48,7 @@ elif WORKSPACE_ROOT:
     # A folder was picked but the launcher forgot to pass FRIDAY_DATA_DIR —
     # keep the data inside the chosen folder rather than the home directory.
     DATA_DIR = Path(WORKSPACE_ROOT) / "data"
-    print(
-        "[data] FRIDAY_DATA_DIR was not set; falling back to the chosen workspace "
-        f"folder: {DATA_DIR}"
-    )
+    print(f"[data] FRIDAY_DATA_DIR was not set; falling back to the chosen workspace folder: {DATA_DIR}")
 else:
     # Single-root rule: without a selected FRIDAY folder the kernel would have
     # to invent a second FRIDAY-owned data store (AppData / home). It refuses
@@ -188,9 +188,7 @@ if WORKSPACE_ROOT:
 # --------------------------------------------------------------- companion
 # Phone companion: off unless the desktop app explicitly enabled LAN access.
 COMPANION_ENABLED = os.environ.get("FRIDAY_LAN", "") in ("1", "true", "yes")
-COMPANION_STORE = CompanionStore(
-    (Path(WORKSPACE_ROOT) / "config" if WORKSPACE_ROOT else DATA_DIR) / "companion.json"
-)
+COMPANION_STORE = CompanionStore((Path(WORKSPACE_ROOT) / "config" if WORKSPACE_ROOT else DATA_DIR) / "companion.json")
 
 
 # ------------------------------------------------------- one shared session
@@ -248,7 +246,7 @@ async def ask_desktop_privacy(model, content: str, decision: dict) -> bool:
     )
     try:
         return bool(await asyncio.wait_for(fut, timeout=120))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False
     finally:
         _PRIVACY_ASKS.pop(ask_id, None)
@@ -282,7 +280,9 @@ async def settle_phone_cognize_done(session_id: str, text: str | None, error: st
         _PHONE_COGNIZE_STORED.add(sid)
         await asyncio.to_thread(storage.append_chat, sid, "assistant", body, None, origin="phone")
         sender_ws = _PHONE_COGNIZE_SENDER.get(sid)
-        await phone_broadcast({"type": "peer", "role": "assistant", "text": body, "origin": "desktop"}, exclude_ws=sender_ws)
+        await phone_broadcast(
+            {"type": "peer", "role": "assistant", "text": body, "origin": "desktop"}, exclude_ws=sender_ws
+        )
         await q.put({"delta": body})
     await q.put(None)
 
@@ -303,8 +303,10 @@ async def companion_chat(prompt: str, send, extra: str | None = None) -> None:
     _PHONE_COGNIZE_STORED.discard(session_id)
     await asyncio.to_thread(storage.append_chat, session_id, "user", prompt, origin="phone")
     await broadcast(
-        {"type": "session.message", "data": {"sessionId": session_id, "role": "user",
-                                             "text": prompt, "origin": "phone"}}
+        {
+            "type": "session.message",
+            "data": {"sessionId": session_id, "role": "user", "text": prompt, "origin": "phone"},
+        }
     )
     # Other paired phones share this conversation live; the sender is excluded
     # by phone_broadcast (it already rendered the turn locally).
@@ -338,16 +340,22 @@ async def companion_chat(prompt: str, send, extra: str | None = None) -> None:
                 model_id = delta.get("modelId") or model_id
                 chunks.append(delta["delta"])
                 await send({"type": "delta", "text": delta["delta"]})
-                await broadcast({"type": "chat.delta", "data": {**delta, "origin": "phone",
-                                                                "sessionId": session_id}})
+                await broadcast({"type": "chat.delta", "data": {**delta, "origin": "phone", "sessionId": session_id}})
         answer = "".join(chunks).strip()
         if not answer:
             raise RuntimeError("FRIDAY received no reply from an eligible model.")
         await asyncio.to_thread(storage.append_chat, session_id, "assistant", answer, model_id, origin="phone")
         await broadcast(
-            {"type": "session.message", "data": {"sessionId": session_id, "role": "assistant",
-                                                 "text": answer, "origin": "phone",
-                                                 "modelId": model_id}}
+            {
+                "type": "session.message",
+                "data": {
+                    "sessionId": session_id,
+                    "role": "assistant",
+                    "text": answer,
+                    "origin": "phone",
+                    "modelId": model_id,
+                },
+            }
         )
         await phone_broadcast({"type": "peer", "role": "assistant", "text": answer, "origin": "phone"})
 
@@ -369,10 +377,14 @@ async def companion_chat(prompt: str, send, extra: str | None = None) -> None:
         )
         try:
             await asyncio.wait_for(ack.wait(), 3.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _PHONE_COGNIZE.pop(session_id, None)
             _PHONE_COGNIZE_ACK.pop(session_id, None)
-            await kernel_stream()
+            try:
+                await kernel_stream()
+            finally:
+                _PHONE_COGNIZE_SENDER.pop(session_id, None)
+                _PHONE_COGNIZE_STORED.discard(session_id)
             return
         chunks: list[str] = []
         try:
@@ -387,8 +399,8 @@ async def companion_chat(prompt: str, send, extra: str | None = None) -> None:
                 if item.get("delta"):
                     chunks.append(str(item["delta"]))
                     await send({"type": "delta", "text": item["delta"]})
-        except asyncio.TimeoutError:
-            raise RuntimeError("Desktop Core Brain did not finish this phone turn.")
+        except TimeoutError as exc:
+            raise RuntimeError("Desktop Core Brain did not finish this phone turn.") from exc
         finally:
             _PHONE_COGNIZE.pop(session_id, None)
             _PHONE_COGNIZE_ACK.pop(session_id, None)
@@ -399,7 +411,11 @@ async def companion_chat(prompt: str, send, extra: str | None = None) -> None:
             raise RuntimeError("FRIDAY received no reply from an eligible model.")
         return
 
-    await kernel_stream()
+    try:
+        await kernel_stream()
+    finally:
+        _PHONE_COGNIZE_SENDER.pop(session_id, None)
+        _PHONE_COGNIZE_STORED.discard(session_id)
 
 
 async def companion_speak(text: str) -> str | None:
@@ -420,7 +436,7 @@ async def companion_speak(text: str) -> str | None:
             audio = voice_runtime.speak_wav_bytes(text[:1200])
             if audio:
                 return base64.b64encode(audio).decode("ascii")
-        except Exception:
+        except Exception:  # noqa: S110 — local voice missing falls through to the explicit cloud opt-in
             pass
         opted = os.environ.get("FRIDAY_CLOUD_SPEECH", "").strip().lower() in {"1", "true", "on"}
         if not opted:
@@ -434,9 +450,10 @@ async def companion_speak(text: str) -> str | None:
             return None
         try:
             subprocess.run(
-                [sys.executable, "-m", "edge_tts", "--voice", voice, "--text", text[:1200],
-                 "--write-media", str(out)],
-                capture_output=True, timeout=45, check=False,
+                [sys.executable, "-m", "edge_tts", "--voice", voice, "--text", text[:1200], "--write-media", str(out)],
+                capture_output=True,
+                timeout=45,
+                check=False,
             )
             if out.exists() and out.stat().st_size > 0:
                 return base64.b64encode(out.read_bytes()).decode("ascii")
@@ -481,15 +498,18 @@ async def companion_transcribe(audio: bytes, mime: str, language: str) -> dict:
             out = (proc.stdout or b"").decode("utf-8", "ignore")
             start = out.rfind("{")
             if start < 0:
-                return {"ok": False, "error": (proc.stderr or b"").decode("utf-8", "ignore")[-400:]
-                        or "the transcriber returned nothing"}
+                return {
+                    "ok": False,
+                    "error": (proc.stderr or b"").decode("utf-8", "ignore")[-400:]
+                    or "the transcriber returned nothing",
+                }
             return json.loads(out[start:])
         except Exception as exc:  # noqa: BLE001 — reported to the phone verbatim
             return {"ok": False, "error": str(exc)[-400:]}
         finally:
             try:
                 tmp.unlink()
-            except Exception:
+            except Exception:  # noqa: S110 — the temp file is already gone
                 pass
 
     return await asyncio.to_thread(run)
@@ -558,9 +578,11 @@ async def companion_task(goal: str, send) -> None:
             await send({"type": "step", "text": f"→ {event.get('title') or event.get('stepId')}"})
         elif kind == "approval-required":
             await send(
-                {"type": "step",
-                 "text": "This step needs your approval. Open FRIDAY on the PC and allow it — "
-                         "the task resumes from where it paused."}
+                {
+                    "type": "step",
+                    "text": "This step needs your approval. Open FRIDAY on the PC and allow it — "
+                    "the task resumes from where it paused.",
+                }
             )
         elif kind == "retry":
             await send({"type": "step", "text": f"Retrying step ({event.get('error')})"})
@@ -587,7 +609,6 @@ def companion_payload() -> dict:
 def companion_features_path() -> Path:
     base = Path(WORKSPACE_ROOT) / "config" if WORKSPACE_ROOT else DATA_DIR
     return base / "companion-features.json"
-
 
 
 def companion_capability_list() -> list[dict]:
@@ -637,7 +658,6 @@ app.include_router(
 )
 
 
-@app.on_event("startup")
 async def _watch_companion_registry() -> None:
     """The desktop republishes its registry whenever a capability changes.
 
@@ -657,7 +677,7 @@ async def _watch_companion_registry() -> None:
                 continue
             try:
                 stamp = companion_features_path().stat().st_mtime_ns
-            except Exception:
+            except Exception:  # noqa: S112 — the menu file is absent until the desktop writes it
                 continue
             if stamp == last:
                 continue
@@ -676,8 +696,6 @@ async def _watch_companion_registry() -> None:
     asyncio.get_event_loop().create_task(loop())
 
 
-
-
 def project_runner() -> ProjectRunner:
     """Built per call so it always sees the currently selected workspace."""
     roots = []
@@ -686,17 +704,20 @@ def project_runner() -> ProjectRunner:
     return ProjectRunner(roots)
 
 
+@app.get("/health", response_model=HealthBody)
+async def health() -> HealthBody:
+    return HealthBody(
+        ok=True,
+        version=app.version,
+        data_dir=str(DATA_DIR),
+        models=[m.public() for m in router.models()],
+    )
 
 
-
-@app.get("/health")
-async def health() -> dict:
-    return {
-        "ok": True,
-        "version": app.version,
-        "data_dir": str(DATA_DIR),
-        "models": [m.public() for m in router.models()],
-    }
+@app.get("/version", response_model=VersionBody)
+async def version() -> VersionBody:
+    """Product line plus the kernel API version. Loopback, no bridge token."""
+    return VersionBody(ok=True, product=product_version(), kernel=app.version)
 
 
 async def dispatch(method: str, params: dict, send) -> dict:
@@ -752,9 +773,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             privacy_confirmed=bool(params.get("privacyConfirmed", False)),
             route_mode=route_mode,
             privacy=str(privacy_mode) if privacy_mode else None,
-            surface=params.get("routingSurface")
-            if params.get("routingSurface") in ("voice", "chat")
-            else None,
+            surface=params.get("routingSurface") if params.get("routingSurface") in ("voice", "chat") else None,
         ):
             if delta.get("delta"):
                 replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])
@@ -778,7 +797,9 @@ async def dispatch(method: str, params: dict, send) -> dict:
             if phone_cognize:
                 _PHONE_COGNIZE_STORED.add(session_id)
             sender_ws = _PHONE_COGNIZE_SENDER.get(session_id) if phone_cognize else None
-            await phone_broadcast({"type": "peer", "role": "assistant", "text": answer, "origin": origin}, exclude_ws=sender_ws)
+            await phone_broadcast(
+                {"type": "peer", "role": "assistant", "text": answer, "origin": origin}, exclude_ws=sender_ws
+            )
         if not replies:
             return {
                 "done": False,
@@ -797,11 +818,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
         by_id = {m.id: m for m in router.models()}
         if wanted:
             targets = [
-                by_id[i]
-                for i in wanted
-                if i in by_id
-                and by_id[i].status == "ready"
-                and router.can_chat(by_id[i])
+                by_id[i] for i in wanted if i in by_id and by_id[i].status == "ready" and router.can_chat(by_id[i])
             ]
             if not targets:
                 return {
@@ -824,9 +841,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             eligible = [by_id[i] for i in live_ids if i in by_id]
             # A writing request prefers a coder, but only inside the exact pool
             # already authorized by the desktop route/cost/health snapshot.
-            targets = [m for m in eligible if m.role == "coder"] + [
-                m for m in eligible if m.role != "coder"
-            ]
+            targets = [m for m in eligible if m.role == "coder"] + [m for m in eligible if m.role != "coder"]
         if not targets:
             return {"ok": False, "error": "No ready AI model is configured to write with."}
         requirements = params.get("requirements") if isinstance(params.get("requirements"), dict) else {}
@@ -904,9 +919,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "tool.exec":
         # No caller-supplied approval flag: a non-safe tool runs only with a
         # signed, single-use authorization from the desktop permission gate.
-        return await tools.execute(
-            params["name"], params.get("args", {}), authorization=params.get("authorization")
-        )
+        return await tools.execute(params["name"], params.get("args", {}), authorization=params.get("authorization"))
     if method == "session.active":
         # The desktop tells the kernel which conversation is open, so a phone
         # turn lands in the same one; with no id it just reports the current.
@@ -914,9 +927,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             globals()["ACTIVE_SESSION"] = str(params["sessionId"])
         return {"sessionId": ACTIVE_SESSION}
     if method == "chat.sessions":
-        return {
-            "sessions": await asyncio.to_thread(storage.chat_sessions, params.get("limit", 40))
-        }
+        return {"sessions": await asyncio.to_thread(storage.chat_sessions, params.get("limit", 40))}
     if method == "chat.history":
         return {
             "sessionId": params.get("sessionId", "main"),
@@ -1008,7 +1019,6 @@ async def dispatch(method: str, params: dict, send) -> dict:
     raise ValueError(f"unknown method: {method}")
 
 
-
 @app.websocket("/bridge")
 async def bridge(ws: WebSocket) -> None:
     await ws.accept()
@@ -1060,7 +1070,6 @@ async def bridge(ws: WebSocket) -> None:
         DESKTOP_CLIENTS.discard(ws)
 
 
-@app.on_event("startup")
 async def on_startup() -> None:
     # Re-scan the primary folder on every app restart, then keep watching it.
     if workspace.root is None:
@@ -1088,14 +1097,23 @@ async def on_startup() -> None:
     await workspace.start()
 
 
+@asynccontextmanager
+async def _kernel_lifespan(_app: FastAPI):
+    """One startup and shutdown path. Replaces the deprecated on_event hooks."""
+    await _watch_companion_registry()
+    await on_startup()
+    yield
+
+
+app.router.lifespan_context = _kernel_lifespan
 
 
 def main() -> None:
     modules.load_all()
     asyncio.run(memory.open())
-    # Loopback by default. The phone companion is the only reason to listen on
-    # the LAN, and only when the desktop app explicitly turned it on.
-    bind = "0.0.0.0" if COMPANION_ENABLED else HOST
+    # Loopback by default. The phone companion is the only LAN bind, and only
+    # when the desktop app explicitly turned it on.
+    bind = "0.0.0.0" if COMPANION_ENABLED else HOST  # noqa: S104
     ssl_cert = os.environ.get("FRIDAY_SSL_CERT")
     ssl_key = os.environ.get("FRIDAY_SSL_KEY")
     ssl_kwargs = {}
@@ -1103,7 +1121,6 @@ def main() -> None:
         ssl_kwargs["ssl_certfile"] = ssl_cert
         ssl_kwargs["ssl_keyfile"] = ssl_key
     uvicorn.run(app, host=bind, port=PORT, log_level="info", **ssl_kwargs)
-
 
 
 if __name__ == "__main__":

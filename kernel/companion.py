@@ -17,6 +17,7 @@ import secrets
 import time
 from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -196,10 +197,7 @@ class CompanionStore:
         return None
 
     def phones(self) -> list[dict]:
-        return [
-            {k: v for k, v in phone.items() if k != "token"}
-            for phone in self._read().get("phones", [])
-        ]
+        return [{k: v for k, v in phone.items() if k != "token"} for phone in self._read().get("phones", [])]
 
     def revoke(self, phone_id: str) -> bool:
         data = self._read()
@@ -1017,14 +1015,14 @@ def build_router(
                     messages.append(item)
                 if messages:
                     await ws.send_text(json.dumps({"type": "history", "messages": messages}))
-            except Exception:
+            except Exception:  # noqa: S110 — a closed phone must not fail the handshake
                 pass
         if live_provider:
             try:
                 live = live_provider()
                 if isinstance(live, dict) and live:
                     await ws.send_text(json.dumps({"type": "live", "live": live}))
-            except Exception:
+            except Exception:  # noqa: S110 — a closed phone must not fail the handshake
                 pass
 
         async def send(payload: dict) -> None:
@@ -1057,10 +1055,7 @@ def build_router(
                         if len(raw) < 80:
                             await send({"type": "error", "error": "The camera still was empty."})
                             continue
-                        extra = (
-                            f"FILE: phone-camera.jpg (image/jpeg, {len(raw)} bytes)\n"
-                            "  An image was attached."
-                        )
+                        extra = f"FILE: phone-camera.jpg (image/jpeg, {len(raw)} bytes)\n  An image was attached."
                         try:
                             await chat_handler(
                                 "I sent a camera still from my phone. Please look at it.",
@@ -1074,7 +1069,9 @@ def build_router(
 
                     if kind == "audio":
                         if transcribe_handler is None:
-                            await send({"type": "error", "error": "FRIDAY's transcriber is not available on this machine."})
+                            await send(
+                                {"type": "error", "error": "FRIDAY's transcriber is not available on this machine."}
+                            )
                             continue
                         try:
                             import base64
@@ -1103,7 +1100,9 @@ def build_router(
 
                     if kind == "command":
                         if command_handler is None:
-                            await send({"type": "error", "error": "This build cannot run feature reads from the phone."})
+                            await send(
+                                {"type": "error", "error": "This build cannot run feature reads from the phone."}
+                            )
                             continue
                         method = str(message.get("method", ""))
                         label = str(message.get("label", method))
@@ -1137,5 +1136,3 @@ def build_router(
             PHONE_SOCKETS.discard(ws)
 
     return router
-
-

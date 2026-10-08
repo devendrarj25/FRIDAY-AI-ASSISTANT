@@ -85,9 +85,7 @@ def _ocr_page(page) -> tuple[str, str | None]:
             return text, None if text.strip() else "OCR textpage was empty"
         except Exception as exc2:
             return "", f"pytesseract/Pillow missing ({exc}); textpage OCR failed ({exc2})"
-    if not shutil.which("tesseract") and not getattr(
-        getattr(pytesseract, "pytesseract", None), "tesseract_cmd", None
-    ):
+    if not shutil.which("tesseract") and not getattr(getattr(pytesseract, "pytesseract", None), "tesseract_cmd", None):
         return "", "the Tesseract OCR engine was not found on PATH"
     try:
         image = Image.open(BytesIO(png))

@@ -8,7 +8,6 @@ stdout/stderr. Nothing runs outside the folder it was detected in.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import tempfile
@@ -19,7 +18,13 @@ from env_guard import child_env
 # fingerprint -> (language, runtime executable, run command, dependency command)
 PROJECTS = [
     ("package.json", "JavaScript/TypeScript", "node", ["npm", "start"], ["npm", "install"]),
-    ("requirements.txt", "Python", "python", ["python", "main.py"], ["python", "-m", "pip", "install", "-r", "requirements.txt"]),
+    (
+        "requirements.txt",
+        "Python",
+        "python",
+        ["python", "main.py"],
+        ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+    ),
     ("pyproject.toml", "Python", "python", ["python", "-m", "app"], ["python", "-m", "pip", "install", "."]),
     ("pom.xml", "Java", "java", ["mvn", "-q", "exec:java"], ["mvn", "-q", "-DskipTests", "package"]),
     ("build.gradle", "Java", "java", ["gradle", "run"], ["gradle", "build"]),
@@ -115,9 +120,21 @@ class ProjectRunner:
                 "command": " ".join(command),
             }
         except subprocess.TimeoutExpired:
-            return {"ok": False, "code": None, "stdout": "", "stderr": f"Timed out after {timeout}s", "command": " ".join(command)}
+            return {
+                "ok": False,
+                "code": None,
+                "stdout": "",
+                "stderr": f"Timed out after {timeout}s",
+                "command": " ".join(command),
+            }
         except FileNotFoundError:
-            return {"ok": False, "code": None, "stdout": "", "stderr": f"{command[0]} is not installed", "command": " ".join(command)}
+            return {
+                "ok": False,
+                "code": None,
+                "stdout": "",
+                "stderr": f"{command[0]} is not installed",
+                "command": " ".join(command),
+            }
 
     def run(self, project_id: str, install: bool = False, timeout: int = 300) -> dict:
         project = next((p for p in self.detect() if p["id"] == project_id), None)

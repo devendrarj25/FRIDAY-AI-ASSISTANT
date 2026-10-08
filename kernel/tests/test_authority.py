@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest  # noqa: E402
-
 from authority import Authority, hash_args  # noqa: E402
 
 pytest.importorskip("httpx", reason="tool registry needs the kernel runtime deps")
@@ -62,16 +61,12 @@ def test_risky_tool_runs_with_a_matching_authorization(tmp_path):
 def test_authorization_does_not_transfer_to_other_arguments(tmp_path):
     tools = _registry(tmp_path)
     token = tools.authority.issue("fs.write", {"path": "a.txt", "content": "a"}, "write")
-    result = asyncio.run(
-        tools.execute("fs.write", {"path": "b.txt", "content": "b"}, authorization=token)
-    )
+    result = asyncio.run(tools.execute("fs.write", {"path": "b.txt", "content": "b"}, authorization=token))
     assert result["ok"] is False
 
 
 def test_forged_token_is_rejected(tmp_path):
     tools = _registry(tmp_path)
     other = Authority("different-secret").issue("fs.write", {"path": "x.txt", "content": "no"})
-    result = asyncio.run(
-        tools.execute("fs.write", {"path": "x.txt", "content": "no"}, authorization=other)
-    )
+    result = asyncio.run(tools.execute("fs.write", {"path": "x.txt", "content": "no"}, authorization=other))
     assert result["ok"] is False

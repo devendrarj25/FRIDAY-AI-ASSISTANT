@@ -12,7 +12,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import router
 from router import MODEL_TOOL_BUDGET_SECONDS, MODEL_TOOL_TIMEOUT_SECONDS, ModelRouter
 
 

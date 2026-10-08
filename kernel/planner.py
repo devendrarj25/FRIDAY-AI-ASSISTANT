@@ -17,7 +17,8 @@ import os
 import re
 import time
 import uuid
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 PLAN_SYSTEM = """You are FRIDAY's planner. Break the user's goal into 2-8 concrete steps.
 Return JSON: {"steps":[{"title":str,"tool":str|null,"args":object}]}.
@@ -118,19 +119,14 @@ class Planner:
         self.storage.create_task(task_id, goal, priority=priority, agent=agent)
         yield {"taskId": task_id, "type": "created", "goal": goal, "recalled": recalled}
 
-
         plan_messages = [
             {"role": "system", "content": PLAN_SYSTEM},
             {
                 "role": "system",
                 "content": "Tools: "
-                + json.dumps(
-                    self.tools.shortlist(goal)
-                    if hasattr(self.tools, "shortlist")
-                    else self.tools.describe()
-                ),
+                + json.dumps(self.tools.shortlist(goal) if hasattr(self.tools, "shortlist") else self.tools.describe()),
             },
-            {"role": "system", "content": "Lessons: " + json.dumps([l["title"] for l in lessons])},
+            {"role": "system", "content": "Lessons: " + json.dumps([item["title"] for item in lessons])},
             {"role": "user", "content": goal},
         ]
         plan_t0 = time.perf_counter()
@@ -152,7 +148,7 @@ class Planner:
                 {"role": "assistant", "content": str(plan_raw or "")[:4000]},
                 {
                     "role": "user",
-                    "content": "Return ONLY the JSON object {\"steps\":[...]} with no markdown.",
+                    "content": 'Return ONLY the JSON object {"steps":[...]} with no markdown.',
                 },
             ]
             try:
@@ -191,9 +187,7 @@ class Planner:
         if checkpoint is None or checkpoint.get("state") != "waiting-approval":
             return {"ok": False, "error": "no pending approval"}
         self.storage.record_permission(task_id, step_id, allow)
-        self.storage.save_checkpoint(
-            task_id, {**checkpoint, "state": "approved" if allow else "denied"}
-        )
+        self.storage.save_checkpoint(task_id, {**checkpoint, "state": "approved" if allow else "denied"})
         return {"ok": True, "approved": bool(allow), "taskId": task_id, "stepId": step_id}
 
     async def resume(self, task_id: str) -> AsyncIterator[dict]:
@@ -213,7 +207,6 @@ class Planner:
             return
         # A resume clears any stale cancel flag from the previous attempt.
         self.storage.clear_cancel(task_id)
-
 
         yield {
             "taskId": task_id,
@@ -342,9 +335,7 @@ class Planner:
                             )
                             break  # an authorization refusal never improves on retry
                     started = time.monotonic()
-                    result = await self.tools.execute(
-                        tool_name, step_args, authorization=authorization
-                    )
+                    result = await self.tools.execute(tool_name, step_args, authorization=authorization)
                     duration_ms = int((time.monotonic() - started) * 1000)
                     self.storage.log_step(
                         task_id,
@@ -423,7 +414,6 @@ class Planner:
             self.storage.finish_task(checkpoint["taskId"], "interrupted")
             recovered.append(updated)
         return recovered
-
 
     async def _write_lesson(self, brain, goal: str, step: dict, result: dict) -> None:
         if not self.write_lessons:
