@@ -7,6 +7,7 @@
  * existing approval policy still own those.
  */
 
+import { personalOffer } from "./proactive-line";
 import { redactRunText } from "./self/run-receipt";
 import {
   emptySenseMemory,
@@ -534,9 +535,9 @@ export function dailyBrief(input: {
   orders: string[];
   events: string[];
   openTasks: number;
-}): { slot: "morning" | "evening" | "none"; text: string } {
+}): { slot: "morning" | "evening" | "none"; text: string; offer: string } {
   const slot = briefSlot(input.hour);
-  if (slot === "none") return { slot, text: "" };
+  if (slot === "none") return { slot, text: "", offer: briefOffer(input) };
   const orders = input.orders
     .map((line) => redactRunText(line))
     .filter(Boolean)
@@ -552,7 +553,17 @@ export function dailyBrief(input: {
     events.length ? `Calendar: ${events.join("; ")}.` : "Nothing on the calendar.",
     `${tasks} open task${tasks === 1 ? "" : "s"}.`,
   ];
-  return { slot, text: `${head} ${bits.join(" ")}` };
+  return { slot, text: `${head} ${bits.join(" ")}`, offer: briefOffer(input) };
+}
+
+function briefOffer(input: { hour: number; openTasks: number }): string {
+  return personalOffer({
+    hour: input.hour,
+    quiet: inQuietHours(input.hour),
+    budgetLeft: 1,
+    name: "",
+    openLoops: input.openTasks,
+  });
 }
 
 /**

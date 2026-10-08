@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { desktopApi } from "@/lib/friday/desktop";
-import { voiceSelfTestPlan } from "@/lib/friday/voice-doctor";
+import {
+  ownerAcceptanceSteps,
+  voiceReadinessNote,
+  voiceSelfTestPlan,
+} from "@/lib/friday/voice-doctor";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { assistantMode } from "@/lib/friday/assistant-mode";
@@ -237,11 +241,39 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
+          <label className="block">
+            <span className="label-xs text-muted-foreground">Warmth</span>
+            <select
+              value={prefs.fields["warmth"] || "steady"}
+              onChange={(e) => preferences.update({ fields: { warmth: e.target.value } })}
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="plain" className="bg-background">
+                Plain
+              </option>
+              <option value="steady" className="bg-background">
+                Steady
+              </option>
+              <option value="warm" className="bg-background">
+                Warm
+              </option>
+            </select>
+          </label>
           <div className="block sm:col-span-2">
             <p className="label-xs text-muted-foreground">Voice check</p>
             <p className="mt-1 font-mono text-[11px] text-muted-foreground">
               {voiceSelfTestPlan().join(" → ")}. This page does not open the microphone. The live
               check runs in Auto mode.
+            </p>
+            <ol className="mt-2 list-decimal space-y-1 pl-4 font-mono text-[11px] text-muted-foreground">
+              {ownerAcceptanceSteps().map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+            <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+              {voiceReadinessNote("").includes("Flow resume")
+                ? "A simulated clean PC reaches listening again. This page still does not open the microphone."
+                : "The simulated voice flow did not finish. Doctor has the detail."}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button

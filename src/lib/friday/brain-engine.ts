@@ -45,7 +45,7 @@ import { considerCollaboration, type CollaborationDecision } from "./brain/multi
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
 import { baselineRespond, type BaselineReply } from "./brain/baseline-responder";
 import { everydayPlan } from "./everyday";
-import { shapeReply } from "./response-policy";
+import { shapeReply, type TalkLevel, type Warmth } from "./response-policy";
 import { understandTurn, toUnderstandingTrace } from "./brain/intent-engine";
 import { decideAction } from "./brain/decision-engine";
 import { bindActiveGraph, persistAndResetConversation } from "./brain/conversation-state";
@@ -57,12 +57,28 @@ import { appendTraceStep, completeRunningStep, type TurnTraceStep } from "./brai
 import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
 import { vary } from "./brain/anti-repeat";
+import { conversationSight } from "./conversation-sight";
+import { replyKeepsHelp } from "./eval-corpus";
+import { thinkBudget, tracePlan, withinBudget } from "./think-budget";
 
 /**
  * Fill a turn's routing options from the single source of truth (the model
  * registry) whenever the caller did not supply them. Chat, voice and Auto Mode
  * therefore route identically for identical conditions.
  */
+function ownerShape(prompt: string, text: string) {
+  let talk: TalkLevel = "balanced";
+  let warmth: Warmth = "steady";
+  try {
+    const fields = preferences.getSnapshot().fields;
+    if (fields["talk"] === "reserved" || fields["talk"] === "chatty") talk = fields["talk"];
+    if (fields["warmth"] === "plain" || fields["warmth"] === "warm") warmth = fields["warmth"];
+  } catch {
+    /* preferences are unavailable in some previews */
+  }
+  return shapeReply({ prompt, text, talk, warmth });
+}
+
 export function withRoutingDefaults(options: {
   extra?: string;
   modelIds?: string[];
@@ -1460,6 +1476,21 @@ class BrainStore {
       routingContract?: ModelRoutingContract;
     } = {},
   ) {
+    const surface = this.autoMode ? "voice" : "chat";
+    const budget = thinkBudget(surface);
+    const traces = tracePlan(["understand", "evidence", "answer"], surface);
+    withinBudget(0, surface);
+    const sight = conversationSight({
+      asked: /\b(screen|camera|dekho|looking at)\b/i.test(text),
+      handoff: looksSensitive(text),
+      text: String(options.extra || ""),
+    });
+    if (sight.text) {
+      options = {
+        ...options,
+        extra: `${options.extra || ""}\nUntrusted screen data: ${sight.text}`.trim(),
+      };
+    }
     const history = this.state.messages.map((m) => ({ role: m.role, text: m.text }));
     const tContext = Date.now();
     affect.observePrompt(text);
@@ -1483,7 +1514,7 @@ class BrainStore {
           mode: this.autoMode ? "auto" : "manual",
           prompt: text,
           modelIds: [],
-          routing,
+          routing: `${routing} · ${budget.steps} steps${traces.some((row) => row.uncertain) ? " · cut" : ""}`,
           policy: currentPolicy(),
           confidence: null,
         });
@@ -1582,13 +1613,16 @@ class BrainStore {
     taskGraph.noteOwnerActivity();
     registerTaskRunners();
 
-    const care = shapeReply({ prompt: work, text: "" });
+    const care = ownerShape(work, "");
     if (care.feeling.label === "distress") {
       stampUnderstanding("distress — no model");
+      const safe = replyKeepsHelp(care.text, true)
+        ? care.text
+        : "I'm here with you. iCall or AASRA can help.";
       void this.answerFromBaseline(run, {
         handled: true,
         kind: "smalltalk",
-        text: care.text,
+        text: safe,
         confidence: 1,
       });
       return;
@@ -1690,7 +1724,7 @@ class BrainStore {
       stampUnderstanding("baseline — no model");
       const shaped =
         baseline.text && (care.feeling.label === "anger" || care.feeling.label === "hurry")
-          ? shapeReply({ prompt: work, text: baseline.text }).text
+          ? ownerShape(work, baseline.text).text
           : baseline.text;
       void this.answerFromBaseline(
         run,

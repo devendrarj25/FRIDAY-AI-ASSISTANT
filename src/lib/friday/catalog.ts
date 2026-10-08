@@ -88,6 +88,18 @@ export const catalog: CatalogEntry[] = [
     "required",
   ),
   E(
+    "FRIDAY Python",
+    "Languages & Runtimes",
+    "github.com/astral-sh",
+    "https://github.com/astral-sh/python-build-standalone",
+    "vendor",
+    null,
+    "3.12.15",
+    "45 MB",
+    "recommended",
+    "Pinned relocatable CPython 3.12.15 for the voice runtime. PSF-2.0. A system Python and WinGet stay as a later path.",
+  ),
+  E(
     "Node.js LTS",
     "Languages & Runtimes",
     "nodejs.org",

@@ -10,6 +10,10 @@ import { redactForExport } from "../../src/lib/friday/brain/memory-policy";
 import { screenTextIsData } from "../../src/lib/friday/self/computer-use";
 import { timelineFromEvidence, type EvidenceReceipt } from "../../src/lib/friday/self/run-receipt";
 import { admitSense, SENSES_OFF, switchesFromToggles } from "../../src/lib/friday/senses";
+import { learnCorrection, resetCorrections } from "../../src/lib/friday/asr-bias";
+import { forgetArc, noteArc, recallArc, resetArc } from "../../src/lib/friday/conversation-arc";
+import { conversationSight } from "../../src/lib/friday/conversation-sight";
+import { redactDiagnostics } from "../../src/lib/friday/voice-doctor";
 
 const require_ = createRequire(import.meta.url);
 const browser = require_("../../electron/browser-live.cjs") as {
@@ -80,6 +84,29 @@ describe("untrusted input corpus", () => {
     });
     expect(remote.ok).toBe(false);
     expect(remote.tools).toEqual([]);
+  });
+
+  it("keeps a transcript, a memory note, and a diagnostics copy as data", () => {
+    const sight = conversationSight({
+      asked: true,
+      handoff: false,
+      text: `${HOSTILE}. ${SECRET}`,
+    });
+    expect(sight.instruction).toBe(false);
+    expect(sight.stored).toBe(false);
+    expect(sight.text).not.toContain("hunter2");
+    const handed = conversationSight({ asked: true, handoff: true, text: HOSTILE });
+    expect(handed.text).toBe("");
+    resetArc();
+    noteArc({ topic: `${HOSTILE}. ${SECRET}`, feeling: "neutral", at: 10, source: "voice" });
+    expect(recallArc(10_000)).toBeNull();
+    noteArc({ topic: "the build", feeling: "neutral", at: 10, source: "voice" });
+    expect(recallArc(70_000)?.text).toBe("the build");
+    expect(forgetArc("all")).toBe(1);
+    resetCorrections();
+    expect(learnCorrection("the token is abc", "safe")).toBeNull();
+    const report = redactDiagnostics(`status\n${SECRET}\napi_key: sk-live`);
+    expect(report).not.toMatch(/hunter2|sk-live/);
   });
 
   it("keeps the same injection as data at every dial", () => {

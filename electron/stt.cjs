@@ -317,14 +317,30 @@ function workerRequest(session, payload, timeoutMs, onStream) {
   });
 }
 
+async function prepareWeights(model) {
+  const weights = require("./voice-weights.cjs");
+  return weights.ensureSttWeights(model, paths.root() || "", {
+    exists: (file) => fs.existsSync(file),
+    downloadModel: require("./model-download.cjs").downloadModel,
+  });
+}
+
 async function ensureWorker(model) {
   const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
+  const prepared = await prepareWeights(wanted);
+  if (!prepared.ok) throw new Error(prepared.error || "speech weights are not on disk");
+  const modelPath = prepared.dir;
   if (worker?.alive) {
     if (worker.modelName && worker.modelName !== wanted) {
-      const loaded = await workerRequest(worker, { op: "load", model: wanted }, 180000);
+      const loaded = await workerRequest(
+        worker,
+        { op: "load", model: wanted, model_path: modelPath },
+        180000,
+      );
       if (!loaded?.ok) throw new Error(loaded?.error || "STT model reload failed");
       worker.loaded = true;
       worker.modelName = wanted;
+      worker.modelPath = modelPath;
       worker.loadCount = loaded.loadCount || worker.loadCount;
       lastLocalLayers = {
         dependency: "ready",
@@ -362,7 +378,11 @@ async function ensureWorker(model) {
     throw new Error(lastLocalLayers.reason);
   }
   lastLocalLayers.dependency = "ready";
-  const loaded = await workerRequest(session, { op: "load", model: wanted }, 180000);
+  const loaded = await workerRequest(
+    session,
+    { op: "load", model: wanted, model_path: modelPath },
+    180000,
+  );
   if (!loaded?.ok) {
     lastLocalLayers.inference = "failed";
     lastLocalLayers.reason = loaded?.error || "STT model failed to load";
@@ -370,6 +390,7 @@ async function ensureWorker(model) {
   }
   session.loaded = true;
   session.modelName = wanted;
+  session.modelPath = modelPath;
   session.loadCount = loaded.loadCount || 1;
   lastLocalLayers = {
     dependency: "ready",
@@ -621,6 +642,7 @@ async function transcribe(req = {}, onPartial) {
           op: "transcribe",
           audio: file,
           model,
+          model_path: session.modelPath || "",
           language: locked || req.language || "",
           initial_prompt: prompt.slice(0, 800),
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
@@ -655,6 +677,7 @@ async function transcribe(req = {}, onPartial) {
             op: "transcribe",
             audio: file,
             model: fallback,
+            model_path: session.modelPath || "",
             language: locked || req.language || "",
             initial_prompt: prompt.slice(0, 800),
             speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
