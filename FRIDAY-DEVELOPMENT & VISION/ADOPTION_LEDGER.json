@@ -18,8 +18,8 @@
     "hostedActions": "unverified"
   },
   "inventory": {
-    "files": 736,
-    "bytes": 1623742,
+    "files": 729,
+    "bytes": 1591292,
     "byType": {
       "behaviour": 447,
       "manifest": 21,
@@ -59,7 +59,7 @@
       "vision:07-INTERACTION": 164,
       "vision:08-PACKAGING-BUILD-UPDATE": 56
     },
-    "filesIncludingLedger": 738,
+    "filesIncludingLedger": 731,
     "checked": "2026-10-08"
   },
   "order": [
@@ -83,10 +83,10 @@
     "AREAS/08-PACKAGING"
   ],
   "totals": {
-    "DONE": 86,
-    "SUPERSEDED": 243,
+    "DONE": 91,
+    "SUPERSEDED": 252,
     "REJECT": 2,
-    "MISSING": 1780
+    "MISSING": 1766
   },
   "rows": [
     {
@@ -779,7 +779,7 @@
     {
       "id": "E0028",
       "source": "FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/SOURCE_OWNER_CATALOG.md",
-      "heading": "Locked \u2014 do not modify without a real bug",
+      "heading": "Locked — do not modify without a real bug",
       "area": "development:01_SOURCE_ROUTING",
       "type": "research",
       "status": "SUPERSEDED",
@@ -1616,7 +1616,7 @@
     {
       "id": "E0065",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 1 \u2014 classify",
+      "heading": "Step 1 — classify",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1637,7 +1637,7 @@
     {
       "id": "E0066",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 2 \u2014 route",
+      "heading": "Step 2 — route",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1658,7 +1658,7 @@
     {
       "id": "E0067",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 3 \u2014 narrow context",
+      "heading": "Step 3 — narrow context",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1679,7 +1679,7 @@
     {
       "id": "E0068",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 4 \u2014 inspect (dependency + scope check)",
+      "heading": "Step 4 — inspect (dependency + scope check)",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1700,7 +1700,7 @@
     {
       "id": "E0069",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 5 \u2014 implement",
+      "heading": "Step 5 — implement",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1721,7 +1721,7 @@
     {
       "id": "E0070",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 6 \u2014 focused verification",
+      "heading": "Step 6 — focused verification",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1742,7 +1742,7 @@
     {
       "id": "E0071",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 7 \u2014 boundary verification (security/boundary check)",
+      "heading": "Step 7 — boundary verification (security/boundary check)",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1763,7 +1763,7 @@
     {
       "id": "E0072",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 8 \u2014 regression",
+      "heading": "Step 8 — regression",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1784,7 +1784,7 @@
     {
       "id": "E0073",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 9 \u2014 record (diff/evidence)",
+      "heading": "Step 9 — record (diff/evidence)",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1805,7 +1805,7 @@
     {
       "id": "E0074",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 10 \u2014 stop",
+      "heading": "Step 10 — stop",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1826,7 +1826,7 @@
     {
       "id": "E0075",
       "source": "FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md",
-      "heading": "Step 11 \u2014 report (PASS/BLOCK)",
+      "heading": "Step 11 — report (PASS/BLOCK)",
       "area": "development:10_DEVELOPMENT_WORKFLOW",
       "type": "process",
       "status": "SUPERSEDED",
@@ -1847,7 +1847,7 @@
     {
       "id": "E0076",
       "source": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/ENVIRONMENT_REQUIREMENTS.md",
-      "heading": "Clean-environment validation sequence (SOURCE_READY \u2014 see VALIDATION_STATES.md)",
+      "heading": "Clean-environment validation sequence (SOURCE_READY — see VALIDATION_STATES.md)",
       "area": "development:11_TESTING_RELEASE",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -1869,7 +1869,7 @@
     {
       "id": "E0077",
       "source": "FRIDAY-DEVELOPMENT/11_TESTING_RELEASE/ENVIRONMENT_REQUIREMENTS.md",
-      "heading": "What a failure here means \u2014 and what it doesn't",
+      "heading": "What a failure here means — and what it doesn't",
       "area": "development:11_TESTING_RELEASE",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2067,7 +2067,7 @@
     {
       "id": "E0086",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 0 \u2014 Baseline",
+      "heading": "Phase 0 — Baseline",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2089,7 +2089,7 @@
     {
       "id": "E0087",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 1 \u2014 Routing",
+      "heading": "Phase 1 — Routing",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2111,7 +2111,7 @@
     {
       "id": "E0088",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 2 \u2014 Runtime truth",
+      "heading": "Phase 2 — Runtime truth",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2133,7 +2133,7 @@
     {
       "id": "E0089",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 3 \u2014 Durable execution",
+      "heading": "Phase 3 — Durable execution",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2155,7 +2155,7 @@
     {
       "id": "E0090",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 4 \u2014 Intelligence federation",
+      "heading": "Phase 4 — Intelligence federation",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2177,7 +2177,7 @@
     {
       "id": "E0091",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 5 \u2014 Capability federation",
+      "heading": "Phase 5 — Capability federation",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2199,7 +2199,7 @@
     {
       "id": "E0092",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 6 \u2014 Verification/evidence",
+      "heading": "Phase 6 — Verification/evidence",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2221,7 +2221,7 @@
     {
       "id": "E0093",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 7 \u2014 Observability/evaluation",
+      "heading": "Phase 7 — Observability/evaluation",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2243,7 +2243,7 @@
     {
       "id": "E0094",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 8 \u2014 Agent runtime",
+      "heading": "Phase 8 — Agent runtime",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2265,7 +2265,7 @@
     {
       "id": "E0095",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 9 \u2014 Self-improvement",
+      "heading": "Phase 9 — Self-improvement",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -2287,7 +2287,7 @@
     {
       "id": "E0096",
       "source": "FRIDAY-DEVELOPMENT/12_MIGRATION_ROADMAP/PHASED_IMPLEMENTATION.md",
-      "heading": "Phase 10 \u2014 Hardening",
+      "heading": "Phase 10 — Hardening",
       "area": "development:12_MIGRATION_ROADMAP",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5237,7 +5237,7 @@
     {
       "id": "E0222",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 0 \u2014 inventory",
+      "heading": "Phase 0 — inventory",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5261,7 +5261,7 @@
     {
       "id": "E0223",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 1 \u2014 contracts",
+      "heading": "Phase 1 — contracts",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5285,7 +5285,7 @@
     {
       "id": "E0224",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 2 \u2014 registries",
+      "heading": "Phase 2 — registries",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5309,7 +5309,7 @@
     {
       "id": "E0225",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 3 \u2014 lifecycle",
+      "heading": "Phase 3 — lifecycle",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5333,7 +5333,7 @@
     {
       "id": "E0226",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 4 \u2014 storage",
+      "heading": "Phase 4 — storage",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5357,7 +5357,7 @@
     {
       "id": "E0227",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 5 \u2014 build/release",
+      "heading": "Phase 5 — build/release",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5381,7 +5381,7 @@
     {
       "id": "E0228",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 6 \u2014 uninstall",
+      "heading": "Phase 6 — uninstall",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5405,7 +5405,7 @@
     {
       "id": "E0229",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 7 \u2014 hardening",
+      "heading": "Phase 7 — hardening",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5429,7 +5429,7 @@
     {
       "id": "E0230",
       "source": "FRIDAY-VISION/05-IMPLEMENTATION/01_PHASED_ROADMAP.md",
-      "heading": "Phase 8 \u2014 optimization",
+      "heading": "Phase 8 — optimization",
       "area": "vision:05-IMPLEMENTATION",
       "type": "behaviour",
       "status": "SUPERSEDED",
@@ -5906,7 +5906,7 @@
     {
       "id": "E0251",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/01_CURRENT_SOURCE_TRUTH/01_BASELINE_FACTS.md",
-      "heading": "HISTORICAL (source-reference only \u2014 do not use for current facts)",
+      "heading": "HISTORICAL (source-reference only — do not use for current facts)",
       "area": "vision:01-SYSTEM",
       "type": "research",
       "status": "SUPERSEDED",
@@ -12344,7 +12344,7 @@
     {
       "id": "E0723",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 0 \u2014 Baseline lock",
+      "heading": "Phase 0 — Baseline lock",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12356,7 +12356,7 @@
     {
       "id": "E0724",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 1 \u2014 Contracts and IDs",
+      "heading": "Phase 1 — Contracts and IDs",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12368,7 +12368,7 @@
     {
       "id": "E0725",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 2 \u2014 Event fabric and trace propagation",
+      "heading": "Phase 2 — Event fabric and trace propagation",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12380,7 +12380,7 @@
     {
       "id": "E0726",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 3 \u2014 Governance hardening",
+      "heading": "Phase 3 — Governance hardening",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12392,7 +12392,7 @@
     {
       "id": "E0727",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 4 \u2014 Durable execution",
+      "heading": "Phase 4 — Durable execution",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12404,7 +12404,7 @@
     {
       "id": "E0728",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 5 \u2014 Universal routing",
+      "heading": "Phase 5 — Universal routing",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12416,7 +12416,7 @@
     {
       "id": "E0729",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 6 \u2014 Capability fabric",
+      "heading": "Phase 6 — Capability fabric",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12428,7 +12428,7 @@
     {
       "id": "E0730",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 7 \u2014 Multimodal artifact fabric",
+      "heading": "Phase 7 — Multimodal artifact fabric",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12440,7 +12440,7 @@
     {
       "id": "E0731",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 8 \u2014 One-brain continuity",
+      "heading": "Phase 8 — One-brain continuity",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12452,7 +12452,7 @@
     {
       "id": "E0732",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 9 \u2014 Computer/external execution",
+      "heading": "Phase 9 — Computer/external execution",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12464,7 +12464,7 @@
     {
       "id": "E0733",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 10 \u2014 Self-learning",
+      "heading": "Phase 10 — Self-learning",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12476,7 +12476,7 @@
     {
       "id": "E0734",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/01_PHASES.md",
-      "heading": "Phase 11 \u2014 Self-development/evolution",
+      "heading": "Phase 11 — Self-development/evolution",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12572,7 +12572,7 @@
     {
       "id": "E0742",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 0 \u2014 Inventory and ownership",
+      "heading": "Phase 0 — Inventory and ownership",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12584,7 +12584,7 @@
     {
       "id": "E0743",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 1 \u2014 Canonical envelopes and event spine",
+      "heading": "Phase 1 — Canonical envelopes and event spine",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12596,7 +12596,7 @@
     {
       "id": "E0744",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 2 \u2014 Durable execution",
+      "heading": "Phase 2 — Durable execution",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12608,7 +12608,7 @@
     {
       "id": "E0745",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 3 \u2014 Policy and evidence",
+      "heading": "Phase 3 — Policy and evidence",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12620,7 +12620,7 @@
     {
       "id": "E0746",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 4 \u2014 Routing/model federation",
+      "heading": "Phase 4 — Routing/model federation",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12632,7 +12632,7 @@
     {
       "id": "E0747",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 5 \u2014 Memory/world/goal OS",
+      "heading": "Phase 5 — Memory/world/goal OS",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12644,7 +12644,7 @@
     {
       "id": "E0748",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 6 \u2014 Computer-use ladder",
+      "heading": "Phase 6 — Computer-use ladder",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12656,7 +12656,7 @@
     {
       "id": "E0749",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 7 \u2014 Realtime modalities",
+      "heading": "Phase 7 — Realtime modalities",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12668,7 +12668,7 @@
     {
       "id": "E0750",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 8 \u2014 Self-learning/development",
+      "heading": "Phase 8 — Self-learning/development",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12680,7 +12680,7 @@
     {
       "id": "E0751",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 9 \u2014 Observability/performance",
+      "heading": "Phase 9 — Observability/performance",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12692,7 +12692,7 @@
     {
       "id": "E0752",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/22_IMPLEMENTATION/03_FINAL_PHASE_PLAN.md",
-      "heading": "Phase 10 \u2014 Final regression",
+      "heading": "Phase 10 — Final regression",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -12944,7 +12944,7 @@
     {
       "id": "E0773",
       "source": "FRIDAY-VISION/AREAS/01-SYSTEM/25_DOCUMENT_CONTROL/02_CHANGELOG.md",
-      "heading": "2026-09-15 \u2014 Ultimate consolidation",
+      "heading": "2026-09-15 — Ultimate consolidation",
       "area": "vision:01-SYSTEM",
       "type": "behaviour",
       "status": "MISSING",
@@ -13148,7 +13148,7 @@
     {
       "id": "E0790",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "1. AIOS \u2014 operating-system kernel thinking",
+      "heading": "1. AIOS — operating-system kernel thinking",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13160,7 +13160,7 @@
     {
       "id": "E0791",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "2. Microsoft Foundry Model Router \u2014 learned model choice",
+      "heading": "2. Microsoft Foundry Model Router — learned model choice",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13172,7 +13172,7 @@
     {
       "id": "E0792",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "3. Amazon Bedrock Intelligent Prompt Routing \u2014 predicted quality vs cost",
+      "heading": "3. Amazon Bedrock Intelligent Prompt Routing — predicted quality vs cost",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13184,7 +13184,7 @@
     {
       "id": "E0793",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "4. OpenRouter \u2014 provider endpoint routing",
+      "heading": "4. OpenRouter — provider endpoint routing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13196,7 +13196,7 @@
     {
       "id": "E0794",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "5. Hugging Face Inference Providers \u2014 provider selection abstraction",
+      "heading": "5. Hugging Face Inference Providers — provider selection abstraction",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13208,7 +13208,7 @@
     {
       "id": "E0795",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "6. LiteLLM / Portkey \u2014 gateway operations",
+      "heading": "6. LiteLLM / Portkey — gateway operations",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13220,7 +13220,7 @@
     {
       "id": "E0796",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "7. Research warning \u2014 routing is not magic",
+      "heading": "7. Research warning — routing is not magic",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13595,11 +13595,20 @@
       "heading": "Error classes",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "classifyError already separates retryable outages from a deterministic 400. File section removed after the test passed.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "does not retry or cool down HTTP 400 or 422",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0828",
@@ -13607,11 +13616,20 @@
       "heading": "Retryable",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Timeouts, 429 bursts, and 5xx stay retryable. File section removed after the test passed.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "still retries a provider 500 and still refuses a bad key",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0829",
@@ -13619,11 +13637,20 @@
       "heading": "Not retryable on same candidate",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "DONE",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "fallbackAdvances stops the chat loop on a deterministic request error. A compacted context overflow may still move.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "a deterministic request does not move to another model",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0830",
@@ -13643,11 +13670,20 @@
       "heading": "Fallback ordering",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "DONE",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "orderFallbacks reorders the remaining chat candidates after a failure. A provider outage tries another backend first.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "orders another endpoint, then a sibling, then the family, then a different model",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0832",
@@ -13655,11 +13691,20 @@
       "heading": "Backoff",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "SUPERSEDED",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Retry-After is already the cooldown. File section removed after the test passed.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "honours Retry-After on a 429 and keeps the default cooldown otherwise",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0833",
@@ -13667,16 +13712,25 @@
       "heading": "Circuit breaker",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 1195
+      "status": "DONE",
+      "target": [
+        "electron/model-router.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "Three deterministic 400s stay unquarantined. Three provider errors quarantine, and a passed recovery probe clears the cooldown.",
+      "bytes": 1195,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "does not quarantine a provider for a deterministic 400",
+        "caller": "electron/model-router.cjs"
+      }
     },
     {
       "id": "E0834",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/MODES.md",
-      "heading": "1. AUTO \u2014 default intelligent mode",
+      "heading": "1. AUTO — default intelligent mode",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -13856,7 +13910,7 @@
     {
       "id": "E0849",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 0 \u2014 Compile task contract",
+      "heading": "Stage 0 — Compile task contract",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13868,7 +13922,7 @@
     {
       "id": "E0850",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 1 \u2014 hard policy filter",
+      "heading": "Stage 1 — hard policy filter",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13880,7 +13934,7 @@
     {
       "id": "E0851",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 2 \u2014 candidate expansion",
+      "heading": "Stage 2 — candidate expansion",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13892,7 +13946,7 @@
     {
       "id": "E0852",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 3 \u2014 capability evidence gate",
+      "heading": "Stage 3 — capability evidence gate",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13904,7 +13958,7 @@
     {
       "id": "E0853",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 4 \u2014 deterministic utility score",
+      "heading": "Stage 4 — deterministic utility score",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13916,7 +13970,7 @@
     {
       "id": "E0854",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 5 \u2014 learned/value estimation (optional)",
+      "heading": "Stage 5 — learned/value estimation (optional)",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13928,7 +13982,7 @@
     {
       "id": "E0855",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 6 \u2014 value-of-information decision",
+      "heading": "Stage 6 — value-of-information decision",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13940,7 +13994,7 @@
     {
       "id": "E0856",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 7 \u2014 plan type",
+      "heading": "Stage 7 — plan type",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13952,7 +14006,7 @@
     {
       "id": "E0857",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 8 \u2014 execute with budgets",
+      "heading": "Stage 8 — execute with budgets",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13964,7 +14018,7 @@
     {
       "id": "E0858",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 9 \u2014 validate output",
+      "heading": "Stage 9 — validate output",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -13976,7 +14030,7 @@
     {
       "id": "E0859",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/ROUTER_ALGORITHM.md",
-      "heading": "Stage 10 \u2014 learn",
+      "heading": "Stage 10 — learn",
       "area": "vision:04-MODELS-ROUTING",
       "type": "process",
       "status": "MISSING",
@@ -14027,11 +14081,20 @@
       "heading": "Atomic snapshot",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 762
+      "status": "DONE",
+      "target": [
+        "electron/models.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "publishCatalogue in the routable catalogue keeps the previous generation when the next list is not unique ids.",
+      "bytes": 762,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "keeps the previous catalogue when the next generation is broken",
+        "caller": "electron/models.cjs"
+      }
     },
     {
       "id": "E0864",
@@ -14039,11 +14102,20 @@
       "heading": "User-facing explanation",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 740
+      "status": "DONE",
+      "target": [
+        "electron/main.cjs"
+      ],
+      "tests": [
+        "core/__tests__/route-plan.test.ts"
+      ],
+      "notes": "modelExecutionTrace is logged on the chat path and is not sent to the owner. Hidden reasoning and secret material are stripped. File removed after the test passed.",
+      "bytes": 740,
+      "evidence": {
+        "test": "core/__tests__/route-plan.test.ts",
+        "name": "declares multi aggregation and keeps hidden reasoning out of the trace",
+        "caller": "electron/main.cjs"
+      }
     },
     {
       "id": "E0865",
@@ -14111,11 +14183,20 @@
       "heading": "01_master_model_fabric.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 6236
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 6236,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0871",
@@ -14123,11 +14204,20 @@
       "heading": "02_auto_mode.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 6252
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 6252,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0872",
@@ -14135,11 +14225,20 @@
       "heading": "03_provider_federation.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4233
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 4233,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0873",
@@ -14147,11 +14246,20 @@
       "heading": "04_multimodel.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4515
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 4515,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0874",
@@ -14159,11 +14267,20 @@
       "heading": "05_local_install.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4617
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 4617,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0875",
@@ -14171,16 +14288,25 @@
       "heading": "06_health_fallback.svg",
       "area": "vision:04-MODELS-ROUTING",
       "type": "diagram",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
-      "bytes": 4314
+      "status": "SUPERSEDED",
+      "target": [
+        "src/lib/friday/flow-chart.ts"
+      ],
+      "tests": [
+        "core/__tests__/owner-flow-chart.test.ts"
+      ],
+      "notes": "The drawing is a planning picture. The live chart is the flow chart. File removed after the test passed.",
+      "bytes": 4314,
+      "evidence": {
+        "test": "core/__tests__/owner-flow-chart.test.ts",
+        "name": "covers every layer of the chart, top to bottom",
+        "caller": "src/lib/friday/flow-chart.ts"
+      }
     },
     {
       "id": "E0876",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding A \u2014 two-level routing is essential",
+      "heading": "Finding A — two-level routing is essential",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14192,7 +14318,7 @@
     {
       "id": "E0877",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding B \u2014 capability metadata must be endpoint-aware",
+      "heading": "Finding B — capability metadata must be endpoint-aware",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14204,7 +14330,7 @@
     {
       "id": "E0878",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding C \u2014 health is not one boolean",
+      "heading": "Finding C — health is not one boolean",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14216,7 +14342,7 @@
     {
       "id": "E0879",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding D \u2014 routing needs empirical performance memory",
+      "heading": "Finding D — routing needs empirical performance memory",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14228,7 +14354,7 @@
     {
       "id": "E0880",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding E \u2014 multi-model should optimize information, not quantity",
+      "heading": "Finding E — multi-model should optimize information, not quantity",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14240,7 +14366,7 @@
     {
       "id": "E0881",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding F \u2014 strong models are not always the right model",
+      "heading": "Finding F — strong models are not always the right model",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14252,7 +14378,7 @@
     {
       "id": "E0882",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding G \u2014 local/cloud should be a policy boundary",
+      "heading": "Finding G — local/cloud should be a policy boundary",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14264,7 +14390,7 @@
     {
       "id": "E0883",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding H \u2014 model lifecycle is a first-class problem",
+      "heading": "Finding H — model lifecycle is a first-class problem",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14276,7 +14402,7 @@
     {
       "id": "E0884",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding I \u2014 model identity is multi-dimensional",
+      "heading": "Finding I — model identity is multi-dimensional",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14288,7 +14414,7 @@
     {
       "id": "E0885",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/09_RESEARCH/DEEP_RESEARCH_FINDINGS.md",
-      "heading": "Finding J \u2014 provider adapters are the future-proofing layer",
+      "heading": "Finding J — provider adapters are the future-proofing layer",
       "area": "vision:04-MODELS-ROUTING",
       "type": "research",
       "status": "MISSING",
@@ -14396,7 +14522,7 @@
     {
       "id": "E0894",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 0 \u2014 freeze and audit",
+      "heading": "Phase 0 — freeze and audit",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14408,7 +14534,7 @@
     {
       "id": "E0895",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 1 \u2014 canonical resource contracts",
+      "heading": "Phase 1 — canonical resource contracts",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14420,7 +14546,7 @@
     {
       "id": "E0896",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 2 \u2014 provider adapter registry",
+      "heading": "Phase 2 — provider adapter registry",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14432,7 +14558,7 @@
     {
       "id": "E0897",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 3 \u2014 catalogue + evidence engine",
+      "heading": "Phase 3 — catalogue + evidence engine",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14444,7 +14570,7 @@
     {
       "id": "E0898",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 4 \u2014 local lifecycle manager",
+      "heading": "Phase 4 — local lifecycle manager",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14456,7 +14582,7 @@
     {
       "id": "E0899",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 5 \u2014 route planner",
+      "heading": "Phase 5 — route planner",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14468,7 +14594,7 @@
     {
       "id": "E0900",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 6 \u2014 Multi engine",
+      "heading": "Phase 6 — Multi engine",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14480,7 +14606,7 @@
     {
       "id": "E0901",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 7 \u2014 self-healing",
+      "heading": "Phase 7 — self-healing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14492,7 +14618,7 @@
     {
       "id": "E0902",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 8 \u2014 UI",
+      "heading": "Phase 8 — UI",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14504,7 +14630,7 @@
     {
       "id": "E0903",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 9 \u2014 learned routing",
+      "heading": "Phase 9 — learned routing",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14516,7 +14642,7 @@
     {
       "id": "E0904",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 10 \u2014 remove duplicate truth",
+      "heading": "Phase 10 — remove duplicate truth",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14528,7 +14654,7 @@
     {
       "id": "E0905",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PROVIDER_ADAPTER_ROLLOUT.md",
-      "heading": "Tier 1 \u2014 already strong in current FRIDAY",
+      "heading": "Tier 1 — already strong in current FRIDAY",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14540,7 +14666,7 @@
     {
       "id": "E0906",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PROVIDER_ADAPTER_ROLLOUT.md",
-      "heading": "Tier 2 \u2014 gateway/enterprise expansion",
+      "heading": "Tier 2 — gateway/enterprise expansion",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14552,7 +14678,7 @@
     {
       "id": "E0907",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PROVIDER_ADAPTER_ROLLOUT.md",
-      "heading": "Tier 3 \u2014 local runtimes",
+      "heading": "Tier 3 — local runtimes",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -14564,7 +14690,7 @@
     {
       "id": "E0908",
       "source": "FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/10_IMPLEMENTATION/PROVIDER_ADAPTER_ROLLOUT.md",
-      "heading": "Tier 4 \u2014 future providers",
+      "heading": "Tier 4 — future providers",
       "area": "vision:04-MODELS-ROUTING",
       "type": "behaviour",
       "status": "MISSING",
@@ -15224,7 +15350,7 @@
     {
       "id": "E0963",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/02_ARCHITECTURE/AI_OS_PATTERNS.md",
-      "heading": "Darwin G\u00f6del Machine / Hyperagents pattern",
+      "heading": "Darwin Gödel Machine / Hyperagents pattern",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15404,7 +15530,7 @@
     {
       "id": "E0978",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L0 \u2014 Assist",
+      "heading": "L0 — Assist",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15416,7 +15542,7 @@
     {
       "id": "E0979",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L1 \u2014 Reactive",
+      "heading": "L1 — Reactive",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15428,7 +15554,7 @@
     {
       "id": "E0980",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L2 \u2014 Background",
+      "heading": "L2 — Background",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15440,7 +15566,7 @@
     {
       "id": "E0981",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L3 \u2014 Delegated",
+      "heading": "L3 — Delegated",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15452,7 +15578,7 @@
     {
       "id": "E0982",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L4 \u2014 Improvement",
+      "heading": "L4 — Improvement",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -15464,7 +15590,7 @@
     {
       "id": "E0983",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/03_AUTONOMY/AUTONOMY_MODEL.md",
-      "heading": "L5 \u2014 Evolution Lab",
+      "heading": "L5 — Evolution Lab",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16292,7 +16418,7 @@
     {
       "id": "E1052",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 0 \u2014 Inventory and contracts",
+      "heading": "Phase 0 — Inventory and contracts",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16304,7 +16430,7 @@
     {
       "id": "E1053",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 1 \u2014 SelfOS kernel",
+      "heading": "Phase 1 — SelfOS kernel",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16316,7 +16442,7 @@
     {
       "id": "E1054",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 2 \u2014 Learning upgrade",
+      "heading": "Phase 2 — Learning upgrade",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16328,7 +16454,7 @@
     {
       "id": "E1055",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 3 \u2014 Growth engine",
+      "heading": "Phase 3 — Growth engine",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16340,7 +16466,7 @@
     {
       "id": "E1056",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 4 \u2014 Development forge",
+      "heading": "Phase 4 — Development forge",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16352,7 +16478,7 @@
     {
       "id": "E1057",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 5 \u2014 Evolution lab",
+      "heading": "Phase 5 — Evolution lab",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16364,7 +16490,7 @@
     {
       "id": "E1058",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 6 \u2014 Local training",
+      "heading": "Phase 6 — Local training",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16376,7 +16502,7 @@
     {
       "id": "E1059",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 7 \u2014 Autonomy upgrade",
+      "heading": "Phase 7 — Autonomy upgrade",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16388,7 +16514,7 @@
     {
       "id": "E1060",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 8 \u2014 UI",
+      "heading": "Phase 8 — UI",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16400,7 +16526,7 @@
     {
       "id": "E1061",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/11_IMPLEMENTATION/PHASE_PLAN.md",
-      "heading": "Phase 9 \u2014 Hardening",
+      "heading": "Phase 9 — Hardening",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -16496,7 +16622,7 @@
     {
       "id": "E1069",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/13_RESEARCH/DEEP_RESEARCH_SYNTHESIS.md",
-      "heading": "1. AIOS \u2014 agent operating system",
+      "heading": "1. AIOS — agent operating system",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
       "status": "MISSING",
@@ -16604,7 +16730,7 @@
     {
       "id": "E1078",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/13_RESEARCH/DEEP_RESEARCH_SYNTHESIS.md",
-      "heading": "10. Darwin G\u00f6del Machine",
+      "heading": "10. Darwin Gödel Machine",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "research",
       "status": "MISSING",
@@ -16952,7 +17078,7 @@
     {
       "id": "E1107",
       "source": "FRIDAY-VISION/AREAS/05-AUTONOMY-LEARNING-EVOLUTION/FRIDAY-AUTONOMY-LEARNING-EVOLUTION-UPGRADE/16_AGENT_HANDOFF/AGENT_MASTER_IMPLEMENTATION_PROMPT.md",
-      "heading": "First action \u2014 inspect current source",
+      "heading": "First action — inspect current source",
       "area": "vision:05-AUTONOMY-LEARNING-EVOLUTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -17504,7 +17630,7 @@
     {
       "id": "E1153",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern A \u2014 Kernel/resource abstraction",
+      "heading": "Pattern A — Kernel/resource abstraction",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17516,7 +17642,7 @@
     {
       "id": "E1154",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern B \u2014 Trusted gateway",
+      "heading": "Pattern B — Trusted gateway",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17528,7 +17654,7 @@
     {
       "id": "E1155",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern C \u2014 Application agents",
+      "heading": "Pattern C — Application agents",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17540,7 +17666,7 @@
     {
       "id": "E1156",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern D \u2014 Cross-device constellation",
+      "heading": "Pattern D — Cross-device constellation",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17552,7 +17678,7 @@
     {
       "id": "E1157",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern E \u2014 Long-lived identity",
+      "heading": "Pattern E — Long-lived identity",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17564,7 +17690,7 @@
     {
       "id": "E1158",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern F \u2014 Capability marketplace",
+      "heading": "Pattern F — Capability marketplace",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -17576,7 +17702,7 @@
     {
       "id": "E1159",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/01_RESEARCH/02_AI_OS_PATTERNS.md",
-      "heading": "Pattern G \u2014 Progressive disclosure",
+      "heading": "Pattern G — Progressive disclosure",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "research",
       "status": "MISSING",
@@ -18428,7 +18554,7 @@
     {
       "id": "E1230",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage A \u2014 requirement extraction",
+      "heading": "Stage A — requirement extraction",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -18440,7 +18566,7 @@
     {
       "id": "E1231",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage B \u2014 hard filters",
+      "heading": "Stage B — hard filters",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -18452,7 +18578,7 @@
     {
       "id": "E1232",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage C \u2014 score",
+      "heading": "Stage C — score",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -18464,7 +18590,7 @@
     {
       "id": "E1233",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage D \u2014 compose",
+      "heading": "Stage D — compose",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -18476,7 +18602,7 @@
     {
       "id": "E1234",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage E \u2014 verify",
+      "heading": "Stage E — verify",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -18488,7 +18614,7 @@
     {
       "id": "E1235",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/03_CAPABILITY_FABRIC/08_SELECTION_ALGORITHM.md",
-      "heading": "Stage F \u2014 learn",
+      "heading": "Stage F — learn",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19808,7 +19934,7 @@
     {
       "id": "E1345",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 0 \u2014 Contract only",
+      "heading": "Phase 0 — Contract only",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19820,7 +19946,7 @@
     {
       "id": "E1346",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 1 \u2014 Shadow registry",
+      "heading": "Phase 1 — Shadow registry",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19832,7 +19958,7 @@
     {
       "id": "E1347",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 2 \u2014 Broker shadow",
+      "heading": "Phase 2 — Broker shadow",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19844,7 +19970,7 @@
     {
       "id": "E1348",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 3 \u2014 Tool/skill/agent adapters",
+      "heading": "Phase 3 — Tool/skill/agent adapters",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19856,7 +19982,7 @@
     {
       "id": "E1349",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 4 \u2014 Durable task runtime",
+      "heading": "Phase 4 — Durable task runtime",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19868,7 +19994,7 @@
     {
       "id": "E1350",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 5 \u2014 Feature runtime",
+      "heading": "Phase 5 — Feature runtime",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19880,7 +20006,7 @@
     {
       "id": "E1351",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 6 \u2014 Computer use",
+      "heading": "Phase 6 — Computer use",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19892,7 +20018,7 @@
     {
       "id": "E1352",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 7 \u2014 Interop",
+      "heading": "Phase 7 — Interop",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19904,7 +20030,7 @@
     {
       "id": "E1353",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 8 \u2014 Full cutover",
+      "heading": "Phase 8 — Full cutover",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -19916,7 +20042,7 @@
     {
       "id": "E1354",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/11_MIGRATION/03_MIGRATION_SEQUENCE.md",
-      "heading": "Phase 9 \u2014 Optimize",
+      "heading": "Phase 9 — Optimize",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20012,7 +20138,7 @@
     {
       "id": "E1362",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P0 \u2014 Foundations",
+      "heading": "P0 — Foundations",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20024,7 +20150,7 @@
     {
       "id": "E1363",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P1 \u2014 Canonical broker",
+      "heading": "P1 — Canonical broker",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20036,7 +20162,7 @@
     {
       "id": "E1364",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P2 \u2014 Composition",
+      "heading": "P2 — Composition",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20048,7 +20174,7 @@
     {
       "id": "E1365",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P3 \u2014 Durable runtime",
+      "heading": "P3 — Durable runtime",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20060,7 +20186,7 @@
     {
       "id": "E1366",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P4 \u2014 Feature system",
+      "heading": "P4 — Feature system",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20072,7 +20198,7 @@
     {
       "id": "E1367",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P5 \u2014 Computer fabric",
+      "heading": "P5 — Computer fabric",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20084,7 +20210,7 @@
     {
       "id": "E1368",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P6 \u2014 Interop",
+      "heading": "P6 — Interop",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20096,7 +20222,7 @@
     {
       "id": "E1369",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P7 \u2014 Quality",
+      "heading": "P7 — Quality",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20108,7 +20234,7 @@
     {
       "id": "E1370",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P8 \u2014 Proactive/autonomous",
+      "heading": "P8 — Proactive/autonomous",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20120,7 +20246,7 @@
     {
       "id": "E1371",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P9 \u2014 Ecosystem",
+      "heading": "P9 — Ecosystem",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20132,7 +20258,7 @@
     {
       "id": "E1372",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/12_IMPLEMENTATION/01_PHASE_PLAN.md",
-      "heading": "P10 \u2014 Optimization",
+      "heading": "P10 — Optimization",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20876,7 +21002,7 @@
     {
       "id": "E1434",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 0 \u2014 Foundation",
+      "heading": "Wave 0 — Foundation",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20888,7 +21014,7 @@
     {
       "id": "E1435",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 1 \u2014 Capability Fabric",
+      "heading": "Wave 1 — Capability Fabric",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20900,7 +21026,7 @@
     {
       "id": "E1436",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 2 \u2014 Feature OS",
+      "heading": "Wave 2 — Feature OS",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20912,7 +21038,7 @@
     {
       "id": "E1437",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 3 \u2014 Execution",
+      "heading": "Wave 3 — Execution",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20924,7 +21050,7 @@
     {
       "id": "E1438",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 4 \u2014 Computer",
+      "heading": "Wave 4 — Computer",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20936,7 +21062,7 @@
     {
       "id": "E1439",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 5 \u2014 Ecosystem",
+      "heading": "Wave 5 — Ecosystem",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20948,7 +21074,7 @@
     {
       "id": "E1440",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 6 \u2014 Artifact + Memory",
+      "heading": "Wave 6 — Artifact + Memory",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20960,7 +21086,7 @@
     {
       "id": "E1441",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 7 \u2014 Quality",
+      "heading": "Wave 7 — Quality",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20972,7 +21098,7 @@
     {
       "id": "E1442",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 8 \u2014 UX",
+      "heading": "Wave 8 — UX",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20984,7 +21110,7 @@
     {
       "id": "E1443",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 9 \u2014 Cutover",
+      "heading": "Wave 9 — Cutover",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -20996,7 +21122,7 @@
     {
       "id": "E1444",
       "source": "FRIDAY-VISION/AREAS/06-CAPABILITY-FEATURES/15_FINAL/04_UNIFIED_FINAL_ROADMAP.md",
-      "heading": "Wave 10 \u2014 Future-proofing",
+      "heading": "Wave 10 — Future-proofing",
       "area": "vision:06-CAPABILITY-FEATURES",
       "type": "behaviour",
       "status": "MISSING",
@@ -22148,7 +22274,7 @@
     {
       "id": "E1540",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 1 \u2014 Turn gateway",
+      "heading": "Stage 1 — Turn gateway",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22160,7 +22286,7 @@
     {
       "id": "E1541",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 2 \u2014 Normalization",
+      "heading": "Stage 2 — Normalization",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22172,7 +22298,7 @@
     {
       "id": "E1542",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 3 \u2014 Session rehydration",
+      "heading": "Stage 3 — Session rehydration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22184,7 +22310,7 @@
     {
       "id": "E1543",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 4 \u2014 Cognitive context",
+      "heading": "Stage 4 — Cognitive context",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22196,7 +22322,7 @@
     {
       "id": "E1544",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 5 \u2014 Objective and plan",
+      "heading": "Stage 5 — Objective and plan",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22208,7 +22334,7 @@
     {
       "id": "E1545",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 6 \u2014 Capability resolution",
+      "heading": "Stage 6 — Capability resolution",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22220,7 +22346,7 @@
     {
       "id": "E1546",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 7 \u2014 Governance",
+      "heading": "Stage 7 — Governance",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22232,7 +22358,7 @@
     {
       "id": "E1547",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 8 \u2014 Execution and observation",
+      "heading": "Stage 8 — Execution and observation",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22244,7 +22370,7 @@
     {
       "id": "E1548",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 9 \u2014 Verification",
+      "heading": "Stage 9 — Verification",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -22256,7 +22382,7 @@
     {
       "id": "E1549",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/02_CHAT/02_CHAT_PIPELINE_AND_ROUTING.md",
-      "heading": "Stage 10 \u2014 Completion",
+      "heading": "Stage 10 — Completion",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -23252,7 +23378,7 @@
     {
       "id": "E1632",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/05_UI_UX/03_MOBILE_FUNCTIONAL_WIREFRAMES.md",
-      "heading": "F. Notification \u2192 deep link",
+      "heading": "F. Notification → deep link",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -23768,7 +23894,7 @@
     {
       "id": "E1675",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/04_PERMISSION_AND_DEVICE_CAPABILITY_MODEL.md",
-      "heading": "Layer A \u2014 browser/OS permission",
+      "heading": "Layer A — browser/OS permission",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -23780,7 +23906,7 @@
     {
       "id": "E1676",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/04_PERMISSION_AND_DEVICE_CAPABILITY_MODEL.md",
-      "heading": "Layer B \u2014 FRIDAY session permission",
+      "heading": "Layer B — FRIDAY session permission",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -23792,7 +23918,7 @@
     {
       "id": "E1677",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/04_PERMISSION_AND_DEVICE_CAPABILITY_MODEL.md",
-      "heading": "Layer C \u2014 FRIDAY capability authorization",
+      "heading": "Layer C — FRIDAY capability authorization",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -23804,7 +23930,7 @@
     {
       "id": "E1678",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/04_PERMISSION_AND_DEVICE_CAPABILITY_MODEL.md",
-      "heading": "Layer D \u2014 action-risk governance",
+      "heading": "Layer D — action-risk governance",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24020,7 +24146,7 @@
     {
       "id": "E1696",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/06_ALL_PHONE_BROWSER_COMPATIBILITY_STRATEGY.md",
-      "heading": "Tier 1 \u2014 Core",
+      "heading": "Tier 1 — Core",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24032,7 +24158,7 @@
     {
       "id": "E1697",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/06_ALL_PHONE_BROWSER_COMPATIBILITY_STRATEGY.md",
-      "heading": "Tier 2 \u2014 Enhanced",
+      "heading": "Tier 2 — Enhanced",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24044,7 +24170,7 @@
     {
       "id": "E1698",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/06_ALL_PHONE_BROWSER_COMPATIBILITY_STRATEGY.md",
-      "heading": "Tier 3 \u2014 Advanced",
+      "heading": "Tier 3 — Advanced",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24224,7 +24350,7 @@
     {
       "id": "E1713",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice A \u2014 Connection and trust",
+      "heading": "Slice A — Connection and trust",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24236,7 +24362,7 @@
     {
       "id": "E1714",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice B \u2014 Capability synchronization",
+      "heading": "Slice B — Capability synchronization",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24248,7 +24374,7 @@
     {
       "id": "E1715",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice C \u2014 Realtime state",
+      "heading": "Slice C — Realtime state",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24260,7 +24386,7 @@
     {
       "id": "E1716",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice D \u2014 Chat parity",
+      "heading": "Slice D — Chat parity",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24272,7 +24398,7 @@
     {
       "id": "E1717",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice E \u2014 Voice parity",
+      "heading": "Slice E — Voice parity",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24284,7 +24410,7 @@
     {
       "id": "E1718",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice F \u2014 Governance",
+      "heading": "Slice F — Governance",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24296,7 +24422,7 @@
     {
       "id": "E1719",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice G \u2014 Remote control",
+      "heading": "Slice G — Remote control",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24308,7 +24434,7 @@
     {
       "id": "E1720",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice H \u2014 Artifacts/output",
+      "heading": "Slice H — Artifacts/output",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24320,7 +24446,7 @@
     {
       "id": "E1721",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/07_DEEP_UPGRADE/08_IMPLEMENTATION_AND_ACCEPTANCE.md",
-      "heading": "Slice I \u2014 Browser capability degradation",
+      "heading": "Slice I — Browser capability degradation",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -24788,7 +24914,7 @@
     {
       "id": "E1760",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/05_MANUAL_AUTO/05_DETAILED_OPERATION/01_MANUAL_AUTO_END_TO_END_BEHAVIOR.md",
-      "heading": "Switching Manual \u2194 Auto",
+      "heading": "Switching Manual ↔ Auto",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -25004,7 +25130,7 @@
     {
       "id": "E1778",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/06_CROSS_SURFACE/03_CANONICAL_HANDOFF_AND_PARITY_CONTRACT.md",
-      "heading": "Voice \u2194 Chat \u2194 Mobile",
+      "heading": "Voice ↔ Chat ↔ Mobile",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26036,7 +26162,7 @@
     {
       "id": "E1864",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 0 \u2014 inspect and baseline",
+      "heading": "Phase 0 — inspect and baseline",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26048,7 +26174,7 @@
     {
       "id": "E1865",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 1 \u2014 canonical interaction contracts",
+      "heading": "Phase 1 — canonical interaction contracts",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26060,7 +26186,7 @@
     {
       "id": "E1866",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 2 \u2014 shared turn/task bridge",
+      "heading": "Phase 2 — shared turn/task bridge",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26072,7 +26198,7 @@
     {
       "id": "E1867",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 3 \u2014 Chat integration",
+      "heading": "Phase 3 — Chat integration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26084,7 +26210,7 @@
     {
       "id": "E1868",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 4 \u2014 Voice realtime integration",
+      "heading": "Phase 4 — Voice realtime integration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26096,7 +26222,7 @@
     {
       "id": "E1869",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 5 \u2014 Manual/Auto policy integration",
+      "heading": "Phase 5 — Manual/Auto policy integration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26108,7 +26234,7 @@
     {
       "id": "E1870",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 6 \u2014 Mobile continuity",
+      "heading": "Phase 6 — Mobile continuity",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26120,7 +26246,7 @@
     {
       "id": "E1871",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 7 \u2014 failure/recovery hardening",
+      "heading": "Phase 7 — failure/recovery hardening",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26132,7 +26258,7 @@
     {
       "id": "E1872",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/02_PHASED_EXECUTION_PLAN.md",
-      "heading": "Phase 8 \u2014 acceptance/regression",
+      "heading": "Phase 8 — acceptance/regression",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26192,7 +26318,7 @@
     {
       "id": "E1877",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 0 \u2014 Inspect and baseline",
+      "heading": "Phase 0 — Inspect and baseline",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26204,7 +26330,7 @@
     {
       "id": "E1878",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 1 \u2014 Canonical contracts",
+      "heading": "Phase 1 — Canonical contracts",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26216,7 +26342,7 @@
     {
       "id": "E1879",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 2 \u2014 Shared bridge/runtime",
+      "heading": "Phase 2 — Shared bridge/runtime",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26228,7 +26354,7 @@
     {
       "id": "E1880",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 3 \u2014 Mobile connection/trust",
+      "heading": "Phase 3 — Mobile connection/trust",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26240,7 +26366,7 @@
     {
       "id": "E1881",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 4 \u2014 Mobile dynamic surface",
+      "heading": "Phase 4 — Mobile dynamic surface",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26252,7 +26378,7 @@
     {
       "id": "E1882",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 5 \u2014 Browser media",
+      "heading": "Phase 5 — Browser media",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26264,7 +26390,7 @@
     {
       "id": "E1883",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 6 \u2014 Chat/Voice integration",
+      "heading": "Phase 6 — Chat/Voice integration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26276,7 +26402,7 @@
     {
       "id": "E1884",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 7 \u2014 Manual/Auto integration",
+      "heading": "Phase 7 — Manual/Auto integration",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26288,7 +26414,7 @@
     {
       "id": "E1885",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 8 \u2014 Realtime/failure hardening",
+      "heading": "Phase 8 — Realtime/failure hardening",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26300,7 +26426,7 @@
     {
       "id": "E1886",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 9 \u2014 Verification",
+      "heading": "Phase 9 — Verification",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26312,7 +26438,7 @@
     {
       "id": "E1887",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/11_IMPLEMENTATION/05_MASTER_EXECUTION_ORDER.md",
-      "heading": "Phase 10 \u2014 Documentation truth",
+      "heading": "Phase 10 — Documentation truth",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26816,7 +26942,7 @@
     {
       "id": "E1929",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/14_DOCUMENT_CONTROL/02_CHANGELOG.md",
-      "heading": "2026-09-15 \u2014 Final integrated interaction architecture",
+      "heading": "2026-09-15 — Final integrated interaction architecture",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -26828,7 +26954,7 @@
     {
       "id": "E1930",
       "source": "FRIDAY-VISION/AREAS/07-INTERACTION/14_DOCUMENT_CONTROL/02_CHANGELOG.md",
-      "heading": "2026-09-15 \u2014 Mobile Companion deep upgrade addendum",
+      "heading": "2026-09-15 — Mobile Companion deep upgrade addendum",
       "area": "vision:07-INTERACTION",
       "type": "behaviour",
       "status": "MISSING",
@@ -28556,7 +28682,7 @@
     {
       "id": "E2074",
       "source": "PRD.md",
-      "heading": "P0 \u2014 Reliability",
+      "heading": "P0 — Reliability",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28568,7 +28694,7 @@
     {
       "id": "E2075",
       "source": "PRD.md",
-      "heading": "P0 \u2014 Governance",
+      "heading": "P0 — Governance",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28580,7 +28706,7 @@
     {
       "id": "E2076",
       "source": "PRD.md",
-      "heading": "P0 \u2014 Capability federation",
+      "heading": "P0 — Capability federation",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28592,7 +28718,7 @@
     {
       "id": "E2077",
       "source": "PRD.md",
-      "heading": "P0 \u2014 Durable work",
+      "heading": "P0 — Durable work",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28604,7 +28730,7 @@
     {
       "id": "E2078",
       "source": "PRD.md",
-      "heading": "P1 \u2014 World awareness",
+      "heading": "P1 — World awareness",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28616,7 +28742,7 @@
     {
       "id": "E2079",
       "source": "PRD.md",
-      "heading": "P1 \u2014 Evidence and provenance",
+      "heading": "P1 — Evidence and provenance",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28628,7 +28754,7 @@
     {
       "id": "E2080",
       "source": "PRD.md",
-      "heading": "P1 \u2014 Multi-agent execution",
+      "heading": "P1 — Multi-agent execution",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28640,7 +28766,7 @@
     {
       "id": "E2081",
       "source": "PRD.md",
-      "heading": "P1 \u2014 Research and creation",
+      "heading": "P1 — Research and creation",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",
@@ -28652,7 +28778,7 @@
     {
       "id": "E2082",
       "source": "PRD.md",
-      "heading": "P2 \u2014 Distributed FRIDAY",
+      "heading": "P2 — Distributed FRIDAY",
       "area": "vision-root",
       "type": "behaviour",
       "status": "MISSING",

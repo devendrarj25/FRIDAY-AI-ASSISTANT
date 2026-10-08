@@ -2124,7 +2124,19 @@ async function routable(ctx = {}) {
 
   const rank = (m) => (m.meta.resident ? 0 : m.meta.kind === "local" ? 1 : 2);
   out.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
-  return { at: Date.now(), models: out };
+  return publishCatalogue({ at: Date.now(), models: out });
+}
+
+let lastGoodCatalogue = { at: 0, models: [] };
+
+/** Swap in a validated catalogue. A broken refresh keeps the previous generation. */
+function publishCatalogue(next) {
+  const committed = modelRouter.commitCatalogue(lastGoodCatalogue.models, next.models);
+  if (!committed.ok) {
+    return { at: lastGoodCatalogue.at, models: lastGoodCatalogue.models, keptPrevious: true };
+  }
+  lastGoodCatalogue = { at: next.at, models: committed.snapshot };
+  return { at: lastGoodCatalogue.at, models: lastGoodCatalogue.models, keptPrevious: false };
 }
 
 const ROLE_BY_TASK = {

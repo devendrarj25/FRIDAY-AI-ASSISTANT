@@ -474,3 +474,139 @@ describe("deterministic request errors", () => {
     expect(preview.plan.candidates).toEqual(["ollama:cheap"]);
   });
 });
+
+describe("fallback order and catalogue swap", () => {
+  const endpointA = {
+    id: "groq:llama-a",
+    providerId: "groq",
+    providerModelId: "llama",
+    canonicalModelId: "meta/llama",
+    type: "cloud",
+    meta: { providerId: "groq", family: "llama" },
+  };
+  const endpointB = {
+    id: "together:llama-b",
+    providerId: "together",
+    providerModelId: "llama",
+    canonicalModelId: "meta/llama",
+    type: "cloud",
+    meta: { providerId: "together", family: "llama" },
+  };
+  const sibling = {
+    id: "groq:llama-small",
+    providerId: "groq",
+    providerModelId: "llama-small",
+    canonicalModelId: "groq/llama-small",
+    type: "cloud",
+    meta: { providerId: "groq", family: "llama" },
+  };
+  const other = {
+    id: "ollama:qwen",
+    providerId: "ollama",
+    providerModelId: "qwen",
+    canonicalModelId: "ollama/qwen",
+    type: "local",
+    meta: { providerId: "ollama", family: "qwen" },
+  };
+
+  it("orders another endpoint, then a sibling, then the family, then a different model", () => {
+    const ordered = router.orderFallbacks(
+      [other, sibling, endpointA, endpointB],
+      endpointA,
+      "timeout",
+    );
+    expect(ordered.map((model: { id: string }) => model.id)).toEqual([
+      "together:llama-b",
+      "groq:llama-small",
+      "ollama:qwen",
+    ]);
+    const outage = router.orderFallbacks([sibling, endpointB, other], endpointA, "provider_error");
+    expect(outage.map((model: { id: string }) => model.id)).toEqual([
+      "together:llama-b",
+      "ollama:qwen",
+      "groq:llama-small",
+    ]);
+  });
+
+  it("a deterministic request does not move to another model", () => {
+    expect(router.fallbackAdvances("invalid_request")).toBe(false);
+    expect(router.orderFallbacks([endpointB, sibling], endpointA, "invalid_request")).toEqual([]);
+    expect(router.fallbackAdvances("context_overflow")).toBe(false);
+    expect(router.fallbackAdvances("context_overflow", { compacted: true })).toBe(true);
+    const plan = router.planRoute([localModel("ollama:llama3.1")], {
+      mode: "local-only",
+      now: 1_700_000_000_000,
+      failed: { id: "ollama:llama3.1", category: "invalid_request" },
+    });
+    expect(plan.candidates).toEqual([]);
+    expect(plan.why).toMatch(/does not move/);
+    expect(plan.trace.some((row: { stage: string }) => row.stage === "fallback")).toBe(true);
+    expect(router.explainFailure({ failures: [{ category: "invalid_request" }] })).toMatch(
+      /Doosra model par nahi bheja/,
+    );
+  });
+
+  it("does not quarantine a provider for a deterministic 400", () => {
+    const health = new router.ProviderHealthManager();
+    const now = 1_700_000_000_000;
+    health.noteFailure("groq:llama", { status: 400, message: "malformed" }, now);
+    health.noteFailure("groq:llama", { status: 400, message: "malformed" }, now + 1);
+    const noted = health.noteFailure(
+      "groq:llama",
+      { status: 422, message: "invalid request" },
+      now + 2,
+    );
+    expect(noted.quarantined).toBe(false);
+    expect(health.isCoolingDown("groq:llama", now + 2)).toBe(false);
+    const outage = new router.ProviderHealthManager();
+    outage.noteFailure("groq:llama", "HTTP 500: provider error", now);
+    outage.noteFailure("groq:llama", "HTTP 500: provider error", now + 1);
+    const third = outage.noteFailure("groq:llama", "HTTP 503: provider error", now + 2);
+    expect(third.quarantined).toBe(true);
+    expect(outage.noteRecovery("groq:llama", true, now + 3).recoveryProbe).toBe("passed");
+    expect(outage.isCoolingDown("groq:llama", now + 3)).toBe(false);
+  });
+
+  it("keeps the previous catalogue when the next generation is broken", () => {
+    const previous = [{ id: "ollama:llama3.1" }];
+    const broken = router.commitCatalogue(previous, [{ id: "" }]);
+    expect(broken.ok).toBe(false);
+    expect(broken.snapshot).toEqual(previous);
+    const swapped = router.commitCatalogue(previous, [{ id: "groq:llama" }, { id: "ollama:qwen" }]);
+    expect(swapped.ok).toBe(true);
+    expect(swapped.snapshot.map((row: { id: string }) => row.id)).toEqual([
+      "groq:llama",
+      "ollama:qwen",
+    ]);
+    const repeat = router.commitCatalogue(previous, [{ id: "same" }, { id: "same" }]);
+    expect(repeat.ok).toBe(false);
+    expect(repeat.snapshot).toEqual(previous);
+  });
+
+  it("declares multi aggregation and keeps hidden reasoning out of the trace", () => {
+    const plan = router.planRoute(
+      [localModel("ollama:llama3.1"), cloudModel("groq:llama-fast", "groq")],
+      {
+        mode: "multi",
+        preferred: ["ollama:llama3.1", "groq:llama-fast"],
+        policy: "free-preferred",
+        now: 1_700_000_000_000,
+      },
+    );
+    expect(plan.aggregation).toBe("parallel");
+    expect(plan.information.fanOut).toBe(true);
+    const trace = router.modelExecutionTrace({
+      task: "chat",
+      mode: "auto",
+      candidates: ["ollama:llama3.1"],
+      rejected: [{ id: "groq:llama", reason: "chain-of-thought api_key=sk-test" }],
+      selected: "ollama:llama3.1",
+      planType: "single",
+      validation: "passed",
+    });
+    expect(trace.filtered[0]).not.toMatch(/chain[- ]of[- ]thought/i);
+    expect(trace.filtered[0]).not.toContain("sk-test");
+    expect(trace.candidateCount).toBe(1);
+    expect(router.publicDecision("password=hunter2")).toBe("secret");
+  });
+});

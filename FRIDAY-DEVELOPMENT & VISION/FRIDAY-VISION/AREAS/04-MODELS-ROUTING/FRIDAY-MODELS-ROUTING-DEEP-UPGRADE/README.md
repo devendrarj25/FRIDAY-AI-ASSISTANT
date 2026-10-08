@@ -42,7 +42,6 @@ It does not redesign FRIDAY's Brain, System, Chat, Voice or Mobile Companion. Th
 7. `05_ROUTING_MODES/ROUTER_ALGORITHM.md`
 8. `10_IMPLEMENTATION/FILE_LEVEL_MIGRATION_MAP.md`
 9. `12_AI_HANDOFF/AGENT_MASTER_PROMPT.md`
-10. `08_DIAGRAMS/*.svg`
 
 ## Important distinction
 

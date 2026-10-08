@@ -2078,6 +2078,7 @@ async function startChat(request) {
   // then compute the ordered, policy-approved candidate list.
   await syncKernelModels();
   const task = typeof request.task === "string" ? request.task : "chat";
+  const chatStarted = Date.now();
   const policy = modelUsagePolicy();
   const wanted = Array.isArray(request.modelIds) ? request.modelIds.filter(Boolean) : [];
   const contract =
@@ -2124,7 +2125,9 @@ async function startChat(request) {
   // before FRIDAY gives up.
   for (let pass = 0; pass < 2; pass += 1) {
     failures = [];
-    for (const model of candidates) {
+    let index = 0;
+    while (index < candidates.length) {
+      const model = candidates[index];
       log(
         `chat ${requestId}: trying ${model.id} (${model.type}/${model.access}, score-ordered, policy=${policy})`,
       );
@@ -2161,6 +2164,23 @@ async function startChat(request) {
           failures,
           auto: wanted.length === 0 && modelSelection().length === 0,
         });
+        log(
+          `chat ${requestId}: trace ${JSON.stringify(
+            modelRouter.modelExecutionTrace({
+              task,
+              mode: routeMode,
+              candidates: candidates.map((row) => row.id),
+              rejected: failures.map((row) => ({ id: row.modelId, reason: row.category })),
+              selected: model.id,
+              planType: routingOptions.strategy || "auto",
+              startedAt: chatStarted,
+              endedAt: Date.now(),
+              ttftMs: result.latencyMs,
+              fallbacks: failures.length,
+              validation: "passed",
+            }),
+          )}`,
+        );
         send("chat:done", { requestId, modelId: model.id, answeredBy });
         return;
       }
@@ -2196,6 +2216,13 @@ async function startChat(request) {
         send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
         return;
       }
+      if (!modelRouter.fallbackAdvances(noted.category)) {
+        log(`chat ${requestId}: ${noted.category} stays on this request`);
+        break;
+      }
+      const rest = modelRouter.orderFallbacks(candidates.slice(index), model, noted.category);
+      candidates = candidates.slice(0, index + 1).concat(rest);
+      index += 1;
     }
 
     const rotated =
@@ -2238,6 +2265,22 @@ async function startChat(request) {
     offline: netStatus.isOffline(),
   });
   log(`chat ${requestId}: no model could answer (policy=${policy})`);
+  log(
+    `chat ${requestId}: trace ${JSON.stringify(
+      modelRouter.modelExecutionTrace({
+        task,
+        mode: routeMode,
+        candidates: candidates.map((row) => row.id),
+        rejected: failures.map((row) => ({ id: row.modelId, reason: row.category })),
+        planType: routingOptions.strategy || "auto",
+        startedAt: chatStarted,
+        endedAt: Date.now(),
+        fallbacks: failures.length,
+        category: failures[failures.length - 1]?.category || null,
+        validation: "failed",
+      }),
+    )}`,
+  );
   send("chat:error", { requestId, error: honestHandoff(detail) });
 }
 
