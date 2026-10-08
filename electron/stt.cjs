@@ -463,7 +463,7 @@ async function status(force = false, options = {}) {
       inference: "unverified",
       loadCount: lastLocalLayers.loadCount || 0,
       model: DEFAULT_MODEL,
-      reason: "Python 3.12+ was not found — install it from Install Manager.",
+      reason: require("./voice-install.cjs").explain("no-python"),
     };
     const value = snapshotStatus({ localOnly, py: null, pythonPath: null });
     if (!localOnly) cachedStatus = { at: Date.now(), value };
@@ -472,7 +472,9 @@ async function status(force = false, options = {}) {
 
   if (warm) {
     try {
-      await ensureWorker(DEFAULT_MODEL);
+      const voiceInstall = require("./voice-install.cjs");
+      const boot = voiceInstall.bootModel({ requested: "auto" });
+      await ensureWorker(boot.model);
     } catch (error) {
       lastLocalLayers.reason = String(error?.message || error);
       if (lastLocalLayers.dependency !== "ready") lastLocalLayers.dependency = "missing";
@@ -513,25 +515,54 @@ async function status(force = false, options = {}) {
   return value;
 }
 
-/** Install the transcriber through the same pip path as every other dep. */
+/** Install the transcriber into the same interpreter Install Manager uses. */
 async function install() {
   if (installing) return installing;
   installing = (async () => {
-    const py = await python();
-    if (!py) return { ok: false, error: "No supported Python interpreter found." };
+    const voiceInstall = require("./voice-install.cjs");
+    let py = await python();
+    if (!py) {
+      const { ensureManagedPython } = require("./toolchain.cjs");
+      const managed = await ensureManagedPython("3.12");
+      if (managed?.exe) py = [managed.exe, managed.prefix || []];
+    }
+    if (!py) {
+      return { ok: false, cause: "no-python", error: voiceInstall.explain("no-python") };
+    }
+    const pip = await run(py[0], [...py[1], "-m", "pip", "--version"], 20000);
+    if (!pip.ok) {
+      const cause =
+        voiceInstall.classifyInstallLog(pip.stderr) === "unknown"
+          ? "no-pip"
+          : voiceInstall.classifyInstallLog(pip.stderr);
+      return { ok: false, cause, error: voiceInstall.explain(cause, pip.stderr) };
+    }
     const result = await run(
       py[0],
       [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper"],
       600000,
     );
+    if (!result.ok) {
+      const cause = voiceInstall.classifyInstallLog(`${result.stderr} ${result.stdout}`);
+      return { ok: false, cause, error: voiceInstall.explain(cause, result.stderr) };
+    }
+    const imported = await run(py[0], [...py[1], "-c", "import faster_whisper"], 60000);
+    if (!imported.ok) {
+      return {
+        ok: false,
+        cause: "import-failed",
+        error: voiceInstall.explain("import-failed", imported.stderr),
+      };
+    }
     cachedStatus = null;
-    lastLocalLayers.dependency = "missing";
+    lastLocalLayers.dependency = "ready";
     const now = await status(true, { warm: true, localOnly: true });
     return now.ready
       ? { ok: true, model: now.model }
       : {
           ok: false,
-          error: (result.stderr || now.reason || "pip install faster-whisper failed").slice(-600),
+          cause: "import-failed",
+          error: voiceInstall.explain("import-failed", now.reason),
         };
   })().finally(() => {
     installing = null;
@@ -573,7 +604,11 @@ async function transcribe(req = {}, onPartial) {
         return { ok: false, reason: "unavailable", error: "the connected transcriber went away" };
       return await cloudTranscribe(engine, file, req.language);
     }
-    const model = MODELS.includes(req.model) ? req.model : DEFAULT_MODEL;
+    const voiceInstall = require("./voice-install.cjs");
+    const explicit = MODELS.includes(req.model) ? req.model : "";
+    const boot = voiceInstall.bootModel({ requested: explicit || "auto" });
+    const model = explicit || boot.model;
+    const loadBudget = voiceInstall.loadBudgetMs(model);
     const locked = whisperLanguage(req.language);
     const prompt = String(req.initialPrompt || req.initial_prompt || "").trim();
     const started = Date.now();
@@ -591,7 +626,7 @@ async function transcribe(req = {}, onPartial) {
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
           sttSize: String(req.sttSize || req.stt_size || ""),
         },
-        180000,
+        loadBudget,
         onPartial,
       );
     } catch (error) {
@@ -607,19 +642,25 @@ async function transcribe(req = {}, onPartial) {
         };
       }
       try {
-        const session = await ensureWorker(model);
+        const fallback = voiceInstall.bootModel({
+          requested: model,
+          failed: true,
+          elapsedMs: loadBudget + 1,
+          budgetMs: loadBudget,
+        }).model;
+        const session = await ensureWorker(fallback);
         parsed = await workerRequest(
           session,
           {
             op: "transcribe",
             audio: file,
-            model,
+            model: fallback,
             language: locked || req.language || "",
             initial_prompt: prompt.slice(0, 800),
             speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
             sttSize: String(req.sttSize || req.stt_size || ""),
           },
-          180000,
+          voiceInstall.loadBudgetMs(fallback),
           onPartial,
         );
       } catch (retryError) {

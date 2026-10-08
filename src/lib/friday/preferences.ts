@@ -161,6 +161,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     sessionTimeout: "30",
     quietStart: "22:00",
     quietEnd: "07:00",
+    talk: "balanced",
   },
   voice: {
     wakeWord: "friday",

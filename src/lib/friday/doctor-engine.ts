@@ -10,6 +10,7 @@ import { rerunStartup } from "./startup";
 import { recentFailedStages } from "./brain/turn-timing";
 import { recentSkillGapDrafts } from "./brain/skill-forge";
 import { repairWaveCapability, waveCapabilityChecks } from "./failure-guard";
+import { voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
 
 export type DoctorStatus =
@@ -333,6 +334,7 @@ class DoctorStore {
         ...this.state.checks,
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
+        ...voiceLayerChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
         if (enriched.repairKind === "none-needed") this.triedIds.delete(check.id);
@@ -700,6 +702,7 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...desktopUiaChecks());
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
+  checks.push(...voiceLayerChecks());
   return checks;
 }
 

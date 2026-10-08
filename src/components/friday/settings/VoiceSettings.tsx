@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
 import { desktopApi } from "@/lib/friday/desktop";
+import { voiceSelfTestPlan } from "@/lib/friday/voice-doctor";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { assistantMode } from "@/lib/friday/assistant-mode";
@@ -218,6 +219,49 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
+          <label className="block">
+            <span className="label-xs text-muted-foreground">Talkativeness</span>
+            <select
+              value={prefs.fields["talk"] || "balanced"}
+              onChange={(e) => preferences.update({ fields: { talk: e.target.value } })}
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="reserved" className="bg-background">
+                Reserved
+              </option>
+              <option value="balanced" className="bg-background">
+                Balanced
+              </option>
+              <option value="chatty" className="bg-background">
+                Chatty
+              </option>
+            </select>
+          </label>
+          <div className="block sm:col-span-2">
+            <p className="label-xs text-muted-foreground">Voice check</p>
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+              {voiceSelfTestPlan().join(" → ")}. This page does not open the microphone. The live
+              check runs in Auto mode.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+                onClick={() =>
+                  void desktopApi()?.openExternalUrl?.("ms-settings:privacy-microphone")
+                }
+              >
+                Windows microphone privacy
+              </button>
+              <button
+                type="button"
+                className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+                onClick={() => void desktopApi()?.openExternalUrl?.("ms-settings:sound")}
+              >
+                Sound input settings
+              </button>
+            </div>
+          </div>
           <EditField
             label="Address name"
             value={prefs.voice.addressName || ""}

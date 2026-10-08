@@ -490,7 +490,13 @@ type DesktopApi = {
   duckAudio?: (payload: {
     on: boolean;
   }) => Promise<{ ok: boolean; ducked?: boolean; reason?: string }>;
-  meetingStatus?: () => Promise<{ ok?: boolean; meeting?: boolean; reason?: string }>;
+  meetingStatus?: () => Promise<{
+    ok?: boolean;
+    meeting?: boolean;
+    names?: string[];
+    reason?: string;
+  }>;
+  openExternalUrl?: (url: string) => Promise<{ ok: boolean; error?: string }>;
   voiceprintStatus?: () => Promise<{ ok?: boolean; enrolled?: boolean; reason?: string }>;
   clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;

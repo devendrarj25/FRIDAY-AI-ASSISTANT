@@ -11,6 +11,8 @@
  */
 
 import { analyseIntent } from "../brain-catalog";
+import { parseWhen } from "../speech-parse";
+import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
 import { resolveContext, type ChatTurn, type ResolvedContext } from "./context-engine";
 import { ownerContextDigest } from "./identity";
@@ -136,7 +138,7 @@ export function toUnderstandingTrace(u: TurnUnderstanding): UnderstandingTrace {
 const FOLLOW_UP =
   /^(and |also |then |plus |\+ |what about |how about )|^\b(it|that|this|those|them)\b|\b(continue|carry on|keep going|same as (before|last time)|that one|the other one|do that again|same for|the (first|second|third|last) (one|thing)|uska|usko)\b/i;
 const CORRECTION =
-  /\b(no,? (i meant|not that)|actually|correction|i said|wait,? not|galat(?: hai)?|nahi woh|nahi,? wo nahi|wo nahi|ye galat|that'?s (wrong|not (right|correct))|that is wrong|jo pehle wala tha|purani baat thi|ab aisa karna)\b/i;
+  /\b(no,? (i meant|not that)|actually|correction|i said|wait,? not|galat(?: hai)?|nahi woh|nahi,? wo nahi|wo nahi|ye galat|nahi,?\s*maine kaha|that'?s (wrong|not (right|correct))|that is wrong|jo pehle wala tha|purani baat thi|ab aisa karna)\b/i;
 
 const CONFIRM = /^(got it|alright|theek hai|done|noted)[\s.!]*$/i;
 
@@ -257,6 +259,21 @@ function kindOf(text: string): IntentKind {
 }
 
 /** Single entry: classify this turn. */
+export function resolvePointer(text: string, lastNoun: string): string {
+  if (/\b(usko|uska|wahi file|pehle wala)\b/i.test(text) && lastNoun.trim()) return lastNoun.trim();
+  return text.trim();
+}
+
+export function splitIntents(text: string): string[] {
+  const parts = String(text || "")
+    .split(/\s+(?:aur|phir|and then)\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 2);
+  return parts.length >= 2
+    ? parts.map((part) => part.slice(0, 200))
+    : [text.trim()].filter(Boolean);
+}
+
 export function understand(text: string): UnderstoodIntent {
   turnMark("intent", "understand");
   const trimmed = String(text || "").trim();
@@ -267,6 +284,11 @@ export function understand(text: string): UnderstoodIntent {
   const constraints = CONSTRAINT.test(trimmed) ? ["owner named a constraint — honour it"] : [];
   const urgency = URGENCY.test(trimmed) ? 0.85 : 0.2;
   const needsClarification = kind === "ambiguous" || (kind === "follow-up" && trimmed.length < 8);
+  const choice = clarificationChoice({
+    confidence: needsClarification ? 0.2 : 0.9,
+    costWrong: needsClarification ? 5 : 1,
+    costAsk: 1,
+  });
   const result: UnderstoodIntent = {
     kind,
     catalogId: catalog.rule.id,
@@ -278,12 +300,13 @@ export function understand(text: string): UnderstoodIntent {
     entities: found,
     urgency,
     needsClarification,
-    ask: needsClarification
-      ? "Which thing should I continue — the last task, or something else?"
-      : null,
+    ask: needsClarification ? choice.question : null,
     text: trimmed,
     conversationalMove: conversationalMove(trimmed),
-    timeReferences: TIME_REF.test(trimmed) ? [String(trimmed.match(TIME_REF)?.[0] ?? "")] : [],
+    timeReferences: [
+      ...(TIME_REF.test(trimmed) ? [String(trimmed.match(TIME_REF)?.[0] ?? "")] : []),
+      ...(parseWhen(trimmed) ? [parseWhen(trimmed)?.label ?? ""] : []),
+    ].filter(Boolean),
     styleCue: /\b(thoda simple|simple batao|keep it simple)\b/i.test(trimmed)
       ? "simple"
       : /\b(in detail|explain fully)\b/i.test(trimmed)

@@ -491,6 +491,13 @@ export function applySttTier(input: {
   return tier;
 }
 
+/** Feeling labels become a delivery pace. They do not grant a permission. */
+export function prosodyAffect(label: string): "neutral" | "calm" | "urgent" {
+  if (label === "hurry" || label === "anger") return "urgent";
+  if (label === "sadness" || label === "distress" || label === "anxiety") return "calm";
+  return "neutral";
+}
+
 /** Tone changes rate, pitch, and volume only. It never changes a permission. */
 export function speakingProsody(input: {
   baseRate: number;

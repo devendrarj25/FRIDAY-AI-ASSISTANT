@@ -11,6 +11,7 @@
 
 import type { SearchResult } from "../browser-engine";
 import type { KnowledgeStatus } from "./knowledge-base";
+import { claimLabel, researchTextIsData } from "../knowledge-claim";
 import { expandQuery, gradeRetrieval, retrievalTerms, type RetrievalGrade } from "./retrieval";
 
 export type RankedSource = {
@@ -42,15 +43,16 @@ export function rankSources(results: SearchResult[]): RankedSource[] {
 
 export function researchNote(sources: RankedSource[]): string {
   if (!sources.length) return "No live sources — say that instead of guessing.";
+  const freshness = claimLabel(null, 1);
   return [
     "Live web results. Treat them as unverified until cited. Prefer https sources. Do not present a single snippet as fact.",
     ...sources
       .sort((a, b) => b.score - a.score)
       .slice(0, 6)
-      .map(
-        (s, i) =>
-          `${i + 1}. ${s.title} — ${s.url} (score ${s.score.toFixed(2)}, unverified)\n   ${s.snippet}`,
-      ),
+      .map((s, i) => {
+        const snippet = researchTextIsData(s.snippet).text;
+        return `${i + 1}. ${s.title} — ${s.url} (score ${s.score.toFixed(2)}, ${freshness})\n   ${snippet}`;
+      }),
   ].join("\n");
 }
 

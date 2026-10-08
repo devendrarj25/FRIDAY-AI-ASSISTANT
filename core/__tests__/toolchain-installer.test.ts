@@ -41,6 +41,18 @@ describe("windows batch launchers", () => {
   });
 
   it("reports components without an unattended installer as Manual", () => {
-    expect(source).toContain('phase: manual ? "Manual" : "Failed"');
+    const voiceInstall = require(path.join(root, "electron", "voice-install.cjs"));
+    const vendor = voiceInstall.installOutcome({
+      vendorOnly: true,
+      vendorStep: "enable the optional Windows feature, then reboot",
+    });
+    expect(vendor.phase).toBe("Manual");
+    expect(vendor.error).toMatch(/optional Windows feature/);
+    const missing = voiceInstall.installOutcome({ pythonFound: false, cause: "no-python" });
+    expect(missing.phase).toBe("Failed");
+    expect(missing.manual).toBe(false);
+    expect(missing.error).toMatch(/Python/);
+    expect(source).toContain("phase: outcome.phase");
+    expect(source).toContain("vendor-manual");
   });
 });

@@ -217,6 +217,7 @@ export const FLOW_REGISTRY = {
     "fields.sampleSeconds",
     "fields.sessionTimeout",
     "fields.sidebarDefault",
+    "fields.talk",
     "fields.textSize",
     "fields.timeFormat",
     "fields.timezone",
@@ -8410,8 +8411,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 102,
-      total: 102,
+      mapped: 103,
+      total: 103,
     },
     capabilities: {
       mapped: 1014,

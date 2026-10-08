@@ -13,6 +13,17 @@
  */
 
 import { captureMayRetry } from "./voice-session";
+import { classifyMicHold, relaxedCapture } from "./mic-truth";
+
+/** Process names from the existing meeting watch. Empty off Windows. */
+let namedHolders: string[] = [];
+
+export function noteMicHolders(names: readonly string[]): void {
+  namedHolders = names
+    .map((name) => String(name || "").trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
 
 export type MicState =
   | "available"
@@ -56,20 +67,27 @@ export const EMPTY_MIC_STATUS: MicStatus = {
 
 const media = () => (typeof navigator !== "undefined" ? (navigator.mediaDevices ?? null) : null);
 
-function classify(err: unknown): { state: MicState; reason: string } {
+function classify(
+  err: unknown,
+  ownTracks = 0,
+  holders: string[] = [],
+): { state: MicState; reason: string } {
   const e = err as { name?: string; message?: string } | undefined;
   const name = e?.name ?? "";
   const message = e?.message ?? String(err ?? "unknown error");
-  if (name === "NotAllowedError" || name === "SecurityError")
-    return {
-      state: "permission-denied",
-      reason: "microphone access was denied by Windows or the app",
-    };
-  if (name === "NotFoundError" || name === "OverconstrainedError")
-    return { state: "no-microphone", reason: "no audio input device is present" };
-  if (name === "NotReadableError")
-    return { state: "device-offline", reason: "the microphone is in use by another application" };
-  return { state: "device-error", reason: message };
+  const hold = classifyMicHold({
+    name,
+    ownTracks,
+    holders,
+    exclusiveHint: name === "NotReadableError" || name === "TrackStartError",
+  });
+  if (hold.cause === "permission") return { state: "permission-denied", reason: hold.reason };
+  if (hold.cause === "no-device") return { state: "no-microphone", reason: hold.reason };
+  if (hold.cause === "own-capture" || hold.cause === "other-app" || hold.cause === "exclusive") {
+    return { state: "device-offline", reason: `${hold.reason} ${hold.next}` };
+  }
+  if (!name) return { state: "device-error", reason: message };
+  return { state: "device-error", reason: hold.reason || message };
 }
 
 /** Real device list. Labels only appear once permission has been granted. */
@@ -102,7 +120,19 @@ export async function listAudioDevices(): Promise<{
  * The honest microphone answer. Tries the preferred device, then falls back to
  * the Windows default input before reporting anything as unavailable.
  */
-export async function probeMicrophone(preferredId?: string | null): Promise<MicStatus> {
+export async function probeMicrophone(
+  preferredId?: string | null,
+  existing?: MediaStream | null,
+): Promise<MicStatus> {
+  const live = existing?.getAudioTracks().find((track) => track.readyState === "live");
+  if (live && existing) {
+    const listed = await listAudioDevices();
+    return finish(
+      { ok: true, track: live, stream: existing, state: "available", reason: null },
+      listed,
+      false,
+    );
+  }
   const md = media();
   if (!md?.getUserMedia) {
     return {
@@ -159,22 +189,42 @@ type CaptureAttempt =
   | { ok: false; state: MicState; reason: string };
 
 async function tryCapture(md: MediaDevices, deviceId?: string): Promise<CaptureAttempt> {
-  try {
-    const stream = await md.getUserMedia({ audio: audioConstraints(deviceId) });
-    const track = stream.getAudioTracks()[0];
-    if (!track) {
-      stream.getTracks().forEach((t) => t.stop());
-      return { ok: false, state: "device-error", reason: "the device produced no audio track" };
+  let last: unknown = null;
+  for (let step = 0; step < 3; step += 1) {
+    const plan = relaxedCapture(step, deviceId);
+    if (!plan) break;
+    try {
+      const stream = await md.getUserMedia({ audio: plan.audio });
+      const track = stream.getAudioTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        return { ok: false, state: "device-error", reason: "the device produced no audio track" };
+      }
+      return { ok: true, track, stream, state: "available", reason: null };
+    } catch (err) {
+      last = err;
+      const name = (err as { name?: string }).name ?? "";
+      if (
+        name !== "NotReadableError" &&
+        name !== "TrackStartError" &&
+        name !== "OverconstrainedError"
+      ) {
+        break;
+      }
     }
-    return { ok: true, track, stream, state: "available", reason: null };
-  } catch (err) {
-    return { ok: false, ...classify(err) };
   }
+  return { ok: false, ...classify(last, ownLiveTracks(), namedHolders) };
+}
+
+function ownLiveTracks(): number {
+  const stream = voiceGate.micStream();
+  return stream?.getAudioTracks().filter((track) => track.readyState === "live").length ?? 0;
 }
 
 function finish(
   attempt: Extract<CaptureAttempt, { ok: true }>,
   devices: { inputs: AudioDeviceInfo[]; outputs: AudioDeviceInfo[] },
+  stop = true,
 ): MicStatus {
   const settings = attempt.track.getSettings?.() ?? {};
   const status: MicStatus = {
@@ -188,7 +238,7 @@ function finish(
     outputs: devices.outputs,
     reason: null,
   };
-  attempt.stream.getTracks().forEach((t) => t.stop());
+  if (stop) attempt.stream.getTracks().forEach((t) => t.stop());
   return status;
 }
 
@@ -319,6 +369,7 @@ export class VoiceGate {
   private holders = new Set<string>();
   /** The device the live stream was opened with, so it can be reopened. */
   private deviceId: string | null = null;
+  private lastFailure: { state: MicState; reason: string } | null = null;
   private reopening = false;
   private deviceWatch: (() => void) | null = null;
   /** Last time UI subscribers were notified (speech edges always emit). */
@@ -331,6 +382,10 @@ export class VoiceGate {
    */
   micStream(): MediaStream | null {
     return this.stream;
+  }
+
+  lastCaptureFailure(): { state: MicState; reason: string } | null {
+    return this.lastFailure;
   }
 
   /** Opens (or joins) the shared stream on behalf of one named owner. */
@@ -403,13 +458,14 @@ export class VoiceGate {
         : undefined;
     if (!md?.getUserMedia || !Ctx) return false;
     this.deviceId = deviceId ?? null;
+    let ctx: AudioContext | null = null;
     try {
       // Resume during the click's user-activation window. Awaiting getUserMedia
       // or IPC first leaves AudioContext "suspended": AnalyserNode then reads
       // zeros, VAD never fires, and the UI can still say listening.
-      const ctx = new Ctx();
+      ctx = new Ctx();
       await this.resumeContext(ctx);
-      const stream = await md.getUserMedia({ audio: audioConstraints(deviceId ?? undefined) });
+      const stream = await this.openStream(md, deviceId);
       await this.resumeContext(ctx);
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
@@ -429,11 +485,45 @@ export class VoiceGate {
       if (track) track.addEventListener("ended", this.onTrackEnded);
       this.watchDevices();
       this.loop();
+      this.lastFailure = null;
       return true;
-    } catch {
-      this.stop();
+    } catch (err) {
+      const own =
+        this.stream?.getAudioTracks().filter((track) => track.readyState === "live").length ?? 0;
+      this.lastFailure = classify(err, own, namedHolders);
+      if (!this.ctx) void ctx?.close().catch(() => undefined);
+      if (this.holders.size) this.teardown();
+      else this.stop();
       return false;
     }
+  }
+
+  /** Strict constraints, then a relaxed open, then the system default. One stream. */
+  private async openStream(md: MediaDevices, deviceId?: string | null): Promise<MediaStream> {
+    const ids: Array<string | undefined> = [];
+    if (deviceId && deviceId !== "default") ids.push(deviceId);
+    ids.push(undefined);
+    let last: unknown = null;
+    for (const id of ids) {
+      for (let step = 0; step < 3; step += 1) {
+        const plan = relaxedCapture(step, id);
+        if (!plan) break;
+        try {
+          return await md.getUserMedia({ audio: plan.audio });
+        } catch (err) {
+          last = err;
+          const name = (err as { name?: string }).name ?? "";
+          if (
+            name !== "NotReadableError" &&
+            name !== "TrackStartError" &&
+            name !== "OverconstrainedError"
+          ) {
+            break;
+          }
+        }
+      }
+    }
+    throw last ?? new Error("the microphone did not open");
   }
 
   stop(force = false) {

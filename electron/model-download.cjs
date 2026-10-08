@@ -23,8 +23,9 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 // The one canonical FRIDAY root contract — downloads never stage outside it.
 const contract = require("./friday-contract.cjs");
+const voiceInstall = require("./voice-install.cjs");
 
-const HF_HOSTS = ["https://huggingface.co", "https://hf-mirror.com"];
+const HF_HOSTS = voiceInstall.hfHostList(process.env);
 const OLLAMA = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 const SEGMENT_THRESHOLD = 192 * 1024 * 1024; // below this, one connection is faster
 const MAX_SEGMENTS = 4;
@@ -431,16 +432,24 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
 
       throw new Error(`unsupported source kind: ${source.kind}`);
     } catch (err) {
-      if (signal?.aborted) return { ok: false, error: "cancelled", attempts };
-      const message = String(err.message || err);
-      attempts.push({ source: label, error: message });
-      onEvent?.({ status: `source failed (${label}): ${message}` });
+      if (signal?.aborted) {
+        const cancelled = voiceInstall.classifyDownloadError("cancelled");
+        return { ok: false, error: cancelled.line, cause: cancelled.cause, attempts };
+      }
+      const classified = voiceInstall.classifyDownloadError(String(err.message || err));
+      attempts.push({ source: label, error: classified.line, cause: classified.cause });
+      onEvent?.({
+        status: `source failed (${label}): ${classified.line}`,
+        cause: classified.cause,
+      });
     }
   }
 
+  const last = attempts[attempts.length - 1];
   return {
     ok: false,
-    error: `all ${sources.length} source(s) failed`,
+    error: last?.error || `all ${sources.length} source(s) failed`,
+    cause: last?.cause || "network",
     attempts,
   };
 }
@@ -498,8 +507,13 @@ function uniqueSafetensorDirs(files) {
   return [...dirs];
 }
 
+function selfCheckPlan(input) {
+  return voiceInstall.downloadSelfCheck(input);
+}
+
 module.exports = {
   HF_HOSTS,
+  selfCheckPlan,
   hfFiles,
   pickGguf,
   headInfo,

@@ -943,3 +943,35 @@ export function restoreFabricBundle(json: string): { restored: number; removed: 
   persist();
   return { restored, removed };
 }
+
+/** Higher when the fact was used, recent, or tagged. Age is milliseconds, not today's date. */
+export function scoreSalience(hits: number, ageMs: number, tagged: boolean): number {
+  const use = Math.min(1, Math.max(0, hits) / 5);
+  const age = Math.max(0, ageMs);
+  const decay = 1 / (1 + age / 86_400_000);
+  const emotion = tagged ? 0.15 : 0;
+  return Math.min(1, use * 0.5 + decay * 0.35 + emotion);
+}
+
+const NEGATION = /\b(?:does not|do not|did not|don't|didn't|not|never|nahi|nahin)\b/i;
+
+function contradictionBare(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b(?:does not|do not|did not|don't|didn't|not|never|nahi|nahin)\b/g, " ")
+    .replace(/\b(?:likes|liked|liking)\b/g, "like")
+    .replace(/\b(?:does|do|did|is|are)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function textsContradict(left: string, right: string): boolean {
+  const a = left.trim().toLowerCase();
+  const b = right.trim().toLowerCase();
+  if (!a || !b || a === b) return false;
+  if (NEGATION.test(a) === NEGATION.test(b)) return false;
+  const bareA = contradictionBare(a);
+  const bareB = contradictionBare(b);
+  return bareA.length > 2 && bareA === bareB;
+}

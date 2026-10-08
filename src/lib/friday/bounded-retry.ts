@@ -4,8 +4,8 @@
  * Renderer and phone code must not import that CJS module. These constants
  * stay numerically identical: immediate, then 2s, then 8s, three attempts.
  * Callers that must keep trying after the cap (the phone socket) repeat the
- * last delay; callers that must not loop forever (kernel, voice/STT) give up
- * and hand off to owner guidance.
+ * last delay. The kernel gives up after the cap. Voice keeps the last delay and
+ * does not go silent.
  */
 export const KERNEL_STYLE_DELAYS_MS: readonly [0, 2000, 8000] = [0, 2000, 8000];
 export const KERNEL_STYLE_MAX_ATTEMPTS = 3;

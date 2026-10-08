@@ -44,6 +44,8 @@ import { coreBrain, type Cognition } from "./brain/core-brain";
 import { considerCollaboration, type CollaborationDecision } from "./brain/multi-model";
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
 import { baselineRespond, type BaselineReply } from "./brain/baseline-responder";
+import { everydayPlan } from "./everyday";
+import { shapeReply } from "./response-policy";
 import { understandTurn, toUnderstandingTrace } from "./brain/intent-engine";
 import { decideAction } from "./brain/decision-engine";
 import { bindActiveGraph, persistAndResetConversation } from "./brain/conversation-state";
@@ -1580,6 +1582,30 @@ class BrainStore {
     taskGraph.noteOwnerActivity();
     registerTaskRunners();
 
+    const care = shapeReply({ prompt: work, text: "" });
+    if (care.feeling.label === "distress") {
+      stampUnderstanding("distress — no model");
+      void this.answerFromBaseline(run, {
+        handled: true,
+        kind: "smalltalk",
+        text: care.text,
+        confidence: 1,
+      });
+      return;
+    }
+
+    const planned = everydayPlan(work);
+    if (planned) {
+      stampUnderstanding("everyday plan — no model");
+      void this.answerFromBaseline(run, {
+        handled: true,
+        kind: "action",
+        text: planned.text,
+        confidence: 0.9,
+      });
+      return;
+    }
+
     // Direct control over the queue ("task status", "interrupt", "resume task").
     const queueReply = handleQueueCommand(work);
     if (queueReply) {
@@ -1662,7 +1688,14 @@ class BrainStore {
     }
     if (baseline.handled) {
       stampUnderstanding("baseline — no model");
-      void this.answerFromBaseline(run, baseline);
+      const shaped =
+        baseline.text && (care.feeling.label === "anger" || care.feeling.label === "hurry")
+          ? shapeReply({ prompt: work, text: baseline.text }).text
+          : baseline.text;
+      void this.answerFromBaseline(
+        run,
+        shaped === baseline.text ? baseline : { ...baseline, text: shaped },
+      );
       return;
     }
 

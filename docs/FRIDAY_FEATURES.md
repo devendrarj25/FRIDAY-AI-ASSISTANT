@@ -284,3 +284,35 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 | One System panel for senses, listeners, and recorders | ADOPT | Each row shows on or off, the last sense time, and the last receipt. Panic is stop-everything plus every sense off. Hands-free still starts off and needs the wake word again. Source: the kill switch in `src/lib/friday/self/autonomy.ts` (checked 2026-10-07). |
 | A new settings page for that panel | REJECT | The rows live on the existing System settings page. The sidebar is unchanged. |
 | Secret text stays out of a receipt, a digest, and an export | ADOPT | A password assignment is blanked before it is shown or exported. Hostile words stay data and do not become a plan. A hosted tool URL is still refused. No new runtime dependency was added in this pass. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html (read 2026-10-07). |
+
+## Wave 4 — voice that installs, and a mind that stays local
+
+Checked 2026-10-07. The plan files under `FRIDAY-DEVELOPMENT & VISION` stay. Live Windows microphone, wake word, pip, model download, TTS audio, the packaged EXE, and hosted Actions were not run here.
+
+### Plan table
+
+| Idea | Source file | Status | Decision | Step |
+| --- | --- | --- | --- | --- |
+| One Install Manager, health probe before "working" | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 4–6, 12 |
+| Diagnostic path device to playback, smallest local repair | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 9–12 |
+| Do not mark voice connected from UI state alone | same diagnostics file | PARTIAL | ADOPT | 11–12 |
+| Barge-in and one microphone | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/02_VOICE_REALTIME_BARGE_IN.md` | PARTIAL | ADAPT | 9, 13 |
+| Wake, device, and display stay on the existing voice page | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADOPT | 10, 12 |
+| Failure recovery without a second planner | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 11, 33 |
+| Input trust boundary | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/08_SECURITY/03_INPUT_TRUST_BOUNDARIES.md` | PARTIAL | ADOPT | 31, 35 |
+| Memory contract, one store | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/06_MEMORY_KNOWLEDGE/MEMORY_CONTRACT.md` | PARTIAL | ADOPT | 20, 25, 27 |
+| Selective context | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/03_INTELLIGENCE_FABRIC/CONTEXT_ENGINEERING.md` | PARTIAL | ADAPT | 24, 26 |
+| Evaluation without a hosted scorer | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/08_OBSERVABILITY_EVALUATION/EVALUATION_CONTRACT.md` | PARTIAL | ADOPT | 34 |
+| Mobile companion | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/04_MOBILE/01_MOBILE_COMPANION_FINAL_ARCHITECTURE.md` | MISSING | REJECT | — |
+| A second installer or a second speech engine | voice install note above | MISSING | REJECT | — |
+
+### Research (2026-10-07)
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| faster-whisper loads a CTranslate2 model through the Hub cache. `download_root` and `local_files_only` are the local controls. | ADOPT | Listening starts on `base`, then `small`, with a shorter budget for the small sizes. Weights stay on demand. Source: github.com/SYSTRAN/faster-whisper (read 2026-10-07). |
+| Converting weights with torch | REJECT | The voice-stack rule already refuses torch. |
+| `NotReadableError` is not always "another application". Exclusive mode, a second capture, privacy, and a driver can report the same name. | ADOPT | The classifier separates FRIDAY's own track, a named call process, and the exclusive-mode case, then retries relaxed constraints. Sources: blog.addpipe.com/common-getusermedia-errors/ and electron/electron#25966 (read 2026-10-07). A live Windows microphone was not used. |
+| Hugging Face Hub resume and `HF_ENDPOINT` | ADOPT | The existing downloader classifies DNS, TLS, proxy, disk, auth, and cancel, and honours an https mirror. Source: huggingface.co/docs/huggingface_hub/guides/download (read 2026-10-07). A live download was not run. |
+| Prompt injection stays outside the prompt | ADOPT | Transcripts, phrase lines, memory notes, and research text are data. A password assignment is blanked. Source: cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html and the OWASP LLM Top 10 2025 (read 2026-10-07). |
+| A second memory store, a second scheduler, piper as the runtime, or a new sidebar row | REJECT | The existing memory store, Tasks ledger, and Voice settings page stay the owners. piper stays blocked because the manual text says FRIDAY does not install it. |
