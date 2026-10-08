@@ -62,7 +62,10 @@ describe("wave 7 free evidence", () => {
       catalogue: { pricing: { prompt: 0, completion: 0 } },
     });
     expect(zero.billingMode).toBe("ZERO_COST");
-    const hyperbolic = access.classifyModel({ providerId: "hyperbolic", modelId: "meta-llama/Llama" });
+    const hyperbolic = access.classifyModel({
+      providerId: "hyperbolic",
+      modelId: "meta-llama/Llama",
+    });
     expect(hyperbolic.billingMode).toBe("UNKNOWN");
     const promo = access.classifyModel({
       providerId: "cerebras",
@@ -168,9 +171,9 @@ describe("wave 7 routing parity", () => {
     expect(router.classifyError({ message: "not available in your region" }).category).toBe(
       "region_block",
     );
-    expect(router.classifyError({ status: 429, message: "rate limit", retryAfter: 2 }).category).toBe(
-      "rate_limited",
-    );
+    expect(
+      router.classifyError({ status: 429, message: "rate limit", retryAfter: 2 }).category,
+    ).toBe("rate_limited");
     const removed = router.classifyError({ message: "model was removed" });
     expect(removed.category).toBe("model_unavailable");
     expect(removed.delist).toBe(true);
@@ -200,10 +203,7 @@ describe("wave 7 routing parity", () => {
     expect(signupGuide().some((row) => row.id === "github")).toBe(true);
     expect(verifyPackPlan().length).toBe(3);
     expect(ownerWave7Steps().length).toBe(9);
-    const assistant = readFileSync(
-      path.join(ROOT, "src/lib/friday/assistant-mode.ts"),
-      "utf8",
-    );
+    const assistant = readFileSync(path.join(ROOT, "src/lib/friday/assistant-mode.ts"), "utf8");
     const chat = readFileSync(path.join(ROOT, "src/components/friday/ChatDock.tsx"), "utf8");
     expect(assistant).toContain('routingSurface: "voice"');
     expect(chat).toContain('routingSurface: "chat"');

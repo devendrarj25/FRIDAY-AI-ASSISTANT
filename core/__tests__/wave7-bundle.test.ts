@@ -37,15 +37,13 @@ describe("wave 7 bundled stage", () => {
       "whisper-cpp",
       "ggml-base",
     ]);
-    expect(plan.packs.find((row: { id: string }) => row.id === "whisper-cpp")?.dest).toBe(
-      "speech",
-    );
+    expect(plan.packs.find((row: { id: string }) => row.id === "whisper-cpp")?.dest).toBe("speech");
     expect(plan.packs.find((row: { id: string }) => row.id === "python-embed")?.dest).toBe(
       "toolchain",
     );
     const yml = readFileSync(path.join(ROOT, "electron-builder.yml"), "utf8");
     expect(yml).toContain("beforePack: scripts/stage-toolchain.cjs");
-    expect(yml).toContain('asarUnpack:');
+    expect(yml).toContain("asarUnpack:");
     expect(yml).toContain("resources/toolchain/**");
     expect(yml).toContain("resources/speech/**");
     expect(yml).toContain("oneClick: false");
@@ -199,7 +197,11 @@ describe("wave 7 whisper server", () => {
       model: "ggml-base.bin",
       port: whisper.WHISPER_PORT,
       clock: { now: () => (tick += 25) },
-      spawn: () => ({ kill: () => { killed = true; } }),
+      spawn: () => ({
+        kill: () => {
+          killed = true;
+        },
+      }),
       health: async () => true,
     });
     const started = await session.start();
