@@ -62,9 +62,9 @@ see §2. This folder holds only the disposable planning/workbench material:
 | Path | Role |
 |---|---|
 | `PRD.md` / `TRD.md` / `UI-UX-Design-Document.md` | Product, technical, and UI contracts still in this folder |
-| `DOCUMENT-MANIFEST.json` | Provenance of the four contract docs above |
+| `config/friday-version.json` | The only product version. The old document manifest was removed. |
 | `README.md` | This layer's own short intro |
-| `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `FRIDAY-DEVELOPMENT/00_MASTER/00_READ_FIRST.md` |
+| `FRIDAY-DEVELOPMENT/` | **Task workbench** — how to safely make a change *right now*. Entry: `docs/FRIDAY_CHANGE_CONTROL.md`, then `FRIDAY-DEVELOPMENT/01_SOURCE_ROUTING/TASK_TO_AREA_ROUTER.md` |
 | `FRIDAY-VISION/` | **Long-term architecture corpus** — where FRIDAY is headed, for major/future upgrades. Entry: `FRIDAY-VISION/00-MASTER/00_READ_FIRST.md` |
 
 ### SHA policy (standing rule — read before adding any hash anywhere in this layer)
@@ -83,7 +83,7 @@ and out of scope for this rule; don't touch it under this policy.
 ### 3a. `FRIDAY-DEVELOPMENT/` — 14 numbered areas
 | # | Folder | Covers |
 |---|---|---|
-| 00 | `00_MASTER` | Entry point + `DEVELOPMENT_MASTER_CONTRACT.md` (architecture law) |
+| 00 | adopted | The read-first order, the plane map, and the master laws now live in `docs/FRIDAY_CHANGE_CONTROL.md` and `src/lib/friday/flow-chart.ts`. The folder was removed after those tests passed. |
 | 01 | `01_SOURCE_ROUTING` | `TASK_TO_AREA_ROUTER.md` (classify a task) + `SOURCE_OWNER_CATALOG.md`/`SOURCE_OWNERSHIP_MAP.json` (real file anchors, callers, tests, locked files) |
 | 02 | adopted | Durable task runtime and the event envelope now live in `src/lib/friday/self/run-receipt.ts`. The folder was removed after those tests passed. |
 | 03 | `03_INTELLIGENCE_FABRIC` | Context engineering, model routing contract |

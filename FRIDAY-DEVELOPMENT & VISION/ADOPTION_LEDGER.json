@@ -77,8 +77,8 @@
   ],
   "totals": {
     "DONE": 15,
-    "MISSING": 2077,
-    "SUPERSEDED": 14,
+    "MISSING": 2066,
+    "SUPERSEDED": 25,
     "PARTIAL": 5
   },
   "rows": [
@@ -361,10 +361,16 @@
       "heading": "DOCUMENT-MANIFEST.json",
       "area": "vision-root",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 2643
     },
     {
@@ -373,10 +379,16 @@
       "heading": "Related",
       "area": "development:00_MASTER",
       "type": "process",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1275
     },
     {
@@ -385,10 +397,16 @@
       "heading": "ARCHITECTURE_MAP.md",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1323
     },
     {
@@ -397,10 +415,16 @@
       "heading": "Architecture law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -409,10 +433,16 @@
       "heading": "Compatibility law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -421,10 +451,16 @@
       "heading": "Ownership law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -433,10 +469,16 @@
       "heading": "Preservation law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -445,10 +487,16 @@
       "heading": "Evidence law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -457,10 +505,16 @@
       "heading": "Context law",
       "area": "development:00_MASTER",
       "type": "behaviour",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 1633
     },
     {
@@ -469,10 +523,16 @@
       "heading": "DEVELOPMENT_WORKBENCH_MANIFEST.json",
       "area": "development:00_MASTER",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 858
     },
     {
@@ -481,10 +541,16 @@
       "heading": "PACKAGE_MANIFEST.json",
       "area": "development:00_MASTER",
       "type": "manifest",
-      "status": "MISSING",
-      "target": [],
-      "tests": [],
-      "notes": "Not adopted in this batch. Continue from this row.",
+      "status": "SUPERSEDED",
+      "target": [
+        "docs/FRIDAY_CHANGE_CONTROL.md",
+        "src/lib/friday/flow-chart.ts",
+        "config/friday-version.json"
+      ],
+      "tests": [
+        "core/__tests__/development-contracts.test.ts"
+      ],
+      "notes": "The live 17-layer spine and the version file already own this. The stale 1.0.0.2 manifest was not adopted. File removed after the test passed.",
       "bytes": 715
     },
     {

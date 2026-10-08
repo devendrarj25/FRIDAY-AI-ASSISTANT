@@ -77,6 +77,27 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | [NIST NCCoE agent identity concept paper](https://www.nccoe.nist.gov/sites/default/files/2026-02/accelerating-the-adoption-of-software-and-ai-agent-identity-and-authorization-concept-paper.pdf) | ADOPT | Least privilege: a grant is scoped, expiring, and rechecked, and a child cannot widen the parent. |
 | [NIST on agent identity](https://www.nist.gov/blogs/cybersecurity-insights/back-future-why-agentic-ai-needs-strong-identity-foundation) | ADAPT | Attenuate authority as it is delegated. Do not add a hosted identity provider. |
 
+## Planes
+
+The live spine is the 17 layers in `src/lib/friday/flow-chart.ts`. These planes name the same owners. They are not a second map and not permission to move files.
+
+| Plane | Owner |
+| --- | --- |
+| Experience | `src/lib/friday/navigation.ts` |
+| Cognition | `src/lib/friday/brain/cognitive-baseline.ts` |
+| Task | `src/lib/friday/self/task-graph.ts` and `kernel/planner.py` |
+| Intelligence | `electron/model-router.cjs` |
+| Agents | `src/lib/friday/self/agent-scheduler.ts` |
+| Capability | the existing tool, skill, and module registries |
+| Authority | `kernel/authority.py` |
+| Execution | `kernel/tools.py` |
+| Verification | a checked postcondition on the task graph |
+| Memory | `src/lib/friday/self/memory-engine.ts` |
+| Lifecycle | the existing installer and updater |
+| Observability | the existing task log |
+
+A model response is not proof of an external effect. Load only the owner for the task. The product version lives only in `config/friday-version.json`.
+
 ## Definition of done
 
 A change is done when the behaviour exists in the canonical owner, a test from this change passes, the owning document matches the code, and PASS is backed by command output. A written plan is not done. Windows install, boot, microphone, and hosted Actions stay unverified until a Windows run or the owner's PC shows them.

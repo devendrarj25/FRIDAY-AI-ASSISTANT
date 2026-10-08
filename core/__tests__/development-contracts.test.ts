@@ -217,6 +217,18 @@ describe("development contracts", () => {
     const database = fs.readFileSync(path.join(ROOT, "kernel/db.py"), "utf8");
     expect(database).toContain('self.set_setting("schema_version", SCHEMA_VERSION)');
     expect(database).toContain("idempotency_key");
+    const flow = fs.readFileSync(path.join(ROOT, "src/lib/friday/flow-chart.ts"), "utf8");
+    for (let order = 1; order <= 17; order += 1) expect(flow).toContain(`order: ${order},`);
+    const version = JSON.parse(
+      fs.readFileSync(path.join(ROOT, "config/friday-version.json"), "utf8"),
+    ) as { major: number; minor: number; patch: number; revision: number };
+    expect([version.major, version.minor, version.patch, version.revision]).toEqual([1, 0, 1, 2]);
+    const control = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_CHANGE_CONTROL.md"), "utf8");
+    expect(control).toContain("src/lib/friday/flow-chart.ts");
+    expect(control).toContain("kernel/planner.py");
+    expect(
+      fs.existsSync(path.join(ROOT, "FRIDAY-DEVELOPMENT & VISION/DOCUMENT-MANIFEST.json")),
+    ).toBe(false);
   });
 
   it("accepts the backend records and refuses a broken one", () => {
