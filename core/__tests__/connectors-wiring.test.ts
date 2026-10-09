@@ -58,6 +58,9 @@ describe("connectors system wiring", () => {
     expect(page).toContain(
       "connector.connected || connector.configured || Boolean(connector.lastError)",
     );
-    expect(page).toContain("useEffect");
+    expect(page).toContain("seenFields !== fieldKey");
+    expect(page).toContain(
+      "setValues(Object.fromEntries(connector.fields.map((f) => [f.id, f.value])))",
+    );
   });
 });

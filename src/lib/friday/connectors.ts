@@ -12,6 +12,7 @@
  *     before she writes into an external service.
  */
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "./defer-effect";
 import { desktopApi, isDesktopApp, safeCall } from "./desktop";
 import { governance } from "./self/governance";
 import { capabilityRegistry } from "./brain/capability-registry";
@@ -311,9 +312,12 @@ export function useConnectors() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const stop = deferEffect(() => void refresh());
     const off = api()?.onConnectorsChanged?.(() => void refresh());
-    return () => off?.();
+    return () => {
+      stop();
+      off?.();
+    };
   }, [refresh]);
 
   return { connectors, loading, supported: connectorsSupported(), refresh };

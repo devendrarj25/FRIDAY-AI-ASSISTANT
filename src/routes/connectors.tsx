@@ -8,7 +8,7 @@
  * gate as the rest of FRIDAY.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2, Plug, RefreshCw, Search, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -53,13 +53,15 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
     Object.fromEntries(connector.fields.map((f) => [f.id, f.value])),
   );
   const fieldKey = connector.fields.map((f) => `${f.id}:${f.value}`).join("|");
-  useEffect(() => {
-    setValues(Object.fromEntries(connector.fields.map((f) => [f.id, f.value])));
-  }, [connector.id, fieldKey, connector.fields]);
   const [busy, setBusy] = useState<string | null>(null);
   const [output, setOutput] = useState<string[]>([]);
   const [params, setParams] = useState<Record<string, string>>({});
   const [smsCode, setSmsCode] = useState("");
+  const [seenFields, setSeenFields] = useState(fieldKey);
+  if (seenFields !== fieldKey) {
+    setSeenFields(fieldKey);
+    setValues(Object.fromEntries(connector.fields.map((f) => [f.id, f.value])));
+  }
   const authType = connector.authType || "apiKey";
 
   const save = async () => {

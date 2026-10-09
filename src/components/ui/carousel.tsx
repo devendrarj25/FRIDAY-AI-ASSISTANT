@@ -10,6 +10,12 @@ type UseCarouselParameters = Parameters<typeof useEmblaCarousel>;
 type CarouselOptions = UseCarouselParameters[0];
 type CarouselPlugin = UseCarouselParameters[1];
 
+export function readCarouselEnds(
+  api: { canScrollPrev: () => boolean; canScrollNext: () => boolean } | undefined,
+): { prev: boolean; next: boolean } {
+  return { prev: Boolean(api?.canScrollPrev()), next: Boolean(api?.canScrollNext()) };
+}
+
 type CarouselProps = {
   opts?: CarouselOptions;
   plugins?: CarouselPlugin;
@@ -49,16 +55,21 @@ const Carousel = React.forwardRef<
     },
     plugins,
   );
-  const [canScrollPrev, setCanScrollPrev] = React.useState(false);
-  const [canScrollNext, setCanScrollNext] = React.useState(false);
+  const [canScrollPrev, setCanScrollPrev] = React.useState(() => readCarouselEnds(api).prev);
+  const [canScrollNext, setCanScrollNext] = React.useState(() => readCarouselEnds(api).next);
+  const [scrollApi, setScrollApi] = React.useState(api);
+  if (api !== scrollApi) {
+    setScrollApi(api);
+    const ends = readCarouselEnds(api);
+    setCanScrollPrev(ends.prev);
+    setCanScrollNext(ends.next);
+  }
 
-  const onSelect = React.useCallback((api: CarouselApi) => {
-    if (!api) {
-      return;
-    }
-
-    setCanScrollPrev(api.canScrollPrev());
-    setCanScrollNext(api.canScrollNext());
+  const onSelect = React.useCallback((next: CarouselApi) => {
+    if (!next) return;
+    const ends = readCarouselEnds(next);
+    setCanScrollPrev(ends.prev);
+    setCanScrollNext(ends.next);
   }, []);
 
   const scrollPrev = React.useCallback(() => {
@@ -83,11 +94,9 @@ const Carousel = React.forwardRef<
   );
 
   React.useEffect(() => {
-    if (!api || !setApi) {
-      return;
-    }
-
-    setApi(api);
+    if (!api || !setApi) return;
+    const kick = window.setTimeout(() => setApi(api), 0);
+    return () => window.clearTimeout(kick);
   }, [api, setApi]);
 
   React.useEffect(() => {
@@ -95,12 +104,12 @@ const Carousel = React.forwardRef<
       return;
     }
 
-    onSelect(api);
     api.on("reInit", onSelect);
     api.on("select", onSelect);
 
     return () => {
-      api?.off("select", onSelect);
+      api.off("reInit", onSelect);
+      api.off("select", onSelect);
     };
   }, [api, onSelect]);
 

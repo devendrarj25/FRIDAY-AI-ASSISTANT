@@ -141,7 +141,8 @@ function InstallManagerPage() {
       else if (j.phase === "Failed") toast.error(`${j.pkg} failed`, { description: j.error });
       else toast(`${j.pkg} cancelled`);
     });
-    setNotified((prev) => [...prev, ...fresh.map((j) => j.id)].slice(-80));
+    const ids = fresh.map((j) => j.id);
+    queueMicrotask(() => setNotified((prev) => [...prev, ...ids].slice(-80)));
   }, [state.jobs, notified]);
 
   const entries = useMemo(() => {

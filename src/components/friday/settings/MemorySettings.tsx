@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Download, RefreshCw, Save, Upload } from "lucide-react";
@@ -19,11 +19,14 @@ export function MemorySettings() {
   const navigate = useNavigate();
   const state = useMemory();
   const prefs = usePreferences();
-  const [backupAt, setBackupAt] = useState<number | null>(null);
+  const [backupAt, setBackupAt] = useState<number | null>(() => memory.lastBackupAt());
   const [noticedTick, setNoticedTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setBackupAt(memory.lastBackupAt()), [state.lastWriteAt]);
+  const [seenWrite, setSeenWrite] = useState(state.lastWriteAt);
+  if (seenWrite !== state.lastWriteAt) {
+    setSeenWrite(state.lastWriteAt);
+    setBackupAt(memory.lastBackupAt());
+  }
 
   const isOn = (k: string) => prefs.toggles[k] === true;
   const flip = (k: string) => preferences.setToggle(k, !isOn(k));

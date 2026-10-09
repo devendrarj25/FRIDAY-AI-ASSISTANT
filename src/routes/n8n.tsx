@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Github } from "@/components/friday/icons/github";
 import { useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { FilterTabs, HudPanel, StatTile, StatusPill, ToggleRow } from "@/components/friday/ui";
@@ -93,24 +94,28 @@ function N8nPage() {
   const workflows = [...remote, ...local];
   const n8nImports = items.filter((i) => i.target === "n8n");
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const s = JSON.parse(raw) as { base?: string; key?: string; hook?: string };
-        if (s.base) setBase(s.base);
-        if (s.hook) setWebhook(s.hook);
-        // An API key must never live in browser storage. A key written by an
-        // older build is purged here (once) and never read back into the form.
-        if (s.key !== undefined)
-          localStorage.setItem(KEY, JSON.stringify({ base: s.base, hook: s.hook }));
-      }
-      const rawLocal = localStorage.getItem(LOCAL_KEY);
-      if (rawLocal) setLocal(JSON.parse(rawLocal) as N8nWorkflow[]);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  useEffect(
+    () =>
+      deferEffect(() => {
+        try {
+          const raw = localStorage.getItem(KEY);
+          if (raw) {
+            const s = JSON.parse(raw) as { base?: string; key?: string; hook?: string };
+            if (s.base) setBase(s.base);
+            if (s.hook) setWebhook(s.hook);
+            // An API key must never live in browser storage. A key written by an
+            // older build is purged here (once) and never read back into the form.
+            if (s.key !== undefined)
+              localStorage.setItem(KEY, JSON.stringify({ base: s.base, hook: s.hook }));
+          }
+          const rawLocal = localStorage.getItem(LOCAL_KEY);
+          if (rawLocal) setLocal(JSON.parse(rawLocal) as N8nWorkflow[]);
+        } catch {
+          /* ignore */
+        }
+      }),
+    [],
+  );
 
   const saveLocal = (next: N8nWorkflow[]) => {
     setLocal(next);

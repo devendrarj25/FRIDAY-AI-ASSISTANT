@@ -79,16 +79,16 @@ function StatusPage() {
   const startup = useStartup();
   const services = useServiceHealth();
   const kernel = useKernelStatus();
+  const refreshCaps = caps.refresh;
 
   // Opening the board is an explicit "show me now": every owner re-reads its
   // source once. The live samplers keep it current from there.
   useEffect(() => {
-    void caps.refresh();
+    void refreshCaps();
     void refreshEnvironment();
     void doctor.scan({ deep: false });
     void systemMap.refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshCaps]);
 
   const enabled = (tree: string) => caps.counts[tree]?.enabled ?? 0;
   const installedModels = useMemo(

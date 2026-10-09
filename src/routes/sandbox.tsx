@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import {
   CheckCircle2,
   CircleSlash,
@@ -141,11 +142,15 @@ function SandboxPage() {
     return next;
   }, []);
 
-  useEffect(() => {
-    void refresh();
-    void detectRuntime().then(setRuntime);
-    void listEngines().then(setEngines);
-  }, [refresh]);
+  useEffect(
+    () =>
+      deferEffect(() => {
+        void refresh();
+        void detectRuntime().then(setRuntime);
+        void listEngines().then(setEngines);
+      }),
+    [refresh],
+  );
 
   useEffect(
     () => onRuntimeEvent((event) => setRuntimeLine(`${event.phase}: ${event.line ?? ""}`.trim())),
@@ -178,15 +183,21 @@ function SandboxPage() {
     setFiles(result.files ?? []);
   }, []);
 
-  useEffect(() => {
-    if (!activeId) return;
+  const [seenSandbox, setSeenSandbox] = useState(activeId);
+  if (activeId && seenSandbox !== activeId) {
+    setSeenSandbox(activeId);
     setOpenFile(null);
     setContent("");
     setDirty(false);
     setChanges(null);
     setOutput("");
-    void loadTree(activeId);
-    void readLog(activeId).then(setLog);
+  }
+  useEffect(() => {
+    if (!activeId) return;
+    return deferEffect(() => {
+      void loadTree(activeId);
+      void readLog(activeId).then(setLog);
+    });
   }, [activeId, loadTree]);
 
   useEffect(() => {

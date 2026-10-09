@@ -219,7 +219,7 @@ export function ChatDock() {
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(() => readSessions());
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,8 +321,6 @@ export function ChatDock() {
   const hiddenModelCount = registry.showAll
     ? 0
     : registry.models.length - registry.models.filter((m) => m.available).length;
-
-  useEffect(() => setSessions(readSessions()), []);
 
   // Typing is live the moment FRIDAY opens — no click needed. Focus is taken
   // once after the first paint, and once more only if the OS window gains

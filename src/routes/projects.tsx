@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -31,6 +32,10 @@ import {
   publishProjectWorkspaceSession,
   registerProjectWorkspaceAsk,
 } from "@/lib/friday/project-workspace-awareness";
+
+export function activityUpdatedAt(now: () => number = Date.now): number {
+  return now();
+}
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -94,13 +99,14 @@ function ProjectsPage() {
   }, [desktop]);
 
   useEffect(() => {
-    void pull();
+    const stop = deferEffect(() => void pull());
     const offProj = projectWorkspaces.subscribe(() => {
       setItems(projectWorkspaces.list(true));
       setActiveId(projectWorkspaces.activeId());
     });
     const offLib = library.subscribe(() => setLibItems(library.list()));
     return () => {
+      stop();
       offProj();
       offLib();
     };
@@ -113,16 +119,17 @@ function ProjectsPage() {
   }, []);
 
   const active = items.find((item) => item.id === activeId);
-
-  useEffect(() => {
-    if (!active) return;
+  const activeFormId = active?.id ?? "";
+  const [seenProject, setSeenProject] = useState(activeFormId);
+  if (active && seenProject !== active.id) {
+    setSeenProject(active.id);
     setInstructions(active.instructions);
     setLanguage(active.preferences.language);
     setStack(active.preferences.stack);
     setFormat(active.preferences.format);
     setModelHint(active.preferences.modelHint || "");
     setKind(active.kind);
-  }, [active?.id]);
+  }
 
   useEffect(() => {
     registerProjectWorkspaceAsk((prompt) => {
@@ -142,10 +149,12 @@ function ProjectsPage() {
     });
   }, [desktop, items, activeId, tab]);
 
+  const fileProjectId = active?.id;
+  const fileUpdatedAt = active?.activity.updatedAt;
   useEffect(() => {
-    if (!active || tab !== "files") return;
-    void projectWorkspaces.listFiles(active.id).then(setFiles);
-  }, [active?.id, tab, active?.activity.updatedAt]);
+    if (!fileProjectId || tab !== "files") return;
+    void projectWorkspaces.listFiles(fileProjectId).then(setFiles);
+  }, [fileProjectId, tab, fileUpdatedAt]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -295,7 +304,7 @@ function ProjectsPage() {
     setDetectNote(note);
     projectWorkspaces.save({
       id: active.id,
-      activity: { ...active.activity, lastRunLog: note, updatedAt: Date.now() },
+      activity: { ...active.activity, lastRunLog: note, updatedAt: activityUpdatedAt() },
     });
     setItems(projectWorkspaces.list(true));
     toast.success("Detect recorded on this project.");
@@ -1054,7 +1063,7 @@ function ProjectsPage() {
                                 activity: {
                                   ...active.activity,
                                   lastPreviewUrl: url,
-                                  updatedAt: Date.now(),
+                                  updatedAt: activityUpdatedAt(),
                                 },
                               });
                               toast.success("Opened in FRIDAY Browser.");

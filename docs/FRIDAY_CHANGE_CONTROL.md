@@ -159,6 +159,7 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) | ADOPT | Least privilege, a job timeout, and a pinned third-party image stay inside the existing twelve workflows. |
 | [Actions security roadmap 2026](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/) | ADAPT | Actor and event rules are not a second CI. The existing permission blocks stay. |
 | [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode stays. A missing tool fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set. A workstation may skip with a loud line. The ceiling may only shrink. |
+| [React hooks eslint](https://react.dev/reference/eslint-plugin-react-hooks) | ADOPT | The five compiler rules and `exhaustive-deps` are errors. State is derived or adjusted when an input changes. An effect subscribes. A ref is not read while rendering. |
 
 ## Definition of done
 

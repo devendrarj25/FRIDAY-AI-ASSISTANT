@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { toast } from "sonner";
 import { RefreshCw, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -62,9 +63,7 @@ export function PermissionSettings() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => deferEffect(() => void load()), [load]);
 
   const set = async (tool: string, decision: Decision | "default") => {
     const api = bridge();

@@ -174,8 +174,13 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   // One version for the whole app (package.json → installed EXE version).
   const appVersion = useAppVersion();
 
-  useEffect(() => {
+  const [seenDefault, setSeenDefault] = useState(defaultExpanded);
+  if (seenDefault !== defaultExpanded) {
+    setSeenDefault(defaultExpanded);
     setCollapsed(readSidebarCollapsed(defaultExpanded));
+  }
+
+  useEffect(() => {
     const onPref = () => setCollapsed(readSidebarCollapsed(defaultExpanded));
     window.addEventListener(SIDEBAR_PREF_EVENT, onPref);
     window.addEventListener("storage", onPref);

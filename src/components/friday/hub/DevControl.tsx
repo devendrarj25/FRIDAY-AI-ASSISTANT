@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import {
   GitBranch,
   GitPullRequest,
@@ -75,7 +76,7 @@ export function DevControl() {
 
   useEffect(() => {
     if (!desktop) return;
-    void refresh();
+    return deferEffect(() => void refresh());
   }, [desktop, refresh]);
 
   useEffect(

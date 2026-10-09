@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Panel } from "@/components/friday/AppShell";
@@ -102,7 +103,7 @@ function LogsPage() {
 
   useEffect(() => {
     if (!desktop) return;
-    void pull();
+    const stop = deferEffect(() => void pull());
     const offLog = onTelemetryLog((entry) => {
       setLines((prev) => appendLogLines(prev, [telemetryEntryToLine(entry)]));
     });
@@ -118,6 +119,7 @@ function LogsPage() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {
+      stop();
       offLog();
       offIpc();
       offClear();

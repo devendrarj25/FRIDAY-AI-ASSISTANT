@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { GitPullRequest, History, Loader2, RefreshCw, RotateCcw, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel, StatusPill } from "@/components/friday/ui";
@@ -63,7 +64,8 @@ export function RevertCenter() {
   }, []);
 
   useEffect(() => {
-    if (desktop) void refresh();
+    if (!desktop) return;
+    return deferEffect(() => void refresh());
   }, [desktop, refresh]);
 
   const run = async (id: string, fn: () => Promise<void>) => {

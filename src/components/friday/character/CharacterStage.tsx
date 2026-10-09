@@ -34,7 +34,7 @@ export function CharacterStage() {
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   const [rig, setRig] = useState<CharacterRig | null>(null);
-  const [textureSrc, setTextureSrc] = useState<string | null>(null);
+  const [textureSrc, setTextureSrc] = useState<string | null>(bridge ? null : FALLBACK_TEXTURE);
   const [settings, setSettings] = useState<CharacterSettings | null>(null);
   const [state, setState] = useState<CharacterState>(EMPTY_STATE);
   const [gaze, setGaze] = useState<Gaze>({ dx: 0, dy: 0, near: false });
@@ -45,11 +45,7 @@ export function CharacterStage() {
 
   /* ----------------------------------------------------------- asset load */
   useEffect(() => {
-    if (!bridge) {
-      // Browser preview: the shipped artwork still renders, just without IPC.
-      setTextureSrc(FALLBACK_TEXTURE);
-      return;
-    }
+    if (!bridge) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -98,7 +94,8 @@ export function CharacterStage() {
     try {
       renderer = new CharacterRenderer(canvas, rig);
     } catch (error) {
-      setGlError(String((error as Error).message ?? error));
+      const message = String((error as Error).message ?? error);
+      queueMicrotask(() => setGlError(message));
       void bridge?.characterProbe({
         ok: false,
         api: "webgl2",

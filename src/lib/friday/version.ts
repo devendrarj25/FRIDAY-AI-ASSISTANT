@@ -7,7 +7,7 @@
  * (`app:version`) from the same identity — so the title strip, the sidebar,
  * Settings, Diagnostics and every "about" line all read the same number.
  */
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 declare const __FRIDAY_VERSION__: string | undefined;
 declare const __FRIDAY_BUILD__: string | undefined;
@@ -58,16 +58,20 @@ function ensureRuntimeVersion() {
     });
 }
 
+function subscribeRuntimeVersion(onChange: () => void): () => void {
+  listeners.add(onChange);
+  ensureRuntimeVersion();
+  return () => {
+    listeners.delete(onChange);
+  };
+}
+
 /** The version to display: the installed app's own version when available. */
 export function useAppVersion(): { version: string; label: string; build: string } {
-  const [version, setVersion] = useState(runtimeVersion);
-  useEffect(() => {
-    ensureRuntimeVersion();
-    listeners.add(setVersion);
-    setVersion(runtimeVersion);
-    return () => {
-      listeners.delete(setVersion);
-    };
-  }, []);
+  const version = useSyncExternalStore(
+    subscribeRuntimeVersion,
+    () => runtimeVersion,
+    () => runtimeVersion,
+  );
   return { version, label: `v${version}`, build: APP_BUILD };
 }

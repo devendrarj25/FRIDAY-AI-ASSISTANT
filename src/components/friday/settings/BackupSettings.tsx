@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,9 @@ export function BackupSettings() {
   const backupFileRef = useRef<HTMLInputElement | null>(null);
   const prefsFileRef = useRef<HTMLInputElement | null>(null);
   const allFileRef = useRef<HTMLInputElement | null>(null);
-  const [backupAt, setBackupAt] = useState<number | null>(null);
+  const [backupAt, setBackupAt] = useState<number | null>(() => memory.lastBackupAt());
   const [busy, setBusy] = useState<string | null>(null);
   const isOn = (k: string) => prefs.toggles[k] === true;
-
-  useEffect(() => setBackupAt(memory.lastBackupAt()), []);
 
   const run = async (id: string, label: string, action: () => Promise<unknown> | unknown) => {
     if (busy) return;

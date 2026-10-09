@@ -10,6 +10,7 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import {
   Background,
   Controls,
@@ -330,6 +331,8 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
   );
 }
 
+const EMPTY_STEPS: WorkflowStep[] = [];
+
 const nodeTypes: NodeTypes = {
   skill: StepNode,
   tool: StepNode,
@@ -390,29 +393,32 @@ export function WorkflowVisualBuilder({
   );
   const resources = snapshot.resources;
 
+  const catalogSource = injectedCatalog ?? null;
+  const [seenCatalog, setSeenCatalog] = useState(catalogSource);
+  if (catalogSource && seenCatalog !== catalogSource) {
+    setSeenCatalog(catalogSource);
+    setCatalog(catalogSource);
+  }
   useEffect(() => {
-    if (injectedCatalog) {
-      setCatalog(injectedCatalog);
-      return;
-    }
-    void listWorkflowStepCatalog()
-      .then(setCatalog)
-      .catch(() => setCatalog([]));
+    if (injectedCatalog) return;
+    return deferEffect(() => {
+      void listWorkflowStepCatalog()
+        .then(setCatalog)
+        .catch(() => setCatalog([]));
+    });
   }, [injectedCatalog, supported]);
 
   const selected =
     livePacks.find((row) => row.id === selectedId || row.name === selectedId) || null;
+  const selectedKey = selected?.id ?? "";
+  const [seenPack, setSeenPack] = useState(selectedKey);
+  if (selected && seenPack !== selected.id) {
+    setSeenPack(selected.id);
+    setDraft(packToDraft(selected));
+    setRun(null);
+  }
 
-  useEffect(() => {
-    if (selected) {
-      setDraft(packToDraft(selected));
-      setRun(null);
-      return;
-    }
-    setDraft((current) => current);
-  }, [selected?.id]);
-
-  const steps = draft?.steps ?? [];
+  const steps = draft?.steps ?? EMPTY_STEPS;
   const { nodes: seededNodes, edges: seededEdges } = useMemo(
     () => stepsToFlow(steps, catalog, resources, run),
     [steps, catalog, resources, run],

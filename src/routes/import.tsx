@@ -119,9 +119,11 @@ function ImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const appVersion = useAppVersion();
   const [version, setVersion] = useState(appVersion.version);
-  useEffect(() => {
+  const [seenVersion, setSeenVersion] = useState(appVersion.version);
+  if (seenVersion !== appVersion.version) {
+    setSeenVersion(appVersion.version);
     setVersion(appVersion.version);
-  }, [appVersion.version]);
+  }
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
   // Real builds need the FRIDAY *source* project; an installed EXE has to be

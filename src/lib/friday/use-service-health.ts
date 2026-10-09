@@ -43,12 +43,11 @@ const bridge = (): Bridge | null =>
 
 export function useServiceHealth(): { supported: boolean; health: ServiceHealth | null } {
   const [health, setHealth] = useState<ServiceHealth | null>(null);
-  const [supported, setSupported] = useState(false);
+  const supported = Boolean(bridge()?.onSystemHealth);
 
   useEffect(() => {
     const api = bridge();
     if (!api?.onSystemHealth) return;
-    setSupported(true);
 
     let active = true;
     const apply = (value: ServiceHealth | null) => {

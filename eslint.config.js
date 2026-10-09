@@ -36,15 +36,15 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // React Compiler advisory rules (eslint-plugin-react-hooks v7). FRIDAY does not
-      // ship the React Compiler, and these flag working, tested UI patterns rather than
-      // bugs. Kept visible as warnings; converting them means rewriting UI logic, which
-      // is a deliberate owner decision (UI is locked), not a lint fix.
-      "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/refs": "warn",
-      "react-hooks/immutability": "warn",
-      "react-hooks/purity": "warn",
-      "react-hooks/preserve-manual-memoization": "warn",
+      // React Compiler rules from eslint-plugin-react-hooks v7, plus exhaustive-deps.
+      // FRIDAY does not ship the compiler. These rules are the lint contract: derive
+      // state, keep refs out of render, and keep effects for subscriptions.
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/refs": "error",
+      "react-hooks/immutability": "error",
+      "react-hooks/purity": "error",
+      "react-hooks/preserve-manual-memoization": "error",
+      "react-hooks/exhaustive-deps": "error",
       "no-restricted-imports": [
         "error",
         {

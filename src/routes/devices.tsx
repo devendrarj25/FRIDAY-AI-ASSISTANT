@@ -52,14 +52,13 @@ function DevicesPage() {
   const state = useDevices();
   const [app, setApp] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
-  const [remote, setRemote] = useState<CompanionRemoteState | null | undefined>(undefined);
+  const [remote, setRemote] = useState<CompanionRemoteState | null | undefined>(() =>
+    desktopApi()?.companionRemote ? undefined : null,
+  );
 
   useEffect(() => {
     const api = desktopApi();
-    if (!api?.companionRemote) {
-      setRemote(null);
-      return;
-    }
+    if (!api?.companionRemote) return;
     let alive = true;
     void api
       .companionRemote()
