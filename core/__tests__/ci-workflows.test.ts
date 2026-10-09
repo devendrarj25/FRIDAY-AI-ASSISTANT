@@ -200,6 +200,17 @@ describe("PR validation", () => {
     expect(doc.on.workflow_call.inputs.sha.required).toBe(true);
     expect(src).toContain("PR Validation is called only by Official Publish.");
     expect(src).toContain("Official Publish must name the exact commit to validate.");
+    // github.event_name inside a called workflow is the caller's event, so a
+    // comparison with workflow_call never matches and must not gate the refusal.
+    expect(src).not.toContain("github.event_name == 'workflow_call'");
+    expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+    expect(src).toContain("github.workflow_ref");
+    expect(src).toContain(".github/workflows/official-publish.yml@");
+    expect(src).toContain(".github/workflows/pr-validation.yml@");
+    const refuse = doc.jobs.gate.steps.find(
+      (step: { name?: string }) => step.name === "Refuse a call that is not Official Publish",
+    );
+    expect(refuse?.if).toBeUndefined();
   });
 
   it("cannot write code and only publishes its own result", () => {
@@ -484,6 +495,11 @@ describe("official release", () => {
     expect(src).toContain("Releases are manual only (workflow_dispatch).");
     expect(src).toContain("Only Official Publish may call Release / Build.");
     expect(src.match(/Only Official Publish may call Release \/ Build\./g)).toHaveLength(2);
+    expect(src).not.toContain("github.event_name == 'workflow_call'");
+    expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+    expect(src).toContain("github.workflow_ref");
+    expect(src.match(/\.github\/workflows\/official-publish\.yml@/g)).toHaveLength(2);
+    expect(src.match(/\.github\/workflows\/release\.yml@/g)).toHaveLength(2);
     expect(src).toContain("ref: main");
   });
 
@@ -800,6 +816,12 @@ describe("safe merge flow", () => {
         expect(src).toContain("--match-head-commit");
         expect(src).toContain('gh pr merge "$pr" --merge');
         expect(src).toContain("Safe Merge is manual only, or one call from Official Publish.");
+        expect(src).toContain("Safe Merge is manual only (workflow_dispatch).");
+        expect(src).not.toContain("github.event_name == 'workflow_call'");
+        expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+        expect(src).toContain("github.workflow_ref");
+        expect(src).toContain(".github/workflows/official-publish.yml@");
+        expect(src).toContain(".github/workflows/safe-merge.yml@");
         expect(src).not.toMatch(
           /--squash|--rebase|--admin|enable-?auto-?merge|automerge|auto_merge/i,
         );

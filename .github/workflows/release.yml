@@ -125,23 +125,39 @@ jobs:
     steps:
       - name: Refuse to prepare a release from anything but main
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER: ${{ inputs.caller }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          [ '${{ github.ref_name }}' = 'main' ] || {
-            echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
+          [ "$REF_NAME" = "main" ] || {
+            echo "::error::Official releases run from main only (this run: $REF_NAME)."
             exit 1
           }
-          # github.event_name inside workflow_call is the caller's event.
-          # Official Publish is workflow_dispatch on main and passes this caller.
-          # A real workflow_call event is accepted only for that same caller.
-          caller='${{ inputs.caller }}'
-          event='${{ github.event_name }}'
-          if [ "$caller" = "official-publish" ]; then
-            :
-          elif [ -n "$caller" ] || [ "$event" = "workflow_call" ]; then
+          # github.event_name inside a called workflow is the caller's event,
+          # so it is never workflow_call. github.workflow is the caller's name
+          # and github.workflow_ref is the caller's file.
+          allowed=false
+          case "$WORKFLOW_REF" in
+            */.github/workflows/release.yml@*)
+              if [ "$WORKFLOW_NAME" = "Release / Build" ] && [ -z "$CALLER" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              else
+                echo "::error::Releases are manual only (workflow_dispatch)."
+                exit 1
+              fi
+              ;;
+            */.github/workflows/official-publish.yml@*)
+              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              fi
+              ;;
+          esac
+          if [ "$allowed" != "true" ]; then
             echo "::error::Only Official Publish may call Release / Build."
-            exit 1
-          elif [ "$event" != "workflow_dispatch" ]; then
-            echo "::error::Releases are manual only (workflow_dispatch)."
+            echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
             exit 1
           fi
 
@@ -595,23 +611,39 @@ jobs:
         # A stable release may only ever be cut from main. Running this stage
         # from a branch would publish an EXE that is not on main.
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER: ${{ inputs.caller }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          [ '${{ github.ref_name }}' = 'main' ] || {
-            echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
+          [ "$REF_NAME" = "main" ] || {
+            echo "::error::Official releases run from main only (this run: $REF_NAME)."
             exit 1
           }
-          # github.event_name inside workflow_call is the caller's event.
-          # Official Publish is workflow_dispatch on main and passes this caller.
-          # A real workflow_call event is accepted only for that same caller.
-          caller='${{ inputs.caller }}'
-          event='${{ github.event_name }}'
-          if [ "$caller" = "official-publish" ]; then
-            :
-          elif [ -n "$caller" ] || [ "$event" = "workflow_call" ]; then
+          # github.event_name inside a called workflow is the caller's event,
+          # so it is never workflow_call. github.workflow is the caller's name
+          # and github.workflow_ref is the caller's file.
+          allowed=false
+          case "$WORKFLOW_REF" in
+            */.github/workflows/release.yml@*)
+              if [ "$WORKFLOW_NAME" = "Release / Build" ] && [ -z "$CALLER" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              else
+                echo "::error::Releases are manual only (workflow_dispatch)."
+                exit 1
+              fi
+              ;;
+            */.github/workflows/official-publish.yml@*)
+              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              fi
+              ;;
+          esac
+          if [ "$allowed" != "true" ]; then
             echo "::error::Only Official Publish may call Release / Build."
-            exit 1
-          elif [ "$event" != "workflow_dispatch" ]; then
-            echo "::error::Releases are manual only (workflow_dispatch)."
+            echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
             exit 1
           fi
 

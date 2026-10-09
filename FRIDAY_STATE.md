@@ -10,7 +10,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 324 files, 2734 passed, 1 skipped |
+| `npm test` | 328 files, 2758 passed, 1 skipped (2026-10-09) |
 | `npm run lint` | 0 ESLint errors, 0 ESLint warnings; kernel ruff check and format check passed |
 | `npm run typecheck` | pass |
 | `npm run docs:check` | 23 documents |
@@ -70,7 +70,7 @@ Python: `kernel/requirements.txt` = FastAPI + `faster-whisper` + `edge-tts`. Tes
 
 ## GitHub automation
 
-Nine release and repository workflows plus three automatic-health ones (Health Weekly, Auto Recover, Security Scan). Pull-request checks, scans and the Windows installer are one workflow: **PR Validation**. Dependabot opens at most one version pull request per ecosystem per month. Test EXE Build and Official Publish reuse a green PR Validation on the same commit from the last 7 days. Official Publish calls Release / Build, PR Validation, and Safe Merge in the same run (`workflow_call`, `caller: official-publish`). A nested dispatch runs as `github-actions[bot]` and is refused before any job starts. Catalog: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Edits follow the standing permission in [AGENTS.md](AGENTS.md): keep them working, fix any break in that same change, and do not dispatch a workflow. Assistants keep one draft pull request and leave it draft until the owner opens it. Hosted execution of this path stays unverified until the change is on `main` and the owner starts Official Publish.
+Nine release and repository workflows plus three automatic-health ones (Health Weekly, Auto Recover, Security Scan). Pull-request checks, scans and the Windows installer are one workflow: **PR Validation**. Dependabot opens at most one version pull request per ecosystem per month. Test EXE Build and Official Publish reuse a green PR Validation on the same commit from the last 7 days. Official Publish calls Release / Build, PR Validation, and Safe Merge in the same run (`workflow_call`, `caller: official-publish`). The called workflow accepts that caller only when `github.workflow` and `github.workflow_ref` name Official Publish, because `github.event_name` stays the caller's event. A nested dispatch runs as `github-actions[bot]` and is refused before any job starts. Catalog: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Edits follow the standing permission in [AGENTS.md](AGENTS.md): keep them working, fix any break in that same change, and do not dispatch a workflow. Assistants keep one draft pull request and leave it draft until the owner opens it. Hosted execution of this path stays unverified until the change is on `main` and the owner starts Official Publish.
 
 ## Deliberate design decisions
 

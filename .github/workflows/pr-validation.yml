@@ -96,21 +96,42 @@ jobs:
       REPO: ${{ github.repository }}
     steps:
       - name: Refuse a call that is not Official Publish
-        if: inputs.caller == 'official-publish' || github.event_name == 'workflow_call'
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER: ${{ inputs.caller }}
+          EVENT_NAME: ${{ github.event_name }}
+          PINNED_SHA: ${{ inputs.sha }}
         run: |
-          [ '${{ inputs.caller }}' = 'official-publish' ] || {
-            echo "::error::PR Validation is called only by Official Publish."
-            exit 1
-          }
-          [ -n '${{ inputs.sha }}' ] || {
-            echo "::error::Official Publish must name the exact commit to validate."
-            exit 1
-          }
-          [ '${{ github.ref_name }}' = 'main' ] || {
-            echo "::error::Official Publish calls PR Validation from main only."
-            exit 1
-          }
+          # This step always runs. github.event_name inside a called workflow
+          # is the caller's event, so a condition on workflow_call never fires
+          # and would skip the refusal. github.workflow is the caller's name
+          # and github.workflow_ref is the caller's file.
+          case "$WORKFLOW_REF" in
+            */.github/workflows/pr-validation.yml@*)
+              if [ "$WORKFLOW_NAME" = "PR Validation" ] && [ -z "$CALLER" ] && { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; }; then
+                exit 0
+              fi
+              ;;
+            */.github/workflows/official-publish.yml@*)
+              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                [ -n "$PINNED_SHA" ] || {
+                  echo "::error::Official Publish must name the exact commit to validate."
+                  exit 1
+                }
+                [ "$REF_NAME" = "main" ] || {
+                  echo "::error::Official Publish calls PR Validation from main only."
+                  exit 1
+                }
+                exit 0
+              fi
+              ;;
+          esac
+          echo "::error::PR Validation is called only by Official Publish."
+          echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
+          exit 1
 
       # The classifier is read from the BASE commit (trusted `main`), never from the
       # pull request, so a change cannot rewrite the rule that decides how much of it
