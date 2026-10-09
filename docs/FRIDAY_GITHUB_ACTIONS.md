@@ -41,6 +41,8 @@ When PR Validation auto-heals documentation, it pushes one docs-only commit to t
 
 Local substitute for PR Validation (no GitHub check): `npm run validate:local`. It runs the same product gates as the full job, including `npm run lint`, and `npm run check:provenance` on `origin/main..HEAD`. The docs-only job still skips lint, because that job does not install Python.
 
+`core/__tests__/workflow-resolver.test.ts` resolves every `run:` command in the twelve workflows and the three composite actions: the npm script exists, the node, Python, or shell file exists, the action path exists, and each invoked script's `require` and shell-out targets exist. Hosted execution of those workflows stays unverified until a GitHub runner executes them.
+
 ## 1b. Minutes budget: what runs, and what never does
 
 Hosted minutes are spent only where they buy evidence. Nothing below removes a

@@ -136,7 +136,10 @@ def media(command: str) -> dict:
     try:
         import ctypes
 
-        user32 = ctypes.windll.user32
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return {"ok": False, "error": "Media control is Windows-only."}
+        user32 = windll.user32
         user32.keybd_event(key, 0, 0, 0)
         user32.keybd_event(key, 0, 2, 0)
     except Exception as exc:

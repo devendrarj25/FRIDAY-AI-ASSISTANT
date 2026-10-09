@@ -42,6 +42,11 @@ an already-connected provider.
 The billing firewall (`electron/billing-firewall.cjs`) does not make a paid
 model a silent default.
 
+`kernel/env_guard.py` `guard_public_url` refuses a non-public address after
+resolving the host. Production uses `socket.getaddrinfo`. A test passes a
+fake resolver. The kernel suite refuses a public DNS lookup or a public
+connect unless that test's node id is listed in `kernel/tests/NETWORK_ALLOW.txt`.
+
 Publisher identity cannot be changed from Settings or chat
 (`src/lib/friday/brain/identity.ts` `lockedIdentityFields`).
 

@@ -66,10 +66,10 @@ def discover_mdns(seconds: float = 4.0) -> dict:
                 }
             )
 
-        def update_service(self, *_args):
+        def update_service(self, zeroconf, service_type, name):
             return
 
-        def remove_service(self, *_args):
+        def remove_service(self, zeroconf, service_type, name):
             return
 
     types = [

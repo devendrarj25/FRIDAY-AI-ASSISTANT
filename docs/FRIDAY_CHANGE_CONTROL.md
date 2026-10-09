@@ -151,6 +151,15 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning) | ADOPT | The existing secret-scan workflow stays. A second scanner is not added. |
 | Generated SBOM | REJECT | A hash mismatch already fails closed. A new bill-of-materials generator is future work in the build doc. |
 
+## Research record (2026-10-09)
+
+| Source | Decision | Reason |
+| --- | --- | --- |
+| [OWASP SSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) | ADOPT | Resolve the host, then refuse private, loopback, and link-local. Tests inject the resolver. Production still calls `socket.getaddrinfo`. |
+| [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) | ADOPT | Least privilege, a job timeout, and a pinned third-party image stay inside the existing twelve workflows. |
+| [Actions security roadmap 2026](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/) | ADAPT | Actor and event rules are not a second CI. The existing permission blocks stay. |
+| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode stays. A missing tool fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set. A workstation may skip with a loud line. The ceiling may only shrink. |
+
 ## Definition of done
 
 A change is done when the behaviour exists in the canonical owner, a test from this change passes, the owning document matches the code, and PASS is backed by command output. A written plan is not done. Windows install, boot, microphone, and hosted Actions stay unverified until a Windows run or the owner's PC shows them.

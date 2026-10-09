@@ -227,14 +227,27 @@ def perform_pattern(selector: str, pattern: str, value: str = "") -> dict[str, A
     }
 
 
-def _dpi_aware() -> None:
+def _win_desktop():
+    """user32/shcore. A non-Windows type stub has no windll, so look it up."""
     import ctypes
 
+    windll = getattr(ctypes, "windll", None)
+    factory = getattr(ctypes, "WINFUNCTYPE", None)
+    if windll is None or factory is None:
+        raise RuntimeError("Windows desktop APIs are unavailable")
+    return ctypes, windll, factory
+
+
+def _dpi_aware() -> None:
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        _ctypes, windll, _factory = _win_desktop()
+    except RuntimeError:
+        return
+    try:
+        windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         try:
-            ctypes.windll.user32.SetProcessDPIAware()
+            windll.user32.SetProcessDPIAware()
         except Exception:
             return
 
@@ -243,16 +256,17 @@ def _monitors() -> list[dict[str, int]]:
     import ctypes
     from ctypes import wintypes
 
+    _ctypes, windll, factory = _win_desktop()
     found: list[dict[str, int]] = []
-    user32 = ctypes.windll.user32
+    user32 = windll.user32
 
-    @ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(wintypes.RECT), ctypes.c_void_p)
+    @factory(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(wintypes.RECT), ctypes.c_void_p)
     def _cb(hmon, _hdc, rect, _data):
         box = rect.contents
         dpi_x = ctypes.c_uint(96)
         dpi_y = ctypes.c_uint(96)
         try:
-            ctypes.windll.shcore.GetDpiForMonitor(ctypes.c_void_p(hmon), 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+            windll.shcore.GetDpiForMonitor(ctypes.c_void_p(hmon), 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
         except Exception:  # noqa: S110 — older Windows keeps the 96 DPI default
             pass
         found.append(
