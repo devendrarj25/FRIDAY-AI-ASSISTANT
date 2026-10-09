@@ -15,6 +15,11 @@ const contract = require("./check-contract.cjs");
 const clean = (value) => String(value || "").replace(/^v/i, "");
 const isStable = (value) => engine.isStableVersion(value);
 
+/** A stable git tag and a GitHub release both consume a public number. */
+function consumedVersions(released = [], tags = []) {
+  return engine.stableConsumed(released, tags);
+}
+
 /**
  * Decide the next orchestration step.
  *
@@ -65,7 +70,7 @@ function alignPreparedVersion(
     baseline: baseline.version,
     type,
     subjects: [],
-    released: released.map(clean),
+    released: consumedVersions(released, tags),
   });
   if (decision.action === "error") {
     return {
@@ -95,7 +100,7 @@ function orchestrationPlan({
   if (!isStable(declared)) {
     return { step: "error", reason: "main does not declare a valid FRIDAY version" };
   }
-  const published = (released || []).map(clean).filter(Boolean);
+  const published = consumedVersions(released, tags);
   const state = engine.resolvePreparedState({ current: declared, prepared });
 
   if (mode === "rebuild") {
@@ -447,27 +452,25 @@ if (require.main === module) {
     const changelogBody =
       explicit && fs.existsSync(changelogFile) ? fs.readFileSync(changelogFile, "utf8") : "";
     let tags = [];
-    if (explicit) {
-      const tagsFile = flag("tags", "");
-      if (tagsFile && fs.existsSync(tagsFile)) {
-        tags = fs
-          .readFileSync(tagsFile, "utf8")
+    const tagsFile = flag("tags", "");
+    if (tagsFile && fs.existsSync(tagsFile)) {
+      tags = fs
+        .readFileSync(tagsFile, "utf8")
+        .split(/\r?\n/)
+        .map((v) => v.trim())
+        .filter(Boolean);
+    } else {
+      try {
+        const { execFileSync } = require("node:child_process");
+        tags = execFileSync("git", ["tag", "--list", "v*"], {
+          cwd: root,
+          encoding: "utf8",
+        })
           .split(/\r?\n/)
           .map((v) => v.trim())
-          .filter(Boolean);
-      } else {
-        try {
-          const { execFileSync } = require("node:child_process");
-          tags = execFileSync("git", ["tag", "--list", "v*"], {
-            cwd: root,
-            encoding: "utf8",
-          })
-            .split(/\r?\n/)
-            .map((v) => v.trim())
-            .filter((v) => /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(v));
-        } catch {
-          tags = [];
-        }
+          .filter((v) => /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(v));
+      } catch {
+        tags = [];
       }
     }
     const result = orchestrationPlan({

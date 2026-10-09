@@ -532,7 +532,7 @@ async function checkUpdate(root, override = {}) {
     // ONE listing, then the channel decides what is even visible. A stable
     // FRIDAY can never see a test build, and a test channel never offers an
     // official release as if it were a test build.
-    const list = await api(cfg, `/repos/${cfg.repo}/releases?per_page=30`);
+    const list = await api(cfg, `/repos/${cfg.repo}/releases?per_page=100`);
     if (!list.ok) return list;
     const published = (list.body || []).filter((r) => !r.draft);
     // "Newest" is a BUILD ordering, not a publish date: 1.3.1 < 1.3.2-test.1 <

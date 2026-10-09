@@ -655,6 +655,22 @@ function testIteration(value) {
 const isTestVersion = (value) => testIteration(value) > 0;
 
 /**
+ * Stable public numbers from one or more lists (GitHub releases, git tags).
+ * A test tag does not consume a number. Drafts are the caller's filter.
+ */
+function stableConsumed(...lists) {
+  const names = lists
+    .flat()
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .replace(/^v/i, ""),
+    )
+    .filter((value) => isStableVersion(value) && !isTestVersion(value));
+  return [...new Set(names)];
+}
+
+/**
  * The next test version for a base version, given the tags/releases that
  * already exist. 1.0.0.0 + ["v1.0.0.0-test.1"] -> 1.0.0.0-test.2.
  */
@@ -2135,6 +2151,9 @@ function plan({ previous, type = "auto", subjects = [], date = new Date() }) {
  * When `declared` is ahead of the last successful release:
  *   same release type (or auto) keeps that unpublished number;
  *   a different explicit type skips it and bumps from the last success.
+ * When nothing older was published and the declared line is not ahead of a
+ * last success, auto still ships that line. An explicit patch, minor, major,
+ * or extreme moves that one counter from the declared line.
  */
 function unpublishedRetry({ declared, baseline, released = [], type = "auto" } = {}) {
   const current = String(declared || "")
@@ -2159,6 +2178,15 @@ function unpublishedRetry({ declared, baseline, released = [], type = "auto" } =
   const base =
     prior || (given && isStableVersion(given) && compareVersions(current, given) > 0 ? given : "");
   if (!base) {
+    const requested = normalizeReleaseType(type);
+    const explicitLevel =
+      requested === "patch" ||
+      requested === "minor" ||
+      requested === "major" ||
+      requested === "extreme";
+    if (explicitLevel) {
+      return { unpublished: false, reuse: false, base: current, failedType: null };
+    }
     return { unpublished: true, reuse: true, base: current, failedType: null };
   }
   const failedType = inferReleaseType(base, current);
@@ -2334,6 +2362,53 @@ function decideRelease({
       mode === "auto"
         ? `${real.length} releasable commit${real.length === 1 ? "" : "s"} since v${base} — ${releaseTypeLabel(bump) || bump} increment`
         : `update requested — ${releaseTypeLabel(bump) || bump} increment over ${base}`,
+  };
+}
+
+/**
+ * In-app preview of the same decision Release / Build will make.
+ * The version comes from decideRelease. Notes still come from plan().
+ * The desktop dispatches mode auto unless the caller passes another mode.
+ */
+function releasePreview({
+  mode = "auto",
+  current,
+  baseline,
+  type = "auto",
+  subjects = [],
+  released = [],
+  date = new Date(),
+} = {}) {
+  const decision = decideRelease({
+    mode,
+    current,
+    baseline,
+    type,
+    subjects,
+    released: stableConsumed(released),
+  });
+  const commits = (subjects || []).filter((line) => String(line || "").trim()).length;
+  if (decision.action === "error") {
+    return { ok: false, error: decision.reason, previous: baseline || null, commits };
+  }
+  const keeping = decision.action !== "update" || decision.bump === "none";
+  const from = keeping ? decision.version : baseline || current;
+  const kind = keeping ? "revision" : decision.bump;
+  const planned = plan({ previous: from, type: kind, subjects, date });
+  if (!planned.ok) {
+    return { ...planned, previous: baseline || null, commits, reason: decision.reason };
+  }
+  return {
+    ...planned,
+    ok: true,
+    previous: baseline || planned.previous,
+    commits,
+    version: decision.version,
+    tag: decision.tag,
+    bump: decision.bump,
+    releaseType: decision.releaseType,
+    reason: decision.reason,
+    action: decision.action,
   };
 }
 
@@ -3523,6 +3598,8 @@ module.exports = {
   CHANGELOG_HEADER_LEAKS,
   plan,
   decideRelease,
+  releasePreview,
+  stableConsumed,
   unpublishedRetry,
   publishHandoff,
   releaseOperatorGuide,

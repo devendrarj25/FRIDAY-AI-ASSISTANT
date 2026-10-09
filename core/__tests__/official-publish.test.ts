@@ -162,7 +162,8 @@ describe("official publish · decision engine", () => {
       changelogBody: "## v1.0.0.2\n",
     });
     expect(plan.step).toBe("prepare");
-    expect(plan.version).toBe("1.0.0.2");
+    expect(plan.version).toBe("1.0.1.2");
+    expect(plan.reason).not.toMatch(/already released|already published/i);
   });
 
   it("keeps the declared version when the increment is auto", () => {
@@ -188,7 +189,7 @@ describe("official publish · decision engine", () => {
       changelogBody: "",
     });
     expect(plan.step).toBe("prepare");
-    expect(plan.version).toBe("1.0.0.0");
+    expect(plan.version).toBe("1.0.1.0");
   });
 
   it("fails closed on ambiguous, conflicting or invalid state", () => {
@@ -326,7 +327,16 @@ describe("official publish · workflow contract", () => {
     const slice = src.slice(step, prepare);
     expect(slice).toContain("orchestrator-engine.cjs plan");
     expect(slice).toContain('--type "$RELEASE_TYPE"');
+    expect(slice).toContain("--tags tags.txt");
+    expect(slice).toContain('[ "$step" != "error" ]');
     expect(slice).not.toContain("release-engine.cjs decide");
+    const state = src.slice(
+      src.indexOf("Read the real repository state"),
+      src.indexOf("Decide the next safe step"),
+    );
+    expect(state).toContain("--limit 100");
+    expect(state).toContain("select(.isDraft|not)");
+    expect(state).toContain("select(.isPrerelease|not)");
   });
 
   it("calls the existing workflows in this run instead of starting a new one", () => {

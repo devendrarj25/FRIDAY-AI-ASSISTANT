@@ -62,7 +62,7 @@ const requireRepo = (root, override = {}) => {
 async function listReleases(root, override = {}) {
   const found = requireRepo(root, override);
   if (!found.ok) return found;
-  const res = await call(found.cfg, `/repos/${found.cfg.repo}/releases?per_page=10`);
+  const res = await call(found.cfg, `/repos/${found.cfg.repo}/releases?per_page=100`);
   if (!res.ok) return res;
   const releases = (res.body || []).map((r) => ({
     tag: r.tag_name,
@@ -137,64 +137,68 @@ async function analyzeChanges(root, override = {}) {
   const previous = releases.latest?.tag || null;
   const branch = "main";
 
-  let baseline = previous;
-  if (!baseline) {
-    const canonical = await call(
-      cfg,
-      `/repos/${cfg.repo}/contents/config/friday-version.json?ref=main`,
-    );
-    if (canonical.ok) {
-      try {
-        const body = Buffer.from(String(canonical.body?.content || ""), "base64").toString("utf8");
-        const identity = engine.identityFromCanonical(JSON.parse(body));
-        baseline = identity?.releaseVersion || null;
-      } catch {
-        baseline = null;
-      }
+  let declared = previous ? String(previous).replace(/^v/i, "") : "";
+  const canonical = await call(
+    cfg,
+    `/repos/${cfg.repo}/contents/config/friday-version.json?ref=main`,
+  );
+  if (canonical.ok) {
+    try {
+      const body = Buffer.from(String(canonical.body?.content || ""), "base64").toString("utf8");
+      const identity = engine.identityFromCanonical(JSON.parse(body));
+      if (identity?.releaseVersion) declared = identity.releaseVersion;
+    } catch {
+      declared = declared || "";
     }
-    if (!baseline) {
-      const pkg = await call(cfg, `/repos/${cfg.repo}/contents/package.json?ref=main`);
-      if (!pkg.ok) return pkg;
-      try {
-        const body = Buffer.from(String(pkg.body?.content || ""), "base64").toString("utf8");
-        baseline = engine.stableBaseline([JSON.parse(body).version]);
-      } catch {
-        return { ok: false, error: "main does not contain a valid stable version identity." };
-      }
-    }
-    if (!baseline || baseline === "0.0.0") {
+  }
+  if (!declared) {
+    const pkg = await call(cfg, `/repos/${cfg.repo}/contents/package.json?ref=main`);
+    if (!pkg.ok) return pkg;
+    try {
+      const body = Buffer.from(String(pkg.body?.content || ""), "base64").toString("utf8");
+      declared = engine.stableBaseline([JSON.parse(body).version]);
+    } catch {
       return { ok: false, error: "main does not contain a valid stable version identity." };
     }
   }
-
-  if (!previous) {
-    return {
-      ok: false,
-      error:
-        "No previous stable GitHub release was found, so changes cannot be measured without dumping the whole history.",
-    };
+  if (!declared || declared === "0.0.0") {
+    return { ok: false, error: "main does not contain a valid stable version identity." };
   }
 
-  const diff = await call(
-    cfg,
-    `/repos/${cfg.repo}/compare/${encodeURIComponent(previous)}...${encodeURIComponent(branch)}`,
-  );
-  if (!diff.ok) return diff;
-  const subjects = (diff.body.commits || []).map((c) => (c.commit?.message || "").split("\n")[0]);
+  let subjects = [];
+  if (previous) {
+    const diff = await call(
+      cfg,
+      `/repos/${cfg.repo}/compare/${encodeURIComponent(previous)}...${encodeURIComponent(branch)}`,
+    );
+    if (!diff.ok) return diff;
+    subjects = (diff.body.commits || []).map((c) => (c.commit?.message || "").split("\n")[0]);
+  }
 
-  const identity = engine.readCanonicalIdentity({ root });
-  const plan = engine.plan({
-    previous: identity?.releaseVersion || baseline,
+  const baseline = previous ? String(previous).replace(/^v/i, "") : declared;
+  const tagList = await call(cfg, `/repos/${cfg.repo}/tags?per_page=100`);
+  const tagNames = tagList.ok ? (tagList.body || []).map((tag) => tag.name) : [];
+  const consumed = engine.stableConsumed(
+    (releases.releases || [])
+      .filter((row) => !row.draft && !row.prerelease)
+      .map((row) => row.version),
+    tagNames,
+  );
+  const mode = ["auto", "rebuild", "update"].includes(override.mode) ? override.mode : "auto";
+  const preview = engine.releasePreview({
+    mode,
+    current: declared,
+    baseline,
     type: override.releaseType || "auto",
     subjects,
+    released: consumed,
   });
   return {
-    ok: true,
     previous,
     branch,
     latest: releases.latest,
+    ...preview,
     commits: subjects.length,
-    ...plan,
   };
 }
 

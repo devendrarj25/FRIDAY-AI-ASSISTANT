@@ -37,7 +37,8 @@ Actions → **Release / Build**, or **Official Publish**, which runs the same pr
 | --- | --- |
 | Same release type (`patch` again, `minor` again, …) | The failed number is published. The counters do not move |
 | A different explicit level | The failed number is skipped. Only the chosen counter moves, counted from the last successful publish |
-| `mode` auto with `release_type` auto | The number stays. A new counter is not invented |
+| `mode` auto with `release_type` auto | The number stays. A new counter is not invented. A never-published line is finished as it stands |
+| An explicit patch, minor, major, or extreme on a never-published line | That one counter still moves from the declared number |
 | `mode` update with `release_type` auto | Patch, minor, or major from the size of the change. Extreme stays manual |
 | Rebuild, or release type revision | The declared number is packed again for a check |
 

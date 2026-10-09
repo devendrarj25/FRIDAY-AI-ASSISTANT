@@ -107,10 +107,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --quiet
+          git fetch origin main --tags --force --quiet || git fetch origin main --quiet
           # Always the live main identity, even if this job's checkout lagged.
           current=$(node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion)
-          gh pr list --state all --base main --limit 60 \
+          gh pr list --state all --base main --limit 100 \
             --json number,state,headRefName,mergedAt \
             | jq '[ .[]
                     | select(.headRefName | test("^release/v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
@@ -118,8 +118,9 @@ jobs:
                         version: (.headRefName | sub("^release/v";"")),
                         state: (if .mergedAt != null then "merged" else (.state|ascii_downcase) end) } ]' \
             > prepared.json
-          gh release list --limit 60 --json tagName,isPrerelease \
-            | jq -r '.[] | select(.isPrerelease|not) | .tagName | sub("^v";"")' > released.txt
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            | jq -r '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName | sub("^v";"")' > released.txt
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' > tags.txt || true
           echo "current=$current" >> "$GITHUB_OUTPUT"
           echo "main declares v$current"
           cat prepared.json
@@ -129,15 +130,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The planner exits 1 when the step is error, after writing plan.json.
+          # Record that step so the following step can print the operator guide.
+          set +e
           node scripts/orchestrator-engine.cjs plan \
             --mode "$MODE" \
             --current '${{ steps.state.outputs.current }}' \
             --type "$RELEASE_TYPE" \
             --prepared prepared.json \
-            --released released.txt > plan.json
+            --released released.txt \
+            --tags tags.txt > plan.json
+          code=$?
+          set -e
           cat plan.json
+          step=$(jq -r '.step // ""' plan.json)
+          if [ "$code" != "0" ] && [ "$step" != "error" ]; then
+            echo "::error::the release plan could not be read"
+            exit "$code"
+          fi
           {
-            echo "step=$(jq -r '.step' plan.json)"
+            echo "step=$step"
             echo "version=$(jq -r '.version // ""' plan.json)"
             echo "pr=$(jq -r '.prNumber // ""' plan.json)"
             echo "publish_mode=$(jq -r '.publishMode // "auto"' plan.json)"

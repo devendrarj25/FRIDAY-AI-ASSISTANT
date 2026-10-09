@@ -45,10 +45,14 @@ The written product line, oldest first, is `1.0.0.0` (base) → `1.0.0.1` → `1
 | A different explicit level | The failed number is skipped. The new number is that one counter, counted from the last successful publish |
 | `mode` = `auto` and `release_type` = `auto` | The number does not move. An unpublished line is finished as it stands |
 | `mode` = `update` and `release_type` = `auto` | Patch, minor, or major, from how much the project changed. Extreme is never chosen this way |
-| An explicit patch, minor, major, or extreme | Only that counter moves. Extreme happens only when you select it |
+| An explicit patch, minor, major, or extreme | Only that counter moves, including when the declared line has never been published. Extreme happens only when you select it |
 | `revision` or `rebuild` | The same version. This is a rebuild so you can check that it works |
 
-Official Publish and Release / Build both ask `scripts/release-engine.cjs`. `handoff` writes the identity into the tree before the pack.
+`auto` with `release_type` auto still ships a never-published line as it stands. Naming patch, minor, major, or extreme moves that counter from the declared number. A stable git tag and a GitHub release both count as a published number.
+
+Research (2026-10-09). Sources: [SemVer](https://semver.org/), [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), and [pnpm first-release hold](https://github.com/pnpm/pnpm/pull/13207). ADOPT: `auto` publishes a never-released declared number as written, so the first public line is not skipped. ADAPT: an explicit counter still moves from that number, because the owner named the level. REJECT: walking the whole git history to invent the first bump. An empty change list stays empty.
+
+Official Publish, Release / Build, and the in-app Analyze preview all ask `scripts/release-engine.cjs`. `handoff` writes the identity into the tree before the pack. The in-app update check reads the same 100-release window.
 
 `release_type`: `auto`, `patch`, `minor`, `major`, `extreme`, `revision`.
 
