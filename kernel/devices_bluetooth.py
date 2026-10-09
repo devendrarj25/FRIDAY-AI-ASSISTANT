@@ -77,10 +77,7 @@ async def _scan_ble(seconds: float) -> dict:
     found = await BleakScanner.discover(timeout=seconds)
     return {
         "ok": True,
-        "devices": [
-            {"name": d.name or "Unknown", "id": d.address, "kind": "ble", "connected": False}
-            for d in found
-        ],
+        "devices": [{"name": d.name or "Unknown", "id": d.address, "kind": "ble", "connected": False} for d in found],
     }
 
 
@@ -114,7 +111,7 @@ def set_enabled(enabled: bool) -> dict:
 
 
 MEDIA_KEYS = {
-    "play": 0xB3,       # VK_MEDIA_PLAY_PAUSE
+    "play": 0xB3,  # VK_MEDIA_PLAY_PAUSE
     "pause": 0xB3,
     "next": 0xB0,
     "previous": 0xB1,

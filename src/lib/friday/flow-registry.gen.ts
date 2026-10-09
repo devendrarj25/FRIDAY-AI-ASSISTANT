@@ -2114,6 +2114,11 @@ export const FLOW_REGISTRY = {
       path: "/health",
       file: "kernel/main.py",
     },
+    {
+      method: "GET",
+      path: "/version",
+      file: "kernel/main.py",
+    },
   ],
   messages: [
     {
@@ -8424,8 +8429,8 @@ export const FLOW_REGISTRY = {
       total: 437,
     },
     kernel: {
-      mapped: 13,
-      total: 13,
+      mapped: 14,
+      total: 14,
     },
     workflows: {
       mapped: 12,

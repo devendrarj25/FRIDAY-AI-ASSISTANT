@@ -1,0 +1,372 @@
+{
+  "openapi": {
+    "components": {
+      "schemas": {
+        "HTTPValidationError": {
+          "properties": {
+            "detail": {
+              "items": {
+                "$ref": "#/components/schemas/ValidationError"
+              },
+              "title": "Detail",
+              "type": "array"
+            }
+          },
+          "title": "HTTPValidationError",
+          "type": "object"
+        },
+        "HealthBody": {
+          "properties": {
+            "data_dir": {
+              "title": "Data Dir",
+              "type": "string"
+            },
+            "models": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Models",
+              "type": "array"
+            },
+            "ok": {
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "version": {
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "version",
+            "data_dir",
+            "models"
+          ],
+          "title": "HealthBody",
+          "type": "object"
+        },
+        "ValidationError": {
+          "properties": {
+            "ctx": {
+              "title": "Context",
+              "type": "object"
+            },
+            "input": {
+              "title": "Input"
+            },
+            "loc": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "title": "Location",
+              "type": "array"
+            },
+            "msg": {
+              "title": "Message",
+              "type": "string"
+            },
+            "type": {
+              "title": "Error Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "loc",
+            "msg",
+            "type"
+          ],
+          "title": "ValidationError",
+          "type": "object"
+        },
+        "VersionBody": {
+          "properties": {
+            "kernel": {
+              "title": "Kernel",
+              "type": "string"
+            },
+            "ok": {
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "product": {
+              "title": "Product",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "product",
+            "kernel"
+          ],
+          "title": "VersionBody",
+          "type": "object"
+        }
+      }
+    },
+    "info": {
+      "title": "FRIDAY kernel",
+      "version": "0.1.0"
+    },
+    "openapi": "3.1.0",
+    "paths": {
+      "/companion": {
+        "get": {
+          "operationId": "page_companion_get",
+          "responses": {
+            "200": {
+              "content": {
+                "text/html": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Page"
+        }
+      },
+      "/companion/": {
+        "get": {
+          "operationId": "page_companion__get",
+          "responses": {
+            "200": {
+              "content": {
+                "text/html": {
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Page"
+        }
+      },
+      "/companion/features": {
+        "get": {
+          "operationId": "features_companion_features_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "token",
+              "required": false,
+              "schema": {
+                "default": "",
+                "title": "Token",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Features"
+        }
+      },
+      "/companion/icon-192.png": {
+        "get": {
+          "operationId": "icon_192_companion_icon_192_png_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Icon 192"
+        }
+      },
+      "/companion/icon-512.png": {
+        "get": {
+          "operationId": "icon_512_companion_icon_512_png_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Icon 512"
+        }
+      },
+      "/companion/manifest.json": {
+        "get": {
+          "operationId": "manifest_companion_manifest_json_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Manifest"
+        }
+      },
+      "/companion/pair": {
+        "post": {
+          "operationId": "pair_companion_pair_post",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Pair"
+        }
+      },
+      "/companion/speak": {
+        "post": {
+          "operationId": "speak_companion_speak_post",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Speak"
+        }
+      },
+      "/companion/sw.js": {
+        "get": {
+          "operationId": "service_worker_companion_sw_js_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Service Worker"
+        }
+      },
+      "/companion/whats-new": {
+        "get": {
+          "operationId": "whats_new_companion_whats_new_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "token",
+              "required": false,
+              "schema": {
+                "default": "",
+                "title": "Token",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {}
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Whats New"
+        }
+      },
+      "/health": {
+        "get": {
+          "operationId": "health_health_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HealthBody"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Health"
+        }
+      },
+      "/version": {
+        "get": {
+          "description": "Product line plus the kernel API version. Loopback, no bridge token.",
+          "operationId": "version_version_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/VersionBody"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Version"
+        }
+      }
+    }
+  },
+  "websockets": [
+    "/bridge",
+    "/companion/ws"
+  ]
+}

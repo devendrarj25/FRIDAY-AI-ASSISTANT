@@ -291,19 +291,19 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 
 ## Wave 4 — voice that installs, and a mind that stays local
 
-Checked 2026-10-07. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. Live Windows microphone, wake word, pip, model download, TTS audio, the packaged EXE, and hosted Actions were not run here.
+Checked 2026-10-07. The area plans were absorbed. The change gate lives in `docs/FRIDAY_CHANGE_CONTROL.md`. Live Windows microphone, wake word, pip, model download, TTS audio, the packaged EXE, and hosted Actions were not run here.
 
 ### Plan table
 
 | Idea | Source file | Status | Decision | Step |
 | --- | --- | --- | --- | --- |
-| One Install Manager, health probe before "working" | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 4–6, 12 |
-| Diagnostic path device to playback, smallest local repair | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 9–12 |
+| One Install Manager, health probe before "working" | `src/lib/friday/voice-doctor.ts` | PARTIAL | ADOPT | 4–6, 12 |
+| Diagnostic path device to playback, smallest local repair | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 9–12 |
 | Do not mark voice connected from UI state alone | same diagnostics file | PARTIAL | ADOPT | 11–12 |
-| Barge-in and one microphone | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/02_VOICE_REALTIME_BARGE_IN.md` | PARTIAL | ADAPT | 9, 13 |
-| Wake, device, and display stay on the existing voice page | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADOPT | 10, 12 |
-| Failure recovery without a second planner | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 11, 33 |
-| Input trust boundary | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/08_SECURITY/03_INPUT_TRUST_BOUNDARIES.md` | PARTIAL | ADOPT | 31, 35 |
+| Barge-in and one microphone | `src/lib/friday/voice-session.ts` | PARTIAL | ADAPT | 9, 13 |
+| Wake, device, and display stay on the existing voice page | `src/lib/friday/voice-state.ts` | PARTIAL | ADOPT | 10, 12 |
+| Failure recovery without a second planner | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 11, 33 |
+| Input trust boundary | `src/lib/friday/self/governance.ts` | PARTIAL | ADOPT | 31, 35 |
 | Memory contract, one store | `src/lib/friday/self/memory-engine.ts` | DONE | ADOPT | 20, 25, 27 |
 | Selective context | `src/lib/friday/brain/context-engine.ts` | DONE | ADAPT | 24, 26 |
 | Evaluation without a hosted scorer | `src/lib/friday/self/run-receipt.ts` | DONE | ADOPT | 34 |
@@ -323,25 +323,25 @@ Checked 2026-10-07. The area plans were absorbed. The task router, the fast-safe
 
 ## Wave 5 — a voice runtime that can install itself
 
-Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the Python bootstrap, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
+Checked 2026-10-08. The area plans were absorbed. The change gate lives in `docs/FRIDAY_CHANGE_CONTROL.md`. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the Python bootstrap, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run.
 
 ### Plan table
 
 | Idea | Source file | Status | Decision | Step |
 | --- | --- | --- | --- | --- |
-| Spoken failure names the cause, in the owner's language | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 4 |
-| Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
-| One speech-size plan, then a local load | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/01_VOICE_FINAL_ARCHITECTURE.md` | PARTIAL | ADOPT | 6 |
-| Weights fetched before the worker, with a hash where one is pinned | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 6 |
+| Spoken failure names the cause, in the owner's language | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 4 |
+| Retry when install, the model, the device, focus, or Fix voice is ready | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 5 |
+| One speech-size plan, then a local load | `src/lib/friday/voice-flow.ts` | PARTIAL | ADOPT | 6 |
+| Weights fetched before the worker, with a hash where one is pinned | `src/lib/friday/voice-pack.ts` | PARTIAL | ADOPT | 6 |
 | Think, a short offer, sight, and the eval set sit on the live path | `src/lib/friday/self/run-receipt.ts` | DONE | ADOPT | 7 |
-| A Windows PC with no system Python and no WinGet still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 8–9 |
+| A Windows PC with no system Python and no WinGet still gets a runtime | `src/lib/friday/voice-doctor.ts` | PARTIAL | ADOPT | 8–9 |
 | A clean-PC script covers bootstrap through resume | same install note | PARTIAL | ADOPT | 10, 26 |
-| Headset profile, hot-plug, sleep, and a stuck track reopen capture | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/04_VOICE_WAKE_CAMERA_DEVICE_AND_DISPLAY.md` | PARTIAL | ADAPT | 11 |
+| Headset profile, hot-plug, sleep, and a stuck track reopen capture | `src/lib/friday/voice-state.ts` | PARTIAL | ADAPT | 11 |
 | Wake energy against a room floor | same device note | PARTIAL | ADAPT | 12 |
-| Echo stays in the browser constraint; playback can duck other apps | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/02_VOICE_REALTIME_BARGE_IN.md` | PARTIAL | ADAPT | 13 |
-| Neural, then local, then the system voice | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 14 |
+| Echo stays in the browser constraint; playback can duck other apps | `src/lib/friday/voice-session.ts` | PARTIAL | ADAPT | 13 |
+| Neural, then local, then the system voice | `src/lib/friday/voice-pack.ts` | PARTIAL | ADOPT | 14 |
 | One self-test list and an owner checklist on the existing Voice page | diagnostics note above | PARTIAL | ADOPT | 15, 31 |
-| Hinglish numbers, names, and a weak-confidence repeat | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/00_MERGED_DETAIL/VOICE_COMPLETE_SOURCE_INTEGRATION.md` | PARTIAL | ADOPT | 17–18 |
+| Hinglish numbers, names, and a weak-confidence repeat | `src/lib/friday/voice-stt.ts` | PARTIAL | ADOPT | 17–18 |
 | Distress points at iCall or AASRA and does not diagnose | `src/lib/friday/brain-engine.ts` | DONE | ADOPT | 19–21 |
 | Voice stays on a short think budget; chat may take more steps | `src/lib/friday/brain/context-engine.ts` | DONE | ADAPT | 22–25 |
 | A native WASAPI echo canceller | barge-in note above | MISSING | REJECT | — |
@@ -377,19 +377,19 @@ Run these on the Windows PC, in order. Copy the Voice rows and the on-screen sta
 
 ## Wave 6 — Speech Core and an isolated toolchain
 
-Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
+Checked 2026-10-08. The area plans were absorbed. The change gate lives in `docs/FRIDAY_CHANGE_CONTROL.md`. A simulated clean PC is the proof that runs here. Live Windows microphone, wake word, the packaged binaries, pip, a model download, TTS audio, the packaged EXE, and hosted Actions were not run. The voice runtime pin is the install_only CPython 3.12.15 archive. The embeddable zip is an additional Install Manager row named FRIDAY Python embed.
 
 ### Plan table
 
 | Idea | Source file | Status | Decision | Step |
 | --- | --- | --- | --- | --- |
-| One speech size plan, then a local load | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/01_VOICE_FINAL_ARCHITECTURE.md` | PARTIAL | ADOPT | 14 |
-| Spoken failure names the cause | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/06_VOICE_DIAGNOSTICS_AND_FAILURES.md` | PARTIAL | ADOPT | 4, 25 |
-| Retry when install, the model, the device, focus, or Fix voice is ready | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/07_FAILURES/01_FAILURE_RECOVERY_AND_REPLAN.md` | PARTIAL | ADOPT | 5 |
-| A PC with no system Python still gets a runtime | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 5–9 |
-| Capture, VAD, and a low-quality last-resort voice live in FRIDAY's code | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADAPT | 15–24 |
+| One speech size plan, then a local load | `src/lib/friday/voice-flow.ts` | PARTIAL | ADOPT | 14 |
+| Spoken failure names the cause | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 4, 25 |
+| Retry when install, the model, the device, focus, or Fix voice is ready | `src/lib/friday/voice-recovery.ts` | PARTIAL | ADOPT | 5 |
+| A PC with no system Python still gets a runtime | `src/lib/friday/voice-doctor.ts` | PARTIAL | ADOPT | 5–9 |
+| Capture, VAD, and a low-quality last-resort voice live in FRIDAY's code | `src/lib/friday/voice-pack.ts` | PARTIAL | ADAPT | 15–24 |
 | Think, a short offer, and sight sit on the live path | `src/lib/friday/brain/context-engine.ts` | DONE | ADOPT | 7 |
-| Self-edits stay reviewable and never merge | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-DEVELOPMENT/10_DEVELOPMENT_WORKFLOW/FAST_SAFE_CHANGE_WORKFLOW.md` | PARTIAL | ADOPT | 26–29 |
+| Self-edits stay reviewable and never merge | `docs/FRIDAY_CHANGE_CONTROL.md` | PARTIAL | ADOPT | 26–29 |
 | torch, a pip VAD package, or a second installer | voice install note above | MISSING | REJECT | — |
 
 ### Architecture
@@ -432,22 +432,22 @@ Run these on the Windows PC, in order. Copy the Voice rows, the Toolchain rows, 
 
 ## Wave 7 — Bundled runtime, warm speech, and free models
 
-Checked 2026-10-08. The area plans were absorbed. The task router, the fast-safe workflow, and the task packet stay, because a live Windows microphone, a real pack download, and a keyed provider call were not run. The voice runtime pin is still the install_only CPython 3.12.15 archive. The embeddable zip is the bundled pack the pack hook stages. It is not a second voice runtime.
+Checked 2026-10-08. The area plans were absorbed. The change gate lives in `docs/FRIDAY_CHANGE_CONTROL.md`. A live Windows microphone, a real pack download, and a keyed provider call were not run. The voice runtime pin is still the install_only CPython 3.12.15 archive. The embeddable zip is the bundled pack the pack hook stages. It is not a second voice runtime.
 
 ### Plan table
 
 | Idea | Source file | Status | Decision | Step |
 | --- | --- | --- | --- | --- |
-| Evidence before a model is called free | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/04_MODEL_INTELLIGENCE/MODEL_CARD_SYSTEM.md` | PARTIAL | ADOPT | 14–15 |
-| One router, ordered fallback | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/05_ROUTING_MODES/FALLBACK_POLICY.md` | PARTIAL | ADOPT | 18–19 |
-| Refresh without blocking startup | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/06_RUNTIME_OPERATIONS/AUTO_REFRESH.md` | PARTIAL | ADAPT | 16 |
-| Provider adapters with a source | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/03_PROVIDER_FEDERATION/PROVIDER_MATRIX.md` | PARTIAL | ADOPT | 14 |
-| Failure injection for 429, auth, and a removed model | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/11_TESTS/FAILURE_INJECTION.md` | PARTIAL | ADOPT | 26 |
-| A free board on the existing Models page | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/13_UI_MODEL_SECTION/MODELS_PAGE_BLUEPRINT.md` | PARTIAL | ADAPT | 25 |
-| A second router or a new sidebar row | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/04-MODELS-ROUTING/FRIDAY-MODELS-ROUTING-DEEP-UPGRADE/02_TARGET_ARCHITECTURE/MASTER_ARCHITECTURE.md` | MISSING | REJECT | — |
-| Warm local speech and a measured engine | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/03_VOICE_MEDIA_PROVIDER_AND_PERFORMANCE.md` | PARTIAL | ADOPT | 9–12 |
-| Chat and Auto share one pool | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/06_CROSS_SURFACE/02_SURFACE_PARITY_AND_DEGRADATION.md` | PARTIAL | ADOPT | 13, 24 |
-| Stage the pinned packs at pack time | `FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/AREAS/07-INTERACTION/03_VOICE/05_VOICE_INSTALL_HEALTH_LICENSE_AND_RUNTIME.md` | PARTIAL | ADOPT | 4–8 |
+| Evidence before a model is called free | `electron/model-access.cjs` | PARTIAL | ADOPT | 14–15 |
+| One router, ordered fallback | `kernel/router.py` | PARTIAL | ADOPT | 18–19 |
+| Refresh without blocking startup | `electron/model-access.cjs` | PARTIAL | ADAPT | 16 |
+| Provider adapters with a source | `electron/models.cjs` | PARTIAL | ADOPT | 14 |
+| Failure injection for 429, auth, and a removed model | `kernel/router.py` | PARTIAL | ADOPT | 26 |
+| A free board on the existing Models page | `src/routes/models.tsx` | PARTIAL | ADAPT | 25 |
+| A second router or a new sidebar row | `kernel/router.py` | MISSING | REJECT | — |
+| Warm local speech and a measured engine | `src/lib/friday/voice-pack.ts` | PARTIAL | ADOPT | 9–12 |
+| Chat and Auto share one pool | `kernel/router.py` | PARTIAL | ADOPT | 13, 24 |
+| Stage the pinned packs at pack time | `src/lib/friday/voice-doctor.ts` | PARTIAL | ADOPT | 4–8 |
 
 ### Research (2026-10-08)
 

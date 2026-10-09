@@ -31,7 +31,7 @@ def _tokens(text: str) -> list[str]:
     words = _TOKEN.findall(text.lower())
     # Word unigrams plus bigrams: cheap, deterministic, and good enough for
     # nearest-neighbour recall without downloading an embedding model.
-    return words + [f"{a}_{b}" for a, b in zip(words, words[1:])]
+    return words + [f"{a}_{b}" for a, b in zip(words, words[1:], strict=False)]
 
 
 def embed(text: str) -> list[float]:
@@ -102,8 +102,8 @@ class NumpyIndex:
             return
         try:
             self._np.save(self.matrix_file, self._np.array(self.vectors, dtype="float32"))
-        except Exception:
-            pass  # the index is disposable; records.jsonl stays authoritative
+        except Exception:  # noqa: S110 — the index is disposable; records.jsonl stays authoritative
+            pass
 
     def _rewrite_records(self) -> None:
         with self.records_file.open("w", encoding="utf-8") as fh:
@@ -140,7 +140,7 @@ class NumpyIndex:
             order = scores.argsort()[::-1][:k]
             pairs = [(int(i), float(scores[int(i)])) for i in order]
         else:
-            scored = [(i, sum(a * b for a, b in zip(vec, q))) for i, vec in enumerate(self.vectors)]
+            scored = [(i, sum(a * b for a, b in zip(vec, q, strict=False))) for i, vec in enumerate(self.vectors)]
             scored.sort(key=lambda p: p[1], reverse=True)
             pairs = scored[:k]
         out = []
@@ -226,7 +226,7 @@ class VectorMemory:
         dists = res.get("distances", [[]])[0]
         ids = res.get("ids", [[]])[0] if res.get("ids") else []
         out: list[dict] = []
-        for index, (doc, meta, dist) in enumerate(zip(docs, metas, dists)):
+        for index, (doc, meta, dist) in enumerate(zip(docs, metas, dists, strict=False)):
             rid = (meta or {}).get("id") or (ids[index] if index < len(ids) else None)
             row = {
                 "kind": (meta or {}).get("kind", "document"),

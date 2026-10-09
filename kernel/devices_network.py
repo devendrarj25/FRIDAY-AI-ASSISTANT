@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import re
 import socket
+import urllib.parse
 import urllib.request
 from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
 
 SSDP_ADDR = ("239.255.255.250", 1900)
 SSDP_QUERY = (
@@ -85,6 +87,22 @@ def discover_mdns(seconds: float = 4.0) -> dict:
     return {"ok": True, "devices": found}
 
 
+def require_http_url(url: str) -> str:
+    """Device description and control URLs stay on http or https."""
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("a device URL must use http or https")
+    return str(url).strip()
+
+
+def parse_device_xml(payload: bytes):
+    """Read a device description. A doctype or entity declaration is refused."""
+    sample = payload[:4096].lower()
+    if b"<!doctype" in sample or b"<!entity" in sample:
+        raise ValueError("a device description must not declare a doctype or an entity")
+    return ET.fromstring(payload)  # noqa: S314
+
+
 def discover_dlna(seconds: float = 3.0) -> dict:
     """DLNA/UPnP media renderers (TVs, speakers) that advertise themselves."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -96,21 +114,25 @@ def discover_dlna(seconds: float = 3.0) -> dict:
         while True:
             try:
                 data, addr = sock.recvfrom(65507)
-            except socket.timeout:
+            except TimeoutError:
                 break
             text = data.decode("utf-8", "replace")
             location = re.search(r"LOCATION:\s*(\S+)", text, re.I)
             if not location:
                 continue
             url = location.group(1)
+            try:
+                require_http_url(url)
+            except ValueError:
+                continue
             renderers[url] = {"location": url, "address": addr[0], "name": addr[0]}
     finally:
         sock.close()
 
     for url, entry in renderers.items():
         try:
-            with urllib.request.urlopen(url, timeout=3) as resp:
-                xml = ET.fromstring(resp.read())
+            with urllib.request.urlopen(require_http_url(url), timeout=3) as resp:  # noqa: S310
+                xml = parse_device_xml(resp.read())
             ns = {"u": "urn:schemas-upnp-org:device-1-0"}
             name = xml.find(".//u:friendlyName", ns)
             control = xml.find(".//u:serviceType[.='urn:schemas-upnp-org:service:AVTransport:1']/../u:controlURL", ns)
@@ -121,12 +143,16 @@ def discover_dlna(seconds: float = 3.0) -> dict:
                 entry["controlUrl"] = (
                     control.text if control.text.startswith("http") else base + "/" + control.text.lstrip("/")
                 )
-        except Exception:
+        except Exception:  # noqa: S112 — one renderer that does not answer is skipped
             continue
     return {"ok": True, "devices": list(renderers.values())}
 
 
 def _soap(control_url: str, action: str, body: str) -> dict:
+    try:
+        safe = require_http_url(control_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     envelope = (
         '<?xml version="1.0"?>'
         '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
@@ -134,8 +160,8 @@ def _soap(control_url: str, action: str, body: str) -> dict:
         f'<u:{action} xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">{body}</u:{action}>'
         "</s:Body></s:Envelope>"
     ).encode()
-    request = urllib.request.Request(
-        control_url,
+    request = urllib.request.Request(  # noqa: S310
+        safe,
         data=envelope,
         headers={
             "Content-Type": 'text/xml; charset="utf-8"',
@@ -143,7 +169,7 @@ def _soap(control_url: str, action: str, body: str) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=8) as resp:
+        with urllib.request.urlopen(request, timeout=8) as resp:  # noqa: S310
             return {"ok": 200 <= resp.status < 300, "status": resp.status}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -154,7 +180,7 @@ def cast(control_url: str, media_url: str) -> dict:
     prepared = _soap(
         control_url,
         "SetAVTransportURI",
-        f"<InstanceID>0</InstanceID><CurrentURI>{media_url}</CurrentURI>"
+        f"<InstanceID>0</InstanceID><CurrentURI>{escape(media_url)}</CurrentURI>"
         "<CurrentURIMetaData></CurrentURIMetaData>",
     )
     if not prepared.get("ok"):

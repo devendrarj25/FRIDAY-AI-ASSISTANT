@@ -280,9 +280,7 @@ const UNREGISTERED_OK = [
   /^\.lovable\//,
   /^dist/,
   /^\.pytest_cache\//,
-  /^FRIDAY-DEVELOPMENT & VISION\//, // disposable AI working/vision layer -- deletable, never part of the product docs registry (see READMEFIRST.md)
   /^CLAUDE\.md$/, // one-line `@AGENTS.md` import, never a second copy of AGENTS.md
-  /^READMEFIRST\.md$/, // index for the disposable layer above, not a product doc itself
   /^recovery\/[^/]+\.md$/, // Main Safety Recovery preservation records, not product documentation
 ];
 
@@ -344,6 +342,9 @@ const INDEX_START =
 const INDEX_END = "<!-- docs-engine: end generated index -->";
 const MAP_START = "<!-- docs-engine: generated map. Edit scripts/docs-engine.cjs, not this. -->";
 const MAP_END = "<!-- docs-engine: end generated map -->";
+const ROUTE_START =
+  "<!-- docs-engine: generated kernel routes. Edit scripts/docs-engine.cjs, not this. -->";
+const ROUTE_END = "<!-- docs-engine: end generated kernel routes -->";
 
 const linkFrom = (fromDir, rel) => {
   const target = path.relative(fromDir, path.join(ROOT, rel)).split(path.sep).join("/");
@@ -428,6 +429,23 @@ function mapBlock() {
     lines.push(`| ${doc.topic} | [${doc.file}](${doc.file}) |`);
   }
   lines.push("", MAP_END);
+  return lines.join("\n");
+}
+
+/** Route index from kernel/openapi.snapshot.json. The HTTP test owns that file. */
+function kernelRouteBlock() {
+  const raw = JSON.parse(read("kernel/openapi.snapshot.json"));
+  const paths = raw.openapi && raw.openapi.paths ? raw.openapi.paths : {};
+  const lines = [ROUTE_START, "", "| Method | Path |", "| --- | --- |"];
+  for (const route of Object.keys(paths).sort()) {
+    const item = paths[route] || {};
+    const methods = Object.keys(item)
+      .filter((method) => method !== "parameters" && !method.startsWith("x-"))
+      .sort();
+    for (const method of methods) lines.push(`| ${method.toUpperCase()} | \`${route}\` |`);
+  }
+  for (const socket of raw.websockets || []) lines.push(`| WEBSOCKET | \`${socket}\` |`);
+  lines.push("", ROUTE_END);
   return lines.join("\n");
 }
 
@@ -590,6 +608,7 @@ function inspect() {
 
   const indexStale = !read("docs/README.md").includes(indexBlock());
   const mapStale = !read("README.md").includes(mapBlock());
+  const kernelRoutesStale = !read("ARCHITECTURE.md").includes(kernelRouteBlock());
   let flowStale = false;
   try {
     flowStale = require("./flow-registry.cjs").registryStale();
@@ -605,6 +624,7 @@ function inspect() {
     duplicates: duplicates(),
     indexStale,
     mapStale,
+    kernelRoutesStale,
     flowStale,
     countDrift: countDrift(),
     get ok() {
@@ -616,6 +636,7 @@ function inspect() {
         !this.duplicates.length &&
         !this.indexStale &&
         !this.mapStale &&
+        !this.kernelRoutesStale &&
         !this.flowStale &&
         !this.countDrift.length
       );
@@ -644,6 +665,12 @@ function sync({ root = ROOT } = {}) {
     })
   )
     touched.push("README.md");
+  if (
+    writeBlock("ARCHITECTURE.md", ROUTE_START, ROUTE_END, kernelRouteBlock(), {
+      anchor: /^`kernel\/main\.py` mounts .+$/m,
+    })
+  )
+    touched.push("ARCHITECTURE.md");
   for (const rel of syncCounts()) if (!touched.includes(rel)) touched.push(rel);
   return touched;
 }
@@ -664,6 +691,7 @@ function main() {
   console.log(`wrong title          : ${report.mistitled.length}`);
   console.log(`duplicated blocks    : ${report.duplicates.length}`);
   console.log(`index/map stale      : ${report.indexStale || report.mapStale}`);
+  console.log(`kernel routes stale  : ${report.kernelRoutesStale}`);
   console.log(`flow registry stale  : ${report.flowStale}`);
   console.log(`capability counts off: ${report.countDrift.length}`);
   for (const rel of report.missing) console.log(`  missing        ${rel}`);
@@ -696,6 +724,7 @@ module.exports = {
   markdownFiles,
   indexBlock,
   mapBlock,
+  kernelRouteBlock,
   duplicates,
   capabilityCounts,
   countDrift,

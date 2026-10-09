@@ -359,9 +359,7 @@ def _bounds(value: Any, monitors: list[dict[str, Any]]) -> tuple[dict[str, float
     cy = y + (h / 2)
     mon = monitors[0]
     for item in monitors:
-        if item["x"] <= cx < item["x"] + max(item["w"], 1) and item["y"] <= cy < item["y"] + max(
-            item["h"], 1
-        ):
+        if item["x"] <= cx < item["x"] + max(item["w"], 1) and item["y"] <= cy < item["y"] + max(item["h"], 1):
             mon = item
             break
     scale = float(mon["scale"])

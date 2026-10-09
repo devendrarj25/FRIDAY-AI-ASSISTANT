@@ -28,8 +28,8 @@ describe("pr-scope: what counts as documentation only", () => {
     expect(scope.isDocsOnly(["README.md", "docs/FRIDAY_FEATURES.md", "FRIDAY_STATE.md"])).toBe(
       true,
     );
-    expect(scope.isDocsOnly(["FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/a b.md"])).toBe(true);
     expect(scope.isDocsOnly([".github/pull_request_template.md"])).toBe(true);
+    expect(scope.isDocsOnly(["docs/FRIDAY_CHANGE_CONTROL.md"])).toBe(true);
   });
 
   it("any code, config, workflow, packaged or unknown file means the full validation", () => {
@@ -46,6 +46,8 @@ describe("pr-scope: what counts as documentation only", () => {
       "/docs/x.md",
       "src/README.md",
       "LICENSE",
+      "FRIDAY-DEVELOPMENT & VISION/FRIDAY-VISION/a b.md",
+      "READMEFIRST.md",
     ]) {
       expect(scope.isDocsOnly(["README.md", f]), f).toBe(false);
     }

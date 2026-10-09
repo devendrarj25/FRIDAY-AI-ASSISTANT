@@ -17,6 +17,7 @@ Moonshine streaming runs inside this worker only when that MIT model is
 already on disk and the owner preference is English. Hindi and Hinglish
 stay on faster-whisper.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -464,7 +465,7 @@ def serve() -> int:
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001,S110 — a console that cannot be reconfigured still reads lines
         pass
     for raw in sys.stdin:
         line = raw.strip()

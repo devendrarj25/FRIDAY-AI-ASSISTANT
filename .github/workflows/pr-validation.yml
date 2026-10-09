@@ -284,6 +284,11 @@ jobs:
       - name: Python for the kernel tests
         uses: ./.github/actions/python
 
+      - name: Lint
+        run: |
+          python -m pip install -r kernel/requirements-dev.txt
+          npm run lint
+
       - name: Kernel tests
         run: |
           python -m pip install -r kernel/requirements-dev.txt

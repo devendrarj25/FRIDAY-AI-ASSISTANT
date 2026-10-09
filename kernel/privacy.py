@@ -83,9 +83,7 @@ SIGNALS: tuple[dict[str, Any], ...] = (
     {
         "level": "internal",
         "label": "FRIDAY's own source or configuration",
-        "re": re.compile(
-            r"\b(electron/|src/lib/friday|kernel/|package\.json|\.env\b|FRIDAY_ROOT)\b", re.I
-        ),
+        "re": re.compile(r"\b(electron/|src/lib/friday|kernel/|package\.json|\.env\b|FRIDAY_ROOT)\b", re.I),
     },
     {
         "level": "internal",
@@ -202,7 +200,8 @@ def guard_egress(
         "autoAllowed": auto,
         "classification": classification,
         "reason": (
-            f"{classification['level'].upper()} content to {where}, a provider you already connected — sent automatically"
+            f"{classification['level'].upper()} content to {where}, "
+            "a provider you already connected — sent automatically"
             if auto
             else (
                 f"SENSITIVE content ({'; '.join(reasons) or 'credential-like'}) would be sent to {where}"

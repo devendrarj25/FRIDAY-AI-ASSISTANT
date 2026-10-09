@@ -395,7 +395,7 @@ def _cosine(left: list[float] | None, right: list[float] | None) -> float | None
         right_sq += y * y
     if left_sq <= 0 or right_sq <= 0:
         return None
-    return dot / ((left_sq ** 0.5) * (right_sq ** 0.5))
+    return dot / ((left_sq**0.5) * (right_sq**0.5))
 
 
 def score_speaker(
@@ -549,9 +549,7 @@ def check_lines() -> list[str]:
     else:
         lines.append(f"FAIL speaker {speaker['reason']}")
     providers = execution_providers()
-    lines.append(
-        f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}"
-    )
+    lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
     room = disk_room(voice_root(), SILERO_BYTES)
     if room["measured"] and room["ok"]:
         lines.append(f"PASS disk free={room['free']}")
@@ -581,7 +579,7 @@ def serve() -> int:
     try:
         sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)  # type: ignore[attr-defined]
-    except Exception:
+    except Exception:  # noqa: S110 — a console that cannot be reconfigured still reads lines
         pass
     for raw in sys.stdin:
         line = raw.strip()

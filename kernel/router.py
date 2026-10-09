@@ -9,17 +9,16 @@ by job instead of by name, and several models can answer the same prompt.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
+from collections.abc import AsyncIterator
 from contextlib import nullcontext
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator
-
-import httpx
 
 import billing
+import httpx
 import privacy
 
 OPENAI_COMPATIBLE = {"llamacpp", "lmstudio", "vllm", "localai", "jan", "mlx", "online"}
@@ -53,13 +52,7 @@ def openai_frame_text(frame: dict) -> str | None:
     choice = choices[0] if choices else {}
     piece = choice.get("delta") or {}
     message = choice.get("message") or {}
-    raw = (
-        piece.get("content")
-        or piece.get("text")
-        or choice.get("text")
-        or message.get("content")
-        or frame.get("text")
-    )
+    raw = piece.get("content") or piece.get("text") or choice.get("text") or message.get("content") or frame.get("text")
     return coerce_stream_text(raw)
 
 
@@ -118,9 +111,7 @@ def ollama_calls_from_message(message: dict) -> list[dict]:
     calls: list[dict] = []
     for key in order:
         call = slots[key]
-        signature = call["name"] + "\x1f" + _json.dumps(
-            call["arguments"], sort_keys=True, separators=(",", ":")
-        )
+        signature = call["name"] + "\x1f" + _json.dumps(call["arguments"], sort_keys=True, separators=(",", ":"))
         if signature in seen:
             continue
         seen.add(signature)
@@ -228,6 +219,7 @@ def expected_chat_url(provider: str) -> str | None:
         return surface["base"].rstrip("/") + surface.get("chat_path", "/api/chat")
     return openai_chat_url(surface["base"], surface.get("chat_path"))
 
+
 DEFAULT_PERSONA = (
     "You are FRIDAY, a female personal AI assistant. You keep one consistent "
     "identity, voice and memory no matter which local or cloud model is executing "
@@ -296,7 +288,8 @@ class Model:
 
 
 #: Host names that mean "this model runs on this PC" — an offline route.
-_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "host.docker.internal")
+# These names classify a local endpoint. They are not a listen address.
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "host.docker.internal")  # noqa: S104
 
 #: Substrings that identify a *transport* failure (the request never reached a
 #: model) as opposed to a model/inference failure.
@@ -320,7 +313,7 @@ _NETWORK_MARKERS = (
 )
 
 
-def is_local_model(model: "Model") -> bool:
+def is_local_model(model: Model) -> bool:
     """True when the model answers from this machine (Ollama, llama.cpp, ...)."""
     endpoint = (model.endpoint or "").lower()
     if model.provider and model.provider.lower() in {
@@ -395,14 +388,14 @@ def quota_meter(headers) -> dict | None:
     }
     meter: dict = {"source": "response-headers"}
     found = False
-    for field, keys in pairs.items():
+    for name, keys in pairs.items():
         raw = None
         for key in keys:
             raw = _header_get(headers, key)
             if raw not in (None, ""):
                 break
         number = _header_int(raw)
-        meter[field] = number
+        meter[name] = number
         if number is not None:
             found = True
     reset = None
@@ -420,7 +413,7 @@ def quota_meter(headers) -> dict | None:
     return meter if found else None
 
 
-def capability_tags(model: "Model") -> list[str]:
+def capability_tags(model: Model) -> list[str]:
     """Tags the router already understands. A name alone does not add one."""
     options = model.options if isinstance(model.options, dict) else {}
     caps = options.get("capabilities") if isinstance(options.get("capabilities"), dict) else {}
@@ -439,7 +432,7 @@ def capability_tags(model: "Model") -> list[str]:
     return tags
 
 
-def free_now_entry(model: "Model", now_ms: int) -> dict | None:
+def free_now_entry(model: Model, now_ms: int) -> dict | None:
     """A model that is free right now, with the source and age of that fact.
 
     Paid and unknown-cost models stay off the board. A cooldown stays visible.
@@ -477,7 +470,7 @@ def is_network_error(text: str) -> bool:
     return any(marker in low for marker in _NETWORK_MARKERS)
 
 
-def _no_route_error(attempts: list[str], tried: list["Model"]) -> str:
+def _no_route_error(attempts: list[str], tried: list[Model]) -> str:
     """One honest sentence per failed route, plus why no offline route saved it.
 
     Reporting only the last attempt made a DNS failure look like a broken chat
@@ -498,7 +491,7 @@ def _no_route_error(attempts: list[str], tried: list["Model"]) -> str:
     return f"tried {len(attempts)} route(s), including {len(local)} local: {joined}"
 
 
-def _frame_error(model: "Model", problem) -> str:
+def _frame_error(model: Model, problem) -> str:
     """The provider's own words for an error delivered inside a 200 stream."""
     if isinstance(problem, dict):
         said = problem.get("message") or problem.get("error") or str(problem)
@@ -508,7 +501,6 @@ def _frame_error(model: "Model", problem) -> str:
         detail = f"{said}{f' ({extra})' if extra else ''}"
         return f"{model.label} refused mid-stream{f' [{code}]' if code else ''}: {detail}"
     return f"{model.label} refused mid-stream: {problem}"
-
 
 
 async def _raise_with_body(resp) -> None:
@@ -529,7 +521,7 @@ async def _raise_with_body(resp) -> None:
             if isinstance(parsed.get("error"), dict)
             else parsed.get("error") or parsed.get("message") or detail
         )
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001,S110 — a non-JSON error body falls through to the status
         pass
     hint = ""
     if resp.status_code in (401, 403):
@@ -592,7 +584,7 @@ def is_transient_http(exc: BaseException) -> bool:
     return any(token in text for token in ("HTTP 502", "HTTP 503", "HTTP 504"))
 
 
-def describe_failure(model: "Model", exc: BaseException) -> str:
+def describe_failure(model: Model, exc: BaseException) -> str:
     """One honest sentence for a failed route, naming timeouts as timeouts."""
     label = getattr(model, "label", None) or getattr(model, "id", "model")
     if isinstance(exc, privacy.PrivacyBlocked):
@@ -603,10 +595,7 @@ def describe_failure(model: "Model", exc: BaseException) -> str:
             "- the provider never accepted the connection"
         )
     if isinstance(exc, httpx.TimeoutException):
-        return (
-            f"{label}: request timed out - the connection stalled and sent nothing "
-            f"for {READ_TIMEOUT_SECONDS:.0f}s"
-        )
+        return f"{label}: request timed out - the connection stalled and sent nothing for {READ_TIMEOUT_SECONDS:.0f}s"
     return f"{label}: {exc}"
 
 
@@ -647,7 +636,6 @@ async def close_client() -> None:
 
 
 class ModelRouter:
-
     def __init__(self, storage) -> None:
         self.storage = storage
         self._models: dict[str, Model] = {}
@@ -687,9 +675,8 @@ class ModelRouter:
             return
         try:
             callback(dict(state))
-        except Exception:  # noqa: BLE001 — reporting must never break a request
+        except Exception:  # noqa: BLE001,S110 — reporting must never break a request
             pass
-
 
     # ---------------------------------------------------------- billing
     def set_billing(self, state: dict | None, policy: str | None = None) -> dict:
@@ -702,12 +689,10 @@ class ModelRouter:
     def billing_state(self) -> dict:
         return {"billing": dict(self._billing), "policy": self._policy}
 
-    def guard(self, model: "Model", explicit_paid: bool = False) -> dict:
-        return billing.guard(
-            model, self._billing, explicit_paid=explicit_paid, policy=self._policy
-        )
+    def guard(self, model: Model, explicit_paid: bool = False) -> dict:
+        return billing.guard(model, self._billing, explicit_paid=explicit_paid, policy=self._policy)
 
-    def spendable(self, model: "Model", explicit_paid: bool = False) -> bool:
+    def spendable(self, model: Model, explicit_paid: bool = False) -> bool:
         """Can this model be routed to at all right now?"""
         return bool(self.guard(model, explicit_paid).get("allowed"))
 
@@ -718,8 +703,16 @@ class ModelRouter:
     def _coerce(spec: dict) -> dict:
         """Accept the desktop model shape and drop anything Model cannot take."""
         allowed = {
-            "id", "label", "provider", "endpoint", "role",
-            "api_key", "params", "context_k", "status", "options",
+            "id",
+            "label",
+            "provider",
+            "endpoint",
+            "role",
+            "api_key",
+            "params",
+            "context_k",
+            "status",
+            "options",
         }
         data = dict(spec)
         if "contextK" in data:
@@ -730,9 +723,20 @@ class ModelRouter:
         # or the kernel would treat a paid cloud model as unclassified or lose registry identity.
         options = dict(data.get("options") or {})
         for key in (
-            "type", "access", "billingClass", "accessRecord", "canonicalModelId",
-            "registryId", "providerId", "providerModelId", "displayName",
-            "wireProtocol", "pricing", "entitlement", "verification", "qualityProfile",
+            "type",
+            "access",
+            "billingClass",
+            "accessRecord",
+            "canonicalModelId",
+            "registryId",
+            "providerId",
+            "providerModelId",
+            "displayName",
+            "wireProtocol",
+            "pricing",
+            "entitlement",
+            "verification",
+            "qualityProfile",
         ):
             if spec.get(key) is not None and key not in options:
                 options[key] = spec[key]
@@ -747,8 +751,6 @@ class ModelRouter:
         options.setdefault("provider", data.get("provider"))
         data["options"] = options
         return {k: v for k, v in data.items() if k in allowed}
-
-
 
     def register(self, spec: dict) -> Model:
         model = Model(**self._coerce(spec))
@@ -787,17 +789,13 @@ class ModelRouter:
             data["options"] = {**data["options"], "auto": True}
             self.register(data)
             seen.add(data["id"])
-        removed = [
-            mid
-            for mid, m in list(self._models.items())
-            if m.options.get("auto") and mid not in seen
-        ]
+        removed = [mid for mid, m in list(self._models.items()) if m.options.get("auto") and mid not in seen]
         for mid in removed:
             self._models.pop(mid, None)
         return {"registered": len(seen), "removed": removed, "total": len(self._models)}
 
     @staticmethod
-    def can_chat(model: "Model") -> bool:
+    def can_chat(model: Model) -> bool:
         """An embedding or speech model must never be picked to answer."""
         caps = model.options.get("capabilities")
         if isinstance(caps, dict) and caps.get("chat") is False:
@@ -810,7 +808,6 @@ class ModelRouter:
                 return m
         return None
 
-
     def best_available(self, role: str = "brain", *, surface: str | None = None) -> Model | None:
         """Auto mode inside the kernel: score ready models, never spend on its own.
 
@@ -818,15 +815,11 @@ class ModelRouter:
         role match, local/privacy, measured reliability if present, larger context.
         Identity in the prompt is still FRIDAY regardless of which backend wins.
         """
-        ready = [
-            m
-            for m in self._models.values()
-            if m.status == "ready" and self.can_chat(m) and self.spendable(m)
-        ]
+        ready = [m for m in self._models.values() if m.status == "ready" and self.can_chat(m) and self.spendable(m)]
         if not ready:
             return None
 
-        def score(model: "Model") -> tuple:
+        def score(model: Model) -> tuple:
             options = model.options if isinstance(model.options, dict) else {}
             reliability = 0.0
             raw = options.get("reliability")
@@ -852,7 +845,7 @@ class ModelRouter:
         ready.sort(key=score, reverse=True)
         return ready[0]
 
-    def _kind(self, model: "Model") -> str:
+    def _kind(self, model: Model) -> str:
         options = model.options if isinstance(model.options, dict) else {}
         kind = str(options.get("type") or "").lower()
         if kind == "local" or str(model.provider or "").lower() in {
@@ -868,7 +861,7 @@ class ModelRouter:
             return "local"
         return "cloud"
 
-    def _access(self, model: "Model") -> str:
+    def _access(self, model: Model) -> str:
         if self._kind(model) == "local":
             return "free"
         options = model.options if isinstance(model.options, dict) else {}
@@ -892,8 +885,7 @@ class ModelRouter:
             )
         if policy == "paid-only":
             return (
-                "No paid model is eligible right now. Connect a paid cloud provider in Models, "
-                "or switch off Paid-only."
+                "No paid model is eligible right now. Connect a paid cloud provider in Models, or switch off Paid-only."
             )
         if mode == "cloud-only" and policy == "free-only":
             return (
@@ -928,9 +920,7 @@ class ModelRouter:
             kinds = {"cloud"}
         else:
             kinds = {"local", "cloud"}
-        exclusive = mode in ("manual", "multi") or (
-            mode in ("local-only", "cloud-only") and bool(selected)
-        )
+        exclusive = mode in ("manual", "multi") or (mode in ("local-only", "cloud-only") and bool(selected))
         out: list[str] = []
         for model in self._models.values():
             if model.status != "ready" or not self.can_chat(model):
@@ -950,14 +940,11 @@ class ModelRouter:
             if exclusive and selected:
                 if not any(sel == model.id or sel in model.id or model.id.endswith(sel) for sel in selected):
                     continue
-            picked = exclusive and selected and any(
-                sel == model.id or sel in model.id for sel in selected
-            )
+            picked = exclusive and selected and any(sel == model.id or sel in model.id for sel in selected)
             if not self.spendable(model, explicit_paid=bool(picked)):
                 continue
             out.append(model.id)
         return out
-
 
     async def complete(
         self,
@@ -969,9 +956,7 @@ class ModelRouter:
     ) -> str:
         chunks = [
             c
-            async for c in self._stream_one(
-                model, messages, explicit_paid, privacy_confirmed=privacy_confirmed
-            )
+            async for c in self._stream_one(model, messages, explicit_paid, privacy_confirmed=privacy_confirmed)
             if not (isinstance(c, str) and c.startswith(TOOL_NOTICE))
         ]
         return "".join(chunks)
@@ -1009,11 +994,32 @@ class ModelRouter:
             best = self.best_available("brain", surface=surface)
             if best:
                 if norm_mode == "local-only" and not is_local_model(best):
-                    best = next((m for m in self._models.values() if m.status == "ready" and is_local_model(m) and self.can_chat(m)), None)
+                    best = next(
+                        (
+                            m
+                            for m in self._models.values()
+                            if m.status == "ready" and is_local_model(m) and self.can_chat(m)
+                        ),
+                        None,
+                    )
                 elif norm_mode == "cloud-only" and is_local_model(best):
-                    best = next((m for m in self._models.values() if m.status == "ready" and not is_local_model(m) and self.can_chat(m)), None)
+                    best = next(
+                        (
+                            m
+                            for m in self._models.values()
+                            if m.status == "ready" and not is_local_model(m) and self.can_chat(m)
+                        ),
+                        None,
+                    )
                 elif privacy_mode == "private" and norm_mode != "cloud-only" and not is_local_model(best):
-                    best = next((m for m in self._models.values() if m.status == "ready" and is_local_model(m) and self.can_chat(m)), None)
+                    best = next(
+                        (
+                            m
+                            for m in self._models.values()
+                            if m.status == "ready" and is_local_model(m) and self.can_chat(m)
+                        ),
+                        None,
+                    )
             targets = [best] if best else []
         if privacy_mode == "private":
             targets = [m for m in targets if is_local_model(m)]
@@ -1047,9 +1053,7 @@ class ModelRouter:
                     )
                 }
             elif privacy_mode == "private":
-                yield {
-                    "error": "Private routing keeps the prompt on this PC, and no local model is ready."
-                }
+                yield {"error": "Private routing keeps the prompt on this PC, and no local model is ready."}
             else:
                 yield {"error": "No ready AI model is configured. Open Models and assign a brain model."}
             return
@@ -1101,17 +1105,16 @@ class ModelRouter:
             yield {"error": _no_route_error(attempts, [*targets, *fallbacks])}
             return
 
-
         queue: asyncio.Queue = asyncio.Queue()
 
         async def pump(model: Model) -> None:
             try:
                 async for delta in self._stream_one(
-                        model,
-                        messages,
-                        explicit_paid and model in targets,
-                        privacy_confirmed=privacy_confirmed,
-                    ):
+                    model,
+                    messages,
+                    explicit_paid and model in targets,
+                    privacy_confirmed=privacy_confirmed,
+                ):
                     piece = fold_stream_piece(model.id, delta)
                     if piece and piece.get("tool") and not piece.get("delta"):
                         await queue.put(piece)
@@ -1165,7 +1168,6 @@ class ModelRouter:
                     return
             yield {"error": _no_route_error(errors, [*targets, *fallbacks])}
 
-
     async def _stream_one(
         self,
         model: Model,
@@ -1217,7 +1219,6 @@ class ModelRouter:
         # Firewalls already saw the full transcript. The model gets the tail.
         async for chunk in handler(model, model_view(messages)):
             yield chunk
-
 
     async def _stream_anthropic(self, model: Model, messages: list[dict]) -> AsyncIterator[str]:
         """Anthropic Messages API — its own wire format, streamed."""
@@ -1323,7 +1324,6 @@ class ModelRouter:
             if answered:
                 yield "\n"
 
-
     def _model_tools(self, model: Model) -> list[dict]:
         """The read-only tools this model may call, or [] when unavailable."""
         registry = self.tools
@@ -1352,13 +1352,10 @@ class ModelRouter:
                     self.tools.execute_for_model(name, args),
                     timeout=MODEL_TOOL_TIMEOUT_SECONDS,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 result = {
                     "ok": False,
-                    "error": (
-                        f"{name} timed out after {MODEL_TOOL_TIMEOUT_SECONDS:.0f}s "
-                        "— continuing without it"
-                    ),
+                    "error": (f"{name} timed out after {MODEL_TOOL_TIMEOUT_SECONDS:.0f}s — continuing without it"),
                 }
             except Exception as exc:  # noqa: BLE001 — reported back to the model
                 result = {"ok": False, "error": str(exc)}
@@ -1380,10 +1377,7 @@ class ModelRouter:
                     _json.dumps(
                         {
                             "ok": False,
-                            "error": (
-                                "tool time budget exhausted — answer from the "
-                                "context you already have"
-                            ),
+                            "error": ("tool time budget exhausted — answer from the context you already have"),
                         }
                     )
                 )
@@ -1402,9 +1396,7 @@ class ModelRouter:
         # A provider may pin its own path (Perplexity serves it off the root);
         # otherwise the shared builder appends the chat path without ever
         # duplicating an API-version segment.
-        base = model.endpoint.rstrip("/") or (
-            PROVIDER_SURFACES.get(str(model.provider).lower(), {}).get("base") or ""
-        )
+        base = model.endpoint.rstrip("/") or (PROVIDER_SURFACES.get(str(model.provider).lower(), {}).get("base") or "")
         url = openai_chat_url(base, model.options.get("chat_path"))
 
         tools = self._model_tools(model)
@@ -1447,7 +1439,7 @@ class ModelRouter:
                                 if problem:
                                     raise RuntimeError(_frame_error(model, problem))
                                 delta = openai_frame_text(frame)
-                                piece = ((frame.get("choices") or [{}])[0].get("delta") or {})
+                                piece = (frame.get("choices") or [{}])[0].get("delta") or {}
                                 for call in piece.get("tool_calls") or []:
                                     slot = calls.setdefault(
                                         int(call.get("index", 0)),
@@ -1592,14 +1584,11 @@ class ModelRouter:
                     ],
                 }
             )
-            requested = [
-                {"name": call["name"], "arguments": _json.dumps(call["arguments"])}
-                for call in calls
-            ]
+            requested = [{"name": call["name"], "arguments": _json.dumps(call["arguments"])} for call in calls]
             if tool_budget_t0 is None:
                 tool_budget_t0 = time.perf_counter()
             payloads, exhausted = await self._tool_payloads(requested, tool_budget_t0)
-            for call, payload in zip(calls, payloads):
+            for call, payload in zip(calls, payloads, strict=False):
                 convo.append(
                     {
                         "role": "tool",

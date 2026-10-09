@@ -15,8 +15,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SKIP_DIRS = {
-    ".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
-    "target", ".next", ".turbo", ".cache", "bin", "obj", ".idea", ".vs",
+    ".git",
+    "node_modules",
+    "venv",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "build",
+    "target",
+    ".next",
+    ".turbo",
+    ".cache",
+    "bin",
+    "obj",
+    ".idea",
+    ".vs",
 }
 
 CODE_MARKERS = {
@@ -136,7 +149,13 @@ class Workspace:
 
             if kind != "other" or dirpath == str(self.root):
                 detected.append(
-                    Folder(path=dirpath, kind=kind, stack=stack, files=len(filenames), indexed=kind in {"code-root", "docs"})
+                    Folder(
+                        path=dirpath,
+                        kind=kind,
+                        stack=stack,
+                        files=len(filenames),
+                        indexed=kind in {"code-root", "docs"},
+                    )
                 )
 
         self.changed = sum(1 for p, m in current.items() if previous.get(p) != m)

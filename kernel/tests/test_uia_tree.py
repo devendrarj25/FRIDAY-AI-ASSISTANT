@@ -147,9 +147,7 @@ def test_layer_keeps_a_handoff_ahead_of_ocr():
 
 
 def test_fixtures_cover_size_cycles_duplicates_and_secrets():
-    children = [
-        {"name": "Row", "controlType": "Text", "automationId": f"r{index}"} for index in range(500)
-    ]
+    children = [{"name": "Row", "controlType": "Text", "automationId": f"r{index}"} for index in range(500)]
     huge = perception_from_raw(
         {"windows": [{"name": "List", "controlType": "Window", "children": children}]},
         10,

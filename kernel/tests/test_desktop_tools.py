@@ -60,3 +60,28 @@ def test_clipboard_refuses_off_windows(monkeypatch):
         control.clipboard_read()
     with pytest.raises(control.ControlError):
         control.clipboard_write("nope")
+
+
+def test_windows_launch_uses_an_argument_vector(monkeypatch):
+    calls = []
+
+    def fake_popen(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+
+        class Proc:
+            pid = 7
+
+        return Proc()
+
+    monkeypatch.setattr(control, "WINDOWS", True)
+    monkeypatch.setattr(control.os.path, "exists", lambda _path: False)
+    monkeypatch.setattr(control.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(control.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(control.time, "sleep", lambda _seconds: None)
+    result = control.launch_app("Notepad", ["note.txt"])
+    assert result["ok"] is True
+    cmd, kwargs = calls[0]
+    assert kwargs.get("shell") in (None, False)
+    assert cmd[:4] == ["cmd", "/c", "start", ""]
+    assert cmd[4:] == ["Notepad", "note.txt"]
+    assert isinstance(cmd, list)

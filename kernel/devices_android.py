@@ -27,9 +27,7 @@ def _run(args: list[str], timeout: int = TIMEOUT) -> dict:
             "error": "adb (Android Platform Tools) is not installed. Install it from the Install Manager.",
         }
     try:
-        proc = subprocess.run(
-            [exe, *args], capture_output=True, text=True, timeout=timeout
-        )
+        proc = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"adb timed out after {timeout}s"}
     out = (proc.stdout or "").strip()
@@ -108,10 +106,7 @@ def open_app(app: str, serial: str | None = None) -> dict:
         if not found.get("ok") or not found.get("packages"):
             return {"ok": False, "error": f"No installed app matched “{app}”."}
         package = found["packages"][0]
-    res = _run(
-        [*_target(serial), "shell", "monkey", "-p", package, "-c",
-         "android.intent.category.LAUNCHER", "1"]
-    )
+    res = _run([*_target(serial), "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
     res["package"] = package
     return res
 
@@ -121,11 +116,7 @@ def find_package(query: str, serial: str | None = None) -> dict:
     if not res.get("ok"):
         return res
     needle = query.lower().replace(" ", "")
-    packages = [
-        line.split(":", 1)[1].strip()
-        for line in res["stdout"].splitlines()
-        if line.startswith("package:")
-    ]
+    packages = [line.split(":", 1)[1].strip() for line in res["stdout"].splitlines() if line.startswith("package:")]
     matches = [p for p in packages if needle in p.lower()]
     return {"ok": True, "packages": matches, "count": len(matches)}
 
@@ -149,8 +140,17 @@ def swipe(x1: int, y1: int, x2: int, y2: int, ms: int = 300, serial: str | None 
     if blocked:
         return blocked
     return _run(
-        [*_target(serial), "shell", "input", "swipe",
-         str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2)), str(int(ms))]
+        [
+            *_target(serial),
+            "shell",
+            "input",
+            "swipe",
+            str(int(x1)),
+            str(int(y1)),
+            str(int(x2)),
+            str(int(y2)),
+            str(int(ms)),
+        ]
     )
 
 

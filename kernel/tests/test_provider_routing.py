@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import router  # noqa: E402
 
-
 REFERENCE = {
     "openai": "https://api.openai.com/v1/chat/completions",
     "anthropic": "https://api.anthropic.com/v1/messages",
@@ -72,14 +71,8 @@ def test_wire_handlers_are_explicit():
 
 
 def test_pinned_chat_path_wins():
-    assert (
-        router.openai_chat_url("https://api.perplexity.ai", "/chat/completions")
-        == REFERENCE["perplexity"]
-    )
+    assert router.openai_chat_url("https://api.perplexity.ai", "/chat/completions") == REFERENCE["perplexity"]
 
 
 def test_plain_host_still_gets_the_v1_default():
-    assert (
-        router.openai_chat_url("https://my-gateway.local")
-        == "https://my-gateway.local/v1/chat/completions"
-    )
+    assert router.openai_chat_url("https://my-gateway.local") == "https://my-gateway.local/v1/chat/completions"

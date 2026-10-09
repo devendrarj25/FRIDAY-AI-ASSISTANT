@@ -33,8 +33,8 @@ describe("phone live parity", () => {
       kernel.indexOf('if method == "chat.stream"'),
       kernel.indexOf('if method == "task.run"'),
     );
-    expect(handler).toMatch(/phone_broadcast\(\{"type": "peer", "role": "user"/);
-    expect(handler).toMatch(/phone_broadcast\(\{"type": "peer", "role": "assistant"/);
+    expect(handler).toMatch(/phone_broadcast\(\s*\{"type": "peer", "role": "user"/);
+    expect(handler).toMatch(/phone_broadcast\(\s*\{"type": "peer", "role": "assistant"/);
     expect(handler).toContain("_PHONE_COGNIZE");
     expect(companion).toContain("if(m.type==='peer')");
     expect(companion).toContain("_PHONE_SENDER");

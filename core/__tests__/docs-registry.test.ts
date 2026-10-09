@@ -161,16 +161,19 @@ describe("documentation registry", () => {
 
   it("gives Claude Code a one-line import of AGENTS.md instead of a second copy", () => {
     expect(read("CLAUDE.md").trim()).toBe("@AGENTS.md");
-    expect(read("READMEFIRST.md")).toContain("`CLAUDE.md`");
+    expect(read("AGENTS.md")).toContain("`CLAUDE.md`");
+    const registered = new Set(docs.DOCUMENTS.map((doc) => doc.file));
+    expect(registered.has("READMEFIRST.md")).toBe(false);
+    expect(registered.has("AGENTS.md")).toBe(true);
   });
 
-  it("READMEFIRST.md only points at repository paths that exist", () => {
-    const text = read("READMEFIRST.md");
+  it("AGENTS.md only points at repository paths that exist", () => {
+    const text = read("AGENTS.md");
     const roots = "src|core|electron|kernel|scripts|config|docs|installer|builder|modules|agents";
     const refs = [...text.matchAll(new RegExp("`((?:" + roots + ")/[A-Za-z0-9_./-]+)`", "g"))]
       .map((m) => (m[1] ?? "").replace(/[.,]+$/, ""))
       .filter((rel) => !/[*<>{}]/.test(rel));
     const missing = refs.filter((rel) => !fs.existsSync(path.join(ROOT, rel)));
-    expect(missing, "READMEFIRST.md references that do not exist").toEqual([]);
+    expect(missing, "AGENTS.md references that do not exist").toEqual([]);
   });
 });

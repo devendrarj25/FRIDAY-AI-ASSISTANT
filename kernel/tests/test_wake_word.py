@@ -87,9 +87,9 @@ class WakeWordProbeTests(unittest.TestCase):
         self.assertNotEqual(payload.get("ok"), True)
 
     def test_pick_model_does_not_fall_back_to_friday_for_jarvis(self):
+        import importlib.util
         import shutil
         import tempfile
-        import importlib.util
 
         spec = importlib.util.spec_from_file_location("wake_word", SCRIPT)
         mod = importlib.util.module_from_spec(spec)

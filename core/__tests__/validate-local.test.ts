@@ -28,6 +28,13 @@ describe("validate:local is the no-Actions orchestrator", () => {
   it("is wired as npm run validate:local", () => {
     const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
     expect(pkg.scripts["validate:local"]).toBe("node scripts/validate-local.cjs");
+    expect(pkg.scripts["lint"]).toContain("eslint .");
+    expect(pkg.scripts["lint"]).toContain("python -m ruff check kernel");
+    expect(pkg.scripts["lint"]).toContain("python -m ruff format --check kernel");
+    expect(pkg.scripts["lint:py"]).toContain("python -m ruff check kernel");
+    expect(fs.existsSync(path.join(ROOT, "ruff.toml"))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, ".prettierrc"))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, "prettier.config.js"))).toBe(false);
   });
 
   it("covers every product gate PR Validation already runs", () => {
@@ -38,6 +45,7 @@ describe("validate:local is the no-Actions orchestrator", () => {
       "npm run typecheck",
       "npm run docs:check",
       "npm run verify:version",
+      "npm run lint",
       "npm run test:kernel",
       "scripts/verify-deps.cjs",
       "scripts/audit-architecture.cjs --strict",
@@ -51,6 +59,7 @@ describe("validate:local is the no-Actions orchestrator", () => {
     expect(src).toContain('["run", "typecheck"]');
     expect(src).toContain('["run", "docs:check"]');
     expect(src).toContain('["run", "verify:version"]');
+    expect(src).toContain('["run", "lint"]');
     expect(src).toContain('["run", "test:kernel"]');
     expect(src).toContain('["run", "build:desktop"]');
     expect(src).toContain("verify-deps.cjs");

@@ -9,18 +9,43 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
 CATALOG = {
-    "Python": {"kind": "runtime", "probe": ["python", "--version"], "winget": "Python.Python.3.12", "source": "python.org"},
+    "Python": {
+        "kind": "runtime",
+        "probe": ["python", "--version"],
+        "winget": "Python.Python.3.12",
+        "source": "python.org",
+    },
     "Node.js": {"kind": "runtime", "probe": ["node", "-v"], "winget": "OpenJS.NodeJS.LTS", "source": "nodejs.org"},
     "Git": {"kind": "tool", "probe": ["git", "--version"], "winget": "Git.Git", "source": "git-scm.com"},
     "Ollama": {"kind": "engine", "probe": ["ollama", "--version"], "winget": "Ollama.Ollama", "source": "ollama.com"},
-    "llama.cpp": {"kind": "engine", "probe": ["llama-server", "--version"], "winget": None, "source": "github.com/ggml-org/llama.cpp"},
-    "CUDA Toolkit": {"kind": "runtime", "probe": ["nvcc", "--version"], "winget": "Nvidia.CUDA", "source": "developer.nvidia.com"},
-    "VS Code": {"kind": "tool", "probe": ["code", "--version"], "winget": "Microsoft.VisualStudioCode", "source": "code.visualstudio.com"},
-    "Java (Temurin)": {"kind": "runtime", "probe": ["java", "-version"], "winget": "EclipseAdoptium.Temurin.21.JDK", "source": "adoptium.net"},
+    "llama.cpp": {
+        "kind": "engine",
+        "probe": ["llama-server", "--version"],
+        "winget": None,
+        "source": "github.com/ggml-org/llama.cpp",
+    },
+    "CUDA Toolkit": {
+        "kind": "runtime",
+        "probe": ["nvcc", "--version"],
+        "winget": "Nvidia.CUDA",
+        "source": "developer.nvidia.com",
+    },
+    "VS Code": {
+        "kind": "tool",
+        "probe": ["code", "--version"],
+        "winget": "Microsoft.VisualStudioCode",
+        "source": "code.visualstudio.com",
+    },
+    "Java (Temurin)": {
+        "kind": "runtime",
+        "probe": ["java", "-version"],
+        "winget": "EclipseAdoptium.Temurin.21.JDK",
+        "source": "adoptium.net",
+    },
 }
 
 
@@ -82,8 +107,15 @@ class RuntimeManager:
 
         yield {"name": name, "state": "installing", "manager": "winget"}
         proc = subprocess.run(
-            ["winget", "install", "--id", spec["winget"], "--silent",
-             "--accept-package-agreements", "--accept-source-agreements"],
+            [
+                "winget",
+                "install",
+                "--id",
+                spec["winget"],
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ],
             capture_output=True,
             text=True,
         )

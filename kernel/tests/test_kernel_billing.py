@@ -64,9 +64,7 @@ class BillingClassTests(unittest.TestCase):
             },
         )
         self.assertEqual(billing.billing_class(model), "unknown")
-        self.assertFalse(
-            billing.guard(model, billing.DEFAULT_BILLING, policy="free-only")["allowed"]
-        )
+        self.assertFalse(billing.guard(model, billing.DEFAULT_BILLING, policy="free-only")["allowed"])
 
 
 class GuardTests(unittest.TestCase):
@@ -81,9 +79,7 @@ class GuardTests(unittest.TestCase):
         unknown = billing.guard(UNKNOWN, billing.DEFAULT_BILLING, policy="free-preferred")
         self.assertFalse(unknown["allowed"])
         self.assertTrue(unknown["requiresApproval"])
-        self.assertFalse(
-            billing.guard(UNKNOWN, billing.DEFAULT_BILLING, policy="free-only")["allowed"]
-        )
+        self.assertFalse(billing.guard(UNKNOWN, billing.DEFAULT_BILLING, policy="free-only")["allowed"])
 
     def test_unknown_allowed_only_when_owner_authorises(self):
         self.assertTrue(
@@ -103,9 +99,7 @@ class GuardTests(unittest.TestCase):
         unlocked = {"paidAccess": True}
         self.assertFalse(billing.guard(PAID, unlocked)["allowed"])
         self.assertTrue(billing.guard(PAID, unlocked, explicit_paid=True)["allowed"])
-        self.assertTrue(
-            billing.guard(PAID, {"paidAccess": True, "autoPaidUsage": True})["allowed"]
-        )
+        self.assertTrue(billing.guard(PAID, {"paidAccess": True, "autoPaidUsage": True})["allowed"])
 
     def test_free_only_policy_and_kill_switch_win(self):
         self.assertFalse(
@@ -125,9 +119,7 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(billing.guard(LOCAL, unlocked, policy="paid-only")["allowed"])
         self.assertFalse(billing.guard(FREE, unlocked, policy="paid-only")["allowed"])
         self.assertTrue(billing.guard(PAID, unlocked, policy="paid-only")["allowed"])
-        self.assertFalse(
-            billing.guard(PAID, billing.DEFAULT_BILLING, policy="paid-only")["allowed"]
-        )
+        self.assertFalse(billing.guard(PAID, billing.DEFAULT_BILLING, policy="paid-only")["allowed"])
 
     def test_session_grant_expires(self):
         now = 1_000_000
