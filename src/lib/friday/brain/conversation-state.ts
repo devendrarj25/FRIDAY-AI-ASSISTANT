@@ -114,10 +114,38 @@ type CompactSnap = {
   threadId: string;
   graphId: string;
   at: number;
+  /** True while this talk is still the open one. A new chat stores false. */
+  live?: boolean;
+  phase?: ConversationPhase;
+  styleCue?: StyleCue;
+  constraints?: string[];
+  corrections?: string[];
+  commitments?: string[];
+  previousTopics?: string[];
+  correctionStreak?: number;
+  decision?: { summary: string; selected: string; rejected: string[] };
+  options?: PresentedOption[];
 };
 
 let session = emptySession();
 let seq = 0;
+let writesEnabled = true;
+let hydratedLive = false;
+
+/** Session writes are off for a second read of a turn that was already observed. */
+export function sessionWritesEnabled(): boolean {
+  return writesEnabled;
+}
+
+export function runWithoutSessionWrites<T>(fn: () => T): T {
+  const previous = writesEnabled;
+  writesEnabled = false;
+  try {
+    return fn();
+  } finally {
+    writesEnabled = previous;
+  }
+}
 
 function emptySession(): ConversationSession {
   return {
@@ -157,6 +185,7 @@ function nextId(prefix: string): string {
 
 function touch(): void {
   session.updatedAt = Date.now();
+  if (writesEnabled) persistLiveSnapshot();
 }
 
 function overlap(a: string, b: string): number {
@@ -249,6 +278,44 @@ function looksLikeCompleteWork(text: string): boolean {
   );
 }
 
+/** "What did we decide?" stays on this talk. It is not a new topic. */
+export function looksLikeDecisionAsk(text: string): boolean {
+  return /\b(what did we decide|what was the decision|kya decide (?:kiya|hua)|humne kya (?:decide|tay) kiya|kya tay hua)\b/i.test(
+    text,
+  );
+}
+
+/** The next unfinished step of the bound task. It does not start a new topic. */
+export function looksLikeNextStepAsk(text: string): boolean {
+  return /\b(do the next step|next step|agla step|agli step|aage badho|ab next step)\b/i.test(text);
+}
+
+/** "Change that" edits the current item. It is not a new topic. */
+export function looksLikeChangeAsk(text: string): boolean {
+  return /\b(change (?:that|it|this)|update that|usko badlo|isko badlo|ise badlo|ye badal(?: do|o)?|badal do)\b/i.test(
+    text,
+  );
+}
+
+/**
+ * One line for the bound task. Finished steps stay finished.
+ * This does not resume or replay the graph.
+ */
+export function boundTaskCue(): string {
+  if (!session.activeGraphId) return "";
+  try {
+    const graph = taskGraph.get(session.activeGraphId);
+    if (!graph) return "";
+    const progress = graphProgress(graph);
+    const next = progress.remaining[0];
+    const head = `task ${progress.done}/${progress.total} (${graph.state})`;
+    if (!next) return `${head}; finished steps stay finished`;
+    return `${head}; next unfinished step: ${next.slice(0, 80)}. Do not repeat a finished step, and do not run a step that still needs approval.`;
+  } catch {
+    return "";
+  }
+}
+
 /** Resume work from a previous chat — not a same-session "continue". */
 export function looksLikeContinueAcrossChats(text: string): boolean {
   return /\b(us project ko continue|continue that project|jahan chhoda tha|purani wali baat continue|jo hum kar rahe the|wapas .{0,48}par aao|previous project|last task|jo decision (humne )?liya tha)\b/i.test(
@@ -337,6 +404,7 @@ function derivePhase(text: string): ConversationPhase {
 
 /** Rebuild option lists from history; keep decisions. Empty history does not wipe. */
 export function observeConversation(history: SessionTurn[] = []): ConversationSession {
+  if (!writesEnabled) return session;
   decayConversationState();
   if (!history.length) return session;
   const assistant = lastAssistantText(history);
@@ -359,6 +427,7 @@ export function observeConversation(history: SessionTurn[] = []): ConversationSe
 }
 
 export function bindActiveGraph(id: string | null | undefined): void {
+  if (!writesEnabled) return;
   const value = String(id || "").trim();
   if (!value) return;
   session.activeGraphId = value;
@@ -457,6 +526,7 @@ function liveSituationMemory(
  * continue prior work and this talk has no topic yet. Never on a greeting.
  */
 export function restoreCompactIfContinuing(text: string): boolean {
+  if (!writesEnabled) return false;
   if (session.activeTopic) return false;
   if (!looksLikeContinueAcrossChats(text)) return false;
   const found = liveSituationMemory(text);
@@ -480,6 +550,7 @@ export function restoreCompactIfContinuing(text: string): boolean {
 }
 
 export function resumeMatchingThread(cue: string): ConversationThread | null {
+  if (!writesEnabled) return null;
   const paused = pausedThreads();
   if (!paused.length) {
     const prior = resumePreviousTopic();
@@ -540,17 +611,100 @@ function applyWorkUtterance(text: string): boolean {
   return false;
 }
 
-function persistCompactSnapshot(): void {
+function conversationSnap(live: boolean): CompactSnap {
+  const decided = session.decisions[session.decisions.length - 1];
+  return {
+    topic: session.activeTopic,
+    goal: session.userGoal,
+    threadId: session.activeThreadId,
+    graphId: session.activeGraphId,
+    at: Date.now(),
+    live,
+    phase: session.phase,
+    styleCue: session.styleCue,
+    constraints: session.constraints.slice(-8),
+    corrections: session.corrections.slice(-8),
+    commitments: session.commitments.slice(-8),
+    previousTopics: session.previousTopics.slice(-8),
+    correctionStreak: session.correctionStreak,
+    ...(decided
+      ? {
+          decision: {
+            summary: decided.summary,
+            selected: decided.selected,
+            rejected: decided.rejected.slice(0, 6),
+          },
+        }
+      : {}),
+    ...(session.presentedOptions.length ? { options: session.presentedOptions.slice(-8) } : {}),
+  };
+}
+
+/** The open talk, for a restart. A sealed snap is what a new chat leaves behind. */
+export function liveConversationSnapshot(live = true): CompactSnap {
+  return conversationSnap(live);
+}
+
+function persistLiveSnapshot(): void {
+  if (!session.activeTopic) return;
   try {
-    writeState(SNAP_KEY, {
-      topic: session.activeTopic,
-      goal: session.userGoal,
-      threadId: session.activeThreadId,
-      graphId: session.activeGraphId,
-      at: Date.now(),
-    } satisfies CompactSnap);
+    writeState(SNAP_KEY, conversationSnap(true));
   } catch {
     /* persist is a no-op in Node tests */
+  }
+}
+
+function persistCompactSnapshot(): void {
+  try {
+    writeState(SNAP_KEY, conversationSnap(false));
+  } catch {
+    /* persist is a no-op in Node tests */
+  }
+}
+
+/**
+ * Restore the open talk after a restart. A sealed snap (new chat) stays sealed
+ * until the owner asks to continue that work.
+ */
+export function applyLiveConversationSnapshot(snap: CompactSnap | null | undefined): boolean {
+  if (!writesEnabled) return false;
+  if (!snap || snap.live !== true) return false;
+  const topic = String(snap.topic || "").trim();
+  if (!topic || session.activeTopic) return false;
+  session.activeTopic = topic.slice(0, 240);
+  session.userGoal = String(snap.goal || topic).slice(0, 240);
+  if (snap.graphId) session.activeGraphId = snap.graphId;
+  if (snap.phase) session.phase = snap.phase;
+  if (snap.styleCue) session.styleCue = snap.styleCue;
+  if (snap.constraints?.length) session.constraints = snap.constraints.slice(-8);
+  if (snap.corrections?.length) session.corrections = snap.corrections.slice(-8);
+  if (snap.commitments?.length) session.commitments = snap.commitments.slice(-8);
+  if (snap.previousTopics?.length) session.previousTopics = snap.previousTopics.slice(-8);
+  if (typeof snap.correctionStreak === "number") session.correctionStreak = snap.correctionStreak;
+  if (snap.options?.length) session.presentedOptions = snap.options.slice(-8);
+  if (snap.decision?.selected) {
+    session.decisions = [
+      {
+        id: nextId("decision"),
+        summary: String(snap.decision.summary || snap.decision.selected).slice(0, 240),
+        selected: snap.decision.selected.slice(0, 240),
+        rejected: (snap.decision.rejected || []).slice(0, 6),
+        at: snap.at || Date.now(),
+      },
+    ];
+  }
+  ensureActiveThread(session.activeTopic);
+  session.updatedAt = snap.at || Date.now();
+  return true;
+}
+
+export function hydrateLiveConversation(): boolean {
+  if (hydratedLive || !writesEnabled) return false;
+  hydratedLive = true;
+  try {
+    return applyLiveConversationSnapshot(readLocalState<CompactSnap>(SNAP_KEY));
+  } catch {
+    return false;
   }
 }
 
@@ -588,6 +742,8 @@ export function compactSituation(): string {
       /* optional */
     }
   }
+  const constraint = session.constraints[session.constraints.length - 1];
+  if (constraint) bits.push(`constraint ${constraint.slice(0, 40)}`);
   if (session.correctionStreak) bits.push(`${session.correctionStreak} correction(s)`);
   if (session.phase !== "opening") bits.push(`phase ${session.phase}`);
   if (session.styleCue) bits.push(`style ${session.styleCue}`);
@@ -627,6 +783,8 @@ export function noteUserTurn(
   text: string,
   endpoint: "chat" | "voice" | "system" = "chat",
 ): ConversationSession {
+  if (!writesEnabled) return session;
+  hydrateLiveConversation();
   const continuity = continuityKey(endpoint, session.id);
   if (!continuity.ok) return session;
   const value = String(text || "").trim();
@@ -654,7 +812,14 @@ export function noteUserTurn(
     return session;
   }
 
-  if (looksLikeReferenceOnly(value) || looksLikeFollowUpWork(value) || value.length < 8) {
+  if (
+    looksLikeReferenceOnly(value) ||
+    looksLikeFollowUpWork(value) ||
+    looksLikeDecisionAsk(value) ||
+    looksLikeNextStepAsk(value) ||
+    looksLikeChangeAsk(value) ||
+    value.length < 8
+  ) {
     session.phase = derivePhase(value);
     touch();
     return session;
@@ -702,6 +867,7 @@ export function noteUserTurn(
 }
 
 export function recordTopicTransition(from: string, to: string, cue: string): void {
+  if (!writesEnabled) return;
   const start = String(from || "").trim();
   const end = String(to || "").trim();
   if (!start || !end || start === end) return;
@@ -713,6 +879,7 @@ export function recordTopicTransition(from: string, to: string, cue: string): vo
 }
 
 export function setActiveTopic(topic: string): void {
+  if (!writesEnabled) return;
   const value = String(topic || "").trim();
   if (!value) return;
   if (session.activeTopic && session.activeTopic !== value) {
@@ -724,6 +891,7 @@ export function setActiveTopic(topic: string): void {
 }
 
 export function addSubtopic(topic: string): void {
+  if (!writesEnabled) return;
   const value = String(topic || "")
     .trim()
     .slice(0, 120);
@@ -734,6 +902,7 @@ export function addSubtopic(topic: string): void {
 
 /** Resume a paused thread by 1-based index in previousTopics / paused threads. */
 export function resumeThreadByIndex(index: number): ConversationThread | null {
+  if (!writesEnabled) return null;
   const paused = session.threads.filter((item) => item.status === "paused");
   const fromPrevious = session.previousTopics[index - 1];
   const target =
@@ -762,6 +931,7 @@ export function resumeThreadByIndex(index: number): ConversationThread | null {
 }
 
 export function resumePreviousTopic(): string | null {
+  if (!writesEnabled) return null;
   const prior = session.previousTopics[session.previousTopics.length - 1];
   if (!prior) return resumeThreadByIndex(1)?.topic ?? null;
   pauseActiveThread();
@@ -776,6 +946,7 @@ export function resumePreviousTopic(): string | null {
 }
 
 export function noteUserGoal(goal: string, outcome = ""): void {
+  if (!writesEnabled) return;
   const value = String(goal || "").trim();
   if (!value) return;
   session.userGoal = value.slice(0, 240);
@@ -784,6 +955,7 @@ export function noteUserGoal(goal: string, outcome = ""): void {
 }
 
 export function noteConstraint(text: string): void {
+  if (!writesEnabled) return;
   const value = String(text || "")
     .trim()
     .slice(0, 160);
@@ -793,10 +965,11 @@ export function noteConstraint(text: string): void {
 }
 
 export function noteCorrection(text: string): void {
+  if (!writesEnabled) return;
   const value = String(text || "")
     .trim()
     .slice(0, 240);
-  if (!value) return;
+  if (!value || session.corrections[session.corrections.length - 1] === value) return;
   session.corrections = [...session.corrections, value].slice(-8);
   session.correctionStreak += 1;
   session.phase = "repairing";
@@ -805,6 +978,7 @@ export function noteCorrection(text: string): void {
 }
 
 export function noteCommitment(text: string): void {
+  if (!writesEnabled) return;
   const value = String(text || "")
     .trim()
     .slice(0, 160);
@@ -819,6 +993,7 @@ export function addSessionFact(
   kind: SessionFactKind,
   ttl = kind === "ephemeral" ? EPHEMERAL_MS : SESSION_FACT_MS,
 ): SessionFact | null {
+  if (!writesEnabled) return null;
   const value = String(text || "")
     .trim()
     .slice(0, 240);
@@ -842,6 +1017,7 @@ export function addSessionFact(
 }
 
 export function setInterpretationConfidence(value: number): void {
+  if (!writesEnabled) return;
   session.interpretationConfidence = Math.max(0, Math.min(1, value));
   touch();
 }
@@ -855,6 +1031,7 @@ export function clearCorrectionStreak(): void {
 export function selectPresentedOption(index: number): PresentedOption | null {
   const option = session.presentedOptions.find((item) => item.index === index);
   if (!option) return null;
+  if (!writesEnabled || option.status === "selected") return { ...option, status: option.status };
   session.presentedOptions = session.presentedOptions.map((item) => ({
     ...item,
     status: item.index === index ? "selected" : "rejected",
@@ -922,4 +1099,5 @@ export function conversationDigest(): string {
 export function resetConversationSession(): void {
   session = emptySession();
   seq = 0;
+  hydratedLive = true;
 }

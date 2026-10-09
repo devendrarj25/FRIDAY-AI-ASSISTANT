@@ -33,6 +33,8 @@ describe("turn taking", () => {
   it("waits longer when the partial is still mid-thought, and caps that wait", () => {
     expect(utteranceIncomplete("open chrome and")).toBe(true);
     expect(utteranceIncomplete("kal subah aur")).toBe(true);
+    expect(utteranceIncomplete("कल सुबह और")).toBe(true);
+    expect(utteranceIncomplete("कल सुबह।")).toBe(false);
     expect(utteranceIncomplete("open chrome")).toBe(false);
     const open = endpointSilenceMs(true, "open chrome");
     const mid = endpointSilenceMs(true, "open chrome and");

@@ -24,7 +24,9 @@ import { retrievalTerms, termJaccard } from "./retrieval";
 import {
   getConversationSession,
   isContinuingCurrentGoal,
+  looksLikeChangeAsk,
   noteUserGoal,
+  runWithoutSessionWrites,
 } from "./conversation-state";
 
 export type IntentKind =
@@ -144,7 +146,8 @@ const CONFIRM = /^(got it|alright|theek hai|done|noted)[\s.!]*$/i;
 
 /** Explicit user teaching — stronger than a casual Settings ask. */
 export function looksLikeCorrection(text: string): boolean {
-  return CORRECTION.test(String(text || ""));
+  const value = String(text || "");
+  return CORRECTION.test(value) || looksLikeChangeAsk(value);
 }
 
 export function conversationalMove(text: string): ConversationalMove {
@@ -424,10 +427,37 @@ function ownerProjectMeaning(memoryInformed: string, resolved: string): string {
  * meanings for one turn. Clarifying still uses `understand().needsClarification`
  * + `decideAction` route `"ask"` — this does not invent a second ask path.
  */
-export function understandTurn(input: { text: string; history?: ChatTurn[] }): TurnUnderstanding {
+let lastUnderstanding: TurnUnderstanding | null = null;
+
+export function understandTurn(input: {
+  text: string;
+  history?: ChatTurn[];
+  /** False when this turn was already observed. The same understanding is reused. */
+  observe?: boolean;
+}): TurnUnderstanding {
   turnMark("intent", "understandTurn");
   const literal = String(input.text || "").trim();
-  const context = resolveContext(literal, input.history ?? []);
+  if (
+    input.observe === false &&
+    lastUnderstanding &&
+    (lastUnderstanding.literal === literal || lastUnderstanding.conversationResolved === literal)
+  ) {
+    turnDone("intent", "understandTurn", "reused");
+    return lastUnderstanding;
+  }
+  const compute = (): TurnUnderstanding => understandTurnBody(input, literal);
+  const result = input.observe === false ? runWithoutSessionWrites(compute) : compute();
+  lastUnderstanding = result;
+  return result;
+}
+
+function understandTurnBody(
+  input: { text: string; history?: ChatTurn[]; observe?: boolean },
+  literal: string,
+): TurnUnderstanding {
+  const context = resolveContext(literal, input.history ?? [], {
+    observe: input.observe !== false,
+  });
   const conversationResolved = context.resolved || literal;
   const resolvedIntent = understand(conversationResolved);
   const move = conversationalMove(literal);
@@ -435,7 +465,7 @@ export function understandTurn(input: { text: string; history?: ChatTurn[] }): T
   const inferred = inferUnderlyingGoal(literal, context);
   resolvedIntent.underlyingGoal = inferred.goal;
   resolvedIntent.desiredOutcome = inferred.goal;
-  if (inferred.confidence >= 0.6) noteUserGoal(inferred.goal);
+  if (input.observe !== false && inferred.confidence >= 0.6) noteUserGoal(inferred.goal);
 
   const memoryInformed = memoryInformedMeaning(conversationResolved, context.topic, literal);
   const ownerProjectInformed = ownerProjectMeaning(memoryInformed, conversationResolved);

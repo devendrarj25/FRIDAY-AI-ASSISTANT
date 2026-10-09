@@ -117,13 +117,44 @@ export function speakerSimilarity(left: number[] | null, right: number[] | null)
 const CONTINUATION =
   /(?:\b(?:and|or|but|so|because|if|when|with|the|a|an|uh|um|aur|lekin|kyunki|ki|ke|ya|matlab|toh|to|par|phir)\s*)$/i;
 
+/** Devanagari has no ASCII word boundary, so the same pause words are matched on their own. */
+const DEVANAGARI_CONTINUATION = /(?:और|लेकिन|क्योंकि|कि|तो|फिर|या|मतलब|पर)\s*$/u;
+
 /** True when the partial should not be treated as the end of the owner's turn. */
 export function utteranceIncomplete(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   if (/[.!?।]$/.test(trimmed)) return false;
   if (/[,:;\-—]$/.test(trimmed)) return true;
-  return CONTINUATION.test(trimmed);
+  return CONTINUATION.test(trimmed) || DEVANAGARI_CONTINUATION.test(trimmed);
+}
+
+/**
+ * A second copy of the same finalized transcript inside this window is not a
+ * new turn. A later repeat, or a different line, still is.
+ */
+export function duplicateFinalUtterance(
+  previous: string,
+  next: string,
+  elapsedMs: number,
+  windowMs = 2500,
+): boolean {
+  const prior = previous.trim();
+  const heard = next.trim();
+  if (!prior || !heard || elapsedMs < 0) return false;
+  return prior === heard && elapsedMs < windowMs;
+}
+
+/**
+ * When a live answer shrinks, the spoken cursor restarts on the replacement.
+ * A longer answer keeps the characters already handed to speech.
+ */
+export function nextSpokenCursor(
+  voicedChars: number,
+  nextLength: number,
+): { cursor: number; rewritten: boolean } {
+  if (nextLength < voicedChars) return { cursor: 0, rewritten: true };
+  return { cursor: voicedChars, rewritten: false };
 }
 
 /** Which scripts are in a transcript. Used to keep Hinglish as mixed, not as one forced language. */

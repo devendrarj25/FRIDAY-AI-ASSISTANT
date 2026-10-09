@@ -73,4 +73,23 @@ describe("prepareTurn typed guide", () => {
     expect(auto.system.includes("MANUAL CHAT")).toBe(false);
     expect(manual.modelIds[0]).toBe(auto.modelIds[0]);
   });
+
+  it("keeps a typed turn typed while Auto is listening", () => {
+    const typed = prepareTurn("kya hai ye", {
+      mode: "auto",
+      surface: "chat",
+      multiModel: false,
+    });
+    const spoken = prepareTurn("kya hai ye", {
+      mode: "manual",
+      surface: "voice",
+      multiModel: true,
+    });
+    expect(typed.system).toContain("MANUAL CHAT");
+    expect(typed.system).not.toContain("already been confirmed");
+    expect(spoken.system).toContain("AUTO MODE");
+    expect(spoken.system).toContain("already been confirmed");
+    expect(spoken.system.includes("MANUAL CHAT")).toBe(false);
+    expect(spoken.modelIds.length).toBeLessThanOrEqual(1);
+  });
 });

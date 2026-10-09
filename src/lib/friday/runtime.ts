@@ -330,6 +330,8 @@ export function prepareTurn(
   prompt: string,
   options: {
     mode?: TurnMode;
+    /** The turn that was actually asked. Auto can be listening while this turn is typed. */
+    surface?: "voice" | "chat" | "phone";
     multiModel?: boolean;
     depth?: number;
     extra?: string;
@@ -339,6 +341,7 @@ export function prepareTurn(
   } = {},
 ): TurnDispatch {
   const mode = options.mode ?? "manual";
+  const spoken = options.surface ? options.surface === "voice" : mode === "auto";
   const tRecall = Date.now();
   const context = recallContext(prompt, options.depth ?? 6, options.vectorHits);
   options.onStage?.(
@@ -375,7 +378,7 @@ export function prepareTurn(
       );
     }
   }
-  if (mode === "auto") {
+  if (spoken) {
     parts.push(
       [
         "AUTO MODE — you are speaking out loud, like a phone voice assistant.",
@@ -396,7 +399,7 @@ export function prepareTurn(
   const tPlan = Date.now();
   const { ids, pipeline, note } = routeModels(
     prompt,
-    mode === "auto" ? false : (options.multiModel ?? true),
+    spoken ? false : (options.multiModel ?? true),
   );
   options.onStage?.(
     "thinking.planner",

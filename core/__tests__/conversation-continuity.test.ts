@@ -8,9 +8,12 @@ import { resolveContext } from "../../src/lib/friday/brain/context-engine";
 import { conversationalMove, understandTurn } from "../../src/lib/friday/brain/intent-engine";
 import { selectResponseStrategy } from "../../src/lib/friday/brain/decision-engine";
 import {
+  applyLiveConversationSnapshot,
   bindActiveGraph,
   compactSituation,
   getConversationSession,
+  liveConversationSnapshot,
+  noteConstraint,
   persistAndResetConversation,
   resetConversationSession,
   snapshotCurrentSituation,
@@ -243,6 +246,94 @@ describe("conversation continuity", () => {
     expect(again.conversationResolved).toMatch(/GST|billing/i);
     expect(conversationalMove("chhodo")).toBe("task-pause");
     expect(conversationalMove("ye wala part complete ho gaya")).toBe("task-complete");
+  });
+
+  it("keeps one decision when the same turn is observed again", () => {
+    const history = [
+      { role: "user", text: "Which billing approach should we use" },
+      { role: "friday", text: "1. approach A\n2. approach B" },
+    ];
+    understandTurn({ text: "Which billing approach should we use" });
+    understandTurn({ text: "the second one", history });
+    expect(getConversationSession().decisions).toHaveLength(1);
+    understandTurn({ text: "the second one", history, observe: false });
+    expect(getConversationSession().decisions).toHaveLength(1);
+    const asked = understandTurn({ text: "what did we decide?" });
+    expect(asked.ambiguous).toBe(false);
+    expect(asked.conversationResolved).toMatch(/approach B/i);
+  });
+
+  it("uses the stated answer when no option was selected", () => {
+    understandTurn({ text: "We'll use approach B for the billing rewrite" });
+    const asked = understandTurn({
+      text: "what did we decide?",
+      history: [
+        { role: "user", text: "We'll use approach B for the billing rewrite" },
+        { role: "friday", text: "Approach B is the one we'll keep." },
+      ],
+    });
+    expect(asked.ambiguous).toBe(false);
+    expect(asked.conversationResolved).toMatch(/Approach B/i);
+  });
+
+  it("changes the current item instead of opening a new topic", () => {
+    understandTurn({ text: "We'll keep the GST billing rewrite on approach B" });
+    const changed = understandTurn({
+      text: "change that",
+      history: [
+        { role: "user", text: "We'll keep the GST billing rewrite on approach B" },
+        { role: "friday", text: "Approach B stays." },
+      ],
+    });
+    expect(changed.conversationalMove).toBe("correction");
+    expect(changed.ambiguous).toBe(false);
+    expect(changed.conversationResolved).toMatch(/approach B/i);
+    expect(getConversationSession().activeTopic).toMatch(/GST|approach B|billing/);
+    const hindi = understandTurn({ text: "usko badlo" });
+    expect(hindi.conversationalMove).toBe("correction");
+    expect(hindi.conversationResolved).toMatch(/GST|approach B|billing/);
+    resetConversationSession();
+    const empty = understandTurn({ text: "badal do" });
+    expect(empty.ambiguous).toBe(true);
+    expect(empty.conversationResolved).toMatch(/which item/i);
+    expect(getConversationSession().activeTopic).toBe("");
+  });
+
+  it("asks which decision is meant when this talk has none", () => {
+    const asked = understandTurn({ text: "what did we decide?" });
+    expect(asked.ambiguous).toBe(true);
+    expect(asked.conversationResolved).toMatch(/which decision/i);
+    expect(getConversationSession().activeTopic).toBe("");
+  });
+
+  it("names the unfinished step without opening a second task", () => {
+    const { id } = taskGraph.submit("fix the GST billing bug then patch the invoice export");
+    bindActiveGraph(id);
+    const before = taskGraph.list().length;
+    const step = understandTurn({ text: "do the next step" });
+    expect(step.ambiguous).toBe(false);
+    expect(step.conversationResolved).toMatch(/unfinished step|finished steps stay finished/i);
+    expect(taskGraph.list()).toHaveLength(before);
+    expect(taskGraph.get(id)?.id).toBe(id);
+    taskGraph.cancel(id);
+  });
+
+  it("restores a live talk and leaves a sealed talk sealed", () => {
+    understandTurn({ text: "Plan the GST billing fix for next quarter" });
+    noteConstraint("no paid APIs");
+    const snap = liveConversationSnapshot();
+    expect(snap.live).toBe(true);
+    expect(snap.constraints).toContain("no paid APIs");
+    const sealed = liveConversationSnapshot(false);
+    expect(sealed.live).toBe(false);
+    resetConversationSession();
+    expect(getConversationSession().activeTopic).toBe("");
+    expect(applyLiveConversationSnapshot(snap)).toBe(true);
+    expect(getConversationSession().activeTopic).toMatch(/GST/);
+    expect(getConversationSession().constraints).toContain("no paid APIs");
+    resetConversationSession();
+    expect(applyLiveConversationSnapshot(sealed)).toBe(false);
+    expect(getConversationSession().activeTopic).toBe("");
   });
 
   it("asks instead of inventing a project when nothing is stored", () => {

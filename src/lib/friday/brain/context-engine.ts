@@ -10,14 +10,20 @@
 import { turnDone, turnMark } from "./turn-timing";
 import { retrievalTerms, termJaccard } from "./retrieval";
 import {
+  boundTaskCue,
   extractPresentedOptions,
   getConversationSession,
+  hydrateLiveConversation,
   lastDecision,
+  looksLikeChangeAsk,
+  looksLikeDecisionAsk,
+  looksLikeNextStepAsk,
   noteCorrection,
   noteUserGoal,
   noteUserTurn,
   observeConversation,
   selectPresentedOption,
+  sessionWritesEnabled,
   setInterpretationConfidence,
 } from "./conversation-state";
 import { resolveSessionReferences } from "./reference-resolver";
@@ -93,14 +99,22 @@ export function selectRelevantTurns(
 }
 
 /** Expand a short/referential prompt using session + ranked history, not last-line guesswork. */
-export function resolveContext(text: string, history: ChatTurn[] = []): ResolvedContext {
+export function resolveContext(
+  text: string,
+  history: ChatTurn[] = [],
+  options: { observe?: boolean } = {},
+): ResolvedContext {
   turnMark("context", "resolve");
   const original = String(text || "").trim();
-  observeConversation(history);
-  observeOpenLoops(history);
-  noteUserTurn(original);
-  if (CORRECTION.test(original)) noteCorrection(original);
-  if (/\b(ye kar diya|ye wala part complete(?: ho gaya)?)\b/i.test(original)) {
+  const observe = options.observe !== false && sessionWritesEnabled();
+  if (observe) {
+    hydrateLiveConversation();
+    observeConversation(history);
+    observeOpenLoops(history);
+    noteUserTurn(original);
+    if (CORRECTION.test(original) || looksLikeChangeAsk(original)) noteCorrection(original);
+  }
+  if (observe && /\b(ye kar diya|ye wala part complete(?: ho gaya)?)\b/i.test(original)) {
     const topic = getConversationSession().activeTopic;
     if (topic) {
       for (const loop of listOpenLoops()) {
@@ -141,7 +155,55 @@ export function resolveContext(text: string, history: ChatTurn[] = []): Resolved
     ambiguous = sessionRef.ambiguous;
   }
 
-  if (original && REF.test(original) && topic && sessionRef.kind === "none") {
+  if (looksLikeChangeAsk(original)) {
+    references.push("change");
+    if (sessionRef.ambiguous) {
+      ambiguous = true;
+      confidence = Math.min(sessionRef.confidence, 0.45);
+      resolved = `${original}\n(${sessionRef.resolved} Ask which item they mean.)`;
+    } else {
+      const bound =
+        decision?.selected ||
+        lastAssistant ||
+        session.userGoal ||
+        topic ||
+        (sessionRef.kind !== "none" ? sessionRef.resolved : "");
+      if (bound) {
+        resolved = `Change the current item. Do not start a new topic. Current item: "${String(bound).slice(0, 200)}". ${original}`;
+        confidence = decision || sessionRef.kind !== "none" ? 0.84 : 0.74;
+        ambiguous = false;
+      } else {
+        ambiguous = true;
+        confidence = 0.35;
+        resolved = `${original}\n(Nothing is stored to change. Ask which item they mean.)`;
+      }
+    }
+  } else if (looksLikeDecisionAsk(original) && sessionRef.kind === "none") {
+    references.push("decision");
+    if (decision) {
+      resolved = `The decision still in effect is "${decision.selected.slice(0, 200)}". ${decision.summary}`;
+      confidence = 0.88;
+    } else if (topic || lastAssistant || lastUser) {
+      const stated = lastAssistant || lastUser || topic;
+      resolved = `${original}\n(Use the decision already stated in this conversation: "${String(stated).slice(0, 200)}". Do not invent a new one.)`;
+      confidence = 0.7;
+    } else {
+      ambiguous = true;
+      confidence = 0.35;
+      resolved = `${original}\n(No decision is stored for this conversation. Ask which decision they mean.)`;
+    }
+  } else if (looksLikeNextStepAsk(original) && sessionRef.kind === "none") {
+    const cue = boundTaskCue();
+    references.push("next-step");
+    if (cue || topic) {
+      resolved = `Continue only the unfinished step. ${cue || `Current topic: ${String(topic).slice(0, 200)}`}. ${original}`;
+      confidence = cue ? 0.84 : 0.62;
+    } else {
+      ambiguous = true;
+      confidence = 0.35;
+      resolved = `${original}\n(No unfinished step is stored. Ask which task they mean.)`;
+    }
+  } else if (original && REF.test(original) && topic && sessionRef.kind === "none") {
     const target = decision?.selected || session.userGoal || topic;
     references.push("anaphora");
     resolved = `${original}\n(Context: previous request was "${target.slice(0, 240)}")`;
@@ -154,7 +216,7 @@ export function resolveContext(text: string, history: ChatTurn[] = []): Resolved
   }
   if (WHAT_ABOUT.test(original) && topic) {
     references.push("topic-shift");
-    topicShift(topic, original);
+    if (observe) topicShift(topic, original);
     resolved = `${original}\n(Context: previous request was "${topic.slice(0, 240)}")`;
   }
   if (SAME_FOR.test(original) && topic) {
@@ -168,7 +230,7 @@ export function resolveContext(text: string, history: ChatTurn[] = []): Resolved
     const index = key === "last" ? items.length : (ORDINAL_INDEX[key] ?? -1) + 1;
     const picked = index > 0 ? items.find((item) => item.index === index) : undefined;
     if (picked) {
-      selectPresentedOption(picked.index);
+      if (observe) selectPresentedOption(picked.index);
       references.push("ordinal");
       resolved = `${original}\n(Context: that item is "${picked.text.slice(0, 240)}")`;
       confidence = 0.9;
@@ -193,10 +255,10 @@ export function resolveContext(text: string, history: ChatTurn[] = []): Resolved
   }
 
   const goal = session.userGoal || (decision ? `carry out ${decision.selected}` : topic);
-  if (goal && original.length > 12 && !session.userGoal) {
+  if (observe && goal && original.length > 12 && !session.userGoal) {
     noteUserGoal(goal);
   }
-  setInterpretationConfidence(ambiguous ? Math.min(confidence, 0.45) : confidence);
+  if (observe) setInterpretationConfidence(ambiguous ? Math.min(confidence, 0.45) : confidence);
 
   const result: ResolvedContext = {
     original,
