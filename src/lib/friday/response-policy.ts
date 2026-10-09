@@ -1,5 +1,6 @@
 import { readFeeling, type Feeling } from "./brain/affect";
 import { styleFor, type StyleContext } from "./character-bible";
+import { guardBoilerplate } from "./conversation-style";
 import { pickPhrase } from "./phrase-bank";
 
 export type TalkLevel = "reserved" | "balanced" | "chatty";
@@ -66,6 +67,20 @@ export function shapeReply(input: {
     .replace(HUMAN, "")
     .replace(DIAGNOSIS, "")
     .trim();
+  const guarded = guardBoilerplate(body);
+  if (body && !guarded) {
+    body = register === "hi" ? "ठीक है।" : register === "hinglish" ? "Theek hai." : "Okay.";
+  } else {
+    body = guarded;
+  }
+  const mistake = /\b(that(?:'s| is) wrong|you(?:'re| are) wrong|galat hai|galat tha)\b/i.test(
+    input.prompt,
+  );
+  if (mistake && feeling.label !== "distress") {
+    const own =
+      register === "hi" ? "गलत था।" : register === "hinglish" ? "Galat tha." : "That was wrong.";
+    if (!/wrong|गलत|galat/i.test(body)) body = `${own} ${body}`.trim();
+  }
   if (feeling.label === "distress") {
     const help = pickPhrase({
       lang: register === "en" ? "en" : "hinglish",

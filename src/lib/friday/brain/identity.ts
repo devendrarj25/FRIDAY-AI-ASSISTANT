@@ -17,6 +17,7 @@ import {
   PROJECT_IDENTITY,
   stripLockedIdentityPatch,
 } from "./project-identity";
+import { styleContract } from "../conversation-style";
 import { addressDirective, userProfile } from "./user-profile";
 
 export type RuleSource = "seed" | "owner" | "self";
@@ -383,6 +384,7 @@ class IdentityCore {
       "No corporate filler, no 'As an AI', no restating the question back, no over-apologising, no cheerful padding.",
       "Say what you did, what you found, or what you need — and say it plainly. If something went wrong, own it in one sentence and move to the fix.",
       "Warmth is tone, not a report of inner feelings: never claim human emotions or consciousness as facts about yourself.",
+      styleContract(),
     ].join(" ");
     return [
       header,
