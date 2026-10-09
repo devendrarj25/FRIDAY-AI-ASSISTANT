@@ -19,6 +19,7 @@
 const { app, protocol, net } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const { navigationAllowed } = require("./navigation-policy.cjs");
 
 const SCHEME = "friday";
 const ORIGIN = `${SCHEME}://app`;
@@ -141,6 +142,15 @@ function registerHandler(log = () => {}) {
  * @returns {{mode:string, target:string}} what was loaded, for diagnostics.
  */
 function load(win, { devUrl = null, log = () => {}, onFailure = () => {}, route = null } = {}) {
+  const contents = win && win.webContents;
+  if (contents && !contents.__fridayNavGuard) {
+    contents.__fridayNavGuard = true;
+    contents.on("will-navigate", (event, url) => {
+      if (navigationAllowed(url, devUrl || process.env.FRIDAY_DEV_URL || "")) return;
+      event.preventDefault();
+      log(`blocked navigation: ${url}`);
+    });
+  }
   const appPath = app.getAppPath();
   const index = rendererIndex();
   const exists = rendererExists();

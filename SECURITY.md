@@ -31,9 +31,18 @@ exploit are outside this policy.
 ## What the app keeps closed
 
 The renderer does not spawn arbitrary processes. `electron/preload.cjs`
-exposes an allowlisted `window.friday` bridge. Chat and tools go through the
+exposes an allowlisted `window.friday` bridge. Every channel that bridge
+calls has a handler in the main process. Chat and tools go through the
 main process. Exec-tier kernel tools (`kernel/tools.py`) wait for desktop
 approval. `config/kernel.yaml` sets `automation.auto_approve_exec: false`.
+
+Each FRIDAY window sets `contextIsolation`, turns `nodeIntegration` off, and
+sets `sandbox`. `no-sandbox` is only the boot self-test switch. The window
+may navigate to `friday://app` or the dev-server origin
+(`electron/navigation-policy.cjs`). A new window is denied and opened
+outside the app. The session grants `media` and denies every other
+permission. A Content-Security-Policy header is not set on the packaged
+page yet.
 
 The privacy firewall (`electron/privacy-firewall.cjs`) hard-stops SENSITIVE
 data: secrets, keys, and identity or financial numbers. Other content may use

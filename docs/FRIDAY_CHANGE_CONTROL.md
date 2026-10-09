@@ -161,6 +161,7 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode stays. A missing tool fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set. A workstation may skip with a loud line. The ceiling may only shrink. |
 | [React hooks eslint](https://react.dev/reference/eslint-plugin-react-hooks) | ADOPT | The five compiler rules and `exhaustive-deps` are errors. State is derived or adjusted when an input changes. An effect subscribes. A ref is not read while rendering. |
 | [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) and [pip-audit](https://pypi.org/project/pip-audit/) | ADOPT | High, critical, and unknown severity fail unless `config/advisory-allow.json` lists the id and the expiry is still ahead of the injected clock. Moderate and low warn. |
+| [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) | ADAPT | Every window sandboxes the page, Node stays off, and navigation stays on `friday://app` or the dev origin. A Content-Security-Policy header is not set on the packaged page in this change. |
 
 ## Definition of done
 
