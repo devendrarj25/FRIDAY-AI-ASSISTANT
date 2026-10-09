@@ -317,6 +317,8 @@ export type Message = {
   runId?: string;
   /** Where the turn came from when it was not typed on this desktop. */
   via?: "phone";
+  /** Chat and voice share this thread. The tag does not open a second store. */
+  source?: "voice" | "chat";
   /** Which model actually answered, from the router trace. */
   answeredBy?: AnsweredBy;
 };
@@ -1498,7 +1500,11 @@ class BrainStore {
     const history = this.state.messages.map((m) => ({ role: m.role, text: m.text }));
     const tContext = Date.now();
     affect.observePrompt(text);
-    const understanding = understandTurn({ text, history });
+    const understanding = understandTurn({
+      text,
+      history,
+      endpoint: surface === "voice" ? "voice" : "chat",
+    });
     const ctx = understanding.context;
     const contextMs = Date.now() - tContext;
     const work = ctx.resolved;
@@ -1599,7 +1605,7 @@ class BrainStore {
     } else {
       this.state.messages = [
         ...this.state.messages,
-        { id: nextId("msg"), role: "user", text, at: Date.now(), runId },
+        { id: nextId("msg"), role: "user", text, at: Date.now(), runId, source: surface },
       ];
     }
     this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);

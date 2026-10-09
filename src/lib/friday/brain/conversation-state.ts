@@ -98,6 +98,8 @@ export type ConversationSession = {
   /** Bound task-graph id for this talk — not a second task store. */
   activeGraphId: string;
   lastMeaningfulChange: number;
+  /** Last surface that wrote this talk. Chat and voice share the same id. */
+  lastEndpoint: "chat" | "voice" | "system";
 };
 
 const EPHEMERAL_MS = 30 * 60 * 1000;
@@ -122,6 +124,7 @@ type CompactSnap = {
   corrections?: string[];
   commitments?: string[];
   previousTopics?: string[];
+  endpoint?: "chat" | "voice" | "system";
   correctionStreak?: number;
   decision?: { summary: string; selected: string; rejected: string[] };
   options?: PresentedOption[];
@@ -175,6 +178,7 @@ function emptySession(): ConversationSession {
     styleCue: null,
     activeGraphId: "",
     lastMeaningfulChange: Date.now(),
+    lastEndpoint: "chat",
   };
 }
 
@@ -627,6 +631,7 @@ function conversationSnap(live: boolean): CompactSnap {
     commitments: session.commitments.slice(-8),
     previousTopics: session.previousTopics.slice(-8),
     correctionStreak: session.correctionStreak,
+    endpoint: session.lastEndpoint,
     ...(decided
       ? {
           decision: {
@@ -681,6 +686,7 @@ export function applyLiveConversationSnapshot(snap: CompactSnap | null | undefin
   if (snap.commitments?.length) session.commitments = snap.commitments.slice(-8);
   if (snap.previousTopics?.length) session.previousTopics = snap.previousTopics.slice(-8);
   if (typeof snap.correctionStreak === "number") session.correctionStreak = snap.correctionStreak;
+  if (snap.endpoint) session.lastEndpoint = snap.endpoint;
   if (snap.options?.length) session.presentedOptions = snap.options.slice(-8);
   if (snap.decision?.selected) {
     session.decisions = [
@@ -787,6 +793,7 @@ export function noteUserTurn(
   hydrateLiveConversation();
   const continuity = continuityKey(endpoint, session.id);
   if (!continuity.ok) return session;
+  session.lastEndpoint = endpoint;
   const value = String(text || "").trim();
   if (!value) return session;
   decayConversationState();

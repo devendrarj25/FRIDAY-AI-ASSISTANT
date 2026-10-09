@@ -434,6 +434,8 @@ export function understandTurn(input: {
   history?: ChatTurn[];
   /** False when this turn was already observed. The same understanding is reused. */
   observe?: boolean;
+  /** Chat and voice write the same session. The tag is only the surface. */
+  endpoint?: "chat" | "voice" | "system";
 }): TurnUnderstanding {
   turnMark("intent", "understandTurn");
   const literal = String(input.text || "").trim();
@@ -452,11 +454,17 @@ export function understandTurn(input: {
 }
 
 function understandTurnBody(
-  input: { text: string; history?: ChatTurn[]; observe?: boolean },
+  input: {
+    text: string;
+    history?: ChatTurn[];
+    observe?: boolean;
+    endpoint?: "chat" | "voice" | "system";
+  },
   literal: string,
 ): TurnUnderstanding {
   const context = resolveContext(literal, input.history ?? [], {
     observe: input.observe !== false,
+    ...(input.endpoint ? { endpoint: input.endpoint } : {}),
   });
   const conversationResolved = context.resolved || literal;
   const resolvedIntent = understand(conversationResolved);
