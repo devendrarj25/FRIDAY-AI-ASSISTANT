@@ -1,7 +1,8 @@
 # FRIDAY — Pull Request Validation
 #
 # The single validation workflow. It runs on pull requests targeting main and
-# on manual dispatch. One run covers what used to be split across CI Fast and
+# on manual dispatch, and when Official Publish calls it for one pinned
+# commit. One run covers what used to be split across CI Fast and
 # the pull-request Security Scan: typecheck, docs and version sync, layout and
 # architecture audits, kernel tests, the full Vitest suite, a warn-only
 # "code changed without a test" note, secret scan, CodeQL, and the dependency
@@ -36,14 +37,31 @@ on:
         description: "Exact commit to validate (defaults to the tip of the dispatched ref)"
         type: string
         default: ""
+  workflow_call:
+    inputs:
+      sha:
+        description: "Exact commit Official Publish is validating"
+        type: string
+        required: true
+      head_ref:
+        description: "Branch name for a docs heal. Official Publish passes release/vX."
+        type: string
+        required: false
+        default: ""
+      caller:
+        description: "Must be official-publish"
+        type: string
+        required: true
 
 # One validation run per branch/PR head, so repeated pushes to an open PR
 # supersede the previous run instead of validating twice. The event is part of
 # the group on purpose: a manual validation requested for an exact release
 # commit must never be cancelled by (or cancel) the PR-triggered run, otherwise
 # the release orchestrator waits forever for evidence that was thrown away.
+# Official Publish appends its caller and the pinned sha so that call does not
+# share the manual group for main.
 concurrency:
-  group: friday-pr-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: friday-pr-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ inputs.caller || 'direct' }}-${{ inputs.caller == 'official-publish' && inputs.sha || 'head' }}
   cancel-in-progress: true
 
 # Read-only by design: this workflow cannot tag, release, commit or push. The
@@ -77,6 +95,23 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
     steps:
+      - name: Refuse a call that is not Official Publish
+        if: inputs.caller == 'official-publish' || github.event_name == 'workflow_call'
+        shell: bash
+        run: |
+          [ '${{ inputs.caller }}' = 'official-publish' ] || {
+            echo "::error::PR Validation is called only by Official Publish."
+            exit 1
+          }
+          [ -n '${{ inputs.sha }}' ] || {
+            echo "::error::Official Publish must name the exact commit to validate."
+            exit 1
+          }
+          [ '${{ github.ref_name }}' = 'main' ] || {
+            echo "::error::Official Publish calls PR Validation from main only."
+            exit 1
+          }
+
       # The classifier is read from the BASE commit (trusted `main`), never from the
       # pull request, so a change cannot rewrite the rule that decides how much of it
       # gets validated. The very first PR that adds the script has no base copy and
@@ -136,7 +171,7 @@ jobs:
         shell: bash
         env:
           # Branch names are attacker-influenced text: never splice them into a script.
-          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.ref || github.ref_name }}
         run: |
           branch="$HEAD_REF"
           sha=$(git rev-parse HEAD)
@@ -180,7 +215,7 @@ jobs:
         id: heal
         shell: bash
         env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.ref || github.ref_name }}
         run: |
           set -euo pipefail
           if node scripts/release-engine.cjs heal --check; then
@@ -470,6 +505,8 @@ jobs:
     steps:
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Analyse
         shell: bash
@@ -486,6 +523,8 @@ jobs:
     steps:
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node

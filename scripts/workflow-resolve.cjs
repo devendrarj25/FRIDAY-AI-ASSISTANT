@@ -178,6 +178,11 @@ function checkDocument(root, label, raw, doc, problems) {
     let rel = null;
     const local = spec.match(/^\.\/(\.github\/actions\/[^\s@]+)/);
     const owned = spec.match(/devendrarj25\/FRIDAY-AI-ASSISTANT\/(\.github\/actions\/[^\s@]+)/);
+    const reusable = spec.match(/^\.\/(\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml)$/);
+    if (reusable) {
+      if (!fileExists(root, reusable[1])) problems.push(`${label} missing workflow ${reusable[1]}`);
+      continue;
+    }
     if (local) rel = local[1];
     else if (owned) rel = owned[1];
     else if (spec.startsWith("docker://")) {
@@ -230,7 +235,13 @@ function resolveRun(root, runText) {
   return problems;
 }
 
-module.exports = { resolveRoot, resolveRun, commandPaths, npmScripts };
+function resolveUse(root, spec) {
+  const problems = [];
+  checkDocument(root, "fixture", "", { jobs: { t: { uses: spec } } }, problems);
+  return problems;
+}
+
+module.exports = { resolveRoot, resolveRun, resolveUse, commandPaths, npmScripts };
 
 if (require.main === module) {
   const problems = resolveRoot(path.resolve(__dirname, ".."));

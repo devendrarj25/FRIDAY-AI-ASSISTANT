@@ -32,6 +32,28 @@ on:
         description: "Type MERGE to allow this run to merge"
         type: string
         required: true
+  workflow_call:
+    inputs:
+      caller:
+        description: "Must be official-publish"
+        type: string
+        required: true
+      scope:
+        description: "auto, selected, or release"
+        type: string
+        required: true
+      pr_numbers:
+        description: "Pull request numbers for scope = selected"
+        type: string
+        required: true
+      delete_branch:
+        description: "Delete the merged work branch afterwards (true or false)"
+        type: string
+        required: true
+      confirm:
+        description: "Type MERGE to allow this run to merge"
+        type: string
+        required: true
 
 concurrency: friday-safe-merge
 permissions:
@@ -59,6 +81,22 @@ jobs:
             echo "::error::type MERGE in the confirm field to allow this run."
             exit 1
           }
+          # Official Publish calls this workflow in the same run. Any other
+          # caller is refused. A manual dispatch leaves caller empty.
+          caller='${{ inputs.caller }}'
+          event='${{ github.event_name }}'
+          if [ "$caller" = "official-publish" ]; then
+            [ '${{ github.ref_name }}' = 'main' ] || {
+              echo "::error::Official Publish calls Safe Merge from main only."
+              exit 1
+            }
+          elif [ -n "$caller" ] || [ "$event" = "workflow_call" ]; then
+            echo "::error::Safe Merge is manual only, or one call from Official Publish."
+            exit 1
+          elif [ "$event" != "workflow_dispatch" ]; then
+            echo "::error::Safe Merge is manual only (workflow_dispatch)."
+            exit 1
+          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main

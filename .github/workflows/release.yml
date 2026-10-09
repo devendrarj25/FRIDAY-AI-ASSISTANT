@@ -2,9 +2,11 @@
 #
 # The ONLY thing in this repository that may create a version, a tag, an EXE or
 # a GitHub Release. Normal commits and pushes build nothing: this workflow runs
-# on workflow_dispatch only, either from the Actions tab or from FRIDAY herself
+# on workflow_dispatch, either from the Actions tab or from FRIDAY herself
 # (Settings → Updates → Build & Release triggers this same workflow through the
-# GitHub API — there is no second release system).
+# GitHub API — there is no second release system), or on workflow_call from
+# Official Publish in that same run. A nested workflow_dispatch is not used:
+# its actor is github-actions[bot], which workflow execution protections refuse.
 #
 # main is PR-only and protected: this workflow NEVER pushes to main. The
 # release happens in two manual stages of this one workflow.
@@ -70,11 +72,34 @@ on:
         description: "Release notes override (optional — replaces the generated notes)"
         type: string
         default: ""
-
-# Never let two releases race for the same version.
-concurrency:
-  group: friday-release
-  cancel-in-progress: false
+  workflow_call:
+    inputs:
+      stage:
+        description: "prepare or publish"
+        type: string
+        required: true
+      mode:
+        description: "auto, rebuild, or update"
+        type: string
+        required: true
+      release_type:
+        description: "auto, patch, minor, major, extreme, or revision"
+        type: string
+        required: true
+      title:
+        description: "Release title (optional)"
+        type: string
+        required: false
+        default: ""
+      notes:
+        description: "Release notes override (optional)"
+        type: string
+        required: false
+        default: ""
+      caller:
+        description: "Must be official-publish"
+        type: string
+        required: true
 
 permissions:
   contents: write # release branch, tags, releases (never a push to main)
@@ -85,6 +110,13 @@ jobs:
   # ---------------------------------------------------------------- stage 1 --
   prepare:
     if: inputs.stage == 'prepare'
+    # One group for both stages, on the job rather than the workflow. A
+    # workflow-level group stays held until the caller run ends, so the later
+    # publish call in Official Publish would wait on itself. A manual Release /
+    # Build still waits on this same group.
+    concurrency:
+      group: friday-release
+      cancel-in-progress: false
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -98,10 +130,20 @@ jobs:
             echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
             exit 1
           }
-          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+          # github.event_name inside workflow_call is the caller's event.
+          # Official Publish is workflow_dispatch on main and passes this caller.
+          # A real workflow_call event is accepted only for that same caller.
+          caller='${{ inputs.caller }}'
+          event='${{ github.event_name }}'
+          if [ "$caller" = "official-publish" ]; then
+            :
+          elif [ -n "$caller" ] || [ "$event" = "workflow_call" ]; then
+            echo "::error::Only Official Publish may call Release / Build."
+            exit 1
+          elif [ "$event" != "workflow_dispatch" ]; then
             echo "::error::Releases are manual only (workflow_dispatch)."
             exit 1
-          }
+          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
@@ -539,6 +581,9 @@ jobs:
   # ---------------------------------------------------------------- stage 2 --
   publish:
     if: inputs.stage == 'publish'
+    concurrency:
+      group: friday-release
+      cancel-in-progress: false
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -555,10 +600,20 @@ jobs:
             echo "::error::Official releases run from main only (this run: ${{ github.ref_name }})."
             exit 1
           }
-          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+          # github.event_name inside workflow_call is the caller's event.
+          # Official Publish is workflow_dispatch on main and passes this caller.
+          # A real workflow_call event is accepted only for that same caller.
+          caller='${{ inputs.caller }}'
+          event='${{ github.event_name }}'
+          if [ "$caller" = "official-publish" ]; then
+            :
+          elif [ -n "$caller" ] || [ "$event" = "workflow_call" ]; then
+            echo "::error::Only Official Publish may call Release / Build."
+            exit 1
+          elif [ "$event" != "workflow_dispatch" ]; then
             echo "::error::Releases are manual only (workflow_dispatch)."
             exit 1
-          }
+          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main

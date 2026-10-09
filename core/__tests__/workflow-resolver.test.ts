@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require_ = createRequire(import.meta.url);
-const { resolveRoot, resolveRun } = require_(
+const { resolveRoot, resolveRun, resolveUse } = require_(
   path.resolve(__dirname, "../../scripts/workflow-resolve.cjs"),
 );
 
@@ -27,5 +27,13 @@ describe("workflow command resolver", () => {
   it("fails when a run command names an npm script that is not in package.json", () => {
     const problems = resolveRun(ROOT, "npm run not-a-real-script") as string[];
     expect(problems.some((line) => line.includes("not-a-real-script"))).toBe(true);
+  });
+
+  it("accepts a local reusable workflow and rejects a missing one", () => {
+    expect(resolveUse(ROOT, "./.github/workflows/release.yml")).toEqual([]);
+    const missing = resolveUse(ROOT, "./.github/workflows/does-not-exist.yml") as string[];
+    expect(missing.some((line) => line.includes("does-not-exist.yml"))).toBe(true);
+    const foreign = resolveUse(ROOT, "actions/checkout@v4") as string[];
+    expect(foreign.some((line) => line.includes("outside this repository"))).toBe(true);
   });
 });

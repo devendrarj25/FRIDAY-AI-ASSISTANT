@@ -2,24 +2,24 @@
 #
 # This workflow adds NO release behaviour of its own. It owns no versioning, no
 # changelog, no build, no tag, no merge and no cleanup. It only sequences the
-# existing, already proven surfaces safely and automatically:
+# existing workflows, in this same run:
 #
-#   Official Publish  (THE one-click entry point)
-#     -> validate main / workflow_dispatch
-#     -> read the real repository state (main version, release PRs, releases)
-#     -> scripts/orchestrator-engine.cjs decides the next safe step
-#     -> Release / Build (stage: prepare)     ... version + What's New + PR
-#        (including a confirm PR when main already declares an unpublished version)
-#     -> wait for PR Validation on the exact head commit
-#     -> Safe Merge (scope: selected, confirm: MERGE)  - merge-proof never skipped
-#     -> verify merged main (version + merge commit ancestry)
-#     -> Release / Build (stage: publish)     ... build, verify, tag, release
-#        (windows-latest in release.yml runs the same real scripts as
-#        scripts/build-windows.cmd: check-engines, setup-python, init-runtime,
-#        check-environment, env-registry, verify-boot, readiness-test, and the
-#        rest. This ubuntu-latest orchestrator does not run those scripts.)
-#     -> verify the published release and its assets
-#     -> final summary
+#   plan on main
+#   Release / Build prepare stage, when the plan says prepare
+#   pin the release pull request
+#   reuse or wait for PR Validation, or call that workflow in this run
+#   Safe Merge for that pull request
+#   verify origin/main
+#   Release / Build publish stage (also a direct publish or a rebuild)
+#   confirm the assets
+#
+# A nested dispatch is not used. That new run's actor is github-actions[bot],
+# and workflow execution protections refuse that actor before any job exists.
+# workflow_call keeps the person who clicked Run.
+#
+# The default token below is read-only. A job that calls another workflow
+# raises the token only to what that workflow already declares. Orchestrator
+# jobs stay read-only: they do not push, merge, tag, or release.
 #
 # Anything unknown, ambiguous, failing or still running stops the run. Nothing
 # is merged, built, tagged or published on stale or unverified information.
@@ -53,22 +53,31 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read # this workflow writes nothing itself
+  contents: read
   pull-requests: read
-  actions: write # it may only START the existing release/merge workflows
+  actions: read
   checks: read
   statuses: read
 
 jobs:
-  orchestrate:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      step: ${{ steps.plan.outputs.step }}
+      version: ${{ steps.plan.outputs.version }}
+      pr: ${{ steps.plan.outputs.pr }}
+      publish_mode: ${{ steps.plan.outputs.publish_mode }}
     env:
       GH_TOKEN: ${{ github.token }}
       MODE: ${{ inputs.mode }}
       RELEASE_TYPE: ${{ inputs.release_type }}
-      TITLE: ${{ inputs.title }}
-      NOTES: ${{ inputs.notes }}
 
     steps:
       - name: Refuse anything but a manual run on main
@@ -92,12 +101,6 @@ jobs:
 
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
-
-      - name: Install the shared workflow helper
-        shell: bash
-        run: |
-          install -m 0755 scripts/ci-workflow-run.sh /usr/local/bin/ci-workflow-run
-          ci-workflow-run --help >/dev/null
 
       - name: Read the real repository state
         id: state
@@ -144,9 +147,12 @@ jobs:
           if [ "$(jq -r '.step' plan.json)" = "publish" ]; then
             echo "resuming: main already carries unpublished v$(jq -r '.version' plan.json) - skipping prepare/merge"
           fi
+          if [ "$(jq -r '.step' plan.json)" = "rebuild" ]; then
+            echo "rebuild: republishing v$(jq -r '.version' plan.json) without a version change"
+          fi
 
-      # An unsafe or ambiguous state must stop the run here. Without this the
-      # unconditional publish step below would still run for step = error.
+      # An unsafe or ambiguous state must stop the run here. Without this a
+      # later publish job could still run for step = error.
       - name: Stop on an unsafe or ambiguous release state
         if: steps.plan.outputs.step == 'error'
         shell: bash
@@ -156,30 +162,65 @@ jobs:
           node -e "process.stdout.write(require('./scripts/release-engine.cjs').releaseOperatorGuide({version: process.argv[1]}))" '${{ steps.state.outputs.current }}'
           exit 1
 
-      # -------------------------------------------------------- prepare ------
-      - name: Prepare the official release
-        if: steps.plan.outputs.step == 'prepare'
+      - name: Stop on an unknown orchestration step
+        if: steps.plan.outputs.step != 'prepare' && steps.plan.outputs.step != 'merge' && steps.plan.outputs.step != 'publish' && steps.plan.outputs.step != 'rebuild' && steps.plan.outputs.step != 'error'
         shell: bash
         run: |
-          set -euo pipefail
-          ci-workflow-run release.yml \
-            -f stage=prepare \
-            -f mode="$MODE" \
-            -f release_type="$RELEASE_TYPE" \
-            -f title="$TITLE" \
-            -f notes="$NOTES"
+          echo "::error::unknown orchestration step: ${{ steps.plan.outputs.step }}"
+          exit 1
+
+  prepare-release:
+    needs: plan
+    if: needs.plan.result == 'success' && needs.plan.outputs.step == 'prepare'
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      stage: prepare
+      mode: ${{ inputs.mode }}
+      release_type: ${{ inputs.release_type }}
+      title: ${{ inputs.title }}
+      notes: ${{ inputs.notes }}
+      caller: official-publish
+    secrets: inherit
+
+  pin:
+    needs: [plan, prepare-release]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') &&
+      (needs.plan.outputs.step == 'prepare' || needs.plan.outputs.step == 'merge')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      pr: ${{ steps.prepared.outputs.pr }}
+      version: ${{ steps.prepared.outputs.version }}
+      head: ${{ steps.prepared.outputs.head }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
 
       - name: Pin the prepared release Pull Request
         id: prepared
-        # Pin after prepare or when a release PR is already open. An empty
-        # expected version is allowed only when exactly one open release PR
-        # exists (pin-pr fails closed otherwise). Never skip pin-pr in order
-        # to publish without a release/v* PR - that would bypass the merge-proof.
-        if: steps.plan.outputs.step == 'prepare' || steps.plan.outputs.step == 'merge'
         shell: bash
-        # The rest of the run is locked to THIS pull request and THIS head
-        # commit. Nothing is chosen again later, so a pull request opened while
-        # the release is publishing can never be merged or published by mistake.
         run: |
           set -euo pipefail
           gh pr list --state open --base main --limit 60 \
@@ -190,7 +231,7 @@ jobs:
                         version: (.headRefName | sub("^release/v";"")) } ]' > open.json
           set +e
           node scripts/orchestrator-engine.cjs pin-pr \
-            --expect '${{ steps.plan.outputs.version }}' \
+            --expect '${{ needs.plan.outputs.version }}' \
             --open open.json > pinned.json
           code=$?
           set -e
@@ -205,19 +246,70 @@ jobs:
             echo "head=$(jq -r '.headSha' pinned.json)"
           } >> "$GITHUB_OUTPUT"
 
-      # ------------------------------------------------- validate + merge ----
-      - name: Wait for the required checks on the pinned commit
-        if: steps.prepared.outputs.pr != ''
+  evidence:
+    needs: [plan, pin]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      action: ${{ steps.decision.outputs.action }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      PINNED: ${{ needs.pin.outputs.head }}
+      VERSION: ${{ needs.pin.outputs.version }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Wait for the required checks
+        id: decision
         shell: bash
         run: |
           set -euo pipefail
-          pr='${{ steps.prepared.outputs.pr }}'
-          pinned='${{ steps.prepared.outputs.head }}'
-          branch="release/v${{ steps.prepared.outputs.version }}"
-          requested=false
+          pr="$PR_NUMBER"
+          pinned="$PINNED"
+          gh pr view "$pr" --json headRefOid,state > head.json
+          head=$(jq -r '.headRefOid' head.json)
+          node scripts/orchestrator-engine.cjs verify-head \
+            --number "$pr" --pinned "$pinned" --current "$head" \
+            --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
+            || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
+          node scripts/validation-freshness.cjs --sha "$pinned" > decision.json
+          action=$(node -e "process.stdout.write(require('./decision.json').action)")
+          echo "validation evidence: $(node -e "process.stdout.write(require('./decision.json').reason)")"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          if [ "$action" = "run" ]; then
+            echo "PR Validation will run in this Official Publish run for $pinned"
+            exit 0
+          fi
+          if [ "$action" = "reuse" ]; then
+            echo "fresh green PR Validation on $pinned; not starting another run"
+          elif [ "$action" = "wait" ]; then
+            echo "PR Validation is already running; waiting for it"
+          else
+            echo "::error::unknown validation evidence action: $action"
+            exit 1
+          fi
           # Windows validate is allowed 90 minutes, and the runner may also queue.
-          # 40 waits of 180s cover 120 minutes. The 360-minute job budget still
-          # fits prepare, Safe Merge and the 90-minute publish job after this.
+          # 40 waits of 180s cover 120 minutes. This job only waits. The Windows
+          # job, Safe Merge, and publish have their own budgets.
           for attempt in $(seq 1 40); do
             gh pr view "$pr" --json headRefOid,state > head.json
             head=$(jq -r '.headRefOid' head.json)
@@ -225,34 +317,6 @@ jobs:
               --number "$pr" --pinned "$pinned" --current "$head" \
               --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
               || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
-            # A pull request opened by a workflow token never starts
-            # PR Validation by itself (GitHub does not raise workflow events for
-            # workflow-token pushes). Request that same validation for the EXACT
-            # pinned commit when this commit does not already have a fresh green
-            # result. A success from the last 7 days is reused. A run that is
-            # already pending is waited on, not started again.
-            if [ "$requested" = "false" ]; then
-              node scripts/validation-freshness.cjs --sha "$pinned" > decision.json
-              action=$(node -e "process.stdout.write(require('./decision.json').action)")
-              echo "validation evidence: $(node -e "process.stdout.write(require('./decision.json').reason)")"
-              requested=true
-              if [ "$action" = "reuse" ]; then
-                echo "fresh green PR Validation on $pinned; not starting another run"
-              elif [ "$action" = "wait" ]; then
-                echo "PR Validation is already running; waiting for it"
-              else
-                gh workflow run pr-validation.yml --ref "$branch" -f sha="$pinned" || {
-                  echo "::error::could not start PR Validation on $branch for $pinned."
-                  exit 1
-                }
-                echo "requested PR Validation on $branch for $pinned"
-                sleep 15
-              fi
-            fi
-            # Real per-commit evidence: only these APIs report head_sha, so only
-            # these can prove PR Validation ran on the commit being merged.
-            # --paginate emits one array per page, so the pages are concatenated
-            # instead of silently keeping only the first one.
             gh api "repos/${{ github.repository }}/commits/$pinned/check-runs" --paginate \
               --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
               | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json
@@ -281,25 +345,159 @@ jobs:
           cat rollup.json
           exit 1
 
-      - name: Merge the pinned release Pull Request through Safe Merge
-        if: steps.prepared.outputs.pr != ''
+  validate:
+    needs: [plan, pin, evidence]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.evidence.result == 'success' &&
+      needs.evidence.outputs.action == 'run'
+    permissions:
+      contents: write
+      statuses: write
+      pull-requests: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      sha: ${{ needs.pin.outputs.head }}
+      head_ref: release/v${{ needs.pin.outputs.version }}
+      caller: official-publish
+
+  confirm-checks:
+    needs: [plan, pin, evidence, validate]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.evidence.result == 'success' &&
+      (needs.validate.result == 'success' || needs.validate.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      PINNED: ${{ needs.pin.outputs.head }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Confirm PR Validation on the pinned commit
         shell: bash
         run: |
           set -euo pipefail
-          ci-workflow-run safe-merge.yml \
-            -f scope=selected \
-            -f pr_numbers='${{ steps.prepared.outputs.pr }}' \
-            -f delete_branch=true \
-            -f confirm=MERGE
+          pr="$PR_NUMBER"
+          pinned="$PINNED"
+          for attempt in $(seq 1 8); do
+            gh pr view "$pr" --json headRefOid,state > head.json
+            head=$(jq -r '.headRefOid' head.json)
+            node scripts/orchestrator-engine.cjs verify-head \
+              --number "$pr" --pinned "$pinned" --current "$head" \
+              --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
+              || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
+            gh api "repos/${{ github.repository }}/commits/$pinned/check-runs" --paginate \
+              --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
+              | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json
+            gh api "repos/${{ github.repository }}/commits/$pinned/status" \
+              --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+              > statuses.json 2>/dev/null || echo '[]' > statuses.json
+            jq -s --arg sha "$pinned" '(.[0] + (.[1] | map(. + {head_sha: $sha})))' \
+              runs.json statuses.json > rollup.json
+            set +e
+            node scripts/orchestrator-engine.cjs checks \
+              --head "$pinned" --checks rollup.json --required 'PR Validation' > verdict.json
+            code=$?
+            set -e
+            reason=$(jq -r '.reason' verdict.json)
+            [ "$code" = "0" ] && { echo "checks ready: $reason"; exit 0; }
+            if [ "$code" = "2" ]; then
+              echo "::error::$reason"
+              jq -r '.diagnostic // ""' verdict.json
+              exit 1
+            fi
+            echo "waiting for the status to land (attempt $attempt): $reason"
+            sleep 15
+          done
+          echo "::error::PR Validation did not report on $pinned."
+          cat rollup.json
+          exit 1
+
+  # Merge the pinned release Pull Request through Safe Merge
+  merge:
+    needs: [plan, pin, confirm-checks]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.confirm-checks.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+      actions: read
+    uses: ./.github/workflows/safe-merge.yml
+    with:
+      scope: selected
+      pr_numbers: ${{ needs.pin.outputs.pr }}
+      delete_branch: ${{ 'true' }}
+      confirm: MERGE
+      caller: official-publish
+
+  verify-main:
+    needs: [plan, pin, merge]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.merge.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      version: ${{ steps.merged.outputs.version }}
+      sha: ${{ steps.merged.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      VERSION: ${{ needs.pin.outputs.version }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
 
       - name: Verify the merged main state
         id: merged
-        if: steps.prepared.outputs.pr != ''
         shell: bash
         run: |
           set -euo pipefail
-          pr='${{ steps.prepared.outputs.pr }}'
-          version='${{ steps.prepared.outputs.version }}'
+          pr="$PR_NUMBER"
+          version="$VERSION"
           git fetch origin main --quiet
           state=$(gh pr view "$pr" --json state,mergedAt \
             | jq -r 'if .mergedAt != null then "merged" else (.state|ascii_downcase) end')
@@ -307,8 +505,7 @@ jobs:
           on_main=false
           if [ -n "$sha" ] && git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then on_main=true; fi
           # This job checked out main at start. Safe Merge advanced origin/main
-          # to 1.0.0.1 while the working tree stayed on the start-of-run commit
-          # (an earlier run compared 1.0.0.1 to stale 1.0.0.0).
+          # while the working tree stayed on the start-of-run commit.
           current=$(node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion)
           main_sha=$(git rev-parse origin/main)
           set +e
@@ -325,18 +522,56 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # -------------------------------------------------------- publish ------
-      - name: Publish the official release
-        shell: bash
-        run: |
-          set -euo pipefail
-          mode='${{ steps.plan.outputs.publish_mode }}'
-          ci-workflow-run release.yml \
-            -f stage=publish \
-            -f mode="$mode" \
-            -f release_type="$RELEASE_TYPE" \
-            -f title="$TITLE" \
-            -f notes="$NOTES"
+  publish-release:
+    needs: [plan, prepare-release, verify-main]
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') &&
+      (needs.verify-main.result == 'success' || needs.verify-main.result == 'skipped') &&
+      (
+        needs.verify-main.result == 'success' ||
+        needs.plan.outputs.step == 'publish' ||
+        needs.plan.outputs.step == 'rebuild'
+      )
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      stage: publish
+      mode: ${{ needs.plan.outputs.publish_mode }}
+      release_type: ${{ inputs.release_type }}
+      title: ${{ inputs.title }}
+      notes: ${{ inputs.notes }}
+      caller: official-publish
+    secrets: inherit
+
+  confirm:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      version: ${{ steps.published.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
 
       - name: Confirm the published release and its assets
         id: published
@@ -360,18 +595,57 @@ jobs:
           }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  summary:
+    needs: [plan, prepare-release, pin, evidence, validate, confirm-checks, merge, verify-main, publish-release, confirm]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    steps:
       - name: Final summary
-        if: always()
         shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_STEP: ${{ needs.plan.outputs.step }}
+          PREPARE_RESULT: ${{ needs.prepare-release.result }}
+          PIN_RESULT: ${{ needs.pin.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          CHECKS_RESULT: ${{ needs.confirm-checks.result }}
+          MERGE_RESULT: ${{ needs.merge.result }}
+          VERIFY_RESULT: ${{ needs.verify-main.result }}
+          PUBLISH_RESULT: ${{ needs.publish-release.result }}
+          CONFIRM_RESULT: ${{ needs.confirm.result }}
+          PREPARED_PR: ${{ needs.pin.outputs.pr }}
+          MERGED_VERSION: ${{ needs.verify-main.outputs.version }}
+          PUBLISHED_VERSION: ${{ needs.confirm.outputs.version }}
         run: |
+          set -euo pipefail
           {
             echo "## Official Publish"
             echo ""
             echo "| Step | Result |"
             echo "| --- | --- |"
-            echo "| planned step | ${{ steps.plan.outputs.step }} |"
-            echo "| release Pull Request | ${{ steps.prepared.outputs.pr || 'not required' }} |"
-            echo "| merged main | ${{ steps.merged.outputs.version || 'not required' }} |"
-            echo "| published version | ${{ steps.published.outputs.version || 'none' }} |"
-            echo "| outcome | ${{ job.status }} |"
+            echo "| planned step | ${PLAN_STEP:-none} |"
+            echo "| plan | $PLAN_RESULT |"
+            echo "| prepare | $PREPARE_RESULT |"
+            echo "| release Pull Request | ${PREPARED_PR:-not required} |"
+            echo "| pin | $PIN_RESULT |"
+            echo "| validation evidence | $EVIDENCE_RESULT |"
+            echo "| PR Validation | $VALIDATE_RESULT |"
+            echo "| checks | $CHECKS_RESULT |"
+            echo "| Safe Merge | $MERGE_RESULT |"
+            echo "| merged main | ${MERGED_VERSION:-$VERIFY_RESULT} |"
+            echo "| publish | $PUBLISH_RESULT |"
+            echo "| published version | ${PUBLISHED_VERSION:-none} |"
+            echo "| confirm | $CONFIRM_RESULT |"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PLAN_RESULT" = "success" ] && [ "$PUBLISH_RESULT" != "success" ]; then
+            echo "::error::Official Publish planned '$PLAN_STEP' but publish finished as $PUBLISH_RESULT."
+            exit 1
+          fi
