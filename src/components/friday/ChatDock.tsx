@@ -440,7 +440,10 @@ export function ChatDock() {
       routeMode: registry.routeMode,
       routingSurface: "chat",
     });
-    if (!sent.accepted) clearDiagramExplanation();
+    if (!sent.accepted) {
+      clearDiagramExplanation();
+      return;
+    }
 
     if (draftTimer.current) {
       clearTimeout(draftTimer.current);

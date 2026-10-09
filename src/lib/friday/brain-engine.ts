@@ -1481,7 +1481,7 @@ class BrainStore {
       routingSurface?: "voice" | "chat";
     } = {},
   ) {
-    const surface = this.autoMode ? "voice" : "chat";
+    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
     const budget = thinkBudget(surface);
     const traces = tracePlan(["understand", "evidence", "answer"], surface);
     withinBudget(0, surface);
@@ -1820,6 +1820,8 @@ class BrainStore {
     try {
       cognition = await coreBrain.cognize(text, {
         mode: this.autoMode ? "auto" : "manual",
+        surface: options.routingSurface || (this.autoMode ? "voice" : "chat"),
+        observe: false,
         multiModel: this.state.settings.multiModel,
         useKnowledge: this.state.settings.useKnowledge,
         useProjectMemory: this.state.settings.useProjectMemory,

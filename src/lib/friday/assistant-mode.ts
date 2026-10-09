@@ -39,6 +39,8 @@ import {
   endpointSilenceMs,
   foreignAssistant,
   holdInterrupted,
+  duplicateFinalUtterance,
+  nextSpokenCursor,
   isBoundConfirmation,
   isHoldSound,
   microphoneAllowed,
@@ -331,6 +333,11 @@ class AssistantModeStore {
   /** How much of the live answer has already been handed to speech. */
   private voicedRunId = "";
   private voicedChars = 0;
+  /** User lines already shown before the brain echoes them into captions. */
+  private pendingUserEcho = 0;
+  /** Last finalized transcript, so the same utterance is not run twice. */
+  private lastFinalText = "";
+  private lastFinalAt = 0;
   private chartOfferedFor = "";
   /** Hangover so echo STT that arrives after tts-end is still rejected. */
   private echoUntil = 0;
@@ -619,6 +626,15 @@ class AssistantModeStore {
   }
 
   /* ------------------------------------------------------------ captions */
+
+  /** The brain echo of a line already captioned from speech is not a second turn. */
+  private captionUserTurn(text: string) {
+    if (this.pendingUserEcho > 0) {
+      this.pendingUserEcho -= 1;
+      return;
+    }
+    this.caption("user", text);
+  }
 
   private caption(who: Caption["who"], text: string, partial = false) {
     const list = this.state.captions.slice();
@@ -1125,6 +1141,16 @@ class AssistantModeStore {
         }
       },
       onFinal: (text, meta) => {
+        const trimmed = text.trim();
+        if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
+          this.trace("dropped", "duplicate finalized utterance");
+          this.state.interim = "";
+          this.to("transcript");
+          this.emit();
+          return;
+        }
+        this.lastFinalText = trimmed;
+        this.lastFinalAt = Date.now();
         if (this.recentlySpeaking() && this.isSelfEcho(text)) {
           this.trace("dropped", "ignored FRIDAY's own voice (echo)");
           this.to("transcript");
@@ -1598,6 +1624,7 @@ class AssistantModeStore {
       ...(modelIds.length ? { modelIds } : {}),
       routingSurface: "voice" as const,
     };
+    this.pendingUserEcho += 1;
     let result = brain.send(command, payload);
     // A new spoken command is an interrupt: stop the in-flight turn, then start.
     if (!result.accepted && result.reason === "busy") {
@@ -1605,6 +1632,7 @@ class AssistantModeStore {
       result = brain.send(command, payload);
     }
     if (!result.accepted) {
+      this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
       this.reportFailure(
         result.message || "I couldn't start that request.",
         result.reason === "busy" ? "Still working on the last request" : "Nothing to run",
@@ -1639,8 +1667,8 @@ class AssistantModeStore {
   }
 
   /** Stop playback without touching the brain. A newer clip must not start. */
-  private dropPlayback() {
-    if (this.state.speaking || this.speechQueue.length) {
+  private dropPlayback(hold = true) {
+    if (hold && (this.state.speaking || this.speechQueue.length)) {
       const held = holdInterrupted([this.spokenText, ...this.speechQueue]);
       if (held) this.unfinished = held;
     }
@@ -1837,6 +1865,12 @@ class AssistantModeStore {
       this.voicedRunId = runId;
       this.voicedChars = 0;
     }
+    const rewind = nextSpokenCursor(this.voicedChars, text.length);
+    if (rewind.rewritten) {
+      this.unfinished = "";
+      this.dropPlayback(false);
+      this.voicedChars = 0;
+    }
     if (text.length < this.voicedChars) return;
     const pending = text.slice(this.voicedChars);
     const chunk = takeSpeakable(pending, final);
@@ -1933,7 +1967,7 @@ class AssistantModeStore {
       let consumed = 0;
       for (const message of pending) {
         if (message.role !== "user") break;
-        this.caption("user", message.text);
+        this.captionUserTurn(message.text);
         consumed += 1;
       }
       this.spokenUpTo += consumed;
@@ -1955,7 +1989,7 @@ class AssistantModeStore {
     const fresh = messages.slice(this.spokenUpTo);
     this.spokenUpTo = messages.length;
     for (const message of fresh) {
-      if (message.role === "user") this.caption("user", message.text);
+      if (message.role === "user") this.captionUserTurn(message.text);
     }
     const say = fresh
       .filter((m) => m.role !== "user")

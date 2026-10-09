@@ -162,6 +162,8 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [React hooks eslint](https://react.dev/reference/eslint-plugin-react-hooks) | ADOPT | The five compiler rules and `exhaustive-deps` are errors. State is derived or adjusted when an input changes. An effect subscribes. A ref is not read while rendering. |
 | [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) and [pip-audit](https://pypi.org/project/pip-audit/) | ADOPT | High, critical, and unknown severity fail unless `config/advisory-allow.json` lists the id and the expiry is still ahead of the injected clock. Moderate and low warn. |
 | [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) | ADAPT | Every window sandboxes the page, Node stays off, and navigation stays on `friday://app` or the dev origin. A Content-Security-Policy header is not set on the packaged page in this change. |
+| [Realtime voice activity detection](https://developers.openai.com/api/docs/guides/realtime-vad) | ADAPT | Wait longer on an unfinished utterance and drop a duplicate final transcript. Do not add the Realtime API. |
+| [Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations) | ADAPT | Barge-in keeps the text already shown, and a replaced answer is what gets spoken. One conversation item is not inserted twice. |
 
 ## Definition of done
 

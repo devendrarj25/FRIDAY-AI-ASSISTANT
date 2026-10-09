@@ -312,6 +312,10 @@ class CoreBrain {
     prompt: string,
     options: {
       mode?: TurnMode;
+      /** Typed, spoken, or phone. Omitted keeps the mode's existing guide. */
+      surface?: "voice" | "chat" | "phone";
+      /** False when the desktop turn was already observed. */
+      observe?: boolean;
       multiModel?: boolean;
       depth?: number;
       extra?: string;
@@ -348,6 +352,7 @@ class CoreBrain {
     const understanding = understandTurn({
       text: prompt,
       ...(options.history ? { history: options.history } : {}),
+      ...(options.observe === false ? { observe: false } : {}),
     });
     try {
       noteUnderstanding(toUnderstandingTrace(understanding));
@@ -1318,6 +1323,7 @@ class CoreBrain {
     stage?.("thinking.prepare", "context + routing");
     const prepared = prepareTurn(prompt, {
       mode,
+      ...(options.surface ? { surface: options.surface } : {}),
       // Owner setting still wins for ordinary turns. High-stakes always
       // fans out (multi-model + later verify) without changing prepareTurn's
       // default for other routes.

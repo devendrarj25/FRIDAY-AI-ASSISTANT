@@ -202,6 +202,16 @@ Recorded from public docs read that day. This is not a second chat product. Manu
 | Web search as a model tool | REJECT | The read-only model tools stay the existing file, device, and network lookups. Search stays off that list. |
 | Microphone or speech in chat | REJECT | Manual and chat stay typed. Auto still owns the microphone and spoken replies. |
 
+### Chat and voice continuity (2026-10-09)
+
+Same session for typed and spoken turns. A typed turn keeps the typed guide while Auto is listening. A live talk is restored after restart. A new chat stays sealed until the owner asks to continue it. One finalized utterance is dispatched once. A replaced answer speaks the new text. Finished task steps are not replayed from a follow-up. "Change that" edits the current item. No new speech engine.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Realtime semantic turn detection | ADAPT | An unfinished utterance waits, including a Devanagari continuation, and a second copy of the same final transcript is dropped. The Realtime API is not added. Source: developers.openai.com/api/docs/guides/realtime-vad (read 2026-10-09). |
+| Realtime interruption | ADAPT | Stopping speech keeps the text already produced. A shortened answer restarts the spoken cursor on the replacement. No server truncate event. Source: developers.openai.com/api/docs/guides/realtime-conversations (read 2026-10-09). |
+| One conversation across modes | ADOPT | Chat and Auto already share Core Brain, the session, and the task graph. This pass stops a second observation from writing that session again. |
+
 ## 3. Capabilities, connectors, Windows control
 
 | Capability | Implementation | Verified by |

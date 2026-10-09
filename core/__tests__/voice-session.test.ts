@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   acceptsVoiceTurn,
+  duplicateFinalUtterance,
   endpointSilenceMs,
   microphoneAllowed,
+  nextSpokenCursor,
   spokenReplyAllowed,
   takeSpeakable,
 } from "../../src/lib/friday/voice-session";
@@ -69,6 +71,15 @@ describe("microphone and speech stay in Auto mode", () => {
     expect(takeSpeakable("version v1.2 is next", false).spoken).toBe("");
     expect(takeSpeakable("version v1.2 is next", true).spoken).toBe("version v1.2 is next");
   });
+
+  it("drops a repeated final and restarts speech when the answer is replaced", () => {
+    expect(duplicateFinalUtterance("open chrome", "open chrome", 400)).toBe(true);
+    expect(duplicateFinalUtterance("open chrome", "open chrome", 2500)).toBe(false);
+    expect(duplicateFinalUtterance("open chrome", "close chrome", 10)).toBe(false);
+    expect(duplicateFinalUtterance("", "open chrome", 10)).toBe(false);
+    expect(nextSpokenCursor(40, 12)).toEqual({ cursor: 0, rewritten: true });
+    expect(nextSpokenCursor(40, 80)).toEqual({ cursor: 40, rewritten: false });
+  });
 });
 
 describe("the existing voice owners enforce that policy", () => {
@@ -81,6 +92,9 @@ describe("the existing voice owners enforce that policy", () => {
     expect(assistant).toContain("endpointSilenceMs");
     expect(assistant).toContain("this.speechGen");
     expect(assistant).toContain("handsFree: false");
+    expect(assistant).toContain("duplicateFinalUtterance");
+    expect(assistant).toContain("captionUserTurn");
+    expect(assistant).toContain("nextSpokenCursor");
   });
 
   it("does not let chat open a microphone or a browser recogniser", () => {
@@ -90,6 +104,7 @@ describe("the existing voice owners enforce that policy", () => {
     expect(dock).not.toContain("webkitSpeechRecognition");
     expect(dock).not.toContain("sttStatus");
     expect(dock).not.toContain("getUserMedia");
+    expect(dock).toContain("if (!sent.accepted)");
   });
 
   it("does not speak a chat reply from the brain store", () => {

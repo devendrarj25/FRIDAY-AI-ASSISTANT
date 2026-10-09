@@ -85,7 +85,9 @@ describe("wake, barge-in, echo, and Auto Mode loop", () => {
 
   it("captions typed user lines and resets Auto captions when chat is cleared", () => {
     const assistant = source("src/lib/friday/assistant-mode.ts");
-    expect(assistant).toContain('if (message.role === "user") this.caption("user", message.text)');
+    expect(assistant).toContain('if (message.role === "user") this.captionUserTurn(message.text)');
+    expect(assistant).toContain('this.caption("user", text)');
+    expect(assistant).toContain("pendingUserEcho");
     expect(assistant).toContain("adoptTranscript()");
     expect(assistant).toContain("this.spokenUpTo = brain.getSnapshot().messages.length");
   });
