@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # FRIDAY - start one existing workflow and wait for its real outcome.
 #
-# Used only by .github/workflows/official-publish.yml so the one-click official
-# release can sequence the existing Release / Build, Safe Merge and PR
-# Validation workflows without duplicating any of their logic.
+# Official Publish does not call this script. A nested workflow_dispatch runs
+# as github-actions[bot], and workflow execution protections refuse that actor
+# before any job exists. Official Publish calls the existing workflows with
+# workflow_call in the same run. This helper remains for a manual shell, and
+# it still fails closed when the run does not succeed.
 #
 #   ci-workflow-run <workflow.yml> [--ref <ref>] [-f key=value ...]
 #
@@ -65,6 +67,10 @@ if [ "$status" != "completed" ]; then
 fi
 if [ "$conclusion" != "success" ]; then
   echo "::error::$workflow (run $run_id) finished with: $conclusion"
+  gh run view "$run_id" || true
+  if [ "$conclusion" = "startup_failure" ]; then
+    echo "::error::$workflow never queued a job. If the annotation says the actor is not allowed to trigger Actions workflows, the run was started by github-actions[bot]. Call the workflow with workflow_call from the run the owner started."
+  fi
   exit 1
 fi
 echo "$workflow completed successfully (run $run_id)"

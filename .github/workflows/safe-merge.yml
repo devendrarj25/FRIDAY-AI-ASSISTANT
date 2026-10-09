@@ -32,6 +32,28 @@ on:
         description: "Type MERGE to allow this run to merge"
         type: string
         required: true
+  workflow_call:
+    inputs:
+      caller:
+        description: "Must be official-publish"
+        type: string
+        required: true
+      scope:
+        description: "auto, selected, or release"
+        type: string
+        required: true
+      pr_numbers:
+        description: "Pull request numbers for scope = selected"
+        type: string
+        required: true
+      delete_branch:
+        description: "Delete the merged work branch afterwards (true or false)"
+        type: string
+        required: true
+      confirm:
+        description: "Type MERGE to allow this run to merge"
+        type: string
+        required: true
 
 concurrency: friday-safe-merge
 permissions:
@@ -54,11 +76,50 @@ jobs:
     steps:
       - name: Require the typed confirmation
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER: ${{ inputs.caller }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           [ '${{ inputs.confirm }}' = 'MERGE' ] || {
             echo "::error::type MERGE in the confirm field to allow this run."
             exit 1
           }
+          # github.event_name inside a called workflow is the caller's event,
+          # so it is never workflow_call. github.workflow is the caller's name
+          # and github.workflow_ref is the caller's file.
+          allowed=false
+          direct=false
+          case "$WORKFLOW_REF" in
+            */.github/workflows/safe-merge.yml@*)
+              direct=true
+              if [ "$WORKFLOW_NAME" = "Safe Merge" ] && [ -z "$CALLER" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              fi
+              ;;
+            */.github/workflows/official-publish.yml@*)
+              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                allowed=true
+              fi
+              ;;
+          esac
+          if [ "$allowed" != "true" ]; then
+            if [ "$direct" = "true" ]; then
+              echo "::error::Safe Merge is manual only (workflow_dispatch)."
+            else
+              echo "::error::Safe Merge is manual only, or one call from Official Publish."
+            fi
+            echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
+            exit 1
+          fi
+          if [ "$direct" != "true" ]; then
+            [ "$REF_NAME" = "main" ] || {
+              echo "::error::Official Publish calls Safe Merge from main only."
+              exit 1
+            }
+          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main

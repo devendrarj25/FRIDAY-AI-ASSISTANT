@@ -25,7 +25,7 @@ Actions → **Test EXE Build** (`test-build.yml`). Inputs and the separate Windo
 
 ## Official
 
-Actions → **Release / Build**, or **Official Publish**, which runs the same prepare-then-publish path.
+Actions → **Release / Build**, or **Official Publish**, which runs the same prepare-then-publish path in that one run. Official Publish does not start a second workflow. The workflow file on `main` is the one a manual click uses, so a fix to that file applies only after it is merged.
 
 1. **Prepare** — tests, heals the documents, and opens or updates the release pull request. `release-engine.cjs handoff` writes the identity before the pack.
 2. Merge that pull request into `main`.

@@ -187,10 +187,30 @@ describe("PR validation", () => {
   const src = read("pr-validation.yml");
   const doc = load("pr-validation.yml");
 
-  it("runs on pull requests into main and manual dispatch only — never on push", () => {
-    expect(Object.keys(doc.on).sort()).toEqual(["pull_request", "workflow_dispatch"]);
+  it("runs on pull requests into main, manual dispatch, and an Official Publish call — never on push", () => {
+    expect(Object.keys(doc.on).sort()).toEqual([
+      "pull_request",
+      "workflow_call",
+      "workflow_dispatch",
+    ]);
     expect(doc.on.pull_request.branches).toEqual(["main"]);
     expect(doc.on.push).toBeUndefined();
+    expect(doc.on.workflow_call.inputs.caller.required).toBe(true);
+    expect(doc.on.workflow_call.inputs.caller.default).toBeUndefined();
+    expect(doc.on.workflow_call.inputs.sha.required).toBe(true);
+    expect(src).toContain("PR Validation is called only by Official Publish.");
+    expect(src).toContain("Official Publish must name the exact commit to validate.");
+    // github.event_name inside a called workflow is the caller's event, so a
+    // comparison with workflow_call never matches and must not gate the refusal.
+    expect(src).not.toContain("github.event_name == 'workflow_call'");
+    expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+    expect(src).toContain("github.workflow_ref");
+    expect(src).toContain(".github/workflows/official-publish.yml@");
+    expect(src).toContain(".github/workflows/pr-validation.yml@");
+    const refuse = doc.jobs.gate.steps.find(
+      (step: { name?: string }) => step.name === "Refuse a call that is not Official Publish",
+    );
+    expect(refuse?.if).toBeUndefined();
   });
 
   it("cannot write code and only publishes its own result", () => {
@@ -216,9 +236,16 @@ describe("PR validation", () => {
     // Run 37296728618 left ref empty, so checkout used GITHUB_SHA. On
     // pull_request that is refs/pull/N/merge, which a heads-only fetch does
     // not contain.
-    expect(src).toContain(
-      "ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}",
-    );
+    const pinned = "ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}";
+    expect(src).toContain(pinned);
+    // Secret scan, CodeQL, and the advisory job. Validate keeps github.ref as
+    // its last fallback. A pinned Official Publish commit must not leave
+    // CodeQL or the audit on the caller SHA.
+    expect(
+      src.match(
+        /ref: \$\{\{ inputs\.sha \|\| github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/g,
+      ),
+    ).toHaveLength(3);
   });
 
   it("validates tests, typecheck, integrity and a real Windows installer", () => {
@@ -449,11 +476,30 @@ describe("official release", () => {
   const src = read("release.yml");
   const doc = load("release.yml");
 
-  it("is manual only, serialized, and main only", () => {
-    expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
-    expect(doc.concurrency.group).toBe("friday-release");
-    expect(doc.concurrency["cancel-in-progress"]).toBe(false);
+  it("is manual or an Official Publish call, serialized per stage, and main only", () => {
+    expect(Object.keys(doc.on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+    expect(doc.on.push).toBeUndefined();
+    expect(doc.on.pull_request).toBeUndefined();
+    expect(doc.on.schedule).toBeUndefined();
+    expect(doc.on.workflow_call.inputs.caller.required).toBe(true);
+    expect(doc.on.workflow_call.inputs.caller.default).toBeUndefined();
+    // A workflow-level group stays held until the caller run ends, so the
+    // later publish call would wait on itself. Each stage job holds the same
+    // group and releases it when that job ends.
+    expect(doc.concurrency).toBeUndefined();
+    for (const name of ["prepare", "publish"]) {
+      expect(doc.jobs[name].concurrency.group).toBe("friday-release");
+      expect(doc.jobs[name].concurrency["cancel-in-progress"]).toBe(false);
+    }
     expect(src).toContain("Official releases run from main only");
+    expect(src).toContain("Releases are manual only (workflow_dispatch).");
+    expect(src).toContain("Only Official Publish may call Release / Build.");
+    expect(src.match(/Only Official Publish may call Release \/ Build\./g)).toHaveLength(2);
+    expect(src).not.toContain("github.event_name == 'workflow_call'");
+    expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+    expect(src).toContain("github.workflow_ref");
+    expect(src.match(/\.github\/workflows\/official-publish\.yml@/g)).toHaveLength(2);
+    expect(src.match(/\.github\/workflows\/release\.yml@/g)).toHaveLength(2);
     expect(src).toContain("ref: main");
   });
 
@@ -758,20 +804,53 @@ describe("safe merge flow", () => {
       // typed MERGE confirmation, and every candidate re-validated by
       // scripts/merge-engine.cjs against the exact head commit before merging.
       if (file === "safe-merge.yml") {
-        expect(Object.keys(load(file).on)).toEqual(["workflow_dispatch"]);
+        expect(Object.keys(load(file).on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+        expect(load(file).on.push).toBeUndefined();
+        expect(load(file).on.pull_request).toBeUndefined();
+        expect(load(file).on.workflow_call.inputs.confirm.required).toBe(true);
+        expect(load(file).on.workflow_call.inputs.confirm.default).toBeUndefined();
+        expect(load(file).on.workflow_call.inputs.delete_branch.type).toBe("string");
+        expect(load(file).on.workflow_call.inputs.delete_branch.default).toBeUndefined();
         expect(src).toContain("inputs.confirm }}' = 'MERGE'");
         expect(src).toContain("merge-engine.cjs evaluate");
         expect(src).toContain("--match-head-commit");
         expect(src).toContain('gh pr merge "$pr" --merge');
+        expect(src).toContain("Safe Merge is manual only, or one call from Official Publish.");
+        expect(src).toContain("Safe Merge is manual only (workflow_dispatch).");
+        expect(src).not.toContain("github.event_name == 'workflow_call'");
+        expect(src).not.toContain('[ "$event" = "workflow_call" ]');
+        expect(src).toContain("github.workflow_ref");
+        expect(src).toContain(".github/workflows/official-publish.yml@");
+        expect(src).toContain(".github/workflows/safe-merge.yml@");
         expect(src).not.toMatch(
           /--squash|--rebase|--admin|enable-?auto-?merge|automerge|auto_merge/i,
         );
         continue;
       }
+      if (file === "official-publish.yml") {
+        expect(Object.keys(load(file).on)).toEqual(["workflow_dispatch"]);
+        expect(src).not.toMatch(/gh pr merge/);
+        expect(src).not.toMatch(/gh pr create/);
+        expect(src).not.toMatch(/git push/);
+        expect(src).not.toMatch(/gh workflow run/);
+        expect(src).not.toContain("ci-workflow-run");
+        expect(src).not.toMatch(/enable-?auto-?merge|automerge|auto_merge/i);
+        const publish = load(file);
+        for (const [name, job] of Object.entries<any>(publish.jobs)) {
+          if (!job["runs-on"]) continue;
+          expect(job.permissions?.["pull-requests"], name).toBe("read");
+          expect(job.permissions?.contents, name).toBe("read");
+        }
+        expect(publish.jobs["prepare-release"].permissions["pull-requests"]).toBe("write");
+        expect(publish.jobs["publish-release"].permissions["pull-requests"]).toBe("write");
+        expect(publish.jobs.merge.permissions["pull-requests"]).toBe("write");
+        continue;
+      }
       expect(src, file).not.toMatch(/gh pr merge/);
       expect(src, file).not.toMatch(/enable-?auto-?merge|automerge|auto_merge/i);
-      // Only the release workflow may OPEN a pull request (the release PR);
-      // it still cannot merge one — main is merged by the owner alone.
+      // Only the release workflow may OPEN a pull request (the release PR).
+      // Official Publish may grant that same write scope to the called release
+      // and Safe Merge jobs. It still cannot merge one itself.
       if (file !== "release.yml" && file !== "safe-merge.yml")
         expect(src, file).not.toMatch(/pull-requests:\s*write/);
     }
@@ -779,8 +858,12 @@ describe("safe merge flow", () => {
 
   it("never releases as a side effect of landing on main", () => {
     const doc = load("release.yml");
-    // Manual dispatch only — no push, no pull_request, no schedule trigger.
-    expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
+    // Manual dispatch, or one call from Official Publish. No push, no
+    // pull_request, and no schedule trigger.
+    expect(Object.keys(doc.on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+    expect(doc.on.push).toBeUndefined();
+    expect(doc.on.pull_request).toBeUndefined();
+    expect(doc.on.schedule).toBeUndefined();
     for (const file of fs.readdirSync(DIR)) {
       if (file === "release.yml") continue;
       const src = read(file);
@@ -857,6 +940,10 @@ describe("release orchestration hardening", () => {
     expect(doc.on.workflow_dispatch.inputs.confirm.default).toBeUndefined();
     expect(doc.on.workflow_dispatch.inputs.delete_branch.type).toBe("string");
     expect(doc.on.workflow_dispatch.inputs.delete_branch.default).toBe("true");
+    expect(doc.on.workflow_call.inputs.confirm.required).toBe(true);
+    expect(doc.on.workflow_call.inputs.confirm.default).toBeUndefined();
+    expect(doc.on.workflow_call.inputs.delete_branch.type).toBe("string");
+    expect(doc.on.workflow_call.inputs.delete_branch.default).toBeUndefined();
     expect(src).toContain("mergeability still computing");
   });
 });

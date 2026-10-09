@@ -298,45 +298,84 @@ describe("official publish · workflow contract", () => {
   it("is a manual, main-only orchestrator that writes nothing itself", () => {
     expect(doc.name).toBe("Official Publish");
     expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
+    expect(doc.on.pull_request).toBeUndefined();
+    expect(doc.on.workflow_call).toBeUndefined();
     expect(src).not.toContain("official-publish-once");
     expect(src).toContain("Official Publish is manual only (workflow_dispatch).");
     expect(doc.permissions.contents).toBe("read");
     expect(doc.permissions["pull-requests"]).toBe("read");
-    expect(doc.permissions.actions).toBe("write");
+    expect(doc.permissions.actions).toBe("read");
     expect(src).toContain("Official Publish runs from main only");
     expect(src).toContain("releaseOperatorGuide");
-    expect(src).not.toMatch(/gh pr merge|gh release create|gh release upload|git push/);
+    expect(src).not.toMatch(
+      /gh pr merge|gh release create|gh release upload|git push|gh workflow run/,
+    );
+    expect(src).not.toContain("ci-workflow-run");
     expect(src).not.toMatch(/enable-?auto-?merge|automerge|auto_merge/i);
+    for (const [name, job] of Object.entries<any>(doc.jobs)) {
+      if (!job["runs-on"]) continue;
+      expect(job.permissions.contents, name).toBe("read");
+      expect(job.permissions["pull-requests"], name).toBe("read");
+      expect(JSON.stringify(job.permissions), name).not.toContain("write");
+    }
   });
 
   it("passes the release type into the orchestrator and does not decide a version itself", () => {
     const step = src.indexOf("Decide the next safe step");
-    const prepare = src.indexOf("stage=prepare");
+    const prepare = src.indexOf("stage: prepare");
     const slice = src.slice(step, prepare);
     expect(slice).toContain("orchestrator-engine.cjs plan");
     expect(slice).toContain('--type "$RELEASE_TYPE"');
     expect(slice).not.toContain("release-engine.cjs decide");
   });
 
-  it("delegates every real action to the existing workflows", () => {
-    expect(src).toContain("ci-workflow-run release.yml");
-    expect(src).toContain("stage=prepare");
-    expect(src).toContain("ci-workflow-run safe-merge.yml");
-    expect(src).toContain("confirm=MERGE");
-    expect(src).toContain("stage=publish");
+  it("calls the existing workflows in this run instead of starting a new one", () => {
+    expect(src).toContain("uses: ./.github/workflows/release.yml");
+    expect(src).toContain("stage: prepare");
+    expect(src).toContain("uses: ./.github/workflows/pr-validation.yml");
+    expect(src).toContain("uses: ./.github/workflows/safe-merge.yml");
+    expect(src).toContain("confirm: MERGE");
+    expect(src).toContain("delete_branch: ${{ 'true' }}");
+    expect(src).toContain("stage: publish");
+    expect(src.match(/caller: official-publish/g)).toHaveLength(4);
+    expect(doc.jobs["prepare-release"].secrets).toBe("inherit");
+    expect(doc.jobs["publish-release"].secrets).toBe("inherit");
+    expect(doc.jobs.validate.secrets).toBeUndefined();
+    expect(doc.jobs.merge.secrets).toBeUndefined();
+    expect(doc.jobs["prepare-release"].permissions).toEqual({
+      contents: "write",
+      "pull-requests": "write",
+      actions: "read",
+    });
+    expect(doc.jobs["publish-release"].permissions).toEqual({
+      contents: "write",
+      "pull-requests": "write",
+      actions: "read",
+    });
+    expect(doc.jobs.merge.permissions["pull-requests"]).toBe("write");
+    expect(doc.jobs.validate.permissions.statuses).toBe("write");
+    expect(doc.jobs.validate.permissions["security-events"]).toBe("write");
+    expect(src).toContain("needs.plan.outputs.step == 'publish'");
+    expect(src).toContain("needs.plan.outputs.step == 'rebuild'");
+    expect(src).toContain("needs.plan.result == 'success'");
     expect(src).not.toContain("steps.plan.outputs.version != ''");
   });
 
   it("runs prepare, validation, merge, main verification, publish and confirmation in order", () => {
-    expect(at("orchestrator-engine.cjs plan")).toBeLessThan(at("stage=prepare"));
-    expect(at("stage=prepare")).toBeLessThan(at("Wait for the required checks"));
-    expect(at("Wait for the required checks")).toBeLessThan(at("ci-workflow-run safe-merge.yml"));
-    expect(at("ci-workflow-run safe-merge.yml")).toBeLessThan(
+    expect(at("orchestrator-engine.cjs plan")).toBeLessThan(at("stage: prepare"));
+    expect(at("stage: prepare")).toBeLessThan(at("Wait for the required checks"));
+    expect(at("Wait for the required checks")).toBeLessThan(
+      at("uses: ./.github/workflows/safe-merge.yml"),
+    );
+    expect(at("uses: ./.github/workflows/safe-merge.yml")).toBeLessThan(
       at("orchestrator-engine.cjs verify-main"),
     );
-    expect(at("orchestrator-engine.cjs verify-main")).toBeLessThan(at("stage=publish"));
-    expect(at("stage=publish")).toBeLessThan(at("Confirm the published release and its assets"));
+    expect(at("orchestrator-engine.cjs verify-main")).toBeLessThan(at("stage: publish"));
+    expect(at("stage: publish")).toBeLessThan(at("Confirm the published release and its assets"));
     expect(at("Confirm the published release and its assets")).toBeLessThan(at("Final summary"));
+    expect(at("scripts/validation-freshness.cjs")).toBeLessThan(
+      at("uses: ./.github/workflows/pr-validation.yml"),
+    );
   });
 
   it("reads post-merge identity and SHA from origin/main, not the start-of-run checkout", () => {
@@ -366,9 +405,8 @@ describe("official publish · workflow contract", () => {
   it("waits out the Windows validation job before Safe Merge", () => {
     // pr-validation.yml validate timeout is 90 minutes. A 30-minute poll
     // (the old 90 * 20s loop) stops Official Publish while that job is still
-    // running. Sleep budget must cover the job; the orchestrator budget must
-    // still fit prepare, this wait, Safe Merge and the 90-minute publish job.
-    expect(doc.jobs.orchestrate["timeout-minutes"]).toBeGreaterThanOrEqual(360);
+    // running. The wait is its own job, so the Windows job, Safe Merge, and
+    // publish no longer share one 360-minute clock.
     const wait = src.slice(
       src.indexOf("Wait for the required checks"),
       src.indexOf("Merge the pinned release Pull Request"),
@@ -379,12 +417,26 @@ describe("official publish · workflow contract", () => {
     expect(attempts).toBeGreaterThan(0);
     expect(pause).toBeGreaterThan(0);
     expect(attempts * pause).toBeGreaterThanOrEqual(90 * 60);
-    const publishTimeout = 90;
-    const mergeTimeout = 20;
-    const prepareTimeout = 60;
-    expect(doc.jobs.orchestrate["timeout-minutes"]).toBeGreaterThanOrEqual(
-      prepareTimeout + mergeTimeout + publishTimeout + (attempts * pause) / 60,
-    );
+    expect(doc.jobs.evidence["timeout-minutes"]).toBeGreaterThanOrEqual((attempts * pause) / 60);
+    const release = parseYaml(
+      fs.readFileSync(path.resolve(process.cwd(), ".github/workflows/release.yml"), "utf8"),
+    ) as any;
+    const validation = parseYaml(
+      fs.readFileSync(path.resolve(process.cwd(), ".github/workflows/pr-validation.yml"), "utf8"),
+    ) as any;
+    const merge = parseYaml(
+      fs.readFileSync(path.resolve(process.cwd(), ".github/workflows/safe-merge.yml"), "utf8"),
+    ) as any;
+    expect(release.jobs.prepare["timeout-minutes"]).toBeGreaterThanOrEqual(60);
+    expect(release.jobs.publish["timeout-minutes"]).toBeGreaterThanOrEqual(90);
+    expect(validation.jobs.validate["timeout-minutes"]).toBeGreaterThanOrEqual(90);
+    expect(merge.jobs.merge["timeout-minutes"]).toBeGreaterThanOrEqual(20);
+    // A job that calls a reusable workflow cannot set timeout-minutes.
+    // The called workflow's own job timeout is the budget.
+    for (const name of ["prepare-release", "publish-release", "validate", "merge"]) {
+      expect(doc.jobs[name]["timeout-minutes"], name).toBeUndefined();
+      expect(doc.jobs[name].uses, name).toMatch(/^\.\/\.github\/workflows\/.+\.yml$/);
+    }
   });
 
   it("fails the run when a dispatched workflow fails or never finishes", () => {

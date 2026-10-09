@@ -106,11 +106,35 @@ describe("pr-scope: how the workflows use it", () => {
       ["pr-validation.yml", "gate"],
       ["security.yml", "scope"],
     ] as const) {
-      const first = load(file).jobs[job].steps[0];
-      expect(first.uses, file).toContain("actions/checkout");
-      expect(first.with.ref, file).toContain("github.event.pull_request.base.sha");
-      expect(first.with["sparse-checkout"], file).toBe("scripts/pr-scope.cjs");
+      const steps = load(file).jobs[job].steps as Array<{
+        name?: string;
+        uses?: string;
+        with?: Record<string, string>;
+      }>;
+      const classifier = steps.filter(
+        (step) =>
+          typeof step.uses === "string" &&
+          step.uses.includes("actions/checkout") &&
+          step.with?.["sparse-checkout"] === "scripts/pr-scope.cjs",
+      );
+      expect(classifier, file).toHaveLength(1);
+      const checkout = classifier[0]!;
+      expect(checkout.with?.["ref"], file).toContain("github.event.pull_request.base.sha");
+      expect(checkout.with?.["ref"], file).toContain("github.sha");
+      const index = steps.indexOf(checkout);
+      for (const earlier of steps.slice(0, index)) {
+        expect(String(earlier.uses ?? ""), `${file} before the trusted classifier`).not.toContain(
+          "actions/checkout",
+        );
+      }
     }
+    const gate = load("pr-validation.yml").jobs.gate.steps as Array<{
+      name?: string;
+      if?: string;
+    }>;
+    const refuse = gate.find((step) => step.name === "Refuse a call that is not Official Publish");
+    expect(refuse).toBeTruthy();
+    expect(refuse?.if).toBeUndefined();
   });
 
   it("manual dispatches, which produce release evidence, always get the full validation", () => {
