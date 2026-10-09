@@ -220,16 +220,20 @@ export function useFridayLive(): FridayLive {
 
   // Ages only need to advance while something real is in flight.
   const ticking = Boolean(run) || voice !== "off";
-  const [tick, setTick] = useState(0);
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     if (!ticking) return;
-    const id = window.setInterval(() => setTick((t) => (t + 1) % 100000), 1000);
-    return () => window.clearInterval(id);
+    const tick = () => setNow(Date.now());
+    const kick = window.setTimeout(tick, 0);
+    const id = window.setInterval(tick, 1000);
+    return () => {
+      window.clearTimeout(kick);
+      window.clearInterval(id);
+    };
   }, [ticking]);
 
   return useMemo(() => {
-    const now = Date.now();
-    void tick;
+    const clock = now ?? 0;
     const awaitingApproval = Boolean(brainState.approval);
     const busy = Boolean(run) && !awaitingApproval;
 
@@ -486,7 +490,7 @@ export function useFridayLive(): FridayLive {
             : finishedIds.has(id)
               ? "done"
               : "idle";
-      if (active) lastActiveAt.set(id, now);
+      if (active && now != null) lastActiveAt.set(id, now);
       return {
         id,
         label: LABELS[id],
@@ -498,7 +502,7 @@ export function useFridayLive(): FridayLive {
         state: nodeState,
         status: idleStatus[id],
         details: detailMap[id].filter((d): d is LiveDetail => d !== null).slice(0, 3),
-        age: active ? "now" : ageOf(lastActiveAt.get(id), now),
+        age: active ? "now" : now == null ? undefined : ageOf(lastActiveAt.get(id), clock),
         ...(active
           ? {
               action: activeAction[id],
@@ -568,6 +572,6 @@ export function useFridayLive(): FridayLive {
     caps.items,
     voice,
     run,
-    tick,
+    now,
   ]);
 }

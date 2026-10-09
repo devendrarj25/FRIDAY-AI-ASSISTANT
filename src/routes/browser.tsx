@@ -21,15 +21,7 @@ import {
   ZoomOut,
   MessageSquare,
 } from "lucide-react";
-import {
-  createElement,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell, Panel } from "@/components/friday/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -136,6 +128,41 @@ type WebviewEl = HTMLElement & {
 
 const newId = () => `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
+/** Guest preferences for a live Electron webview. Isolation and the sandbox stay on. */
+export const LIVE_GUEST_WEBPREFERENCES =
+  "contextIsolation=yes,sandbox=yes,javascript=yes,backgroundThrottling=no";
+
+function LiveGuest({
+  tab,
+  active,
+  blockPopups,
+  onAttach,
+}: {
+  tab: Tab;
+  active: boolean;
+  blockPopups: boolean;
+  onAttach: (id: string, node: WebviewEl | null) => void;
+}) {
+  return (
+    <webview
+      ref={(node) => onAttach(tab.id, node as WebviewEl | null)}
+      src={tab.url}
+      partition="persist:friday-browser"
+      {...(blockPopups ? {} : { allowpopups: true })}
+      webpreferences={LIVE_GUEST_WEBPREFERENCES}
+      className="absolute inset-0"
+      style={{
+        display: "inline-flex",
+        width: "100%",
+        height: "100%",
+        visibility: active ? "visible" : "hidden",
+        zIndex: active ? 1 : 0,
+        pointerEvents: active ? "auto" : "none",
+      }}
+    />
+  );
+}
+
 type PanelKind = "none" | "bookmarks" | "history" | "downloads" | "settings" | "ask";
 
 /** Keep at most this many live <webview> guests so background tabs cannot freeze Chromium. */
@@ -210,12 +237,8 @@ function waitForView(
 }
 
 function BrowserPage() {
-  const [desktop, setDesktop] = useState(() => liveBrowserAvailable());
+  const [desktop] = useState(() => liveBrowserAvailable());
   const brainState = useBrain();
-
-  useEffect(() => {
-    setDesktop(liveBrowserAvailable());
-  }, []);
   const [settings, setSettings] = useState<BrowserSettings>(DEFAULT_SETTINGS);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -237,8 +260,21 @@ function BrowserPage() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const tabsRef = useRef<Tab[]>([]);
   const activeRef = useRef<string | null>(null);
-  tabsRef.current = tabs;
-  activeRef.current = activeId;
+  const actionsRef = useRef<{
+    openTab: (url?: string) => string;
+    toggleBookmark: () => Promise<void>;
+    zoomBy: (delta: number) => void;
+    setZoom: (factor: number) => void;
+  }>({
+    openTab: () => "",
+    toggleBookmark: () => Promise.resolve(),
+    zoomBy: () => undefined,
+    setZoom: () => undefined,
+  });
+  useEffect(() => {
+    tabsRef.current = tabs;
+    activeRef.current = activeId;
+  });
 
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId]);
   const view = (id?: string | null) => (id ? (views.current.get(id) ?? null) : null);
@@ -293,7 +329,7 @@ function BrowserPage() {
       setLiveIds([nextActive]);
       setAddress(list.find((t) => t.id === nextActive)?.url ?? "");
       publishBrowserSession({
-        desktop,
+        desktop: liveBrowserAvailable(),
         mounted: true,
         tabs: list.map((t) => ({ id: t.id, url: t.url, title: t.title })),
         activeId: nextActive,
@@ -356,7 +392,7 @@ function BrowserPage() {
         setStatus(`Popup blocked: ${url}`);
         return;
       }
-      openTab(url);
+      actionsRef.current.openTab(url);
     });
     const offGone = onGuestGone((payload) => {
       setStatus(`Tab crashed (${payload.reason}) — reloading.`);
@@ -371,8 +407,7 @@ function BrowserPage() {
       offPopup();
       offGone();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.blockPopups]);
+  }, [patch, settings.blockPopups]);
 
   // ---- tab operations ------------------------------------------------------
   const keepLive = useCallback((id: string) => {
@@ -734,7 +769,7 @@ function BrowserPage() {
       const key = event.key.toLowerCase();
       if (key === "t") {
         event.preventDefault();
-        openTab();
+        actionsRef.current.openTab();
       } else if (key === "w") {
         event.preventDefault();
         if (activeRef.current) closeTab(activeRef.current);
@@ -749,22 +784,21 @@ function BrowserPage() {
         document.getElementById("friday-browser-address")?.focus();
       } else if (key === "d") {
         event.preventDefault();
-        void toggleBookmark();
+        void actionsRef.current.toggleBookmark();
       } else if (key === "=" || key === "+") {
         event.preventDefault();
-        zoomBy(0.1);
+        actionsRef.current.zoomBy(0.1);
       } else if (key === "-") {
         event.preventDefault();
-        zoomBy(-0.1);
+        actionsRef.current.zoomBy(-0.1);
       } else if (key === "0") {
         event.preventDefault();
-        setZoom(1);
+        actionsRef.current.setZoom(1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openTab, closeTab, bookmarks, tabs, activeId]);
+  }, [closeTab]);
 
   const setZoom = (factor: number) => {
     const clamped = Math.min(3, Math.max(0.25, factor));
@@ -782,6 +816,9 @@ function BrowserPage() {
       : await addBookmark(active.url, active.title);
     setBookmarks(next);
   };
+  useEffect(() => {
+    actionsRef.current = { openTab, toggleBookmark, zoomBy, setZoom };
+  });
 
   const runFind = (text: string) => {
     setFindText(text);
@@ -1057,32 +1094,21 @@ function BrowserPage() {
             ) : (
               tabs
                 .filter((tab) => liveIds.includes(tab.id))
-                .map((tab) =>
-                  createElement("webview", {
-                    key: `${tab.id}-${viewNonce[tab.id] || 0}`,
-                    ref: (node: unknown) => attach(tab.id, node as WebviewEl | null),
-                    src: tab.url,
-                    partition: "persist:friday-browser",
-                    ...(settings.blockPopups ? {} : { allowpopups: "true" }),
-                    webpreferences:
-                      "contextIsolation=yes,sandbox=yes,javascript=yes,backgroundThrottling=no",
-                    className: "absolute inset-0",
-                    // Electron <webview> blanks out permanently when it is ever
-                    // display:none, and collapses to 0px inside a flex parent
-                    // unless the box is stated explicitly. Keep live guests laid
-                    // out at full size and switch with visibility only. Inactive
-                    // tabs beyond LIVE_TAB_CAP are not mounted, so they cannot
-                    // freeze Chromium.
-                    style: {
-                      display: "inline-flex",
-                      width: "100%",
-                      height: "100%",
-                      visibility: tab.id === activeId ? "visible" : "hidden",
-                      zIndex: tab.id === activeId ? 1 : 0,
-                      pointerEvents: tab.id === activeId ? "auto" : "none",
-                    } as CSSProperties,
-                  }),
-                )
+                .map((tab) => (
+                  // Electron <webview> blanks out permanently when it is ever
+                  // display:none, and collapses to 0px inside a flex parent
+                  // unless the box is stated explicitly. Keep live guests laid
+                  // out at full size and switch with visibility only. Inactive
+                  // tabs beyond LIVE_TAB_CAP are not mounted, so they cannot
+                  // freeze Chromium.
+                  <LiveGuest
+                    key={`${tab.id}-${viewNonce[tab.id] || 0}`}
+                    tab={tab}
+                    active={tab.id === activeId}
+                    blockPopups={settings.blockPopups}
+                    onAttach={attach}
+                  />
+                ))
             )}
           </div>
 

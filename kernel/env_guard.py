@@ -45,7 +45,7 @@ def child_env(base: dict | None = None, extra: dict | None = None) -> dict:
     return clean
 
 
-def _blocked_ip(ip: ipaddress._BaseAddress) -> bool:
+def _blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return (
         ip.is_private
         or ip.is_loopback
@@ -56,12 +56,15 @@ def _blocked_ip(ip: ipaddress._BaseAddress) -> bool:
     )
 
 
-def guard_public_url(url: str) -> None:
+def guard_public_url(url: str, resolve=None) -> None:
     """Refuse anything that is not a plain public http(s) address.
 
     Blocks loopback, private ranges, link-local/metadata, reserved space and
     non-http schemes (file:, ftp:, gopher:), resolving the host first so a
     name that points at 127.0.0.1 is caught too. Raises PermissionError.
+
+    `resolve` defaults to `socket.getaddrinfo`. Tests pass a fake so a public
+    name is classified without a live DNS lookup. Production callers omit it.
     """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
@@ -69,8 +72,10 @@ def guard_public_url(url: str) -> None:
     host = (parts.hostname or "").strip("[]")
     if not host:
         raise PermissionError("blocked URL: no host")
+    lookup = socket.getaddrinfo if resolve is None else resolve
+    port = parts.port or (443 if parts.scheme == "https" else 80)
     try:
-        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80))
+        infos = lookup(host, port)
     except OSError as exc:
         raise PermissionError(f"blocked URL: {host} does not resolve ({exc})") from exc
     for info in infos:

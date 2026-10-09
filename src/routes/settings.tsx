@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Brain,
   HardDriveDownload,
@@ -82,11 +82,14 @@ function SettingsPage() {
       return typeof section === "string" ? section : undefined;
     },
   });
-  const [section, setSection] = useState<string>(sectionParam ?? "general");
-
-  useEffect(() => {
-    if (sectionParam && SECTIONS.some((s) => s.key === sectionParam)) setSection(sectionParam);
-  }, [sectionParam]);
+  const requested =
+    sectionParam && SECTIONS.some((s) => s.key === sectionParam) ? sectionParam : "";
+  const [section, setSection] = useState<string>(requested || "general");
+  const [seenSection, setSeenSection] = useState(requested);
+  if (requested && seenSection !== requested) {
+    setSeenSection(requested);
+    setSection(requested);
+  }
 
   return (
     <AppShell

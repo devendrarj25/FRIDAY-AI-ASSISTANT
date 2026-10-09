@@ -290,13 +290,20 @@ def drag(
     }
 
 
+def _windows_clipboard():
+    """user32 and kernel32. Missing on a non-Windows type stub, so look them up."""
+    import ctypes
+
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        raise ControlError("clipboard control is only available on Windows")
+    return ctypes, windll.user32, windll.kernel32
+
+
 def clipboard_read() -> dict[str, Any]:
     if not WINDOWS:
         raise ControlError("clipboard control is only available on Windows")
-    import ctypes
-
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
+    ctypes, user32, kernel32 = _windows_clipboard()
     if not user32.OpenClipboard(None):
         raise ControlError("Windows refused the clipboard")
     try:
@@ -318,10 +325,7 @@ def clipboard_read() -> dict[str, Any]:
 def clipboard_write(text: str) -> dict[str, Any]:
     if not WINDOWS:
         raise ControlError("clipboard control is only available on Windows")
-    import ctypes
-
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
+    ctypes, user32, kernel32 = _windows_clipboard()
     data = str(text or "")
     if not user32.OpenClipboard(None):
         raise ControlError("Windows refused the clipboard")

@@ -442,9 +442,7 @@ function VoiceLibraryPanel() {
     });
   };
   useEffect(loadNeural, []);
-  useEffect(() => {
-    if (!picked && installed.length) setPicked(installed[0]?.name ?? "");
-  }, [installed, picked]);
+  if (!picked && installed[0]?.name) setPicked(installed[0].name);
 
   const models = prefs.voice.models ?? [];
   const activeId = prefs.voice.activeId;

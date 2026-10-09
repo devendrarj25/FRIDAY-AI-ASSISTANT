@@ -8,7 +8,7 @@ Run these from the repo root. `npm ci` installs Node dependencies. `npm run setu
 - `npm test` — the full Vitest suite
 - `npm run lint` — ESLint plus kernel ruff (`ruff check` and `ruff format --check`)
 - `npm run typecheck`
-- `npm run typecheck:py` — kernel pyright ceiling in `kernel/pyright-baseline.txt`
+- `npm run typecheck:py` — kernel pyright ceiling in `kernel/pyright-baseline.txt`. The count may shrink. Under `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` a missing tool fails the test. A workstation without the tool skips with a loud line.
 - `npm run test:kernel`
 - `npm run docs:sync` then `npm run docs:check`
 - `npm run arrange:check`

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { Loader2, Play, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Panel, StatusPill } from "@/components/friday/ui";
@@ -51,7 +52,8 @@ export function HubRepoActions() {
   }, []);
 
   useEffect(() => {
-    if (desktop) void refresh();
+    if (!desktop) return;
+    return deferEffect(() => void refresh());
   }, [desktop, refresh]);
 
   if (!desktop) return null;

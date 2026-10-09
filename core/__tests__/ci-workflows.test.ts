@@ -1040,12 +1040,15 @@ describe("automatic-health workflows", () => {
     const resume = fs.readFileSync(path.resolve(DIR, "..", "..", "scripts/resume.cjs"), "utf8");
     expect(resume).toContain('.venv", "bin", "python3"');
     expect(resume).toContain("return fallback");
+    expect(resume).toContain("scripts/advisory-audit.cjs");
+    expect(resume).toContain("--report-only");
+    expect(src).toContain("pip-audit");
     expect(src).toContain("FRIDAY health check failing");
     expect(src).toContain("gh issue close");
     expect(src).toContain("gh issue comment");
   });
 
-  it("only a leaked secret can turn Security Scan red", () => {
+  it("a leaked secret fails the scan, and a blocking advisory fails the audit job", () => {
     const src = read("security.yml");
     const doc = load("security.yml");
     expect(doc.on.pull_request).toBeUndefined();
@@ -1053,9 +1056,15 @@ describe("automatic-health workflows", () => {
     expect(doc.jobs.codeql.if).toContain("private == false");
     expect(doc.jobs.audit.if).toContain("needs.scope.result == 'success'");
     expect(src).toContain("--exit-code 1");
-    for (const step of doc.jobs.audit.steps) {
-      if (String(step.run || "").includes("audit")) expect(step.run).toContain("::warning");
-    }
+    expect(src).toContain("scripts/advisory-audit.cjs");
+    const steps = doc.jobs.audit.steps as Array<{ uses?: string; run?: string }>;
+    const pythonAt = steps.findIndex((step) => String(step.uses || "").includes("actions/python"));
+    const auditAt = steps.findIndex((step) =>
+      String(step.run || "").includes("advisory-audit.cjs"),
+    );
+    expect(pythonAt).toBeGreaterThan(-1);
+    expect(auditAt).toBeGreaterThan(pythonAt);
+    expect(String(steps[auditAt]?.run)).toContain("pip-audit");
   });
 
   it("PR Validation is the one pull-request run for tests, kernel, secrets and audits", () => {
@@ -1075,9 +1084,30 @@ describe("automatic-health workflows", () => {
     expect(doc.jobs.codeql.if).toContain("docs_only != 'true'");
     expect(doc.jobs.codeql.if).toContain("private == false");
     expect(doc.jobs.audit.needs).toBe("gate");
-    for (const step of doc.jobs.audit.steps) {
-      if (String(step.run || "").includes("audit")) expect(step.run).toContain("::warning");
-    }
+    expect(src).toContain("scripts/advisory-audit.cjs");
+    const auditSteps = doc.jobs.audit.steps as Array<{ uses?: string; run?: string }>;
+    const pythonAt = auditSteps.findIndex((step) =>
+      String(step.uses || "").includes("actions/python"),
+    );
+    const auditAt = auditSteps.findIndex((step) =>
+      String(step.run || "").includes("advisory-audit.cjs"),
+    );
+    expect(pythonAt).toBeGreaterThan(-1);
+    expect(auditAt).toBeGreaterThan(pythonAt);
+    const validateSteps = doc.jobs.validate.steps as Array<{ name?: string; run?: string }>;
+    const devInstalls = validateSteps.filter((step) =>
+      String(step.run || "").includes("kernel/requirements-dev.txt"),
+    );
+    expect(devInstalls).toHaveLength(1);
+    const lintAt = validateSteps.findIndex((step) => step.name === "Lint");
+    const kernelAt = validateSteps.findIndex((step) => step.name === "Kernel tests");
+    const installAt = validateSteps.findIndex(
+      (step) => step.name === "Install kernel dev requirements",
+    );
+    expect(installAt).toBeGreaterThan(-1);
+    expect(lintAt).toBeGreaterThan(installAt);
+    expect(kernelAt).toBeGreaterThan(lintAt);
+    expect(String(validateSteps[lintAt]?.run)).not.toContain("pip install");
     expect(src).not.toContain("npm audit fix");
   });
 

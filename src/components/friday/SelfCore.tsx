@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { Globe, Play, Plus, RotateCcw, ShieldCheck, Sparkles, Trash2, Wrench } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -159,9 +160,7 @@ export function SkillForgePanel() {
   const available = skillsAvailable();
 
   const refresh = useCallback(async () => setSkills(await listSkills()), []);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useEffect(() => deferEffect(() => void refresh()), [refresh]);
 
   const candidates = useMemo(() => upgradeCandidates(skills), [skills]);
 

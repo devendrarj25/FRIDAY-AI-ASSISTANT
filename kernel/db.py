@@ -56,13 +56,21 @@ class Storage:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
-        self.conn = sqlite3.connect(path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
+        self._conn: sqlite3.Connection | None = sqlite3.connect(path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Open connection. A closed database raises instead of returning None."""
+        conn = self._conn
+        if conn is None:
+            raise RuntimeError("database is closed")
+        return conn
 
     def close(self) -> None:
         """Release the file. Windows will not delete a database that is still open."""
-        conn = self.conn
-        self.conn = None
+        conn = self._conn
+        self._conn = None
         if conn is None:
             return
         try:
@@ -88,12 +96,13 @@ class Storage:
 
     def backup_database(self) -> str:
         """Consistent copy beside the live file, before a schema change is published."""
-        if self.conn is None:
+        conn = self._conn
+        if conn is None:
             raise RuntimeError("database is closed")
         dest = Path(str(self.path) + ".bak")
         bak = sqlite3.connect(dest)
         try:
-            self.conn.backup(bak)
+            conn.backup(bak)
         finally:
             bak.close()
         return str(dest)
@@ -405,7 +414,12 @@ class Storage:
         rows = self.conn.execute(
             "SELECT task_id FROM task_checkpoints WHERE state != 'done' ORDER BY updated_at DESC"
         ).fetchall()
-        return [self.load_checkpoint(r["task_id"]) for r in rows]
+        loaded: list[dict] = []
+        for row in rows:
+            item = self.load_checkpoint(row["task_id"])
+            if item is not None:
+                loaded.append(item)
+        return loaded
 
     def clear_checkpoint(self, task_id: str) -> None:
         self.conn.execute("DELETE FROM task_checkpoints WHERE task_id=?", (task_id,))

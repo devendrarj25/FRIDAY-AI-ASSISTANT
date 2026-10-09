@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { load as parseYaml } from "js-yaml";
 
 const require_ = createRequire(import.meta.url);
 const ROOT = path.resolve(__dirname, "../..");
@@ -23,6 +24,12 @@ const local = require_("../../scripts/validate-local.cjs") as {
   }>;
   windowsGatesEnabled: (opts?: Record<string, unknown>) => boolean;
 };
+
+function localPlanIds(platform: string): string[] {
+  return local
+    .buildPlan({ platform, pack: platform === "win32", version: "1.0.0.2" })
+    .map((step) => step.id);
+}
 
 describe("validate:local is the no-Actions orchestrator", () => {
   it("is wired as npm run validate:local", () => {
@@ -106,6 +113,65 @@ describe("validate:local is the no-Actions orchestrator", () => {
     expect(win.filter((step) => step.skip)).toEqual([]);
     const smoke = win.find((step) => step.id === "smoke");
     expect(smoke?.args?.join(" ")).toContain("windows-installer-smoke.ps1");
+  });
+
+  it("lists the same product checks as the validate job, in the same order", () => {
+    const doc = parseYaml(read(".github/workflows/pr-validation.yml")) as {
+      jobs: {
+        validate: { steps: Array<{ name?: string; run?: string; uses?: string; if?: string }> };
+        "docs-only": { steps: Array<{ uses?: string; run?: string }> };
+      };
+    };
+    const steps = doc.jobs.validate.steps;
+    const hosted: string[] = [];
+    const take = (name: string, id: string, needle: string) => {
+      const step = steps.find((row) => row.name === name);
+      expect(step, name).toBeTruthy();
+      const body = `${step?.run || ""}\n${step?.uses || ""}`;
+      expect(body, name).toContain(needle);
+      hosted.push(id);
+    };
+    take("Verify version/documentation synchronization (auto-heal)", "heal-check", "heal --check");
+    take("Type check", "typecheck", "npm run typecheck");
+    take("Documentation and version in sync", "docs", "npm run docs:check");
+    take("Documentation and version in sync", "version", "npm run verify:version");
+    take("Tests changed with the code (warn only)", "tests-required", "tests-required.cjs");
+    take("Commit provenance", "provenance", "check-provenance.cjs");
+    take("Run tests", "test", "npm test");
+    take("Python for lint and kernel tests", "python", "./.github/actions/python");
+    take("Install kernel dev requirements", "kernel-dev", "kernel/requirements-dev.txt");
+    take("Lint", "lint", "npm run lint");
+    take("Kernel tests", "kernel", "npm run test:kernel");
+    take("Verify FRIDAY layout and dependencies", "arrange", "arrange-project.cjs");
+    take("Verify FRIDAY layout and dependencies", "deps", "verify-deps.cjs");
+    take("Clean-architecture audit", "audit", "audit-architecture.cjs --strict");
+    take("Validate Electron runtime", "electron", "ensure-electron.cjs");
+    take("Build renderer bundle", "renderer", "build:desktop");
+    take("Windows NSIS installer (no release)", "nsis", "electron-pack.cjs --win nsis");
+    take("Verify packaged application", "verify-build", "verify-build.cjs nsis");
+    take(
+      "Exercise installer lifecycle (install, boot, reinstall, uninstall)",
+      "smoke",
+      "windows-installer-smoke.ps1",
+    );
+
+    const pullRequestOnly = ["tests-required"];
+    const hostedSetup = ["python", "kernel-dev"];
+    const windowsOnly = ["nsis", "verify-build", "smoke"];
+    const shared = hosted.filter(
+      (id) =>
+        !pullRequestOnly.includes(id) && !hostedSetup.includes(id) && !windowsOnly.includes(id),
+    );
+    const local = localPlanIds("linux");
+    expect(local.filter((id) => !windowsOnly.includes(id))).toEqual(shared);
+    expect(local.filter((id) => windowsOnly.includes(id))).toEqual(windowsOnly);
+    expect(
+      steps.find((step) => step.name === "Tests changed with the code (warn only)")?.if,
+    ).toContain("pull_request");
+    expect(steps.find((step) => step.name === "Commit provenance")?.if).toContain("pull_request");
+    const docsOnly = doc.jobs["docs-only"].steps;
+    expect(docsOnly.some((step) => String(step.uses || "").includes("actions/python"))).toBe(false);
+    expect(docsOnly.some((step) => String(step.run || "").includes("npm run lint"))).toBe(false);
   });
 
   it("--plan prints gates and does not run npm test", () => {

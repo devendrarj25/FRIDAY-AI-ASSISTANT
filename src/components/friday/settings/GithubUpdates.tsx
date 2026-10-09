@@ -8,6 +8,7 @@
  * commit, PR, branch and file-edit stay on Friday Hub.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import {
   GitBranch,
   Download,
@@ -125,10 +126,14 @@ export function GithubUpdates() {
     setSession(await githubConnection(verify));
   }, []);
 
-  useEffect(() => {
-    void reload();
-    void refreshSession();
-  }, [reload, refreshSession]);
+  useEffect(
+    () =>
+      deferEffect(() => {
+        void reload();
+        void refreshSession();
+      }),
+    [reload, refreshSession],
+  );
 
   useEffect(() => onGithubUpdate((next) => setCheck(next)), []);
   useEffect(() => onGithubConnection((next) => setSession(next)), []);

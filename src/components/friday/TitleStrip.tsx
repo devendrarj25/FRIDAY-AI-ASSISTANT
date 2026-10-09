@@ -55,22 +55,21 @@ export function TitleStrip() {
 
   // Clock — a single shared interval, paused while the window is hidden.
   useEffect(() => {
-    setNow(new Date());
     let id = 0;
+    let kick = 0;
     const start = () => {
       window.clearInterval(id);
+      setNow(new Date());
       id = window.setInterval(() => setNow(new Date()), 1000);
     };
     const onVisibility = () => {
       if (document.hidden) window.clearInterval(id);
-      else {
-        setNow(new Date());
-        start();
-      }
+      else start();
     };
-    start();
+    kick = window.setTimeout(start, 0);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      window.clearTimeout(kick);
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisibility);
     };

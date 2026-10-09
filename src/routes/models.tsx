@@ -145,7 +145,8 @@ function ModelsPage() {
       else if (j.phase === "Failed") toast.error(`${name} failed`, { description: j.error });
       else toast(`${name} cancelled`);
     });
-    setNotified((prev) => [...prev, ...fresh.map((j) => j.id)].slice(-60));
+    const ids = fresh.map((j) => j.id);
+    queueMicrotask(() => setNotified((prev) => [...prev, ...ids].slice(-60)));
   }, [state.jobs, notified]);
 
   const statuses = useMemo(() => {

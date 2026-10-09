@@ -7,6 +7,7 @@
  * owner's stored token. One release system, one versioning rule, one changelog.
  */
 import { useCallback, useEffect, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import {
   GitCommitHorizontal,
   Rocket,
@@ -94,9 +95,11 @@ export function ReleaseControls() {
 
   useEffect(() => {
     if (!desktop) return;
-    void loadReleases();
-    void loadRuns();
-    void loadStatus();
+    return deferEffect(() => {
+      void loadReleases();
+      void loadRuns();
+      void loadStatus();
+    });
   }, [desktop, loadReleases, loadRuns, loadStatus]);
 
   // While a release is running on GitHub, follow it — then stop polling.

@@ -2,6 +2,7 @@
 that the unapproved `http.fetch` tool cannot be aimed at a private address."""
 
 import asyncio
+import socket
 import sys
 from pathlib import Path
 
@@ -13,6 +14,17 @@ from authority import Authority  # noqa: E402
 from env_guard import child_env, guard_public_url  # noqa: E402
 
 import tools as tools_module  # noqa: E402
+
+
+def _resolve(mapping):
+    def lookup(host, port):
+        value = mapping.get(host, OSError(f"no address for {host}"))
+        if isinstance(value, OSError):
+            raise value
+        addresses = value if isinstance(value, list) else [value]
+        return [(None, None, None, None, (addr, port)) for addr in addresses]
+
+    return lookup
 
 
 def test_child_env_drops_authority_secret_and_api_keys():
@@ -52,8 +64,39 @@ def test_guard_blocks_non_public_targets(url):
         guard_public_url(url)
 
 
-def test_guard_allows_a_normal_public_url():
+def test_guard_allows_a_public_address_from_a_fake_resolver():
+    guard_public_url(
+        "https://example.com/docs",
+        resolve=_resolve({"example.com": "93.184.216.34"}),
+    )
+
+
+def test_guard_refuses_a_name_that_resolves_to_a_private_address():
+    with pytest.raises(PermissionError, match="non-public"):
+        guard_public_url("https://example.com/", resolve=_resolve({"example.com": "10.1.2.3"}))
+
+
+def test_guard_refuses_a_name_that_resolves_to_loopback():
+    with pytest.raises(PermissionError, match="non-public"):
+        guard_public_url("https://example.com/docs", resolve=_resolve({"example.com": "127.0.0.1"}))
+
+
+def test_guard_refuses_when_resolution_fails():
+    with pytest.raises(PermissionError, match="does not resolve"):
+        guard_public_url("https://example.com/", resolve=_resolve({"example.com": OSError("down")}))
+
+
+def test_guard_defaults_to_the_injected_socket_resolver(monkeypatch):
+    seen = {}
+
+    def fake(host, port, *args, **kwargs):
+        seen["host"] = host
+        seen["port"] = port
+        return [(None, None, None, None, ("93.184.216.34", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
     guard_public_url("https://example.com/docs")
+    assert seen == {"host": "example.com", "port": 443}
 
 
 def test_http_fetch_denied_without_authorization():

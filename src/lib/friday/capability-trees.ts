@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { desktopApi, isDesktopApp, safeCall } from "./desktop";
+import { deferEffect } from "./defer-effect";
 
 export type CapabilityTree =
   "agents" | "skills" | "tools" | "modules" | "plugins" | "workflows" | "models";
@@ -112,9 +113,12 @@ export function useCapabilities(tree?: CapabilityTree) {
 
   useEffect(() => {
     if (!isDesktopApp()) return;
-    void refresh();
+    const stop = deferEffect(() => void refresh());
     const off = api()?.onCapabilitiesChanged?.(() => void refresh());
-    return () => off?.();
+    return () => {
+      stop();
+      off?.();
+    };
   }, [refresh]);
 
   const items = useMemo(

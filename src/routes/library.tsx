@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deferEffect } from "@/lib/friday/defer-effect";
 import { Download, FolderOpen, Pin, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -76,8 +77,12 @@ function LibraryPage() {
   }, [desktop]);
 
   useEffect(() => {
-    void pull();
-    return library.subscribe(() => setItems(library.list()));
+    const stop = deferEffect(() => void pull());
+    const off = library.subscribe(() => setItems(library.list()));
+    return () => {
+      stop();
+      off();
+    };
   }, [pull]);
 
   useEffect(() => {
