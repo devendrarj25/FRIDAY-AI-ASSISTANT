@@ -24,6 +24,13 @@ const engine = require_(path.resolve(process.cwd(), "scripts/release-engine.cjs"
     existing?: boolean;
     reason: string;
   };
+  releasePreview: (input: Record<string, unknown>) => {
+    ok: boolean;
+    version?: string;
+    tag?: string;
+    bump?: string;
+  };
+  stableConsumed: (...lists: string[][]) => string[];
   syncDocs: (previous: string, clean: string, opts: { root: string }) => string[];
 };
 
@@ -147,6 +154,55 @@ describe("release decision", () => {
     expect(d.bump).toBe("none");
   });
 
+  it("previews the same number the workflow will publish", () => {
+    const kept = engine.releasePreview({
+      mode: "auto",
+      current: "1.0.1.2",
+      baseline: "1.0.1.2",
+      type: "auto",
+      released: ["v1.0.1.2"],
+      subjects: ["feat: a larger update"],
+    });
+    expect(kept.ok).toBe(true);
+    expect(kept.version).toBe("1.0.1.2");
+    expect(kept.bump).toBe("none");
+    const major = engine.releasePreview({
+      mode: "auto",
+      current: "1.0.1.2",
+      baseline: "1.0.1.2",
+      type: "major",
+      released: ["1.0.1.2", "v1.0.1.2-test.3"],
+      subjects: ["feat: a larger update"],
+    });
+    expect(major.version).toBe("1.1.1.2");
+    expect(major.bump).toBe("major");
+    expect(major.tag).toBe("v1.1.1.2");
+    expect(engine.stableConsumed(["v1.0.1.2-test.3"], ["v1.0.1.2"])).toEqual(["1.0.1.2"]);
+  });
+
+  it("moves an explicit counter from a never-published line", () => {
+    const major = engine.decideRelease({
+      mode: "update",
+      type: "major",
+      current: "1.0.1.2",
+      baseline: "1.0.1.2",
+      released: [],
+      subjects: ["feat: a larger update"],
+    });
+    expect(major.version).toBe("1.1.1.2");
+    expect(major.bump).toBe("major");
+    const autoLevel = engine.decideRelease({
+      mode: "auto",
+      type: "patch",
+      current: "1.0.1.2",
+      baseline: "1.0.1.2",
+      released: [],
+      subjects: [],
+    });
+    expect(autoLevel.version).toBe("1.0.1.3");
+    expect(autoLevel.bump).toBe("patch");
+  });
+
   it("opens a confirm PR for the first unpublished public line when nothing is tagged", () => {
     const d = engine.decideRelease({
       mode: "auto",
@@ -192,8 +248,8 @@ describe("release decision", () => {
       { cwd: process.cwd(), encoding: "utf8" },
     );
     const decided = JSON.parse(out) as { version: string; bump: string };
-    expect(decided.version).toBe("1.0.0.2");
-    expect(decided.bump).toBe("none");
+    expect(decided.version).toBe("1.0.1.2");
+    expect(decided.bump).toBe("minor");
   });
 
   it("does not let auto skip a declared version just because the changelog names it", () => {

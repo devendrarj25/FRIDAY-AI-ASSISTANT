@@ -47,6 +47,9 @@ describe("github-release.cjs", () => {
     expect(src).toContain("identityFromCanonical");
     expect(src).toContain("contents/package.json?ref=main");
     expect(src).toContain("engine.stableBaseline");
+    expect(src).toContain("engine.releasePreview");
+    expect(src).toContain("engine.stableConsumed");
+    expect(src).not.toContain("engine.plan(");
     expect(src).toContain("compareBuilds");
     expect(src).toContain("(?:\\.\\d+)?");
     expect(src).toContain("release\\/v\\d+");

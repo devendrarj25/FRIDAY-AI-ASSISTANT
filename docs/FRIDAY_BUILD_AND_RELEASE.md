@@ -39,9 +39,9 @@ Official `mode` means one of these:
 
 - **rebuild** — pack the **same version** again and replace the release assets. `revision` is this same rebuild. The number does not move.
 - **update** — move one counter, open the `release/v…` pull request, then publish. The number is used only after that publish succeeds. The same release type retries a failed number. A different explicit level skips that number and counts from the last success.
-- **auto**, when `release_type` is also auto — finish the unpublished line as it stands. It does not invent the next number. If you pick patch, minor, major, or extreme yourself, only that one counter moves, even when `mode` is auto.
+- **auto**, when `release_type` is also auto — finish the unpublished line as it stands. It does not invent the next number. If you pick patch, minor, major, or extreme yourself, only that one counter moves, even when `mode` is auto, and even when that line has never been published. A stable git tag counts as a published number, the same as a GitHub release.
 
-`scripts/release-engine.cjs` writes the identity into the tree before the pack. An installed copy checks the SHA256 in `friday-update.json` before it replaces itself.
+`scripts/release-engine.cjs` writes the identity into the tree before the pack. The in-app Analyze preview asks that same decision, including a stable git tag, and does not compute a second number. The in-app update check and the release list both read up to 100 GitHub releases, the same window Release / Build uses. An installed copy checks the SHA256 in `friday-update.json` before it replaces itself.
 
 ## 3. 🧪 TEST identity
 

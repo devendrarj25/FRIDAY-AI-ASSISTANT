@@ -120,6 +120,38 @@ describe("orchestration · rebuild mode", () => {
     });
   });
 
+  it("moves an explicit major when the declared line has never been published", () => {
+    const plan = engine.orchestrationPlan({
+      mode: "update",
+      releaseType: "major",
+      mainVersion: "1.0.1.2",
+      prepared: [],
+      released: [],
+    });
+    expect(plan).toMatchObject({ step: "prepare", version: "1.1.1.2", publishMode: "update" });
+  });
+
+  it("treats a stable tag as a published number when no GitHub release is listed", () => {
+    const kept = engine.orchestrationPlan({
+      mode: "auto",
+      mainVersion: "1.0.1.2",
+      prepared: [],
+      released: [],
+      tags: ["v1.0.1.2"],
+    });
+    expect(kept.step).toBe("error");
+    expect(kept.version).toBe("1.0.1.2");
+    const next = engine.orchestrationPlan({
+      mode: "update",
+      releaseType: "major",
+      mainVersion: "1.0.1.2",
+      prepared: [],
+      released: [],
+      tags: ["v1.0.1.2"],
+    });
+    expect(next).toMatchObject({ step: "prepare", version: "1.1.1.2" });
+  });
+
   it("rebuilds even when the version was never released, without bumping", () => {
     const plan = engine.orchestrationPlan({
       mode: "rebuild",
