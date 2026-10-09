@@ -4,16 +4,17 @@
 # workflow: the same secret scan, CodeQL and dependency audit run inside
 # PR Validation, so a ready pull request pays for them once.
 #
-# Three independent checks. Only a leaked secret turns the run red; code-scanning
-# findings go to the Security tab, and dependency advisories are warnings, so a
-# brand-new upstream advisory never fails a build that nobody touched.
+# Three independent checks. A leaked secret turns the secret scan red. A high,
+# critical, or unknown-severity advisory that is not on the unexpired allow-list
+# turns the audit job red. Moderate and low advisories warn. CodeQL findings
+# stay on the Security tab.
 #
 #   secrets  - gitleaks over the full history (the gitleaks binary from its
 #              official container, so no licence key is needed)
 #   codeql   - JavaScript/TypeScript + Python code scanning (public repositories
 #              only; private ones need GitHub Advanced Security, so it is skipped
 #              there instead of failing)
-#   audit    - npm audit and pip-audit, informational
+#   audit    - npm audit and pip-audit through scripts/advisory-audit.cjs
 
 name: Security Scan
 
@@ -122,16 +123,10 @@ jobs:
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
-      - name: npm audit (informational)
-        run: |
-          if ! npm audit --audit-level=high --omit=dev; then
-            echo "::warning title=npm audit::High or critical advisory found. Dependabot will open the fix as a pull request."
-          fi
+      - name: Python for the advisory check
+        uses: ./.github/actions/python
 
-      - name: pip-audit (informational)
+      - name: Dependency advisories
         run: |
-          if ! python3 -m pip install --quiet pip-audit; then
-            echo "::warning title=pip-audit::pip-audit could not be installed. The advisory check was skipped."
-          elif ! python3 -m pip_audit -r kernel/requirements.txt; then
-            echo "::warning title=pip-audit::Advisory found in the kernel requirements."
-          fi
+          python -m pip install --quiet pip-audit
+          node scripts/advisory-audit.cjs

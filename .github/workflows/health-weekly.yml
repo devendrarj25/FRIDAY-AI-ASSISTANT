@@ -2,8 +2,9 @@
 #
 # For a project that is worked on in bursts. Once a week (and on demand) it runs
 # the very same script as `npm run resume` - typecheck, docs and version sync,
-# kernel tests, the full test suite, the pricing-knowledge freshness check and an
-# informational dependency audit - on the default branch.
+# kernel tests, the full test suite, the pricing-knowledge freshness check, and
+# the advisory script in report-only mode, on the default branch. A blocking
+# advisory warns in that report and does not fail this run.
 #
 # It keeps ONE issue up to date instead of spamming red runs:
 #   - something is broken   -> opens the issue "FRIDAY health check failing"
@@ -59,7 +60,10 @@ jobs:
 
       - name: Install kernel test dependencies
         # resume.cjs calls python3 on Linux. Install into that same interpreter.
-        run: python3 -m pip install -r kernel/requirements-dev.txt
+        # The advisory script calls `python`, which the Python action put on PATH.
+        run: |
+          python3 -m pip install -r kernel/requirements-dev.txt
+          python -m pip install --quiet pip-audit
 
       - name: Run the health check
         id: health

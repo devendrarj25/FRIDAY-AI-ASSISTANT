@@ -89,13 +89,17 @@ step("kernel tests", () => {
 });
 step("full test suite", cmd("npm", ["test", "--silent"]));
 if (CI) {
-  // Informational only: a new upstream advisory must never turn the project red
-  // by itself. It is listed so it gets looked at, not so it blocks anything.
+  // The weekly health run stays green. The same advisory script warns here.
+  // PR Validation and Security Scan fail on a blocking advisory.
   step("dependency audit (info)", () => {
-    const r = run("npm", ["audit", "--audit-level=high", "--omit=dev"]);
-    return r.status === 0
-      ? { status: "PASS" }
-      : { status: "WARN", note: "high/critical advisory - run: npm audit" };
+    const r = run(process.execPath, ["scripts/advisory-audit.cjs", "--report-only"]);
+    const line =
+      String(r.stdout || "")
+        .split("\n")
+        .find((row) => row.startsWith("advisory audit:")) || "";
+    const blocking = Number((line.match(/(\d+) blocking/) || [])[1] || 0);
+    if (!line) return { status: "WARN", note: "advisory audit could not run" };
+    return blocking ? { status: "WARN", note: line } : { status: "PASS" };
   });
 }
 

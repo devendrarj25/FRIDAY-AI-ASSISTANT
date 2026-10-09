@@ -4,7 +4,8 @@
 # on manual dispatch. One run covers what used to be split across CI Fast and
 # the pull-request Security Scan: typecheck, docs and version sync, layout and
 # architecture audits, kernel tests, the full Vitest suite, a warn-only
-# "code changed without a test" note, secret scan, CodeQL, dependency audit,
+# "code changed without a test" note, secret scan, CodeQL, and the dependency
+# advisory policy (high, critical, and unknown severity fail unless allow-listed),
 # and (unless the change is documentation only) a real Windows NSIS installer
 # plus install/boot/uninstall smoke. It never versions, tags, publishes or
 # writes to main. It does not enforce branch protection. A public repository
@@ -281,18 +282,17 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Python for the kernel tests
+      - name: Python for lint and kernel tests
         uses: ./.github/actions/python
 
+      - name: Install kernel dev requirements
+        run: python -m pip install -r kernel/requirements-dev.txt
+
       - name: Lint
-        run: |
-          python -m pip install -r kernel/requirements-dev.txt
-          npm run lint
+        run: npm run lint
 
       - name: Kernel tests
-        run: |
-          python -m pip install -r kernel/requirements-dev.txt
-          npm run test:kernel
+        run: npm run test:kernel
 
       - name: Verify FRIDAY layout and dependencies
         run: |
@@ -490,16 +490,10 @@ jobs:
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
-      - name: npm audit (informational)
-        run: |
-          if ! npm audit --audit-level=high --omit=dev; then
-            echo "::warning title=npm audit::High or critical advisory found. Dependabot will open the fix as a pull request."
-          fi
+      - name: Python for the advisory check
+        uses: ./.github/actions/python
 
-      - name: pip-audit (informational)
+      - name: Dependency advisories
         run: |
-          if ! python3 -m pip install --quiet pip-audit; then
-            echo "::warning title=pip-audit::pip-audit could not be installed. The advisory check was skipped."
-          elif ! python3 -m pip_audit -r kernel/requirements.txt; then
-            echo "::warning title=pip-audit::Advisory found in the kernel requirements."
-          fi
+          python -m pip install --quiet pip-audit
+          node scripts/advisory-audit.cjs
