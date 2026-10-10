@@ -1236,6 +1236,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "mcp:desk",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:ai-suggest",
       file: "electron/main.cjs",
     },
@@ -8425,8 +8429,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 437,
-      total: 437,
+      mapped: 438,
+      total: 438,
     },
     kernel: {
       mapped: 14,

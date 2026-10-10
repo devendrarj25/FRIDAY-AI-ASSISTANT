@@ -4035,6 +4035,46 @@ const CONNECTORS = {
           };
         },
       },
+      resources: {
+        label: "List MCP resources",
+        risk: "safe",
+        run: async ({ fields, fetchImpl }) => {
+          const listed = await mcpClient.resourcesFromConfig({
+            command: text(fields.command),
+            url: text(fields.url),
+            bearer: text(fields.bearer),
+            fetchImpl,
+            ownerAllowed: true,
+          });
+          if (!listed.ok) return listed;
+          const rows = Array.isArray(listed.resources) ? listed.resources : [];
+          return {
+            ok: true,
+            lines: rows.map((row) => `${row.uri || row.name || "resource"}`),
+            data: listed,
+          };
+        },
+      },
+      prompts: {
+        label: "List MCP prompts",
+        risk: "safe",
+        run: async ({ fields, fetchImpl }) => {
+          const listed = await mcpClient.promptsFromConfig({
+            command: text(fields.command),
+            url: text(fields.url),
+            bearer: text(fields.bearer),
+            fetchImpl,
+            ownerAllowed: true,
+          });
+          if (!listed.ok) return listed;
+          const rows = Array.isArray(listed.prompts) ? listed.prompts : [];
+          return {
+            ok: true,
+            lines: rows.map((row) => `${row.name || "prompt"}`),
+            data: listed,
+          };
+        },
+      },
     },
   },
 

@@ -61,6 +61,7 @@ import { readFlowIntent } from "../flow-tools";
 import { readSettingsIntent } from "./settings-intents";
 import { looksLikeLockedWiringSwitch, looksLikeWiringQuestion } from "../wiring-ask";
 import { socialLine, type SocialKind } from "../conversation-style";
+import { backgroundNotice } from "../voice-session";
 import { handleOwnerWork } from "../owner-work";
 import { describeUserProfile } from "./user-profile";
 import { describeFridayBehaviour } from "./identity";
@@ -707,7 +708,19 @@ function live(resolve: () => Promise<string>, confidence: number): BaselineReply
  * A live task or reminder, spoken only from the proactivity budget.
  * Greetings do not call this. Nothing is invented: an empty ledger says nothing.
  */
-export function proactiveNote(): string {
+export function proactiveNote(gate?: {
+  killed?: boolean;
+  quiet?: boolean;
+  ownerBusy?: boolean;
+  urgent?: boolean;
+}): string {
+  const notice = backgroundNotice({
+    killed: gate?.killed === true,
+    quiet: gate?.quiet === true,
+    ownerBusy: gate?.ownerBusy === true,
+    urgent: gate?.urgent === true,
+  });
+  if (notice.deliver !== "now") return "";
   const notes: string[] = [];
   try {
     const tasks = ledger.list();

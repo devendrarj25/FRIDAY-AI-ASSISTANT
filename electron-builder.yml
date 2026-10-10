@@ -34,6 +34,10 @@ files:
 asarUnpack:
   - "resources/toolchain/**"
   - "resources/speech/**"
+  # The stdio launcher runs under Electron as Node, outside the asar.
+  - "electron/friday-mcp.cjs"
+  - "electron/mcp-protocol.cjs"
+  - "electron/mcp-launch.cjs"
 
 extraResources:
   - from: kernel

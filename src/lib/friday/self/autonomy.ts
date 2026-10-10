@@ -144,13 +144,21 @@ class AutonomyStore {
     if (persist) writeState(STORAGE_KEY, this.state);
   }
 
-  /** Stop everything. Persists until the owner resumes. */
+  /** Stop everything. Persists until the owner resumes. Also halts MCP calls. */
   stopEverything(): AutonomySettings {
-    return this.update({ halted: true });
+    const next = this.update({ halted: true });
+    void import("../desktop")
+      .then(({ desktopApi }) => desktopApi()?.mcpDesk?.({ action: "halt" }))
+      .catch(() => undefined);
+    return next;
   }
 
   resume(): AutonomySettings {
-    return this.update({ halted: false });
+    const next = this.update({ halted: false });
+    void import("../desktop")
+      .then(({ desktopApi }) => desktopApi()?.mcpDesk?.({ action: "resume" }))
+      .catch(() => undefined);
+    return next;
   }
 
   /** Merge-patch — flipping one control never drops the rest. */

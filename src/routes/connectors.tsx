@@ -8,7 +8,7 @@
  * gate as the rest of FRIDAY.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plug, RefreshCw, Search, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -28,6 +28,7 @@ import {
   type Connector,
   type ConnectorAction,
 } from "@/lib/friday/connectors";
+import { desktopApi, safeCall } from "@/lib/friday/desktop";
 
 export const Route = createFileRoute("/connectors")({
   head: () => ({
@@ -325,6 +326,228 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
   );
 }
 
+type McpClientRow = { id: string; scopes?: string[]; label?: string };
+type McpApproval = { id: string; tool: string; risk: string; clientId: string };
+type McpSnippet = {
+  id: string;
+  title: string;
+  text?: string;
+  path?: string;
+  write?: boolean;
+  note?: string;
+};
+type McpStatus = {
+  ok?: boolean;
+  enabled?: boolean;
+  halted?: boolean;
+  clients?: McpClientRow[];
+  approvals?: McpApproval[];
+  code?: string;
+  token?: string;
+  installSecret?: string;
+  error?: string;
+  clientsSnippets?: McpSnippet[];
+};
+
+const MCP_SCOPES = ["read", "write", "exec", "memory", "browser", "sandbox", "files"];
+
+function McpServerPanel() {
+  const [status, setStatus] = useState<McpStatus | null>(null);
+  const [secret, setSecret] = useState("");
+  const [token, setToken] = useState("");
+  const [code, setCode] = useState("");
+  const [scopes, setScopes] = useState<string[]>(["read"]);
+  const [snippets, setSnippets] = useState<McpSnippet[]>([]);
+  const [picked, setPicked] = useState("cursor");
+  const [notice, setNotice] = useState("");
+
+  async function refresh() {
+    const row = await safeCall<McpStatus>(
+      "mcp-desk:status",
+      () => desktopApi()?.mcpDesk?.({ action: "status" }) as Promise<McpStatus>,
+      { fallback: { ok: false, error: "Desktop bridge is not available." } },
+    );
+    if (row) setStatus(row);
+  }
+
+  useEffect(() => {
+    void safeCall<McpStatus>(
+      "mcp-desk:status",
+      () => desktopApi()?.mcpDesk?.({ action: "status" }) as Promise<McpStatus>,
+      { fallback: { ok: false, error: "Desktop bridge is not available." } },
+    ).then((row) => {
+      if (row) setStatus(row);
+    });
+    void safeCall<{ ok?: boolean; clients?: McpSnippet[] }>(
+      "mcp-desk:snippet",
+      () => desktopApi()?.mcpDesk?.({ action: "snippet" }) as Promise<{ clients?: McpSnippet[] }>,
+    ).then((row) => {
+      if (row?.clients?.length) setSnippets(row.clients);
+    });
+  }, []);
+
+  async function run(action: string, extra: Record<string, unknown> = {}) {
+    const row = await safeCall<McpStatus>(
+      `mcp-desk:${action}:${JSON.stringify(extra)}`,
+      () => desktopApi()?.mcpDesk?.({ action, ...extra }) as Promise<McpStatus>,
+      { fallback: { ok: false, error: "Desktop bridge is not available." } },
+    );
+    if (!row) return;
+    if (row.installSecret) setSecret(row.installSecret);
+    if (row.token) setToken(row.token);
+    if (row.code) setCode(row.code);
+    if (row.error) setNotice(row.error);
+    else if (action === "write-config")
+      setNotice("Wrote the config and kept a backup when the file already existed.");
+    else setNotice("");
+    await refresh();
+  }
+
+  const snippet = snippets.find((row) => row.id === picked);
+  const shown = snippet?.text || "";
+
+  return (
+    <HudPanel title="FRIDAY as an MCP server" hint={status?.enabled ? "On" : "Off"}>
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Off until you turn it on. Clients pair with a short code you approve here. The default
+          scope is read. Write and exec still wait for you, and Stop everything halts every call.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => void run("enable")}>
+            Turn on
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void run("disable")}>
+            Turn off
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void run("pair")}>
+            New code
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void run("panic")}>
+            Panic
+          </Button>
+        </div>
+        {code && <p className="font-mono text-xs">Pairing code {code}</p>}
+        <div className="flex flex-wrap gap-2">
+          {MCP_SCOPES.map((scope) => (
+            <Button
+              key={scope}
+              size="sm"
+              variant={scopes.includes(scope) ? "default" : "outline"}
+              onClick={() =>
+                setScopes((current) =>
+                  current.includes(scope)
+                    ? current.filter((item) => item !== scope)
+                    : [...current, scope],
+                )
+              }
+            >
+              {scope}
+            </Button>
+          ))}
+          <Button size="sm" variant="outline" onClick={() => void run("approve", { code, scopes })}>
+            Approve code
+          </Button>
+        </div>
+        {secret && (
+          <p className="font-mono text-xs text-muted-foreground">
+            Install secret (shown once): {secret}
+          </p>
+        )}
+        {token && (
+          <p className="font-mono text-xs text-muted-foreground">
+            Client token (shown once): {token}
+          </p>
+        )}
+        {(status?.clients || []).map((client) => (
+          <div key={client.id} className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-mono">
+              {client.label || client.id} · {(client.scopes || []).join(", ")}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void run("revoke", { clientId: client.id })}
+            >
+              Revoke
+            </Button>
+          </div>
+        ))}
+        {(status?.approvals || []).map((row) => (
+          <div key={row.id} className="space-y-1 rounded-md border border-border p-2 text-xs">
+            <p>
+              {row.clientId} asks to run {row.tool} ({row.risk}).
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void run("decide", { approvalId: row.id, allow: true })}
+              >
+                Allow
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void run("decide", { approvalId: row.id, allow: false })}
+              >
+                Deny
+              </Button>
+              {row.risk !== "exec" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void run("always", { clientId: row.clientId, tool: row.tool })}
+                >
+                  Always allow this tool
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+        {snippets.length > 0 && (
+          <div className="space-y-2">
+            <FilterTabs
+              value={picked}
+              onChange={setPicked}
+              tabs={snippets.map((row) => ({ key: row.id, label: row.title }))}
+            />
+            {snippet?.note && <p className="text-xs text-muted-foreground">{snippet.note}</p>}
+            {snippet?.path && <p className="font-mono text-xs">{snippet.path}</p>}
+            <textarea
+              readOnly
+              value={shown}
+              className="h-28 w-full rounded-md border border-border bg-transparent p-2 font-mono text-xs"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(shown);
+                  setNotice("Copied.");
+                }}
+              >
+                Copy
+              </Button>
+              {snippet?.write && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void run("write-config", { id: picked })}
+                >
+                  Write it for me
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {notice && <p className="text-xs text-muted-foreground">{notice}</p>}
+      </div>
+    </HudPanel>
+  );
+}
+
 function ConnectorsPage() {
   const { connectors, loading, supported, refresh } = useConnectors();
   const [query, setQuery] = useState("");
@@ -381,6 +604,8 @@ function ConnectorsPage() {
             tone="warning"
           />
         </div>
+
+        <McpServerPanel />
 
         {!supported && (
           <HudPanel title="Desktop only">

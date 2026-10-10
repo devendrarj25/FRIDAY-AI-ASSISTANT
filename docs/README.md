@@ -29,6 +29,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | [docs/FRIDAY_MASTER_FLOW.md](FRIDAY_MASTER_FLOW.md) | The owner operating loop and which live module owns each stage | developers, AI tools |
 | [docs/FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md) | The single FRIDAY root, what Setup may replace, and what uninstall may delete | developers, AI tools |
 | [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](FRIDAY_PROVIDERS_AND_SECRETS.md) | Local model engines, cloud providers, encrypted keys, billing firewall, and privacy egress | owner, developers |
+| [docs/FRIDAY_MCP.md](FRIDAY_MCP.md) | How FRIDAY speaks MCP as a local server and as a client, including pairing, scopes, and the exposed tools | owner, developers |
 
 ## 3. Build, version, release and update
 

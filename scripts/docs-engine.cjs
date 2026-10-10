@@ -18,7 +18,9 @@
  *     stated in FRIDAY_STATE.md or docs/FRIDAY_FEATURES.md differ from the disk
  *     (`--fix` rewrites them, so adding a skill never leaves a stale number).
  *
- * It never rewrites a document body: only the generated index blocks. Version
+ * It never rewrites a document body except generated blocks: the index, the
+ * map, the kernel routes, the capability counts, and the MCP surface index
+ * in docs/FRIDAY_MCP.md plus config/mcp-surface.json. Version
  * declarations stay owned by `scripts/release-engine.cjs` (`syncDocs`), which
  * calls this engine on every release so documentation is future-proof - a new
  * release, upgrade or new document keeps the whole set synchronised without
@@ -146,6 +148,15 @@ const DOCUMENTS = [
     answers:
       "Local model engines, cloud providers, encrypted keys, billing firewall, and privacy egress",
     topic: "Providers, credentials, billing and privacy firewalls",
+  },
+  {
+    file: "docs/FRIDAY_MCP.md",
+    title: "FRIDAY — Model Context Protocol",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "How FRIDAY speaks MCP as a local server and as a client, including pairing, scopes, and the exposed tools",
+    topic: "MCP server, MCP client, pairing, and scopes",
   },
   {
     file: "docs/FRIDAY_BUILD_AND_RELEASE.md",
@@ -345,6 +356,49 @@ const MAP_END = "<!-- docs-engine: end generated map -->";
 const ROUTE_START =
   "<!-- docs-engine: generated kernel routes. Edit scripts/docs-engine.cjs, not this. -->";
 const ROUTE_END = "<!-- docs-engine: end generated kernel routes -->";
+const MCP_START =
+  "<!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->";
+const MCP_END = "<!-- docs-engine: end generated mcp surface -->";
+
+function mcpSurfaceJson() {
+  const catalog = require("../electron/mcp-catalog.cjs");
+  return catalog.surfaceManifest(ROOT);
+}
+
+function mcpSurfaceBlock() {
+  const surface = mcpSurfaceJson();
+  const lines = [
+    MCP_START,
+    "",
+    "Protocol `" +
+      surface.protocol +
+      "`. Kernel tools in the risk table: " +
+      surface.kernelTools +
+      ".",
+    "",
+    "| Tool | Risk | Scopes |",
+    "| --- | --- | --- |",
+  ];
+  for (const tool of surface.exposedTools) {
+    lines.push(`| \`${tool.name}\` | ${tool.risk} | ${tool.scopes.join(", ")} |`);
+  }
+  lines.push("", "Resources:", "");
+  for (const uri of surface.resources) lines.push(`- \`${uri}\``);
+  lines.push("", "Prompts:", "");
+  for (const name of surface.prompts) lines.push(`- \`${name}\``);
+  lines.push("", "Withheld kernel tools stay on the desktop:", "");
+  for (const row of surface.withheld) lines.push(`- \`${row.kernel}\` — ${row.reason}`);
+  lines.push("", MCP_END);
+  return `${lines.join("\n")}\n`;
+}
+
+function mcpSurfaceStale() {
+  if (!exists("docs/FRIDAY_MCP.md")) return true;
+  if (!read("docs/FRIDAY_MCP.md").includes(mcpSurfaceBlock().trimEnd())) return true;
+  const expected = `${JSON.stringify(mcpSurfaceJson(), null, 2)}\n`;
+  if (!exists("config/mcp-surface.json")) return true;
+  return read("config/mcp-surface.json") !== expected;
+}
 
 const linkFrom = (fromDir, rel) => {
   const target = path.relative(fromDir, path.join(ROOT, rel)).split(path.sep).join("/");
@@ -465,6 +519,11 @@ function writeBlock(rel, start, end, body, { anchor } = {}) {
   if (after === before) return false;
   fs.writeFileSync(file, after);
   return true;
+}
+
+/** Write a generated text file. Kept above inspect() so inspect never writes. */
+function writeUtf8(rel, text) {
+  fs.writeFileSync(path.join(ROOT, rel), text);
 }
 
 /* ---------------------------------------------------- capability counts --- */
@@ -626,6 +685,7 @@ function inspect() {
     mapStale,
     kernelRoutesStale,
     flowStale,
+    mcpSurfaceStale: mcpSurfaceStale(),
     countDrift: countDrift(),
     get ok() {
       return (
@@ -638,6 +698,7 @@ function inspect() {
         !this.mapStale &&
         !this.kernelRoutesStale &&
         !this.flowStale &&
+        !this.mcpSurfaceStale &&
         !this.countDrift.length
       );
     },
@@ -672,6 +733,18 @@ function sync({ root = ROOT } = {}) {
   )
     touched.push("ARCHITECTURE.md");
   for (const rel of syncCounts()) if (!touched.includes(rel)) touched.push(rel);
+  if (exists("docs/FRIDAY_MCP.md")) {
+    if (writeBlock("docs/FRIDAY_MCP.md", MCP_START, MCP_END, mcpSurfaceBlock().trimEnd())) {
+      touched.push("docs/FRIDAY_MCP.md");
+    }
+    const surfaceFile = path.join(ROOT, "config/mcp-surface.json");
+    const surfaceText = `${JSON.stringify(mcpSurfaceJson(), null, 2)}\n`;
+    const prior = fs.existsSync(surfaceFile) ? fs.readFileSync(surfaceFile, "utf8") : "";
+    if (prior !== surfaceText) {
+      writeUtf8("config/mcp-surface.json", surfaceText);
+      touched.push("config/mcp-surface.json");
+    }
+  }
   return touched;
 }
 
@@ -694,6 +767,7 @@ function main() {
   console.log(`kernel routes stale  : ${report.kernelRoutesStale}`);
   console.log(`flow registry stale  : ${report.flowStale}`);
   console.log(`capability counts off: ${report.countDrift.length}`);
+  console.log(`mcp surface stale    : ${report.mcpSurfaceStale}`);
   for (const rel of report.missing) console.log(`  missing        ${rel}`);
   for (const rel of report.unregistered)
     console.log(`  unregistered   ${rel} -> add it to scripts/docs-engine.cjs`);

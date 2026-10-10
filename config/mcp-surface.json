@@ -1,0 +1,794 @@
+{
+  "protocol": "2026-07-28",
+  "supported": [
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25",
+    "2026-07-28"
+  ],
+  "kernelTools": 51,
+  "exposedTools": [
+    {
+      "name": "friday.ask",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.browser.act",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "browser"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "friday.browser.read",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "browser"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "friday.calendar.list",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.doctor",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.files.read",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.files.search",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.files.write",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.memory.forget",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "memory"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.memory.read",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "memory"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.memory.remember",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "memory"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.memory.search",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "memory"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.models",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.notify",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.plan",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.reminders.list",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.run_task",
+      "risk": "exec",
+      "scopes": [
+        "exec"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.sandbox.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.status",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.task.result",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.tasks.list",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.thread.append",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.thread.read",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "friday.web.search",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "kernel.ci.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.cpp.build",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.cpp.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.read",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.write",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.branch",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.commit",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.diff",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.log",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.push",
+      "risk": "exec",
+      "scopes": [
+        "exec"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.git.status",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.http.fetch",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "kernel.java.compile",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.java.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.node.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.npm.install",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.npm.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.pip.freeze",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.pip.install",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.pip.list",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.pip.show",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.pip.uninstall",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.python.exec",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.test.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "withheld": [
+    {
+      "kernel": "android.input",
+      "reason": "Typing on another device stays on the desktop."
+    },
+    {
+      "kernel": "android.list",
+      "reason": "A device list is not an MCP tool."
+    },
+    {
+      "kernel": "android.mirror",
+      "reason": "Showing another device's screen is not an MCP tool."
+    },
+    {
+      "kernel": "android.open_app",
+      "reason": "Controlling another device stays on the desktop."
+    },
+    {
+      "kernel": "android.transfer",
+      "reason": "Copying to another device stays on the desktop."
+    },
+    {
+      "kernel": "app.close",
+      "reason": "Closing another application stays on the desktop."
+    },
+    {
+      "kernel": "app.focus",
+      "reason": "Focusing another application stays on the desktop."
+    },
+    {
+      "kernel": "app.launch",
+      "reason": "Launching another application stays on the desktop."
+    },
+    {
+      "kernel": "app.list_windows",
+      "reason": "Window titles stay on the desktop."
+    },
+    {
+      "kernel": "bluetooth.list",
+      "reason": "A device list is not an MCP tool."
+    },
+    {
+      "kernel": "bluetooth.media",
+      "reason": "Media keys on another device stay on the desktop."
+    },
+    {
+      "kernel": "bluetooth.scan",
+      "reason": "A nearby-device scan is not an MCP tool."
+    },
+    {
+      "kernel": "bluetooth.send_file",
+      "reason": "Sending a file to another device stays on the desktop."
+    },
+    {
+      "kernel": "clipboard.read",
+      "reason": "The clipboard can hold a secret."
+    },
+    {
+      "kernel": "clipboard.write",
+      "reason": "The clipboard can hold a secret."
+    },
+    {
+      "kernel": "input.click",
+      "reason": "Desktop input is not an MCP tool."
+    },
+    {
+      "kernel": "input.drag",
+      "reason": "Desktop input is not an MCP tool."
+    },
+    {
+      "kernel": "input.hotkey",
+      "reason": "Desktop input is not an MCP tool."
+    },
+    {
+      "kernel": "input.scroll",
+      "reason": "Desktop input is not an MCP tool."
+    },
+    {
+      "kernel": "input.type",
+      "reason": "Desktop input is not an MCP tool."
+    },
+    {
+      "kernel": "network.cast",
+      "reason": "Casting to another device stays on the desktop."
+    },
+    {
+      "kernel": "network.discover",
+      "reason": "A network scan is not an MCP tool."
+    },
+    {
+      "kernel": "screen.perceive",
+      "reason": "Screen capture can read a credential prompt."
+    },
+    {
+      "kernel": "screen.read_text",
+      "reason": "Screen capture can read a credential prompt."
+    },
+    {
+      "kernel": "shell.cmd",
+      "reason": "Arbitrary shell strings are not an MCP tool."
+    },
+    {
+      "kernel": "shell.powershell",
+      "reason": "Arbitrary shell strings are not an MCP tool."
+    }
+  ],
+  "resources": [
+    "friday://status",
+    "friday://doctor",
+    "friday://activity",
+    "friday://thread/recent",
+    "friday://tasks",
+    "friday://memory/{id}",
+    "friday://workspace/{path}",
+    "friday://docs/{name}"
+  ],
+  "prompts": [
+    "daily_brief",
+    "plan_goal",
+    "summarize_folder",
+    "meeting_prep",
+    "review_code"
+  ]
+}

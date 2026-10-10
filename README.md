@@ -54,6 +54,7 @@ Each topic has one document. Open that document for the detail, and follow its l
 | Master operating flow | [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md) |
 | Storage root, install, update, uninstall | [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md) |
 | Providers, credentials, billing and privacy firewalls | [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md) |
+| MCP server, MCP client, pairing, and scopes | [docs/FRIDAY_MCP.md](docs/FRIDAY_MCP.md) |
 | Build paths, TEST identity, and Stable versus Test updates | [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) |
 | Version scheme and bump rules | [VERSIONING.md](VERSIONING.md) |
 | Release runbook | [RELEASE.md](RELEASE.md) |

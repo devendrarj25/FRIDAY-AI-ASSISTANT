@@ -616,6 +616,7 @@ type DesktopApi = {
       tokensPerSec?: number | null;
     }) => void,
   ) => () => void;
+  mcpDesk?: (payload: Record<string, unknown>) => Promise<unknown>;
 };
 
 export type RoutableMeta = {

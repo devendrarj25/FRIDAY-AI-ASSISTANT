@@ -6,7 +6,7 @@
 
 Discovery: `listCapabilities()` in `src/lib/friday/capability-trees.ts`. Disk trees: `electron/friday-contract.cjs` `TREES`. Landing path: `resolveLandingPath()` in `src/lib/friday/navigation.ts`. Root folders: `ensureStructure()` in `electron/friday-paths.cjs`. Public identity: `readCanonicalIdentity()` in `scripts/release-engine.cjs`.
 
-Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **117** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **32** in `kernel/tools.py`.
+Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **117** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **51** in `kernel/tools.py`.
 
 ## 1. Shell and routes
 
@@ -236,7 +236,7 @@ Same session for typed and spoken turns. A typed turn keeps the typed guide whil
 | Free now | `electron/model-router.cjs` `freeNowBoard`, `kernel/router.py` `free_now_entry` | `core/__tests__/usable-models.test.ts`, `kernel/tests/test_router_free_now.py` |
 | Turn packet | `src/lib/friday/brain/memory-policy.ts` `packTurnContext` | `core/__tests__/turn-context.test.ts` |
 | Life offers | `src/lib/friday/assistant-conduct.ts` `considerLifeTrigger` | `core/__tests__/assistant-conduct.test.ts` |
-| MCP scope | `electron/mcp-client.cjs` | `core/__tests__/mcp-client.test.ts`, `core/__tests__/connectors-oauth.test.ts` |
+| MCP scope | `electron/mcp-protocol.cjs`, `electron/mcp-server.cjs`, `electron/mcp-client.cjs` | `core/__tests__/mcp-platform.test.ts`, `core/__tests__/mcp-threat.test.ts`, `core/__tests__/mcp-client.test.ts` |
 
 ### Desktop autonomy research (2026-10-07)
 
@@ -250,7 +250,7 @@ Recorded once. Real Windows clicks, a full UI Automation tree, and live provider
 | Hosted vision-first desktop agents | REJECT | They skip the local-first path and the in-app autonomy dial. |
 | Durable orchestration replay | ADAPT | Checkpoint, idempotent steps, and bounded retry stay on the existing task graph. Source: learn.microsoft.com/en-us/azure/durable-task/common/durable-task-orchestrations (read 2026-10-07). |
 | A second workflow host | REJECT | One task graph is the durable run. |
-| MCP stdio, and HTTP bound to loopback | ADOPT | The listed tools are the allow list. Tool text is untrusted. Source: modelcontextprotocol.io/specification/2025-06-18/basic/transports and modelcontextprotocol.io/specification/2025-06-18/server/tools (read 2026-10-07). |
+| MCP stdio, and HTTP bound to loopback | ADOPT | The 2026-07-28 layer is shared. Tool text is untrusted. Detail: `docs/FRIDAY_MCP.md`. |
 | A hosted MCP endpoint | REJECT | A public URL is refused. OpenAPI import uses the same loopback rule and the existing read/exec split. |
 | Free-now source and age | ADOPT | `freeNowBoard` reads the access record the router already stores. A price changes only when `commitParsedKnowledge` accepts a parsed page. A miss leaves the last table, which still fails closed after 14 days. |
 | UI Automation physical bounds | ADOPT | `BoundingRectangle` is physical pixels. The normalizer maps every monitor into one 96-DPI desktop. A secure or credential window returns a handoff and no tree. Source: learn.microsoft.com/en-us/windows/win32/winauto/uiauto-screenscaling (read 2026-10-07). |

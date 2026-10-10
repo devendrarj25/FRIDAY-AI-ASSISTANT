@@ -57,6 +57,17 @@ describe("Windows input-safe packaging", () => {
     expect(main).toContain("process.resourcesPath");
   });
 
+  it("unpacks the MCP launcher next to the protocol it requires", () => {
+    const builder = read("electron-builder.yml");
+    expect(builder).toContain("electron/friday-mcp.cjs");
+    expect(builder).toContain("electron/mcp-protocol.cjs");
+    expect(builder).toContain("electron/mcp-launch.cjs");
+    const paths = read("electron/mcp-paths.cjs");
+    expect(paths).toContain("app.asar.unpacked");
+    expect(paths).toContain("ELECTRON_RUN_AS_NODE");
+    expect(paths).not.toMatch(/\bnpx\b/);
+  });
+
   it("allows session media on a normal launch and disables GPU only for the boot self-test", () => {
     const main = read("electron/main.cjs");
     expect(main).toMatch(/if \(permission === "media"\)/);
