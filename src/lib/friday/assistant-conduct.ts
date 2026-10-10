@@ -566,7 +566,7 @@ function briefOffer(input: { hour: number; openTasks: number }): string {
     openLoops: input.openTasks,
   });
   if (!offer) return "";
-  const note = proactiveNote();
+  const note = proactiveNote({ quiet: inQuietHours(input.hour) });
   return note ? `${offer} ${note}` : offer;
 }
 

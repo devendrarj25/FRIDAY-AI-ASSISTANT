@@ -83,6 +83,9 @@ const workflowPack = require("./workflow-pack.cjs");
 const fridayTools = require("./tools.cjs");
 const fridayModules = require("./modules.cjs");
 const connectors = require("./connectors.cjs");
+const mcpServer = require("./mcp-server.cjs");
+const mcpLaunch = require("./mcp-launch.cjs");
+const mcpPaths = require("./mcp-paths.cjs");
 const startupFlow = require("./startup.cjs");
 const fridayBrowser = require("./browser.cjs");
 const liveBrowser = require("./browser-live.cjs");
@@ -6488,6 +6491,42 @@ ipcMain.handle("connectors:phone-confirm", async (_e, id, values) => {
   const result = await connectors.confirmPhone(getWorkspaceRoot(), String(id || ""), values || {});
   send("connectors:changed", { id: String(id || ""), connected: Boolean(result.ok) });
   return result;
+});
+
+function mcpLauncherSpec() {
+  const launched = mcpPaths.resolveLauncher({
+    packaged: app.isPackaged,
+    appPath: app.getAppPath(),
+    execPath: process.execPath,
+  });
+  return {
+    command: launched.command,
+    args: [launched.script],
+    env: { ...launched.env, FRIDAY_MCP_TOKEN: "<paste the token FRIDAY shows once>" },
+    launcher: launched,
+  };
+}
+
+ipcMain.handle("mcp:desk", async (_e, payload) => {
+  const body = payload && typeof payload === "object" ? payload : {};
+  const action = String(body.action || "status");
+  if (action === "snippet") {
+    const spec = mcpLauncherSpec();
+    const clients = mcpLaunch.clients(spec).map((row) => ({
+      ...row,
+      text: typeof row.body === "string" ? row.body : JSON.stringify(row.body, null, 2),
+    }));
+    return { ok: true, clients, presets: mcpLaunch.PRESETS, launcher: spec.launcher };
+  }
+  if (action === "write-config") {
+    const spec = mcpLauncherSpec();
+    return mcpLaunch.writeClientConfig({
+      id: String(body.id || ""),
+      spec,
+      workspace: getWorkspaceRoot(),
+    });
+  }
+  return mcpServer.handleDesk(body, { workspace: getWorkspaceRoot() });
 });
 
 // ---- Startup orchestration (scan → services → verify → readiness) ----------

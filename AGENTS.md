@@ -194,6 +194,7 @@ Methods that already fit FRIDAY. Extend these. Do not replace them with a second
 - The shipped kernel file keeps `automation.auto_approve_exec: false`. Full autonomy is the owner's dial in the app. Ask every time and Balanced still wait before a write or an exec. Auto mode is the only microphone and speech session. The `handsFree` field still initializes false; turning Hands-free off requires the wake word again.
 - A long chat keeps its full transcript on this PC. The model receives only what this turn needs. That extends the existing chat path.
 - Pricing stays fail-closed after 14 days. A refresh re-reads the provider pages named in `electron/model-access.cjs`, then sets `KNOWLEDGE_CHECKED_AT`. Showing each model's source and age inside FRIDAY starts only when the owner asks. A date change alone is not that upgrade.
+- MCP stays in `electron/mcp-protocol.cjs`. The desktop server and the connector client share that layer. The server is off until the owner turns it on. Loopback and the stdio launcher are the only transports. Pairing, scopes, and the client setup live in `docs/FRIDAY_MCP.md`.
 
 ## Checks
 

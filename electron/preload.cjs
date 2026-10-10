@@ -467,6 +467,7 @@ contextBridge.exposeInMainWorld("friday", {
   confirmConnectorPhoneCode: (id, values) =>
     ipcRenderer.invoke("connectors:phone-confirm", id, values),
   onConnectorsChanged: on("connectors:changed"),
+  mcpDesk: (payload) => ipcRenderer.invoke("mcp:desk", payload || {}),
 
   // Setup & Doctor — real diagnostics and guarded repairs.
   runDiagnostics: (options) => ipcRenderer.invoke("doctor:run", options || {}),
