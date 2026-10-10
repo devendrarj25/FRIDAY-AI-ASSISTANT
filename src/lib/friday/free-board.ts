@@ -9,6 +9,45 @@ export type SignupRow = {
 
 const SIGNUP: SignupRow[] = [
   {
+    id: "openai",
+    label: "OpenAI",
+    href: "https://developers.openai.com/api/docs/guides/rate-limits",
+    dataUse:
+      "A Free usage tier exists only in an allowed geography. It is not a per-model free price. Unknown cost stays hidden.",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    href: "https://docs.anthropic.com/en/about-claude/pricing",
+    dataUse:
+      "New API users can receive a small credit. Published token prices are paid. A credit is not a free model list.",
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    href: "https://docs.perplexity.ai",
+    dataUse: "No always-free model list was verified. Unknown cost stays hidden.",
+  },
+  {
+    id: "fireworks",
+    label: "Fireworks",
+    href: "https://docs.fireworks.ai/serverless/pricing",
+    dataUse: "Serverless use is prepaid credit. There is no always-free model list.",
+  },
+  {
+    id: "deepinfra",
+    label: "DeepInfra",
+    href: "https://deepinfra.com/pricing",
+    dataUse: "A card or a prepaid balance is required. A zero catalogue price is the evidence.",
+  },
+  {
+    id: "nebius",
+    label: "Nebius Token Factory",
+    href: "https://docs.tokenfactory.nebius.com/other-capabilities/billing-new",
+    dataUse:
+      "A new account gets a short trial credit and must add a card. That credit is not a free model list.",
+  },
+  {
     id: "openrouter",
     label: "OpenRouter",
     href: "https://openrouter.ai/docs/guides/routing/model-variants/free",

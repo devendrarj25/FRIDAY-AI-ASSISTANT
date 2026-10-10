@@ -201,6 +201,34 @@ describe("wave 7 routing parity", () => {
     expect(explainChoice("voice")).toMatch(/same free pool/);
     expect(explainChoice("chat")).toMatch(/same free pool/);
     expect(signupGuide().some((row) => row.id === "github")).toBe(true);
+    const guide = signupGuide();
+    for (const id of [
+      "openai",
+      "anthropic",
+      "gemini",
+      "groq",
+      "mistral",
+      "cohere",
+      "deepseek",
+      "nvidia",
+      "fireworks",
+      "deepinfra",
+      "cerebras",
+      "sambanova",
+      "moonshot",
+      "zhipu",
+      "huggingface",
+      "together",
+      "xai",
+      "perplexity",
+      "nebius",
+      "openrouter",
+    ]) {
+      expect(guide.some((row) => row.id === id && row.href.startsWith("https://"))).toBe(true);
+    }
+    expect(guide.find((row) => row.id === "github")?.dataUse).toMatch(/Retired/);
+    expect(guide.find((row) => row.id === "fireworks")?.dataUse).toMatch(/prepaid/i);
+    expect(guide.find((row) => row.id === "nebius")?.dataUse).toMatch(/card/);
     expect(verifyPackPlan().length).toBe(3);
     expect(ownerWave7Steps().length).toBe(9);
     const assistant = readFileSync(path.join(ROOT, "src/lib/friday/assistant-mode.ts"), "utf8");

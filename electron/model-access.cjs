@@ -1423,10 +1423,11 @@ const PROVIDER_EVIDENCE = {
     dataUse: "No always-free model list was verified.",
   },
   nebius: {
-    sourceUrl: "https://docs.nebius.com/",
+    sourceUrl: "https://docs.tokenfactory.nebius.com/other-capabilities/billing-new",
     checkedAt: EVIDENCE_AT,
     freeIds: [],
-    dataUse: "No always-free model list was verified.",
+    dataUse:
+      "A new account gets a short trial credit and must add a card. That credit is not a free model list.",
   },
   deepinfra: {
     sourceUrl: "https://deepinfra.com/pricing",
