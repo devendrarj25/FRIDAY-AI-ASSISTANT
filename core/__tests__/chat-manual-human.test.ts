@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
+  BUSY_SWITCH_MESSAGE,
+  BUSY_TURN_MESSAGE,
+  chatSendHold,
+  chatSwitchHold,
   manualChatGuide,
   settleInterrupted,
   toolActivity,
@@ -31,6 +37,44 @@ describe("typed chat language", () => {
     expect(guide).toContain("microphone");
     expect(guide).toContain("do not say you are speaking");
     expect(guide).toContain("Never invent a file");
+  });
+});
+
+describe("a refused typed send stays visible", () => {
+  it("keeps an empty box quiet and names a busy or refused turn", () => {
+    expect(chatSendHold({ text: "   ", busy: false })).toEqual({ send: false, notice: null });
+    expect(chatSendHold({ text: "wahi file", busy: true })).toEqual({
+      send: false,
+      notice: BUSY_TURN_MESSAGE,
+    });
+    expect(
+      chatSendHold({
+        text: "continue",
+        busy: false,
+        accepted: false,
+        message: "The local AI service is unavailable.",
+      }),
+    ).toEqual({ send: false, notice: "The local AI service is unavailable." });
+    expect(chatSendHold({ text: "hello", busy: false })).toEqual({ send: true, notice: null });
+    expect(chatSwitchHold(false).notice).toBe(BUSY_SWITCH_MESSAGE);
+    expect(chatSwitchHold(true).notice).toBeNull();
+  });
+
+  it("uses the same busy sentence the brain already returns, and stops before a new chat is wiped", () => {
+    const brain = readFileSync(resolve(process.cwd(), "src/lib/friday/brain-engine.ts"), "utf8");
+    const dock = readFileSync(resolve(process.cwd(), "src/components/friday/ChatDock.tsx"), "utf8");
+    expect(brain).toContain(BUSY_TURN_MESSAGE);
+    expect(dock).toContain("chatSendHold");
+    expect(dock).toContain("if (!sent.accepted)");
+    expect(dock).toContain("chatSwitchHold");
+    const clear = brain.slice(brain.indexOf("clearChat()"), brain.indexOf("stop() {"));
+    expect(clear.indexOf("this.stop()")).toBeGreaterThan(-1);
+    expect(clear.indexOf("this.stop()")).toBeLessThan(clear.indexOf("this.state.messages = []"));
+    const load = brain.slice(
+      brain.indexOf("loadConversation(messages: Message[])"),
+      brain.indexOf("private syncSharedSurfaces"),
+    );
+    expect(load).toContain("if (this.state.activeRunId) return false;");
   });
 });
 
