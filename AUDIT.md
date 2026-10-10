@@ -21,7 +21,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
 | Local CI substitute | `npm run validate:local` | passes on Linux; NSIS / verify-build / installer smoke need Windows and are skipped |
 | Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped |
-| Hosted Actions | PR Validation / Test EXE / Official Publish | **NOT VERIFIED** on this checkout. The 12 workflows pass their contract tests on Linux. An older `main` commit has a finished green PR Validation; that run is not evidence for this head. |
+| Hosted Actions | PR Validation / FRIDAY Test Build / FRIDAY Release | **NOT VERIFIED** on this checkout. Eleven workflow files exist. An older `main` commit has a finished green PR Validation; that run is not evidence for this head. FRIDAY Release on this tree has not been dispatched. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.0.1.2
