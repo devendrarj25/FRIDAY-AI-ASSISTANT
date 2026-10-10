@@ -80,7 +80,7 @@ jobs:
             echo "]"
           } > branches.json
           # Open pull requests pin their head branch: cleanup must never delete a
-          # branch Safe Merge / Official Publish is still working on.
+          # branch Safe Merge / FRIDAY Release is still working on.
           gh pr list --state open --limit 200 --json headRefName > open-prs.json
           gh release list --limit 100 --json tagName,isPrerelease,isDraft,createdAt > releases.json
           gh run list --limit 300 --json databaseId,workflowName,status,createdAt > runs.json

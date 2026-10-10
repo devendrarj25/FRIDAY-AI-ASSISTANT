@@ -293,6 +293,7 @@ export class TaskGraphEngine {
   private activeGraphId: string | null = null;
   private pumping = false;
   private lastActivityAt = 0;
+  private lastStamp = 0;
 
   constructor() {
     this.hydrate();
@@ -369,6 +370,13 @@ export class TaskGraphEngine {
     writeState(STORAGE_KEY, this.graphs.slice(0, MAX_GRAPHS));
   }
 
+  /** Same-millisecond submits stay in submission order. */
+  private stamp(): number {
+    const now = Date.now();
+    this.lastStamp = Math.max(now, this.lastStamp + 1);
+    return this.lastStamp;
+  }
+
   private emit(): void {
     const queued = this.graphs
       .filter((g) => g.priority === "owner" && g.state === "queued")
@@ -428,8 +436,12 @@ export class TaskGraphEngine {
       policy_context_id: autonomy.getSnapshot().approvalLevel,
     });
     if (!opened.ok) return { id: "", position: 0, queued: false };
-    const reused = !options.nodes && priority === "owner" ? recallProcedure(request)?.steps : null;
-    const planned = options.nodes ?? reused ?? planNodes(request);
+    const explicit = options.nodes ? null : planNodes(request);
+    const recalled =
+      !options.nodes && priority === "owner" ? (recallProcedure(request)?.steps ?? null) : null;
+    // A shorter memory must not drop a step the owner wrote out.
+    const reused = recalled && recalled.length >= (explicit?.length ?? 1) ? recalled : null;
+    const planned = options.nodes ?? reused ?? explicit ?? planNodes(request);
     const graphId = newId(priority === "idle" ? "idle" : "graph");
 
     const nodes: GraphNode[] = planned.map((step, index) => ({
@@ -451,7 +463,7 @@ export class TaskGraphEngine {
       request,
       priority,
       state: "queued",
-      createdAt: Date.now(),
+      createdAt: this.stamp(),
       updatedAt: Date.now(),
       nodes,
       logs: [],
@@ -1139,6 +1151,16 @@ export class TaskGraphEngine {
     }
     this.emit();
     return true;
+  }
+}
+
+/** Drops the persisted graph list so a test starts from an empty queue. */
+export function resetTaskGraphStore(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* storage blocked */
   }
 }
 

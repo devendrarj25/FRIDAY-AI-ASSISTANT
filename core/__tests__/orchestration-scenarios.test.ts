@@ -185,9 +185,7 @@ describe("workflow safety · no cross-workflow race on branches", () => {
 
   it("Safe Merge still requires an explicit confirmation and Official Publish stops on error", () => {
     expect(read(".github/workflows/safe-merge.yml")).toMatch(/confirm:[\s\S]*required: true/);
-    expect(read(".github/workflows/official-publish.yml")).toContain(
-      "steps.plan.outputs.step == 'error'",
-    );
+    expect(read(".github/workflows/release.yml")).toContain("steps.plan.outputs.step == 'error'");
   });
 });
 

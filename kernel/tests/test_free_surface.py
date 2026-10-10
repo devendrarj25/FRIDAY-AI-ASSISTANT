@@ -57,3 +57,21 @@ def test_chat_surface_can_prefer_quality():
     pick = _router().best_available("brain", surface="chat")
     assert pick is not None
     assert pick.id == "local-slow"
+
+
+def test_paid_cloud_stays_out_of_both_surfaces():
+    router = _router()
+    router.register(
+        {
+            "id": "paid-fast",
+            "label": "paid-fast",
+            "provider": "openai",
+            "endpoint": "https://api.openai.com/v1",
+            "role": "brain",
+            "options": {"type": "cloud", "access": "paid", "latency_ms": 10, "quality": 1.0},
+        }
+    )
+    voice = router.best_available("brain", surface="voice")
+    chat = router.best_available("brain", surface="chat")
+    assert voice is not None and voice.id == "local-fast"
+    assert chat is not None and chat.id == "local-slow"

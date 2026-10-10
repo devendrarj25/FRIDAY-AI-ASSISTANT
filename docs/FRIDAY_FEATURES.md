@@ -98,7 +98,7 @@ Same day, second pass. No new npm package. `@xyflow/react` 12.12.0 is the lockfi
 | Mermaid, PlantUML, Graphviz WASM, D2 binary | REJECT as runtimes | Text export and a strict import stay in `flow-depth.ts`. No script is evaluated. |
 | JSON Canvas, DOT, D2 text, SVG, PDF, PNG | ADOPT | Written by FRIDAY. PNG is a small schematic, not a screenshot of the window. PDF labels are ASCII. |
 | OpenTelemetry SDK, LangGraph, Temporal | ADAPT | Local JSON trace is opt-in and redacted. No exporter process and no network. Replay stays read-only. |
-| Coverage scan | ADOPT | `scripts/flow-registry.cjs` reads routes, preferences, packs, IPC, kernel decorators, and the twelve workflow files. The docs check fails when `flow-registry.gen.ts` drifts. |
+| Coverage scan | ADOPT | `scripts/flow-registry.cjs` reads routes, preferences, packs, IPC, kernel decorators, and the eleven workflow files. The docs check fails when `flow-registry.gen.ts` drifts. |
 
 ### Flow Studio live (2026-10-06)
 

@@ -418,6 +418,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
         query: q,
         ok: true,
         source: keyed.source,
+        honesty: ladder.searchHonesty(keyed.source),
         results: keyed.results,
         citations: ladder.citeSources(keyed.results),
       });
@@ -433,6 +434,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
       query: q,
       ok: true,
       source: "live-tab",
+      honesty: ladder.searchHonesty("live-tab"),
       results: liveHits,
       citations: ladder.citeSources(liveHits),
     });
@@ -447,6 +449,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
         query: q,
         ok: true,
         source: source.id,
+        honesty: ladder.searchHonesty(source.id),
         results: attempt.results,
         citations: ladder.citeSources(attempt.results),
       });

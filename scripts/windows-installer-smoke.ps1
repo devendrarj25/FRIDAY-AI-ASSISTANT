@@ -220,6 +220,19 @@ try {
   if (-not (Test-Path -LiteralPath $sentinel)) {
     throw "First install removed the FRIDAY data sentinel."
   }
+  $kernel = Join-Path $installDir "resources\kernel\main.py"
+  if (-not (Test-Path -LiteralPath $kernel)) {
+    throw "Installed kernel is missing: $kernel"
+  }
+  $orphans = @(Get-Process -Name "FRIDAY" -ErrorAction SilentlyContinue)
+  if ($orphans.Count -gt 0) {
+    throw "FRIDAY.exe was still running after the boot self-test."
+  }
+  $sentinelRoot = (Resolve-Path (Split-Path (Split-Path $sentinel -Parent) -Parent)).Path
+  if ($sentinelRoot -ne (Resolve-Path $rootDir).Path) {
+    throw "Data folder $sentinelRoot is not the chosen install root $rootDir."
+  }
+  Write-Host "[friday] Doctor gate: kernel present, no orphan FRIDAY.exe, data folder is the chosen root"
 
   # In-place repair: running Setup again over the same root must re-verify the
   # application without duplicating Apps & Features entries or touching data.

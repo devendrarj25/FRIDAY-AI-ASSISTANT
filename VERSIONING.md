@@ -52,7 +52,7 @@ The written product line, oldest first, is `1.0.0.0` (base) → `1.0.0.1` → `1
 
 Research (2026-10-09). Sources: [SemVer](https://semver.org/), [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), and [pnpm first-release hold](https://github.com/pnpm/pnpm/pull/13207). ADOPT: `auto` publishes a never-released declared number as written, so the first public line is not skipped. ADAPT: an explicit counter still moves from that number, because the owner named the level. REJECT: walking the whole git history to invent the first bump. An empty change list stays empty.
 
-Official Publish, Release / Build, and the in-app Analyze preview all ask `scripts/release-engine.cjs`. `handoff` writes the identity into the tree before the pack. The in-app update check reads the same 100-release window.
+FRIDAY Release and the in-app Analyze preview both ask `scripts/release-engine.cjs`. `handoff` writes the identity into the tree before the pack. The in-app update check reads the same 100-release window.
 
 `release_type`: `auto`, `patch`, `minor`, `major`, `extreme`, `revision`.
 

@@ -1,122 +1,201 @@
-# FRIDAY — Release / Build
+# FRIDAY Release — one official release workflow.
 #
-# The ONLY thing in this repository that may create a version, a tag, an EXE or
-# a GitHub Release. Normal commits and pushes build nothing: this workflow runs
-# on workflow_dispatch, either from the Actions tab or from FRIDAY herself
-# (Settings → Updates → Build & Release triggers this same workflow through the
-# GitHub API — there is no second release system), or on workflow_call from
-# Official Publish in that same run. A nested workflow_dispatch is not used:
-# its actor is github-actions[bot], which workflow execution protections refuse.
+# Dispatch from main. stage=all (default) plans, prepares a release pull
+# request when the plan says so, reuses or runs PR Validation, merges through
+# Safe Merge, then packs and publishes. stage=prepare opens that pull request
+# and stops. stage=publish packs the version already on main.
 #
-# main is PR-only and protected: this workflow NEVER pushes to main. The
-# release happens in two manual stages of this one workflow.
+# Prepare and publish are ordinary jobs in this file. They call
+# scripts/build-pipeline.cjs, the same recipe as the Windows CMD pack and
+# FRIDAY Test Build. This file does not call itself.
 #
-# Stage 1 — prepare (default, also what FRIDAY triggers):
-#   fetch main → previous release → version plan → refuse reused versions →
-#   apply version/changelog + store release notes → tests → typecheck →
-#   layout/dependency checks → architecture audit →
-#   push branch release/vX.Y.Z → open the release Pull Request
-#   Nothing is built, tagged, published or deleted in this stage.
+# PR Validation and Safe Merge stay separate workflows and are called from
+# this run (workflow_call, caller friday-release). A nested workflow_dispatch
+# would start as github-actions[bot], which this repository refuses.
 #
-#   The owner reviews and merges that PR through the normal protected-main
-#   rules (PR validation + Code Owner approval).
+# The workflow token is read-only. prepare, publish, validate, and merge
+# raise it only on those jobs. Two releases cannot overlap: group
+# friday-release, cancel-in-progress false.
 #
-# Stage 2 — publish (run after the release PR is merged):
-#   fetch main → clean-main gate → read public version from friday-version.json →
-#   prove the release PR is MERGED and its merge commit is on main →
-#   refuse reused versions → ONE production build (npm run release:package) →
-#   checksums + update manifest → final artifact/version/checksum validation →
-#   tag vX.Y.Z on the merged main commit → GitHub Release from that tag →
-#   upload assets → confirm release, assets and tag commit →
-#   ONE cleanup step keeping only the last 3 releases
-#
-# Source commit on main, tag, public friday-version.json, CHANGELOG and the
-# built EXE always carry the same public version (package.json stays the npm
-# encoding). A stable release can only ever come from a merged main commit;
-# an unmerged branch cannot publish.
+# Anything unknown, ambiguous, failing, or still running stops the run.
 
-name: Release / Build
+name: FRIDAY Release
 
 on:
   workflow_dispatch:
     inputs:
-      stage:
-        description: "prepare = open the release PR · publish = release the merged main"
-        type: choice
-        default: prepare
-        options: [prepare, publish]
       mode:
-        # rebuild = keep the current application version and rebuild/replace its
-        #           assets; no version bump, no invented changelog entry.
-        # update  = the next number. release_type auto follows the changes
-        #           (patch, minor, or major — never extreme). An explicit level
-        #           moves only that counter.
-        # auto    = do not invent the next number. An unpublished line is
-        #           finished as it stands. An explicit release_type still moves
-        #           that one counter.
-        description: "auto = keep the number unless release_type names a level · update = next number · rebuild = pack this number again"
+        description: "auto = finish the current number, do not invent the next; update = next number from release_type; rebuild = pack this number again"
         type: choice
         default: auto
-        options: [auto, rebuild, update]
+        options: [auto, update, rebuild]
       release_type:
         description: "Only the chosen counter moves. auto on update = patch, minor, or major from the changes, never extreme. patch = fourth +1. minor = third +1. major = second +1. extreme = first +1, manual only. revision = rebuild, same number."
         type: choice
         default: auto
         options: [auto, patch, minor, major, extreme, revision]
-
       title:
         description: "Release title (optional)"
         type: string
         default: ""
       notes:
-        description: "Release notes override (optional — replaces the generated notes)"
+        description: "Release notes override (optional - replaces the generated notes)"
         type: string
         default: ""
-  workflow_call:
-    inputs:
       stage:
-        description: "prepare or publish"
-        type: string
-        required: true
-      mode:
-        description: "auto, rebuild, or update"
-        type: string
-        required: true
-      release_type:
-        description: "auto, patch, minor, major, extreme, or revision"
-        type: string
-        required: true
-      title:
-        description: "Release title (optional)"
-        type: string
-        required: false
-        default: ""
-      notes:
-        description: "Release notes override (optional)"
-        type: string
-        required: false
-        default: ""
-      caller:
-        description: "Must be official-publish"
-        type: string
-        required: true
+        description: "all = plan, prepare, validate, merge, and publish; prepare = open the release PR only; publish = pack the version already on main"
+        type: choice
+        default: all
+        options: [all, prepare, publish]
+
+concurrency:
+  group: friday-release
+  cancel-in-progress: false
 
 permissions:
-  contents: write # release branch, tags, releases (never a push to main)
-  pull-requests: write # the release PR — main stays PR-only
+  contents: read
+  pull-requests: read
   actions: read
+  checks: read
+  statuses: read
 
 jobs:
-  # ---------------------------------------------------------------- stage 1 --
+  plan:
+    if: inputs.stage != 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      step: ${{ steps.plan.outputs.step }}
+      version: ${{ steps.plan.outputs.version }}
+      pr: ${{ steps.plan.outputs.pr }}
+      publish_mode: ${{ steps.plan.outputs.publish_mode }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODE: ${{ inputs.mode }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
+
+    steps:
+      - name: Refuse anything but a manual run on main
+        shell: bash
+        run: |
+          [ '${{ github.ref_name }}' = 'main' ] || {
+            echo "::error::FRIDAY Release runs from main only (this run: ${{ github.ref_name }})."
+            exit 1
+          }
+          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+            echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
+            exit 1
+          }
+
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Read the real repository state
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force --quiet || git fetch origin main --quiet
+          # Always the live main identity, even if this job's checkout lagged.
+          current=$(node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion)
+          gh pr list --state all --base main --limit 100 \
+            --json number,state,headRefName,mergedAt \
+            | jq '[ .[]
+                    | select(.headRefName | test("^release/v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
+                    | { number: .number,
+                        version: (.headRefName | sub("^release/v";"")),
+                        state: (if .mergedAt != null then "merged" else (.state|ascii_downcase) end) } ]' \
+            > prepared.json
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            | jq -r '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName | sub("^v";"")' > released.txt
+          git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' > tags.txt || true
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "main declares v$current"
+          cat prepared.json
+
+      - name: Decide the next safe step
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The planner exits 1 when the step is error, after writing plan.json.
+          # Record that step so the following step can print the operator guide.
+          set +e
+          node scripts/orchestrator-engine.cjs plan \
+            --mode "$MODE" \
+            --current '${{ steps.state.outputs.current }}' \
+            --type "$RELEASE_TYPE" \
+            --prepared prepared.json \
+            --released released.txt \
+            --tags tags.txt > plan.json
+          code=$?
+          set -e
+          cat plan.json
+          step=$(jq -r '.step // ""' plan.json)
+          if [ "$code" != "0" ] && [ "$step" != "error" ]; then
+            echo "::error::the release plan could not be read"
+            exit "$code"
+          fi
+          {
+            echo "step=$step"
+            echo "version=$(jq -r '.version // ""' plan.json)"
+            echo "pr=$(jq -r '.prNumber // ""' plan.json)"
+            echo "publish_mode=$(jq -r '.publishMode // "auto"' plan.json)"
+          } >> "$GITHUB_OUTPUT"
+          echo "### FRIDAY Release plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "- step: \`$(jq -r '.step' plan.json)\` - $(jq -r '.reason' plan.json)" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.step' plan.json)" = "publish" ]; then
+            echo "resuming: main already carries unpublished v$(jq -r '.version' plan.json) - skipping prepare/merge"
+          fi
+          if [ "$(jq -r '.step' plan.json)" = "rebuild" ]; then
+            echo "rebuild: republishing v$(jq -r '.version' plan.json) without a version change"
+          fi
+
+      # An unsafe or ambiguous state must stop the run here. Without this a
+      # later publish job could still run for step = error.
+      - name: Stop on an unsafe or ambiguous release state
+        if: steps.plan.outputs.step == 'error'
+        shell: bash
+        run: |
+          echo "::error::$(jq -r '.reason' plan.json)"
+          echo ""
+          node -e "process.stdout.write(require('./scripts/release-engine.cjs').releaseOperatorGuide({version: process.argv[1]}))" '${{ steps.state.outputs.current }}'
+          exit 1
+
+      - name: Stop on an unknown orchestration step
+        if: steps.plan.outputs.step != 'prepare' && steps.plan.outputs.step != 'merge' && steps.plan.outputs.step != 'publish' && steps.plan.outputs.step != 'rebuild' && steps.plan.outputs.step != 'error'
+        shell: bash
+        run: |
+          echo "::error::unknown orchestration step: ${{ steps.plan.outputs.step }}"
+          exit 1
+
   prepare:
-    if: inputs.stage == 'prepare'
-    # One group for both stages, on the job rather than the workflow. A
-    # workflow-level group stays held until the caller run ends, so the later
-    # publish call in Official Publish would wait on itself. A manual Release /
-    # Build still waits on this same group.
-    concurrency:
-      group: friday-release
-      cancel-in-progress: false
+    needs: plan
+    if: >-
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.step != 'error' &&
+      (
+        inputs.stage == 'prepare' ||
+        (inputs.stage == 'all' && needs.plan.outputs.step == 'prepare')
+      )
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -129,7 +208,6 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           WORKFLOW_NAME: ${{ github.workflow }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
-          CALLER: ${{ inputs.caller }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           [ "$REF_NAME" = "main" ] || {
@@ -137,29 +215,25 @@ jobs:
             exit 1
           }
           # github.event_name inside a called workflow is the caller's event,
-          # so it is never workflow_call. github.workflow is the caller's name
+          # so it is never the call event. github.workflow is the caller's name
           # and github.workflow_ref is the caller's file.
           allowed=false
+          case           [ "$EVENT_NAME" = "workflow_dispatch" ] || {
+            echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
+            exit 1
+          }
           case "$WORKFLOW_REF" in
             */.github/workflows/release.yml@*)
-              if [ "$WORKFLOW_NAME" = "Release / Build" ] && [ -z "$CALLER" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                allowed=true
-              else
-                echo "::error::Releases are manual only (workflow_dispatch)."
+              [ "$WORKFLOW_NAME" = "FRIDAY Release" ] || {
+                echo "::error::FRIDAY Release refused workflow $WORKFLOW_NAME."
                 exit 1
-              fi
+              }
               ;;
-            */.github/workflows/official-publish.yml@*)
-              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                allowed=true
-              fi
+            *)
+              echo "::error::FRIDAY Release runs from .github/workflows/release.yml only."
+              exit 1
               ;;
           esac
-          if [ "$allowed" != "true" ]; then
-            echo "::error::Only Official Publish may call Release / Build."
-            echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
-            exit 1
-          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
@@ -517,7 +591,7 @@ jobs:
             case "$create_out" in
               *"already exists"*) echo "a pull request for $branch already exists — reusing it" ;;
               *"not permitted to create or approve pull requests"*|*"createPullRequest"*)
-                echo "::error::GitHub Actions cannot open pull requests in this repository. The branch $branch is already prepared. Settings -> Actions -> General -> Workflow permissions -> enable Allow GitHub Actions to create and approve pull requests, then re-run Official Publish. Or open the pull request yourself: ${{ github.server_url }}/${{ github.repository }}/compare/main...$branch?expand=1"
+                echo "::error::GitHub Actions cannot open pull requests in this repository. The branch $branch is already prepared. Settings -> Actions -> General -> Workflow permissions -> enable Allow GitHub Actions to create and approve pull requests, then re-run FRIDAY Release. Or open the pull request yourself: ${{ github.server_url }}/${{ github.repository }}/compare/main...$branch?expand=1"
                 exit 1
                 ;;
               *)
@@ -549,7 +623,7 @@ jobs:
             echo "Release PR: #$number $url"
             echo ""
           echo "Merge it through Safe Merge (scope=selected, confirm=MERGE), then"
-          echo "run Official Publish (mode=auto) — or this workflow again with"
+          echo "run FRIDAY Release (mode=auto) — or this workflow again with"
           echo "stage = publish — to build, tag and release"
           echo "v${{ steps.plan.outputs.version }} from the merged main commit."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -595,11 +669,370 @@ jobs:
           done
 
   # ---------------------------------------------------------------- stage 2 --
+  pin:
+    needs: [plan, prepare]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') &&
+      (needs.plan.outputs.step == 'prepare' || needs.plan.outputs.step == 'merge')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      pr: ${{ steps.prepared.outputs.pr }}
+      version: ${{ steps.prepared.outputs.version }}
+      head: ${{ steps.prepared.outputs.head }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Pin the prepared release Pull Request
+        id: prepared
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr list --state open --base main --limit 60 \
+            --json number,state,headRefName,headRefOid,url \
+            | jq '[ .[]
+                    | select(.headRefName | test("^release/v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?$"))
+                    | { number, state, url, headSha: .headRefOid,
+                        version: (.headRefName | sub("^release/v";"")) } ]' > open.json
+          set +e
+          node scripts/orchestrator-engine.cjs pin-pr \
+            --expect '${{ needs.plan.outputs.version }}' \
+            --open open.json > pinned.json
+          code=$?
+          set -e
+          cat pinned.json
+          if [ "$code" != "0" ]; then
+            echo "::error::$(jq -r '.reason // "could not pin the release Pull Request"' pinned.json)"
+            exit 1
+          fi
+          {
+            echo "pr=$(jq -r '.number' pinned.json)"
+            echo "version=$(jq -r '.version' pinned.json)"
+            echo "head=$(jq -r '.headSha' pinned.json)"
+          } >> "$GITHUB_OUTPUT"
+
+  evidence:
+    needs: [plan, pin]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      action: ${{ steps.decision.outputs.action }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      PINNED: ${{ needs.pin.outputs.head }}
+      VERSION: ${{ needs.pin.outputs.version }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Wait for the required checks
+        id: decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$PR_NUMBER"
+          pinned="$PINNED"
+          gh pr view "$pr" --json headRefOid,state > head.json
+          head=$(jq -r '.headRefOid' head.json)
+          node scripts/orchestrator-engine.cjs verify-head \
+            --number "$pr" --pinned "$pinned" --current "$head" \
+            --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
+            || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
+          node scripts/validation-freshness.cjs --sha "$pinned" > decision.json
+          action=$(node -e "process.stdout.write(require('./decision.json').action)")
+          echo "validation evidence: $(node -e "process.stdout.write(require('./decision.json').reason)")"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          if [ "$action" = "run" ]; then
+            echo "PR Validation will run in this FRIDAY Release run for $pinned"
+            exit 0
+          fi
+          if [ "$action" = "reuse" ]; then
+            echo "fresh green PR Validation on $pinned; not starting another run"
+          elif [ "$action" = "wait" ]; then
+            echo "PR Validation is already running; waiting for it"
+          else
+            echo "::error::unknown validation evidence action: $action"
+            exit 1
+          fi
+          # Windows validate is allowed 90 minutes, and the runner may also queue.
+          # 40 waits of 180s cover 120 minutes. This job only waits. The Windows
+          # job, Safe Merge, and publish have their own budgets.
+          for attempt in $(seq 1 40); do
+            gh pr view "$pr" --json headRefOid,state > head.json
+            head=$(jq -r '.headRefOid' head.json)
+            node scripts/orchestrator-engine.cjs verify-head \
+              --number "$pr" --pinned "$pinned" --current "$head" \
+              --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
+              || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
+            gh api "repos/${{ github.repository }}/commits/$pinned/check-runs" --paginate \
+              --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
+              | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json
+            gh api "repos/${{ github.repository }}/commits/$pinned/status" \
+              --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+              > statuses.json 2>/dev/null || echo '[]' > statuses.json
+            jq -s --arg sha "$pinned" '(.[0] + (.[1] | map(. + {head_sha: $sha})))' \
+              runs.json statuses.json > rollup.json
+            set +e
+            node scripts/orchestrator-engine.cjs checks \
+              --head "$pinned" --checks rollup.json --required 'PR Validation' > verdict.json
+            code=$?
+            set -e
+            reason=$(jq -r '.reason' verdict.json)
+            [ "$code" = "0" ] && { echo "checks ready: $reason"; exit 0; }
+            if [ "$code" = "2" ]; then
+              echo "::error::$reason"
+              jq -r '.diagnostic // ""' verdict.json
+              exit 1
+            fi
+            echo "waiting for checks (attempt $attempt): $reason"
+            sleep 180
+          done
+          echo "::error::the required checks did not finish in time."
+          echo "observed evidence for $pinned:"
+          cat rollup.json
+          exit 1
+
+  validate:
+    needs: [plan, pin, evidence]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.evidence.result == 'success' &&
+      needs.evidence.outputs.action == 'run'
+    permissions:
+      contents: write
+      statuses: write
+      pull-requests: read
+      security-events: write
+      actions: read
+    uses: ./.github/workflows/pr-validation.yml
+    with:
+      sha: ${{ needs.pin.outputs.head }}
+      head_ref: release/v${{ needs.pin.outputs.version }}
+      caller: friday-release
+
+  confirm-checks:
+    needs: [plan, pin, evidence, validate]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.evidence.result == 'success' &&
+      (needs.validate.result == 'success' || needs.validate.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      PINNED: ${{ needs.pin.outputs.head }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Confirm PR Validation on the pinned commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$PR_NUMBER"
+          pinned="$PINNED"
+          for attempt in $(seq 1 8); do
+            gh pr view "$pr" --json headRefOid,state > head.json
+            head=$(jq -r '.headRefOid' head.json)
+            node scripts/orchestrator-engine.cjs verify-head \
+              --number "$pr" --pinned "$pinned" --current "$head" \
+              --state "$(jq -r '.state|ascii_downcase' head.json)" > head-verdict.json \
+              || { echo "::error::$(jq -r '.reason' head-verdict.json)"; exit 1; }
+            gh api "repos/${{ github.repository }}/commits/$pinned/check-runs" --paginate \
+              --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
+              | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json
+            gh api "repos/${{ github.repository }}/commits/$pinned/status" \
+              --jq '[.statuses[] | {name: .context, status: "completed", conclusion: .state, detailsUrl: .target_url}]' \
+              > statuses.json 2>/dev/null || echo '[]' > statuses.json
+            jq -s --arg sha "$pinned" '(.[0] + (.[1] | map(. + {head_sha: $sha})))' \
+              runs.json statuses.json > rollup.json
+            set +e
+            node scripts/orchestrator-engine.cjs checks \
+              --head "$pinned" --checks rollup.json --required 'PR Validation' > verdict.json
+            code=$?
+            set -e
+            reason=$(jq -r '.reason' verdict.json)
+            [ "$code" = "0" ] && { echo "checks ready: $reason"; exit 0; }
+            if [ "$code" = "2" ]; then
+              echo "::error::$reason"
+              jq -r '.diagnostic // ""' verdict.json
+              exit 1
+            fi
+            echo "waiting for the status to land (attempt $attempt): $reason"
+            sleep 15
+          done
+          echo "::error::PR Validation did not report on $pinned."
+          cat rollup.json
+          exit 1
+
+  # Merge the pinned release Pull Request through Safe Merge
+  merge:
+    needs: [plan, pin, confirm-checks]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.confirm-checks.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+      actions: read
+    uses: ./.github/workflows/safe-merge.yml
+    with:
+      scope: selected
+      pr_numbers: ${{ needs.pin.outputs.pr }}
+      delete_branch: ${{ 'true' }}
+      confirm: MERGE
+      caller: friday-release
+
+  verify-main:
+    needs: [plan, pin, merge]
+    if: >-
+      inputs.stage == 'all' &&
+      always() &&
+      needs.plan.result == 'success' &&
+      needs.pin.result == 'success' &&
+      needs.merge.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      version: ${{ steps.merged.outputs.version }}
+      sha: ${{ steps.merged.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ needs.pin.outputs.pr }}
+      VERSION: ${{ needs.pin.outputs.version }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Verify the merged main state
+        id: merged
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$PR_NUMBER"
+          version="$VERSION"
+          git fetch origin main --quiet
+          state=$(gh pr view "$pr" --json state,mergedAt \
+            | jq -r 'if .mergedAt != null then "merged" else (.state|ascii_downcase) end')
+          sha=$(gh pr view "$pr" --json mergeCommit | jq -r '.mergeCommit.oid // ""')
+          on_main=false
+          if [ -n "$sha" ] && git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then on_main=true; fi
+          # This job checked out main at start. Safe Merge advanced origin/main
+          # while the working tree stayed on the start-of-run commit.
+          current=$(node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion)
+          main_sha=$(git rev-parse origin/main)
+          set +e
+          node scripts/orchestrator-engine.cjs verify-main \
+            --version "$version" --current "$current" --state "$state" --on-main "$on_main" \
+            --expected-sha "$sha" --main-sha "$main_sha" > merged.json
+          code=$?
+          set -e
+          cat merged.json
+          if [ "$code" != "0" ]; then
+            echo "::error::$(jq -r '.reason // "merged main state is not the prepared release"' merged.json)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   publish:
-    if: inputs.stage == 'publish'
-    concurrency:
-      group: friday-release
-      cancel-in-progress: false
+    needs: [plan, prepare, pin, evidence, validate, confirm-checks, merge, verify-main]
+    if: >-
+      always() &&
+      (
+        inputs.stage == 'publish' ||
+        (
+          inputs.stage == 'all' &&
+          needs.plan.result == 'success' &&
+          (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') &&
+          (needs.verify-main.result == 'success' || needs.verify-main.result == 'skipped') &&
+          (
+            needs.verify-main.result == 'success' ||
+            needs.plan.outputs.step == 'publish' ||
+            needs.plan.outputs.step == 'rebuild'
+          )
+        )
+      )
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -615,7 +1048,6 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           WORKFLOW_NAME: ${{ github.workflow }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
-          CALLER: ${{ inputs.caller }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           [ "$REF_NAME" = "main" ] || {
@@ -623,29 +1055,25 @@ jobs:
             exit 1
           }
           # github.event_name inside a called workflow is the caller's event,
-          # so it is never workflow_call. github.workflow is the caller's name
+          # so it is never the call event. github.workflow is the caller's name
           # and github.workflow_ref is the caller's file.
           allowed=false
+          case           [ "$EVENT_NAME" = "workflow_dispatch" ] || {
+            echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
+            exit 1
+          }
           case "$WORKFLOW_REF" in
             */.github/workflows/release.yml@*)
-              if [ "$WORKFLOW_NAME" = "Release / Build" ] && [ -z "$CALLER" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                allowed=true
-              else
-                echo "::error::Releases are manual only (workflow_dispatch)."
+              [ "$WORKFLOW_NAME" = "FRIDAY Release" ] || {
+                echo "::error::FRIDAY Release refused workflow $WORKFLOW_NAME."
                 exit 1
-              fi
+              }
               ;;
-            */.github/workflows/official-publish.yml@*)
-              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-                allowed=true
-              fi
+            *)
+              echo "::error::FRIDAY Release runs from .github/workflows/release.yml only."
+              exit 1
               ;;
           esac
-          if [ "$allowed" != "true" ]; then
-            echo "::error::Only Official Publish may call Release / Build."
-            echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
-            exit 1
-          fi
 
       - name: Fetch source
         uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
@@ -875,50 +1303,9 @@ jobs:
             cp owner-notes.md release-notes.md
           fi
 
-      - name: Check package.json engines
-        run: node scripts/check-engines.cjs
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Validate Electron runtime
-        run: node scripts/ensure-electron.cjs --quiet
-
-      - name: Prepare the isolated Python runtime
-        run: node scripts/setup-python.cjs
-
-      - name: Initialise runtime storage
-        run: node scripts/init-runtime.cjs
-
-      - name: Check the build environment
-        run: node scripts/check-environment.cjs --fix
-
-      - name: Record the dependency/environment registry
-        run: node scripts/env-registry.cjs repair
-
-      - name: Self-heal version/documentation drift (in-tree, never pushed)
-        # main is PR-only and this stage never commits, so the repair lives in
-        # the working tree of THIS run only: the EXE, the tests and the release
-        # notes below all see a consistent version. Anything repaired here is
-        # reported so the next prepare (which does commit) carries it to main.
-        # A problem the engine cannot repair still stops the publish.
-        shell: bash
-        run: |
-          set -o pipefail
-          if node scripts/release-engine.cjs heal --version '${{ steps.plan.outputs.version }}' | tee heal.log; then
-            if grep -q '^repaired:' heal.log; then
-              echo "::warning::main carried version/documentation drift for v${{ steps.plan.outputs.version }}; it was repaired in this run's working tree only. $(grep '^repaired:' heal.log)"
-              {
-                echo "### Self-heal"
-                echo "main carried drift for v${{ steps.plan.outputs.version }}; repaired in-tree for this publish (not pushed):"
-                grep -E '^  |^repaired:' heal.log | sed 's/^/    /'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-          else
-            echo "::error::version/documentation drift that the release engine cannot repair — see the heal output above."
-            exit 1
-          fi
-          rm -f heal.log
+      - name: Prepare the build environment
+        # Heal and verify run in-tree, never pushed. main is PR-only.
+        run: node scripts/build-pipeline.cjs --channel production --caller release --through verify-versions --report release/prepare-report.json
 
       - name: Run tests
         run: npm test
@@ -955,63 +1342,21 @@ jobs:
       - name: Verify version/documentation synchronization
         run: node scripts/release-engine.cjs verify
 
-      - name: Guarantee the production build channel
-        # A production EXE must never carry a test-build marker (which would
-        # isolate its data and disable the updater). The file is generated only
-        # by test-build.yml and is not committed, so this is a safety net.
-        shell: bash
-        run: rm -f resources/build-channel.json
-
-      - name: Build Windows EXE
-        # ONE canonical production build — the same npm script a developer runs
-        # locally (npm run release:package). There is no separate CI packaging.
-        run: npm run release:package
-
-      - name: Sign production executables when certificate secrets are configured
-        if: env.CERTIFICATE_BASE64 != ''
+      - name: Build with the shared pipeline
         shell: powershell
         env:
           CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
         run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "friday-release-signing.pfx"
-          try {
+          if ($env:CERTIFICATE_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP "friday-release-signing.pfx"
             [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
-            & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 `
-              -PfxPath $pfx -PfxPassword $env:CERTIFICATE_PASSWORD -TargetDir release `
-              -ExpectedPublisher $env:EXPECTED_PUBLISHER
-            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
-          } finally {
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+            $env:FRIDAY_PFX = $pfx
+            $env:CSC_KEY_PASSWORD = $env:CERTIFICATE_PASSWORD
           }
-
-      - name: Publish checksums and update manifest
-        # SHA256SUMS.txt + friday-update.json — the installed FRIDAY refuses any
-        # download whose SHA-256 does not match this manifest.
-        run: node scripts/release-manifest.cjs --version "${{ steps.plan.outputs.version }}" --notes release-notes.md --type "${{ steps.plan.outputs.bump }}"
-
-      - name: Verify packaged artifacts, version and checksums
-        # Final gate before anything is tagged or published: installer, portable,
-        # kernel, config, character assets, packaged renderer, version contract
-        # and every checksum in the update manifest.
-        run: node scripts/verify-build.cjs all --version "${{ steps.plan.outputs.version }}" --manifest
-
-      - name: Verify that FRIDAY boots in EXE and browser mode
-        run: node scripts/verify-boot.cjs
-
-      - name: Run the post-build readiness test
-        # Same --pack gate as the Windows CMD build. Chat with no loaded local
-        # model continues. The checkout venv is passed as FRIDAY_PYTHON because
-        # the unpacked EXE does not look in the repo.
-        run: node scripts/readiness-test.cjs --pack
-
-      - name: Exercise official installer lifecycle
-        shell: powershell
-        run: |
-          & scripts/windows-installer-smoke.ps1 `
-            -Installer "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" `
-            -Product "FRIDAY"
-          if ($LASTEXITCODE -ne 0) { throw "Official installer lifecycle failed." }
+          node scripts/build-pipeline.cjs --channel production --caller release --from stage-toolchain --report release/build-report.json
+          if ($LASTEXITCODE -ne 0) { throw "shared build pipeline failed" }
+          if ($env:FRIDAY_PFX) { Remove-Item $env:FRIDAY_PFX -Force -ErrorAction SilentlyContinue }
 
       - name: Guard canonical What's New before publishing
         shell: bash
@@ -1130,3 +1475,119 @@ jobs:
             echo "deleting old release $tag and its assets (source history is untouched)"
             gh release delete "$tag" --yes --cleanup-tag
           done < old.txt
+  confirm:
+    if: >-
+      always() &&
+      (inputs.stage == 'all' || inputs.stage == 'publish') &&
+      needs.publish.result == 'success'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    outputs:
+      version: ${{ steps.published.outputs.version }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Confirm the published release and its assets
+        id: published
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          version=$(node scripts/release-engine.cjs identity --ref origin/main --field releaseVersion)
+          gh release view "v$version" --json tagName,isDraft,isPrerelease,assets > release.json
+          jq -e '.isDraft == false and .isPrerelease == false' release.json >/dev/null || {
+            echo "::error::v$version is not a published official release."
+            exit 1
+          }
+          jq -e '[.assets[].name | select(test("\\.exe$"))] | length > 0' release.json >/dev/null || {
+            echo "::error::v$version publishes no Windows executable."
+            exit 1
+          }
+          jq -e '[.assets[].name | select(test("latest|manifest|sha256|checksums"; "i"))] | length > 0' release.json >/dev/null || {
+            echo "::error::v$version publishes no update/checksum metadata."
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  summary:
+    needs: [plan, prepare, pin, evidence, validate, confirm-checks, merge, verify-main, publish, confirm]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      statuses: read
+    steps:
+      - name: Final summary
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_STEP: ${{ needs.plan.outputs.step }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          PIN_RESULT: ${{ needs.pin.result }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          CHECKS_RESULT: ${{ needs.confirm-checks.result }}
+          MERGE_RESULT: ${{ needs.merge.result }}
+          VERIFY_RESULT: ${{ needs.verify-main.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          CONFIRM_RESULT: ${{ needs.confirm.result }}
+          PREPARED_PR: ${{ needs.pin.outputs.pr }}
+          MERGED_VERSION: ${{ needs.verify-main.outputs.version }}
+          PUBLISHED_VERSION: ${{ needs.confirm.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## FRIDAY Release"
+            echo ""
+            echo "| Step | Result |"
+            echo "| --- | --- |"
+            echo "| planned step | ${PLAN_STEP:-none} |"
+            echo "| plan | $PLAN_RESULT |"
+            echo "| prepare | $PREPARE_RESULT |"
+            echo "| release Pull Request | ${PREPARED_PR:-not required} |"
+            echo "| pin | $PIN_RESULT |"
+            echo "| validation evidence | $EVIDENCE_RESULT |"
+            echo "| PR Validation | $VALIDATE_RESULT |"
+            echo "| checks | $CHECKS_RESULT |"
+            echo "| Safe Merge | $MERGE_RESULT |"
+            echo "| merged main | ${MERGED_VERSION:-$VERIFY_RESULT} |"
+            echo "| publish | $PUBLISH_RESULT |"
+            echo "| published version | ${PUBLISHED_VERSION:-none} |"
+            echo "| confirm | $CONFIRM_RESULT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          stage='${{ inputs.stage }}'
+          if [ "$stage" = "prepare" ]; then
+            if [ "$PREPARE_RESULT" != "success" ]; then
+              echo "::error::FRIDAY Release prepare finished as $PREPARE_RESULT."
+              exit 1
+            fi
+          elif [ "$stage" = "publish" ]; then
+            if [ "$PUBLISH_RESULT" != "success" ]; then
+              echo "::error::FRIDAY Release publish finished as $PUBLISH_RESULT."
+              exit 1
+            fi
+          elif [ "$PLAN_RESULT" = "success" ] && [ "$PUBLISH_RESULT" != "success" ]; then
+            echo "::error::FRIDAY Release planned '$PLAN_STEP' but publish finished as $PUBLISH_RESULT."
+            exit 1
+          fi

@@ -28,8 +28,10 @@ import { modelById, routeRefs, type RoutingTask } from "./model-catalog";
 import { modelRegistry as usageRegistry } from "./model-registry";
 import {
   createRoutingContract,
+  hedgeAllowed,
   normaliseCostPolicy,
   normaliseRouteMode,
+  rankForSurface,
   type ModelRoutingContract,
 } from "./model-routing-contract";
 import { models } from "./models-engine";
@@ -1226,7 +1228,10 @@ class BrainStore {
 
   /* --------------------------------------------------------------- models */
 
-  private routeModel(task: RoutingTask): { id: string | null; label: string } {
+  private routeModel(
+    task: RoutingTask,
+    surface: "voice" | "chat" = "chat",
+  ): { id: string | null; label: string } {
     // Brain resolves candidate recommendations against the canonical live registry.
     // Brain must NEVER invent or force an unlisted model ID.
     try {
@@ -1253,15 +1258,13 @@ class BrainStore {
             return { id: match.id, label: match.label };
           }
         }
-        const eligible = live.models.filter((m) => m.available && m.eligible);
-        if (eligible.length > 0) {
-          eligible.sort(
-            (a, b) => (b.resident ? 1 : 0) - (a.resident ? 1 : 0) || b.priority - a.priority,
-          );
-          const first = eligible[0];
-          if (first) {
-            return { id: first.id, label: first.label };
-          }
+        const eligible = rankForSurface(
+          live.models.filter((m) => m.available && m.eligible),
+          surface,
+        );
+        const first = eligible[0];
+        if (first) {
+          return { id: first.id ?? null, label: first.label };
         }
       }
     } catch {
@@ -1557,7 +1560,7 @@ class BrainStore {
       })),
       agents: multi.map((id) => {
         const spec = agentById.get(id)!;
-        const model = this.routeModel(spec.task);
+        const model = this.routeModel(spec.task, surface);
         return {
           id,
           name: spec.name,
@@ -1899,7 +1902,8 @@ class BrainStore {
         : collaboration.reason,
     );
     this.finishTurnStep(run, "done");
-    if (collaboration.warranted && desktop.parallelChat) {
+    const surface = options.routingSurface || (this.autoMode ? "voice" : "chat");
+    if (collaboration.warranted && hedgeAllowed(surface) && desktop.parallelChat) {
       if (this.phoneCognizeSession) this.phoneCognizeStreamed = true;
       const handled = await this.collaborate(run, text, requestId, desktop, collaboration, {
         task,

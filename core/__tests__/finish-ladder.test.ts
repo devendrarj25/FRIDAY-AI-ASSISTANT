@@ -107,6 +107,27 @@ describe("search ladder", () => {
     expect(seen).not.toContain("brave-token-value");
     expect(found.results[0].provenance).toBe("web");
     expect(found.results[0].instruction).toBe(false);
+    expect(found.honesty.provider).toBe("Brave Search API");
+    expect(found.honesty.mayBeBlocked).toBe(false);
+    expect(found.honesty.why).toMatch(/credits/);
+  });
+
+  it("marks keyless HTML scraping as a last resort that may be blocked", async () => {
+    const found = await browser.search("local news", {
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<a class="result__a" href="https://example.com/a">Desk</a><a class="result__snippet">A page</a></body>',
+        json: async () => {
+          throw new Error("html");
+        },
+      }),
+    });
+    expect(found.ok).toBe(true);
+    expect(found.source).toBe("duckduckgo");
+    expect(found.honesty.mayBeBlocked).toBe(true);
+    expect(found.honesty.why).toMatch(/may block/);
   });
 });
 

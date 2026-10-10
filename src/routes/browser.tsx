@@ -1291,6 +1291,11 @@ function BrowserPage() {
                         ))}
                       </select>
                     </label>
+                    <p className="text-muted-foreground">
+                      A stored Brave key or a loopback SearXNG answers first. Brave plans use
+                      credits and are not a free tier. Keyless HTML scraping is last and may be
+                      blocked.
+                    </p>
                     <label className="block space-y-1">
                       <span className="text-muted-foreground">Network / VPN proxy</span>
                       <select

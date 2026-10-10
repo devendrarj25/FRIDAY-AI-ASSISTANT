@@ -13,7 +13,7 @@ Every human change starts on a **non-main development branch** and reaches `main
 ```text
 non-main branch
   → PR Validation
-  → optional Test EXE Build
+  → optional FRIDAY Test Build
   → owner review
   → manual owner merge into main
   → merged work branch deleted
@@ -21,7 +21,7 @@ non-main branch
 
 Never, on the human / Safe Merge path: direct push to `main`, automatic merge, or an automatic release after a merge.
 
-Official release is a **separate** `workflow_dispatch` on `official-publish.yml` or `release.yml`. Official Publish calls Release / Build, PR Validation, and Safe Merge in that same run. Merging a product pull request does not publish. The click path is [RELEASE.md](../RELEASE.md).
+Official release is a **separate** `workflow_dispatch` on `release.yml` (**FRIDAY Release**). It calls PR Validation and Safe Merge in that same run. Prepare and publish are jobs in that file. Merging a product pull request does not publish. The click path is [RELEASE.md](../RELEASE.md).
 
 `.github/CODEOWNERS` records `* @devendrarj25` as a reference. That is not an enforced Ruleset on this plan.
 

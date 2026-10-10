@@ -4462,8 +4462,9 @@ async function startOAuth(root, id, values = {}, options = {}) {
 
   let listener;
   try {
+    const requested = Number(options.port);
     listener = await oauthLoopback.listen({
-      port: oauthLoopback.DEFAULT_PORT,
+      port: Number.isFinite(requested) && requested >= 0 ? requested : oauthLoopback.DEFAULT_PORT,
       timeoutMs,
     });
   } catch (error) {

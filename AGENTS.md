@@ -42,7 +42,7 @@ Verified against this tree. One feature, one location, as declared in `config/pr
 | `memory/`, `database/`, `brain-data/`, `conversations/` | Local stores. Install and uninstall do not wipe them |
 | `models/`, `system/`, `resources/`, `public/` | Model assets, system files, static resources |
 | `testing/`, `debug/`, `temporary/`, `backup/`, `releases/` | Fixtures, scratch, backup, and published notes |
-| `.github/` | The twelve workflows. Do not add a thirteenth |
+| `.github/` | The eleven workflows. Do not add a twelfth |
 | `AGENTS.md`, `AUDIT.md`, `FRIDAY_STATE.md` | This contract, the evidence tables, and the live briefing. They stay at the repo root |
 
 Architecture: [ARCHITECTURE.md](ARCHITECTURE.md). Human setup: [INSTALL.md](INSTALL.md) and [CONTRIBUTING.md](CONTRIBUTING.md). The short map in [README.md](README.md) is generated. Do not hand-edit it.
@@ -92,7 +92,7 @@ This is the whole path for a fix, an upgrade, or a later public revision. The se
 4. **Keep what already works.** A task that leaves a previously working area broken has failed.
 5. **Same change, same pull request.** Tests for the new behaviour, the owning document, and `FRIDAY_STATE.md` land with the code. There is never a later cleanup. A problem found while doing the work is fixed in that same change.
 6. **Check in proportion.** Run the checks under "Checks". Say "unverified" when a Windows CMD, install, or publish path was not actually run.
-7. **Leave the pull request a draft.** Assistants must **not dispatch** PR Validation, Test EXE Build, Official Publish, Release / Build, or any other workflow, and must not mark the draft ready or merge it. The owner merges. Marking ready is only when the owner says to do that for *this* pull request. A draft starts only the secret scan. The owner marks it ready; that is the one full validation. Minutes running out is not a reason to commit to `main`. Run `npm run validate:local` and record that hosted Actions were unverified.
+7. **Leave the pull request a draft.** Assistants must **not dispatch** PR Validation, FRIDAY Test Build, FRIDAY Release, or any other workflow, and must not mark the draft ready or merge it. The owner merges. Marking ready is only when the owner says to do that for *this* pull request. A draft starts only the secret scan. The owner marks it ready; that is the one full validation. Minutes running out is not a reason to commit to `main`. Run `npm run validate:local` and record that hosted Actions were unverified.
 8. **Finish the landing checklist** below before calling the task done. **Never commit, push, or land work on `main`.** The owner merges. Merging is the landing. Branch Cleanup deletes the merged head. This repo's `delete_branch_on_merge` setting is off, so if a merged head is still on `origin`, delete it with `git fetch origin --prune` then `git push origin --delete <branch>`. Never delete `main`, `master`, `develop`, `development`, `release`, `recovery/*`, or a branch whose pull request is still open or that still has unique unmerged work. When no pull request is in flight, GitHub shows **only `main`**.
 
 ## Research-led upgrades
@@ -113,19 +113,19 @@ Anything found and not built goes in `FRIDAY_STATE.md` under Next priorities. Do
 
 ## What must keep working
 
-**Never break what works.** The owner verified on their Windows PC: GitHub Actions, Official Publish, the local CMD EXE build (`scripts\build-windows.cmd`), install, uninstall, reinstall, update, boot, and the app opening. Those Windows paths must keep working after any change. The look of the app stays: colors, graphics, typography, spacing, icon style, and motion character do not change outside the Flow Studio canvas. Inside that canvas the drawing uses canvas tokens on the same theme, in light and in dark. New features, buttons, controls, panels, pages, and functions may be added, built from the existing design tokens and components so they look native. A setting that is stored must be honoured.
+**Never break what works.** The owner verified on their Windows PC: GitHub Actions, the official publish path (now **FRIDAY Release**), the local CMD EXE build (`scripts\build-windows.cmd`), install, uninstall, reinstall, update, boot, and the app opening. Those Windows paths must keep working after any change. The look of the app stays: colors, graphics, typography, spacing, icon style, and motion character do not change outside the Flow Studio canvas. Inside that canvas the drawing uses canvas tokens on the same theme, in light and in dark. New features, buttons, controls, panels, pages, and functions may be added, built from the existing design tokens and components so they look native. A setting that is stored must be honoured.
 
 On every landing:
 
 - Windows CMD EXE build, NSIS installer, portable EXE, install, uninstall, reinstall, and in-app update/rollback keep today's behaviour.
-- All twelve workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. Do not add a thirteenth. An edit follows the locked-area permission below. Do not dispatch a workflow.
+- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. Do not add a twelfth. An edit follows the locked-area permission below. Do not dispatch a workflow.
 - User data under `<FRIDAY_ROOT>` is never destroyed by install, update, rollback, or app-only uninstall.
 
-**Locked areas may be changed** only when the owner asks for that change, or when this task cannot be finished without it. Do not open them to tinker. The set is UI organization, EXE install/update/uninstall, GitHub Actions, Official Publish, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md` → Deliberate design decisions. After any change in that set, make the area working again in the same session, with the bugs and issues fixed.
+**Locked areas may be changed** only when the owner asks for that change, or when this task cannot be finished without it. Do not open them to tinker. The set is UI organization, EXE install/update/uninstall, GitHub Actions, FRIDAY Release, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md` → Deliberate design decisions. After any change in that set, make the area working again in the same session, with the bugs and issues fixed.
 
 A change in that set must do all of these:
 
-- Keep it working. The result works at least as well as before. The owner-verified Windows paths (CMD pack, install, boot, open, uninstall, reinstall, in-app update/rollback, Official Publish) keep working. A check that is not the owner's PC keeps their tests green and marks those paths unverified until the owner re-checks.
+- Keep it working. The result works at least as well as before. The owner-verified Windows paths (CMD pack, install, boot, open, uninstall, reinstall, in-app update/rollback, FRIDAY Release) keep working. A check that is not the owner's PC keeps their tests green and marks those paths unverified until the owner re-checks.
 - While in a locked area, hunt for bugs and weak spots and fix them in the same change.
 - Re-run the locked-path set and every test covering the area. A test that pinned the old behaviour is updated to the new behaviour with equal or stronger assertions in the same change. Never delete, skip, weaken, or fake-pass a test.
 - Never dispatch a workflow. Validate edited workflow YAML locally (parse plus the workflow tests) and mark hosted Actions unverified.

@@ -5,9 +5,8 @@
  * The complete catalog is docs/FRIDAY_GITHUB_ACTIONS.md; this file asserts the
  * on-disk inventory, permissions, and Node toolchain contract.
  *
- *   official-publish.yml — one-click official release orchestrator (dispatch only)
- *   release.yml          — the ONLY place that versions, tags, publishes and cleans up
- *   test-build.yml       — portable test EXE artifact (optional TEST prerelease)
+ *   release.yml          — FRIDAY Release: plan, prepare, validate, merge, publish
+ *   test-build.yml       — FRIDAY Test Build (optional TEST prerelease)
  *   pr-validation.yml    — the one pull-request validation (tests, scans, Windows installer)
  *   safe-merge.yml       — merge eligible PRs into main (typed MERGE)
  *   repository-control.yml — manual owner control surface (dispatch only)
@@ -47,7 +46,6 @@ describe("workflow inventory", () => {
       "health-weekly.yml",
       "main-safety-recovery.yml",
       "maintenance.yml",
-      "official-publish.yml",
       "pr-validation.yml",
       "release.yml",
       "repository-control.yml",
@@ -229,17 +227,17 @@ describe("PR validation", () => {
     expect(doc.on.workflow_call.inputs.caller.required).toBe(true);
     expect(doc.on.workflow_call.inputs.caller.default).toBeUndefined();
     expect(doc.on.workflow_call.inputs.sha.required).toBe(true);
-    expect(src).toContain("PR Validation is called only by Official Publish.");
-    expect(src).toContain("Official Publish must name the exact commit to validate.");
+    expect(src).toContain("PR Validation is called only by FRIDAY Release.");
+    expect(src).toContain("FRIDAY Release must name the exact commit to validate.");
     // github.event_name inside a called workflow is the caller's event, so a
     // comparison with workflow_call never matches and must not gate the refusal.
     expect(src).not.toContain("github.event_name == 'workflow_call'");
     expect(src).not.toContain('[ "$event" = "workflow_call" ]');
     expect(src).toContain("github.workflow_ref");
-    expect(src).toContain(".github/workflows/official-publish.yml@");
+    expect(src).toContain(".github/workflows/release.yml@");
     expect(src).toContain(".github/workflows/pr-validation.yml@");
     const refuse = doc.jobs.gate.steps.find(
-      (step: { name?: string }) => step.name === "Refuse a call that is not Official Publish",
+      (step: { name?: string }) => step.name === "Refuse a call that is not FRIDAY Release",
     );
     expect(refuse?.if).toBeUndefined();
   });
@@ -342,51 +340,79 @@ describe("self-heal is wired into every build and publish path", () => {
 
   it("release publish heals in-tree before the tests and never pushes the repair", () => {
     const src = read("release.yml");
-    const publish = src.slice(src.indexOf("  publish:"));
-    const heal = publish.indexOf("scripts/release-engine.cjs heal --version");
-    expect(heal).toBeGreaterThan(publish.indexOf("run: npm ci"));
+    const publish = src.slice(src.indexOf("\n  publish:\n"));
+    const heal = publish.indexOf("--through verify-versions");
+    expect(heal).toBeGreaterThan(-1);
     expect(heal).toBeLessThan(publish.indexOf("run: npm test"));
-    expect(heal).toBeLessThan(publish.indexOf("scripts/release-engine.cjs verify"));
     expect(publish).toContain("in-tree, never pushed");
     expect(publish).not.toContain("git push origin main");
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(pipeline.indexOf("scripts/release-engine.cjs heal")).toBeLessThan(
+      pipeline.indexOf("scripts/release-engine.cjs verify"),
+    );
   });
 
   it("test EXE build heals in-tree before the tests without committing", () => {
     const src = read("test-build.yml");
-    const heal = src.indexOf("scripts/release-engine.cjs heal");
-    expect(heal).toBeGreaterThan(src.indexOf("run: npm ci"));
+    const heal = src.indexOf("--through verify-versions");
+    expect(heal).toBeGreaterThan(-1);
     expect(heal).toBeLessThan(src.indexOf("run: npm test"));
     expect(src).not.toContain("git commit");
     expect(src).not.toContain("git push");
   });
 
-  it("packages Windows EXEs only through electron-pack.cjs", () => {
+  it("packages Windows EXEs only through the shared pipeline", () => {
     for (const file of fs.readdirSync(DIR).filter((f) => f.endsWith(".yml"))) {
       const src = read(file);
       expect(src, file).not.toContain("npx electron-builder");
     }
     const release = read("release.yml");
     const testBuild = read("test-build.yml");
-    expect(release).toContain("npm run release:package");
-    expect(testBuild).toContain("scripts/electron-pack.cjs --win $targets");
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(release).toContain(
+      "build-pipeline.cjs --channel production --caller release --from stage-toolchain",
+    );
+    expect(testBuild).toContain(
+      "build-pipeline.cjs --channel test --caller test --from stage-toolchain",
+    );
+    expect(pipeline).toContain("scripts/electron-pack.cjs");
+    expect(release).not.toContain("npm run release:package");
+    expect(testBuild).not.toContain("scripts/electron-pack.cjs");
   });
 
   it("the local CMD build heals instead of hard-failing on drift", () => {
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
     const cmd = fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8");
-    const heal = cmd.indexOf('release-engine.cjs" heal');
-    const verify = cmd.indexOf('release-engine.cjs" verify');
+    expect(cmd).toContain("build-pipeline.cjs");
+    const heal = pipeline.indexOf("scripts/release-engine.cjs heal");
+    const verify = pipeline.indexOf("scripts/release-engine.cjs verify");
     expect(heal).toBeGreaterThan(-1);
     expect(verify).toBeGreaterThan(heal);
-    expect(cmd.indexOf("scripts\\electron-pack.cjs")).toBeGreaterThan(heal);
+    expect(pipeline.indexOf("scripts/electron-pack.cjs")).toBeGreaterThan(heal);
   });
 
   it("Authenticode-signs CMD artifacts when CSC_LINK is set, and never self-signs by default", () => {
-    const cmd = fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8");
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
     const sign = fs.readFileSync(path.resolve(__dirname, "../../scripts/sign-windows.ps1"), "utf8");
-    expect(cmd).toContain("CSC_LINK");
-    expect(cmd).toContain("sign-windows.ps1");
-    expect(cmd).toContain("unsigned build");
-    expect(cmd).not.toContain("AllowSelfSigned");
+    expect(
+      fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8"),
+    ).toContain("build-pipeline.cjs");
+    expect(pipeline).toContain("CSC_LINK");
+    expect(pipeline).toContain("sign-windows.ps1");
+    expect(pipeline).toContain("unsigned build");
+    expect(pipeline).not.toContain("AllowSelfSigned");
     expect(sign).toContain("A CA-issued PFX is required");
     expect(sign).toContain("AllowSelfSigned");
   });
@@ -411,7 +437,11 @@ describe("test EXE build", () => {
 
   it("gives test builds real prerelease versions and keeps official versions clean", () => {
     expect(src).toContain("release-engine.cjs testplan");
-    expect(src).toContain("release-engine.cjs stamp");
+    expect(src).toContain("--from stage-toolchain");
+    expect(src).toContain('--version "${{ steps.testversion.outputs.version }}"');
+    expect(
+      fs.readFileSync(path.resolve(__dirname, "../../scripts/build-pipeline.cjs"), "utf8"),
+    ).toContain('["stamp", "--version", options.version]');
     // The official version is never bumped, changed on main or committed here.
     expect(src).not.toContain("release-engine.cjs apply");
     expect(src).not.toContain("CHANGELOG.md");
@@ -440,8 +470,13 @@ describe("test EXE build", () => {
     expect(src).toContain("release/FRIDAY-Portable-$version.exe");
     expect(src).toContain("release/FRIDAY-Test-Setup-$version.exe");
     expect(src).not.toContain("release/FRIDAY-Setup-$version.exe");
-    expect(src).toContain("appId=dev.friday.desk.test");
-    expect(src).toContain('productName="FRIDAY Test"');
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(src).toContain("--channel test");
+    expect(pipeline).toContain("-c.appId=dev.friday.desk.test");
+    expect(pipeline).toContain("-c.productName=FRIDAY Test");
   });
 
   it("only ever deletes TEST prereleases, never an official release", () => {
@@ -450,15 +485,18 @@ describe("test EXE build", () => {
   });
 
   it("stamps the test channel and uploads the packaged EXE artifacts", () => {
-    expect(src).toContain("resources/build-channel.json");
-    expect(src).toContain("channel:'test'");
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(pipeline).toContain("build-channel.json");
+    expect(pipeline).toContain('channel: "test"');
     expect(src).toContain("friday-test-build-");
     expect(src).not.toContain("actions/upload-artifact");
     expect(src).toContain("FRIDAY-Test-");
     expect(doc.on.workflow_dispatch.inputs.package.default).toContain("portable only");
-    // Verification must match what was actually packaged.
-    expect(src).toContain("verify-build.cjs portable");
-    expect(src).toContain("verify-build.cjs all");
+    expect(pipeline).toContain('"portable"');
+    expect(pipeline).toContain('"all"');
   });
 
   it("never commits, pushes or touches main", () => {
@@ -481,7 +519,12 @@ describe("test EXE build", () => {
   });
 
   it("runs the same real CMD build scripts as scripts/build-windows.cmd", () => {
+    const recipe = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
     const cmd = fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8");
+    expect(cmd).toContain("build-pipeline.cjs");
     const live = src
       .split("\n")
       .filter((line) => !line.trim().startsWith("#"))
@@ -496,10 +539,10 @@ describe("test EXE build", () => {
       "verify-boot.cjs",
       "readiness-test.cjs",
     ]) {
-      expect(cmd, name).toContain(name);
-      expect(live, name).toContain(name);
+      expect(recipe, name).toContain(name);
     }
-    expect(live).toContain("readiness-test.cjs --pack");
+    expect(live).toContain("build-pipeline.cjs");
+    expect(recipe).toContain("readiness-test.cjs --pack");
   });
 });
 
@@ -507,31 +550,26 @@ describe("official release", () => {
   const src = read("release.yml");
   const doc = load("release.yml");
 
-  it("is manual or an Official Publish call, serialized per stage, and main only", () => {
-    expect(Object.keys(doc.on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+  it("is one manual workflow, serialized, and main only", () => {
+    expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
     expect(doc.on.push).toBeUndefined();
     expect(doc.on.pull_request).toBeUndefined();
     expect(doc.on.schedule).toBeUndefined();
-    expect(doc.on.workflow_call.inputs.caller.required).toBe(true);
-    expect(doc.on.workflow_call.inputs.caller.default).toBeUndefined();
-    // A workflow-level group stays held until the caller run ends, so the
-    // later publish call would wait on itself. Each stage job holds the same
-    // group and releases it when that job ends.
-    expect(doc.concurrency).toBeUndefined();
-    for (const name of ["prepare", "publish"]) {
-      expect(doc.jobs[name].concurrency.group).toBe("friday-release");
-      expect(doc.jobs[name].concurrency["cancel-in-progress"]).toBe(false);
-    }
+    expect(doc.on.workflow_call).toBeUndefined();
+    expect(doc.concurrency.group).toBe("friday-release");
+    expect(doc.concurrency["cancel-in-progress"]).toBe(false);
+    expect(doc.jobs.prepare.concurrency).toBeUndefined();
+    expect(doc.jobs.publish.concurrency).toBeUndefined();
     expect(src).toContain("Official releases run from main only");
-    expect(src).toContain("Releases are manual only (workflow_dispatch).");
-    expect(src).toContain("Only Official Publish may call Release / Build.");
-    expect(src.match(/Only Official Publish may call Release \/ Build\./g)).toHaveLength(2);
+    expect(src).toContain("FRIDAY Release is manual only (workflow_dispatch).");
+    expect(src).not.toContain("official-publish.yml");
+    expect(src).not.toContain("uses: ./.github/workflows/release.yml");
     expect(src).not.toContain("github.event_name == 'workflow_call'");
     expect(src).not.toContain('[ "$event" = "workflow_call" ]');
     expect(src).toContain("github.workflow_ref");
-    expect(src.match(/\.github\/workflows\/official-publish\.yml@/g)).toHaveLength(2);
     expect(src.match(/\.github\/workflows\/release\.yml@/g)).toHaveLength(2);
     expect(src).toContain("ref: main");
+    expect(doc.name).toBe("FRIDAY Release");
   });
 
   it("is stable-only; TEST prereleases belong exclusively to test-build.yml", () => {
@@ -541,7 +579,10 @@ describe("official release", () => {
   });
 
   it("publish runs the same real CMD build scripts as scripts/build-windows.cmd", () => {
-    const cmd = fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8");
+    const recipe = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
     const publish = src.slice(src.indexOf("  publish:"));
     const live = publish
       .split("\n")
@@ -557,43 +598,54 @@ describe("official release", () => {
       "verify-boot.cjs",
       "readiness-test.cjs",
     ]) {
-      expect(cmd, name).toContain(name);
-      expect(live, name).toContain(name);
+      expect(recipe, name).toContain(name);
     }
-    expect(live).toContain("readiness-test.cjs --pack");
+    expect(live).toContain("build-pipeline.cjs");
+    expect(recipe).toContain("readiness-test.cjs --pack");
+    expect(
+      fs.readFileSync(path.resolve(__dirname, "../../scripts/build-windows.cmd"), "utf8"),
+    ).toContain("build-pipeline.cjs");
   });
 
-  it("Official Publish stays an ubuntu orchestrator and does not execute those Windows CMD scripts", () => {
-    const official = read("official-publish.yml");
-    const live = official
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("#"))
-      .join("\n");
-    expect(official).toContain("runs-on: ubuntu-latest");
+  it("keeps plan and confirm on Ubuntu and the pack on the shared pipeline", () => {
     for (const name of [
-      "setup-python.cjs",
-      "init-runtime.cjs",
-      "check-environment.cjs",
-      "verify-boot.cjs",
-      "readiness-test.cjs",
+      "plan",
+      "pin",
+      "evidence",
+      "confirm-checks",
+      "verify-main",
+      "confirm",
+      "summary",
     ]) {
-      expect(live, name).not.toContain(name);
+      expect(doc.jobs[name]["runs-on"], name).toBe("ubuntu-latest");
     }
+    expect(doc.jobs.prepare["runs-on"]).toBe("windows-latest");
+    expect(doc.jobs.publish["runs-on"]).toBe("windows-latest");
+    const publish = src.slice(src.indexOf("\n  publish:\n"));
+    expect(publish).toContain("build-pipeline.cjs");
+    expect(publish).not.toContain("setup-python.cjs");
   });
 
   it("uses optional secret-backed Authenticode signing before checksums", () => {
     expect(src).toContain("WINDOWS_SIGNING_CERTIFICATE_BASE64");
     expect(src).toContain("WINDOWS_SIGNING_CERTIFICATE_PASSWORD");
-    expect(at("sign-windows.ps1")).toBeLessThan(at("scripts/release-manifest.cjs"));
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(pipeline.indexOf("sign-windows.ps1")).toBeLessThan(
+      pipeline.indexOf("scripts/release-manifest.cjs"),
+    );
+    expect(at("WINDOWS_SIGNING_CERTIFICATE_BASE64")).toBeLessThan(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    );
   });
 
   it("owns the whole SemVer/build/verify/tag/release pipeline exactly once", () => {
     for (const cmd of [
       "scripts/release-engine.cjs decide",
       "scripts/release-engine.cjs apply",
-      "npm run release:package",
-      "scripts/release-manifest.cjs",
-      "scripts/verify-build.cjs all",
+      "build-pipeline.cjs --channel production --caller release --from stage-toolchain",
       "gh release create",
     ]) {
       // Count executed steps only — the header comment documents the same
@@ -618,12 +670,29 @@ describe("official release", () => {
     return index;
   };
 
-  it("has exactly two manual stages: prepare the release PR, then publish", () => {
-    expect(Object.keys(doc.jobs).sort()).toEqual(["prepare", "publish"]);
-    expect(doc.on.workflow_dispatch.inputs.stage.options).toEqual(["prepare", "publish"]);
-    expect(doc.on.workflow_dispatch.inputs.stage.default).toBe("prepare");
-    expect(doc.jobs.prepare.if).toBe("inputs.stage == 'prepare'");
-    expect(doc.jobs.publish.if).toBe("inputs.stage == 'publish'");
+  it("keeps plan, prepare, validate, merge, publish and confirm in one workflow", () => {
+    expect(Object.keys(doc.jobs)).toEqual([
+      "plan",
+      "prepare",
+      "pin",
+      "evidence",
+      "validate",
+      "confirm-checks",
+      "merge",
+      "verify-main",
+      "publish",
+      "confirm",
+      "summary",
+    ]);
+    expect(doc.on.workflow_dispatch.inputs.stage.options).toEqual(["all", "prepare", "publish"]);
+    expect(doc.on.workflow_dispatch.inputs.stage.default).toBe("all");
+    expect(String(doc.jobs.prepare.if)).toContain("inputs.stage == 'prepare'");
+    expect(String(doc.jobs.publish.if)).toContain("inputs.stage == 'publish'");
+    expect(String(doc.jobs.plan.if)).toContain("inputs.stage != 'publish'");
+    expect(doc.jobs.validate.uses).toBe("./.github/workflows/pr-validation.yml");
+    expect(doc.jobs.merge.uses).toBe("./.github/workflows/safe-merge.yml");
+    expect(doc.jobs.validate.with.caller).toBe("friday-release");
+    expect(doc.jobs.merge.with.caller).toBe("friday-release");
   });
 
   it("never pushes the version commit to protected main", () => {
@@ -634,14 +703,18 @@ describe("official release", () => {
     expect(steps).toContain("not permitted to create or approve pull requests");
     expect(steps).toContain("Allow GitHub Actions to create and approve pull requests");
     expect(steps).toContain("compare/main...$branch?expand=1");
-    expect(doc.permissions["pull-requests"]).toBe("write");
+    expect(doc.permissions["pull-requests"]).toBe("read");
+    expect(doc.jobs.prepare.permissions["pull-requests"]).toBe("write");
+    expect(doc.jobs.publish.permissions["pull-requests"]).toBe("read");
   });
 
   it("validates a clean main before anything is versioned or built", () => {
     expect(steps).toContain("Validate clean main");
     expect(steps).toContain("git status --porcelain");
     expect(at("Validate clean main")).toBeLessThan(at("scripts/release-engine.cjs decide"));
-    expect(at("Validate clean main")).toBeLessThan(at("npm run release:package"));
+    expect(at("Validate clean main")).toBeLessThan(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    );
   });
 
   it("prepares version, changelog and notes on a release branch only", () => {
@@ -652,7 +725,9 @@ describe("official release", () => {
       at("Open the release Pull Request"),
     );
     expect(at("npm test")).toBeLessThan(at("Open the release Pull Request"));
-    expect(at("Open the release Pull Request")).toBeLessThan(at("npm run release:package"));
+    expect(at("Open the release Pull Request")).toBeLessThan(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    );
     expect(steps).toContain("releases/notes/${{ steps.plan.outputs.tag }}.md");
     expect(src).toContain("reusing the curated release notes already on main");
     expect(src).toContain("release-engine.cjs notes");
@@ -696,13 +771,14 @@ describe("official release", () => {
     expect(steps).toContain("gh pr list --state merged --base main --head");
     expect(steps).toContain("git merge-base --is-ancestor");
     expect(at("Prove the release PR was merged into main")).toBeLessThan(
-      at("npm run release:package"),
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
     );
   });
 
   it("builds and verifies before the tag and release", () => {
-    expect(at("npm run release:package")).toBeLessThan(at("scripts/verify-build.cjs all"));
-    expect(at("scripts/verify-build.cjs all")).toBeLessThan(at("gh release create"));
+    expect(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    ).toBeLessThan(at("gh release create"));
     expect(at("gh release create")).toBeLessThan(at("Confirm the release and its assets"));
     expect(at("Confirm the release and its assets")).toBeLessThan(
       at("Keep only the last 3 releases"),
@@ -746,7 +822,13 @@ describe("official release", () => {
   });
 
   it("never carries a test-build marker into a production EXE", () => {
-    expect(src).toContain("rm -f resources/build-channel.json");
+    const pipeline = fs.readFileSync(
+      path.resolve(__dirname, "../../scripts/build-pipeline.cjs"),
+      "utf8",
+    );
+    expect(src).toContain("--channel production");
+    expect(pipeline).toContain('path.join(root, "resources", "build-channel.json")');
+    expect(pipeline).toContain("fs.rmSync(file, { force: true })");
   });
 
   it("re-restores reviewed notes after npm test and guards them before GitHub publish", () => {
@@ -846,35 +928,41 @@ describe("safe merge flow", () => {
         expect(src).toContain("merge-engine.cjs evaluate");
         expect(src).toContain("--match-head-commit");
         expect(src).toContain('gh pr merge "$pr" --merge');
-        expect(src).toContain("Safe Merge is manual only, or one call from Official Publish.");
+        expect(src).toContain("Safe Merge is manual only, or one call from FRIDAY Release.");
         expect(src).toContain("Safe Merge is manual only (workflow_dispatch).");
         expect(src).not.toContain("github.event_name == 'workflow_call'");
         expect(src).not.toContain('[ "$event" = "workflow_call" ]');
         expect(src).toContain("github.workflow_ref");
-        expect(src).toContain(".github/workflows/official-publish.yml@");
+        expect(src).toContain(".github/workflows/release.yml@");
         expect(src).toContain(".github/workflows/safe-merge.yml@");
         expect(src).not.toMatch(
           /--squash|--rebase|--admin|enable-?auto-?merge|automerge|auto_merge/i,
         );
         continue;
       }
-      if (file === "official-publish.yml") {
+      if (file === "release.yml") {
         expect(Object.keys(load(file).on)).toEqual(["workflow_dispatch"]);
         expect(src).not.toMatch(/gh pr merge/);
-        expect(src).not.toMatch(/gh pr create/);
-        expect(src).not.toMatch(/git push/);
         expect(src).not.toMatch(/gh workflow run/);
         expect(src).not.toContain("ci-workflow-run");
         expect(src).not.toMatch(/enable-?auto-?merge|automerge|auto_merge/i);
+        expect(src).toContain("gh pr create --base main");
         const publish = load(file);
-        for (const [name, job] of Object.entries<any>(publish.jobs)) {
-          if (!job["runs-on"]) continue;
-          expect(job.permissions?.["pull-requests"], name).toBe("read");
-          expect(job.permissions?.contents, name).toBe("read");
-        }
-        expect(publish.jobs["prepare-release"].permissions["pull-requests"]).toBe("write");
-        expect(publish.jobs["publish-release"].permissions["pull-requests"]).toBe("write");
+        expect(publish.jobs.prepare.permissions["pull-requests"]).toBe("write");
+        expect(publish.jobs.publish.permissions["pull-requests"]).toBe("read");
         expect(publish.jobs.merge.permissions["pull-requests"]).toBe("write");
+        for (const name of [
+          "plan",
+          "pin",
+          "evidence",
+          "confirm-checks",
+          "verify-main",
+          "confirm",
+          "summary",
+        ]) {
+          expect(publish.jobs[name].permissions?.["pull-requests"], name).toBe("read");
+          expect(publish.jobs[name].permissions?.contents, name).toBe("read");
+        }
         continue;
       }
       expect(src, file).not.toMatch(/gh pr merge/);
@@ -891,7 +979,7 @@ describe("safe merge flow", () => {
     const doc = load("release.yml");
     // Manual dispatch, or one call from Official Publish. No push, no
     // pull_request, and no schedule trigger.
-    expect(Object.keys(doc.on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+    expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
     expect(doc.on.push).toBeUndefined();
     expect(doc.on.pull_request).toBeUndefined();
     expect(doc.on.schedule).toBeUndefined();
@@ -918,7 +1006,7 @@ describe("safe merge flow", () => {
     const owners = fs.readFileSync(path.join(GITHUB, "CODEOWNERS"), "utf8");
     expect(owners).toMatch(/^\*\s+@\S+/m);
     const template = fs.readFileSync(path.join(GITHUB, "pull_request_template.md"), "utf8");
-    expect(template).toContain("Test EXE Build");
+    expect(template).toContain("FRIDAY Test Build");
     expect(template).toContain("PR Validation");
     expect(template).toMatch(/does \*\*not\*\* publish/);
   });
@@ -953,7 +1041,7 @@ describe("release orchestration hardening", () => {
   });
 
   it("stops Official Publish on an unsafe plan instead of publishing anyway", () => {
-    const src = read2("official-publish.yml");
+    const src = read2("release.yml");
     expect(src).toContain("steps.plan.outputs.step == 'error'");
     expect(src).toContain("Stop on an unsafe or ambiguous release state");
     expect(src).toContain("options: [auto, patch, minor, major, extreme, revision]");
@@ -1088,12 +1176,7 @@ describe("automatic-health workflows", () => {
     const src = read("auto-recover.yml");
     expect(src).toContain("PR Validation|Health Weekly|Security Scan");
     expect(src).not.toContain("CI Fast");
-    for (const forbidden of [
-      "Release / Build",
-      "Official Publish",
-      "Safe Merge",
-      "Test EXE Build",
-    ]) {
+    for (const forbidden of ["FRIDAY Release", "FRIDAY Test Build", "Safe Merge"]) {
       expect(
         src
           .split("\n")
@@ -1230,7 +1313,7 @@ describe("automatic-health workflows", () => {
   });
 
   it("Test EXE and Official Publish reuse a fresh green PR Validation on the same commit", () => {
-    const publish = read("official-publish.yml");
+    const publish = read("release.yml");
     const reuseAt = publish.indexOf("scripts/validation-freshness.cjs");
     const checksAt = publish.indexOf("orchestrator-engine.cjs checks");
     expect(reuseAt).toBeGreaterThan(-1);
@@ -1244,11 +1327,22 @@ describe("automatic-health workflows", () => {
     expect(evidence).toBeGreaterThan(-1);
     expect(evidence).toBeLessThan(typecheck);
     expect(testBuild).toContain("steps.evidence.outputs.reuse != 'true'");
-    expect(testBuild).toContain("electron-pack.cjs");
+    expect(testBuild).toContain("build-pipeline.cjs");
+    expect(
+      fs.readFileSync(path.resolve(__dirname, "../../scripts/build-pipeline.cjs"), "utf8"),
+    ).toContain("electron-pack.cjs");
 
     const release = read("release.yml");
-    expect(release).toContain("previous result is");
-    expect(release).toContain("npm test");
-    expect(release).not.toContain("validation-freshness.cjs");
+    const prepare = release.slice(release.indexOf("\n  prepare:\n"), release.indexOf("\n  pin:\n"));
+    const publishJob = release.slice(
+      release.indexOf("\n  publish:\n"),
+      release.indexOf("\n  confirm:\n"),
+    );
+    expect(prepare).toContain("previous result is");
+    expect(prepare).toContain("npm test");
+    expect(prepare).not.toContain("validation-freshness.cjs");
+    expect(publishJob).toContain("npm test");
+    expect(publishJob).not.toContain("validation-freshness.cjs");
+    expect(release).toContain("validation-freshness.cjs");
   });
 });

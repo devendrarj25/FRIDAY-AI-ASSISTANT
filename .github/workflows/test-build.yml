@@ -1,4 +1,4 @@
-# FRIDAY — Test EXE Build (branch / pull request)
+# FRIDAY Test Build (branch / pull request)
 #
 # Manual build of a Windows EXE from ANY branch or pull request so an unmerged
 # upgrade can be installed and tested before it reaches main.
@@ -13,7 +13,7 @@
 # pipeline stays in release.yml and remains the only thing that can create an
 # official version, tag or release.
 
-name: Test EXE Build
+name: FRIDAY Test Build
 
 on:
   workflow_dispatch:
@@ -149,44 +149,11 @@ jobs:
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
-      # Same real build sequence as scripts/build-windows.cmd (check-engines →
-      # npm ci → ensure-electron → setup-python → init-runtime →
-      # check-environment --fix → env-registry repair → heal → verify →
-      # verify-deps → build:desktop → electron-pack → sign → verify-build →
-      # verify-boot → readiness-test). CI-only extras (typecheck, npm test,
-      # arrange, TEST stamp) stay in this job and do not replace those scripts.
-      - name: Check package.json engines
-        run: node scripts/check-engines.cjs
-
-      - name: Install dependencies (npm ci — package-lock is authoritative)
-        run: npm ci
-
-      - name: Validate Electron runtime
-        run: node scripts/ensure-electron.cjs --quiet
-
-      - name: Prepare the isolated Python runtime
-        run: node scripts/setup-python.cjs
-
-      - name: Initialise runtime storage
-        run: node scripts/init-runtime.cjs
-
-      - name: Check the build environment
-        run: node scripts/check-environment.cjs --fix
-
-      - name: Record the dependency/environment registry
-        run: node scripts/env-registry.cjs repair
-
-      - name: Self-heal version/documentation drift (in-tree only)
-        # A feature branch whose documents lag behind its package.json must
-        # still produce a test EXE. The release engine repairs the derived
-        # version sources and documents in this run's working tree only -
-        # nothing is committed, pushed or changed on the branch or on main, and
-        # the official version is never bumped. Unrepairable drift still stops
-        # the build with the exact reason.
-        run: node scripts/release-engine.cjs heal
-
-      - name: Verify version/documentation synchronization
-        run: node scripts/release-engine.cjs verify
+      # Environment and version heal share scripts/build-pipeline.cjs with the
+      # CMD pack and FRIDAY Release. The TEST stamp is applied on the second
+      # call, after tests, so the suite still sees the unstamped tree.
+      - name: Prepare the build environment
+        run: node scripts/build-pipeline.cjs --channel test --caller test --through verify-versions --report release/prepare-report.json
 
       - name: Reuse a fresh green PR Validation on this commit
         id: evidence
@@ -242,122 +209,46 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "test version: $version (official versions stay $base)"
 
-      - name: Stamp the TEST prerelease version
-        # Version sources only — no CHANGELOG, no commit, nothing pushed. The
-        # packaged EXE reports 1.3.2-test.N so it can never be confused with the
-        # official 1.3.2 build.
-        run: node scripts/release-engine.cjs stamp --version "${{ steps.testversion.outputs.version }}"
-
-      - name: Build renderer bundle
-        run: npm run build:desktop
-
-      - name: Stamp the TEST build channel
-        # electron/build-channel.cjs reads this marker at startup and switches
-        # FRIDAY to the isolated "test" path profile: mutable state (config,
-        # database, credentials, logs, conversations, memory) goes to
-        # <FRIDAY_ROOT>/profiles/test/…, the large immutable resources (models,
-        # voices, Python runtime, assets) are reused from the SAME root, and the
-        # stable updater / release dispatch are disabled. The marker ships via
-        # electron-builder.yml's `resources` extraResources entry.
-        shell: bash
-        run: |
-          node -e "
-            const fs=require('fs');
-            fs.mkdirSync('resources',{recursive:true});
-            fs.writeFileSync('resources/build-channel.json', JSON.stringify({
-              channel:'test',
-              ref: process.env.REF || '',
-              commit: process.env.SHA || '',
-              runId: process.env.RUN_ID || '',
-              builtAt: new Date().toISOString()
-            },null,2)+'\n');
-          "
-          cat resources/build-channel.json
-        env:
-          REF: ${{ env.TEST_REF || inputs.ref || github.ref_name }}
-          SHA: ${{ env.commit }}
-          RUN_ID: ${{ github.run_id }}
-
-      - name: Package Windows test build
+      - name: Choose package targets
         id: package
         shell: bash
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           pkg="${TEST_PACKAGE:-}"
           [ -n "$pkg" ] || pkg='${{ inputs.package }}'
           pub="${TEST_PUBLISH:-}"
           [ -n "$pub" ] || pub='${{ inputs.publish }}'
           case "$pkg" in
-            "installer + portable") targets="nsis portable" ;;
-            "installer only")     targets="nsis" ;;
-            "unpacked only (fastest)") targets="--dir" ;;
-            *)                    targets="portable" ;;
+            "installer + portable") targets="nsis,portable" ;;
+            "installer only") targets="nsis" ;;
+            "unpacked only (fastest)") targets="dir" ;;
+            *) targets="portable" ;;
           esac
-          # Publishing a TEST prerelease always ships BOTH Windows deliverables,
-          # so the Test update channel can install as well as run a test build.
-          if [ "$pub" = "true" ] && [ "$targets" != "--dir" ]; then
-            targets="nsis portable"
+          # Publishing a TEST prerelease always ships BOTH Windows deliverables.
+          if [ "$pub" = "true" ] && [ "$targets" != "dir" ]; then
+            targets="nsis,portable"
           fi
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
           echo "mode=$targets" >> "$GITHUB_OUTPUT"
-          # A TEST installer carries its OWN Windows identity: separate appId,
-          # separate install folder ("FRIDAY Test"), separate Start-menu entry
-          # and separate uninstall entry. It therefore installs BESIDE the
-          # production FRIDAY and can never overwrite or downgrade it. The
-          # executable itself stays FRIDAY.exe (scripts/brand-windows.cjs), and
-          # the build-channel marker keeps its mutable data in the test profile.
-          node scripts/electron-pack.cjs --win $targets \
-            -c.appId=dev.friday.desk.test \
-            -c.productName="FRIDAY Test" \
-            -c.win.executableName=FRIDAY \
-            -c.nsis.shortcutName="FRIDAY Test" \
-            -c.nsis.menuCategory="FRIDAY Test" \
-            -c.nsis.uninstallDisplayName="FRIDAY Test - Personal AI Assistant"
-      - name: Sign TEST executables when certificate secrets are configured
-        if: env.CERTIFICATE_BASE64 != ''
+
+      - name: Build with the shared pipeline
+        # Stamp, channel file, pack, sign, manifest, verify, boot, readiness
+        # and installer smoke are phases of scripts/build-pipeline.cjs, and the
+        # TEST identity (dev.friday.desk.test, product FRIDAY Test) is the
+        # channel=test option, not a second pack command.
         shell: powershell
         env:
           CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
         run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "friday-test-signing.pfx"
-          try {
+          if ($env:CERTIFICATE_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP "friday-test-signing.pfx"
             [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
-            & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 `
-              -PfxPath $pfx -PfxPassword $env:CERTIFICATE_PASSWORD -TargetDir release `
-              -ExpectedPublisher $env:EXPECTED_PUBLISHER
-            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
-          } finally {
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+            $env:FRIDAY_PFX = $pfx
+            $env:CSC_KEY_PASSWORD = $env:CERTIFICATE_PASSWORD
           }
-
-      - name: Verify packaged application
-        # Verify exactly what was packaged: asking for an installer that this
-        # run never built would fail a perfectly good portable test EXE.
-        shell: bash
-        run: |
-          case '${{ steps.package.outputs.mode }}' in
-            "--dir")          node scripts/verify-build.cjs dir ;;
-            "nsis portable")  node scripts/verify-build.cjs all ;;
-            "nsis")           node scripts/verify-build.cjs nsis ;;
-            *)                node scripts/verify-build.cjs portable ;;
-          esac
-
-      - name: Verify that FRIDAY boots in EXE and browser mode
-        run: node scripts/verify-boot.cjs
-
-      - name: Run the post-build readiness test
-        # Same --pack gate as the Windows CMD build.
-        run: node scripts/readiness-test.cjs --pack
-
-      - name: Exercise TEST installer lifecycle
-        if: contains(steps.package.outputs.mode, 'nsis')
-        shell: powershell
-        run: |
-          & scripts/windows-installer-smoke.ps1 `
-            -Installer "release/FRIDAY-Test-Setup-${{ steps.testversion.outputs.version }}.exe" `
-            -Product "FRIDAY Test"
-          if ($LASTEXITCODE -ne 0) { throw "TEST installer lifecycle failed." }
+          node scripts/build-pipeline.cjs --channel test --caller test --from stage-toolchain --version "${{ steps.testversion.outputs.version }}" --targets "${{ steps.package.outputs.targets }}" --ref "${{ steps.target.outputs.ref }}" --commit "$env:commit" --report release/build-report.json
+          if ($LASTEXITCODE -ne 0) { throw "shared build pipeline failed" }
+          if ($env:FRIDAY_PFX) { Remove-Item $env:FRIDAY_PFX -Force -ErrorAction SilentlyContinue }
 
       - name: Publish the TEST prerelease (Test update channel)
         if: inputs.publish || env.TEST_PUBLISH == 'true'

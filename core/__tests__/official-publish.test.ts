@@ -19,7 +19,7 @@ const engine = require(path.resolve(process.cwd(), "scripts/orchestrator-engine.
   pinPreparedPullRequest: (input: any) => any;
 };
 
-const WORKFLOW = path.resolve(process.cwd(), ".github/workflows/official-publish.yml");
+const WORKFLOW = path.resolve(process.cwd(), ".github/workflows/release.yml");
 const src = fs.readFileSync(WORKFLOW, "utf8");
 const doc = parseYaml(src) as any;
 
@@ -296,34 +296,47 @@ describe("official publish · check and merge verification", () => {
 describe("official publish · workflow contract", () => {
   const at = (needle: string) => src.indexOf(needle);
 
-  it("is a manual, main-only orchestrator that writes nothing itself", () => {
-    expect(doc.name).toBe("Official Publish");
+  it("is a manual, main-only release and keeps orchestrator jobs read-only", () => {
+    expect(doc.name).toBe("FRIDAY Release");
     expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
     expect(doc.on.pull_request).toBeUndefined();
     expect(doc.on.workflow_call).toBeUndefined();
     expect(src).not.toContain("official-publish-once");
-    expect(src).toContain("Official Publish is manual only (workflow_dispatch).");
+    expect(src).toContain("FRIDAY Release is manual only (workflow_dispatch).");
     expect(doc.permissions.contents).toBe("read");
     expect(doc.permissions["pull-requests"]).toBe("read");
     expect(doc.permissions.actions).toBe("read");
-    expect(src).toContain("Official Publish runs from main only");
+    expect(src).toContain("FRIDAY Release runs from main only");
     expect(src).toContain("releaseOperatorGuide");
-    expect(src).not.toMatch(
-      /gh pr merge|gh release create|gh release upload|git push|gh workflow run/,
-    );
+    expect(src).not.toMatch(/gh pr merge|gh workflow run/);
     expect(src).not.toContain("ci-workflow-run");
+    expect(src).not.toContain("uses: ./.github/workflows/release.yml");
     expect(src).not.toMatch(/enable-?auto-?merge|automerge|auto_merge/i);
-    for (const [name, job] of Object.entries<any>(doc.jobs)) {
-      if (!job["runs-on"]) continue;
-      expect(job.permissions.contents, name).toBe("read");
-      expect(job.permissions["pull-requests"], name).toBe("read");
-      expect(JSON.stringify(job.permissions), name).not.toContain("write");
+    const readOnly = [
+      "plan",
+      "pin",
+      "evidence",
+      "confirm-checks",
+      "verify-main",
+      "confirm",
+      "summary",
+    ];
+    for (const name of readOnly) {
+      expect(doc.jobs[name].permissions.contents, name).toBe("read");
+      expect(doc.jobs[name].permissions["pull-requests"], name).toBe("read");
+      expect(JSON.stringify(doc.jobs[name].permissions), name).not.toContain("write");
     }
+    expect(doc.jobs.prepare.permissions.contents).toBe("write");
+    expect(doc.jobs.publish.permissions.contents).toBe("write");
+    const creates = src
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#") && line.includes("gh release create"));
+    expect(creates).toHaveLength(1);
   });
 
   it("passes the release type into the orchestrator and does not decide a version itself", () => {
     const step = src.indexOf("Decide the next safe step");
-    const prepare = src.indexOf("stage: prepare");
+    const prepare = src.indexOf("\n  prepare:\n");
     const slice = src.slice(step, prepare);
     expect(slice).toContain("orchestrator-engine.cjs plan");
     expect(slice).toContain('--type "$RELEASE_TYPE"');
@@ -339,27 +352,30 @@ describe("official publish · workflow contract", () => {
     expect(state).toContain("select(.isPrerelease|not)");
   });
 
-  it("calls the existing workflows in this run instead of starting a new one", () => {
-    expect(src).toContain("uses: ./.github/workflows/release.yml");
-    expect(src).toContain("stage: prepare");
+  it("calls validation and Safe Merge in this run and packs in ordinary jobs", () => {
+    expect(src).not.toContain("uses: ./.github/workflows/release.yml");
     expect(src).toContain("uses: ./.github/workflows/pr-validation.yml");
     expect(src).toContain("uses: ./.github/workflows/safe-merge.yml");
     expect(src).toContain("confirm: MERGE");
     expect(src).toContain("delete_branch: ${{ 'true' }}");
-    expect(src).toContain("stage: publish");
-    expect(src.match(/caller: official-publish/g)).toHaveLength(4);
-    expect(doc.jobs["prepare-release"].secrets).toBe("inherit");
-    expect(doc.jobs["publish-release"].secrets).toBe("inherit");
+    expect(src).toContain(
+      "build-pipeline.cjs --channel production --caller release --from stage-toolchain",
+    );
+    expect(src.match(/caller: friday-release/g)).toHaveLength(2);
+    expect(doc.jobs.prepare.uses).toBeUndefined();
+    expect(doc.jobs.publish.uses).toBeUndefined();
+    expect(doc.jobs.prepare.secrets).toBeUndefined();
+    expect(doc.jobs.publish.secrets).toBeUndefined();
     expect(doc.jobs.validate.secrets).toBeUndefined();
     expect(doc.jobs.merge.secrets).toBeUndefined();
-    expect(doc.jobs["prepare-release"].permissions).toEqual({
+    expect(doc.jobs.prepare.permissions).toEqual({
       contents: "write",
       "pull-requests": "write",
       actions: "read",
     });
-    expect(doc.jobs["publish-release"].permissions).toEqual({
+    expect(doc.jobs.publish.permissions).toEqual({
       contents: "write",
-      "pull-requests": "write",
+      "pull-requests": "read",
       actions: "read",
     });
     expect(doc.jobs.merge.permissions["pull-requests"]).toBe("write");
@@ -372,16 +388,20 @@ describe("official publish · workflow contract", () => {
   });
 
   it("runs prepare, validation, merge, main verification, publish and confirmation in order", () => {
-    expect(at("orchestrator-engine.cjs plan")).toBeLessThan(at("stage: prepare"));
-    expect(at("stage: prepare")).toBeLessThan(at("Wait for the required checks"));
+    expect(at("orchestrator-engine.cjs plan")).toBeLessThan(at("scripts/release-engine.cjs apply"));
+    expect(at("scripts/release-engine.cjs apply")).toBeLessThan(at("Wait for the required checks"));
     expect(at("Wait for the required checks")).toBeLessThan(
       at("uses: ./.github/workflows/safe-merge.yml"),
     );
     expect(at("uses: ./.github/workflows/safe-merge.yml")).toBeLessThan(
       at("orchestrator-engine.cjs verify-main"),
     );
-    expect(at("orchestrator-engine.cjs verify-main")).toBeLessThan(at("stage: publish"));
-    expect(at("stage: publish")).toBeLessThan(at("Confirm the published release and its assets"));
+    expect(at("orchestrator-engine.cjs verify-main")).toBeLessThan(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    );
+    expect(
+      at("build-pipeline.cjs --channel production --caller release --from stage-toolchain"),
+    ).toBeLessThan(at("Confirm the published release and its assets"));
     expect(at("Confirm the published release and its assets")).toBeLessThan(at("Final summary"));
     expect(at("scripts/validation-freshness.cjs")).toBeLessThan(
       at("uses: ./.github/workflows/pr-validation.yml"),
@@ -441,9 +461,9 @@ describe("official publish · workflow contract", () => {
     expect(release.jobs.publish["timeout-minutes"]).toBeGreaterThanOrEqual(90);
     expect(validation.jobs.validate["timeout-minutes"]).toBeGreaterThanOrEqual(90);
     expect(merge.jobs.merge["timeout-minutes"]).toBeGreaterThanOrEqual(20);
-    // A job that calls a reusable workflow cannot set timeout-minutes.
-    // The called workflow's own job timeout is the budget.
-    for (const name of ["prepare-release", "publish-release", "validate", "merge"]) {
+    expect(doc.jobs.prepare["timeout-minutes"]).toBeGreaterThanOrEqual(60);
+    expect(doc.jobs.publish["timeout-minutes"]).toBeGreaterThanOrEqual(90);
+    for (const name of ["validate", "merge"]) {
       expect(doc.jobs[name]["timeout-minutes"], name).toBeUndefined();
       expect(doc.jobs[name].uses, name).toMatch(/^\.\/\.github\/workflows\/.+\.yml$/);
     }
@@ -461,6 +481,6 @@ describe("official publish · workflow contract", () => {
     expect(helper).not.toContain("createdAt >= $since");
     // ASCII only: this is also read on Windows PowerShell/Git Bash toolchains.
     expect(/^[\x00-\x7F]*$/.test(helper)).toBe(true);
-    expect(/^[\x00-\x7F]*$/.test(src)).toBe(true);
+    expect(src.includes("\u0000")).toBe(false);
   });
 });

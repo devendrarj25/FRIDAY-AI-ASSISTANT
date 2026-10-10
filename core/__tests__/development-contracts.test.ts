@@ -249,7 +249,26 @@ describe("development contracts", () => {
     const version = JSON.parse(
       fs.readFileSync(path.join(ROOT, "config/friday-version.json"), "utf8"),
     ) as { major: number; minor: number; patch: number; revision: number };
-    expect([version.major, version.minor, version.patch, version.revision]).toEqual([1, 0, 1, 2]);
+    const release = require(path.join(ROOT, "scripts/release-engine.cjs")) as {
+      readCanonicalIdentity: (options: { root: string }) => {
+        major: number;
+        minor: number;
+        patch: number;
+        revision: number;
+        npmVersion: string;
+      };
+    };
+    const identity = release.readCanonicalIdentity({ root: ROOT });
+    expect([version.major, version.minor, version.patch, version.revision]).toEqual([
+      identity.major,
+      identity.minor,
+      identity.patch,
+      identity.revision,
+    ]);
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
+      version: string;
+    };
+    expect(pkg.version).toBe(identity.npmVersion);
     const control = fs.readFileSync(path.join(ROOT, "docs/FRIDAY_CHANGE_CONTROL.md"), "utf8");
     expect(control).toContain("src/lib/friday/flow-chart.ts");
     expect(control).toContain("kernel/planner.py");

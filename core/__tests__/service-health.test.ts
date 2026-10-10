@@ -71,9 +71,9 @@ describe("service health invalidate against a live probe", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string | URL | Request) => {
       const href = String(url);
-      if (href.includes("/health") && kernelOk) {
+      if (href.includes("/health")) {
         await gate;
-        return { ok: true, status: 200 } as Response;
+        if (kernelOk) return { ok: true, status: 200 } as Response;
       }
       return { ok: false, status: 0 } as Response;
     }) as typeof fetch;

@@ -2,7 +2,7 @@
  * Installed skills must actually take part in a turn — but only when the
  * request unambiguously calls for one, and never for risky skills.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   chooseSkill,
   chooseSkills,
@@ -108,6 +108,11 @@ describe("skill router", () => {
 });
 
 describe("skill-forge gap drafts", () => {
+  beforeEach(async () => {
+    const { governance } = await import("../../src/lib/friday/self/governance");
+    governance.resetForTests();
+  });
+
   it("files a real governance skill draft and never installs it", async () => {
     const { fileSkillGapDraft, looksLikeCapabilityGap, resetSkillGapDrafts } =
       await import("../../src/lib/friday/brain/skill-forge");

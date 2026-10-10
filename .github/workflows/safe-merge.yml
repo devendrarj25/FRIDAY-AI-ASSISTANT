@@ -35,7 +35,7 @@ on:
   workflow_call:
     inputs:
       caller:
-        description: "Must be official-publish"
+        description: "Must be friday-release"
         type: string
         required: true
       scope:
@@ -99,8 +99,8 @@ jobs:
                 allowed=true
               fi
               ;;
-            */.github/workflows/official-publish.yml@*)
-              if [ "$WORKFLOW_NAME" = "Official Publish" ] && [ "$CALLER" = "official-publish" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            */.github/workflows/release.yml@*)
+              if [ "$WORKFLOW_NAME" = "FRIDAY Release" ] && [ "$CALLER" = "friday-release" ] && [ "$EVENT_NAME" = "workflow_dispatch" ]; then
                 allowed=true
               fi
               ;;
@@ -109,14 +109,14 @@ jobs:
             if [ "$direct" = "true" ]; then
               echo "::error::Safe Merge is manual only (workflow_dispatch)."
             else
-              echo "::error::Safe Merge is manual only, or one call from Official Publish."
+              echo "::error::Safe Merge is manual only, or one call from FRIDAY Release."
             fi
             echo "::error::workflow=$WORKFLOW_NAME ref=$WORKFLOW_REF event=$EVENT_NAME"
             exit 1
           fi
           if [ "$direct" != "true" ]; then
             [ "$REF_NAME" = "main" ] || {
-              echo "::error::Official Publish calls Safe Merge from main only."
+              echo "::error::FRIDAY Release calls Safe Merge from main only."
               exit 1
             }
           fi

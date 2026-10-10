@@ -191,8 +191,10 @@ describe("node toolchain version set", () => {
     const prWorkflow = read(".github/workflows/pr-validation.yml");
     expect(installer).toContain('"${PRODUCT_NAME}" == "FRIDAY Test"');
     expect(installer).toContain('HKCU "Software\\FRIDAY Test" "InstallPath"');
-    expect(testWorkflow).toContain("windows-installer-smoke.ps1");
-    expect(releaseWorkflow).toContain("windows-installer-smoke.ps1");
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(pipeline).toContain("windows-installer-smoke.ps1");
+    expect(testWorkflow).toContain("build-pipeline.cjs");
+    expect(releaseWorkflow).toContain("build-pipeline.cjs");
     expect(prWorkflow).toContain("windows-installer-smoke.ps1");
     expect(prWorkflow).toContain("npm run lint");
   });
@@ -482,9 +484,10 @@ describe("multi-fallback installation", () => {
   });
 
   it("retries npm ci inside the Windows pack script", () => {
-    const cmd = read("scripts/build-windows.cmd");
-    expect(cmd).toContain("npm cache verify");
-    expect(cmd).toContain("registry.npmjs.org");
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");
+    expect(pipeline).toContain("npm cache verify");
+    expect(pipeline).toContain("registry.npmjs.org");
   });
 
   it("installs CPython with python.org plus winget 3.13 and 3.12", () => {
@@ -544,10 +547,11 @@ describe("environment check is actionable", () => {
   });
 
   it("is wired into the Windows build script", () => {
-    const cmd = read("scripts/build-windows.cmd");
-    expect(cmd).toContain('setup-python.cjs"');
-    expect(cmd).toContain('init-runtime.cjs"');
-    expect(cmd).toContain('check-environment.cjs" --fix');
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");
+    expect(pipeline).toContain("scripts/setup-python.cjs");
+    expect(pipeline).toContain("scripts/init-runtime.cjs");
+    expect(pipeline).toContain("scripts/check-environment.cjs --fix");
   });
 
   it("probes and fills the same live venv the running app launches", () => {

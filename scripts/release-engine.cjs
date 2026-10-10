@@ -2478,7 +2478,7 @@ function publishHandoff({ mode = "auto", current, prepared = [], released = [] }
         `main declares v${declared}, but its release Pull Request` +
         (pr ? ` #${pr}` : "") +
         " is still open rather than merged — " +
-        "run Official Publish (mode=auto) so Safe Merge can merge it, then publish proceeds. Do not skip that gate.\n" +
+        "run FRIDAY Release (stage=all, mode=auto) so Safe Merge can merge it, then publish proceeds. Do not skip that gate.\n" +
         releaseOperatorGuide({ version: declared, prNumber: pr }),
     };
   }
@@ -2534,18 +2534,18 @@ function releaseOperatorGuide({ version = "", prNumber = null } = {}) {
   const verHint = v || "<version from package.json on main>";
   return [
     "Exact next steps (do not skip Safe Merge, do not force-merge):",
-    "1. GitHub → Actions → Official Publish → Run workflow",
+    "1. GitHub → Actions → FRIDAY Release → Run workflow",
     "   Use workflow from: main",
-    "   Inputs: mode=auto; release_type=auto finishes the number already declared and does not invent the next one.",
+    "   Inputs: stage=all; mode=auto; release_type=auto finishes the number already declared and does not invent the next one.",
     "   A new counter needs mode=update. release_type=auto then follows the changes (never extreme).",
     "   That one dispatch sequences prepare → PR Validation → Safe Merge → publish.",
-    "2. If you must run stages by hand:",
-    "   a. Actions → Release / Build → Run workflow from main",
+    "2. If you must run stages by hand, use the same workflow:",
+    "   a. Actions → FRIDAY Release → Run workflow from main",
     "      Inputs: stage=prepare; mode=update when the number should move; release_type=auto or an explicit level",
     "   b. After PR Validation is green: Actions → Safe Merge → Run workflow from main",
     `      Inputs: scope=selected; pr_numbers=${pr}; confirm=MERGE`,
-    "   c. Actions → Official Publish → Run workflow from main (mode=auto)",
-    "      or Actions → Release / Build → stage=publish; mode=auto",
+    "   c. Actions → FRIDAY Release → Run workflow from main (stage=all, mode=auto)",
+    "      or stage=publish; mode=auto",
     `   Target version in this checkout: ${verHint}`,
   ].join("\n");
 }
@@ -2572,7 +2572,7 @@ function diagnosePublishBlockers({
     return {
       ok: false,
       kind: "already_published",
-      message: `GitHub Release ${tag} already exists. Do not re-run publish for this tag unless you intend a rebuild (Official Publish mode=rebuild).\n${guide}`,
+      message: `GitHub Release ${tag} already exists. Do not re-run publish for this tag unless you intend a rebuild (FRIDAY Release mode=rebuild).\n${guide}`,
     };
   }
 
@@ -2600,7 +2600,7 @@ function diagnosePublishBlockers({
       return {
         ok: false,
         kind: "merged_not_on_main",
-        message: `Release PR #${mergedPr.number} for ${head} is merged, but that merge commit is not yet an ancestor of the main commit being published. Wait for GitHub to update main (do not force-push), then re-run Official Publish with mode=auto.\n${guide}`,
+        message: `Release PR #${mergedPr.number} for ${head} is merged, but that merge commit is not yet an ancestor of the main commit being published. Wait for GitHub to update main (do not force-push), then re-run FRIDAY Release with mode=auto.\n${guide}`,
       };
     }
     if (!changelogOk) {
@@ -2620,7 +2620,7 @@ function diagnosePublishBlockers({
   return {
     ok: false,
     kind: "no_prepare",
-    message: `No merged release PR for ${head} and no open PR with that head. The prepare stage never created ${head}, or its PR was closed without merging. Run Official Publish (mode=auto) on main so prepare opens the PR; wait for Safe Merge; publish follows automatically.\n${guide}`,
+    message: `No merged release PR for ${head} and no open PR with that head. The prepare stage never created ${head}, or its PR was closed without merging. Run FRIDAY Release (stage=all, mode=auto) on main so prepare opens the PR; wait for Safe Merge; publish follows automatically.\n${guide}`,
   };
 }
 

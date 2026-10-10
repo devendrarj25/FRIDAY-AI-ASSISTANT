@@ -213,7 +213,7 @@ async function testConnection(root, override = {}) {
   if (!repo.ok) return repo;
 
   // A release needs more than read access: Contents (push) to tag and commit
-  // the version, and Actions to start the Release / Build workflow.
+  // the version, and Actions to start the FRIDAY Release workflow.
   const perms = repo.body.permissions || {};
   const contents = Boolean(perms.push || perms.admin || perms.maintain);
   const workflow = cfg.token
@@ -239,7 +239,7 @@ async function testConnection(root, override = {}) {
       : !contents
         ? "The token can read this repository but cannot write — set Contents: Read and write on the token."
         : !actions
-          ? "The Release / Build workflow is not reachable — push .github/workflows/release.yml and set Actions: Read and write on the token."
+          ? "The FRIDAY Release workflow is not reachable — push .github/workflows/release.yml and set Actions: Read and write on the token."
           : "",
   };
 }

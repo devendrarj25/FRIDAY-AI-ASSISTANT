@@ -44,7 +44,10 @@ function htmlPage(title, body) {
  * @returns {Promise<{ port: number, redirectUri: string, wait: () => Promise<{code:string,state:string}>, close: () => Promise<void> }>}
  */
 function listen({ port = DEFAULT_PORT, timeoutMs = 180_000, path = CALLBACK_PATH } = {}) {
-  const wanted = Number(port) || DEFAULT_PORT;
+  const numeric = Number(port);
+  // Port 0 asks the OS for an ephemeral port. `||` would treat that as missing
+  // and bind the registered desktop port instead.
+  const wanted = Number.isFinite(numeric) && numeric >= 0 ? numeric : DEFAULT_PORT;
   let settle;
   const done = new Promise((resolve, reject) => {
     settle = { resolve, reject };

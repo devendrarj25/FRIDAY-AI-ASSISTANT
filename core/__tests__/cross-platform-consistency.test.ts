@@ -24,7 +24,6 @@ const WORKFLOWS = [
   "repository-control.yml",
   "safe-merge.yml",
   "maintenance.yml",
-  "official-publish.yml",
   "health-weekly.yml",
   "auto-recover.yml",
   "security.yml",
@@ -72,17 +71,22 @@ describe("packaged update path", () => {
 
 describe("local Windows build toolchain", () => {
   const cmd = read("scripts/build-windows.cmd");
+  const recipe = read("scripts/build-pipeline.cjs");
   const pkg = JSON.parse(read("package.json")) as { engines: Record<string, string> };
 
   it("checks engines before npm ci", () => {
-    expect(cmd.indexOf("check-engines.cjs")).toBeGreaterThan(-1);
-    expect(cmd.indexOf("check-engines.cjs")).toBeLessThan(cmd.indexOf("call npm ci"));
+    expect(cmd).toContain("build-pipeline.cjs");
+    expect(recipe.indexOf("check-engines.cjs")).toBeGreaterThan(-1);
+    expect(recipe.indexOf("check-engines.cjs")).toBeLessThan(
+      recipe.indexOf("npm ci --no-audit --no-fund"),
+    );
   });
 
   it("uses the package.json engine requirements, not a hardcoded older one", async () => {
     expect(pkg.engines["node"]).toBe(">=22.19.0");
     expect(pkg.engines["npm"]).toBe(">=10.9.0");
     expect(cmd).not.toContain("Node.js 20+");
+    expect(recipe).not.toContain("Node.js 20+");
     const gate = (await import("../../scripts/check-engines.cjs" as string)) as {
       compare: (a: string, b: string) => number;
       minimum: (r: string) => string;

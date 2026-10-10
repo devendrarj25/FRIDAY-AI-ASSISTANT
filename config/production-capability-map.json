@@ -135,7 +135,7 @@
     },
     "Z": {
       "feature": "GitHub CI/CD/release",
-      "source": [".github/workflows/pr-validation.yml", ".github/workflows/test-build.yml", ".github/workflows/release.yml", ".github/workflows/official-publish.yml"],
+      "source": [".github/workflows/pr-validation.yml", ".github/workflows/test-build.yml", ".github/workflows/release.yml"],
       "entry": ".github/workflows/release.yml"
     }
   }

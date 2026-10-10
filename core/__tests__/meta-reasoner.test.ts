@@ -1,14 +1,21 @@
 /**
  * Meta-reasoner: real next action from existing confidence / world / collaboration signals.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { reviewAssumptions, evaluateAnswer } from "../../src/lib/friday/brain/meta-reasoner";
 import { understandTurn } from "../../src/lib/friday/brain/intent-engine";
 import { decideAction } from "../../src/lib/friday/brain/decision-engine";
 import { coreBrain } from "../../src/lib/friday/brain/core-brain";
+import { resetConversationSession } from "../../src/lib/friday/brain/conversation-state";
+import { resetOpenLoops } from "../../src/lib/friday/brain/open-loops";
 
 describe("meta-reasoner", () => {
+  beforeEach(() => {
+    resetConversationSession();
+    resetOpenLoops();
+  });
+
   it("proceeds on a simple chat turn", () => {
     const review = reviewAssumptions({ text: "write a haiku about rain" });
     expect(review.action).toBe("proceed");

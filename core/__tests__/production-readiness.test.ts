@@ -84,17 +84,10 @@ describe("CI/release cannot publish from a pull request", () => {
     const release = parseYaml(read(".github/workflows/release.yml")) as {
       on: Record<string, unknown>;
     };
-    expect(Object.keys(release.on).sort()).toEqual(["workflow_call", "workflow_dispatch"]);
+    expect(Object.keys(release.on)).toEqual(["workflow_dispatch"]);
     expect(release.on).not.toHaveProperty("pull_request");
     expect(release.on).not.toHaveProperty("push");
-    const official = parseYaml(read(".github/workflows/official-publish.yml")) as {
-      on: {
-        workflow_dispatch: unknown;
-        push?: { branches?: string[]; paths?: string[] };
-      };
-    };
-    expect(Object.keys(official.on)).toEqual(["workflow_dispatch"]);
-    expect(official.on).not.toHaveProperty("pull_request");
+    expect(release.on).not.toHaveProperty("workflow_call");
     const pr = parseYaml(read(".github/workflows/pr-validation.yml")) as {
       on: Record<string, unknown>;
     };
