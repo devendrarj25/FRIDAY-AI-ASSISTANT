@@ -2292,6 +2292,9 @@ class BrainStore {
   }
 
   clearChat() {
+    // Stop the kernel stream before the transcript is wiped. A late append
+    // would otherwise write the discarded answer back into this session.
+    if (this.state.activeRunId) this.stop();
     this.pendingAction?.(false);
     this.pendingAction = null;
     persistAndResetConversation();
@@ -2328,13 +2331,14 @@ class BrainStore {
   }
 
   /** Replace the visible conversation (used when switching saved chats). */
-  loadConversation(messages: Message[]) {
-    if (this.state.activeRunId) return;
+  loadConversation(messages: Message[]): boolean {
+    if (this.state.activeRunId) return false;
     persistAndResetConversation();
     this.state.messages = messages.slice(-200);
     this.state.approval = null;
     this.syncSharedSurfaces("adopt");
     this.emit();
+    return true;
   }
 
   /**

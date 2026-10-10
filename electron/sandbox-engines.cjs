@@ -844,19 +844,30 @@ function expandEnv(candidate) {
   });
 }
 
-/** Candidate absolute paths for an engine on this platform, env expanded. */
+/**
+ * Relative paths of a Python that already ships with FRIDAY.
+ * Windows embeddable CPython is `python.exe` in the runtime folder.
+ * POSIX keeps the `bin/python3` layout. `platform` is explicit so a Linux
+ * test can lock the Windows list.
+ */
+function bundledInterpreterRels(platform = process.platform) {
+  return platform === "win32"
+    ? ["python/python.exe", "python/python3.exe"]
+    : ["python/bin/python3", "python/bin/python"];
+}
+
 /**
  * Python that already ships with FRIDAY, before any installer.
  * `root` is the runtime folder (tests pass a temp dir). Node stays the
  * built-in process engine, which is the runtime that launched FRIDAY.
  */
-function bundledInterpreter(id, root = process.env.FRIDAY_RUNTIME || "") {
+function bundledInterpreter(
+  id,
+  root = process.env.FRIDAY_RUNTIME || "",
+  platform = process.platform,
+) {
   if (!root || id !== "venv") return null;
-  const rels =
-    process.platform === "win32"
-      ? ["python/python.exe", "python/python3.exe"]
-      : ["python/bin/python3", "python/bin/python"];
-  for (const rel of rels) {
+  for (const rel of bundledInterpreterRels(platform)) {
     const file = path.join(root, rel);
     try {
       if (fs.existsSync(file)) return file;
@@ -867,6 +878,7 @@ function bundledInterpreter(id, root = process.env.FRIDAY_RUNTIME || "") {
   return null;
 }
 
+/** Candidate absolute paths for an engine on this platform, env expanded. */
 function engineLocations(id) {
   const list = (WIN ? WIN_ENGINE_LOCATIONS[id] : POSIX_ENGINE_LOCATIONS[id]) || [];
   return list.map(expandEnv);
@@ -911,6 +923,10 @@ function findOnDisk(id, candidates = engineLocations(id)) {
 /** Resolved absolute binaries, so wrap()/launch() reuse what detection found. */
 const resolvedPaths = new Map();
 const resolvedPath = (id) => resolvedPaths.get(id) || null;
+function clearProbedEngine(id) {
+  if (id) resolvedPaths.delete(id);
+  else resolvedPaths.clear();
+}
 
 const missingBinary = (output) => /ENOENT|not recognized|not found|no such file/i.test(output);
 
@@ -1635,6 +1651,8 @@ module.exports = {
   engineLocations,
   findOnDisk,
   bundledInterpreter,
+  bundledInterpreterRels,
+  clearProbedEngine,
   resolvedPath,
   catalog,
   detect,

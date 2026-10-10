@@ -124,6 +124,37 @@ describe("workflow inventory", () => {
     }
   });
 
+  it("keeps composite actions off the removed Node 20 action runtime", () => {
+    // GitHub removed the Node 20 action runtime on 2026-09-23. A javascript
+    // action that still says node20 fails before any step. These files stay
+    // composite and run with the runner shell.
+    const actions = path.resolve(DIR, "../actions");
+    const names = fs
+      .readdirSync(actions)
+      .filter((name) => fs.existsSync(path.join(actions, name, "action.yml")));
+    expect(names.sort()).toEqual(["checkout", "friday-node", "python"]);
+    for (const name of names) {
+      const src = fs.readFileSync(path.join(actions, name, "action.yml"), "utf8");
+      expect(src, name).toContain("using: composite");
+      expect(src, name).not.toMatch(/using:\s*node\d+/);
+      expect(src, name).not.toContain("ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION");
+    }
+  });
+
+  it("selects Python 3.12 beside its libraries, not a copied exe", () => {
+    const action = fs.readFileSync(path.resolve(DIR, "../actions/python/action.yml"), "utf8");
+    expect(action).toContain("command -v python3.12");
+    expect(action).toContain("py -3.12");
+    expect(action).toContain("MINGW*|MSYS*|CYGWIN*");
+    expect(action).toContain("sys.version_info[:2] == (3, 12)");
+    expect(action).toContain("Windows Store python alias");
+    expect(action).toContain("indows[Aa]pps");
+    expect(action).toContain("os.path.dirname(sys.executable)");
+    expect(action).toContain('echo "$dir" >> "$GITHUB_PATH"');
+    expect(action).toContain('ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"');
+    expect(action).not.toContain('cp "$bin"');
+  });
+
   it("does not call actions outside this repository", () => {
     // Settings allow only actions owned by devendrarj25. actions/checkout and
     // github/codeql-action fail the run before any job starts.

@@ -43,6 +43,35 @@ export function manualChatGuide(prompt: string, replyLanguage: string): string {
   ].join(" ");
 }
 
+/** Same sentence `brain.send` returns when a turn is already running. */
+export const BUSY_TURN_MESSAGE = "I'm still working on the last request — one moment.";
+
+/** Saved-chat switch while a reply is still streaming. New chat still stops that reply. */
+export const BUSY_SWITCH_MESSAGE = "Finish or stop this reply before opening another chat.";
+
+/**
+ * A typed send that has not been accepted stays in the box.
+ * Empty input stays quiet. A busy or refused turn gets one visible line.
+ */
+export function chatSendHold(input: {
+  text: string;
+  busy: boolean;
+  accepted?: boolean;
+  message?: string | null;
+}): { send: boolean; notice: string | null } {
+  if (!input.text.trim()) return { send: false, notice: null };
+  if (input.busy || input.accepted === false) {
+    const notice = input.message?.trim() || BUSY_TURN_MESSAGE;
+    return { send: false, notice };
+  }
+  return { send: true, notice: null };
+}
+
+/** Opening a different saved chat waits. The draft and the live reply stay. */
+export function chatSwitchHold(opened: boolean): { notice: string | null } {
+  return opened ? { notice: null } : { notice: BUSY_SWITCH_MESSAGE };
+}
+
 /**
  * A stop with text keeps that bubble. An empty stop is one line, "Stopped."
  * Any other error with text is folded into the same bubble.

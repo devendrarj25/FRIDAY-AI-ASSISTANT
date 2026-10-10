@@ -47,6 +47,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { brain, type Message } from "@/lib/friday/brain-engine";
+import {
+  BUSY_SWITCH_MESSAGE,
+  BUSY_TURN_MESSAGE,
+  chatSendHold,
+  chatSwitchHold,
+} from "@/lib/friday/chat-turn";
 import { TurnTrace } from "@/components/friday/TurnTrace";
 import { useBrain } from "@/lib/friday/use-brain";
 import { models } from "@/lib/friday/models-engine";
@@ -212,6 +218,8 @@ export function ChatDock() {
   // slower Windows machines. React only needs to know when it is empty so the
   // Send button can update once, not once per character.
   const [hasInput, setHasInput] = useState(false);
+  /** Why the last typed send or chat switch did not start. The draft stays. */
+  const [holdNotice, setHoldNotice] = useState<string | null>(null);
   /** Debounced copy of the draft — only used to compute suggestions. */
   const [draft, setDraft] = useState("");
 
@@ -272,6 +280,10 @@ export function ChatDock() {
     [draft, groups, attachedIds],
   );
   const busy = Boolean(state.activeRunId);
+  const visibleNotice =
+    (holdNotice === BUSY_TURN_MESSAGE || holdNotice === BUSY_SWITCH_MESSAGE) && !busy
+      ? null
+      : holdNotice;
   const liveRun = state.runs.find((run) => run.id === state.activeRunId) ?? state.runs[0] ?? null;
   const executeDetail = liveRun?.stages.find((stage) => stage.id === "execute")?.detail ?? "";
   const statusLabel = !busy
@@ -386,7 +398,11 @@ export function ChatDock() {
   const send = () => {
     const typed = inputRef.current?.value.trim() ?? "";
     const text = typed || (files.length ? "Analyse the attached file(s)." : "");
-    if (!text || busy) return;
+    const held = chatSendHold({ text, busy });
+    if (!held.send) {
+      if (held.notice) setHoldNotice(held.notice);
+      return;
+    }
     // Attached capabilities become a real instruction block plus concrete
     // model ids for this turn, not a cosmetic "[context: …]" suffix.
     // Explicit picks from the model menu pin this turn; empty = Auto, and the
@@ -442,8 +458,16 @@ export function ChatDock() {
     });
     if (!sent.accepted) {
       clearDiagramExplanation();
+      const refused = chatSendHold({
+        text,
+        busy: false,
+        accepted: false,
+        message: sent.message,
+      });
+      if (refused.notice) setHoldNotice(refused.notice);
       return;
     }
+    setHoldNotice(null);
 
     if (draftTimer.current) {
       clearTimeout(draftTimer.current);
@@ -573,7 +597,12 @@ export function ChatDock() {
                       <span className="truncate">{s.title}</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={() => brain.loadConversation(s.messages)}>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          const gate = chatSwitchHold(brain.loadConversation(s.messages));
+                          setHoldNotice(gate.notice);
+                        }}
+                      >
                         <MessageSquarePlus className="size-4" /> Switch to this chat
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => renameChat(s.id)}>
@@ -740,6 +769,11 @@ export function ChatDock() {
           placeholder="Type your message…"
           className="min-h-11 resize-none border-primary/25 bg-surface font-mono text-sm cursor-text"
         />
+        {visibleNotice ? (
+          <p className="mt-1 font-mono text-[10px] text-warning" role="status">
+            {visibleNotice}
+          </p>
+        ) : null}
 
         {/* Related capabilities FRIDAY suggests for what is being typed. */}
         {suggestions.length && !busy ? (
