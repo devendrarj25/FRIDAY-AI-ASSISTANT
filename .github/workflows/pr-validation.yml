@@ -507,7 +507,7 @@ jobs:
 
       - name: Scan for committed secrets
         run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 \
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
             detect --source /repo --redact --no-banner --exit-code 1
 
   codeql:

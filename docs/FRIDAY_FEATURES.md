@@ -202,6 +202,16 @@ Recorded from public docs read that day. This is not a second chat product. Manu
 | Web search as a model tool | REJECT | The read-only model tools stay the existing file, device, and network lookups. Search stays off that list. |
 | Microphone or speech in chat | REJECT | Manual and chat stay typed. Auto still owns the microphone and spoken replies. |
 
+### Web search ladder (2026-10-10)
+
+Keyed search runs before HTML scraping. A secret never becomes a query. A captcha page is a failed attempt.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Brave Search API | ADAPT | `GET https://api.search.brave.com/res/v1/web/search` with `X-Subscription-Token`. Plans include monthly credits and are not a standalone free tier, so the call runs only when the owner stored a key. The key stays out of the URL. Sources: api-dashboard.search.brave.com/api-reference/web/search/get and api-dashboard.search.brave.com/app/help-feedback (read 2026-10-10). |
+| Loopback SearXNG | ADOPT | `GET /search?q=&format=json` on a base the owner set. Only `127.0.0.1`, `localhost`, or `::1` is accepted. A public instance is not called. Source: docs.searxng.org/dev/search_api (read 2026-10-10). |
+| HTML result pages | ADAPT | DuckDuckGo, Bing, Brave, and the other HTML engines stay the last resort. A page that looks like a captcha falls through. |
+
 ### Chat and voice continuity (2026-10-09)
 
 Same session for typed and spoken turns. A typed turn keeps the typed guide while Auto is listening. A live talk is restored after restart. A new chat stays sealed until the owner asks to continue it. One finalized utterance is dispatched once. A replaced answer speaks the new text. Finished task steps are not replayed from a follow-up. "Change that" edits the current item. No new speech engine.

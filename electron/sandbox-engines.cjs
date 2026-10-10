@@ -845,6 +845,28 @@ function expandEnv(candidate) {
 }
 
 /** Candidate absolute paths for an engine on this platform, env expanded. */
+/**
+ * Python that already ships with FRIDAY, before any installer.
+ * `root` is the runtime folder (tests pass a temp dir). Node stays the
+ * built-in process engine, which is the runtime that launched FRIDAY.
+ */
+function bundledInterpreter(id, root = process.env.FRIDAY_RUNTIME || "") {
+  if (!root || id !== "venv") return null;
+  const rels =
+    process.platform === "win32"
+      ? ["python/python.exe", "python/python3.exe"]
+      : ["python/bin/python3", "python/bin/python"];
+  for (const rel of rels) {
+    const file = path.join(root, rel);
+    try {
+      if (fs.existsSync(file)) return file;
+    } catch {
+      /* try the next layout */
+    }
+  }
+  return null;
+}
+
 function engineLocations(id) {
   const list = (WIN ? WIN_ENGINE_LOCATIONS[id] : POSIX_ENGINE_LOCATIONS[id]) || [];
   return list.map(expandEnv);
@@ -948,7 +970,16 @@ async function probeEngine(engine) {
   }
   const probe = engine.probe;
   let usedPath = null;
-  let answer = await exec(probe.file, probe.args, { timeoutMs: 20_000 });
+  let answer = { ok: false, output: "" };
+  const bundled = bundledInterpreter(engine.id);
+  if (bundled) {
+    const direct = await exec(bundled, probe.args, { timeoutMs: 20_000 });
+    if (direct.ok || (probe.accept && !missingBinary(direct.output))) {
+      answer = direct;
+      usedPath = bundled;
+    }
+  }
+  if (!usedPath) answer = await exec(probe.file, probe.args, { timeoutMs: 20_000 });
   // PATH said no: look where the installers actually put it before believing it.
   if (!answer.ok && missingBinary(answer.output)) {
     const onDisk = findOnDisk(engine.id);
@@ -1603,6 +1634,7 @@ module.exports = {
   POSIX_ENGINE_LOCATIONS,
   engineLocations,
   findOnDisk,
+  bundledInterpreter,
   resolvedPath,
   catalog,
   detect,

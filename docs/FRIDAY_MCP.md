@@ -40,7 +40,8 @@ Read from the current specification, the SDK pages, and each client's own setup 
 | MCP Inspector as a required check | modelcontextprotocol.io inspector docs | REJECT | It is a networked dev tool. The offline fake client is the check. | `core/__tests__/mcp-platform.test.ts` |
 | Public tunnel | not required by the desktop clients below | REJECT | Loopback and stdio reach every listed desktop client. | not built |
 | Read-only tools while FRIDAY is closed | launcher behaviour | REJECT | A closed app must not run tools. | `electron/friday-mcp.cjs` |
-| Desktop extension bundle | no stable one-click bundle was confirmed | BACKLOG | Snippets and Write it for me cover install. | Connectors page |
+| Held `subscriptions/listen` | modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions | ADOPT | The first frame is `notifications/subscriptions/acknowledged`. The socket stays open for later change notices, each tagged with `io.modelcontextprotocol/subscriptionId`. A disconnect closes it. | `electron/mcp-server.cjs` |
+| Desktop extension bundle | blog.modelcontextprotocol.io/posts/2026-07-28/ | REJECT for now | That post describes an extensions framework. It does not name one stable one-click desktop bundle. Snippets stay the install path. | Connectors page |
 | A2A agent card | a2a-protocol.org v1.0 agent card | ADAPT | A local card is served on loopback only. No public host. | `GET /.well-known/agent-card.json` |
 | Claude Desktop config | code.claude.com MCP local servers page: `%APPDATA%\Claude\claude_desktop_config.json`, key `mcpServers` | ADOPT | Quit the app after saving. An MSIX install may redirect the file. | snippet `claude-desktop` |
 | Claude Code config | code.claude.com/docs/en/mcp: project `.mcp.json`, key `mcpServers`, `type` stdio | ADOPT | User scope is `%USERPROFILE%\.claude.json`, not a second path. | snippet `claude-code` |

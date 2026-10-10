@@ -10,6 +10,7 @@ const paths = require("./friday-paths.cjs");
 // One browser: FRIDAY's programmatic requests use the very same persistent
 // Chromium session as the visible FRIDAY Browser tabs (cookies, logins, cache).
 const live = require("./browser-live.cjs");
+const ladder = require("./search-ladder.cjs");
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
@@ -261,14 +262,40 @@ function formatSearchError(detail, source) {
     : `search failed: ${labelled}`;
 }
 
-async function searchFrom(source, query, limit) {
+async function searchFrom(source, query, limit, fetchImpl) {
   try {
-    const response = await request(source.url(query, limit), {
-      timeoutMs: source.timeoutMs,
-      headers: { accept: source.accept },
-    });
+    const response = fetchImpl
+      ? await fetchImpl(source.url(query, limit), {
+          headers: { accept: source.accept },
+        })
+      : await request(source.url(query, limit), {
+          timeoutMs: source.timeoutMs,
+          headers: { accept: source.accept },
+        });
     if (!response.ok) {
       return { ok: false, results: [], error: `search failed [${source.id} ${response.status}]` };
+    }
+    if (String(source.accept || "").includes("html")) {
+      const html = typeof response.text === "function" ? await response.text() : "";
+      if (ladder.looksLikeBotWall(html)) {
+        return {
+          ok: false,
+          results: [],
+          error: `search failed [${source.id} bot-wall]`,
+          botWall: true,
+        };
+      }
+      const results = await source.parse(
+        { text: async () => html, json: async () => JSON.parse(html), ok: true },
+        limit,
+      );
+      if (!results.length) {
+        return { ok: false, results: [], error: `search failed [${source.id} empty]` };
+      }
+      return {
+        ok: true,
+        results: results.map((row) => ({ ...row, provenance: "web", instruction: false })),
+      };
     }
     const results = await source.parse(response, limit);
     if (!results.length) {
@@ -374,14 +401,30 @@ async function searchViaLive(query, limit) {
 }
 
 /**
- * Web search. Prefer the live tab (owner's chosen engine, real Chromium).
- * Headless fallback: preferred engine HTML, then DuckDuckGo, Bing, Brave,
- * Wikipedia OpenSearch. Failed fetches are a speakable string.
+ * Web search. A keyed Brave API call and a loopback SearXNG base run first.
+ * Then the live tab, then HTML engines, with Wikipedia JSON in that ladder.
+ * A captcha page falls through. Sensitive text is not queried.
  */
-async function search(query, { limit = 8 } = {}) {
-  const q = String(query || "").trim();
-  if (!q) return { ok: false, error: "Empty search query.", results: [] };
+async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
+  const gate = ladder.gateQuery(query);
+  if (!gate.ok) return { ok: false, error: gate.error, results: [] };
+  const q = gate.query;
   const n = Math.max(1, Math.min(12, Number(limit) || 8));
+  if (keys && (keys.brave || keys.searxng)) {
+    const keyed = await ladder.runKeyed(q, { keys, fetchImpl, limit: n });
+    if (keyed.ok && keyed.results.length) {
+      return note({
+        kind: "search",
+        query: q,
+        ok: true,
+        source: keyed.source,
+        results: keyed.results,
+      });
+    }
+    if (keyed.error && /this machine|Sensitive/i.test(keyed.error)) {
+      return note({ kind: "search", query: q, ok: false, error: keyed.error, results: [] });
+    }
+  }
   const liveHits = await searchViaLive(q, n);
   if (liveHits && liveHits.length) {
     return note({
@@ -395,7 +438,7 @@ async function search(query, { limit = 8 } = {}) {
   const preferred = String((live.getSettings() || {}).searchEngine || "duckduckgo");
   const errors = [];
   for (const source of orderedSources(preferred)) {
-    const attempt = await searchFrom(source, q, n);
+    const attempt = await searchFrom(source, q, n, fetchImpl);
     if (attempt.ok && attempt.results.length) {
       return note({
         kind: "search",
