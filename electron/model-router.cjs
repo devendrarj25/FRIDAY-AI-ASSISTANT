@@ -732,10 +732,13 @@ function scoreModel(
   // Proven behaviour & Latency
   if (model.health === "available") score += 1.2;
   if (model.latencyMs) score += Math.max(-1, 1 - model.latencyMs / 2000);
-  if (surface === "voice" && model.latencyMs) {
-    score += Math.max(-1, 1 - model.latencyMs / 2000) * 2;
+  if (surface === "voice") {
+    if (model.latencyMs) score += Math.max(-1, 1 - model.latencyMs / 2000) * 2;
+    score += (qp.speedScore || 0) * 4;
+    if (model.role === "fast") score += 2;
   } else if (surface === "chat") {
     score += (qp.chatScore || qp.reasoningScore || 0.5) * 2;
+    if ((qp.chatScore || 0) >= 0.8) score += 1;
   }
   if (requirements.maxLatencyMs && model.latencyMs && model.latencyMs > requirements.maxLatencyMs) {
     score -= 3;

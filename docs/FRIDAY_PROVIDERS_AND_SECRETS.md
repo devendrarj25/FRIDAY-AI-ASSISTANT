@@ -30,6 +30,8 @@ Twenty dispatch ids: `openai` OpenAI, `anthropic` Anthropic, `gemini` Google Gem
 
 Chat wire is built in `kernel/router.py` (`PROVIDER_SURFACES`). UI labels: `src/lib/friday/model-catalog.ts`.
 
+Signup links for those twenty cloud ids are on the Models page. Checked 2026-10-10: OpenAI's rate-limit page names a Free usage tier only in an allowed geography, and that is not a per-model price (developers.openai.com/api/docs/guides/rate-limits). Anthropic's pricing page says new API users can receive a small credit and lists paid token prices (docs.anthropic.com/en/about-claude/pricing). Fireworks serverless pricing is prepaid credit (docs.fireworks.ai/serverless/pricing). Nebius Token Factory grants a short trial credit and requires a card (docs.tokenfactory.nebius.com/other-capabilities/billing-new). DeepInfra's pricing page requires a card or a prepaid balance (deepinfra.com/pricing). None of those five is treated as an always-free model list.
+
 Not added (vendor verification failed):
 
 - **GitHub Models** — retired 2026-07-30. `models.github.ai` returns HTTP 410.

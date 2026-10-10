@@ -50,6 +50,7 @@ function createServer(options = {}) {
     calendar: [],
     activity: [],
     subs: new Map(),
+    listens: new Map(),
     notes: [],
     cancelled: new Set(),
     inflight: new Set(),
@@ -302,6 +303,65 @@ function notifyChanged(server) {
   for (const [clientId, uris] of server.subs) {
     if (!uris.size) continue;
     server.notes.push({ clientId, method: "notifications/resources/list_changed", params: {} });
+  }
+  pushListen(server, "notifications/resources/list_changed", {});
+}
+
+function sseFrame(message) {
+  return `data: ${JSON.stringify(message)}\n\n`;
+}
+
+function honoredNotifications(asked) {
+  const source = asked && typeof asked === "object" ? asked : {};
+  const honored = {};
+  if (source.toolsListChanged) honored.toolsListChanged = true;
+  if (source.promptsListChanged) honored.promptsListChanged = true;
+  if (source.resourcesListChanged) honored.resourcesListChanged = true;
+  if (Array.isArray(source.resourceSubscriptions)) {
+    honored.resourceSubscriptions = source.resourceSubscriptions
+      .map((uri) => String(uri))
+      .slice(0, 50);
+  }
+  return honored;
+}
+
+function listenWants(sub, method) {
+  const honored = sub.honored || {};
+  if (method === "notifications/tools/list_changed") return honored.toolsListChanged === true;
+  if (method === "notifications/prompts/list_changed") return honored.promptsListChanged === true;
+  if (method === "notifications/resources/list_changed") {
+    return (
+      honored.resourcesListChanged === true || (honored.resourceSubscriptions || []).length > 0
+    );
+  }
+  return false;
+}
+
+function pushListen(server, method, params) {
+  for (const sub of server.listens.values()) {
+    if (sub.closed || !listenWants(sub, method)) continue;
+    const note = {
+      jsonrpc: "2.0",
+      method,
+      params: params || {},
+      _meta: { [proto.META_SUBSCRIPTION]: sub.id },
+    };
+    if (sub.res && !sub.res.writableEnded) sub.res.write(sseFrame(note));
+    else sub.queue.push(note);
+  }
+}
+
+function closeListen(server, sub, reason) {
+  if (!sub || sub.closed) return;
+  sub.closed = true;
+  server.listens.delete(sub.id);
+  const done = proto.jsonRpcResult(
+    sub.id,
+    proto.stampResult(proto.CURRENT_VERSION, { status: reason || "closed" }),
+  );
+  if (sub.res && !sub.res.writableEnded) {
+    sub.res.write(sseFrame(done));
+    sub.res.end();
   }
 }
 
@@ -872,6 +932,8 @@ async function handleMessage(server, message, ctx = {}) {
   if (message.id == null) {
     if (message.method === "notifications/cancelled") {
       server.cancelled.add(message.params?.requestId);
+      const sub = server.listens.get(message.params?.requestId);
+      if (sub) closeListen(server, sub, "cancelled");
     }
     return null;
   }
@@ -1010,9 +1072,33 @@ async function handleMessage(server, message, ctx = {}) {
     return proto.jsonRpcResult(message.id, proto.stampResult(version, {}));
   }
   if (message.method === "subscriptions/listen") {
-    const events = server.notes.filter((note) => note.clientId === client.id);
+    const honored = honoredNotifications(message.params?.notifications);
+    const queued = server.notes.filter((note) => note.clientId === client.id);
     server.notes = server.notes.filter((note) => note.clientId !== client.id);
-    return proto.jsonRpcResult(message.id, proto.stampResult(version, { events }));
+    const sub = {
+      id: message.id,
+      clientId: client.id,
+      honored,
+      res: null,
+      queue: [],
+      closed: false,
+    };
+    server.listens.set(message.id, sub);
+    const ack = {
+      jsonrpc: "2.0",
+      method: "notifications/subscriptions/acknowledged",
+      params: {
+        notifications: honored,
+        _meta: { [proto.META_SUBSCRIPTION]: message.id },
+      },
+    };
+    const events = [ack, ...queued];
+    const rpc = proto.jsonRpcResult(
+      message.id,
+      proto.stampResult(version, { events, subscriptionId: message.id }),
+    );
+    rpc.__fridayStream = { subscriptionId: message.id, frames: [ack, ...queued, ...sub.queue] };
+    return rpc;
   }
   if (message.method === "prompts/list") {
     const { page, nextCursor } = proto.paginate(catalog.PROMPTS, message.params?.cursor);
@@ -1167,11 +1253,29 @@ function handleHttp(server, request) {
   const auth = String(headers.authorization || "");
   const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   return handleMessage(server, message, { token, version: metaVersion || undefined }).then(
-    (result) => ({
-      status: 200,
-      headers: responseHeaders,
-      body: JSON.stringify(result),
-    }),
+    (result) => {
+      if (result && result.__fridayStream) {
+        const stream = result.__fridayStream;
+        const copy = { ...result };
+        delete copy.__fridayStream;
+        return {
+          status: 200,
+          headers: {
+            ...responseHeaders,
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+          },
+          stream: true,
+          subscriptionId: stream.subscriptionId,
+          body: stream.frames.map((frame) => sseFrame(frame)).join(""),
+        };
+      }
+      return {
+        status: 200,
+        headers: responseHeaders,
+        body: JSON.stringify(result),
+      };
+    },
   );
 }
 
@@ -1242,6 +1346,20 @@ function listen(server, port = 0) {
         .then((outcome) => {
           if (res.writableEnded) return;
           res.writeHead(outcome.status, outcome.headers);
+          if (outcome.stream) {
+            res.write(outcome.body || "");
+            const sub = server.listens.get(outcome.subscriptionId);
+            if (sub && !sub.closed) {
+              sub.res = res;
+              for (const note of sub.queue) res.write(sseFrame(note));
+              sub.queue = [];
+            }
+            res.on("close", () => {
+              const live = server.listens.get(outcome.subscriptionId);
+              if (live && !live.closed) closeListen(server, live, "disconnected");
+            });
+            return;
+          }
           res.end(outcome.body);
         })
         .catch(() => {

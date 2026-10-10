@@ -20,6 +20,7 @@ const META_CLIENT_CAPS = "io.modelcontextprotocol/clientCapabilities";
 const META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
 const META_LOG_LEVEL = "io.modelcontextprotocol/logLevel";
 const META_FRIDAY_TOKEN = "io.friday/clientToken";
+const META_SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId";
 
 const ERROR = {
   PARSE: -32700,
@@ -372,6 +373,7 @@ module.exports = {
   META_SERVER_INFO,
   META_LOG_LEVEL,
   META_FRIDAY_TOKEN,
+  META_SUBSCRIPTION,
   ERROR,
   PAGE_SIZE,
   OUTPUT_CAP,

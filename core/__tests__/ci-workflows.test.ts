@@ -1165,7 +1165,7 @@ describe("automatic-health workflows", () => {
     expect(src).toContain("npm run test:kernel");
     expect(src).toContain("scripts/tests-required.cjs");
     expect(src).toContain("scripts/check-provenance.cjs");
-    expect(src).toContain("gitleaks:v8.24.3");
+    expect(src).toContain("gitleaks:v8.30.1");
     expect(src).toContain("--exit-code 1");
     expect(doc.jobs.codeql.needs).toBe("gate");
     expect(doc.jobs.codeql.if).toContain("docs_only != 'true'");
