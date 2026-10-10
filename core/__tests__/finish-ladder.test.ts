@@ -92,11 +92,11 @@ describe("search ladder", () => {
 });
 
 describe("bundled sandbox runtime", () => {
-  const previous = process.env.FRIDAY_RUNTIME;
+  const previous = process.env["FRIDAY_RUNTIME"];
 
   afterEach(() => {
-    if (previous === undefined) delete process.env.FRIDAY_RUNTIME;
-    else process.env.FRIDAY_RUNTIME = previous;
+    if (previous === undefined) delete process.env["FRIDAY_RUNTIME"];
+    else process.env["FRIDAY_RUNTIME"] = previous;
   });
 
   it("probes the bundled Python before a system installer", async () => {
@@ -107,7 +107,7 @@ describe("bundled sandbox runtime", () => {
     fs.writeFileSync(file, "#!/bin/sh\necho Python 3.12.10\n");
     fs.chmodSync(file, 0o755);
     expect(engines.bundledInterpreter("venv", root)).toBe(file);
-    process.env.FRIDAY_RUNTIME = root;
+    process.env["FRIDAY_RUNTIME"] = root;
     const engine = engines.ENGINES.find((row: { id: string }) => row.id === "venv");
     const probe = await engines.probeEngine(engine);
     expect(probe.ready).toBe(true);
