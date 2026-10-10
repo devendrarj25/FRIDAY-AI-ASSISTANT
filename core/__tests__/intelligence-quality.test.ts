@@ -2,6 +2,8 @@
  * Task 22 — targeted intelligence quality scenarios on existing stores.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import { resetConversationSession } from "../../src/lib/friday/brain/conversation-state";
+import { resetOpenLoops } from "../../src/lib/friday/brain/open-loops";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -33,6 +35,8 @@ describe("intelligence quality bar", () => {
     memory.resetForTests();
     brainKnowledge.resetForTests();
     experiences.clear();
+    resetConversationSession();
+    resetOpenLoops();
   });
 
   it("Knowledge: known fact is recalled concisely without forcing research", () => {

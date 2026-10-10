@@ -448,6 +448,16 @@ class Governance {
     this.emit();
   }
 
+  /** Drops the in-memory queue. Tests use this so one case cannot see another's draft. */
+  resetForTests(): void {
+    this.items = [];
+    this.loaded = true;
+    this.waiting.clear();
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.emit(false);
+  }
+
   private remember(id: string, ok: boolean) {
     const item = this.get(id);
     if (!item || !autonomy.getSnapshot().learningEnabled) return;

@@ -32,6 +32,7 @@ const connectors = require("../../electron/connectors.cjs") as {
       fetchImpl?: typeof fetch;
       openExternal?: (url: string) => Promise<unknown>;
       timeoutMs?: number;
+      port?: number;
     },
   ) => Promise<{
     ok: boolean;
@@ -65,6 +66,7 @@ const credentials = require("../../electron/credentials.cjs") as {
   setSecret: (root: string, id: string, value: string) => { ok: boolean };
 };
 const oauthLoopback = require("../../electron/oauth-loopback.cjs") as {
+  DEFAULT_PORT: number;
   pkcePair: () => { verifier: string; challenge: string; method: string };
   listen: (opts?: { port?: number; timeoutMs?: number }) => Promise<{
     port: number;
@@ -201,6 +203,7 @@ describe("OAuth loopback + GitHub token exchange", () => {
       {
         fetchImpl: fetchImpl as unknown as typeof fetch,
         timeoutMs: 15_000,
+        port: 0,
         openExternal: async (url: string) => {
           const parsed = new URL(url);
           expect(parsed.hostname).toBe("github.com");
@@ -234,6 +237,7 @@ describe("OAuth loopback + GitHub token exchange", () => {
       {
         fetchImpl: githubFetch() as unknown as typeof fetch,
         timeoutMs: 15_000,
+        port: 0,
         openExternal: async (url: string) => {
           const parsed = new URL(url);
           const redirect = parsed.searchParams.get("redirect_uri") || "";
@@ -255,6 +259,7 @@ describe("OAuth loopback + GitHub token exchange", () => {
       {
         fetchImpl: githubFetch({ userOk: false }) as unknown as typeof fetch,
         timeoutMs: 15_000,
+        port: 0,
         openExternal: async (url: string) => {
           const parsed = new URL(url);
           const redirect = parsed.searchParams.get("redirect_uri") || "";
@@ -316,6 +321,8 @@ describe("oauth loopback module", () => {
     expect(pair.verifier.length).toBeGreaterThan(20);
     expect(pair.challenge.length).toBeGreaterThan(20);
     const listener = await oauthLoopback.listen({ port: 0, timeoutMs: 8_000 });
+    expect(listener.port).toBeGreaterThan(0);
+    expect(listener.port).not.toBe(oauthLoopback.DEFAULT_PORT);
     const pending = listener.wait();
     const miss = await fetch(`http://127.0.0.1:${listener.port}/not-callback`);
     expect(miss.status).toBe(404);

@@ -155,10 +155,12 @@ let publish = null;
 let context = {};
 let inFlight = null;
 let sampleGeneration = 0;
+let resample = false;
 
 function tick() {
   if (inFlight) return inFlight;
   const generation = sampleGeneration;
+  resample = false;
   inFlight = (async () => {
     try {
       const next = await sample(context);
@@ -170,7 +172,7 @@ function tick() {
       /* keep the previous snapshot — a probe failure must never crash main */
     } finally {
       inFlight = null;
-      if (generation !== sampleGeneration) tick();
+      if (resample && generation !== sampleGeneration) tick();
     }
     return latest;
   })();
@@ -205,6 +207,9 @@ function stop() {
   subscribers = 0;
   if (timer) clearInterval(timer);
   timer = null;
+  latest = null;
+  resample = false;
+  sampleGeneration += 1;
 }
 
 /** Last probe, or a fresh one when nothing is subscribed yet. */
@@ -220,6 +225,7 @@ async function snapshot() {
 function invalidate() {
   latest = null;
   sampleGeneration += 1;
+  resample = true;
   void tick();
 }
 

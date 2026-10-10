@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  resetTaskGraphStore,
   TaskGraphEngine,
   planNodes,
   type GraphNode,
   type TaskGraph,
 } from "../../src/lib/friday/self/task-graph";
+import { memory } from "../../src/lib/friday/self/memory-engine";
 import { taskGraph } from "../../src/lib/friday/self/task-graph";
 import { considerLongTask, handleQueueCommand } from "../../src/lib/friday/self/task-runners";
 import { looksLikeHorizonGoal } from "../../src/lib/friday/self/horizon-goals";
@@ -25,6 +27,11 @@ const settle = async (engine: TaskGraphEngine, ms = 400) => {
 };
 
 describe("task graph — durable multi-step work", () => {
+  beforeEach(() => {
+    resetTaskGraphStore();
+    memory.resetForTests();
+  });
+
   it("breaks a real request into ordered subtasks and checkpoints each one", async () => {
     const engine = new TaskGraphEngine();
     const seen: string[] = [];
@@ -72,8 +79,10 @@ describe("task graph — durable multi-step work", () => {
     first.pause(id);
     await sleep(30);
 
-    const stored = clone(first.list()) as TaskGraph[];
-    expect(stored[0]?.nodes[0]?.state).toBe("verified");
+    const paused = first.get(id)!;
+    expect(paused.nodes[0]?.state).toBe("verified");
+    expect(paused.nodes.length).toBe(3);
+    const stored = clone([paused]) as TaskGraph[];
 
     // "Restart": a brand new engine hydrating the persisted graphs.
     const second = new TaskGraphEngine();
@@ -92,6 +101,25 @@ describe("task graph — durable multi-step work", () => {
     expect(after.some((title) => title.startsWith("step one"))).toBe(false);
     expect(after.length).toBe(2);
     expect(ran).toBeGreaterThan(0);
+  });
+
+  it("keeps every step of an explicit request when a shorter procedure was learned", async () => {
+    const teacher = new TaskGraphEngine();
+    teacher.registerRunner("goal", async ({ node }) => ({
+      result: `done ${node.title}`,
+      checked: true,
+    }));
+    const short = teacher.submit("step one of the job\nthen step two of the job");
+    await settle(teacher);
+    expect(teacher.get(short.id)?.nodes.length).toBe(2);
+
+    const pupil = new TaskGraphEngine();
+    const long = pupil.submit("step one of the job\nthen step two of the job\nthen step three");
+    expect(pupil.get(long.id)?.nodes.map((node) => node.title)).toEqual([
+      "step one of the job",
+      "step two of the job",
+      "step three",
+    ]);
   });
 
   it("queues a second request instead of dropping or interrupting the first", async () => {
