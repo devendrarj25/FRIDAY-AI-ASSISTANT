@@ -11,26 +11,55 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if command -v python3.12 >/dev/null 2>&1; then
-          bin=$(command -v python3.12)
-        elif command -v py >/dev/null 2>&1; then
-          bin=$(py -3.12 -c "import sys; print(sys.executable)" | tr -d '\r')
-        else
+        # The Windows Store python alias must not win. python312.dll sits beside
+        # python.exe, so that directory goes on PATH. A copied exe alone does not start.
+        bin=""
+        dir=""
+        case "$(uname -s)" in
+          MINGW*|MSYS*|CYGWIN*)
+            if command -v py >/dev/null 2>&1 && py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
+              bin=$(py -3.12 -c "import sys; print(sys.executable)" | tr -d '\r')
+              case "$bin" in
+                *[Ww]indows[Aa]pps*)
+                  echo "::error::The Windows Store python alias is not a Python 3.12 runtime"
+                  bin=""
+                  ;;
+                *)
+                  dir=$(py -3.12 -c "import os, sys; print(os.path.dirname(sys.executable))" | tr -d '\r')
+                  ;;
+              esac
+            fi
+            ;;
+        esac
+        if [ -z "$bin" ] && command -v python3.12 >/dev/null 2>&1; then
+          try=$(command -v python3.12)
+          case "$try" in
+            *[Ww]indows[Aa]pps*) ;;
+            *)
+              if "$try" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
+                bin="$try"
+              fi
+              ;;
+          esac
+        fi
+        if [ -z "$bin" ] && command -v py >/dev/null 2>&1; then
+          if py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
+            bin=$(py -3.12 -c "import sys; print(sys.executable)" | tr -d '\r')
+            case "$bin" in
+              *[Ww]indows[Aa]pps*) bin="" ;;
+              *) dir=$(py -3.12 -c "import os, sys; print(os.path.dirname(sys.executable))" | tr -d '\r') ;;
+            esac
+          fi
+        fi
+        if [ -z "$bin" ]; then
           echo "::error::Python 3.12 is not on this runner"
           exit 1
         fi
         case "$bin" in
-          *[Ww]indows[Aa]pps*)
-            echo "::error::The Windows Store python alias is not a Python 3.12 runtime"
-            exit 1
-            ;;
-        esac
-        "$bin" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" \
-          || { echo "::error::Selected interpreter is not Python 3.12: $bin"; exit 1; }
-        case "$bin" in
           *.exe|*.EXE)
-            # python312.dll sits beside python.exe. A copied exe alone does not start.
-            dir=$("$bin" -c "import os, sys; print(os.path.dirname(sys.executable))" | tr -d '\r')
+            if [ -z "$dir" ]; then
+              dir=$("$bin" -c "import os, sys; print(os.path.dirname(sys.executable))" | tr -d '\r')
+            fi
             [ -n "$dir" ] || { echo "::error::Python 3.12 has no directory"; exit 1; }
             echo "$dir" >> "$GITHUB_PATH"
             echo "python 3.12 -> $bin (directory on PATH)"
