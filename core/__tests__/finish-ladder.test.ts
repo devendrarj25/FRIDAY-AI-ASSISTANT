@@ -2,6 +2,7 @@
  * Search ladder, bundled sandbox runtime, voice speed, and the MCP listen stream.
  * Every case is local: fake fetch, a temp file, an injected clock is not required.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -109,28 +110,92 @@ describe("search ladder", () => {
   });
 });
 
+function runtimeFile(root: string, platform: string, relIndex = 0): string {
+  const rels = engines.bundledInterpreterRels(platform) as string[];
+  const rel = rels[relIndex];
+  if (!rel) throw new Error(`no bundled Python layout for ${platform}`);
+  return path.join(root, ...rel.split("/"));
+}
+
+function plantInterpreter(root: string, platform: string, runnable: boolean, relIndex = 0): string {
+  const file = runtimeFile(root, platform, relIndex);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (!runnable) {
+    fs.writeFileSync(file, "");
+    return file;
+  }
+  if (platform === "win32") {
+    fs.copyFileSync(process.execPath, file);
+    return file;
+  }
+  fs.writeFileSync(file, "#!/bin/sh\necho Python 3.12.10\n");
+  fs.chmodSync(file, 0o755);
+  return file;
+}
+
 describe("bundled sandbox runtime", () => {
   const previous = process.env["FRIDAY_RUNTIME"];
 
   afterEach(() => {
+    engines.clearProbedEngine("venv");
     if (previous === undefined) delete process.env["FRIDAY_RUNTIME"];
     else process.env["FRIDAY_RUNTIME"] = previous;
   });
 
+  it("keeps the Windows embeddable layout and the POSIX layout apart", () => {
+    expect(engines.bundledInterpreterRels("win32")).toEqual([
+      "python/python.exe",
+      "python/python3.exe",
+    ]);
+    expect(engines.bundledInterpreterRels("linux")).toEqual([
+      "python/bin/python3",
+      "python/bin/python",
+    ]);
+    expect(engines.bundledInterpreterRels("darwin")).toEqual(
+      engines.bundledInterpreterRels("linux"),
+    );
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-runtime-"));
+    const posixOnly = fs.mkdtempSync(path.join(os.tmpdir(), "friday-runtime-"));
+    try {
+      const win = plantInterpreter(root, "win32", false);
+      const posix = plantInterpreter(root, "linux", false);
+      expect(engines.bundledInterpreter("venv", root, "win32")).toBe(win);
+      expect(engines.bundledInterpreter("venv", root, "linux")).toBe(posix);
+      expect(engines.bundledInterpreter("venv", root, "win32")).not.toBe(posix);
+      const only = plantInterpreter(posixOnly, "linux", false);
+      expect(engines.bundledInterpreter("venv", posixOnly, "win32")).toBeNull();
+      expect(engines.bundledInterpreter("venv", posixOnly, "linux")).toBe(only);
+      const secondWin = runtimeFile(root, "win32", 1);
+      fs.mkdirSync(path.dirname(secondWin), { recursive: true });
+      fs.rmSync(win, { force: true });
+      fs.writeFileSync(secondWin, "");
+      expect(engines.bundledInterpreter("venv", root, "win32")).toBe(secondWin);
+      expect(engines.bundledInterpreter("node", root, "win32")).toBeNull();
+      expect(engines.bundledInterpreter("venv", "", "win32")).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(posixOnly, { recursive: true, force: true });
+    }
+  });
+
   it("probes the bundled Python before a system installer", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-runtime-"));
-    const dir = path.join(root, "python", "bin");
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "python3");
-    fs.writeFileSync(file, "#!/bin/sh\necho Python 3.12.10\n");
-    fs.chmodSync(file, 0o755);
-    expect(engines.bundledInterpreter("venv", root)).toBe(file);
-    process.env["FRIDAY_RUNTIME"] = root;
-    const engine = engines.ENGINES.find((row: { id: string }) => row.id === "venv");
-    const probe = await engines.probeEngine(engine);
-    expect(probe.ready).toBe(true);
-    expect(String(probe.detail || probe.version || "")).toMatch(/3\.12\.10/);
-    expect(String(probe.detail || "")).toContain(file);
+    try {
+      const file = plantInterpreter(root, process.platform, true);
+      expect(engines.bundledInterpreter("venv", root)).toBe(file);
+      process.env["FRIDAY_RUNTIME"] = root;
+      const direct = spawnSync(file, ["--version"], { encoding: "utf8" });
+      expect(direct.status).toBe(0);
+      const token = `${direct.stdout || ""}\n${direct.stderr || ""}`.match(/(\d+\.\d+\.\d+)/)?.[1];
+      expect(token).toBeTruthy();
+      const engine = engines.ENGINES.find((row: { id: string }) => row.id === "venv");
+      const probe = await engines.probeEngine(engine);
+      expect(probe.ready).toBe(true);
+      expect(String(probe.detail || "")).toContain(file);
+      expect(String(probe.detail || probe.version || "")).toContain(token);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

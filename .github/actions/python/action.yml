@@ -14,15 +14,31 @@ runs:
         if command -v python3.12 >/dev/null 2>&1; then
           bin=$(command -v python3.12)
         elif command -v py >/dev/null 2>&1; then
-          bin=$(py -3.12 -c "import sys; print(sys.executable)")
+          bin=$(py -3.12 -c "import sys; print(sys.executable)" | tr -d '\r')
         else
           echo "::error::Python 3.12 is not on this runner"
           exit 1
         fi
-        mkdir -p "$RUNNER_TEMP/pybin"
         case "$bin" in
-          *.exe) cp "$bin" "$RUNNER_TEMP/pybin/python.exe" ;;
-          *) ln -sfn "$bin" "$RUNNER_TEMP/pybin/python" ;;
+          *[Ww]indows[Aa]pps*)
+            echo "::error::The Windows Store python alias is not a Python 3.12 runtime"
+            exit 1
+            ;;
         esac
-        echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
-        echo "python 3.12 -> $bin"
+        "$bin" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" \
+          || { echo "::error::Selected interpreter is not Python 3.12: $bin"; exit 1; }
+        case "$bin" in
+          *.exe|*.EXE)
+            # python312.dll sits beside python.exe. A copied exe alone does not start.
+            dir=$("$bin" -c "import os, sys; print(os.path.dirname(sys.executable))" | tr -d '\r')
+            [ -n "$dir" ] || { echo "::error::Python 3.12 has no directory"; exit 1; }
+            echo "$dir" >> "$GITHUB_PATH"
+            echo "python 3.12 -> $bin (directory on PATH)"
+            ;;
+          *)
+            mkdir -p "$RUNNER_TEMP/pybin"
+            ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"
+            echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+            echo "python 3.12 -> $bin"
+            ;;
+        esac
