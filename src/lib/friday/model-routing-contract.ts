@@ -191,6 +191,60 @@ export function createRoutingContract(
   };
 }
 
+/** Chat and Manual rank for quality. Auto and Voice rank for latency. One pool. */
+export type SurfaceRank = "latency-first" | "quality-first";
+
+export function surfaceRank(surface: "voice" | "chat" | "manual" | string): SurfaceRank {
+  return surface === "voice" ? "latency-first" : "quality-first";
+}
+
+/** A spoken turn stays on one model. A hedged chat still goes through the billing firewall. */
+export function hedgeAllowed(surface: "voice" | "chat" | string): boolean {
+  return surface !== "voice";
+}
+
+export interface RankedModel {
+  id?: string;
+  available?: boolean;
+  eligible?: boolean;
+  latencyMs?: number | null;
+  quality?: number | null;
+  contextK?: number;
+  resident?: boolean;
+  priority?: number;
+  access?: string;
+}
+
+/**
+ * Same eligible pool for both surfaces. Voice orders by measured latency.
+ * Chat and Manual order by quality, then context. Hidden or ineligible rows
+ * never enter the order. A paid row is included only when the caller has
+ * already marked it eligible.
+ */
+export function rankForSurface<T extends RankedModel>(
+  models: readonly T[],
+  surface: "voice" | "chat" | string,
+): T[] {
+  const pool = models.filter((model) => model.available !== false && model.eligible !== false);
+  const ranked = [...pool];
+  const voice = surfaceRank(surface) === "latency-first";
+  ranked.sort((a, b) => {
+    if (voice) {
+      const left = a.latencyMs && a.latencyMs > 0 ? a.latencyMs : Number.POSITIVE_INFINITY;
+      const right = b.latencyMs && b.latencyMs > 0 ? b.latencyMs : Number.POSITIVE_INFINITY;
+      if (left !== right) return left - right;
+    } else {
+      const left = a.quality ?? a.contextK ?? 0;
+      const right = b.quality ?? b.contextK ?? 0;
+      if (left !== right) return right - left;
+    }
+    const resident = (b.resident ? 1 : 0) - (a.resident ? 1 : 0);
+    if (resident !== 0) return resident;
+    return (b.priority ?? 0) - (a.priority ?? 0);
+  });
+  return ranked;
+}
+
 export function validateRoutingContract(contract: unknown): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   if (!contract || typeof contract !== "object") {

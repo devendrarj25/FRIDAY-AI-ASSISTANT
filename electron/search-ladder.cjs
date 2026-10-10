@@ -73,6 +73,43 @@ function readArticle(html, maxChars = 8000) {
   };
 }
 
+function searchHonesty(source) {
+  const id = String(source || "");
+  if (id === "brave-api") {
+    return {
+      provider: "Brave Search API",
+      why: "A stored Brave key answered. Brave plans use credits and are not a free tier.",
+      mayBeBlocked: false,
+    };
+  }
+  if (id === "searxng") {
+    return {
+      provider: "SearXNG",
+      why: "The loopback SearXNG base on this machine answered.",
+      mayBeBlocked: false,
+    };
+  }
+  if (id === "live-tab") {
+    return {
+      provider: "Live browser",
+      why: "The open browser session answered.",
+      mayBeBlocked: false,
+    };
+  }
+  if (id === "wikipedia") {
+    return {
+      provider: "Wikipedia",
+      why: "Keyless JSON from Wikipedia.",
+      mayBeBlocked: false,
+    };
+  }
+  return {
+    provider: id || "HTML",
+    why: "Keyless HTML scraping. The site may block this request.",
+    mayBeBlocked: true,
+  };
+}
+
 function citeSources(results) {
   const rows = Array.isArray(results) ? results : [];
   const citations = [];
@@ -199,6 +236,7 @@ module.exports = {
   parseBrave,
   parseSearx,
   readArticle,
+  searchHonesty,
   citeSources,
   requestsFor,
   runKeyed,
