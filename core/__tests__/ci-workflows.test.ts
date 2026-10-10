@@ -94,7 +94,6 @@ describe("workflow inventory", () => {
       const toolchain = src.indexOf("uses: ./.github/actions/friday-node");
       expect(toolchain, file).toBeGreaterThan(-1);
       expect(toolchain, file).toBeLessThan(install);
-      // No workflow may pin its own Node version behind the shared action's back.
       expect(src, file).not.toContain("node-version:");
     }
   });
@@ -125,9 +124,6 @@ describe("workflow inventory", () => {
   });
 
   it("keeps composite actions off the removed Node 20 action runtime", () => {
-    // GitHub removed the Node 20 action runtime on 2026-09-23. A javascript
-    // action that still says node20 fails before any step. These files stay
-    // composite and run with the runner shell.
     const actions = path.resolve(DIR, "../actions");
     const names = fs
       .readdirSync(actions)
@@ -154,3 +150,52 @@ describe("workflow inventory", () => {
     expect(action).toContain('ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"');
     expect(action).not.toContain('cp "$bin"');
   });
+
+  it("does not call actions outside this repository", () => {
+    const owned = "devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main";
+    for (const file of fs.readdirSync(DIR).filter((name) => name.endsWith(".yml"))) {
+      const src = read(file);
+      expect(src, file).not.toMatch(/uses:\s+(actions|github)\//);
+      if (src.includes("actions/checkout")) expect(src, file).toContain(owned);
+    }
+    const node = fs.readFileSync(path.resolve(DIR, "../actions/friday-node/action.yml"), "utf8");
+    expect(node).not.toMatch(/uses:\s+(actions|github)\//);
+  });
+
+  it("authenticates git with basic x-access-token, not bearer", () => {
+    const action = fs.readFileSync(path.resolve(DIR, "../actions/checkout/action.yml"), "utf8");
+    expect(action).toContain("x-access-token");
+    expect(action).toContain("AUTHORIZATION: basic");
+    expect(action).toContain('GIT_CONFIG_KEY_0="http.${SERVER}/.extraheader"');
+    expect(action).toContain('GIT_CONFIG_KEY_1="credential.helper"');
+    expect(action).toContain('git config --local "http.${SERVER}/.extraheader"');
+    expect(action).toContain('git config --local credential.helper ""');
+    expect(action).not.toContain("AUTHORIZATION: bearer");
+    expect(action).toContain("refs/pull/[0-9]+/(merge|head)");
+    expect(action).toContain("refs/tags/${branch}");
+    expect(action).toContain('git checkout --force -B "$branch" "origin/$branch"');
+    expect(action).toContain('git cat-file -e "${ref}^{tree}"');
+    expect(action).toContain('"${GITHUB_REF:-}"');
+    expect(action).toContain('git fetch --force origin "+${GITHUB_REF}:${GITHUB_REF}" || true');
+    expect(action).toContain('git fetch --force origin "$ref"');
+  });
+
+  it("derives Node/npm from package.json engines and validates them", () => {
+    const action = fs.readFileSync(path.resolve(DIR, "../actions/friday-node/action.yml"), "utf8");
+    expect(action).toContain("engines.node");
+    expect(action).toContain("engines.npm");
+    expect(action).toContain("check-latest: true");
+    expect(action).toContain("node --version");
+    expect(action).toContain("npm --version");
+    expect(action).toContain("Refuse the runner's preinstalled Node");
+    expect(action).toContain("node-version: ${{ steps.engines.outputs.node_major }}.x");
+    expect(action).not.toMatch(/node-version:\s*['"]?\d+/);
+  });
+
+  it("package.json still declares the engine floor CI relies on", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(DIR, "../../package.json"), "utf8"));
+    expect(pkg.engines.node).toMatch(/^>=\d+\.\d+\.\d+$/);
+    expect(pkg.engines.npm).toMatch(/^>=\d+\.\d+\.\d+$/);
+    expect(Number(pkg.engines.node.replace(/\D/g, "").slice(0, 2))).toBeGreaterThanOrEqual(22);
+  });
+});
