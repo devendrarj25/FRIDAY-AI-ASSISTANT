@@ -25,5 +25,6 @@ describe("workflow contract file stays complete", () => {
       expect(src, marker).toContain(marker);
     }
     expect(src.trimEnd().endsWith("});")).toBe(true);
+    expect(src.length).toBeGreaterThan(20000);
   });
 });
