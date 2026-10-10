@@ -2200,7 +2200,6 @@ export const FLOW_REGISTRY = {
     "health-weekly",
     "main-safety-recovery",
     "maintenance",
-    "official-publish",
     "pr-validation",
     "release",
     "repository-control",
@@ -8437,8 +8436,8 @@ export const FLOW_REGISTRY = {
       total: 14,
     },
     workflows: {
-      mapped: 12,
-      total: 12,
+      mapped: 11,
+      total: 11,
     },
   },
 } as {

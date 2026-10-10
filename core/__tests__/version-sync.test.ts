@@ -525,7 +525,7 @@ describe("documentation governance coverage", () => {
     expect(agents).toMatch(/Never delete, skip, weaken, or\s+fake-pass a test/);
     expect(agents).toContain("Never dispatch a workflow");
     expect(agents).toContain("unverified until the owner re-checks");
-    expect(agents).toContain("Do not add a thirteenth");
+    expect(agents).toContain("Do not add a twelfth");
     expect(agents).toContain("## Direction");
   });
 });

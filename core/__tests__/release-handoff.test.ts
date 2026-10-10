@@ -119,7 +119,7 @@ describe("publishHandoff", () => {
     });
     expect(d.action).toBe("error");
     expect(d.reason).toContain("still open rather than merged");
-    expect(d.reason).toContain("Official Publish");
+    expect(d.reason).toContain("FRIDAY Release");
     expect(d.reason).toContain("Safe Merge");
   });
 
@@ -185,7 +185,7 @@ describe("diagnosePublishBlockers", () => {
     expect(d.ok).toBe(false);
     expect(d.kind).toBe("no_prepare");
     expect(d.message).toContain("No merged release PR for release/v1.6.6");
-    expect(d.message).toContain("Official Publish");
+    expect(d.message).toContain("FRIDAY Release");
     expect(d.message).toContain("mode=auto");
     expect(d.message).toContain("stage=prepare");
     expect(d.message).toContain("confirm=MERGE");

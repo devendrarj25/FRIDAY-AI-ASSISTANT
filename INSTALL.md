@@ -144,7 +144,7 @@ npm run build:win:dir
 | `scripts\build-windows.cmd portable` | Portable EXE only |
 | `npm run build:win:dir` | Unpacked `release\win-unpacked\` only (faster debug) |
 
-The `.cmd` does, in order:
+The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 
 1. Sets `ELECTRON_CACHE` / `ELECTRON_BUILDER_CACHE` under this repo `.cache\`. Removes a leftover `winCodeSign` cache that used to break symlink creation.
 2. `scripts\check-engines.cjs` (same `package.json` engines as CI) **before** `npm ci`.
@@ -157,7 +157,7 @@ The `.cmd` does, in order:
 9. Deletes previous `release\` and `dist-desktop\`, then `npm run build:desktop`.
 10. `scripts\electron-pack.cjs` with `electron-builder.yml`. Names use the public four-part identity, not npm `1.0.0`.
 11. Optional Authenticode if `CSC_LINK` + `CSC_KEY_PASSWORD` are set (`scripts\sign-windows.ps1`).
-12. `scripts\verify-build.cjs`, `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack).
+12. `scripts\verify-build.cjs` (Setup and Portable must clear the toolchain size floor and stay under 2 GiB), `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack), then the installer smoke when the target includes NSIS.
 
 Expected files after a full pack:
 
@@ -167,9 +167,9 @@ Expected files after a full pack:
 
 Python wheels: floors, not pins. Missing capability extras do not fail kernel boot. Windows `setup-python` still fail-closes on missing voice imports.
 
-`desktop:build` / `desktop:pack` exist as thinner electron-builder wrappers. They skip the CMD readiness chain (`check-engines`, isolated venv, heal/verify, readiness-test). For a shippable Windows build use `npm run build:win`, not those aliases.
+`scripts\build-windows.cmd` checks that Node is on PATH, then calls `node scripts\build-pipeline.cjs --channel production`. `npm run build:win`, `build:win:dir`, `build:all`, `release:package`, `build:portable`, `desktop:build`, and `desktop:pack` call that same pipeline. `desktop:build` packs NSIS. `desktop:pack` packs the unpacked directory. They are not a thinner second recipe. The first pack needs the network so the toolchain packs can be fetched and hashed. A later pack reuses `.cache\toolchain`. A skipped toolchain stage is refused.
 
-Packaging identity, TEST vs Official, and GitHub Actions: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). Assistants must not dispatch those workflows. Official publish is Actions → **Release / Build** or **Official Publish** on GitHub, not a CMD command.
+Packaging identity, TEST vs Official, and GitHub Actions: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). Assistants must not dispatch those workflows. Official publish is Actions → **FRIDAY Release** on GitHub, not a CMD command. A branch EXE is Actions → **FRIDAY Test Build**.
 
 ## 7. Path B — install the EXE you just packed
 
@@ -329,7 +329,7 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 | `npm warn allow-scripts electron-winstaller` | Warning only. The pack does not require that install script |
 | `(node:…) [DEP0190] DeprecationWarning` after `check:env` | Node 22+ warning when `shell: true` was used with an args array. This tree spawns `.cmd` via `cmd.exe /c` instead |
 
-Hosted GitHub Actions (PR Validation, Test EXE, Official Publish) are owner-run. This guide does not dispatch them.
+Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.
 
 ## 16. Copy-paste order (source path, Windows CMD)
 

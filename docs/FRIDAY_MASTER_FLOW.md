@@ -30,6 +30,6 @@ Wiring overlay (`src/lib/friday/wiring.ts` / `src/components/friday/WiringVisual
 
 Flow Studio (`src/lib/friday/flow-graph.ts`) is that same chart as a version-1 graph. The Flow button opens the slice for the page you are on. Boxes can be dragged and wires reconnected. A real wire can change a setting or the router strategy. A box whose file is missing is shown as unwired. The list, the blocks, the canvas, and the code tab read this graph. A live watch paints only stages the current turn recorded, and a replay does not run them again.
 
-`scripts/flow-registry.cjs` writes `src/lib/friday/flow-registry.gen.ts` from the routes, preferences, capability packs, IPC channels, kernel routes, and the twelve workflow files. `npm run docs:check` fails if that module drifts. Canvas modes are projections of one graph. A phone snapshot does not mutate it.
+`scripts/flow-registry.cjs` writes `src/lib/friday/flow-registry.gen.ts` from the routes, preferences, capability packs, IPC channels, kernel routes, and the eleven workflow files. `npm run docs:check` fails if that module drifts. Canvas modes are projections of one graph. A phone snapshot does not mutate it.
 
 `core/brain/` graphs are Vitest contracts. The shipped EXE does not import `core/`.

@@ -7,6 +7,13 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
+const engine = createRequire(import.meta.url)(
+  path.resolve(__dirname, "../../scripts/release-engine.cjs"),
+) as {
+  readCanonicalIdentity: (options: { root: string }) => { releaseVersion: string };
+  nextPublicRevision: (version: string) => string;
+};
+
 const ROOT = path.resolve(__dirname, "../..");
 const require = createRequire(import.meta.url);
 const docs = require(path.join(ROOT, "scripts", "docs-engine.cjs")) as {
@@ -19,8 +26,11 @@ describe("AGENTS.md anchors", () => {
   it("keeps the version, landing, and conduct sentences the suite reads", () => {
     const text = agents();
     expect(text.startsWith("# AGENTS.md — instructions for AI tools working on FRIDAY")).toBe(true);
-    expect(text).toContain("current public line **FRIDAY 1.0.1.2**");
-    expect(text).toContain("Next public revision is **1.0.1.3**");
+    const identity = engine.readCanonicalIdentity({ root: ROOT });
+    expect(text).toContain(`current public line **FRIDAY ${identity.releaseVersion}**`);
+    expect(text).toContain(
+      `Next public revision is **${engine.nextPublicRevision(identity.releaseVersion)}**`,
+    );
     expect(text).toContain("(`1.0.0.0`)");
     expect(text).toContain("## Owner directive and build autonomy");
     expect(text).toContain("Flow Studio canvas");
@@ -44,7 +54,7 @@ describe("AGENTS.md anchors", () => {
     expect(text).toMatch(/hunt for bugs and weak spots and fix them in the\s+same change/);
     expect(text).toMatch(/Never delete, skip, weaken, or\s+fake-pass a test/);
     expect(text).toContain("Never dispatch a workflow");
-    expect(text).toContain("Do not add a thirteenth");
+    expect(text).toContain("Do not add a twelfth");
     expect(text).toContain("## Direction");
     expect(text).toContain("only `main`");
     expect(text.match(/Never commit, push, or land work on `main`/g)?.length).toBe(1);

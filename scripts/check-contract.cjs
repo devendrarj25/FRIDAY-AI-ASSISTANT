@@ -1,7 +1,7 @@
 /**
  * FRIDAY - the ONE definition of "a required check passed on this commit".
  *
- * Official Publish (.github/workflows/official-publish.yml), Safe Merge
+ * FRIDAY Release (.github/workflows/release.yml), Safe Merge
  * (.github/workflows/safe-merge.yml), Repository Control merge
  * (.github/workflows/repository-control.yml), scripts/orchestrator-engine.cjs
  * and scripts/merge-engine.cjs all evaluate GitHub checks. They must never

@@ -58,11 +58,14 @@ describe("Windows packaging uses the public four-part identity", () => {
     expect(yml).toMatch(/^afterSign:\s*scripts\/brand-windows\.cjs$/m);
 
     const cmd = read("scripts/build-windows.cmd");
-    expect(cmd).toContain("scripts\\electron-pack.cjs");
-    expect(cmd).toContain("scripts\\verify-build.cjs");
+    const recipe = read("scripts/build-pipeline.cjs");
+    expect(cmd).toContain("build-pipeline.cjs");
+    expect(recipe).toContain("scripts/electron-pack.cjs");
+    expect(recipe).toContain("scripts/verify-build.cjs");
     expect(cmd).not.toContain("npx electron-builder");
-    expect(cmd).not.toContain("1.0.0.0");
-    expect(cmd).toContain("canonical friday-version.json is the single truth");
+    expect(recipe).not.toContain("npx electron-builder");
+    expect(recipe).not.toContain("1.0.0.0");
+    expect(recipe).toContain("canonical friday-version.json is the single truth");
 
     const builderCli = read("builder/cli.mjs");
     expect(builderCli).toContain("scripts/electron-pack.cjs");

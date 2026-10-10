@@ -134,20 +134,26 @@ describe("build and packaging chain", () => {
 
   it("cleans previous output without escaping the cmd.exe quote", () => {
     const cmd = read("scripts/build-windows.cmd");
-    expect(cmd).toContain('if exist "release" rmdir /s /q "release" 2>nul');
-    expect(cmd).toContain('if exist "dist-desktop" rmdir /s /q "dist-desktop" 2>nul');
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(cmd).toContain("build-pipeline.cjs");
+    expect(pipeline).toContain('fs.rmSync(path.join(root, "release")');
+    expect(pipeline).toContain('fs.rmSync(path.join(root, "dist-desktop")');
     // cmd.exe treats \" as an escaped quote. That can stop the pack after
     // "cleaning previous output" and never reach electron-builder.
     expect(cmd).not.toMatch(/if exist "release\\"/);
     expect(cmd).not.toMatch(/if exist "dist-desktop\\"/);
+    expect(pipeline).not.toMatch(/if exist "release\\"/);
   });
 
   it("repairs the environment and runs the readiness test during a Windows build", () => {
-    const cmd = read("scripts/build-windows.cmd");
-    expect(cmd).toContain("env-registry.cjs");
-    expect(cmd).toContain("readiness-test.cjs");
-    expect(cmd).toContain("--pack");
-    expect(cmd.indexOf("verify-build.cjs")).toBeLessThan(cmd.indexOf("readiness-test.cjs"));
+    const pipeline = read("scripts/build-pipeline.cjs");
+    expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");
+    expect(pipeline).toContain("env-registry.cjs");
+    expect(pipeline).toContain("readiness-test.cjs");
+    expect(pipeline).toContain("--pack");
+    expect(pipeline.indexOf("verify-build.cjs")).toBeLessThan(
+      pipeline.indexOf("readiness-test.cjs"),
+    );
   });
 
   it("treats a missing Vite bundle as optional until pack, and skips rebuilding it during repair", () => {
@@ -175,7 +181,8 @@ describe("build and packaging chain", () => {
     expect(driver).toContain("packChatOnlyUnloaded");
     expect(driver).toContain("FRIDAY_PYTHON");
     expect(driver).toContain("checkoutPython");
-    expect(read("scripts/build-windows.cmd")).toMatch(/readiness-test\.cjs" --pack/);
+    expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");
+    expect(read("scripts/build-pipeline.cjs")).toContain("readiness-test.cjs --pack");
   });
 
   it("ships the shared setup/repair scripts inside the installed app", () => {

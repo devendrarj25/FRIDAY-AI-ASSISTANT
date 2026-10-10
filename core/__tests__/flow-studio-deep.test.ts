@@ -82,7 +82,6 @@ const WORKFLOWS = [
   "health-weekly",
   "main-safety-recovery",
   "maintenance",
-  "official-publish",
   "pr-validation",
   "release",
   "repository-control",

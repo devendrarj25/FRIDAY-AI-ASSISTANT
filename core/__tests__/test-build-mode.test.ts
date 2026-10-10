@@ -242,9 +242,12 @@ describe("test-build workflow publish contract", () => {
       "if: ${{ inputs.publish && inputs.package == 'unpacked only (fastest)' }}",
     );
     // The guard runs before checkout, packaging and publishing.
-    expect(guard).toBeLessThan(workflow.indexOf("Package Windows test build"));
+    expect(guard).toBeLessThan(
+      workflow.indexOf("build-pipeline.cjs --channel test --caller test --from stage-toolchain"),
+    );
     expect(guard).toBeLessThan(workflow.indexOf("Fetch complete source"));
     // A published TEST build always ships installer + portable.
-    expect(workflow).toContain('targets="nsis portable"');
+    expect(workflow).toContain('targets="nsis,portable"');
+    expect(workflow).toContain('if [ "$pub" = "true" ] && [ "$targets" != "dir" ]');
   });
 });

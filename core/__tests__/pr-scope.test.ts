@@ -132,7 +132,7 @@ describe("pr-scope: how the workflows use it", () => {
       name?: string;
       if?: string;
     }>;
-    const refuse = gate.find((step) => step.name === "Refuse a call that is not Official Publish");
+    const refuse = gate.find((step) => step.name === "Refuse a call that is not FRIDAY Release");
     expect(refuse).toBeTruthy();
     expect(refuse?.if).toBeUndefined();
   });

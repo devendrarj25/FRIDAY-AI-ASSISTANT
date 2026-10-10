@@ -349,7 +349,7 @@ async function dispatchRelease(root, input = {}) {
       ? {
           ok: false,
           error:
-            "The Release / Build workflow was not found on GitHub. Push .github/workflows/release.yml first.",
+            "The FRIDAY Release workflow was not found on GitHub. Push .github/workflows/release.yml first.",
         }
       : res;
   }
@@ -393,7 +393,7 @@ async function dispatchTestBuild(root, input = {}) {
       ? {
           ok: false,
           error:
-            "The Test EXE Build workflow was not found on GitHub. Push .github/workflows/test-build.yml first.",
+            "The FRIDAY Test Build workflow was not found on GitHub. Push .github/workflows/test-build.yml first.",
         }
       : res;
   }
@@ -479,7 +479,7 @@ async function dispatchWorkflow(root, { workflow, ref, inputs, confirm } = {}, o
       return {
         ok: false,
         error:
-          "Test EXE Build stays on Friday Hub → Test build this branch. Hub will not dispatch test-build.yml here.",
+          "FRIDAY Test Build stays on Friday Hub → Test build this branch. Hub will not dispatch test-build.yml here.",
       };
     }
     return null;
