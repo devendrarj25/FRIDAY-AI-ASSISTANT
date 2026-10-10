@@ -212,12 +212,104 @@ export interface DictationOptions {
  * one transcription at a time — no timers left running when it stops.
  */
 /**
- * At most one DesktopDictation may be live app-wide. Auto Mode is the only
- * caller. Chat does not open a microphone. The guard still stops a second
- * Auto session from racing the single-flight `electron/stt.cjs` transcribe
- * lock — every overlap surfaces as "A transcription is already running."
+ * One microphone lease for dictation. Auto Mode is the only caller. Chat does
+ * not open a microphone. A stale or dead holder is reclaimed; a live holder
+ * is told why a second start was refused. voiceGate remains the single capture.
  */
-let activeDictation: DesktopDictation | null = null;
+export type DictationHolder = { active: boolean; stop?: () => void };
+
+export type DictationClaim =
+  | { ok: true; token: string; reclaimed: boolean }
+  | { ok: false; reason: "own-second-capture" | "in-app-session"; detail: string };
+
+export const DICTATION_LEASE_TTL_MS = 20_000;
+const DICTATION_START_GRACE_MS = 15_000;
+
+type DictationLease = {
+  token: string;
+  holder: DictationHolder;
+  expiresAt: number;
+  claimedAt: number;
+  phase: "starting" | "live";
+};
+
+let dictationLease: DictationLease | null = null;
+let dictationSeq = 0;
+
+function dictationStale(now: number): boolean {
+  if (!dictationLease) return false;
+  if (now >= dictationLease.expiresAt) return true;
+  if (dictationLease.phase === "live" && !dictationLease.holder.active) return true;
+  if (
+    dictationLease.phase === "starting" &&
+    !dictationLease.holder.active &&
+    now >= dictationLease.claimedAt + DICTATION_START_GRACE_MS
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function claimDictation(holder: DictationHolder, now: number): DictationClaim {
+  if (dictationLease && dictationLease.holder === holder && !dictationStale(now)) {
+    return {
+      ok: false,
+      reason: "own-second-capture",
+      detail: "this capture already holds the microphone",
+    };
+  }
+  if (dictationLease && dictationLease.holder !== holder && !dictationStale(now)) {
+    return {
+      ok: false,
+      reason: "in-app-session",
+      detail: "voice input is already active elsewhere",
+    };
+  }
+  let reclaimed = false;
+  if (dictationLease && dictationStale(now)) {
+    const dying = dictationLease;
+    dictationLease = null;
+    try {
+      dying.holder.stop?.();
+    } catch {
+      /* a dead holder must not block the next start */
+    }
+    reclaimed = true;
+  }
+  dictationSeq += 1;
+  const token = `dict-${dictationSeq}`;
+  dictationLease = {
+    token,
+    holder,
+    expiresAt: now + DICTATION_LEASE_TTL_MS,
+    claimedAt: now,
+    phase: "starting",
+  };
+  return { ok: true, token, reclaimed };
+}
+
+export function heartbeatDictation(token: string, now: number): boolean {
+  if (!dictationLease || dictationLease.token !== token) return false;
+  dictationLease.expiresAt = now + DICTATION_LEASE_TTL_MS;
+  return true;
+}
+
+export function markDictationLive(token: string, now: number): boolean {
+  if (!dictationLease || dictationLease.token !== token) return false;
+  dictationLease.phase = "live";
+  dictationLease.expiresAt = now + DICTATION_LEASE_TTL_MS;
+  return true;
+}
+
+export function releaseDictation(token: string): void {
+  if (dictationLease?.token === token) dictationLease = null;
+}
+
+export function resetDictationLease(): void {
+  dictationLease = null;
+  dictationSeq = 0;
+}
+
 /** Skip the turn-score process after the file is known to be missing. */
 let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 
@@ -240,6 +332,9 @@ export class DesktopDictation {
   private turnHold: "idle" | "scoring" | "extend" | "done" = "idle";
 
   private unsubscribe: (() => void) | null = null;
+  private leaseToken = "";
+  private heartbeatTimer: number | null = null;
+  private readonly onPageHide = () => this.stop();
 
   constructor(private readonly options: DictationOptions) {}
 
@@ -249,11 +344,14 @@ export class DesktopDictation {
 
   async start(): Promise<boolean> {
     if (this.running) return true;
-    if (activeDictation && activeDictation !== this && activeDictation.active) {
-      this.options.onError?.("voice input is already active elsewhere");
+    const claim = claimDictation(this, Date.now());
+    if (!claim.ok) {
+      this.options.onError?.(claim.detail);
       return false;
     }
+    this.leaseToken = claim.token;
     if (typeof MediaRecorder === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
+      this.releaseLease();
       this.options.onError?.("audio capture is unavailable in this runtime");
       return false;
     }
@@ -266,7 +364,9 @@ export class DesktopDictation {
     if (!opened || !this.stream) {
       voiceGate.release("dictation");
       this.stream = null;
-      this.options.onError?.("the microphone could not be opened");
+      this.releaseLease();
+      const captured = voiceGate.lastCaptureFailure();
+      this.options.onError?.(captured?.reason || "the microphone could not be opened");
       return false;
     }
     const state = await sttStatus(true, Boolean(this.options.localOnly), true);
@@ -283,13 +383,13 @@ export class DesktopDictation {
     if (this.options.localOnly ? !fasterOk : !(fasterOk || cloudOk)) {
       voiceGate.release("dictation");
       this.stream = null;
+      this.releaseLease();
       this.options.onError?.(state.reason || "speech recognition is not verified yet");
       return false;
     }
     this.running = true;
-    // Intentional module-level singleton: only one dictation session may be active.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    activeDictation = this;
+    markDictationLive(this.leaseToken, Date.now());
+    this.armLease();
     this.options.onStateChange?.("listening");
     this.unsubscribe = voiceGate.subscribe((snapshot) => {
       if (!this.running) return;
@@ -313,7 +413,7 @@ export class DesktopDictation {
   stop() {
     this.running = false;
     this.speaking = false;
-    if (activeDictation === this) activeDictation = null;
+    this.releaseLease();
     this.unsubscribe?.();
     this.unsubscribe = null;
     if (this.timer) window.clearInterval(this.timer);
@@ -334,6 +434,24 @@ export class DesktopDictation {
     this.stream = null;
     voiceGate.release("dictation");
     this.options.onStateChange?.("idle");
+  }
+
+  private releaseLease() {
+    if (this.heartbeatTimer != null && typeof window !== "undefined") {
+      window.clearInterval(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = null;
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
+    if (this.leaseToken) releaseDictation(this.leaseToken);
+    this.leaseToken = "";
+  }
+
+  private armLease() {
+    if (typeof window === "undefined") return;
+    window.addEventListener("pagehide", this.onPageHide);
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.leaseToken) heartbeatDictation(this.leaseToken, Date.now());
+    }, 5_000);
   }
 
   /** @returns true only when a segment is really recording now. */

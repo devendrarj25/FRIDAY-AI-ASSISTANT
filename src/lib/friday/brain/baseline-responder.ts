@@ -17,8 +17,6 @@
  * action succeeded: every action reports the real tool result.
  */
 
-import { backgroundNotice } from "../voice-session";
-import { inQuietHours, prefOn } from "../settings-runtime";
 import { affect } from "./affect";
 import { identity } from "./identity";
 import { brainKnowledge } from "./knowledge-base";
@@ -62,9 +60,9 @@ import { takeDiagramExplanation } from "../flow-diagram";
 import { readFlowIntent } from "../flow-tools";
 import { readSettingsIntent } from "./settings-intents";
 import { looksLikeLockedWiringSwitch, looksLikeWiringQuestion } from "../wiring-ask";
-import { vary } from "./anti-repeat";
+import { socialLine, type SocialKind } from "../conversation-style";
 import { handleOwnerWork } from "../owner-work";
-import { vocative, describeUserProfile } from "./user-profile";
+import { describeUserProfile } from "./user-profile";
 import { describeFridayBehaviour } from "./identity";
 import { PROJECT_IDENTITY } from "./project-identity";
 import { extractTerminalRun } from "../terminal-command";
@@ -148,10 +146,6 @@ export function tone(): { opener: string; clipped: boolean } {
     return { opener: "", clipped: false };
   if (mood === "empathetic") return { opener: "", clipped: true };
   return { opener: "", clipped: mood === "focused" };
-}
-
-function addressName(): string {
-  return vocative();
 }
 
 /** Applies FRIDAY's voice to a baseline sentence — never adds fake warmth. */
@@ -300,16 +294,21 @@ export function convert(text: string): string | null {
 /* --------------------------------------------------------------- matchers */
 
 const GREETING =
-  /^(hi|hii+|hey|hello|yo|hola|namaste|namaskar|good\s+(morning|afternoon|evening)|hlo)\b[\s!.,]*$/i;
+  /^(?:hi|hii+|hey|hello|yo|hola|namaste|namaskar|namaskaar|suprabhat|hlo|नमस्ते|नमस्कार|सुप्रभात|good\s+(?:morning|afternoon|evening))[\s!.,।]*$/i;
 const THANKS =
-  /^(thanks|thank you|thx|ty|shukriya|dhanyavaad|great|perfect|nice|awesome|good job|well done)\b[\s!.,]*$/i;
-const HOW_ARE_YOU = /\b(how are you|how'?s it going|kaisi ho|kaise ho|you (there|awake|up))\b/i;
+  /^(?:thanks|thank you|thx|ty|shukriya|dhanyavaad|dhanyavad|धन्यवाद|शुक्रिया|great|perfect|nice|awesome|good job|well done)[\s!.,।]*$/i;
+const HOW_ARE_YOU =
+  /^(?:how are you|how'?s it going|kaisi ho|kaise ho|kya haal hai|kya chal raha hai|कैसे हो|क्या हाल है|you (?:there|awake|up))(?:\s+(?:today|doing|now))?[\s!.,।]*$/i;
 const WHO_ARE_YOU = /\b(who are you|what are you|your name|tum kaun ho|introduce yourself)\b/i;
 const WHO_OWNS =
   /\b(who owns (you|friday)|who made you|who created you|who (is|'s) your (owner|creator|maker)|kisne (banaya|banayi)|copyright|publisher)\b/i;
 const WHAT_CAN_YOU_DO =
   /\b(what can you do|what do you do|your (abilities|capabilities|features)|help me with|what are you able)\b/i;
-const BYE = /^(bye|goodbye|good night|gn|see you|alvida)\b[\s!.,]*$/i;
+const BYE =
+  /^(?:bye|goodbye|good\s*night|gn|see you|alvida|shubh ratri|अलविदा|शुभ रात्रि)[\s!.,।]*$/i;
+const ACK = /^(?:ok|okay|got it|theek hai|haan|ठीक|हाँ|ठीक है)[\s!.,।]*$/i;
+const SMALLTALK =
+  /^(?:what(?:'| i)?s up|you there|क्या चल रहा है|aur batao|kya chal raha hai yaar)[\s!.,।]*$/i;
 const DATETIME = /\b(what(?:'s| is)? the )?(time|date|day|today|current time|aaj|abhi kya time)\b/i;
 const OPEN_APP =
   /^(?:please\s+)?(open|launch|start|run)\s+(?:the\s+)?([a-z0-9 ._-]{2,40}?)(?:\s+(?:app|application|for me|please))?[\s.!]*$/i;
@@ -365,6 +364,8 @@ const OPEN_ENDED =
 export type BaselineContext = {
   /** True when this is not the first user turn in the thread. */
   ongoing?: boolean;
+  /** Injected clock (ms). Social lines do not read today's date on their own. */
+  now?: number;
 };
 
 /**
@@ -377,57 +378,31 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   const diagram = takeDiagramExplanation();
   if (diagram) return reply("action", diagram, 0.9);
   const lower = text.toLowerCase();
-  const name = addressName();
 
-  // 1. conversational basics ------------------------------------------------
+  // 1. conversational basics — one short line, no status, no proactive glue.
+  const social = (kind: SocialKind) =>
+    socialLine(
+      session?.now === undefined
+        ? { kind, prompt: text }
+        : { kind, prompt: text, now: session.now },
+    ).text;
   if (GREETING.test(text)) {
-    if (session?.ongoing) {
-      return reply("greeting", vary("ack"), 0.95);
-    }
-    const hour = new Date().getHours();
-    const part = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
-    const { clipped } = tone();
-    const who = name ? `, ${name}` : "";
-    const variants = clipped
-      ? [
-          `${part}${who}. I'm here — what do you need?`,
-          `${part}${who}. Ready when you are.`,
-          `${part}${who}. Say the next thing and I'll pick it up.`,
-        ]
-      : [
-          `${part}${who}. I'm up and running. What are we doing?`,
-          `${part}${who}. Online. What's first?`,
-          `${part}${who}. Here — pick up where we left off, or start something new.`,
-        ];
-    const pick = variants[(hour + new Date().getDate()) % variants.length] ?? variants[0];
-    const notice = backgroundNotice({
-      killed: prefOn("doNotDisturb", false),
-      quiet: inQuietHours(),
-      ownerBusy: false,
-      urgent: false,
-    });
-    const note = notice.deliver === "now" ? proactiveNote() : "";
-    return reply("greeting", [pick, note].filter(Boolean).join(" "), 0.95);
+    return reply("greeting", social(session?.ongoing ? "ack" : "greeting"), 0.95);
   }
   if (BYE.test(text)) {
-    return reply(
-      "smalltalk",
-      `Alright${name ? `, ${name}` : ""}. I'll be in the tray if you need me.`,
-      0.9,
-    );
+    return reply("smalltalk", social("goodbye"), 0.9);
   }
   if (THANKS.test(text)) {
-    return reply("thanks", vary("thanks"), 0.9);
+    return reply("thanks", social("thanks"), 0.9);
+  }
+  if (ACK.test(text)) {
+    return reply("smalltalk", social("ack"), 0.9);
+  }
+  if (SMALLTALK.test(text)) {
+    return reply("smalltalk", social("smalltalk"), 0.85);
   }
   if (HOW_ARE_YOU.test(text)) {
-    const state = affect.getSnapshot();
-    const detail =
-      state.failures >= 2
-        ? `Running, but ${state.failures} things failed recently — I'm keeping it tight until that clears.`
-        : state.streak >= 3
-          ? "Running clean — last few tasks all went through."
-          : "Running normally.";
-    return reply("smalltalk", `${detail} Nothing's blocked on my side.`, 0.85);
+    return reply("smalltalk", social("howareyou"), 0.85);
   }
 
   const flow = readFlowIntent(text, "owner");
@@ -455,11 +430,7 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
     const profile = identity.getSnapshot().profile;
     return reply(
       "identity",
-      [
-        `I'm ${profile.name} — a personal AI assistant running locally on this PC.`,
-        `I have my own brain, memory, skills and tools; AI models are something I use, not what I am.`,
-        `That means I still work when no model is connected — just with a smaller range.`,
-      ].join(" "),
+      `I'm ${profile.name}, a personal assistant on this PC. Models are tools I use.`,
       0.95,
     );
   }
@@ -733,11 +704,8 @@ function live(resolve: () => Promise<string>, confidence: number): BaselineReply
 }
 
 /**
- * What she brings up on her own.
- *
- * When she greets him she checks whether anything is genuinely still open —
- * a running or failed task, or something he asked her to remember — and
- * mentions it. Nothing is invented: if there is nothing live, she says nothing.
+ * A live task or reminder, spoken only from the proactivity budget.
+ * Greetings do not call this. Nothing is invented: an empty ledger says nothing.
  */
 export function proactiveNote(): string {
   const notes: string[] = [];

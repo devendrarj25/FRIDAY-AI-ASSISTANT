@@ -56,7 +56,7 @@ import { brainError } from "./brain/errors";
 import { appendTraceStep, completeRunningStep, type TurnTraceStep } from "./brain/turn-trace";
 import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
-import { vary } from "./brain/anti-repeat";
+import { openingLine } from "./conversation-style";
 import { conversationSight } from "./conversation-sight";
 import { replyKeepsHelp } from "./eval-corpus";
 import { thinkBudget, tracePlan, withinBudget } from "./think-budget";
@@ -317,6 +317,8 @@ export type Message = {
   runId?: string;
   /** Where the turn came from when it was not typed on this desktop. */
   via?: "phone";
+  /** Chat and voice share this thread. The tag does not open a second store. */
+  source?: "voice" | "chat";
   /** Which model actually answered, from the router trace. */
   answeredBy?: AnsweredBy;
 };
@@ -736,7 +738,7 @@ class BrainStore {
 
   /**
    * Record that this turn entered a real FLOW_CHART stage. Also writes one
-   * `push()` line (same log as "brain online") so there is no second event bus.
+   * `push()` line on the brain log so there is no second event bus.
    */
   private noteTurn(run: Run, nodeId: string, detail: string, emit = true) {
     run.trace = run.trace ?? [];
@@ -821,19 +823,18 @@ class BrainStore {
     if (this.state.schedule.length === 0) this.state.schedule = seedSchedule();
     if (this.state.suggestions.length === 0) this.seedSuggestions();
     if (this.state.messages.length === 0) {
-      this.state.messages = [
-        {
-          id: nextId("msg"),
-          role: "friday",
-          at: Date.now(),
-          text: `${vary("greeting")} Brain core is active — ${agentSpecs.length} agents standing by, memory loaded, models routed. Ask me anything, or give me a goal and I'll plan it first.`,
-        },
-      ];
+      const line = openingLine(Date.now());
+      if (line) {
+        this.state.messages = [
+          {
+            id: nextId("msg"),
+            role: "friday",
+            at: Date.now(),
+            text: line,
+          },
+        ];
+      }
     }
-    this.push(
-      "info",
-      `brain online — ${agentSpecs.length} agents, ${this.state.memory.length} memories`,
-    );
     this.syncLiveSurfaces();
     this.emit(false);
     this.armUpdateWatch();
@@ -1499,7 +1500,11 @@ class BrainStore {
     const history = this.state.messages.map((m) => ({ role: m.role, text: m.text }));
     const tContext = Date.now();
     affect.observePrompt(text);
-    const understanding = understandTurn({ text, history });
+    const understanding = understandTurn({
+      text,
+      history,
+      endpoint: surface === "voice" ? "voice" : "chat",
+    });
     const ctx = understanding.context;
     const contextMs = Date.now() - tContext;
     const work = ctx.resolved;
@@ -1600,7 +1605,7 @@ class BrainStore {
     } else {
       this.state.messages = [
         ...this.state.messages,
-        { id: nextId("msg"), role: "user", text, at: Date.now(), runId },
+        { id: nextId("msg"), role: "user", text, at: Date.now(), runId, source: surface },
       ];
     }
     this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);

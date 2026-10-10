@@ -7,6 +7,7 @@
  * existing approval policy still own those.
  */
 
+import { proactiveNote } from "./brain/baseline-responder";
 import { personalOffer } from "./proactive-line";
 import { redactRunText } from "./self/run-receipt";
 import {
@@ -557,13 +558,16 @@ export function dailyBrief(input: {
 }
 
 function briefOffer(input: { hour: number; openTasks: number }): string {
-  return personalOffer({
+  const offer = personalOffer({
     hour: input.hour,
     quiet: inQuietHours(input.hour),
     budgetLeft: 1,
     name: "",
     openLoops: input.openTasks,
   });
+  if (!offer) return "";
+  const note = proactiveNote();
+  return note ? `${offer} ${note}` : offer;
 }
 
 /**

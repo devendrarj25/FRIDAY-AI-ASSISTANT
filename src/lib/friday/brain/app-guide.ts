@@ -305,6 +305,7 @@ function describeLiveModels(): string {
  */
 export function describeLiveSelf(_prompt = ""): string {
   const parts = [
+    "One live picture. Ask for one part if you want it narrower.",
     "Answer from these live registries only. Do not claim a capability is proven unless the line says measured. Do not invent models that are not listed.",
   ];
   let answered = false;

@@ -29,6 +29,7 @@ import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
+import { preferSpoken } from "./conversation-style";
 import { activeVoiceSettings, speakText, spokenSummary, stopSpeaking } from "./voice-library";
 import {
   acceptsVoiceTurn,
@@ -1709,7 +1710,7 @@ class AssistantModeStore {
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return;
     if (!preferences.getSnapshot().voice.speakReplies) return;
     // Only ever speak the hearable form: no markdown, no code, two sentences.
-    const spoken = spokenSummary(text);
+    const spoken = spokenSummary(preferSpoken(text));
     if (!spoken) return;
     this.speechQueue.push(spoken);
     void this.drainSpeech();

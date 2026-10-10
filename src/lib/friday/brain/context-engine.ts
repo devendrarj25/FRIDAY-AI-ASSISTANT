@@ -102,7 +102,7 @@ export function selectRelevantTurns(
 export function resolveContext(
   text: string,
   history: ChatTurn[] = [],
-  options: { observe?: boolean } = {},
+  options: { observe?: boolean; endpoint?: "chat" | "voice" | "system" } = {},
 ): ResolvedContext {
   turnMark("context", "resolve");
   const original = String(text || "").trim();
@@ -111,7 +111,7 @@ export function resolveContext(
     hydrateLiveConversation();
     observeConversation(history);
     observeOpenLoops(history);
-    noteUserTurn(original);
+    noteUserTurn(original, options.endpoint ?? "chat");
     if (CORRECTION.test(original) || looksLikeChangeAsk(original)) noteCorrection(original);
   }
   if (observe && /\b(ye kar diya|ye wala part complete(?: ho gaya)?)\b/i.test(original)) {
