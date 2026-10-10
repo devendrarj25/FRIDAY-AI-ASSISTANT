@@ -45,6 +45,53 @@ function loopbackBase(value) {
   }
 }
 
+function readArticle(html, maxChars = 8000) {
+  const cap = Math.max(200, Math.min(20000, Number(maxChars) || 8000));
+  let body = String(html || "");
+  body = body
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<(nav|footer|header|form|iframe|svg)\b[\s\S]*?<\/\1>/gi, " ");
+  const main = /<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/i.exec(body);
+  const source = main ? main[2] : body;
+  const text = source
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, cap);
+  return {
+    text,
+    quote: text.slice(0, 240),
+    provenance: "page",
+    instruction: false,
+  };
+}
+
+function citeSources(results) {
+  const rows = Array.isArray(results) ? results : [];
+  const citations = [];
+  for (const row of rows) {
+    const url = String(row?.url || "");
+    if (!/^https?:\/\//i.test(url)) continue;
+    citations.push({
+      n: citations.length + 1,
+      title: String(row.title || url).slice(0, 200),
+      url,
+      snippet: String(row.snippet || "").slice(0, 240),
+      provenance: "web",
+      instruction: false,
+    });
+    if (citations.length >= 8) break;
+  }
+  return citations;
+}
+
 function stamp(row, source) {
   return {
     title: String(row.title || row.url || "").slice(0, 200),
@@ -151,6 +198,8 @@ module.exports = {
   loopbackBase,
   parseBrave,
   parseSearx,
+  readArticle,
+  citeSources,
   requestsFor,
   runKeyed,
 };

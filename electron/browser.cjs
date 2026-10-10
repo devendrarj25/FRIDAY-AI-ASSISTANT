@@ -419,6 +419,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
         ok: true,
         source: keyed.source,
         results: keyed.results,
+        citations: ladder.citeSources(keyed.results),
       });
     }
     if (keyed.error && /this machine|Sensitive/i.test(keyed.error)) {
@@ -433,6 +434,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
       ok: true,
       source: "live-tab",
       results: liveHits,
+      citations: ladder.citeSources(liveHits),
     });
   }
   const preferred = String((live.getSettings() || {}).searchEngine || "duckduckgo");
@@ -446,6 +448,7 @@ async function search(query, { limit = 8, keys = {}, fetchImpl } = {}) {
         ok: true,
         source: source.id,
         results: attempt.results,
+        citations: ladder.citeSources(attempt.results),
       });
     }
     if (attempt.error) errors.push(attempt.error);
@@ -514,7 +517,8 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
       const label = stripTags(m[2]).slice(0, 120);
       if (label) links.push({ label, url: href });
     }
-    const text = stripTags(html).slice(0, maxChars);
+    const article = ladder.readArticle(html, maxChars);
+    const text = article.text;
     try {
       live.addHistory({
         url: target,
@@ -530,6 +534,9 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
       status,
       title: titleMatch ? stripTags(titleMatch[1]).slice(0, 200) : target,
       text,
+      quote: article.quote,
+      provenance: "page",
+      instruction: false,
       links,
       json: false,
     });

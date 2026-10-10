@@ -211,6 +211,7 @@ Keyed search runs before HTML scraping. A secret never becomes a query. A captch
 | Brave Search API | ADAPT | `GET https://api.search.brave.com/res/v1/web/search` with `X-Subscription-Token`. Plans include monthly credits and are not a standalone free tier, so the call runs only when the owner stored a key. The key stays out of the URL. Sources: api-dashboard.search.brave.com/api-reference/web/search/get and api-dashboard.search.brave.com/app/help-feedback (read 2026-10-10). |
 | Loopback SearXNG | ADOPT | `GET /search?q=&format=json` on a base the owner set. Only `127.0.0.1`, `localhost`, or `::1` is accepted. A public instance is not called. Source: docs.searxng.org/dev/search_api (read 2026-10-10). |
 | HTML result pages | ADAPT | DuckDuckGo, Bing, Brave, and the other HTML engines stay the last resort. A page that looks like a captcha falls through. |
+| Reader text | ADOPT | A fetched page keeps the article or main text, drops scripts and navigation, and caps the quote. The text is data. |
 
 ### Chat and voice continuity (2026-10-09)
 
