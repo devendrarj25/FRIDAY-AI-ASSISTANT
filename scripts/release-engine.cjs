@@ -207,7 +207,7 @@ function readCanonicalFile(root = ROOT) {
 
 /**
  * Identity at a git ref (e.g. origin/main), not the working tree.
- * Official Publish stays checked out at the start-of-run commit after Safe
+ * FRIDAY Release stays checked out at the start-of-run commit after Safe
  * Merge advances origin/main - reading the local tree there is stale.
  */
 function readCanonicalIdentityAtRef(ref, { root = ROOT } = {}) {
@@ -307,7 +307,7 @@ function packFlags(identity) {
       // electron-builder 26 signAndEditResources runs AFTER afterPack and
       // takes FileVersion from metadata.shortVersion || buildVersion (npm).
       // TEST 1.0.0.0-test.1 otherwise becomes string "1.0.0-test.1" and
-      // binary FILEVERSION 1.0.0.1 (Test EXE Build 33901573538).
+      // binary FILEVERSION 1.0.0.1 (test build run 33901573538).
       `-c.buildVersion=${fileVersion}`,
       `-c.extraMetadata.shortVersion=${fileVersion}`,
       `-c.extraMetadata.shortVersionWindows=${fileVersion}`,
@@ -2366,7 +2366,7 @@ function decideRelease({
 }
 
 /**
- * In-app preview of the same decision Release / Build will make.
+ * In-app preview of the same decision FRIDAY Release will make.
  * The version comes from decideRelease. Notes still come from plan().
  * The desktop dispatches mode auto unless the caller passes another mode.
  */

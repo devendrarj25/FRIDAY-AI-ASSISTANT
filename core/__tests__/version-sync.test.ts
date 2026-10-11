@@ -312,7 +312,7 @@ describe("version synchronization", () => {
    * re-ran `apply` over a CHANGELOG that already had that version's section, and
    * `updateChangelog` prepended a second `## vX.Y.Z` heading instead of
    * replacing the existing one. version-sync then failed on the duplicate and
-   * every Release / Build and Official Publish run died in the prepare stage.
+   * every FRIDAY Release run died in the prepare stage.
    * Re-adding a version must replace its section in place, keep the newest
    * content, and preserve (and dedupe) all earlier versions in order.
    */

@@ -38,13 +38,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Fetch full history
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           fetch-depth: 0
 
       - name: Scan for committed secrets
         run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source /repo --redact --no-banner --exit-code 1
 
   # This workflow has no pull_request trigger. The scope job still reads
@@ -68,7 +68,7 @@ jobs:
       REPO: ${{ github.repository }}
     steps:
       - name: Fetch the trusted classifier
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/pr-scope.cjs
@@ -104,7 +104,7 @@ jobs:
         language: [javascript-typescript, python]
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
 
       - name: Analyse
         shell: bash
@@ -118,7 +118,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
 
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node

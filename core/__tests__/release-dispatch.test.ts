@@ -1,7 +1,7 @@
 /**
  * FRIDAY · release dispatch contract
  *
- * FRIDAY's in-app "Release / Build" panel is not a second release system: it
+ * FRIDAY's in-app FRIDAY Release panel is not a second release system: it
  * drives the one GitHub workflow through its two manual stages. These tests
  * lock the rules that make that safe:
  *   - every dispatch names its stage (prepare | publish),

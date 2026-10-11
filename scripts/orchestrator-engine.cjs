@@ -1,4 +1,4 @@
-// FRIDAY - Official Publish orchestration decisions.
+// FRIDAY - FRIDAY Release orchestration decisions.
 //
 // This file owns NO release behaviour of its own. It only answers one
 // question, deterministically and fail-closed:
@@ -132,7 +132,7 @@ function orchestrationPlan({
     return {
       step: "error",
       version: declared,
-      reason: `${state.conflicts.join("; ")} - release state is ambiguous; reconcile the release Pull Requests and run Official Publish again.`,
+      reason: `${state.conflicts.join("; ")} - release state is ambiguous; reconcile the release Pull Requests and run FRIDAY Release again.`,
     };
   }
 
@@ -277,7 +277,7 @@ function checksVerdict({ headSha, checks = [], required = "PR Validation" } = {}
 /**
  * Pin the exact prepared pull request.
  *
- * Official Publish must operate on the release Pull Request its own Prepare
+ * FRIDAY Release must operate on the release Pull Request its own Prepare
  * stage produced - never on "the newest release PR that happens to be open".
  * When a version was pinned, only that version may be adopted; anything else
  * (missing, duplicated, closed, or a concurrently created different release PR)

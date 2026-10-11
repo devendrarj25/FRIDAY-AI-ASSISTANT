@@ -26,7 +26,8 @@
 
 param(
   [Parameter(Mandatory = $true)][string]$Installer,
-  [string]$Product = "FRIDAY"
+  [string]$Product = "FRIDAY",
+  [string]$ReleaseDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -204,6 +205,47 @@ function Verify-Boot {
   }
 }
 
+function Assert-NoInstallOrphans {
+  foreach ($name in @("FRIDAY", "whisper-server", "whisper-cli")) {
+    $hits = @(Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object {
+      $procPath = ""
+      try { $procPath = $_.Path } catch { $procPath = "" }
+      if (-not $procPath) { return $true }
+      return $procPath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($hits.Count -gt 0) {
+      throw "Orphan $name is still running after the boot self-test."
+    }
+  }
+  foreach ($marker in @("python.exe", "node.exe", "msedge.exe", "chrome.exe")) {
+    $hits = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+      $procPath = ""
+      try { $procPath = $_.Path } catch { $procPath = "" }
+      if (-not $procPath) { return $false }
+      $leaf = [IO.Path]::GetFileName($procPath)
+      if ($leaf -ne $marker) { return $false }
+      return $procPath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($hits.Count -gt 0) {
+      throw "Orphan $marker under the install directory is still running."
+    }
+  }
+}
+
+function Verify-UpdateManifest {
+  param([string]$Dir)
+  if (-not $Dir) { throw "update manifest check needs the release directory." }
+  $files = @(Get-ChildItem -LiteralPath $Dir -Filter "latest*.yml" -File -ErrorAction SilentlyContinue)
+  if ($files.Count -lt 1) { throw "update manifest missing in $Dir" }
+  foreach ($file in $files) {
+    $text = Get-Content -LiteralPath $file.FullName -Raw
+    if ($text -notmatch "sha512:\s*\S+") {
+      throw "update manifest $($file.Name) has no sha512"
+    }
+  }
+  Write-Host "[friday] update manifest hash verified"
+}
+
 
 try {
   New-Item -ItemType Directory -Path (Split-Path $sentinel) -Force | Out-Null
@@ -224,10 +266,15 @@ try {
   if (-not (Test-Path -LiteralPath $kernel)) {
     throw "Installed kernel is missing: $kernel"
   }
-  $orphans = @(Get-Process -Name "FRIDAY" -ErrorAction SilentlyContinue)
-  if ($orphans.Count -gt 0) {
-    throw "FRIDAY.exe was still running after the boot self-test."
+  if ((Get-Item -LiteralPath $kernel).Length -lt 1) {
+    throw "Installed kernel is empty: $kernel"
   }
+  Write-Host "[friday] kernel health: $kernel"
+  Write-Host "[friday] installer smoke product: $Product"
+  Assert-NoInstallOrphans
+  $manifestDir = $ReleaseDir
+  if (-not $manifestDir) { $manifestDir = Split-Path -Parent $installerPath }
+  Verify-UpdateManifest -Dir $manifestDir
   $sentinelRoot = (Resolve-Path (Split-Path (Split-Path $sentinel -Parent) -Parent)).Path
   if ($sentinelRoot -ne (Resolve-Path $rootDir).Path) {
     throw "Data folder $sentinelRoot is not the chosen install root $rootDir."
@@ -238,6 +285,7 @@ try {
   # application without duplicating Apps & Features entries or touching data.
   $uninstaller = Run-Setup
   Verify-Boot
+  Assert-NoInstallOrphans
   if (-not (Test-Path -LiteralPath $sentinel)) {
     throw "Reinstall / repair removed the FRIDAY data folder."
   }
@@ -271,6 +319,7 @@ try {
     Start-Sleep -Milliseconds 500
   }
   if (Test-Path -LiteralPath (Join-Path $installDir "FRIDAY.exe")) { throw "Uninstall left FRIDAY.exe behind." }
+  Assert-NoInstallOrphans
   if (-not (Test-Path $sentinel)) { throw "Uninstall removed the FRIDAY data folder." }
   Write-Host "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved"
   exit 0

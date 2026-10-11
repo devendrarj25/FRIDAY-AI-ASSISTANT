@@ -53,6 +53,16 @@ describe("update verification", () => {
     expect(result.verified).toBe(true);
   });
 
+  it("checks the update manifest sha512 before the installer smoke calls a build healthy", () => {
+    const smoke = fs.readFileSync(
+      path.resolve(process.cwd(), "scripts/windows-installer-smoke.ps1"),
+      "utf8",
+    );
+    expect(smoke).toContain("sha512:");
+    expect(smoke).toContain("update manifest");
+    expect(smoke).toContain("Verify-UpdateManifest");
+  });
+
   it("never installs a version that is not newer than the running one", () => {
     const { file, sha256 } = makeInstaller(root);
     const result = safety.verifyArtifact({

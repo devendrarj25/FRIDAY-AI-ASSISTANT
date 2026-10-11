@@ -18,7 +18,7 @@ describe("workflow contract file stays complete", () => {
       'describe("official release"',
       'describe("safe merge flow"',
       'describe("automatic-health workflows"',
-      "Test EXE and Official Publish reuse a fresh green PR Validation",
+      "FRIDAY Test Build and FRIDAY Release reuse a fresh green PR Validation",
       "MINGW*|MSYS*|CYGWIN*",
       "indows[Aa]pps",
     ]) {

@@ -197,6 +197,13 @@ describe("node toolchain version set", () => {
     expect(releaseWorkflow).toContain("build-pipeline.cjs");
     expect(prWorkflow).toContain("windows-installer-smoke.ps1");
     expect(prWorkflow).toContain("npm run lint");
+    expect(prWorkflow).toContain("scripts/run-actionlint.cjs");
+    const smoke = read("scripts/windows-installer-smoke.ps1");
+    expect(smoke).toContain("kernel health");
+    expect(smoke).toContain("Assert-NoInstallOrphans");
+    expect(smoke).toContain("sha512:");
+    expect(pipeline).toContain('"-ReleaseDir"');
+    expect(pipeline).toContain("packaged-self-check");
   });
 
   it("uses the workspace selected by Setup after reinstall or repair", () => {

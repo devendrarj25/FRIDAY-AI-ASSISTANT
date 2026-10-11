@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # FRIDAY - start one existing workflow and wait for its real outcome.
 #
-# Official Publish does not call this script. A nested workflow_dispatch runs
+# FRIDAY Release does not call this script. A nested workflow_dispatch runs
 # as github-actions[bot], and workflow execution protections refuse that actor
-# before any job exists. Official Publish calls the existing workflows with
+# before any job exists. FRIDAY Release calls the existing workflows with
 # workflow_call in the same run. This helper remains for a manual shell, and
 # it still fails closed when the run does not succeed.
 #

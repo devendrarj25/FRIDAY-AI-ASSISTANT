@@ -49,6 +49,18 @@ describe("github release installer", () => {
     expect((picked as { apiUrl?: string }).apiUrl).toBe(mapped.apiUrl);
     expect((picked as { id?: number }).id).toBe(7);
   });
+
+  it("publishes the update manifest once and replaces assets in place on rebuild", () => {
+    const release = readFileSync(
+      path.resolve(process.cwd(), ".github/workflows/release.yml"),
+      "utf8",
+    );
+    expect(release).toContain("release/friday-update.json");
+    expect(release).toContain("gh release upload");
+    expect(release).toContain("--clobber");
+    expect(release).toContain("tag $tag already exists");
+    expect(release).not.toContain("git tag -f");
+  });
 });
 
 describe("github update vs a live kernel", () => {

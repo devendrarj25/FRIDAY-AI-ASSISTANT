@@ -33,7 +33,17 @@ describe("release version contract", () => {
     expect(text).toContain(expected.next);
   });
 
-  it("accepts the major bump Official Publish prepared once the notes are healed", () => {
+  it("stamps the public version only after verify, inside stage-toolchain", () => {
+    const pipeline = fs.readFileSync(path.join(ROOT, "scripts/build-pipeline.cjs"), "utf8");
+    const verify = pipeline.indexOf('if (phase === "verify-versions")');
+    const stage = pipeline.indexOf('if (phase === "stage-toolchain")');
+    const stamp = pipeline.indexOf('["stamp", "--version", options.version]');
+    expect(verify).toBeGreaterThan(-1);
+    expect(stage).toBeGreaterThan(verify);
+    expect(stamp).toBeGreaterThan(stage);
+  });
+
+  it("accepts the major bump FRIDAY Release prepared once the notes are healed", () => {
     expect(engine.nextPublicRevision("1.0.1.2")).toBe("1.0.1.3");
     expect(engine.nextPublicRevision("1.1.1.2")).toBe("1.1.1.3");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-version-"));

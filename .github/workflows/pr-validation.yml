@@ -138,7 +138,7 @@ jobs:
       # gets validated. The very first PR that adds the script has no base copy and
       # simply gets the full validation.
       - name: Fetch the trusted classifier
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/pr-scope.cjs
@@ -176,7 +176,7 @@ jobs:
 
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           # A manual validation may name the exact commit it must validate, so
           # the evidence it publishes always belongs to that commit.
@@ -237,6 +237,7 @@ jobs:
         shell: bash
         env:
           HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.ref || github.ref_name }}
+          PINNED_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           if node scripts/release-engine.cjs heal --check; then
@@ -290,8 +291,8 @@ jobs:
           # exactly the failure this guard removes. The repair still happens
           # in the working tree (so the validation below is honest); it is
           # simply not pushed.
-          if [ -n '${{ inputs.sha }}' ]; then
-            echo "::notice::validating pinned commit ${{ inputs.sha }} - documentation was repaired in-tree and deliberately NOT pushed (pushing would move the pinned head)"
+          if [ -n "$PINNED_SHA" ]; then
+            echo "::notice::validating pinned commit $PINNED_SHA - documentation was repaired in-tree and deliberately NOT pushed (pushing would move the pinned head)"
             exit 0
           fi
 
@@ -346,6 +347,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Workflow lint
+        run: node scripts/run-actionlint.cjs
 
       - name: Kernel tests
         run: npm run test:kernel
@@ -422,7 +426,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -496,7 +500,7 @@ jobs:
       contents: read
     steps:
       - name: Fetch full history
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           # The pull request head, not the synthetic merge commit. On a
           # pull_request event GITHUB_SHA is refs/pull/N/merge, which is not a
@@ -507,7 +511,7 @@ jobs:
 
       - name: Scan for committed secrets
         run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source /repo --redact --no-banner --exit-code 1
 
   codeql:
@@ -525,7 +529,7 @@ jobs:
         language: [javascript-typescript, python]
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
 
@@ -543,7 +547,7 @@ jobs:
       contents: read
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.sha }}
 

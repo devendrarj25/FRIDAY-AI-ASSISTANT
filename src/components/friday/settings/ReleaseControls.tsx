@@ -1,5 +1,5 @@
 /**
- * FRIDAY · Friday Hub → Release / Build
+ * FRIDAY · Friday Hub → FRIDAY Release
  *
  * The developer-side controls for FRIDAY's own release train. Nothing is built
  * here: "Build & Release" starts the same GitHub Actions workflow
@@ -155,7 +155,7 @@ export function ReleaseControls() {
 
   return (
     <HudPanel
-      title="Release / Build"
+      title="FRIDAY Release"
       hint="Commits never build anything. A new version, changelog, EXE and GitHub Release are created only when a release is started here or from the Actions tab."
       actions={
         <StatusPill
@@ -269,12 +269,12 @@ export function ReleaseControls() {
             void act("test", async () => {
               const result = await githubTestBuild({ publish: true });
               if (!result.ok) toast.error(result.error || "The test build could not be started.");
-              else toast.success(`Test EXE building from ${result.ref} — no official version.`);
+              else toast.success(`FRIDAY Test Build from ${result.ref} — no official version.`);
             })
           }
         >
-          <FlaskConical className={busy === "test" ? "size-4 animate-pulse" : "size-4"} /> Test EXE
-          build
+          <FlaskConical className={busy === "test" ? "size-4 animate-pulse" : "size-4"} /> FRIDAY
+          Test Build
         </Button>
 
         {run ? (

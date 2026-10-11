@@ -51,7 +51,7 @@ jobs:
       KEEP_RUNS: ${{ inputs.keep_runs || '15' }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           fetch-depth: 0
 

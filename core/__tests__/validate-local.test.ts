@@ -141,6 +141,7 @@ describe("validate:local is the no-Actions orchestrator", () => {
     take("Python for lint and kernel tests", "python", "./.github/actions/python");
     take("Install kernel dev requirements", "kernel-dev", "kernel/requirements-dev.txt");
     take("Lint", "lint", "npm run lint");
+    take("Workflow lint", "actionlint", "run-actionlint.cjs");
     take("Kernel tests", "kernel", "npm run test:kernel");
     take("Verify FRIDAY layout and dependencies", "arrange", "arrange-project.cjs");
     take("Verify FRIDAY layout and dependencies", "deps", "verify-deps.cjs");

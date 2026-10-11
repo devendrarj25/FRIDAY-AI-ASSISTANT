@@ -82,8 +82,9 @@ jobs:
           WORKFLOW_REF: ${{ github.workflow_ref }}
           CALLER: ${{ inputs.caller }}
           EVENT_NAME: ${{ github.event_name }}
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          [ '${{ inputs.confirm }}' = 'MERGE' ] || {
+          [ "$CONFIRM" = "MERGE" ] || {
             echo "::error::type MERGE in the confirm field to allow this run."
             exit 1
           }
@@ -122,7 +123,7 @@ jobs:
           fi
 
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           fetch-depth: 0
 
@@ -173,13 +174,17 @@ jobs:
       - name: Decide what is safe to merge
         id: plan
         shell: bash
+        env:
+          SCOPE: ${{ inputs.scope }}
+          PR_NUMBERS: ${{ inputs.pr_numbers }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           set -o pipefail
           node scripts/merge-engine.cjs evaluate \
             --prs prs.json \
-            --scope '${{ inputs.scope }}' \
-            --numbers '${{ inputs.pr_numbers }}' \
-            --owner '${{ github.repository_owner }}' \
+            --scope "$SCOPE" \
+            --numbers "$PR_NUMBERS" \
+            --owner "$OWNER" \
             --check-runs checkruns.json \
             --required 'PR Validation' > decisions.json
           cat decisions.json
@@ -188,10 +193,14 @@ jobs:
           eligible=$(jq -c '[.decisions[] | select(.eligible) | .number]' decisions.json)
           echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
           echo "latest_release_branch=$(jq -r '.latestReleaseBranch // ""' decisions.json)" >> "$GITHUB_OUTPUT"
-          [ "$eligible" = "[]" ] && echo "::warning::no pull request is currently safe to merge." || true
+          if [ "$eligible" = "[]" ]; then
+            echo "::warning::no pull request is currently safe to merge."
+          fi
 
       - name: Merge the eligible pull requests
         shell: bash
+        env:
+          DELETE_BRANCH: ${{ inputs.delete_branch }}
         run: |
           set -euo pipefail
           numbers=$(jq -r '.decisions[] | select(.eligible) | .number' decisions.json)
@@ -226,7 +235,7 @@ jobs:
             # exact commit that was validated.
             gh pr merge "$pr" --merge --match-head-commit "$head"
             echo "merged #$pr ($branch)" >> "$GITHUB_STEP_SUMMARY"
-            if [ '${{ inputs.delete_branch }}' = 'true' ]; then
+            if [ "$DELETE_BRANCH" = "true" ]; then
               case "$branch" in
                 main|master|develop|development|release|recovery/*)
                   echo "refusing to delete protected branch $branch" ;;

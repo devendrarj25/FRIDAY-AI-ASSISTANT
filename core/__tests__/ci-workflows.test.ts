@@ -1,7 +1,7 @@
 /**
  * GitHub CI contract.
  *
- * Twelve workflow files under .github/workflows/, each with one responsibility.
+ * Eleven workflow files under .github/workflows/, each with one responsibility.
  * The complete catalog is docs/FRIDAY_GITHUB_ACTIONS.md; this file asserts the
  * on-disk inventory, permissions, and Node toolchain contract.
  *
@@ -52,11 +52,46 @@ function bashSteps(file: string): { job: string; name: string; script: string }[
   return found;
 }
 
+function runScripts(file: string): { job: string; name: string; script: string }[] {
+  const doc = load(file) as { jobs?: Record<string, { steps?: unknown }> };
+  const found: { job: string; name: string; script: string }[] = [];
+  for (const [job, body] of Object.entries(doc.jobs ?? {})) {
+    const steps = (body as { steps?: unknown }).steps;
+    if (!Array.isArray(steps)) continue;
+    for (const step of steps) {
+      if (!step || typeof step !== "object") continue;
+      const row = step as { name?: unknown; run?: unknown };
+      if (typeof row.run !== "string") continue;
+      found.push({ job, name: String(row.name || job), script: row.run });
+    }
+  }
+  return found;
+}
+
 const RELEASE_ONLY = [
   "release-engine.cjs decide",
   "release-engine.cjs apply",
   "release-manifest.cjs",
 ];
+
+describe("untrusted workflow input stays out of the shell script", () => {
+  it("reads dispatch inputs from the environment", () => {
+    for (const file of fs.readdirSync(DIR)) {
+      for (const step of runScripts(file)) {
+        expect(step.script, `${file} ${step.job} / ${step.name}`).not.toMatch(/\$\{\{\s*inputs\./);
+        expect(step.script, `${file} ${step.job} / ${step.name}`).not.toMatch(
+          /\$\{\{\s*github\.event\.(pull_request|issue)\.(title|body)/,
+        );
+      }
+    }
+    const release = read("release.yml");
+    expect(release).toContain("OWNER_NOTES: ${{ inputs.notes }}");
+    expect(release).toContain("printf '%s\\n' \"$OWNER_NOTES\"");
+    expect(release).toContain("RELEASE_TITLE: ${{ inputs.title }}");
+    expect(release).toContain('title="$RELEASE_TITLE"');
+    expect(release).toContain('stage="$STAGE"');
+  });
+});
 
 describe("workflow inventory", () => {
   it("has exactly the expected workflows and no duplicates", () => {
@@ -205,11 +240,13 @@ describe("workflow inventory", () => {
   it("does not call actions outside this repository", () => {
     // Settings allow only actions owned by devendrarj25. actions/checkout and
     // github/codeql-action fail the run before any job starts.
-    const owned = "devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main";
     for (const file of fs.readdirSync(DIR).filter((name) => name.endsWith(".yml"))) {
       const src = read(file);
       expect(src, file).not.toMatch(/uses:\s+(actions|github)\//);
-      if (src.includes("actions/checkout")) expect(src, file).toContain(owned);
+      expect(src, file).not.toContain("checkout@main");
+      if (src.includes("actions/checkout")) {
+        expect(src, file).toContain("uses: $/.github/actions/checkout");
+      }
     }
     const node = fs.readFileSync(path.resolve(DIR, "../actions/friday-node/action.yml"), "utf8");
     expect(node).not.toMatch(/uses:\s+(actions|github)\//);
@@ -487,7 +524,8 @@ describe("test EXE build", () => {
   it("gives test builds real prerelease versions and keeps official versions clean", () => {
     expect(src).toContain("release-engine.cjs testplan");
     expect(src).toContain("--from stage-toolchain");
-    expect(src).toContain('--version "${{ steps.testversion.outputs.version }}"');
+    expect(src).toContain("TEST_VERSION: ${{ steps.testversion.outputs.version }}");
+    expect(src).toContain('--version "$env:TEST_VERSION"');
     expect(
       fs.readFileSync(path.resolve(__dirname, "../../scripts/build-pipeline.cjs"), "utf8"),
     ).toContain('["stamp", "--version", options.version]');
@@ -984,7 +1022,9 @@ describe("safe merge flow", () => {
         expect(load(file).on.workflow_call.inputs.confirm.default).toBeUndefined();
         expect(load(file).on.workflow_call.inputs.delete_branch.type).toBe("string");
         expect(load(file).on.workflow_call.inputs.delete_branch.default).toBeUndefined();
-        expect(src).toContain("inputs.confirm }}' = 'MERGE'");
+        expect(src).toContain('[ "$CONFIRM" = "MERGE" ]');
+        expect(src).toContain("CONFIRM: ${{ inputs.confirm }}");
+        expect(src).not.toContain("inputs.confirm }}' = 'MERGE'");
         expect(src).toContain("merge-engine.cjs evaluate");
         expect(src).toContain("--match-head-commit");
         expect(src).toContain('gh pr merge "$pr" --merge');
@@ -1111,10 +1151,10 @@ describe("release orchestration hardening", () => {
     const src = read2("safe-merge.yml");
     const doc = load("safe-merge.yml");
     expect(src).toMatch(/confirm:[\s\S]{0,160}required: true/);
-    expect(src).toContain("= 'MERGE' ]");
+    expect(src).toContain('= "MERGE" ]');
     // Safe Merge 37200400230: startup_failure, zero jobs. A required input
     // must not also declare a default, and delete_branch must be the string
-    // Official Publish already sends (`true`), not a boolean.
+    // FRIDAY Release already sends (`true`), not a boolean.
     expect(doc.on.workflow_dispatch.inputs.confirm.required).toBe(true);
     expect(doc.on.workflow_dispatch.inputs.confirm.default).toBeUndefined();
     expect(doc.on.workflow_dispatch.inputs.delete_branch.type).toBe("string");
@@ -1165,7 +1205,8 @@ describe("release publish must not be blocked by its own auto-heal", () => {
     const push = src.indexOf('git push origin "HEAD:refs/heads/$branch"');
     expect(guard).toBeGreaterThan(-1);
     expect(push).toBeGreaterThan(guard);
-    expect(src).toContain("if [ -n '${{ inputs.sha }}' ]; then");
+    expect(src).toContain('if [ -n "$PINNED_SHA" ]; then');
+    expect(src).toContain("PINNED_SHA: ${{ inputs.sha }}");
   });
 
   it("explains a BLOCKED merge state as a branch-protection setting", () => {
@@ -1372,7 +1413,7 @@ describe("automatic-health workflows", () => {
     expect(src).not.toContain("npm audit fix");
   });
 
-  it("Test EXE and Official Publish reuse a fresh green PR Validation on the same commit", () => {
+  it("FRIDAY Test Build and FRIDAY Release reuse a fresh green PR Validation on the same commit", () => {
     const publish = read("release.yml");
     const reuseAt = publish.indexOf("scripts/validation-freshness.cjs");
     const checksAt = publish.indexOf("orchestrator-engine.cjs checks");
@@ -1402,7 +1443,12 @@ describe("automatic-health workflows", () => {
     expect(prepare).toContain("npm test");
     expect(prepare).not.toContain("validation-freshness.cjs");
     expect(publishJob).toContain("npm test");
+    expect(publishJob).toContain("merged tree is not the validated tree");
+    expect(publishJob).toContain("skip_linux");
     expect(publishJob).not.toContain("validation-freshness.cjs");
+    expect(read("pr-validation.yml")).toContain("node scripts/run-actionlint.cjs");
+    expect(read("pr-validation.yml")).toContain("gitleaks:v8.30.1@sha256:");
+    expect(read("security.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(release).toContain("validation-freshness.cjs");
   });
 });

@@ -41,7 +41,7 @@ describe("stable section is in the default npm test run", () => {
     }
   });
 
-  it("PR Validation, Test EXE Build and Release all invoke npm test", () => {
+  it("PR Validation, FRIDAY Test Build and FRIDAY Release all invoke npm test", () => {
     for (const file of [
       ".github/workflows/pr-validation.yml",
       ".github/workflows/test-build.yml",

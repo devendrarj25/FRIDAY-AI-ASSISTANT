@@ -83,18 +83,21 @@ jobs:
     steps:
       - name: Refuse anything but a manual run on main
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          [ '${{ github.ref_name }}' = 'main' ] || {
-            echo "::error::FRIDAY Release runs from main only (this run: ${{ github.ref_name }})."
+          [ "$REF_NAME" = "main" ] || {
+            echo "::error::FRIDAY Release runs from main only (this run: $REF_NAME)."
             exit 1
           }
-          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || {
+          [ "$EVENT_NAME" = "workflow_dispatch" ] || {
             echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
             exit 1
           }
 
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -235,7 +238,7 @@ jobs:
           esac
 
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0 # full history — the changelog is built from real commits
@@ -289,9 +292,11 @@ jobs:
           has_tag=$(node -e "process.stdout.write(String(require('./baseline.json').hasTag))")
           [ "$baseline" != "0.0.0" ] || { echo "::error::no valid stable version baseline was found."; exit 1; }
           echo "current stable version: $baseline (tag present: $has_tag)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "has_tag=$has_tag" >> "$GITHUB_OUTPUT"
-          echo "baseline=v$baseline" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "has_tag=$has_tag"
+            echo "baseline=v$baseline"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Analyse changes and determine version
         id: plan
@@ -334,22 +339,26 @@ jobs:
           git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> released.txt || true
           current=$(node scripts/release-engine.cjs identity --field releaseVersion)
           node scripts/release-engine.cjs decide \
-            --mode '${{ inputs.mode }}' \
+            --mode "$MODE" \
             --current "$current" \
             --baseline "$baseline" \
-            --type '${{ inputs.release_type }}' \
+            --type "$RELEASE_TYPE" \
             --log commits.txt \
             --released released.txt > decision.json
           action=$(node -e "process.stdout.write(require('./decision.json').action)")
           version=$(node -e "process.stdout.write(require('./decision.json').version)")
           bump=$(node -e "process.stdout.write(require('./decision.json').bump)")
           reason=$(node -e "process.stdout.write(require('./decision.json').reason)")
-          echo "action=$action" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "bump=$bump" >> "$GITHUB_OUTPUT"
-          echo "### Release decision: $action v$version" >> "$GITHUB_STEP_SUMMARY"
-          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "action=$action"
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "bump=$bump"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release decision: $action v$version"
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$action" != "update" ]; then
             {
@@ -462,12 +471,14 @@ jobs:
       - name: Apply release notes override
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create' && inputs.notes != ''
         shell: bash
+        env:
+          OWNER_NOTES: ${{ inputs.notes }}
         run: |
-          cat > owner-notes.md <<'FRIDAY_NOTES'
-          ## FRIDAY v${{ steps.plan.outputs.version }}
-
-          ${{ inputs.notes }}
-          FRIDAY_NOTES
+          {
+            printf '%s\n' "## FRIDAY v${{ steps.plan.outputs.version }}"
+            printf '\n'
+            printf '%s\n' "$OWNER_NOTES"
+          } > owner-notes.md
           node scripts/release-engine.cjs guard-notes \
             --version '${{ steps.plan.outputs.version }}' \
             --file owner-notes.md \
@@ -571,7 +582,7 @@ jobs:
           fi
 
           # The branch must be visible to the API before a PR can reference it.
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
             git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && break
             sleep 3
           done
@@ -603,7 +614,7 @@ jobs:
 
           # Verify the PR really exists before reporting success.
           url=""; number=""
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
             read -r number url <<<"$(gh pr list --state open --base main --head "$branch" --limit 1 \
               --json number,url --jq '.[0] | "\(.number) \(.url)"' 2>/dev/null || true)"
             [ -n "$url" ] && [ "$url" != "null" ] && break
@@ -692,7 +703,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -753,7 +764,7 @@ jobs:
       VERSION: ${{ needs.pin.outputs.version }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -873,7 +884,7 @@ jobs:
       PINNED: ${{ needs.pin.outputs.head }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -970,7 +981,7 @@ jobs:
       VERSION: ${{ needs.pin.outputs.version }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -1074,7 +1085,7 @@ jobs:
           esac
 
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -1109,6 +1120,8 @@ jobs:
         # of the release that already carries this version (rebuild) or must
         # create a brand new one (update).
         shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
         run: |
           version=$(node scripts/release-engine.cjs identity --field releaseVersion)
           tag="v$version"
@@ -1135,7 +1148,7 @@ jobs:
           git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> released.txt || true
 
           if ! node scripts/release-engine.cjs handoff \
-                --mode '${{ inputs.mode }}' \
+                --mode "$MODE" \
                 --current "$version" \
                 --prepared prepared.json \
                 --released released.txt > handoff.json; then
@@ -1155,13 +1168,17 @@ jobs:
             echo "rebuild requested for $tag which has no published release yet — it will be created once."
           fi
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "action=$action" >> "$GITHUB_OUTPUT"
-          echo "exists=$exists" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "### Publishing v$version ($action) from main $(git rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
-          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "action=$action"
+            echo "exists=$exists"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Publishing v$version ($action) from main $(git rev-parse --short HEAD)"
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prove the release PR was merged into main
         # The hard guard against publishing an unmerged branch: there must be a
@@ -1225,11 +1242,17 @@ jobs:
           merged_oid=$(node -e 'try{const m=JSON.parse(require("fs").readFileSync("merged-pr.json","utf8")); process.stdout.write((m&&m.mergeCommit&&m.mergeCommit.oid)||"")}catch{}')
           ancestor=false
           if [ -n "$merged_oid" ] && [ "$merged_oid" != "null" ]; then
-            git cat-file -e "$merged_oid" 2>/dev/null || git fetch origin "$merged_oid" --quiet || true
-            git merge-base --is-ancestor "$merged_oid" HEAD && ancestor=true || true
+            if ! git cat-file -e "$merged_oid" 2>/dev/null; then
+              git fetch origin "$merged_oid" --quiet || true
+            fi
+            if git merge-base --is-ancestor "$merged_oid" HEAD; then
+              ancestor=true
+            fi
           fi
           changelog_ok=false
-          grep -Eq "^## (FRIDAY )?${tag}\b" CHANGELOG.md && changelog_ok=true || true
+          if grep -Eq "^## (FRIDAY )?${tag}\b" CHANGELOG.md; then
+            changelog_ok=true
+          fi
 
           set +e
           node scripts/release-engine.cjs diagnose-publish \
@@ -1250,6 +1273,8 @@ jobs:
 
       - name: Restore the reviewed release notes
         shell: bash
+        env:
+          OWNER_NOTES: ${{ inputs.notes }}
         run: |
           file="releases/notes/${{ steps.plan.outputs.tag }}.md"
           if [ -f "$file" ]; then
@@ -1288,12 +1313,12 @@ jobs:
             --notes-file "$file" \
             --channel stable
 
-          if [ -n '${{ inputs.notes }}' ]; then
-            cat > owner-notes.md <<'FRIDAY_NOTES'
-          ## FRIDAY v${{ steps.plan.outputs.version }}
-
-          ${{ inputs.notes }}
-          FRIDAY_NOTES
+          if [ -n "$OWNER_NOTES" ]; then
+            {
+              printf '%s\n' "## FRIDAY v${{ steps.plan.outputs.version }}"
+              printf '\n'
+              printf '%s\n' "$OWNER_NOTES"
+            } > owner-notes.md
             node scripts/release-engine.cjs guard-notes \
               --version '${{ steps.plan.outputs.version }}' \
               --file owner-notes.md \
@@ -1305,7 +1330,30 @@ jobs:
         # Heal and verify run in-tree, never pushed. main is PR-only.
         run: node scripts/build-pipeline.cjs --channel production --caller release --through verify-versions --report release/prepare-report.json
 
+      - name: Compare the merged tree with the validated pin
+        id: linux
+        shell: bash
+        env:
+          VALIDATED: ${{ needs.pin.outputs.head }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VALIDATED}" ]; then
+            echo "skip_linux=false" >> "$GITHUB_OUTPUT"
+            echo "pin output is empty - Linux gates run on this Windows job"
+            exit 0
+          fi
+          git fetch origin "$VALIDATED" --quiet || git fetch origin "$VALIDATED"
+          here=$(git rev-parse "HEAD^{tree}")
+          there=$(git rev-parse "${VALIDATED}^{tree}")
+          if [ "$here" != "$there" ]; then
+            echo "::error::merged tree is not the validated tree ($here vs $there)"
+            exit 1
+          fi
+          echo "skip_linux=true" >> "$GITHUB_OUTPUT"
+          echo "validated tree matches this publish checkout - Linux gates already ran"
+
       - name: Run tests
+        if: steps.linux.outputs.skip_linux != 'true'
         run: npm test
 
       - name: Restore reviewed release notes after tests
@@ -1327,14 +1375,17 @@ jobs:
             --channel stable
 
       - name: Type check
+        if: steps.linux.outputs.skip_linux != 'true'
         run: npm run typecheck
 
       - name: Verify FRIDAY layout and dependencies
+        if: steps.linux.outputs.skip_linux != 'true'
         run: |
           node scripts/arrange-project.cjs
           node scripts/verify-deps.cjs
 
       - name: Clean-architecture audit
+        if: steps.linux.outputs.skip_linux != 'true'
         run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
 
       - name: Verify version/documentation synchronization
@@ -1374,8 +1425,10 @@ jobs:
       - name: Create GitHub Release
         id: publish
         shell: bash
+        env:
+          RELEASE_TITLE: ${{ inputs.title }}
         run: |
-          title='${{ inputs.title }}'
+          title="$RELEASE_TITLE"
           [ -n "$title" ] || title='FRIDAY ${{ steps.plan.outputs.tag }}'
           # Only assets that were really produced are attached; a missing
           # optional manifest must not fail a verified build.
@@ -1493,7 +1546,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: main
           fetch-depth: 0
@@ -1553,6 +1606,7 @@ jobs:
           PREPARED_PR: ${{ needs.pin.outputs.pr }}
           MERGED_VERSION: ${{ needs.verify-main.outputs.version }}
           PUBLISHED_VERSION: ${{ needs.confirm.outputs.version }}
+          STAGE: ${{ inputs.stage }}
         run: |
           set -euo pipefail
           {
@@ -1574,7 +1628,7 @@ jobs:
             echo "| published version | ${PUBLISHED_VERSION:-none} |"
             echo "| confirm | $CONFIRM_RESULT |"
           } >> "$GITHUB_STEP_SUMMARY"
-          stage='${{ inputs.stage }}'
+          stage="$STAGE"
           if [ "$stage" = "prepare" ]; then
             if [ "$PREPARE_RESULT" != "success" ]; then
               echo "::error::FRIDAY Release prepare finished as $PREPARE_RESULT."

@@ -88,6 +88,25 @@ describe("wave 7 bundled stage", () => {
       },
     });
     expect(again.staged).toHaveLength(1);
+    const offlineHit = await stage.stageBundledPacks({
+      manifest,
+      cacheDir: path.join(root, "cache"),
+      stageDir: path.join(root, "offline-hit"),
+      offline: true,
+      fetchImpl: async () => {
+        throw new Error("network");
+      },
+    });
+    expect(offlineHit.staged).toHaveLength(1);
+    await expect(
+      stage.stageBundledPacks({
+        manifest,
+        cacheDir: path.join(root, "empty-cache"),
+        stageDir: path.join(root, "offline-miss"),
+        offline: true,
+        fetchImpl: async () => ({ body }),
+      }),
+    ).rejects.toThrow(/offline build: python-embed is not in the staging cache/);
     await expect(
       stage.stageBundledPacks({
         manifest: {

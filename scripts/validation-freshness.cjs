@@ -2,7 +2,7 @@
 /**
  * FRIDAY — reuse a green PR Validation instead of paying for it twice.
  *
- * Test EXE Build and Official Publish call this before they repeat validation.
+ * FRIDAY Test Build and FRIDAY Release call this before they repeat validation.
  * Reuse only when THIS commit already has a successful "PR Validation" result
  * that is at most seven days old. A different commit, a failure, a missing
  * timestamp, or an older result means run validation again.

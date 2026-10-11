@@ -38,7 +38,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Fetch source
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -96,7 +96,7 @@ jobs:
           if [ ! -f health-report.md ]; then
             printf 'The health check could not produce a report (setup failed before the checks ran).\n' > health-report.md
           fi
-          body=$(printf 'Latest weekly health run: %s\n\n%s\n\nRun `npm run resume` locally for the same check.' "$run_url" "$(cat health-report.md)")
+          body=$(printf 'Latest weekly health run: %s\n\n%s\n\nRun npm run resume locally for the same check.' "$run_url" "$(cat health-report.md)")
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else
