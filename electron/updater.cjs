@@ -111,12 +111,16 @@ async function checkAllUpdates({ version, scan, appUpdate }) {
 
 const { execFile } = require("child_process");
 
-const run = (cmd, args) =>
+const run = (cmd, args, cwd) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { windowsHide: true, timeout: 120000 }, (err, stdout, stderr) =>
+    execFile(cmd, args, { cwd, windowsHide: true, timeout: 120000 }, (err, stdout, stderr) =>
       resolve({ ok: !err, output: String(stdout || stderr || "") }),
     );
   });
+
+function localTar(archive, args) {
+  return require("./load-win-spawn.cjs").loadWinSpawn(__dirname).localTar(archive, args);
+}
 
 function folderFor(root, kind, id) {
   const folders = {
@@ -151,7 +155,8 @@ async function extract(archive, targetDir) {
     ]);
     if (result.ok) return true;
   }
-  const tar = await run("tar", ["-xf", archive, "-C", targetDir]);
+  const spec = localTar(archive, ["-xf", archive, "-C", targetDir]);
+  const tar = await run("tar", spec.args, spec.cwd);
   if (tar.ok) return true;
   const unzip = await run("unzip", ["-o", archive, "-d", targetDir]);
   return unzip.ok;

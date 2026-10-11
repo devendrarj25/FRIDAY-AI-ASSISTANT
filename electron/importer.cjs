@@ -131,12 +131,16 @@ const hashFile = (file) => {
   }
 };
 
-const run = (cmd, args) =>
+const run = (cmd, args, cwd) =>
   new Promise((resolve) => {
-    execFile(cmd, args, { windowsHide: true, timeout: 300_000 }, (err, stdout, stderr) =>
+    execFile(cmd, args, { cwd, windowsHide: true, timeout: 300_000 }, (err, stdout, stderr) =>
       resolve({ ok: !err, output: String(stdout || stderr || "") }),
     );
   });
+
+function localTar(archive, args) {
+  return require("./load-win-spawn.cjs").loadWinSpawn(__dirname).localTar(archive, args);
+}
 
 async function extractZipDetailed(archive, targetDir) {
   fs.mkdirSync(targetDir, { recursive: true });
@@ -156,7 +160,8 @@ async function extractZipDetailed(archive, targetDir) {
     if (ps.ok) return { ok: true, via: "Expand-Archive" };
     attempts.push(`Expand-Archive: ${ps.output.trim().slice(0, 300)}`);
   }
-  const tarRun = await run("tar", ["-xf", archive, "-C", targetDir]);
+  const spec = localTar(archive, ["-xf", archive, "-C", targetDir]);
+  const tarRun = await run("tar", spec.args, spec.cwd);
   if (tarRun.ok) return { ok: true, via: "tar" };
   attempts.push(`tar: ${tarRun.output.trim().slice(0, 300)}`);
   const unzipRun = await run("unzip", ["-o", archive, "-d", targetDir]);
@@ -180,7 +185,8 @@ async function createArchive(source, dest) {
   const parent = path.dirname(from);
   const name = path.basename(from);
   const attempts = [];
-  const tarRun = await run("tar", ["-czf", to, "-C", parent, name]);
+  const spec = localTar(to, ["-czf", to, "-C", parent, name]);
+  const tarRun = await run("tar", spec.args, spec.cwd);
   if (tarRun.ok) return { ok: true, via: "tar", file: to };
   attempts.push(
     `tar: ${String(tarRun.output || "")

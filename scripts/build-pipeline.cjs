@@ -12,7 +12,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnNpm, spawnDirect } = require("./win-spawn.cjs");
+const { spawnNpm, spawnDirect, localTar } = require("./win-spawn.cjs");
 const stage = require("./stage-toolchain.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -275,7 +275,8 @@ function extractZipPack(packFile, dest) {
   if (!zip) {
     throw new Error(`packaged self-check: ${packFile} is not a zip archive`);
   }
-  const result = spawnDirect("tar", ["-xf", packFile, "-C", dest]);
+  const spec = localTar(packFile, ["-xf", packFile, "-C", dest]);
+  const result = spawnDirect("tar", spec.args, { cwd: spec.cwd });
   if (result.status !== 0) {
     throw new Error(
       `packaged self-check: could not extract ${path.basename(packFile)} (${result.status})`,

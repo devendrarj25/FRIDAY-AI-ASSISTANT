@@ -11,7 +11,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { spawnDirect } = require("./win-spawn.cjs");
+const { spawnDirect, localTar } = require("./win-spawn.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -85,7 +85,8 @@ async function download(url, dest) {
 
 function extractArchive(archive, dest) {
   fs.mkdirSync(dest, { recursive: true });
-  const result = spawnDirect("tar", ["-xf", archive, "-C", dest]);
+  const spec = localTar(archive, ["-xf", archive, "-C", dest]);
+  const result = spawnDirect("tar", spec.args, { cwd: spec.cwd });
   if (result.status !== 0) {
     throw new Error(`could not extract ${path.basename(archive)} (${result.status})`);
   }

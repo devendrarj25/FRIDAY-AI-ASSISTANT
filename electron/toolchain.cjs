@@ -33,6 +33,14 @@ const GUI_COMMANDS = new Set([
   "notepad.exe",
 ]);
 
+/** GNU tar treats a drive colon in the archive path as a remote host. */
+function extractTarArchive(file, dest) {
+  const spec = require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .localTar(file, ["-xzf", file, "-C", dest]);
+  execFileSync("tar", spec.args, { cwd: spec.cwd, stdio: "ignore" });
+}
+
 const run = (cmd, args, timeout = 6000) => {
   if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return Promise.resolve(null);
   return require("./load-win-spawn.cjs")
@@ -298,7 +306,7 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
         },
         extract: async (file, dest) => {
           fs.mkdirSync(dest, { recursive: true });
-          execFileSync("tar", ["-xzf", file, "-C", dest], { stdio: "ignore" });
+          extractTarArchive(file, dest);
         },
         run: async (cmd, args) => {
           await run(cmd, args, 10 * 60 * 1000);
@@ -2456,7 +2464,7 @@ function installerCommand(file, tool, root) {
   if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
     const plan = archiveInstallCommand(file, root, tool);
     fs.mkdirSync(plan.dest, { recursive: true });
-    execFileSync("tar", ["-xzf", file, "-C", plan.dest], { stdio: "ignore" });
+    extractTarArchive(file, plan.dest);
     return plan.command;
   }
   const args = Array.isArray(tool.installerArgs) ? [...tool.installerArgs] : ["/S"];

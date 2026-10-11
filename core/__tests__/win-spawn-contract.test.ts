@@ -2,7 +2,8 @@
  * The command line cmd.exe runs after /d /s /c, proved without Windows.
  * /S strips one outer quote pair and leaves the quoted tokens.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -30,6 +31,20 @@ const spawn = require_(path.resolve(__dirname, "../../scripts/win-spawn.cjs")) a
     args?: string[],
     extra?: { timeout?: number },
   ) => Promise<string | null>;
+  npmPlan: (
+    args?: string[],
+    platform?: string,
+    cli?: string | null,
+  ) => { file: string; args: string[]; windowsVerbatimArguments: boolean };
+  localTar: (
+    archive: string,
+    args?: string[],
+    pathApi?: {
+      resolve: (value: string) => string;
+      dirname: (value: string) => string;
+      basename: (value: string) => string;
+    },
+  ) => { cwd: string; args: string[] };
 };
 
 const RUNNER = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\friday-resume-8Yytwd\\gh.cmd";
@@ -103,6 +118,71 @@ describe("win-spawn command line", () => {
       expect(stub.file).toBe(path.join(dir, process.platform === "win32" ? "gh.cmd" : "gh"));
     } finally {
       removeTemp(dir);
+    }
+  });
+});
+
+describe("npm and tar on a drive path", () => {
+  const TAR_FILES = [
+    "scripts/build-pipeline.cjs",
+    "scripts/run-actionlint.cjs",
+    "electron/toolchain.cjs",
+    "electron/updater.cjs",
+    "electron/importer.cjs",
+  ];
+
+  it("starts npm through npm-cli.js and keeps the joined cmd line as fallback", () => {
+    const cli = "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js";
+    const planned = spawn.npmPlan(["run", "test", "--silent"], "win32", cli);
+    expect(planned.windowsVerbatimArguments).toBe(false);
+    expect(planned.args).toEqual([cli, "run", "test", "--silent"]);
+    const fallback = spawn.npmPlan(["run", "test", "--silent"], "win32", null);
+    expect(fallback.windowsVerbatimArguments).toBe(true);
+    expect(fallback.args).toEqual(["/d", "/s", "/c", '"npm.cmd run test --silent"']);
+    expect(spawn.cmdLineAfterSlashS(fallback.args[3] || "")).toBe("npm.cmd run test --silent");
+  });
+
+  it("does not hand tar an archive name that starts with a drive colon", () => {
+    const archive = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\friday-updater\\pack.tar";
+    const staging = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\friday-updater\\src-pack";
+    const spec = spawn.localTar(archive, ["-cf", archive, "-C", staging, "demo"], path.win32);
+    expect(spec.cwd).toBe("C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\friday-updater");
+    expect(spec.args).toEqual(["-cf", "pack.tar", "-C", staging, "demo"]);
+    expect(spec.args[1]).not.toContain(":");
+    const named = spawn.localTar(
+      "C:\\Temp\\c:pack.tar",
+      ["-cf", "C:\\Temp\\c:pack.tar"],
+      path.win32,
+    );
+    expect(named.args[0]).toBe("--force-local");
+    expect(named.args).toContain("c:pack.tar");
+  });
+
+  it("packs a real archive from the directory that holds it", () => {
+    const dir = makeTemp("friday-tar-");
+    try {
+      const staging = path.join(dir, "src-pack");
+      mkdirSync(path.join(staging, "demo"), { recursive: true });
+      writeFileSync(path.join(staging, "demo", "a.txt"), "hi");
+      const archive = path.join(dir, "pack.tar");
+      const spec = spawn.localTar(archive, ["-cf", archive, "-C", staging, "demo"]);
+      execFileSync("tar", spec.args, { cwd: spec.cwd });
+      const listed = execFileSync("tar", ["-tf", path.basename(archive)], {
+        cwd: spec.cwd,
+        encoding: "utf8",
+      });
+      expect(listed).toContain("demo/a.txt");
+      expect(existsSync(archive)).toBe(true);
+    } finally {
+      removeTemp(dir);
+    }
+  });
+
+  it("sends every product tar archive through the local helper", () => {
+    for (const rel of TAR_FILES) {
+      const text = readFileSync(path.resolve(__dirname, "../..", rel), "utf8");
+      expect(text, rel).toContain("localTar");
+      expect(text, rel).toContain(".cwd");
     }
   });
 });
