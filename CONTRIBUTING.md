@@ -1,7 +1,7 @@
 # Contributing to FRIDAY
 
 **App:** FRIDAY AI · **Owner:** Devendra Singh Meena (devendrarj25)
-**Current shipping version: 1.0.1.2**
+**Current shipping version: 1.1.1.2**
 
 This repository is the whole product. FRIDAY installs, builds, and runs from
 these files. It does not need an outside assistant service to do that.

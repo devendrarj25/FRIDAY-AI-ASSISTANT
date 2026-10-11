@@ -1,6 +1,6 @@
 # FRIDAY — Windows Install and Build Guide
 
-**Shipping version: 1.0.1.2**  
+**Shipping version: 1.1.1.2**  
 **Publisher:** Devendra Singh Meena (devendrarj25)
 
 🪟 This is the owner start-to-finish guide: get FRIDAY onto a Windows PC, pack the Windows EXEs from this checkout, install those EXEs, update, uninstall, and bring Chat / voice / local engines / cloud keys to a working state.
@@ -13,7 +13,7 @@ Every command in this file is run from the **project root** (the folder that con
 
 | Path | Who it is for | What you do |
 | --- | --- | --- |
-| A. Published GitHub EXE | Daily use. No Node, Python, or Git required. | Download `FRIDAY-Setup-1.0.1.2.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.0.1.2.exe` (no uninstaller) |
+| A. Published GitHub EXE | Daily use. No Node, Python, or Git required. | Download `FRIDAY-Setup-1.1.1.2.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.1.1.2.exe` (no uninstaller) |
 | B. Source checkout + Windows CMD | Packing a new EXE, changing code, or running the desktop app from this tree | Clone this repo, then `npm run setup`, then `npm run build:win` (or `npm run desktop:start` without packing) |
 
 Both paths share one disk root once a folder is chosen. Do not install Official and then overwrite it with a TEST EXE expecting the same Windows appId — TEST uses `dev.friday.desk.test` so it can sit beside Official. Isolation: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
@@ -24,8 +24,8 @@ If you clone Git into a folder that is **already** the installed FRIDAY data roo
 
 No CMD pack is required for daily use.
 
-1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.0.1.2**.
-2. Download `FRIDAY-Setup-1.0.1.2.exe`. Optionally check `SHA256SUMS.txt` on that release.
+1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.1.1.2**.
+2. Download `FRIDAY-Setup-1.1.1.2.exe`. Optionally check `SHA256SUMS.txt` on that release.
 3. Double-click Setup while signed in as the user who will run FRIDAY. The product is per-user (`perMachine: false` in `electron-builder.yml`). Do not “Run as administrator” unless that account should own the install.
 4. The wizard has one folder page: where the FRIDAY root should live. Default is `%USERPROFILE%\FRIDAY`. Setup refuses `Program Files`, `Windows`, and a nested `FRIDAY\FRIDAY` folder.
 5. Program files go into `<chosen root>\App` (`$INSTDIR`). The chosen root is written to `HKCU\Software\FRIDAY\WorkspacePath`.
@@ -37,7 +37,7 @@ SmartScreen may warn on an unsigned build. That is the honest local/CI default u
 
 ## 3. Path A — Portable EXE (no Apps & Features row)
 
-`FRIDAY-Portable-1.0.1.2.exe` is the same public version with no Apps & Features entry and no NSIS uninstaller. Run or extract it, then pick the same kind of FRIDAY root as Setup. Updates still come from GitHub Releases when the running app is packaged. Prefer Setup when you want a Start-menu shortcut and a keep-data vs delete-all uninstall.
+`FRIDAY-Portable-1.1.1.2.exe` is the same public version with no Apps & Features entry and no NSIS uninstaller. Run or extract it, then pick the same kind of FRIDAY root as Setup. Updates still come from GitHub Releases when the running app is packaged. Prefer Setup when you want a Start-menu shortcut and a keep-data vs delete-all uninstall.
 
 Then continue at [section 8](#8-first-launch--make-friday-actually-work).
 
@@ -161,8 +161,8 @@ The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 
 Expected files after a full pack:
 
-- `release\FRIDAY-Setup-1.0.1.2.exe`
-- `release\FRIDAY-Portable-1.0.1.2.exe`
+- `release\FRIDAY-Setup-1.1.1.2.exe`
+- `release\FRIDAY-Portable-1.1.1.2.exe`
 - `release\win-unpacked\FRIDAY.exe` (always, including `dir`)
 
 Python wheels: floors, not pins. Missing capability extras do not fail kernel boot. Windows `setup-python` still fail-closes on missing voice imports.
@@ -174,7 +174,7 @@ Packaging identity, TEST vs Official, and GitHub Actions: [docs/FRIDAY_BUILD_AND
 ## 7. Path B — install the EXE you just packed
 
 1. Close any running FRIDAY that uses the same Windows appId you are about to install.
-2. Run `release\FRIDAY-Setup-1.0.1.2.exe` (or the Portable) the same way as [section 2](#2-path-a--install-the-published-setup-exe).
+2. Run `release\FRIDAY-Setup-1.1.1.2.exe` (or the Portable) the same way as [section 2](#2-path-a--install-the-published-setup-exe).
 3. A **TEST** artifact (`FRIDAY-Test-Setup-…`) installs beside Official; it does not replace Official user data. Do not mix their folders.
 4. Follow [section 8](#8-first-launch--make-friday-actually-work) on the new install (venv under that root’s `runtime\.venv`).
 
@@ -278,7 +278,7 @@ One scannable root. Setup may replace `<root>\App` on upgrade. User folders besi
 | Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`) |
 | Checkout `temporary\downloads` | Official installer payloads during `npm run setup` |
 | Checkout `dist-desktop\` | Renderer bundle |
-| Checkout `release\` | `FRIDAY-Setup-1.0.1.2.exe`, `FRIDAY-Portable-1.0.1.2.exe`, `win-unpacked\FRIDAY.exe` |
+| Checkout `release\` | `FRIDAY-Setup-1.1.1.2.exe`, `FRIDAY-Portable-1.1.1.2.exe`, `win-unpacked\FRIDAY.exe` |
 
 ## 12. Update
 
@@ -344,4 +344,4 @@ npm run doctor
 npm run build:win
 ```
 
-Then run `release\FRIDAY-Setup-1.0.1.2.exe`, pick a FRIDAY folder, wait for kernel ready, then follow section 8 until Chat Manual sends a reply.
+Then run `release\FRIDAY-Setup-1.1.1.2.exe`, pick a FRIDAY folder, wait for kernel ready, then follow section 8 until Chat Manual sends a reply.

@@ -1,7 +1,7 @@
-# FRIDAY — Project Audit (v1.0.1.2)
+# FRIDAY — Project Audit (v1.1.1.2)
 
 Owner: **Devendra Singh Meena (`devendrarj25`)**
-Scope: state of the codebase at version **1.0.1.2**.
+Scope: state of the codebase at version **1.1.1.2**.
 
 📋 What is verified versus not, with the command that is the evidence. Live briefing (architecture, counts, next): [FRIDAY_STATE.md](FRIDAY_STATE.md). Feature map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md).
 
@@ -16,7 +16,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Tests | `npm test` | all passed; skips are network, OS-tool or git-clone checks that run where those exist |
 | Kernel tests | `python -m pytest kernel/tests` | all passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
 | Docs registry | `npm run docs:check` | clean (registered docs, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
-| Version heal | `npm run verify:version` | in sync at **1.0.1.2** (npm encoding **1.0.1**) |
+| Version heal | `npm run verify:version` | in sync at **1.1.1.2** (npm encoding **1.1.1**) |
 | Layout | `npm run arrange:check` | **139 folders**, missing 0, duplicates 0 |
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
 | Local CI substitute | `npm run validate:local` | passes on Linux; NSIS / verify-build / installer smoke need Windows and are skipped |
@@ -24,9 +24,9 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Hosted Actions | PR Validation / FRIDAY Test Build / FRIDAY Release | **NOT VERIFIED** on this checkout. Eleven workflow files exist. An older `main` commit has a finished green PR Validation; that run is not evidence for this head. FRIDAY Release on this tree has not been dispatched. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
-## 2. Published 1.0.1.2
+## 2. Published 1.1.1.2
 
-GitHub Latest **v1.0.1.2** (2026-10-05): Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub Latest **v1.1.1.2** (2026-10-05): Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 

@@ -1,6 +1,6 @@
 # FRIDAY — GitHub Actions Catalog (Repository Automation)
 
-**Current shipping version: 1.0.1.2**
+**Current shipping version: 1.1.1.2**
 
 ⚙️ Every workflow file under `.github/workflows`. Merge philosophy: [FRIDAY_MERGE_FLOW.md](FRIDAY_MERGE_FLOW.md). Runbook clicks: [RELEASE.md](../RELEASE.md). Assistants must **not dispatch** these jobs.
 

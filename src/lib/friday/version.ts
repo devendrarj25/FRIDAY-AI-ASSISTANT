@@ -29,7 +29,7 @@ const compiledBuild = (() => {
 })();
 
 /** Public four-part identity, e.g. "1.0.0.0". */
-export const APP_VERSION = compiled || "1.0.1.2";
+export const APP_VERSION = compiled || "1.1.1.2";
 /** Display form, e.g. "v1.0.0.0". */
 export const APP_VERSION_LABEL = `v${APP_VERSION}`;
 /** Build stamp (UTC date of the bundle), e.g. "2026.08.11". */

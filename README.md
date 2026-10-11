@@ -83,12 +83,12 @@ Terms: [LICENSE](LICENSE). How to change the tree: [CONTRIBUTING.md](CONTRIBUTIN
 
 ---
 
-## 9. What is new in 1.0.1.2
+## 9. What is new in 1.1.1.2
 
 <!-- release-engine: generated section. Summary plus links only - the full
      write-up lives in the changelog and the release notes. -->
 
-Released October 6, 2026 on the Stable channel - Flow Studio, voice controls, and a clearer brain.
+Released October 11, 2026 on the Stable channel - FRIDAY 1.1.1.2 adds new capabilities.
 
-- Full detail for this release: **[releases/notes/v1.0.1.2.md](releases/notes/v1.0.1.2.md)**
+- Full detail for this release: **[releases/notes/v1.1.1.2.md](releases/notes/v1.1.1.2.md)**
 - Changelog for the current public line: **[CHANGELOG.md](CHANGELOG.md)**
