@@ -135,6 +135,69 @@ describe("build pipeline", () => {
     expect(bounds.assetLimit).toBe(2147483648);
   });
 
+  it("copies staged packs into resources/<dest>, not a nested resources folder", async () => {
+    const yaml = require("js-yaml") as { load: (text: string) => unknown };
+    const { getFileMatchers } = require("app-builder-lib/out/fileMatcher.js") as {
+      getFileMatchers: (
+        config: unknown,
+        name: string,
+        destination: string,
+        options: Record<string, unknown>,
+      ) => Array<{
+        from: string;
+        to: string;
+        isEmpty: () => boolean;
+        prependPattern: (pattern: string) => void;
+        createFilter: () => (file: string, stat: { isDirectory: () => boolean }) => boolean;
+      }>;
+    };
+    const { copyDir } = require("builder-util/out/fs.js") as {
+      copyDir: (
+        src: string,
+        destination: string,
+        options?: { filter?: (file: string, stat: { isDirectory: () => boolean }) => boolean },
+      ) => Promise<void>;
+    };
+    const config = yaml.load(fs.readFileSync(path.join(ROOT, "electron-builder.yml"), "utf8"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "friday-extra-"));
+    for (const rel of [
+      "resources/toolchain/python-embed/pack.bin",
+      "resources/speech/whisper-cpp/pack.bin",
+      "resources/icons/friday.ico",
+    ]) {
+      const file = path.join(project, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, Buffer.from(rel));
+    }
+    const resourcesDir = path.join(project, "win-unpacked", "resources");
+    const matchers = getFileMatchers(config, "extraResources", resourcesDir, {
+      macroExpander: (value: string) => value,
+      customBuildOptions: {},
+      globalOutDir: path.join(project, "out"),
+      defaultSrc: project,
+    });
+    const resourcesMatcher = matchers.find(
+      (matcher) => matcher.from === path.join(project, "resources"),
+    );
+    expect(resourcesMatcher, "resources extraResource").toBeTruthy();
+    expect(resourcesMatcher?.to).toBe(resourcesDir);
+    if (!resourcesMatcher) throw new Error("resources extraResource missing");
+    if (resourcesMatcher.isEmpty()) resourcesMatcher.prependPattern("**/*");
+    await copyDir(resourcesMatcher.from, resourcesMatcher.to, {
+      filter: resourcesMatcher.createFilter(),
+    });
+    for (const rel of [
+      "toolchain/python-embed/pack.bin",
+      "speech/whisper-cpp/pack.bin",
+      "icons/friday.ico",
+    ]) {
+      expect(fs.existsSync(path.join(resourcesDir, rel)), rel).toBe(true);
+      expect(fs.existsSync(path.join(resourcesDir, "resources", rel)), `nested ${rel}`).toBe(false);
+    }
+    const main = fs.readFileSync(path.join(ROOT, "electron/main.cjs"), "utf8");
+    expect(main).toContain('path.join(process.resourcesPath || "", "icons", "friday.ico")');
+  });
+
   it("rejects a small installer and a missing staged pack", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pack-"));
     const release = path.join(root, "release");

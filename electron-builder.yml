@@ -70,8 +70,11 @@ extraResources:
   # updater already publishes. Not a second notes store.
   - from: CHANGELOG.md
     to: CHANGELOG.md
+  # `to` is relative to the app resources directory (electron-builder
+  # FileSet). `to: resources` nested this tree at resources/resources, so
+  # verify-artifacts could not see resources/<dest>/<id>/pack.bin. Omitting
+  # `to` copies the folder contents straight into resources/.
   - from: resources
-    to: resources
   # Second copy of the 2D companion artwork outside app.asar so the character
   # runtime can repair itself even if the renderer bundle is replaced.
   - from: public/character
