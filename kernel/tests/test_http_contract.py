@@ -55,8 +55,11 @@ def test_version_reports_the_product_line_without_a_token():
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True
-    assert body["product"] == product_version(REPO)
-    assert body["product"] == "1.0.1.2"
+    product = product_version(REPO)
+    assert body["product"] == product
+    parts = product.split(".")
+    assert len(parts) == 4
+    assert all(part.isdigit() for part in parts)
     assert body["kernel"] == main.app.version
 
 

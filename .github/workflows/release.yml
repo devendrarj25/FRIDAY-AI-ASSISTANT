@@ -217,8 +217,7 @@ jobs:
           # github.event_name inside a called workflow is the caller's event,
           # so it is never the call event. github.workflow is the caller's name
           # and github.workflow_ref is the caller's file.
-          allowed=false
-          case           [ "$EVENT_NAME" = "workflow_dispatch" ] || {
+          [ "$EVENT_NAME" = "workflow_dispatch" ] || {
             echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
             exit 1
           }
@@ -1057,8 +1056,7 @@ jobs:
           # github.event_name inside a called workflow is the caller's event,
           # so it is never the call event. github.workflow is the caller's name
           # and github.workflow_ref is the caller's file.
-          allowed=false
-          case           [ "$EVENT_NAME" = "workflow_dispatch" ] || {
+          [ "$EVENT_NAME" = "workflow_dispatch" ] || {
             echo "::error::FRIDAY Release is manual only (workflow_dispatch)."
             exit 1
           }

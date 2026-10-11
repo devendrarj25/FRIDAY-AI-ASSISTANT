@@ -21,7 +21,9 @@
  * workflow, and so the read-only workflows can never gain write powers.
  */
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { load as parseYaml } from "js-yaml";
 import { createRequire } from "node:module";
@@ -31,6 +33,24 @@ const require_ = createRequire(import.meta.url);
 const DIR = path.resolve(__dirname, "../../.github/workflows");
 const read = (f: string) => fs.readFileSync(path.join(DIR, f), "utf8");
 const load = (f: string) => parseYaml(read(f)) as any;
+
+/** Steps that declare `shell: bash`. PowerShell steps are left to their own shell. */
+function bashSteps(file: string): { job: string; name: string; script: string }[] {
+  const doc = load(file) as { jobs?: Record<string, { steps?: unknown }> };
+  const found: { job: string; name: string; script: string }[] = [];
+  for (const [job, body] of Object.entries(doc.jobs ?? {})) {
+    const steps = (body as { steps?: unknown }).steps;
+    if (!Array.isArray(steps)) continue;
+    for (const step of steps) {
+      if (!step || typeof step !== "object") continue;
+      const row = step as { name?: unknown; shell?: unknown; run?: unknown };
+      if (typeof row.run !== "string") continue;
+      if (!String(row.shell || "").startsWith("bash")) continue;
+      found.push({ job, name: String(row.name || job), script: row.run });
+    }
+  }
+  return found;
+}
 
 const RELEASE_ONLY = [
   "release-engine.cjs decide",
@@ -71,6 +91,35 @@ describe("workflow inventory", () => {
       expect(src, file).toContain("uses: ./.github/actions/friday-node");
     }
     expect(fs.existsSync(path.resolve(DIR, "../actions/friday-node/action.yml"))).toBe(true);
+  });
+
+  it("every bash step is valid bash and does not jam case in front of a test", () => {
+    const files = fs.readdirSync(DIR).filter((f) => f.endsWith(".yml"));
+    const failures: string[] = [];
+    let checked = 0;
+    for (const file of files) {
+      for (const step of bashSteps(file)) {
+        checked += 1;
+        if (/case[ \t]+\[/.test(step.script)) {
+          failures.push(`${file} ${step.job} ${step.name}: case before [`);
+        }
+        const tmp = path.join(os.tmpdir(), `friday-wf-${process.pid}-${checked}.sh`);
+        fs.writeFileSync(tmp, step.script);
+        try {
+          execFileSync("bash", ["-n", tmp], { stdio: ["ignore", "pipe", "pipe"] });
+        } catch (error) {
+          const stderr =
+            error && typeof error === "object" && "stderr" in error
+              ? String((error as { stderr?: Buffer }).stderr || "")
+              : String(error);
+          failures.push(`${file} ${step.job} ${step.name}: ${stderr.trim()}`);
+        } finally {
+          fs.rmSync(tmp, { force: true });
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(failures).toEqual([]);
   });
 
   it("sets up the engine-compatible toolchain before any npm ci / build step", () => {
@@ -562,6 +611,17 @@ describe("official release", () => {
     expect(doc.jobs.publish.concurrency).toBeUndefined();
     expect(src).toContain("Official releases run from main only");
     expect(src).toContain("FRIDAY Release is manual only (workflow_dispatch).");
+    expect(src).not.toMatch(/case[ \t]+\[/);
+    expect(src).not.toContain("allowed=false");
+    const guards = bashSteps("release.yml").filter((step) =>
+      step.script.includes("FRIDAY Release is manual only (workflow_dispatch)."),
+    );
+    expect(guards.map((step) => step.job).sort()).toEqual(["plan", "prepare", "publish"]);
+    for (const step of guards) {
+      if (step.job === "plan") continue;
+      expect(step.script, step.job).toContain('[ "$EVENT_NAME" = "workflow_dispatch" ]');
+      expect(step.script, step.job).toContain('case "$WORKFLOW_REF" in');
+    }
     expect(src).not.toContain("official-publish.yml");
     expect(src).not.toContain("uses: ./.github/workflows/release.yml");
     expect(src).not.toContain("github.event_name == 'workflow_call'");
