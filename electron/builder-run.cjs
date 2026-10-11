@@ -89,7 +89,7 @@ function commandFor(kind, root) {
   if (WIN) {
     const script = path.join(root, "scripts", "build-windows.cmd");
     const target = kind === "portable" ? "portable" : kind === "dir" ? "dir" : "nsis";
-    return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", script, target] };
+    return { file: script, args: [target] };
   }
   // Non-Windows hosts can still produce the renderer bundle for verification.
   return { file: WIN ? "npm.cmd" : "npm", args: ["run", "build:desktop"] };
@@ -192,7 +192,11 @@ function pump() {
   const env = node ? { ...process.env, ELECTRON_RUN_AS_NODE: "1" } : process.env;
   let child;
   try {
-    child = spawn(file, args, { cwd: root, windowsHide: true, env });
+    child = require("./load-win-spawn.cjs").loadWinSpawn(__dirname).spawnChild(file, args, {
+      cwd: root,
+      windowsHide: true,
+      env,
+    });
   } catch (error) {
     job.status = "error";
     onProgress({

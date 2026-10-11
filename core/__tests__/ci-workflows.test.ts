@@ -404,7 +404,7 @@ describe("PR validation", () => {
   it("heals BEFORE the tests so documentation drift can never fail npm test", () => {
     const heal = src.indexOf("release-engine.cjs heal --version");
     expect(heal).toBeGreaterThan(src.indexOf("run: npm ci"));
-    expect(heal).toBeLessThan(src.indexOf("run: npm test"));
+    expect(heal).toBeLessThan(src.indexOf("npm test -- --reporter=default"));
     expect(heal).toBeLessThan(src.indexOf("run: npm run typecheck"));
   });
 });
@@ -419,7 +419,7 @@ describe("self-heal is wired into every build and publish path", () => {
     expect(apply).toBeGreaterThan(-1);
     expect(heal).toBeGreaterThan(apply);
     expect(verify).toBeGreaterThan(heal);
-    expect(heal).toBeLessThan(prepare.indexOf("run: npm test"));
+    expect(heal).toBeLessThan(prepare.indexOf("npm test -- --reporter=default"));
     // The engine owns the staged file list, including this version's notes.
     expect(prepare).toContain("release-engine.cjs files --version");
   });
@@ -429,7 +429,7 @@ describe("self-heal is wired into every build and publish path", () => {
     const publish = src.slice(src.indexOf("\n  publish:\n"));
     const heal = publish.indexOf("--through verify-versions");
     expect(heal).toBeGreaterThan(-1);
-    expect(heal).toBeLessThan(publish.indexOf("run: npm test"));
+    expect(heal).toBeLessThan(publish.indexOf("npm test -- --reporter=default"));
     expect(publish).toContain("in-tree, never pushed");
     expect(publish).not.toContain("git push origin main");
     const pipeline = fs.readFileSync(
@@ -445,7 +445,7 @@ describe("self-heal is wired into every build and publish path", () => {
     const src = read("test-build.yml");
     const heal = src.indexOf("--through verify-versions");
     expect(heal).toBeGreaterThan(-1);
-    expect(heal).toBeLessThan(src.indexOf("run: npm test"));
+    expect(heal).toBeLessThan(src.indexOf("npm test -- --reporter=default"));
     expect(src).not.toContain("git commit");
     expect(src).not.toContain("git push");
   });
@@ -926,7 +926,9 @@ describe("official release", () => {
     );
     expect(src).toContain("--channel production");
     expect(pipeline).toContain('path.join(root, "resources", "build-channel.json")');
-    expect(pipeline).toContain("fs.rmSync(file, { force: true })");
+    expect(pipeline).toContain("removeTree(file)");
+    expect(pipeline).toContain("maxRetries: 5");
+    expect(pipeline).toContain("force: true");
   });
 
   it("re-restores reviewed notes after npm test and guards them before GitHub publish", () => {
@@ -935,7 +937,9 @@ describe("official release", () => {
     expect(src).toContain("Refusing to describe the whole history as this release.");
     expect(src).not.toContain("measuring the full history");
     expect(src).not.toContain("git log --no-merges --pretty=%s > commits.txt");
-    expect(at("Restore reviewed release notes after tests")).toBeGreaterThan(at("run: npm test"));
+    expect(at("Restore reviewed release notes after tests")).toBeGreaterThan(
+      at("npm test -- --reporter=default"),
+    );
     expect(at("Guard canonical What's New before publishing")).toBeLessThan(
       at("gh release create"),
     );

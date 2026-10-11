@@ -136,8 +136,9 @@ describe("build and packaging chain", () => {
     const cmd = read("scripts/build-windows.cmd");
     const pipeline = read("scripts/build-pipeline.cjs");
     expect(cmd).toContain("build-pipeline.cjs");
-    expect(pipeline).toContain('fs.rmSync(path.join(root, "release")');
-    expect(pipeline).toContain('fs.rmSync(path.join(root, "dist-desktop")');
+    expect(pipeline).toContain('removeTree(path.join(root, "release"))');
+    expect(pipeline).toContain('removeTree(path.join(root, "dist-desktop"))');
+    expect(pipeline).toContain("maxRetries: 5");
     // cmd.exe treats \" as an escaped quote. That can stop the pack after
     // "cleaning previous output" and never reach electron-builder.
     expect(cmd).not.toMatch(/if exist "release\\"/);

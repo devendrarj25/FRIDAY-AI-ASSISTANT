@@ -33,18 +33,23 @@ const GUI_COMMANDS = new Set([
   "notepad.exe",
 ]);
 
-const run = (cmd, args, timeout = 6000) =>
-  new Promise((resolve) => {
-    if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return resolve(null);
-    try {
-      execFile(cmd, args, { timeout, windowsHide: true }, (err, stdout, stderr) => {
-        const out = `${stdout || ""}${stderr || ""}`.trim();
-        resolve(err && !out ? null : out);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+/** GNU tar treats a drive colon in the archive path as a remote host. */
+function extractTarArchive(file, dest) {
+  const spec = require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .localTar(file, ["-xzf", file, "-C", dest]);
+  execFileSync("tar", spec.args, { cwd: spec.cwd, stdio: "ignore" });
+}
+
+const run = (cmd, args, timeout = 6000) => {
+  if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return Promise.resolve(null);
+  return require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .captureOutput(cmd, args || [], {
+      timeout,
+      windowsHide: true,
+    });
+};
 
 const which = async (cmd) => {
   const out = await run(WIN ? "where" : "which", [cmd], 4000);
@@ -301,7 +306,7 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
         },
         extract: async (file, dest) => {
           fs.mkdirSync(dest, { recursive: true });
-          execFileSync("tar", ["-xzf", file, "-C", dest], { stdio: "ignore" });
+          extractTarArchive(file, dest);
         },
         run: async (cmd, args) => {
           await run(cmd, args, 10 * 60 * 1000);
@@ -2294,16 +2299,8 @@ async function isElevated() {
  * through the command processor while every real .exe still spawns directly.
  */
 function spawnCommand(cmd, args) {
-  if (WIN && /\.(cmd|bat)$/i.test(cmd)) {
-    const quote = (a) => (/[\s"&|<>^]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
-    const line = [quote(cmd), ...args.map(quote)].join(" ");
-    return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], {
-      windowsHide: true,
-      windowsVerbatimArguments: true,
-      shell: false,
-    });
-  }
-  return spawn(cmd, args, { windowsHide: true, shell: false });
+  const { loadWinSpawn } = require("./load-win-spawn.cjs");
+  return loadWinSpawn(__dirname).spawnChild(cmd, args || []);
 }
 
 function elevatedCommand(cmd, args) {
@@ -2467,7 +2464,7 @@ function installerCommand(file, tool, root) {
   if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
     const plan = archiveInstallCommand(file, root, tool);
     fs.mkdirSync(plan.dest, { recursive: true });
-    execFileSync("tar", ["-xzf", file, "-C", plan.dest], { stdio: "ignore" });
+    extractTarArchive(file, plan.dest);
     return plan.command;
   }
   const args = Array.isArray(tool.installerArgs) ? [...tool.installerArgs] : ["/S"];

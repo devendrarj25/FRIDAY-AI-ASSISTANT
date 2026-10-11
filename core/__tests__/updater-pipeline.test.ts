@@ -29,6 +29,9 @@ type ApplyResult = {
 };
 
 const require = createRequire(import.meta.url);
+const { localTar } = require("../../scripts/win-spawn.cjs") as {
+  localTar: (archive: string, args: string[]) => { cwd: string; args: string[] };
+};
 const { checkAllUpdates, applyUpdate, rollbackUpdate } = require("../../electron/updater.cjs") as {
   checkAllUpdates: (input: {
     version: string;
@@ -166,7 +169,8 @@ describe("applyUpdate download → backup → swap → rollback", () => {
       JSON.stringify({ id: "demo", version: "2.0.0" }),
     );
     const archive = path.join(root, "pack.tar");
-    execFileSync("tar", ["-cf", archive, "-C", staging, "demo"]);
+    const spec = localTar(archive, ["-cf", archive, "-C", staging, "demo"]);
+    execFileSync("tar", spec.args, { cwd: spec.cwd });
 
     const { server, url } = await listen((req, res) => {
       if (req.url === "/pack.tar") {

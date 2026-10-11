@@ -48,7 +48,11 @@ import {
   switchMidSentence,
   voiceForLanguage,
 } from "../../src/lib/friday/tts-ladder";
-import { ownerAcceptanceSteps, redactDiagnostics } from "../../src/lib/friday/voice-doctor";
+import {
+  formatVoiceProbeReport,
+  ownerAcceptanceSteps,
+  redactDiagnostics,
+} from "../../src/lib/friday/voice-doctor";
 import { CLEAN_PC_SCRIPT, walkVoiceFlow } from "../../src/lib/friday/voice-flow";
 import { voicePackReport } from "../../src/lib/friday/voice-pack";
 import {
@@ -307,6 +311,21 @@ describe("wake room and the owner checklist", () => {
     expect(scenarios).toHaveLength(40);
     expect(scenarios.flatMap((item) => gradeVoiceScenario(item))).toEqual([]);
     expect(redactDiagnostics("password: hunter2")).not.toMatch(/hunter2/);
+    expect(redactDiagnostics("saw ghp_exampletokenvalue in the log")).not.toMatch(/ghp_/);
+    const report = formatVoiceProbeReport([
+      { id: "stt-import", label: "import faster_whisper", ok: true, detail: "faster-whisper 1" },
+      {
+        id: "tts-voice",
+        label: "a neural voice is available",
+        ok: false,
+        detail: "token: ghp_exampletokenvalue",
+      },
+    ]);
+    expect(report.lines).toEqual(["PASS stt-import", "FAIL tts-voice"]);
+    expect(report.diagnostics).toContain("PASS stt-import");
+    expect(report.diagnostics).toContain("FAIL tts-voice");
+    expect(report.diagnostics).not.toMatch(/ghp_/);
+    expect(report.checks[1]?.detail).not.toMatch(/ghp_/);
     const pack = voicePackReport("/friday", (file) => file.endsWith("friday.onnx"));
     expect(pack.find((row) => row.id === "wake")?.ok).toBe(true);
     expect(pack.find((row) => row.id === "cpython")?.ok).toBe(false);

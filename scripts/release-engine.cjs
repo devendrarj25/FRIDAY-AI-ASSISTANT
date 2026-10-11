@@ -2496,6 +2496,21 @@ function publishHandoff({ mode = "auto", current, prepared = [], released = [] }
     };
   }
 
+  // stage=publish skips the plan job. mode=auto must not replace an existing
+  // GitHub release. mode=rebuild is the only path that uploads assets again.
+  if (mode === "auto" && published.includes(declared)) {
+    return {
+      action: "error",
+      version: declared,
+      existing: true,
+      pending: null,
+      superseded: state.superseded.map((p) => p.version),
+      reason:
+        `auto keeps v${declared}. It is already published, so this run does not publish it again and does not invent the next number. ` +
+        "Choose mode update and release type auto to follow the changes, name patch, minor, major, or extreme to move that one counter, or rebuild to pack this version again.",
+    };
+  }
+
   if (action === "update" && published.includes(declared)) {
     return {
       action: "error",

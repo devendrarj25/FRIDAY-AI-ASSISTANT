@@ -20,6 +20,7 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
+const { spawnDirect, spawnNpm } = require("./win-spawn.cjs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -232,11 +233,16 @@ function runStep(step) {
     return "skipped";
   }
   log(`run   ${step.name}`);
-  const result = spawnSync(step.command, step.args, {
+  const extra = {
     cwd: root,
     stdio: "inherit",
     env: step.env || process.env,
-  });
+  };
+  const base = path.basename(String(step.command)).toLowerCase();
+  const result =
+    base === "npm" || base === "npm.cmd"
+      ? spawnNpm(step.args, extra)
+      : spawnDirect(step.command, step.args, extra);
   if (result.error) {
     fail(`${step.name}: ${result.error.message}`);
     process.exit(1);

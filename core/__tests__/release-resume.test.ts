@@ -3,7 +3,8 @@
  * publish an already-merged unpublished line once, and refuse to move a
  * tag that is already a GitHub release.
  */
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { writeCommandStub } from "./helpers/platform-command";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -31,14 +32,6 @@ const winSpawn = require_(path.join(ROOT, "scripts/win-spawn.cjs")) as {
   ) => { status: number | null; stdout?: string; stderr?: string };
 };
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function cmdQuote(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 /**
  * Node on Windows does not run a shebang and does not apply PATHEXT.
  * A colon is not that platform's PATH delimiter, so a POSIX `gh` is
@@ -63,19 +56,8 @@ function installGhStub(dir: string): { command: string; pathEnv: string } {
       "",
     ].join("\n"),
   );
-  const cmdFile = path.join(dir, "gh.cmd");
-  writeFileSync(cmdFile, `@echo off\r\n${cmdQuote(process.execPath)} ${cmdQuote(logger)} %*\r\n`);
-  const shFile = path.join(dir, "gh");
-  writeFileSync(
-    shFile,
-    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(logger)} "$@"\n`,
-  );
-  chmodSync(shFile, 0o755);
-  const command = process.platform === "win32" ? cmdFile : shFile;
-  const pathEnv = [dir, process.env["PATH"] || ""]
-    .filter((part) => part.length > 0)
-    .join(path.delimiter);
-  return { command, pathEnv };
+  const stub = writeCommandStub(dir, "gh", logger);
+  return { command: stub.file, pathEnv: stub.pathEnv };
 }
 
 describe("FRIDAY Release resume", () => {
@@ -206,5 +188,61 @@ describe("FRIDAY Release resume", () => {
     expect(release).toContain("--clobber");
     expect(release).not.toContain("git push --force");
     expect(release).not.toContain("git tag -f");
+  });
+
+  it("resumes after a failed stage without a second release or a moved tag", () => {
+    const release = readFileSync(path.join(ROOT, ".github/workflows/release.yml"), "utf8");
+    const merged = [{ number: 31, version: "1.1.1.2", state: "merged" }];
+    const open = [{ number: 31, version: "1.1.1.2", state: "open" }];
+    const rows: Array<{
+      job: string;
+      prepared: Array<{ number: number; version: string; state: string }>;
+      released: string[];
+      step: string;
+    }> = [
+      { job: "plan", prepared: [], released: [], step: "prepare" },
+      { job: "prepare", prepared: open, released: [], step: "merge" },
+      { job: "pin", prepared: open, released: [], step: "merge" },
+      { job: "validate", prepared: open, released: [], step: "merge" },
+      { job: "merge", prepared: open, released: [], step: "merge" },
+      { job: "verify-main", prepared: merged, released: [], step: "publish" },
+      { job: "publish", prepared: merged, released: [], step: "publish" },
+      { job: "confirm", prepared: merged, released: ["v1.1.1.2"], step: "error" },
+    ];
+    for (const row of rows) {
+      const plan = orchestrator.orchestrationPlan({
+        mode: "auto",
+        mainVersion: "1.1.1.2",
+        prepared: row.prepared,
+        released: row.released,
+      });
+      expect(plan.step, row.job).toBe(row.step);
+      if (row.step === "publish") expect(plan.version).toBe("1.1.1.2");
+    }
+    const handoff = engine.publishHandoff({
+      mode: "auto",
+      current: "1.1.1.2",
+      prepared: merged,
+      released: [],
+    });
+    expect(handoff.action).toBe("update");
+    const again = engine.publishHandoff({
+      mode: "auto",
+      current: "1.1.1.2",
+      prepared: merged,
+      released: ["v1.1.1.2"],
+    });
+    expect(again.action).toBe("error");
+    const next = (
+      engine as unknown as { nextPublicRevision: (version: string) => string }
+    ).nextPublicRevision("1.1.1.2");
+    expect(next).toBe("1.1.1.3");
+    expect(release).toContain("inputs.stage != 'publish'");
+    expect(release).toContain("inputs.stage == 'publish'");
+    expect(release).toContain("needs.publish.result == 'success'");
+    expect(release).not.toContain("git push --force");
+    expect(release).not.toContain("git tag -f");
+    expect(release).toContain("gh release upload");
+    expect(release).toContain("--clobber");
   });
 });

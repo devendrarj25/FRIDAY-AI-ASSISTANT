@@ -424,7 +424,7 @@ describe("real second repo: branch, edit, validate, push, open PR", () => {
     expect(written.ok).toBe(true);
 
     const validated = await dev.validate(root, { dir: target.dir, steps: ["test"] });
-    expect(validated.ok).toBe(true);
+    expect(validated.ok, JSON.stringify(validated.results || validated)).toBe(true);
     expect(
       validated.results.some(
         (s: { id: string; state: string }) => s.id === "test" && s.state === "passed",

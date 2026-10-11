@@ -153,6 +153,7 @@ jobs:
       # CMD pack and FRIDAY Release. The TEST stamp is applied on the second
       # call, after tests, so the suite still sees the unstamped tree.
       - name: Prepare the build environment
+        shell: cmd
         run: node scripts/build-pipeline.cjs --channel test --caller test --through verify-versions --report release/prepare-report.json
 
       - name: Reuse a fresh green PR Validation on this commit
@@ -169,13 +170,22 @@ jobs:
 
       - name: Type check
         if: steps.evidence.outputs.reuse != 'true'
+        shell: cmd
         run: npm run typecheck
 
       - name: Run tests
         if: steps.evidence.outputs.reuse != 'true'
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          mkdir -p test-results
+          npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json
+          code=$?
+          node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
+          exit "$code"
 
       - name: Verify FRIDAY layout and dependencies
+        shell: cmd
         run: |
           node scripts/arrange-project.cjs
           node scripts/verify-deps.cjs
@@ -255,6 +265,11 @@ jobs:
           node scripts/build-pipeline.cjs --channel test --caller test --from stage-toolchain --version "$env:TEST_VERSION" --targets "$env:TEST_TARGETS" --ref "$env:TEST_REF" --commit "$env:commit" --report release/build-report.json
           if ($LASTEXITCODE -ne 0) { throw "shared build pipeline failed" }
           if ($env:FRIDAY_PFX) { Remove-Item $env:FRIDAY_PFX -Force -ErrorAction SilentlyContinue }
+
+      - name: Explain a failed build
+        if: failure()
+        shell: bash
+        run: node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
 
       - name: Publish the TEST prerelease (Test update channel)
         if: inputs.publish || env.TEST_PUBLISH == 'true'

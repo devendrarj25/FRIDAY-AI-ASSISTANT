@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
-import { redactDiagnostics } from "@/lib/friday/voice-doctor";
+import { formatVoiceProbeReport, redactDiagnostics } from "@/lib/friday/voice-doctor";
 import type { AssistantModeState } from "@/lib/friday/assistant-mode";
 import { voiceGate } from "@/lib/friday/voice-audio";
 
@@ -79,7 +79,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     setBusy(true);
     try {
       const result = await assistantMode.verifyVoiceRuntime();
-      setChecks(result.checks);
+      setChecks(formatVoiceProbeReport(result.checks).checks);
     } finally {
       setBusy(false);
     }
@@ -133,10 +133,13 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         <button
           type="button"
           onClick={() => {
-            const report = redactDiagnostics(
+            const probes = formatVoiceProbeReport(checks);
+            const live = redactDiagnostics(
               rows.map((row) => `${row.label}: ${row.value}`).join("\n"),
             );
-            void navigator.clipboard?.writeText(report);
+            void navigator.clipboard?.writeText(
+              [probes.diagnostics, live].filter(Boolean).join("\n"),
+            );
           }}
           className="font-mono text-[10px] uppercase text-accent"
         >

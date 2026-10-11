@@ -98,12 +98,20 @@ function run(command, args, cwd, timeoutMs) {
   return new Promise((resolve) => {
     let output = "";
     let done = false;
-    const child = spawn(command, args, {
-      cwd,
-      windowsHide: true,
-      shell: WIN && commandNeedsWindowsShell(command),
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
-    });
+    const env = { ...process.env, CI: "1", FORCE_COLOR: "0" };
+    const child =
+      WIN && commandNeedsWindowsShell(command)
+        ? require("./load-win-spawn.cjs").loadWinSpawn(__dirname).spawnChild(command, args, {
+            cwd,
+            windowsHide: true,
+            env,
+          })
+        : spawn(command, args, {
+            cwd,
+            windowsHide: true,
+            shell: false,
+            env,
+          });
     const timer = setTimeout(() => {
       if (done) return;
       done = true;

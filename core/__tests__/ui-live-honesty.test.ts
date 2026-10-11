@@ -226,7 +226,10 @@ describe("FRIDAY Browser section", () => {
     expect(src).toContain("Ask FRIDAY");
     expect(src).toContain("formatBrowserExtra");
     expect(src).toContain("LIVE_TAB_CAP");
-    expect(src).toContain("persist:friday-browser");
+    expect(src).toContain("partition={BROWSER_PARTITION}");
+    expect(read("src/lib/friday/browser-engine.ts")).toContain(
+      'export const BROWSER_PARTITION = "persist:friday-browser"',
+    );
     expect(src).toContain("Sign out this site");
     expect(src).toContain("backgroundThrottling=no");
     expect(src).toContain("waitForView");

@@ -437,6 +437,34 @@ export async function webInteract(
   );
 }
 
+/** One Chromium partition for every FRIDAY Browser tab and programmatic fetch. */
+export const BROWSER_PARTITION = "persist:friday-browser";
+
+/** A blocked popup stays closed. An allowed http(s) popup becomes a FRIDAY tab. */
+export function popupDecision(
+  url: string,
+  blockPopups: boolean,
+): { openTab: boolean; status: string } {
+  const target = String(url || "").trim();
+  if (!/^https?:/i.test(target)) {
+    return { openTab: false, status: "Popup blocked: not an http(s) page." };
+  }
+  if (blockPopups) return { openTab: false, status: `Popup blocked: ${target}` };
+  return { openTab: true, status: "" };
+}
+
+/** Reload the tab that crashed, or the active tab when the url is gone. */
+export function crashReloadTarget(
+  tabs: Array<{ id: string; url: string }>,
+  activeId: string | null,
+  payload: { url?: string; reason?: string },
+): { id: string | null; status: string } {
+  const reason = String(payload.reason || "gone");
+  const hit = tabs.find((tab) => tab.url && tab.url === payload.url);
+  const id = hit?.id ?? activeId ?? null;
+  return { id, status: `Tab crashed (${reason}) — reloading.` };
+}
+
 export const webClick = (selector: string, url?: string) =>
   webInteract("click", { selector, ...(url ? { url } : {}) });
 export const webScroll = (value = 600, url?: string) =>

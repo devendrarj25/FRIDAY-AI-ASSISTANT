@@ -158,6 +158,32 @@ describe("publishHandoff", () => {
     expect(d.reason).toContain("rebuild");
   });
 
+  it("publishes 1.1.1.2 once when main carries it and no GitHub release exists", () => {
+    const d = engine.publishHandoff({
+      mode: "auto",
+      current: "1.1.1.2",
+      prepared: [{ number: 31, version: "1.1.1.2", state: "merged" }],
+      released: ["v1.0.1.2"],
+    });
+    expect(d.action).toBe("update");
+    expect(d.version).toBe("1.1.1.2");
+    expect(d.existing).toBe(false);
+  });
+
+  it("does not publish again when auto finds the version already released", () => {
+    const d = engine.publishHandoff({
+      mode: "auto",
+      current: "1.1.1.2",
+      prepared: [{ number: 31, version: "1.1.1.2", state: "merged" }],
+      released: ["v1.1.1.2"],
+    });
+    expect(d.action).toBe("error");
+    expect(d.existing).toBe(true);
+    expect(d.reason).toMatch(/already published/);
+    expect(d.reason).toMatch(/does not invent the next number/);
+    expect(d.reason).toMatch(/rebuild/);
+  });
+
   it("publishes a never-released declared version as an update", () => {
     const d = engine.publishHandoff({
       mode: "auto",

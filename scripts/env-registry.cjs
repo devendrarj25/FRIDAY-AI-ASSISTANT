@@ -17,8 +17,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
-const { spawnCaptured, spawnNpm } = require("./win-spawn.cjs");
+const { spawnCaptured, spawnNpm, spawnDirect } = require("./win-spawn.cjs");
 
 const runtime = require("./python-runtime.cjs");
 
@@ -297,7 +296,7 @@ function probeKernel() {
     // broken and blocked the whole ENVIRONMENT check.
     let result = null;
     try {
-      result = spawnSync(
+      result = spawnDirect(
         runtime.venvPython,
         [
           "-c",
@@ -306,9 +305,7 @@ function probeKernel() {
           cacheFile,
         ],
         {
-          encoding: "utf8",
           cwd: root,
-          windowsHide: true,
           timeout: 60000,
           env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
         },

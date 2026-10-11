@@ -26,32 +26,46 @@ function sessionUserAgent() {
   return UA;
 }
 
-function waitForLoad(contents, ms = 8000) {
+/**
+ * Wait until the page stops loading. A timeout and a failed load are
+ * different results. Error -3 is ERR_ABORTED, which Chromium emits while a
+ * redirect or a stop is still in progress, so that code does not finish the wait.
+ * `schedule` is injectable so a test does not wait on a real timer.
+ */
+function waitForLoad(contents, ms = 8000, schedule = setTimeout) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = () => {
+    const finish = (loaded, timedOut) => {
       if (done) return;
       done = true;
       try {
-        contents.removeListener("did-stop-loading", finish);
+        contents.removeListener("did-stop-loading", onStop);
         contents.removeListener("did-fail-load", onFail);
       } catch {
         /* guest gone */
       }
-      resolve();
+      resolve({ loaded: Boolean(loaded), timedOut: Boolean(timedOut) });
     };
+    const onStop = () => finish(true, false);
     const onFail = (_event, code) => {
       if (code === -3) return;
-      finish();
+      finish(false, false);
     };
     if (!contents || typeof contents.once !== "function") {
-      resolve();
+      resolve({ loaded: false, timedOut: true });
       return;
     }
-    contents.once("did-stop-loading", finish);
+    contents.once("did-stop-loading", onStop);
     contents.on("did-fail-load", onFail);
-    setTimeout(finish, ms);
+    schedule(() => finish(false, true), ms);
   });
+}
+
+/** The address the owner asked for, and the address after redirects. */
+function landedUrl(requested, responseUrl) {
+  const asked = String(requested || "");
+  const finalUrl = String(responseUrl || asked);
+  return { url: asked, finalUrl, redirected: finalUrl !== asked };
 }
 
 const history = [];
@@ -475,16 +489,20 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
     let html = "";
     let status = 200;
     let contentType = "text/html";
+    let landed = landedUrl(target, target);
     if (render) {
       html = await renderPage(target, session);
     } else {
       const response = await request(target);
       status = response.status;
+      landed = landedUrl(target, response.url);
       contentType = response.headers.get("content-type") || "";
       if (!response.ok) {
         return note({
           kind: "open",
-          url: target,
+          url: landed.finalUrl,
+          requested: landed.url,
+          redirected: landed.redirected,
           ok: false,
           status,
           error: `request failed [${status}]`,
@@ -494,7 +512,9 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
         const body = await response.text();
         return note({
           kind: "open",
-          url: target,
+          url: landed.finalUrl,
+          requested: landed.url,
+          redirected: landed.redirected,
           ok: true,
           status,
           title: target,
@@ -512,7 +532,7 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
     while ((m = linkRe.exec(html)) && links.length < 60) {
       let href = decode(m[1]);
       try {
-        href = new URL(href, target).toString();
+        href = new URL(href, landed.finalUrl).toString();
       } catch {
         continue;
       }
@@ -524,15 +544,17 @@ async function open(url, { maxChars = 20000, render = false, session } = {}) {
     const text = article.text;
     try {
       live.addHistory({
-        url: target,
-        title: titleMatch ? stripTags(titleMatch[1]).slice(0, 200) : target,
+        url: landed.finalUrl,
+        title: titleMatch ? stripTags(titleMatch[1]).slice(0, 200) : landed.finalUrl,
       });
     } catch {
       /* history is best-effort */
     }
     return note({
       kind: "open",
-      url: target,
+      url: landed.finalUrl,
+      requested: landed.url,
+      redirected: landed.redirected,
       ok: true,
       status,
       title: titleMatch ? stripTags(titleMatch[1]).slice(0, 200) : target,
@@ -571,7 +593,10 @@ async function renderPage(url, session) {
   });
   try {
     await win.loadURL(url, { userAgent: sessionUserAgent() });
-    await waitForLoad(win.webContents, 8000);
+    const load = await waitForLoad(win.webContents, 8000);
+    if (!load.loaded) {
+      throw new Error(load.timedOut ? "page load timed out" : "page failed to load");
+    }
     return await win.webContents.executeJavaScript("document.documentElement.outerHTML", true);
   } finally {
     try {
@@ -599,7 +624,10 @@ async function screenshot(url) {
   });
   try {
     await win.loadURL(String(url), { userAgent: sessionUserAgent() });
-    await waitForLoad(win.webContents, 8000);
+    const load = await waitForLoad(win.webContents, 8000);
+    if (!load.loaded) {
+      throw new Error(load.timedOut ? "page load timed out" : "page failed to load");
+    }
     const image = await win.webContents.capturePage();
     return note({ kind: "screenshot", url, ok: true, dataUrl: image.toDataURL() });
   } catch (error) {
@@ -769,4 +797,6 @@ module.exports = {
   parseGenericResults,
   interact,
   interactScript,
+  waitForLoad,
+  landedUrl,
 };

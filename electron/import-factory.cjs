@@ -35,7 +35,12 @@ function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { windowsHide: true, ...opts });
+      child = require("./load-win-spawn.cjs")
+        .loadWinSpawn(__dirname)
+        .spawnChild(cmd, args, {
+          windowsHide: true,
+          ...opts,
+        });
     } catch (error) {
       resolve({ ok: false, output: String(error.message || error), code: -1 });
       return;
@@ -436,18 +441,20 @@ async function pump() {
     const npx = WIN ? "npx.cmd" : "npx";
     const target = kind === "portable" ? ["--win", "portable"] : ["--win", "nsis"];
     emit({ progress: 36, step: "Packaging with this project's electron-builder" });
-    const child = spawn(
-      npx,
-      [
-        "--yes",
-        "electron-builder",
-        ...target,
-        `--config.productName=${name}`,
-        `--config.extraMetadata.version=${version}`,
-        `--config.directories.output=${outDir}`,
-      ],
-      { cwd: root, windowsHide: true, env: process.env },
-    );
+    const child = require("./load-win-spawn.cjs")
+      .loadWinSpawn(__dirname)
+      .spawnChild(
+        npx,
+        [
+          "--yes",
+          "electron-builder",
+          ...target,
+          `--config.productName=${name}`,
+          `--config.extraMetadata.version=${version}`,
+          `--config.directories.output=${outDir}`,
+        ],
+        { cwd: root, windowsHide: true, env: process.env },
+      );
     job.child = child;
     child.stdout?.on("data", (chunk) => {
       const line = String(chunk).trim().split(/\r?\n/).pop();

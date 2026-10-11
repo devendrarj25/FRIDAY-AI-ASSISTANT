@@ -15,8 +15,6 @@
 // FRIDAY (github-sync.api), so there is exactly one GitHub credential path.
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
-
 const sync = require("./github-sync.cjs");
 const contract = require("./friday-contract.cjs");
 
@@ -64,11 +62,13 @@ function git(args, cwd, env = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn("git", args, {
-        cwd,
-        windowsHide: true,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
-      });
+      child = require("./load-win-spawn.cjs")
+        .loadWinSpawn(__dirname)
+        .spawnChild("git", args, {
+          cwd,
+          windowsHide: true,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+        });
     } catch (error) {
       resolve({ ok: false, code: -1, out: String(error.message || error) });
       return;
@@ -246,7 +246,10 @@ function runStep(cmd, args, cwd, onOutput) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { cwd, windowsHide: true, shell: process.platform === "win32" });
+      child = require("./load-win-spawn.cjs").loadWinSpawn(__dirname).spawnChild(cmd, args, {
+        cwd,
+        windowsHide: true,
+      });
     } catch (error) {
       resolve({ ok: false, output: String(error.message || error) });
       return;

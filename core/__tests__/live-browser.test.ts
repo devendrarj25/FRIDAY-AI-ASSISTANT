@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
+import {
+  BROWSER_PARTITION,
+  crashReloadTarget,
+  popupDecision,
+} from "../../src/lib/friday/browser-engine";
 import { DEFAULT_SETTINGS, toUrl } from "../../src/lib/friday/live-browser";
 
 const require = createRequire(import.meta.url);
@@ -22,7 +27,45 @@ const browser = require("../../electron/browser.cjs") as {
     html: string,
     limit?: number,
   ) => { title: string; url: string; snippet: string }[];
+  waitForLoad: (
+    contents: {
+      once: (event: string, fn: (...args: unknown[]) => void) => void;
+      on: (event: string, fn: (...args: unknown[]) => void) => void;
+      removeListener: (event: string, fn: (...args: unknown[]) => void) => void;
+    } | null,
+    ms?: number,
+    schedule?: (fn: () => void, ms: number) => void,
+  ) => Promise<{ loaded: boolean; timedOut: boolean }>;
+  landedUrl: (
+    requested: string,
+    responseUrl?: string,
+  ) => { url: string; finalUrl: string; redirected: boolean };
 };
+const live = require("../../electron/browser-live.cjs") as {
+  PARTITION: string;
+  cookieMatchesHost: (domain: string, host: string) => boolean;
+};
+
+function fakePage() {
+  const once = new Map<string, (...args: unknown[]) => void>();
+  const on = new Map<string, (...args: unknown[]) => void>();
+  return {
+    once(event: string, fn: (...args: unknown[]) => void) {
+      once.set(event, fn);
+    },
+    on(event: string, fn: (...args: unknown[]) => void) {
+      on.set(event, fn);
+    },
+    removeListener(event: string) {
+      once.delete(event);
+      on.delete(event);
+    },
+    emit(event: string, ...args: unknown[]) {
+      once.get(event)?.(...args);
+      on.get(event)?.(...args);
+    },
+  };
+}
 
 describe("FRIDAY Browser address bar", () => {
   it("keeps real URLs untouched", () => {
@@ -123,5 +166,61 @@ describe("programmatic search parsers", () => {
     const results = browser.parseBraveHtml(html, 3);
     expect(results.some((row) => row.url.includes("example.com"))).toBe(true);
     expect(results.every((row) => !row.url.includes("search.brave.com"))).toBe(true);
+  });
+});
+
+describe("browser session decisions", () => {
+  it("follows a redirect, times out a hung page, and ignores an aborted load", async () => {
+    const landed = browser.landedUrl("https://notes.example/start", "https://notes.example/landed");
+    expect(landed.redirected).toBe(true);
+    expect(landed.url).toBe("https://notes.example/start");
+    expect(landed.finalUrl).toBe("https://notes.example/landed");
+    expect(browser.landedUrl("https://notes.example/a", "https://notes.example/a").redirected).toBe(
+      false,
+    );
+
+    const hung = fakePage();
+    const timed = await browser.waitForLoad(hung, 8000, (fn) => fn());
+    expect(timed).toEqual({ loaded: false, timedOut: true });
+
+    const page = fakePage();
+    const pending = browser.waitForLoad(page, 8000, () => undefined);
+    page.emit("did-stop-loading");
+    expect(await pending).toEqual({ loaded: true, timedOut: false });
+
+    const aborted = fakePage();
+    const still = browser.waitForLoad(aborted, 8000, () => undefined);
+    aborted.emit("did-fail-load", {}, -3);
+    aborted.emit("did-stop-loading");
+    expect(await still).toEqual({ loaded: true, timedOut: false });
+
+    const failed = fakePage();
+    const bad = browser.waitForLoad(failed, 8000, () => undefined);
+    failed.emit("did-fail-load", {}, -105);
+    expect(await bad).toEqual({ loaded: false, timedOut: false });
+  });
+
+  it("blocks a popup, reloads the crashed tab, and keeps another site's cookies", () => {
+    expect(live.PARTITION).toBe(BROWSER_PARTITION);
+    expect(popupDecision("https://ads.example/pop", true)).toEqual({
+      openTab: false,
+      status: "Popup blocked: https://ads.example/pop",
+    });
+    expect(popupDecision("https://notes.example/next", false).openTab).toBe(true);
+    expect(popupDecision("javascript:alert(1)", false).openTab).toBe(false);
+    const tabs = [
+      { id: "a", url: "https://notes.example/a" },
+      { id: "b", url: "https://other.example/b" },
+    ];
+    expect(
+      crashReloadTarget(tabs, "a", { url: "https://other.example/b", reason: "crashed" }),
+    ).toEqual({
+      id: "b",
+      status: "Tab crashed (crashed) — reloading.",
+    });
+    expect(crashReloadTarget(tabs, "a", { reason: "unresponsive" }).id).toBe("a");
+    expect(live.cookieMatchesHost("notes.example", "www.notes.example")).toBe(true);
+    expect(live.cookieMatchesHost("notes.example", "notes.example.evil")).toBe(false);
+    expect(live.cookieMatchesHost(".other.example", "notes.example")).toBe(false);
   });
 });

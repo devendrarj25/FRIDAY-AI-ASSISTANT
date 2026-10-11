@@ -24,8 +24,12 @@ describe("windows batch launchers", () => {
 
   it("routes .cmd launchers through the command processor", () => {
     expect(source).toContain("function spawnCommand");
-    expect(source).toContain("process.env.ComSpec");
+    expect(source).toContain("loadWinSpawn");
+    expect(source).toContain(".spawnChild(cmd, args || [])");
     expect(source).toContain("child = spawnCommand(command[0], command[1])");
+    const spawn = readFileSync(path.join(root, "scripts", "win-spawn.cjs"), "utf8");
+    expect(spawn).toContain("process.env.ComSpec");
+    expect(spawn).toContain("windowsVerbatimArguments: true");
   });
 
   it("falls back to the vendor installer when the package manager fails", () => {

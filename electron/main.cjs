@@ -312,6 +312,7 @@ let kernelAuto = null;
 /** Packaged builds read the icon from resources/, dev reads it from the repo. */
 function appIconPath() {
   const candidates = [
+    path.join(process.resourcesPath || "", "icons", "friday.ico"),
     path.join(process.resourcesPath || "", "resources", "icons", "friday.ico"),
     path.join(__dirname, "..", "resources", "icons", "friday.ico"),
   ];
