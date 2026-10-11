@@ -926,7 +926,9 @@ describe("official release", () => {
     );
     expect(src).toContain("--channel production");
     expect(pipeline).toContain('path.join(root, "resources", "build-channel.json")');
-    expect(pipeline).toContain("fs.rmSync(file, { force: true })");
+    expect(pipeline).toContain("removeTree(file)");
+    expect(pipeline).toContain("maxRetries: 5");
+    expect(pipeline).toContain("force: true");
   });
 
   it("re-restores reviewed notes after npm test and guards them before GitHub publish", () => {

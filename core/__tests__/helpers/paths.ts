@@ -5,7 +5,10 @@
 import path from "node:path";
 
 export function canonicalPath(value: string): string {
-  const slash = path.resolve(value).split(/[\\/]+/).join("/");
+  const slash = path
+    .resolve(value)
+    .split(/[\\/]+/)
+    .join("/");
   return process.platform === "win32" ? slash.toLowerCase() : slash;
 }
 
