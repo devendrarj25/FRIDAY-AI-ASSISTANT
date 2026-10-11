@@ -23,6 +23,57 @@ const engine = require_(path.join(ROOT, "scripts/release-engine.cjs")) as {
   publishHandoff: (input: Record<string, unknown>) => { action: string; reason?: string };
   diagnosePublishBlockers: (input: Record<string, unknown>) => { ok: boolean; kind: string };
 };
+const winSpawn = require_(path.join(ROOT, "scripts/win-spawn.cjs")) as {
+  spawnDirect: (
+    cmd: string,
+    args?: string[],
+    extra?: { cwd?: string; encoding?: string; env?: NodeJS.ProcessEnv },
+  ) => { status: number | null; stdout?: string; stderr?: string };
+};
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function cmdQuote(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Node on Windows does not run a shebang and does not apply PATHEXT.
+ * A colon is not that platform's PATH delimiter, so a POSIX `gh` is
+ * skipped and the real GitHub CLI answers `gh release view`. The stub
+ * is `gh.cmd` on Windows and a shell script on POSIX. Both append
+ * through one Node logger. `spawnDirect` runs a `.cmd` through cmd.exe.
+ */
+function installGhStub(dir: string): { command: string; pathEnv: string } {
+  const logger = path.join(dir, "gh-log.cjs");
+  writeFileSync(
+    logger,
+    [
+      '"use strict";',
+      "const fs = require('node:fs');",
+      "const log = process.env.GH_LOG;",
+      "if (!log) process.exit(2);",
+      "const args = process.argv.slice(2);",
+      "fs.appendFileSync(log, args.join('\\n') + (args.length ? '\\n' : ''));",
+      "",
+    ].join("\n"),
+  );
+  const cmdFile = path.join(dir, "gh.cmd");
+  writeFileSync(cmdFile, `@echo off\r\n${cmdQuote(process.execPath)} ${cmdQuote(logger)} %*\r\n`);
+  const shFile = path.join(dir, "gh");
+  writeFileSync(
+    shFile,
+    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(logger)} "$@"\n`,
+  );
+  chmodSync(shFile, 0o755);
+  const command = process.platform === "win32" ? cmdFile : shFile;
+  const pathEnv = [dir, process.env["PATH"] || ""]
+    .filter((part) => part.length > 0)
+    .join(path.delimiter);
+  return { command, pathEnv };
+}
 
 describe("FRIDAY Release resume", () => {
   it("reuses an open release pull request instead of preparing another", () => {
@@ -103,16 +154,22 @@ describe("FRIDAY Release resume", () => {
     writeFileSync(prepared, JSON.stringify([{ number: 31, version: "1.1.1.2", state: "merged" }]));
     writeFileSync(released, "");
     writeFileSync(tags, "");
-    const gh = path.join(dir, "gh");
     const ghLog = path.join(dir, "gh.log");
-    writeFileSync(gh, '#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$GH_LOG"\nexit 0\n');
-    chmodSync(gh, 0o755);
-    const viewed = spawnSync("gh", ["release", "view", "v1.1.1.2"], {
+    const stub = installGhStub(dir);
+    expect(stub.command).toBe(path.join(dir, process.platform === "win32" ? "gh.cmd" : "gh"));
+    expect(stub.pathEnv.split(path.delimiter)[0]).toBe(dir);
+    if (path.delimiter !== ":") {
+      expect(stub.pathEnv.startsWith(`${dir}:`)).toBe(false);
+    }
+    const windowsStub = readFileSync(path.join(dir, "gh.cmd"), "utf8");
+    expect(windowsStub).toContain("gh-log.cjs");
+    expect(windowsStub).not.toContain("#!/bin/sh");
+    const viewed = winSpawn.spawnDirect(stub.command, ["release", "view", "v1.1.1.2"], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, PATH: `${dir}:${process.env["PATH"] || ""}`, GH_LOG: ghLog },
+      env: { ...process.env, PATH: stub.pathEnv, GH_LOG: ghLog },
     });
-    expect(viewed.status).toBe(0);
+    expect(viewed.status, `${viewed.stderr || ""}\n${viewed.stdout || ""}`).toBe(0);
     expect(readFileSync(ghLog, "utf8")).toContain("release\nview\nv1.1.1.2");
     const result = spawnSync(
       process.execPath,
@@ -133,7 +190,7 @@ describe("FRIDAY Release resume", () => {
       {
         cwd: ROOT,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${dir}:${process.env["PATH"] || ""}`, GH_LOG: ghLog },
+        env: { ...process.env, PATH: stub.pathEnv, GH_LOG: ghLog },
       },
     );
     expect(result.status).toBe(0);
