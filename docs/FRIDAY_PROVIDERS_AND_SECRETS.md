@@ -1,6 +1,6 @@
 # FRIDAY — Providers, Models & Secrets
 
-**Current shipping version: 1.0.1.2**
+**Current shipping version: 1.1.1.2**
 
 🔑 How FRIDAY reaches a model and where keys live. Connector list (113 services) is [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md), not this file. Threat model: [SECURITY.md](../SECURITY.md).
 

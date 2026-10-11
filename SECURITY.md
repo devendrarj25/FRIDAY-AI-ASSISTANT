@@ -1,6 +1,6 @@
 # FRIDAY — Security Policy
 
-**Current shipping version: 1.0.1.2**
+**Current shipping version: 1.1.1.2**
 
 **Owner:** Devendra Singh Meena (`devendrarj25`). Official repository:
 https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
@@ -16,7 +16,7 @@ maintained. When a fix ships, it ships in that current line.
 
 | Version | Security fixes |
 | --- | --- |
-| 1.0.1.2 (current) | Yes |
+| 1.1.1.2 (current) | Yes |
 | Older releases | No |
 
 ## Scope

@@ -1,6 +1,6 @@
 # FRIDAY — Project State
 
-FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.0.1.2) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.1.1.2) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
 This briefing is for a new session and describes the tree as it is now, not how it got here. Evidence tables live in [AUDIT.md](AUDIT.md). Feature implementation map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Session protocol and repo map: [AGENTS.md](AGENTS.md). Change gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history: [CHANGELOG.md](CHANGELOG.md) (starts at 1.0.0.0; the newest section is the current public line).
 
@@ -37,7 +37,7 @@ The owner's CMD pack, portable EXE, in-app update, rollback, live microphone, wa
 | Item | Live value |
 | --- | --- |
 | Public version | `1.0.1.2` (`config/friday-version.json`) |
-| npm encoding | `1.0.1` (`package.json`) — never compared as an update identity |
+| npm encoding | `1.1.1` (`package.json`) — never compared as an update identity |
 | Epoch | 2 / `friday-2` |
 | Written product line | `1.0.0.0` (base) → `1.0.0.1` → `1.0.0.2` → `1.0.1.2` (latest, GitHub release `v1.0.1.2`). Test numbers `1.0.1.0` and `1.0.1.1` are not in this history. |
 

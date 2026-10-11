@@ -2,6 +2,27 @@
 
 What changed in each released version. Each entry is the owner-facing What's New for that version, kept in sync with releases/notes.
 
+## v1.1.1.2
+
+**Released:** October 11, 2026  
+**Channel:** Stable (official release)  
+**Release type:** MAJOR / FEATURE  
+**Changes since:** v1.0.1.2  
+**Summary:** FRIDAY 1.1.1.2 adds new capabilities.
+
+### What's New
+
+FRIDAY 1.1.1.2 is a larger update. Here is what changed for you.
+
+#### Added
+- FRIDAY now includes the search ladder, the held MCP listen stream, and the bundled Python probe.
+- FRIDAY now includes the shared MCP protocol layer and the local server.
+
+### Important Notes
+
+- Your FRIDAY data remains preserved during updates. Installing this release replaces application files only.
+- Downloads are verified against the published SHA-256 before installation.
+
 ## v1.0.1.2
 
 **Released:** October 6, 2026  

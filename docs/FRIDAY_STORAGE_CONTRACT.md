@@ -1,4 +1,4 @@
-# FRIDAY — Storage, Installation, Update & Uninstall Contract (v1.0.1.2)
+# FRIDAY — Storage, Installation, Update & Uninstall Contract (v1.1.1.2)
 
 💾 One disk root and what Setup / update / uninstall may touch. Pack steps: [INSTALL.md](../INSTALL.md). Stable versus Test in the running app: [FRIDAY_BUILD_AND_RELEASE.md](FRIDAY_BUILD_AND_RELEASE.md).
 
