@@ -29,6 +29,7 @@ const PHASES = [
   "verify-artifacts",
   "verify-boot",
   "readiness",
+  "packaged-self-check",
   "installer-smoke",
 ];
 
@@ -57,6 +58,12 @@ const PHASE_COMMANDS = {
   "verify-artifacts": ["scripts/verify-build.cjs"],
   "verify-boot": ["scripts/verify-boot.cjs"],
   readiness: ["scripts/readiness-test.cjs --pack"],
+  "packaged-self-check": [
+    "python.exe -m pip --version",
+    "python.exe -c import sys",
+    "whisper-cli -h",
+    "electron/friday-mcp.cjs initialize",
+  ],
   "installer-smoke": ["scripts/windows-installer-smoke.ps1"],
 };
 
@@ -73,6 +80,7 @@ function parseArgs(argv) {
     through: PHASES[PHASES.length - 1],
     report: path.join(ROOT, "release", "build-report.json"),
     planOnly: false,
+    offline: false,
     caller: "node",
     ref: "",
     commit: "",
@@ -82,6 +90,7 @@ function parseArgs(argv) {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--plan") options.planOnly = true;
+    else if (arg === "--offline") options.offline = true;
     else if (arg === "--publish") options.publish = true;
     else if (arg === "--channel") options.channel = String(args[++i] || "");
     else if (arg === "--version") options.version = String(args[++i] || "");
@@ -106,6 +115,7 @@ function parseArgs(argv) {
     throw new Error(`channel must be production or test (got ${options.channel})`);
   }
   if (!options.targets.length) throw new Error("at least one package target is required");
+  if (process.env.FRIDAY_OFFLINE === "1") options.offline = true;
   return options;
 }
 
@@ -221,6 +231,129 @@ function runtimeSmokePlan(manifest = readManifest()) {
   };
 }
 
+function signingStatusLines(env = process.env) {
+  const secret = String(
+    env.CSC_KEY_PASSWORD || env.FRIDAY_PFX_PASSWORD || env.CERTIFICATE_PASSWORD || "",
+  );
+  const lines = [
+    "[FRIDAY] unsigned build. Set CSC_LINK and CSC_KEY_PASSWORD to a CA-issued PFX to Authenticode-sign.",
+    "         Signing a new publisher does not by itself remove SmartScreen warnings.",
+  ];
+  if (secret && lines.some((line) => line.includes(secret))) {
+    throw new Error("signing status leaked a secret");
+  }
+  return lines;
+}
+
+function defaultSelfCheckRunner({ command, cwd, stdin }) {
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd,
+    input: stdin,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    status: result.status,
+    stdout: `${result.stdout || ""}${result.stderr || ""}`,
+  };
+}
+
+function extractZipPack(packFile, dest) {
+  const header = Buffer.alloc(4);
+  const fd = fs.openSync(packFile, "r");
+  try {
+    fs.readSync(fd, header, 0, 4, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const zip = header[0] === 0x50 && header[1] === 0x4b;
+  if (!zip) {
+    throw new Error(`packaged self-check: ${packFile} is not a zip archive`);
+  }
+  const tar = process.platform === "win32" ? "tar.exe" : "tar";
+  const result = spawnSync(tar, ["-xf", packFile, "-C", dest], { encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(
+      `packaged self-check: could not extract ${path.basename(packFile)} (${result.status})`,
+    );
+  }
+}
+
+function materialisePack(unpackDir, relativePack, dest, extract) {
+  if (!relativePack) {
+    throw new Error("packaged self-check: pack path is missing from the manifest");
+  }
+  const packFile = path.join(unpackDir, relativePack);
+  if (!fs.existsSync(packFile)) {
+    throw new Error(`packaged self-check: missing ${relativePack}`);
+  }
+  fs.mkdirSync(dest, { recursive: true });
+  extract(packFile, dest);
+  return dest;
+}
+
+/**
+ * On Windows, extract the staged Python and whisper packs from the packaged
+ * app and run the probes. Any other OS returns an explicit skip. A missing
+ * pack or a failing probe throws.
+ */
+function runPackagedSelfCheck(input = {}) {
+  const platform = input.platform || process.platform;
+  if (platform !== "win32") {
+    return "skipped: packaged self-check runs on Windows only";
+  }
+  const root = input.root || ROOT;
+  const unpackDir = input.unpackDir || path.join(root, "release", "win-unpacked");
+  if (!unpackDir || !fs.existsSync(unpackDir)) {
+    throw new Error(`packaged self-check: packaged app directory is missing (${unpackDir})`);
+  }
+  const plan = runtimeSmokePlan(input.manifest || readManifest(root));
+  const runner = input.runner || defaultSelfCheckRunner;
+  const extract = input.extract || extractZipPack;
+  const work = input.workDir || path.join(path.dirname(unpackDir), "self-check");
+  fs.mkdirSync(work, { recursive: true });
+  const pythonDir = materialisePack(
+    unpackDir,
+    plan.python.pack,
+    path.join(work, "python"),
+    extract,
+  );
+  const whisperDir = materialisePack(
+    unpackDir,
+    plan.whisper.pack,
+    path.join(work, "whisper"),
+    extract,
+  );
+  const probes = [
+    { name: "python", command: plan.python.command, cwd: pythonDir },
+    { name: "sandbox", command: plan.sandbox.command, cwd: pythonDir },
+    { name: "whisper", command: plan.whisper.command, cwd: whisperDir },
+    {
+      name: "mcp",
+      command: plan.mcp.command,
+      cwd: root,
+      stdin: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+      expect: plan.mcp.expect,
+    },
+  ];
+  const lines = [];
+  for (const probe of probes) {
+    const result = runner(probe) || {};
+    const status = result.status;
+    const stdout = String(result.stdout || "");
+    if (status !== 0) {
+      throw new Error(
+        `packaged self-check: ${probe.name} failed (${status === null || status === undefined ? "no exit" : status})`,
+      );
+    }
+    if (probe.expect && !stdout.includes(probe.expect)) {
+      throw new Error(`packaged self-check: ${probe.name} did not answer ${probe.expect}`);
+    }
+    lines.push(`${probe.name} ok`);
+  }
+  return lines.join("; ");
+}
+
 function applyBuildCache(root = ROOT) {
   const cache = path.join(root, ".cache");
   if (!process.env.ELECTRON_BUILDER_CACHE) {
@@ -323,8 +456,9 @@ function runPhase(phase, options, root) {
         "toolchain staging was skipped — refusing to build a small EXE. Unset FRIDAY_SKIP_TOOLCHAIN_STAGE.",
       );
     }
+    const offline = options.offline === true || process.env.FRIDAY_OFFLINE === "1";
     return stage
-      .beforePack()
+      .beforePack({ offline })
       .then((result) => {
         if (!result || result.skipped) {
           throw new Error("toolchain staging produced nothing — refusing a small EXE");
@@ -368,12 +502,7 @@ function runPhase(phase, options, root) {
   }
   if (phase === "sign-hook") {
     if (!signingRequested(options)) {
-      console.log(
-        "[FRIDAY] unsigned build. Set CSC_LINK and CSC_KEY_PASSWORD to a CA-issued PFX to Authenticode-sign.",
-      );
-      console.log(
-        "         Signing a new publisher does not by itself remove SmartScreen warnings.",
-      );
+      for (const line of signingStatusLines()) console.log(line);
       return "unsigned";
     }
     const pfx = process.env.CSC_LINK || process.env.FRIDAY_PFX;
@@ -450,6 +579,17 @@ function runPhase(phase, options, root) {
     runNode("scripts/readiness-test.cjs", ["--pack"], root);
     return "readiness passed";
   }
+  if (phase === "packaged-self-check") {
+    return runPackagedSelfCheck({
+      platform: options.platform,
+      unpackDir: options.unpackDir,
+      root,
+      runner: options.runner,
+      extract: options.extract,
+      manifest: options.manifest,
+      workDir: options.workDir,
+    });
+  }
   if (phase === "installer-smoke") {
     if (process.platform !== "win32" || !options.targets.includes("nsis")) {
       return "skipped: installer smoke runs on Windows when an NSIS target was packaged";
@@ -470,6 +610,8 @@ function runPhase(phase, options, root) {
         path.join(releaseDir, setup),
         "-Product",
         product,
+        "-ReleaseDir",
+        releaseDir,
       ],
       { cwd: root, stdio: "inherit" },
     );
@@ -552,6 +694,8 @@ module.exports = {
   runtimeSmokePlan,
   applyChannel,
   signingRequested,
+  signingStatusLines,
+  runPackagedSelfCheck,
   runPipeline,
 };
 

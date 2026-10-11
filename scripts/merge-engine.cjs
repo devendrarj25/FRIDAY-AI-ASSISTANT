@@ -19,7 +19,7 @@
 
 const fs = require("node:fs");
 // The ONE definition of "a required check passed on this exact commit",
-// shared with Official Publish and scripts/orchestrator-engine.cjs.
+// shared with FRIDAY Release and scripts/orchestrator-engine.cjs.
 const contract = require("./check-contract.cjs");
 const { compareVersions } = require("./release-engine.cjs");
 
@@ -217,7 +217,7 @@ function planCleanup(input = {}, policy = {}) {
   // A branch that still has an OPEN pull request is live work, even when every
   // one of its commits is already an ancestor of main (a freshly cut release
   // branch is exactly that until Prepare pushes its first commit). Deleting it
-  // would race Safe Merge / Official Publish, so it is never proposed here.
+  // would race Safe Merge / FRIDAY Release, so it is never proposed here.
   const openBranches = new Set(
     (input.openPullRequestBranches || []).map((n) => String(n || "")).filter(Boolean),
   );

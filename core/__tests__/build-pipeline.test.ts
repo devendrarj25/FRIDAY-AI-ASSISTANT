@@ -64,6 +64,7 @@ describe("build pipeline", () => {
       "verify-artifacts",
       "verify-boot",
       "readiness",
+      "packaged-self-check",
       "installer-smoke",
     ]);
     const flat = pipeline.commandsFor();
@@ -78,6 +79,10 @@ describe("build pipeline", () => {
     );
     expect(flat).toContain("npm ci --no-audit --no-fund");
     expect(flat).toContain("scripts/windows-installer-smoke.ps1");
+    expect(flat).toContain("python.exe -m pip --version");
+    expect(flat.indexOf("scripts/readiness-test.cjs --pack")).toBeLessThan(
+      flat.indexOf("python.exe -m pip --version"),
+    );
   });
 
   it("parses the owner-facing targets and the named differences", () => {
@@ -214,6 +219,156 @@ describe("build pipeline", () => {
     expect(source.indexOf("scripts/release-engine.cjs heal")).toBeLessThan(
       source.indexOf("scripts/electron-pack.cjs"),
     );
+    expect(cmd).toContain("%*");
+    expect(source).toContain("FRIDAY_OFFLINE");
+    expect(fs.readFileSync(path.join(ROOT, "scripts/stage-toolchain.cjs"), "utf8")).toContain(
+      "offline build:",
+    );
+  });
+
+  it("exports every win-spawn name the prepare step calls", () => {
+    const spawn = require(path.join(ROOT, "scripts/win-spawn.cjs")) as Record<
+      string,
+      (...args: unknown[]) => { status: number | null }
+    >;
+    const source = fs.readFileSync(path.join(ROOT, "scripts/build-pipeline.cjs"), "utf8");
+    const match = source.match(/const \{([^}]+)\} = require\("\.\/win-spawn\.cjs"\)/);
+    expect(match).toBeTruthy();
+    const names = String(match?.[1] || "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    expect(names).toContain("spawnDirect");
+    for (const name of names) {
+      expect(typeof spawn[name], name).toBe("function");
+    }
+    const spawnDirect = spawn["spawnDirect"];
+    if (!spawnDirect) throw new Error("spawnDirect is not exported");
+    const result = spawnDirect(process.execPath, ["-e", "process.exit(0)"]);
+    expect(result.status).toBe(0);
+  });
+
+  it("skips the packaged self-check off Windows and fails a missing unpack", () => {
+    const checker = pipeline as unknown as {
+      runPackagedSelfCheck: (input: Record<string, unknown>) => string;
+      signingStatusLines: (env?: NodeJS.ProcessEnv) => string[];
+      parseArgs: (argv: string[]) => { offline: boolean };
+    };
+    expect(checker.runPackagedSelfCheck({ platform: "linux" })).toMatch(
+      /^skipped: packaged self-check runs on Windows only/,
+    );
+    expect(() =>
+      checker.runPackagedSelfCheck({
+        platform: "win32",
+        unpackDir: path.join(os.tmpdir(), "friday-missing-unpack"),
+      }),
+    ).toThrow(/packaged app directory is missing/);
+    const secret = "pfx-password-must-not-appear";
+    const lines = checker.signingStatusLines({ CSC_KEY_PASSWORD: secret });
+    expect(lines.join("\n")).not.toContain(secret);
+    expect(lines.join("\n")).toMatch(/SmartScreen/);
+    const offline = checker.parseArgs(["node", "x", "--offline"]);
+    expect(offline.offline).toBe(true);
+  });
+
+  it("runs the packaged probes from an extracted layout and fails a bad probe", () => {
+    const checker = pipeline as unknown as {
+      runPackagedSelfCheck: (input: Record<string, unknown>) => string;
+    };
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-self-"));
+    const unpack = path.join(root, "win-unpacked");
+    const manifest = {
+      budgetBytes: 100,
+      packs: [
+        {
+          id: "python-embed",
+          tier: "bundled",
+          sha256: "a".repeat(64),
+          bytes: 4,
+          license: "MIT",
+        },
+        {
+          id: "whisper-cpp",
+          tier: "bundled",
+          sha256: "b".repeat(64),
+          bytes: 4,
+          license: "MIT",
+        },
+      ],
+    };
+    for (const rel of [
+      "resources/toolchain/python-embed/pack.bin",
+      "resources/speech/whisper-cpp/pack.bin",
+    ]) {
+      const file = path.join(unpack, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, Buffer.from("pack"));
+    }
+    const ran: string[] = [];
+    const detail = checker.runPackagedSelfCheck({
+      platform: "win32",
+      unpackDir: unpack,
+      root,
+      manifest,
+      extract: (_pack: string, dest: string) => {
+        if (dest.endsWith("python")) fs.writeFileSync(path.join(dest, "python.exe"), "");
+        else {
+          fs.mkdirSync(path.join(dest, "Release"), { recursive: true });
+          fs.writeFileSync(path.join(dest, "Release", "whisper-cli.exe"), "");
+        }
+      },
+      runner: (probe: { name: string; expect?: string }) => {
+        ran.push(probe.name);
+        return { status: 0, stdout: probe.expect || "ok" };
+      },
+    });
+    expect(ran).toEqual(["python", "sandbox", "whisper", "mcp"]);
+    expect(detail).toContain("python ok");
+    expect(detail).toContain("mcp ok");
+    expect(() =>
+      checker.runPackagedSelfCheck({
+        platform: "win32",
+        unpackDir: unpack,
+        root,
+        manifest,
+        workDir: path.join(root, "again"),
+        extract: () => {},
+        runner: (probe: { name: string }) => ({
+          status: probe.name === "whisper" ? 1 : 0,
+          stdout: "initialize",
+        }),
+      }),
+    ).toThrow(/whisper failed/);
+  });
+
+  it("names the official and test differences and keeps new checks in the pipeline", () => {
+    const release = fs.readFileSync(path.join(ROOT, ".github/workflows/release.yml"), "utf8");
+    const testBuild = fs.readFileSync(path.join(ROOT, ".github/workflows/test-build.yml"), "utf8");
+    const smoke = fs.readFileSync(path.join(ROOT, "scripts/windows-installer-smoke.ps1"), "utf8");
+    expect(release).toContain("--channel production");
+    expect(testBuild).toContain("--channel test");
+    expect(testBuild).toContain("--prerelease");
+    expect(testBuild).toContain("Keep only the last 3 TEST prereleases");
+    expect(testBuild).toContain("select(.isPrerelease)");
+    expect(testBuild).toContain("gh release delete");
+    expect(testBuild).toContain("official (non-prerelease) releases are never");
+    expect(release).toContain("merged tree is not the validated tree");
+    const publish = release.slice(release.indexOf("\n  publish:\n"));
+    const testsAt = publish.indexOf("- name: Run tests");
+    expect(publish.slice(testsAt, testsAt + 180)).toContain("skip_linux");
+    const notesAt = publish.indexOf("- name: Restore reviewed release notes after tests");
+    expect(publish.slice(notesAt, notesAt + 220)).not.toContain("skip_linux");
+    const verifyAt = publish.indexOf("- name: Verify version/documentation synchronization");
+    expect(publish.slice(verifyAt, verifyAt + 160)).not.toContain("skip_linux");
+    expect(smoke).toContain("Assert-NoInstallOrphans");
+    expect(smoke).toContain("Verify-UpdateManifest");
+    expect(smoke).toContain("kernel health");
+    expect(smoke).toContain('ArgumentList @("/S"');
+    expect(fs.readFileSync(path.join(ROOT, "scripts/build-pipeline.cjs"), "utf8")).toContain(
+      '"-ReleaseDir"',
+    );
+    expect(testBuild).toContain("build-pipeline.cjs");
+    expect(testBuild).not.toContain("windows-installer-smoke.ps1");
   });
 });
 

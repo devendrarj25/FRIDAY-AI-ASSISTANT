@@ -125,7 +125,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Fetch complete source of the ref under test
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           # Full history + submodules + LFS: the test EXE must be built from the
           # COMPLETE state of the selected branch/PR, not a shallow snapshot.
@@ -212,11 +212,14 @@ jobs:
       - name: Choose package targets
         id: package
         shell: bash
+        env:
+          INPUT_PACKAGE: ${{ inputs.package }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
           pkg="${TEST_PACKAGE:-}"
-          [ -n "$pkg" ] || pkg='${{ inputs.package }}'
+          [ -n "$pkg" ] || pkg="$INPUT_PACKAGE"
           pub="${TEST_PUBLISH:-}"
-          [ -n "$pub" ] || pub='${{ inputs.publish }}'
+          [ -n "$pub" ] || pub="$INPUT_PUBLISH"
           case "$pkg" in
             "installer + portable") targets="nsis,portable" ;;
             "installer only") targets="nsis" ;;
@@ -239,6 +242,9 @@ jobs:
         env:
           CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
           EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+          TEST_VERSION: ${{ steps.testversion.outputs.version }}
+          TEST_TARGETS: ${{ steps.package.outputs.targets }}
+          TEST_REF: ${{ steps.target.outputs.ref }}
         run: |
           if ($env:CERTIFICATE_BASE64) {
             $pfx = Join-Path $env:RUNNER_TEMP "friday-test-signing.pfx"
@@ -246,7 +252,7 @@ jobs:
             $env:FRIDAY_PFX = $pfx
             $env:CSC_KEY_PASSWORD = $env:CERTIFICATE_PASSWORD
           }
-          node scripts/build-pipeline.cjs --channel test --caller test --from stage-toolchain --version "${{ steps.testversion.outputs.version }}" --targets "${{ steps.package.outputs.targets }}" --ref "${{ steps.target.outputs.ref }}" --commit "$env:commit" --report release/build-report.json
+          node scripts/build-pipeline.cjs --channel test --caller test --from stage-toolchain --version "$env:TEST_VERSION" --targets "$env:TEST_TARGETS" --ref "$env:TEST_REF" --commit "$env:commit" --report release/build-report.json
           if ($LASTEXITCODE -ne 0) { throw "shared build pipeline failed" }
           if ($env:FRIDAY_PFX) { Remove-Item $env:FRIDAY_PFX -Force -ErrorAction SilentlyContinue }
 
@@ -258,9 +264,13 @@ jobs:
         # can never be offered on the Stable channel and its installer lands
         # beside the production FRIDAY instead of over it.
         shell: bash
+        env:
+          TEST_VERSION: ${{ steps.testversion.outputs.version }}
+          TEST_TAG: ${{ steps.testversion.outputs.tag }}
+          NOTES_REF: ${{ env.TEST_REF || inputs.ref || github.ref_name }}
         run: |
-          version='${{ steps.testversion.outputs.version }}'
-          tag='${{ steps.testversion.outputs.tag }}'
+          version="$TEST_VERSION"
+          tag="$TEST_TAG"
           portable="release/FRIDAY-Portable-$version.exe"
           setup="release/FRIDAY-Test-Setup-$version.exe"
           [ -f "$portable" ] || {
@@ -304,7 +314,7 @@ jobs:
             --version "$version" \
             --previous "${prevtag:-$basetag}" \
             --channel test \
-            --ref '${{ env.TEST_REF || inputs.ref || github.ref_name }}' \
+            --ref "$NOTES_REF" \
             --log test-commits.txt > test-notes.md
           node scripts/release-engine.cjs guard-notes \
             --version "$version" \
@@ -333,12 +343,14 @@ jobs:
         if: inputs.publish || env.TEST_PUBLISH == 'true'
         continue-on-error: true
         shell: bash
+        env:
+          TEST_TAG: ${{ steps.testversion.outputs.tag }}
         run: |
           gh release list --limit 100 --json tagName,createdAt,isDraft,isPrerelease \
             --jq 'map(select(.isDraft|not) | select(.isPrerelease)) | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' > old-tests.txt
           while read -r tag; do
             [ -n "$tag" ] || continue
-            [ "$tag" = '${{ steps.testversion.outputs.tag }}' ] && continue
+            [ "$tag" = "$TEST_TAG" ] && continue
             gh release delete "$tag" --yes --cleanup-tag
           done < old-tests.txt
 
@@ -348,9 +360,11 @@ jobs:
         # prerelease, whose assets must keep their canonical version names.
         if: ${{ !inputs.publish && env.TEST_PUBLISH != 'true' }}
         shell: bash
+        env:
+          RAW_REF: ${{ inputs.ref || github.ref_name }}
         run: |
           short="$(git rev-parse --short=7 HEAD)"
-          slug="$(echo '${{ inputs.ref || github.ref_name }}' | tr '/ ' '--' | tr -cd '[:alnum:]._-')"
+          slug="$(printf '%s' "$RAW_REF" | tr '/ ' '--' | tr -cd '[:alnum:]._-')"
           for f in release/FRIDAY-Portable-*.exe; do
             [ -e "$f" ] || continue
             mv "$f" "release/FRIDAY-Test-${slug}-${short}.exe"

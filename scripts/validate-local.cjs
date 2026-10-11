@@ -81,6 +81,12 @@ const CODE_GATES = [
     args: ["run", "lint"],
   },
   {
+    id: "actionlint",
+    name: "workflow lint",
+    command: nodeBin,
+    args: ["scripts/run-actionlint.cjs"],
+  },
+  {
     id: "kernel",
     name: "kernel tests",
     command: npmBin,

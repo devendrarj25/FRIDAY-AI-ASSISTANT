@@ -94,7 +94,7 @@ module.exports = async function brandWindows(context) {
   // signApp still returns true when signExecutable is false), so this is
   // the last write before NSIS/portable copy win-unpacked. Without it, TEST
   // FileVersion becomes "1.0.0-test.1" / FILEVERSION 1.0.0.1
-  // (Test EXE Build 33901573538).
+  // (test build run 33901573538).
   await rcedit(executable, {
     "version-string": versionString,
   });

@@ -21,7 +21,8 @@
 | `verify-artifacts` | `verify-build`, then the unpacked layout and the installer size floor |
 | `verify-boot` | Boot the packed app |
 | `readiness` | `readiness-test.cjs --pack` |
-| `installer-smoke` | Silent install, boot, reinstall, uninstall on Windows when the target includes NSIS |
+| `packaged-self-check` | On Windows, extract the staged Python and whisper packs and run `python -m pip --version`, the sandbox probe, `whisper-cli -h`, and the MCP launcher `initialize`. Other systems skip this phase with an explicit message |
+| `installer-smoke` | Silent install, boot, kernel health, update-manifest hash, orphan check, uninstall on Windows when the target includes NSIS |
 
 | Path | How you start it | Named difference |
 | --- | --- | --- |
@@ -31,7 +32,7 @@
 
 File names use the public four-part identity. The npm field stays the three-part encoding. ExtraResources copy the kernel, the capability trees, and the scripts, except the `cloud-agent-*` helpers. A report is written to `release/build-report.json`.
 
-The first pack needs the network so `scripts/stage-toolchain.cjs` can fetch the packs named in `config/toolchain-manifest.json` and check their SHA-256. Later packs reuse `.cache/toolchain`. `FRIDAY_SKIP_TOOLCHAIN_STAGE` is refused: a skipped stage must not emit a small EXE. Setup and Portable must be at least 70 percent of the bundled pin sum and strictly under 2 GiB (and under the manifest budget plus 800 MiB). A missing pack or a short installer fails the build with the text `refusing a small EXE`. The hosted Windows extract of the embeddable Python runtime, `python -m pip --version`, the whisper.cpp version command, and the sandbox probe are planned in `runtimeSmokePlan` and were not executed on this Linux check.
+The first pack needs the network so `scripts/stage-toolchain.cjs` can fetch the packs named in `config/toolchain-manifest.json` and check their SHA-256. Later packs reuse `.cache/toolchain`. `--offline` and `FRIDAY_OFFLINE=1` reuse that cache and fail with `offline build: <id> is not in the staging cache` when a pack is missing. `FRIDAY_SKIP_TOOLCHAIN_STAGE` is refused: a skipped stage must not emit a small EXE. Setup and Portable must be at least 70 percent of the bundled pin sum and strictly under 2 GiB (and under the manifest budget plus 800 MiB). A missing pack or a short installer fails the build with the text `refusing a small EXE`. `packaged-self-check` is a pipeline phase. A Linux run skips it with `skipped: packaged self-check runs on Windows only`. A Windows run of that phase, the CMD pack, and installer smoke is unverified until `windows-latest` or the owner's PC runs them.
 
 ### Pack-toolchain advisories (2026-10-07)
 
@@ -133,3 +134,21 @@ Checked on 2026-10-10. The Windows runner image readme that day is [Windows Serv
 | Release asset ceiling | [About releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases): each file under 2 GiB, up to 1000 assets, no total-size limit | ADOPT | Setup and Portable must stay under `2147483648` bytes and above 70 percent of the bundled pin sum. | `installerBounds` in `scripts/build-pipeline.cjs` |
 | Optional OV signing, SmartScreen | [electron-builder Windows signing](https://www.electron.build/docs/features/code-signing/code-signing-win), [electron-builder PR 10190](https://github.com/electron-userland/electron-builder/pull/10190), [SmartScreen reputation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation) | ADAPT | Sign when `WIN_CSC_LINK` or `CSC_LINK` exists. Since 2024 EV and Azure Trusted Signing do not skip SmartScreen. Unsigned and newly signed builds show unknown publisher until reputation builds. | Sign hook and section 5 |
 | npm cache of the lockfile, never of `release/` | [Caching dependencies](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching) | ADOPT | `npm ci` retries once after `npm cache verify`. `release/` and `dist-desktop/` are deleted before the pack. Build outputs are not restored from a cache. | `prepare-environment` in the pipeline |
+
+## One pipeline (2026-10-11)
+
+The CMD pack, `npm run build:all`, `npm run release:package`, `npm run build:portable`, FRIDAY Release, and FRIDAY Test Build call `scripts/build-pipeline.cjs`. Change a phase there and every entry point follows. Named differences are the channel file, the version stamp, the tag namespace, retention, the signing source, and whether a later job publishes.
+
+Phases, in order: prepare-environment, verify-versions, stage-toolchain, build-renderer, package, sign-hook, manifest, verify-artifacts, verify-boot, readiness, packaged-self-check, installer-smoke.
+
+The installer floor is 70 percent of the bundled pin sum (205084080 bytes), which is 143558856 bytes. The ceiling is under 2147483648. A missing pack or a file under that floor fails the build.
+
+The first toolchain stage needs network. After that, the cache is `.cache/toolchain/<sha256>.bin`. `--offline` and `FRIDAY_OFFLINE=1` reuse that cache. A miss fails with `offline build: <id> is not in the staging cache` and does not fetch. The CMD wrapper forwards extra arguments, so `build-windows.cmd --offline` is the same flag.
+
+`packaged-self-check` extracts the staged Python and whisper packs and runs `python -m pip --version`, the sandbox probe, `whisper-cli -h`, and the MCP launcher `initialize`. On anything other than Windows the phase returns `skipped: packaged self-check runs on Windows only`. A missing unpack or a failed probe fails the build. The detail is in `release/build-report.json`.
+
+Installer smoke is `scripts/windows-installer-smoke.ps1` for both channels. It installs silent per-user, boots, checks kernel health, the update-manifest sha512, orphans (kernel, whisper, browser, MCP launcher), the chosen data folder, then uninstalls. POSIX skips that phase with an explicit message. A Windows run of the script is unverified on this Linux tree.
+
+Signing stays optional. The password is the PowerShell step environment (`CERTIFICATE_PASSWORD` copied to `CSC_KEY_PASSWORD`) and is not printed. The unsigned log says a new publisher does not by itself remove SmartScreen warnings. The 2026-10-10 signing row above is the research record.
+
+The checkout, pinning, and linter research for this date is recorded once in [FRIDAY_GITHUB_ACTIONS.md](FRIDAY_GITHUB_ACTIONS.md).

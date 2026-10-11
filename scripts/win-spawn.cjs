@@ -61,4 +61,4 @@ function spawnCaptured(cmd, args = [], extra = {}) {
   return spawnDirect(cmd, args, extra);
 }
 
-module.exports = { spawnCaptured, spawnNpm, npmCliJs };
+module.exports = { spawnCaptured, spawnNpm, spawnDirect, npmCliJs };

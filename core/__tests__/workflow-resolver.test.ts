@@ -31,6 +31,9 @@ describe("workflow command resolver", () => {
 
   it("accepts a local reusable workflow and rejects a missing one", () => {
     expect(resolveUse(ROOT, "./.github/workflows/release.yml")).toEqual([]);
+    expect(resolveUse(ROOT, "$/.github/actions/checkout")).toEqual([]);
+    const pinnedSelf = resolveUse(ROOT, "$/.github/actions/checkout@main") as string[];
+    expect(pinnedSelf.some((line) => line.includes("must not pin a ref"))).toBe(true);
     const missing = resolveUse(ROOT, "./.github/workflows/does-not-exist.yml") as string[];
     expect(missing.some((line) => line.includes("does-not-exist.yml"))).toBe(true);
     const foreign = resolveUse(ROOT, "actions/checkout@v4") as string[];

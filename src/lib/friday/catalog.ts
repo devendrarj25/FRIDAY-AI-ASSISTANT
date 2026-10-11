@@ -1561,7 +1561,7 @@ export const catalog: CatalogEntry[] = [
     "26.0.0",
     "48 MB",
     "recommended",
-    "Official Publish / Test EXE / local CMD build",
+    "FRIDAY Release / FRIDAY Test Build / local CMD build",
   ),
   E(
     "rcedit",

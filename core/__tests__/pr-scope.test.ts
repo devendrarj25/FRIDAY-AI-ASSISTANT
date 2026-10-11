@@ -53,6 +53,20 @@ describe("pr-scope: what counts as documentation only", () => {
     }
   });
 
+  it("a Dependabot-shaped lockfile change is full validation", () => {
+    const shaped = [
+      "package.json",
+      "package-lock.json",
+      "kernel/requirements.txt",
+      "kernel/requirements-dev.txt",
+      ".github/dependabot.yml",
+    ];
+    expect(scope.isDocsOnly(shaped)).toBe(false);
+    for (const file of shaped) {
+      expect(scope.isDocsOnly([file]), file).toBe(false);
+    }
+  });
+
   it("an empty or blank list is never documentation only", () => {
     expect(scope.isDocsOnly([])).toBe(false);
     expect(scope.isDocsOnly(["", "  "])).toBe(false);

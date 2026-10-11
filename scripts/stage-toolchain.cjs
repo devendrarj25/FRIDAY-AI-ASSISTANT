@@ -45,7 +45,7 @@ function sha256(body) {
   return crypto.createHash("sha256").update(body).digest("hex");
 }
 
-async function stageBundledPacks({ manifest, cacheDir, stageDir, fetchImpl }) {
+async function stageBundledPacks({ manifest, cacheDir, stageDir, fetchImpl, offline = false }) {
   const plan = stagePlan(manifest);
   if (plan.errors.length) {
     const error = new Error(plan.errors.join("; "));
@@ -59,6 +59,11 @@ async function stageBundledPacks({ manifest, cacheDir, stageDir, fetchImpl }) {
     let body = null;
     if (fs.existsSync(cacheFile)) body = fs.readFileSync(cacheFile);
     if (!body) {
+      if (offline) {
+        const error = new Error(`offline build: ${pack.id} is not in the staging cache`);
+        error.errors = ["offline"];
+        throw error;
+      }
       const res = await fetchImpl(pack.url);
       body = Buffer.isBuffer(res) ? res : Buffer.from(res?.body || []);
     }
@@ -77,8 +82,9 @@ async function stageBundledPacks({ manifest, cacheDir, stageDir, fetchImpl }) {
   return { staged, sum: plan.sum, budget: plan.budget };
 }
 
-async function beforePack() {
+async function beforePack(options = {}) {
   if (process.env.FRIDAY_SKIP_TOOLCHAIN_STAGE === "1") return { skipped: true };
+  const offline = options.offline === true || process.env.FRIDAY_OFFLINE === "1";
   const manifest = JSON.parse(
     fs.readFileSync(path.join(__dirname, "../config/toolchain-manifest.json"), "utf8"),
   );
@@ -92,6 +98,7 @@ async function beforePack() {
     cacheDir: path.join(__dirname, "../.cache/toolchain"),
     stageDir: path.join(__dirname, "../resources"),
     fetchImpl,
+    offline,
   });
 }
 

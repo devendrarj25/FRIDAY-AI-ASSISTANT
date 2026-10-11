@@ -178,13 +178,19 @@ function checkDocument(root, label, raw, doc, problems) {
     let rel = null;
     const local = spec.match(/^\.\/(\.github\/actions\/[^\s@]+)/);
     const owned = spec.match(/devendrarj25\/FRIDAY-AI-ASSISTANT\/(\.github\/actions\/[^\s@]+)/);
+    const selfRepo = spec.match(/^\$\/(\.github\/actions\/[A-Za-z0-9._/-]+)$/);
     const reusable = spec.match(/^\.\/(\.github\/workflows\/[A-Za-z0-9._-]+\.ya?ml)$/);
     if (reusable) {
       if (!fileExists(root, reusable[1])) problems.push(`${label} missing workflow ${reusable[1]}`);
       continue;
     }
+    if (spec.startsWith("$/") && spec.includes("@")) {
+      problems.push(`${label} self-repository action must not pin a ref: ${spec}`);
+      continue;
+    }
     if (local) rel = local[1];
     else if (owned) rel = owned[1];
+    else if (selfRepo) rel = selfRepo[1];
     else if (spec.startsWith("docker://")) {
       if (!/:[^:\s]+$/.test(spec) || spec.endsWith(":latest")) {
         problems.push(`${label} unpinned image ${spec}`);
@@ -198,6 +204,9 @@ function checkDocument(root, label, raw, doc, problems) {
   }
   if (raw.includes("engines.node") && !engines.node) problems.push(`${label} reads engines.node`);
   if (raw.includes("engines.npm") && !engines.npm) problems.push(`${label} reads engines.npm`);
+  if (/gitleaks:/.test(raw) && !/gitleaks:[^\s]+@sha256:[0-9a-f]{64}/.test(raw)) {
+    problems.push(`${label} gitleaks image is not pinned by digest`);
+  }
   const images = raw.match(/docker run[^\n]*\s([^\s:]+:[^\s]+)/g) || [];
   for (const image of images) {
     const tag = image.split(/\s+/).pop();

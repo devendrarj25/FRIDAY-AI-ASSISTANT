@@ -92,7 +92,7 @@ jobs:
 
     steps:
       - name: Fetch full history
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           fetch-depth: 0
           ref: main
@@ -176,9 +176,10 @@ jobs:
           # its in-progress check runs have status, not state, so it cannot
           # prove PR Validation passed on this head.
           head_sha=$(jq -r '.headRefOid' <<<"$info")
-          [ -n "$head_sha" ] && [ "$head_sha" != "null" ] || {
-            echo "::error::pull request has no head commit"; exit 1;
-          }
+          if [ -z "$head_sha" ] || [ "$head_sha" = "null" ]; then
+            echo "::error::pull request has no head commit"
+            exit 1
+          fi
           gh api "repos/$REPO/commits/$head_sha/check-runs" --paginate \
             --jq '.check_runs[] | {name, status, conclusion, head_sha, detailsUrl: .details_url}' \
             | jq -s '.' > runs.json 2>/dev/null || echo '[]' > runs.json

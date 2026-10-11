@@ -68,7 +68,7 @@ jobs:
 
       - name: Fetch the exact pushed commit
         if: steps.source.outputs.unexpected == 'true'
-        uses: devendrarj25/FRIDAY-AI-ASSISTANT/.github/actions/checkout@main
+        uses: $/.github/actions/checkout
         with:
           ref: ${{ github.event.after }}
           fetch-depth: 0
@@ -137,6 +137,8 @@ jobs:
 
           # Prove the exact pushed SHA is preserved by the recovery branch.
           git merge-base --is-ancestor "$PUSHED_SHA" HEAD
-          echo "UNEXPECTED MAIN PUSH — MANUAL REVIEW REQUIRED" >> "$GITHUB_STEP_SUMMARY"
-          echo "Recovery branch: \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Pushed commit preserved: \`$PUSHED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "UNEXPECTED MAIN PUSH — MANUAL REVIEW REQUIRED"
+            echo "Recovery branch: \`$branch\`"
+            echo "Pushed commit preserved: \`$PUSHED_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"

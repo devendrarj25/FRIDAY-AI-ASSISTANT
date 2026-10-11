@@ -149,6 +149,12 @@ describe("commit provenance", () => {
     commit(dir, `chore: record the same account\n\nCo-authored-by: ${DEPENDABOT}`);
     const result = check(dir);
     expect(result.status, result.out).toBe(0);
+    const scope = require_(path.resolve(process.cwd(), "scripts/pr-scope.cjs")) as {
+      isDocsOnly: (files: string[]) => boolean;
+    };
+    expect(scope.isDocsOnly(["package.json", "package-lock.json", "kernel/requirements.txt"])).toBe(
+      false,
+    );
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
