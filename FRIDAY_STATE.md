@@ -10,22 +10,22 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 343 files, 2842 passed, 1 skipped, 80.98s, on `99f27a1` before the resources-copy fix. The skip is `hub-revert-center.test.ts` when `git checkout` is refused in the throwaway repo. A shuffled run was not repeated. |
-| `npm run lint` | ESLint reported no problems. Kernel ruff check passed. 63 files were already formatted. |
-| `npm run typecheck` | pass, printed `FRIDAY 1.1.1.2` |
-| `npm run typecheck:py` | 4 passed in 5.17s on the merged tree. Not repeated after the resume-test fix. The pyright baseline did not skip. The ceiling file stays 70. |
-| `npm run docs:check` | 24 documents. Generated blocks in sync. |
-| `npm run verify:version` | `1.1.1.2`. Governed documents in sync. |
-| `npm run arrange:check` | 139 folders, missing 0, on the merged tree. Not repeated after the resume-test fix. |
-| `npm run test:kernel` | 196 passed, 0 skipped, 1 Starlette TestClient warning, 19.81s inside `validate:local` on the merged tree. Not repeated after the resume-test fix. The pyright baseline did not skip. The ceiling file stays 70. |
-| `npm run models:check` | 12 PASS lines on the merged tree. Live keyed checks skipped. Not repeated after the resume-test fix. |
-| `npm audit` | 0 vulnerabilities on the merged tree. Not repeated after the resume-test fix. |
-| `pip-audit -r kernel/requirements.txt` | No known vulnerabilities found, on the merged tree. Not repeated after the resume-test fix. |
-| `node scripts/advisory-audit.cjs` | 0 blocking, 0 informational, on the merged tree. Not repeated after the resume-test fix. |
+| `npm test` | 346 files, 2865 passed, 1 skipped, 92.73s inside `validate:local`. A second run with `--sequence.shuffle` was 346 files, 2865 passed, 1 skipped, 70.46s. The skip is `hub-revert-center.test.ts` when `git checkout` is refused in the throwaway repo. |
+| `npm run lint` | Passed inside `validate:local`. ESLint and kernel ruff reported no problems. |
+| `npm run typecheck` | Passed inside `validate:local`. Printed `FRIDAY 1.1.1.2`. |
+| `npm run typecheck:py` | 4 passed in 5.10s. The pyright baseline did not skip. The ceiling file stays 70. |
+| `npm run docs:check` | Passed inside `validate:local`. 24 documents. Generated blocks in sync. |
+| `npm run verify:version` | Passed inside `validate:local`. `1.1.1.2`. |
+| `npm run arrange:check` | 139 folders, missing 0. The layout step inside `validate:local` passed. |
+| `npm run test:kernel` | 196 passed, 0 skipped, 1 Starlette TestClient warning, 19.72s inside `validate:local`. |
+| `npm run models:check` | 12 PASS lines. Live keyed checks skipped. |
+| `npm audit` | 0 vulnerabilities. |
+| `pip-audit -r kernel/requirements.txt` | No known vulnerabilities found. |
+| `node scripts/advisory-audit.cjs` | 0 blocking, 0 informational. |
 | `npm run check:provenance` | ok against `origin/main` |
-| `node scripts/workflow-resolve.cjs` | workflow commands resolve, on the merged tree. Not repeated after the resume-test fix. |
-| actionlint with shellcheck | exit 0 on the merged tree. The script ignores only the `$/` format message from the March 2026 actionlint release. Not repeated after the resume-test fix. |
-| `npm run validate:local` | 14 passed, 3 skipped, on the merged tree before this fix. The skips are Windows NSIS, packaged verify, and installer smoke. The architecture audit covered 664 files and passed `--strict`. The renderer bundle built in 4.32s. Not repeated after the resume-test fix. |
+| `node scripts/workflow-resolve.cjs` | workflow commands resolve |
+| actionlint with shellcheck | The workflow lint step inside `validate:local` passed. The script ignores only the `$/` format message from the March 2026 actionlint release. |
+| `npm run validate:local` | 14 passed, 3 skipped. The skips are Windows NSIS, packaged verify, and installer smoke. The architecture audit covered 666 files and passed `--strict`. The renderer bundle built in 4.40s. |
 
 The bundled-Python layout edit re-ran `npm test`, `npm run lint`, `npm run typecheck`, `npm run docs:sync`, `npm run docs:check`, and `npm run verify:version`. `npm run test:kernel` and `npm run validate:local` were not repeated after that edit on Linux. Pushes by `cursor[bot]` started PR Validation runs 38035902444 and 38036019468. Both are `startup_failure` with the annotation `Actor is not allowed to trigger Actions workflows` and no jobs. Commit `d2aa18c` from the owner account started run 38037378527. That `validate` job on `windows-latest` succeeded: npm test 335 files, 2806 passed, 1 skipped; Python 3.12 from `C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe`; kernel tests 193 passed, 2 skipped; NSIS `FRIDAY-Setup-1.0.1.2.exe`; packaged verify; and installer smoke `PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved`. Head `4125152` started run 38041181316. Every `validate` step on that run succeeded: npm test 336 files, 2807 passed, 1 skipped; Python 3.12.10 from `C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe`; kernel tests 193 passed, 2 skipped; NSIS `FRIDAY-Setup-1.0.1.2.exe` (310.7 MB); and the same installer smoke, with user data preserved. The owner's own CMD pack, microphone, wake word, and speech playback were not part of that run. The five React Compiler eslint rules and `react-hooks/exhaustive-deps` stay errors. Colors, type, spacing, and tokens are unchanged outside the Flow Studio canvas. A stored chat list, a backup time, and the mobile width are read on the first paint. The title clock waits one macrotask. TypeScript enables strict, exactOptionalPropertyTypes, noImplicitOverride, and noUncheckedIndexedAccess. `guard_public_url` takes an injected resolver. The kernel suite refuses a public socket unless `kernel/tests/NETWORK_ALLOW.txt` lists the node. A missing pyright fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set.
 
