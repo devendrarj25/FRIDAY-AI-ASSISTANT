@@ -248,6 +248,30 @@ describe("build pipeline", () => {
     expect(result.status).toBe(0);
   });
 
+  it("passes a .cmd launch to cmd.exe without a second round of quotes", () => {
+    const spawn = require(path.join(ROOT, "scripts/win-spawn.cjs")) as {
+      windowsCmdInvocation: (
+        cmd: string,
+        args?: string[],
+      ) => { file: string; args: string[]; windowsVerbatimArguments: boolean };
+    };
+    const cmd = "C:\\Program Files\\FRIDAY\\gh.cmd";
+    const launch = spawn.windowsCmdInvocation(cmd, ["release", "view", "v1.1.1.2"]);
+    expect(launch.windowsVerbatimArguments).toBe(true);
+    expect(launch.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    const operand = launch.args[3] || "";
+    expect(operand.startsWith('"')).toBe(true);
+    expect(operand.endsWith('"')).toBe(true);
+    const last = operand.lastIndexOf('"');
+    const runnable = operand.slice(1, last) + operand.slice(last + 1);
+    expect(runnable.startsWith(`"${cmd}"`)).toBe(true);
+    expect(runnable).toContain('"release" "view" "v1.1.1.2"');
+    const runnerCmd = "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\friday-resume-8Yytwd\\gh.cmd";
+    const rejected = spawn.windowsCmdInvocation(runnerCmd, ["release", "view", "v1.1.1.2"]);
+    expect(rejected.args[3]).toBe(`""${runnerCmd}" "release" "view" "v1.1.1.2""`);
+    expect(rejected.windowsVerbatimArguments).toBe(true);
+  });
+
   it("skips the packaged self-check off Windows and fails a missing unpack", () => {
     const checker = pipeline as unknown as {
       runPackagedSelfCheck: (input: Record<string, unknown>) => string;

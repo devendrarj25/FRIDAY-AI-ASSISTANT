@@ -5,9 +5,13 @@
  * `cmd.exe /S /C` with each token quoted separately is also wrong: /S strips
  * the first and last quote and leaves `npm.cmd" "--version`, so Doctor reports
  * npm missing while `npm ci` just ran. One /C operand, extra outer quotes so
- * /S stripping leaves a valid command. npm itself is probed through Node +
- * npm-cli.js when that file sits next to node.exe (spaces in the checkout
- * path do not matter).
+ * /S stripping leaves a valid command.
+ *
+ * Node quotes that operand again unless `windowsVerbatimArguments` is set.
+ * The Windows runner then tries to execute the doubled quotes as the program
+ * name. The command processor must see the operand exactly as built.
+ * npm itself is probed through Node + npm-cli.js when that file sits next
+ * to node.exe (spaces in the checkout path do not matter).
  */
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -24,11 +28,24 @@ function isNpmCommand(cmd) {
   return base === "npm" || base === "npm.cmd";
 }
 
+function windowsCmdInvocation(cmd, args = []) {
+  const inner = [cmd, ...args].map(quote).join(" ");
+  return {
+    file: process.env.ComSpec || "cmd.exe",
+    args: ["/d", "/s", "/c", `"${inner}"`],
+    windowsVerbatimArguments: true,
+  };
+}
+
 function spawnDirect(cmd, args = [], extra = {}) {
   const opts = { encoding: "utf8", windowsHide: true, ...extra };
   if (win && /\.(cmd|bat)$/i.test(String(cmd))) {
-    const inner = [cmd, ...args].map(quote).join(" ");
-    return spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${inner}"`], opts);
+    const launch = windowsCmdInvocation(cmd, args);
+    return spawnSync(launch.file, launch.args, {
+      ...opts,
+      windowsVerbatimArguments: true,
+      shell: false,
+    });
   }
   return spawnSync(cmd, args, opts);
 }
@@ -61,4 +78,4 @@ function spawnCaptured(cmd, args = [], extra = {}) {
   return spawnDirect(cmd, args, extra);
 }
 
-module.exports = { spawnCaptured, spawnNpm, spawnDirect, npmCliJs };
+module.exports = { spawnCaptured, spawnNpm, spawnDirect, npmCliJs, windowsCmdInvocation };
