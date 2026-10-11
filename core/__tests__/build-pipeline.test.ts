@@ -38,6 +38,8 @@ const pipeline = require(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
     whisper: { command: string[] };
     sandbox: { command: string[] };
     mcp: { command: string[]; expect: string };
+    node: { command: string[] } | null;
+    model: { kind: string; file: string } | null;
   };
 };
 

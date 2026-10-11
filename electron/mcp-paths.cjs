@@ -5,7 +5,13 @@
 const path = require("node:path");
 const layout = require("./runtime-layout.cjs");
 
-function resolveLauncher({ packaged = false, appPath, execPath, portable = false, runtimeRoot } = {}) {
+function resolveLauncher({
+  packaged = false,
+  appPath,
+  execPath,
+  portable = false,
+  runtimeRoot,
+} = {}) {
   const root = String(appPath || "");
   const script = packaged
     ? path.join(root, "app.asar.unpacked", "electron", "friday-mcp.cjs")

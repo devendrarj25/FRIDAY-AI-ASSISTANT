@@ -357,7 +357,13 @@ function runPackagedSelfCheck(input = {}) {
   );
   let nodeDir = "";
   if (plan.node) {
-    nodeDir = materialisePack(unpackDir, plan.node.pack, path.join(work, "node"), extract, plan.node);
+    nodeDir = materialisePack(
+      unpackDir,
+      plan.node.pack,
+      path.join(work, "node"),
+      extract,
+      plan.node,
+    );
   }
   let modelDir = "";
   if (plan.model) {

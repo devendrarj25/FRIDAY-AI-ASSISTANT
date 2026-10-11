@@ -218,7 +218,9 @@ async function applyUpdate({ root, update, onProgress = () => {}, installApp = n
   });
   fs.rmSync(staging, { recursive: true, force: true });
   if (!replaced.ok) {
-    const reason = replaced.error ? String(replaced.error.message || replaced.error) : "replace failed";
+    const reason = replaced.error
+      ? String(replaced.error.message || replaced.error)
+      : "replace failed";
     return { ok: false, error: `Install failed and was rolled back: ${reason}` };
   }
 
@@ -242,7 +244,9 @@ function rollbackUpdate({ backup, target }) {
   const safe = require("./archive-safe.cjs");
   const removed = safe.removeTree(target);
   if (!removed.ok && fs.existsSync(target)) {
-    const reason = removed.error ? String(removed.error.message || removed.error) : "rollback failed";
+    const reason = removed.error
+      ? String(removed.error.message || removed.error)
+      : "rollback failed";
     return { ok: false, error: reason };
   }
   try {

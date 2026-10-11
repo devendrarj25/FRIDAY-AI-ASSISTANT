@@ -133,7 +133,8 @@ function extractZipBuffer(buf, dest, options) {
     if (compressed > 0 && uncompressed / compressed > limits.maxRatio) {
       throw new Error(`archive member ${name} expands past the ratio cap`);
     }
-    if (localOffset + 30 > buf.length) throw new Error("truncated archive: ZIP local header is short");
+    if (localOffset + 30 > buf.length)
+      throw new Error("truncated archive: ZIP local header is short");
     const localName = buf.readUInt16LE(localOffset + 26);
     const localExtra = buf.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localName + localExtra;

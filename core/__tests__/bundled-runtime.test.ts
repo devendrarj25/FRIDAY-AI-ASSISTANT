@@ -14,7 +14,11 @@ const require = createRequire(import.meta.url);
 const ROOT = path.resolve(__dirname, "../..");
 const archive = require(path.join(ROOT, "electron/archive-safe.cjs")) as {
   destinationFor: (root: string, name: string) => string;
-  extractArchiveFile: (file: string, dest: string, options?: { limits?: Record<string, number> }) => {
+  extractArchiveFile: (
+    file: string,
+    dest: string,
+    options?: { limits?: Record<string, number> },
+  ) => {
     ok: boolean;
   };
   removeTree: (
@@ -38,14 +42,19 @@ const runtime = require(path.join(ROOT, "electron/bundled-runtime.cjs")) as {
   materialise: (input: Record<string, unknown>) => {
     ok: boolean;
     step: string;
-    tools: Record<string, { ok: boolean; step: string; file?: string; proved?: boolean; message?: string }>;
+    tools: Record<
+      string,
+      { ok: boolean; step: string; file?: string; proved?: boolean; message?: string }
+    >;
     events: { phase: string }[];
     log: string[];
   };
   inspect: (input: Record<string, unknown>) => {
     tools: { id: string; proved: boolean; hashOk: boolean; lastRun: string | null }[];
   };
-  doctorRows: (states: Record<string, unknown>[]) => { id: string; status: string; fixable: boolean; detail: string }[];
+  doctorRows: (
+    states: Record<string, unknown>[],
+  ) => { id: string; status: string; fixable: boolean; detail: string }[];
 };
 const documents = require(path.join(ROOT, "electron/document-extract.cjs")) as {
   packZip: (files: { name: string; data: Buffer }[]) => Buffer;
@@ -125,11 +134,17 @@ describe("archive extract", () => {
   it("refuses zip-slip, a truncated archive, and a huge expansion", () => {
     const root = temp("friday-slip-");
     expect(() => archive.destinationFor(root, "../outside.txt")).toThrow(/unsafe archive entry/);
-    expect(() => archive.destinationFor(root, "ok/../../outside.txt")).toThrow(/unsafe archive entry/);
-    expect(() => archive.destinationFor(root, "C:/Windows/note.txt")).toThrow(/unsafe archive entry/);
+    expect(() => archive.destinationFor(root, "ok/../../outside.txt")).toThrow(
+      /unsafe archive entry/,
+    );
+    expect(() => archive.destinationFor(root, "C:/Windows/note.txt")).toThrow(
+      /unsafe archive entry/,
+    );
     const truncated = path.join(root, "short.zip");
     fs.writeFileSync(truncated, Buffer.from("PK\x03\x04short"));
-    expect(() => archive.extractArchiveFile(truncated, path.join(root, "out"))).toThrow(/truncated archive/);
+    expect(() => archive.extractArchiveFile(truncated, path.join(root, "out"))).toThrow(
+      /truncated archive/,
+    );
     const plain = Buffer.alloc(200000, 0);
     const packed = zlib.deflateRawSync(plain);
     const name = Buffer.from("bomb.bin");
@@ -186,7 +201,10 @@ describe("archive extract", () => {
 describe("runtime layout", () => {
   it("lands extraResources in resources/<dest>/<id>/pack.bin", () => {
     const yml = fs.readFileSync(path.join(ROOT, "electron-builder.yml"), "utf8");
-    const block = yml.slice(yml.indexOf("- from: resources\n"), yml.indexOf("- from: public/character"));
+    const block = yml.slice(
+      yml.indexOf("- from: resources\n"),
+      yml.indexOf("- from: public/character"),
+    );
     expect(block).not.toMatch(/\n {4}to:/);
     const { getFileMatchers } = require("app-builder-lib/out/fileMatcher.js") as {
       getFileMatchers: (
@@ -208,7 +226,12 @@ describe("runtime layout", () => {
       customBuildOptions: {},
       globalOutDir: path.join(project, "out"),
     };
-    const matchers = getFileMatchers({ extraResources: [{ from: "resources" }] }, "extraResources", dest, options);
+    const matchers = getFileMatchers(
+      { extraResources: [{ from: "resources" }] },
+      "extraResources",
+      dest,
+      options,
+    );
     const matcher = matchers.find((item) => item.from === path.resolve(resources));
     expect(matcher?.to).toBe(path.resolve(dest));
     expect(path.join(matcher?.to || "", path.relative(matcher?.from || "", pack))).toBe(
@@ -257,6 +280,7 @@ describe("bundled runtime", () => {
     };
     const packs = layout.BUNDLED_IDS.map((id) => {
       const body = files[id];
+      if (!body) throw new Error(`missing fixture ${id}`);
       const rel = layout.packRelative(id);
       const file = path.join(resources, ...rel.split("/"));
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -286,9 +310,9 @@ describe("bundled runtime", () => {
       "import site",
     );
     expect(fs.existsSync(path.join(runtimeRoot, "node", "node.exe"))).toBe(true);
-    expect(fs.existsSync(path.join(runtimeRoot, "whisper.cpp", "Release", "whisper-server.exe"))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(runtimeRoot, "whisper.cpp", "Release", "whisper-server.exe")),
+    ).toBe(true);
     const again = runtime.materialise({
       resourcesRoots: [resources],
       runtimeRoot,
@@ -299,9 +323,13 @@ describe("bundled runtime", () => {
       },
     });
     expect(again.ok).toBe(true);
-    const rows = runtime.doctorRows(runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools);
+    const rows = runtime.doctorRows(
+      runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools,
+    );
     expect(rows.every((row) => row.status === "Ready")).toBe(true);
-    expect(rows.every((row) => row.detail.includes("hash OK") && row.detail.includes("last run"))).toBe(true);
+    expect(
+      rows.every((row) => row.detail.includes("hash OK") && row.detail.includes("last run")),
+    ).toBe(true);
     const paths = require(path.join(ROOT, "electron/mcp-paths.cjs")) as {
       resolveLauncher: (input: { runtimeRoot: string; execPath: string; appPath: string }) => {
         command: string;
@@ -313,6 +341,32 @@ describe("bundled runtime", () => {
       runtimeRoot,
     });
     expect(launched.command).toBe(path.join(runtimeRoot, "node", "node.exe"));
+  });
+
+  it("keeps Doctor on Warning when the prove command is skipped", () => {
+    const root = temp("friday-runtime-unproved-");
+    const resources = path.join(root, "resources");
+    const body = documents.packZip([{ name: "python.exe", data: Buffer.from("python") }]);
+    const rel = layout.packRelative("python-embed");
+    const packFile = path.join(resources, ...rel.split("/"));
+    fs.mkdirSync(path.dirname(packFile), { recursive: true });
+    fs.writeFileSync(packFile, body);
+    const manifest = { packs: [pin("python-embed", body)], budgetBytes: 100 };
+    const runtimeRoot = path.join(root, "runtime");
+    const landed = runtime.materialise({
+      resourcesRoots: [resources],
+      runtimeRoot,
+      manifest,
+      ids: ["python-embed"],
+      prove: false,
+      now: () => CLOCK,
+    });
+    expect(landed.tools["python-embed"]?.ok, JSON.stringify(landed)).toBe(true);
+    expect(landed.tools["python-embed"]?.proved).toBe(false);
+    const row = runtime
+      .doctorRows(runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools)
+      .find((item) => item.id === "toolchain:python-embed");
+    expect(row?.status).toBe("Warning");
   });
 
   it("rejects a bad hash, a partial tree, a busy lock, and a read-only install", () => {
@@ -368,20 +422,21 @@ describe("bundled runtime", () => {
     expect(nested.step).not.toBe("busy");
     const installDir = path.dirname(packFile);
     fs.chmodSync(installDir, 0o555);
-    let fromReadonly: ReturnType<typeof runtime.materialise> | null = null;
-    try {
-      fromReadonly = runtime.materialise({
-        resourcesRoots: [resources],
-        runtimeRoot: path.join(root, "runtime-2"),
-        manifest,
-        now: () => CLOCK,
-        run: readyRun(),
-        force: true,
-      });
-    } finally {
-      fs.chmodSync(installDir, 0o755);
-    }
-    expect(fromReadonly?.tools["python-embed"]?.ok, JSON.stringify(fromReadonly)).toBe(true);
+    const fromReadonly = (() => {
+      try {
+        return runtime.materialise({
+          resourcesRoots: [resources],
+          runtimeRoot: path.join(root, "runtime-2"),
+          manifest,
+          now: () => CLOCK,
+          run: readyRun(),
+          force: true,
+        });
+      } finally {
+        fs.chmodSync(installDir, 0o755);
+      }
+    })();
+    expect(fromReadonly.tools["python-embed"]?.ok, JSON.stringify(fromReadonly)).toBe(true);
     const roots = layout.resourceRoots({
       resourcesPath: resources,
       devRoot: root,
@@ -398,13 +453,16 @@ describe("bundled interpreter order", () => {
   };
   const toolchain = require(path.join(ROOT, "electron/toolchain.cjs")) as {
     managedRuntimeChoice: (input: Record<string, unknown>) => { action: string; exe: string };
-    useBundledEmbedDirect: (chosen: { exe: string } | null, embedFile: string) => boolean;
+    useBundledEmbedDirect: (
+      chosen: { exe: string; prefix?: string[] } | null,
+      embedFile: string,
+    ) => boolean;
   };
 
   it("extracts the bundled embed before a bare system interpreter", () => {
-    expect(python.interpreterPhase({ exe: path.join(ROOT, "runtime", "python", "python.exe") })).toBe(
-      "explicit",
-    );
+    expect(
+      python.interpreterPhase({ exe: path.join(ROOT, "runtime", "python", "python.exe") }),
+    ).toBe("explicit");
     expect(python.interpreterPhase({ exe: "py" })).toBe("system");
     expect(python.interpreterPhase({ exe: "python3" })).toBe("system");
     expect(python.interpreterPhase({ exe: "python" })).toBe("system");
@@ -413,15 +471,20 @@ describe("bundled interpreter order", () => {
   it("uses the embeddable zip as itself and still builds a venv from py", () => {
     const embed = path.join(ROOT, "runtime", "python", "python.exe");
     const venv = path.join(ROOT, "runtime", "py312", "Scripts", "python.exe");
-    expect(toolchain.managedRuntimeChoice({ venvExe: venv, embedFile: embed, embedExists: true }).action).toBe(
-      "venv-ready",
-    );
-    expect(toolchain.managedRuntimeChoice({ embedFile: embed, embedExists: true }).action).toBe("embed");
     expect(
-      toolchain.managedRuntimeChoice({ embedFile: embed, chosen: { exe: embed, prefix: [] } }).action,
+      toolchain.managedRuntimeChoice({ venvExe: venv, embedFile: embed, embedExists: true }).action,
+    ).toBe("venv-ready");
+    expect(toolchain.managedRuntimeChoice({ embedFile: embed, embedExists: true }).action).toBe(
+      "embed",
+    );
+    expect(
+      toolchain.managedRuntimeChoice({ embedFile: embed, chosen: { exe: embed, prefix: [] } })
+        .action,
     ).toBe("embed");
     expect(toolchain.useBundledEmbedDirect({ exe: "py", prefix: ["-3.12"] }, embed)).toBe(false);
-    expect(toolchain.managedRuntimeChoice({ chosen: { exe: "py", prefix: ["-3.12"] } }).action).toBe("venv");
+    expect(
+      toolchain.managedRuntimeChoice({ chosen: { exe: "py", prefix: ["-3.12"] } }).action,
+    ).toBe("venv");
     expect(toolchain.managedRuntimeChoice({}).action).toBe("missing");
   });
 });

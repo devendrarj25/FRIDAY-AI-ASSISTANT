@@ -310,12 +310,15 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
   const embedFile = runtimeLayout.entryFile(base, "python-embed");
   const present = managedRuntimeChoice({
     venvExe: fs.existsSync(exe) ? exe : "",
-    legacyFile:
-      series === "3.12" ? require("./toolchain-pack.cjs").findPythonExe(base) || "" : "",
+    legacyFile: series === "3.12" ? require("./toolchain-pack.cjs").findPythonExe(base) || "" : "",
     embedFile,
     embedExists: Boolean(embedFile && fs.existsSync(embedFile)),
   });
-  if (present.action === "venv-ready" || present.action === "legacy" || present.action === "embed") {
+  if (
+    present.action === "venv-ready" ||
+    present.action === "legacy" ||
+    present.action === "embed"
+  ) {
     return { exe: present.exe, prefix: present.prefix };
   }
 
@@ -334,8 +337,9 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
         ids: ["python-embed", "get-pip"],
         prove: process.platform === "win32",
       });
-      const file = landed.tools && landed.tools["python-embed"] && landed.tools["python-embed"].file;
-      if (file && fs.existsSync(file)) {
+      const row = landed.tools && landed.tools["python-embed"];
+      const file = row && row.file;
+      if (process.platform === "win32" && row && row.proved && file && fs.existsSync(file)) {
         onLine(`using the bundled Python at ${file}`);
         return { exe: file, prefix: [] };
       }

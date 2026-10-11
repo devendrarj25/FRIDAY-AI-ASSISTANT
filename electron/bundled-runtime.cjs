@@ -199,7 +199,8 @@ function materialiseOne(input) {
   if (!extracted) {
     fs.rmSync(sibling, { recursive: true, force: true });
     const code = lastError && lastError.code;
-    const antivirus = code === "EPERM" || code === "EBUSY" || /quarantine|antivirus/i.test(String(lastError));
+    const antivirus =
+      code === "EPERM" || code === "EBUSY" || /quarantine|antivirus/i.test(String(lastError));
     return {
       id,
       ok: false,
@@ -230,7 +231,12 @@ function materialiseOne(input) {
   if (id === "python-embed") {
     const pipPack = (input.manifest.packs || []).find((item) => item.id === "get-pip");
     const pipFile = pipPack ? layout.findPack("get-pip", input.resourcesRoots || []) : null;
-    if (pipFile && pipPack && fs.statSync(pipFile).size === pipPack.bytes && sha256File(pipFile) === pipPack.sha256) {
+    if (
+      pipFile &&
+      pipPack &&
+      fs.statSync(pipFile).size === pipPack.bytes &&
+      sha256File(pipFile) === pipPack.sha256
+    ) {
       fs.copyFileSync(pipFile, path.join(dest, "get-pip.py"));
     }
   }
@@ -238,7 +244,7 @@ function materialiseOne(input) {
   if (!fs.existsSync(landed)) {
     return { id, ok: false, step: "extract", message: `${id} entry is missing after extract` };
   }
-  let proved = input.prove === false;
+  let proved = false;
   let proveOut = "";
   if (input.prove !== false && (id === "python-embed" || id === "get-pip")) {
     const pythonExe = path.join(runtimeRoot, "python", "python.exe");
@@ -309,7 +315,8 @@ function materialiseOne(input) {
 
 function materialise(input = {}) {
   const runtimeRoot = input.runtimeRoot;
-  if (!runtimeRoot) return { ok: false, step: "path", tools: {}, events: [], log: ["no runtime folder"] };
+  if (!runtimeRoot)
+    return { ok: false, step: "path", tools: {}, events: [], log: ["no runtime folder"] };
   fs.mkdirSync(runtimeRoot, { recursive: true });
   const lock = path.join(runtimeRoot, ".bundled-runtime.lock");
   let fd = null;
@@ -373,7 +380,8 @@ function inspect(input = {}) {
     const spec = layout.toolSpec(id);
     const file = input.runtimeRoot ? layout.entryFile(input.runtimeRoot, id) : "";
     const present = Boolean(file && fs.existsSync(file));
-    const stamp = spec && input.runtimeRoot ? readStamp(path.join(input.runtimeRoot, spec.dir)) : null;
+    const stamp =
+      spec && input.runtimeRoot ? readStamp(path.join(input.runtimeRoot, spec.dir)) : null;
     let hashOk = Boolean(stamp && pack && stamp.sha256 === pack.sha256);
     if (id === "get-pip" && present && pack) {
       try {
@@ -412,7 +420,11 @@ function doctorRows(states) {
       group: "Bundled runtime",
       status: ready ? "Ready" : state.present ? "Warning" : "Missing",
       detail: parts.join(" · "),
-      cause: ready ? null : state.present ? "The tool is on disk and has not been run." : "The bundled pack is not extracted yet.",
+      cause: ready
+        ? null
+        : state.present
+          ? "The tool is on disk and has not been run."
+          : "The bundled pack is not extracted yet.",
       fix: ready
         ? null
         : state.manual || "Re-extract the bundled pack from the installed resources folder.",
