@@ -66,7 +66,7 @@ describe("temporary cleanup never touches user data", () => {
     const stale = write("temporary/old-download.part", "junk");
     const fresh = write("temporary/in-flight.part", "junk");
     const chats = write("conversations/history/session.json", "{}");
-    const model = path.join(root, "models", "phi-3", "model.gguf");
+    const model = write("models/phi-3/model.gguf", "weights");
     const old = Date.now() - 3 * 24 * 60 * 60 * 1000;
     fs.utimesSync(stale, old / 1000, old / 1000);
 
