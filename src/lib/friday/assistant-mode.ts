@@ -31,6 +31,7 @@ import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
 import { preferSpoken } from "./conversation-style";
 import { activeVoiceSettings, speakText, spokenSummary, stopSpeaking } from "./voice-library";
+import { formatVoiceProbeReport } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
   approvalFresh,
@@ -1246,22 +1247,34 @@ class AssistantModeStore {
   async verifyVoiceRuntime(): Promise<{
     ok: boolean;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+    lines: string[];
+    diagnostics: string;
   }> {
     const api = desktop();
-    if (!api?.verifyVoiceRuntime)
+    if (!api?.verifyVoiceRuntime) {
+      const report = formatVoiceProbeReport([
+        { id: "desktop", label: "Desktop runtime", ok: false, detail: "desktop app required" },
+      ]);
       return {
         ok: false,
-        checks: [
-          { id: "desktop", label: "Desktop runtime", ok: false, detail: "desktop app required" },
-        ],
+        checks: report.checks,
+        lines: report.lines,
+        diagnostics: report.diagnostics,
       };
+    }
     const result = await api.verifyVoiceRuntime({ loadModel: true });
+    const report = formatVoiceProbeReport(result?.checks ?? []);
     this.state.stt = { ...this.state.stt, ready: Boolean(result?.ok) };
     if (result?.ok) this.noteVoiceTrigger("model-ready");
-    for (const check of result?.checks ?? [])
+    for (const check of report.checks)
       this.trace(check.ok ? "segment" : "error", `${check.label}: ${check.detail}`);
     this.emit();
-    return { ok: Boolean(result?.ok), checks: result?.checks ?? [] };
+    return {
+      ok: Boolean(result?.ok),
+      checks: report.checks,
+      lines: report.lines,
+      diagnostics: report.diagnostics,
+    };
   }
 
   /**

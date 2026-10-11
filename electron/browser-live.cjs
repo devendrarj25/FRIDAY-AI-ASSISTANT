@@ -356,6 +356,19 @@ function cookieUrl(cookie) {
   return `${scheme}://${domain}${cookie.path || "/"}`;
 }
 
+/**
+ * A cookie belongs to this host when the domains are equal or one is a
+ * subdomain of the other. `notes.example.evil` does not match `notes.example`.
+ */
+function cookieMatchesHost(cookieDomain, host) {
+  const domain = String(cookieDomain || "")
+    .replace(/^\./, "")
+    .toLowerCase();
+  const name = String(host || "").toLowerCase();
+  if (!domain || !name) return false;
+  return domain === name || name.endsWith(`.${domain}`) || domain.endsWith(`.${name}`);
+}
+
 /** Drop cookies for one origin so the owner can sign out of that site. */
 async function clearOriginCookies(url) {
   try {
@@ -367,10 +380,7 @@ async function clearOriginCookies(url) {
     const cookies = await ses.cookies.get({});
     let cleared = 0;
     for (const cookie of cookies) {
-      const domain = String(cookie.domain || "")
-        .replace(/^\./, "")
-        .toLowerCase();
-      if (domain !== host && !host.endsWith(`.${domain}`) && !domain.endsWith(`.${host}`)) continue;
+      if (!cookieMatchesHost(cookie.domain, host)) continue;
       await ses.cookies.remove(cookieUrl(cookie), cookie.name);
       cleared += 1;
     }
@@ -508,6 +518,7 @@ module.exports = {
   clearData,
   cookieCount,
   cookieDump,
+  cookieMatchesHost,
   clearOriginCookies,
   setActiveGuest,
   sessionFetch,

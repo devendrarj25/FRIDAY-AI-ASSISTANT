@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { BROWSER_PARTITION, crashReloadTarget, popupDecision } from "@/lib/friday/browser-engine";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
 import {
@@ -147,7 +148,7 @@ function LiveGuest({
     <webview
       ref={(node) => onAttach(tab.id, node as WebviewEl | null)}
       src={tab.url}
-      partition="persist:friday-browser"
+      partition={BROWSER_PARTITION}
       {...(blockPopups ? {} : { allowpopups: true })}
       webpreferences={LIVE_GUEST_WEBPREFERENCES}
       className="absolute inset-0"
@@ -388,17 +389,18 @@ function BrowserPage() {
       );
     });
     const offPopup = onPopup(({ url }) => {
-      if (settings.blockPopups) {
-        setStatus(`Popup blocked: ${url}`);
+      const decision = popupDecision(url, settings.blockPopups);
+      if (!decision.openTab) {
+        setStatus(decision.status);
         return;
       }
       actionsRef.current.openTab(url);
     });
     const offGone = onGuestGone((payload) => {
-      setStatus(`Tab crashed (${payload.reason}) — reloading.`);
-      const hit = tabsRef.current.find((tab) => tab.url === payload.url);
-      const id = hit?.id ?? activeRef.current;
-      if (!id) return;
+      const decision = crashReloadTarget(tabsRef.current, activeRef.current, payload);
+      setStatus(decision.status);
+      if (!decision.id) return;
+      const id = decision.id;
       setViewNonce((map) => ({ ...map, [id]: (map[id] || 0) + 1 }));
       patch(id, { loading: true });
     });

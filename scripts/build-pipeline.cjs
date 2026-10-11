@@ -68,6 +68,13 @@ const PHASE_COMMANDS = {
 
 const GITHUB_ASSET_LIMIT = 2147483648;
 
+/** Node retries EBUSY, EPERM, EMFILE, ENFILE, and ENOTEMPTY. No second remover. */
+const REMOVE_OPTIONS = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
+
+function removeTree(target) {
+  fs.rmSync(target, REMOVE_OPTIONS);
+}
+
 function parseArgs(argv) {
   const options = {
     channel: "production",
@@ -366,7 +373,7 @@ function applyBuildCache(root = ROOT) {
       : "",
     path.join(process.env.ELECTRON_BUILDER_CACHE, "winCodeSign"),
   ].filter(Boolean)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
   }
 }
 
@@ -394,14 +401,14 @@ function npmCi(root) {
 }
 
 function cleanOutputs(root) {
-  fs.rmSync(path.join(root, "release"), { recursive: true, force: true });
-  fs.rmSync(path.join(root, "dist-desktop"), { recursive: true, force: true });
+  removeTree(path.join(root, "release"));
+  removeTree(path.join(root, "dist-desktop"));
 }
 
 function applyChannel(root, options) {
   const file = path.join(root, "resources", "build-channel.json");
   if (options.channel === "production") {
-    fs.rmSync(file, { force: true });
+    removeTree(file);
     return;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -694,6 +701,8 @@ module.exports = {
   signingStatusLines,
   runPackagedSelfCheck,
   runPipeline,
+  REMOVE_OPTIONS,
+  removeTree,
 };
 
 if (require.main === module) {

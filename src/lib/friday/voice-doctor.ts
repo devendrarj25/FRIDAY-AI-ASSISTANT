@@ -124,5 +124,28 @@ export function redactDiagnostics(text: string): string {
   return String(text || "")
     .replace(/password\s*[:=]\s*\S+/gi, "password: [blank]")
     .replace(/token\s*[:=]\s*\S+/gi, "token: [blank]")
-    .replace(/api[_-]?key\s*[:=]\s*\S+/gi, "api_key: [blank]");
+    .replace(/api[_-]?key\s*[:=]\s*\S+/gi, "api_key: [blank]")
+    .replace(/\bghp_[A-Za-z0-9_]+\b/g, "[blank]")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]+\b/g, "[blank]");
+}
+
+export type VoiceProbeCheck = { id: string; label: string; ok: boolean; detail: string };
+
+/** One PASS or FAIL line per probe, plus a diagnostics block with secrets removed. */
+export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
+  lines: string[];
+  diagnostics: string;
+  checks: VoiceProbeCheck[];
+} {
+  const safe = (Array.isArray(checks) ? checks : []).map((check) => ({
+    id: String(check.id || "layer"),
+    label: String(check.label || check.id || "layer"),
+    ok: Boolean(check.ok),
+    detail: redactDiagnostics(check.detail),
+  }));
+  const lines = safe.map((check) => `${check.ok ? "PASS" : "FAIL"} ${check.id}`);
+  const diagnostics = safe
+    .map((check, index) => `${lines[index]} ${check.label}: ${check.detail}`)
+    .join("\n");
+  return { lines, diagnostics, checks: safe };
 }

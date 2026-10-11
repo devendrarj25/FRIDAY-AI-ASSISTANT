@@ -354,6 +354,16 @@ describe("build pipeline", () => {
     const lines = checker.signingStatusLines({ CSC_KEY_PASSWORD: secret });
     expect(lines.join("\n")).not.toContain(secret);
     expect(lines.join("\n")).toMatch(/SmartScreen/);
+    const remover = pipeline as unknown as {
+      REMOVE_OPTIONS: { maxRetries: number; retryDelay: number; force: boolean };
+      removeTree: (target: string) => void;
+    };
+    expect(remover.REMOVE_OPTIONS.maxRetries).toBe(5);
+    expect(remover.REMOVE_OPTIONS.retryDelay).toBe(100);
+    const locked = fs.mkdtempSync(path.join(os.tmpdir(), "friday-rm-"));
+    fs.writeFileSync(path.join(locked, "keep.txt"), "x");
+    remover.removeTree(locked);
+    expect(fs.existsSync(locked)).toBe(false);
     const offline = checker.parseArgs(["node", "x", "--offline"]);
     expect(offline.offline).toBe(true);
   });
@@ -392,6 +402,7 @@ describe("build pipeline", () => {
       fs.writeFileSync(file, Buffer.from("pack"));
     }
     const ran: string[] = [];
+    const commands: string[][] = [];
     const detail = checker.runPackagedSelfCheck({
       platform: "win32",
       unpackDir: unpack,
@@ -404,12 +415,18 @@ describe("build pipeline", () => {
           fs.writeFileSync(path.join(dest, "Release", "whisper-cli.exe"), "");
         }
       },
-      runner: (probe: { name: string; expect?: string }) => {
+      runner: (probe: { name: string; command?: string[]; stdin?: string; expect?: string }) => {
         ran.push(probe.name);
+        commands.push(probe.command || []);
+        if (probe.name === "mcp") expect(probe.stdin || "").toContain("initialize");
         return { status: 0, stdout: probe.expect || "ok" };
       },
     });
     expect(ran).toEqual(["python", "sandbox", "whisper", "mcp"]);
+    expect(commands[0]).toEqual(["python.exe", "-m", "pip", "--version"]);
+    expect(commands[1]?.[0]).toBe("python.exe");
+    expect(commands[2]?.join(" ")).toMatch(/-h$/);
+    expect(commands[3]).toContain("electron/friday-mcp.cjs");
     expect(detail).toContain("python ok");
     expect(detail).toContain("mcp ok");
     expect(() =>
