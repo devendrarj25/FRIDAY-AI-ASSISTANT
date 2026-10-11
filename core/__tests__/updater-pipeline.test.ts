@@ -199,7 +199,7 @@ describe("applyUpdate download → backup → swap → rollback", () => {
     });
     await closeServer(server);
 
-    expect(applied.ok).toBe(true);
+    expect(applied, JSON.stringify(applied)).toMatchObject({ ok: true });
     expect(applied.backup).toBeTruthy();
     expect(fs.readFileSync(path.join(pluginDir, "marker.txt"), "utf8")).toBe("new");
     expect(phases).toContain("Downloading");
@@ -210,7 +210,7 @@ describe("applyUpdate download → backup → swap → rollback", () => {
       backup: String(applied.backup),
       target: String(applied.target),
     });
-    expect(rolled.ok).toBe(true);
+    expect(rolled, JSON.stringify(rolled)).toMatchObject({ ok: true });
     expect(fs.readFileSync(path.join(pluginDir, "marker.txt"), "utf8")).toBe("old");
   });
 

@@ -10,9 +10,11 @@
  *   node scripts/build-pipeline.cjs --channel test --version 1.0.1.2-test.1 --targets portable
  *   node scripts/build-pipeline.cjs --plan
  */
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnNpm, spawnDirect, localTar } = require("./win-spawn.cjs");
+const { spawnNpm, spawnDirect } = require("./win-spawn.cjs");
+const layout = require("../electron/runtime-layout.cjs");
 const stage = require("./stage-toolchain.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -168,7 +170,7 @@ function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portab
   const errors = [];
   const unpacked = path.join(releaseDir, "win-unpacked");
   for (const pack of plan.packs) {
-    const file = path.join(unpacked, "resources", pack.dest, pack.id, "pack.bin");
+    const file = path.join(unpacked, "resources", ...layout.packRelative(pack.id).split("/"));
     if (!fs.existsSync(file)) {
       errors.push(
         `${pack.id} is missing at ${file} — toolchain staging did not land inside the app; refusing a small EXE`,
@@ -218,6 +220,8 @@ function runtimeSmokePlan(manifest = readManifest()) {
       pack: byId["python-embed"]
         ? `resources/${byId["python-embed"].dest}/python-embed/pack.bin`
         : null,
+      sha256: byId["python-embed"] ? byId["python-embed"].sha256 : "",
+      bytes: byId["python-embed"] ? byId["python-embed"].bytes : 0,
       command: ["python.exe", "-m", "pip", "--version"],
     },
     whisper: {
@@ -225,6 +229,8 @@ function runtimeSmokePlan(manifest = readManifest()) {
       pack: byId["whisper-cpp"]
         ? `resources/${byId["whisper-cpp"].dest}/whisper-cpp/pack.bin`
         : null,
+      sha256: byId["whisper-cpp"] ? byId["whisper-cpp"].sha256 : "",
+      bytes: byId["whisper-cpp"] ? byId["whisper-cpp"].bytes : 0,
       command: ["Release/whisper-cli.exe", "-h"],
     },
     sandbox: {
@@ -234,6 +240,25 @@ function runtimeSmokePlan(manifest = readManifest()) {
       command: ["node", "electron/friday-mcp.cjs"],
       expect: "initialize",
     },
+    node: byId["node-win"]
+      ? {
+          id: "node-win",
+          pack: `resources/${byId["node-win"].dest}/node-win/pack.bin`,
+          sha256: byId["node-win"].sha256,
+          bytes: byId["node-win"].bytes,
+          command: ["node.exe", "--version"],
+        }
+      : null,
+    model: byId["ggml-base"]
+      ? {
+          id: "ggml-base",
+          pack: `resources/${byId["ggml-base"].dest}/ggml-base/pack.bin`,
+          sha256: byId["ggml-base"].sha256,
+          bytes: byId["ggml-base"].bytes,
+          kind: "header",
+          file: "ggml-base.bin",
+        }
+      : null,
   };
 }
 
@@ -264,33 +289,32 @@ function defaultSelfCheckRunner({ command, cwd, stdin }) {
 }
 
 function extractZipPack(packFile, dest) {
-  const header = Buffer.alloc(4);
-  const fd = fs.openSync(packFile, "r");
   try {
-    fs.readSync(fd, header, 0, 4, 0);
-  } finally {
-    fs.closeSync(fd);
-  }
-  const zip = header[0] === 0x50 && header[1] === 0x4b;
-  if (!zip) {
-    throw new Error(`packaged self-check: ${packFile} is not a zip archive`);
-  }
-  const spec = localTar(packFile, ["-xf", packFile, "-C", dest]);
-  const result = spawnDirect("tar", spec.args, { cwd: spec.cwd });
-  if (result.status !== 0) {
+    require("../electron/archive-safe.cjs").extractArchiveFile(packFile, dest);
+  } catch (error) {
     throw new Error(
-      `packaged self-check: could not extract ${path.basename(packFile)} (${result.status})`,
+      `packaged self-check: could not extract ${path.basename(packFile)} (${error.message})`,
     );
   }
 }
 
-function materialisePack(unpackDir, relativePack, dest, extract) {
+function materialisePack(unpackDir, relativePack, dest, extract, expect) {
   if (!relativePack) {
     throw new Error("packaged self-check: pack path is missing from the manifest");
   }
   const packFile = path.join(unpackDir, relativePack);
   if (!fs.existsSync(packFile)) {
     throw new Error(`packaged self-check: missing ${relativePack}`);
+  }
+  if (expect && expect.sha256) {
+    const body = fs.readFileSync(packFile);
+    const hash = crypto.createHash("sha256").update(body).digest("hex");
+    if (expect.bytes && body.length !== expect.bytes) {
+      throw new Error(`packaged self-check: ${relativePack} size does not match the manifest`);
+    }
+    if (hash !== expect.sha256) {
+      throw new Error(`packaged self-check: ${relativePack} hash does not match the manifest`);
+    }
   }
   fs.mkdirSync(dest, { recursive: true });
   extract(packFile, dest);
@@ -322,13 +346,33 @@ function runPackagedSelfCheck(input = {}) {
     plan.python.pack,
     path.join(work, "python"),
     extract,
+    plan.python,
   );
   const whisperDir = materialisePack(
     unpackDir,
     plan.whisper.pack,
     path.join(work, "whisper"),
     extract,
+    plan.whisper,
   );
+  let nodeDir = "";
+  if (plan.node) {
+    nodeDir = materialisePack(unpackDir, plan.node.pack, path.join(work, "node"), extract, plan.node);
+  }
+  let modelDir = "";
+  if (plan.model) {
+    const copyModel = (file, dest) => {
+      fs.mkdirSync(dest, { recursive: true });
+      fs.copyFileSync(file, path.join(dest, plan.model.file));
+    };
+    modelDir = materialisePack(
+      unpackDir,
+      plan.model.pack,
+      path.join(work, "model"),
+      copyModel,
+      plan.model,
+    );
+  }
   const probes = [
     { name: "python", command: plan.python.command, cwd: pythonDir },
     { name: "sandbox", command: plan.sandbox.command, cwd: pythonDir },
@@ -341,8 +385,28 @@ function runPackagedSelfCheck(input = {}) {
       expect: plan.mcp.expect,
     },
   ];
+  if (plan.node) probes.push({ name: "node", command: plan.node.command, cwd: nodeDir });
+  if (plan.model) {
+    probes.push({ name: "model", kind: "header", file: plan.model.file, cwd: modelDir });
+  }
   const lines = [];
   for (const probe of probes) {
+    if (probe.kind === "header") {
+      const file = path.join(probe.cwd, probe.file);
+      const fd = fs.openSync(file, "r");
+      const buf = Buffer.alloc(16);
+      let read = 0;
+      try {
+        read = fs.readSync(fd, buf, 0, 16, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      if (read < 16 || (buf[0] === 0x50 && buf[1] === 0x4b)) {
+        throw new Error(`packaged self-check: ${probe.name} failed (header)`);
+      }
+      lines.push(`${probe.name} ok`);
+      continue;
+    }
     const result = runner(probe) || {};
     const status = result.status;
     const stdout = String(result.stdout || "");

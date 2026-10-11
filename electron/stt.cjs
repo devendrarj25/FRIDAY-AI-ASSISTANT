@@ -478,7 +478,31 @@ async function status(force = false, options = {}) {
 
   const py = await python();
   if (!py) {
-    const whisper = require("./whisper-cpp.cjs").locateFrom([paths.root(), process.resourcesPath]);
+    const whisperApi = require("./whisper-cpp.cjs");
+    const layout = require("./runtime-layout.cjs");
+    const runtimeRoot = paths.hasRoot() ? paths.dir("runtime") : "";
+    const packRoots = layout.resourceRoots({
+      resourcesPath: process.resourcesPath,
+      devRoot: path.join(__dirname, ".."),
+      execPath: process.execPath,
+    });
+    if (runtimeRoot && (layout.findPack("whisper-cpp", packRoots) || layout.findPack("ggml-base", packRoots))) {
+      try {
+        require("./bundled-runtime.cjs").materialise({
+          resourcesRoots: packRoots,
+          runtimeRoot,
+          ids: ["whisper-cpp", "ggml-base"],
+          prove: false,
+        });
+      } catch {
+        /* a missing pack stays a missing engine */
+      }
+    }
+    const whisper = whisperApi.locateFrom([
+      runtimeRoot,
+      paths.root(),
+      process.resourcesPath,
+    ]);
     if (whisper) {
       const value = {
         available: true,

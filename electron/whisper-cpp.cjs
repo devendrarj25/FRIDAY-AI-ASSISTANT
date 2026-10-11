@@ -8,17 +8,24 @@ const path = require("path");
 const WHISPER_PORT = 8177;
 
 function locateFrom(roots) {
+  const layout = require("./runtime-layout.cjs");
   const list = Array.isArray(roots) ? roots.filter(Boolean) : [];
   let cli = null;
   let model = null;
+  const cliRel = layout.entryRelative("whisper-cpp");
+  const modelRel = layout.entryRelative("ggml-base");
   for (const root of list) {
     const cliCandidates = [
+      path.join(root, ...cliRel.split("/")),
+      path.join(root, "runtime", ...cliRel.split("/")),
       path.join(root, "runtime", "whisper.cpp", "Release", "whisper-cli.exe"),
       path.join(root, "Release", "whisper-cli.exe"),
       path.join(root, "whisper-cli.exe"),
       path.join(root, "runtime", "whisper.cpp", "whisper-cli"),
     ];
     const modelCandidates = [
+      path.join(root, ...modelRel.split("/")),
+      path.join(root, "runtime", ...modelRel.split("/")),
       path.join(root, "runtime", "ggml-base", "ggml-base.bin"),
       path.join(root, "ggml-base.bin"),
     ];

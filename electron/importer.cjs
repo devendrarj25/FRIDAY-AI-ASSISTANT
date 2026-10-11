@@ -145,6 +145,16 @@ function localTar(archive, args) {
 async function extractZipDetailed(archive, targetDir) {
   fs.mkdirSync(targetDir, { recursive: true });
   const attempts = [];
+  try {
+    require("./archive-safe.cjs").extractArchiveFile(archive, targetDir);
+    return { ok: true, via: "archive-safe" };
+  } catch (error) {
+    const message = String(error.message || error);
+    if (/unsafe archive entry|expands past|truncated archive|unsupported archive/i.test(message)) {
+      return { ok: false, error: message };
+    }
+    attempts.push(message.slice(0, 300));
+  }
   if (process.platform === "win32") {
     // Single quotes inside a PowerShell literal string must be doubled, or a
     // file such as "friday's build.zip" aborts the whole import.

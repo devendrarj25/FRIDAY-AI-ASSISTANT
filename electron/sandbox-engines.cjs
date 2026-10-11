@@ -851,8 +851,9 @@ function expandEnv(candidate) {
  * test can lock the Windows list.
  */
 function bundledInterpreterRels(platform = process.platform) {
+  const layout = require("./runtime-layout.cjs");
   return platform === "win32"
-    ? ["python/python.exe", "python/python3.exe"]
+    ? [layout.entryRelative("python-embed"), "python/python3.exe"]
     : ["python/bin/python3", "python/bin/python"];
 }
 

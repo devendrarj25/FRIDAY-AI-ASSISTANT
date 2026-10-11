@@ -124,10 +124,8 @@ describe("win-spawn command line", () => {
 
 describe("npm and tar on a drive path", () => {
   const TAR_FILES = [
-    "scripts/build-pipeline.cjs",
     "scripts/run-actionlint.cjs",
     "electron/toolchain.cjs",
-    "electron/updater.cjs",
     "electron/importer.cjs",
   ];
 
@@ -184,6 +182,12 @@ describe("npm and tar on a drive path", () => {
       expect(text, rel).toContain("localTar");
       expect(text, rel).toContain(".cwd");
     }
+    const updater = readFileSync(path.resolve(__dirname, "../../electron/updater.cjs"), "utf8");
+    expect(updater).toContain("archive-safe");
+    expect(updater).not.toContain("Expand-Archive");
+    const pipeline = readFileSync(path.resolve(__dirname, "../../scripts/build-pipeline.cjs"), "utf8");
+    expect(pipeline).toContain("archive-safe");
+    expect(pipeline).not.toContain("localTar");
   });
 });
 

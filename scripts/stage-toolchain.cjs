@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const SPEECH_IDS = new Set(["whisper-cpp", "ggml-base", "ggml-tiny"]);
+const layout = require("../electron/runtime-layout.cjs");
 
 function packBytes(pack) {
   return Number(pack?.bytes || 0);
@@ -33,7 +33,7 @@ function stagePlan(manifest) {
       url: pack.url,
       sha256: String(pack.sha256 || ""),
       bytes: packBytes(pack),
-      dest: SPEECH_IDS.has(pack.id) ? "speech" : "toolchain",
+      dest: layout.destFor(pack.id),
     })),
     sum,
     budget,

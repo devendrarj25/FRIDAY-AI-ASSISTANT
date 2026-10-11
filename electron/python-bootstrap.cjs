@@ -112,6 +112,18 @@ async function materialise(input) {
   const exe = venvExe(runtimeDir, platform);
   if (exists(exe)) return { exe, prefix: [], via: "venv" };
   let base = interpreterPath(runtimeDir);
+  if (!exists(base) && input.resourcesRoots) {
+    const bundled = require("./bundled-runtime.cjs");
+    const landed = bundled.materialise({
+      resourcesRoots: input.resourcesRoots,
+      runtimeRoot: runtimeDir,
+      ids: ["python-embed", "get-pip"],
+      prove: false,
+      run: (cmd, args) => input.run(cmd, args),
+    });
+    const file = landed.tools && landed.tools["python-embed"] && landed.tools["python-embed"].file;
+    if (file) base = file;
+  }
   if (!exists(base)) {
     if (typeof input.download !== "function" || typeof input.extract !== "function") {
       return null;
