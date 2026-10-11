@@ -7,10 +7,10 @@
 // blocks a fix. Docs-only / config-only changes are ignored.
 //
 //   node scripts/tests-required.cjs [baseRef]      (default: origin/main)
-const { spawnSync } = require("node:child_process");
+const { spawnDirect } = require("./win-spawn.cjs");
 const base = process.argv[2] || "origin/main";
 
-const git = (args) => spawnSync("git", args, { encoding: "utf8" });
+const git = (args) => spawnDirect("git", args);
 const diff = git(["diff", "--name-only", `${base}...HEAD`]);
 if (diff.status !== 0) {
   console.log(`tests-required: cannot diff against ${base} - skipped`);

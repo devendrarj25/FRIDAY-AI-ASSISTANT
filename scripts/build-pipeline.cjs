@@ -12,7 +12,6 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { spawnNpm, spawnDirect } = require("./win-spawn.cjs");
 const stage = require("./stage-toolchain.cjs");
 
@@ -246,11 +245,10 @@ function signingStatusLines(env = process.env) {
 }
 
 function defaultSelfCheckRunner({ command, cwd, stdin }) {
-  const result = spawnSync(command[0], command.slice(1), {
+  const result = spawnDirect(command[0], command.slice(1), {
     cwd,
     input: stdin,
     encoding: "utf8",
-    windowsHide: true,
   });
   return {
     status: result.status,
@@ -270,8 +268,7 @@ function extractZipPack(packFile, dest) {
   if (!zip) {
     throw new Error(`packaged self-check: ${packFile} is not a zip archive`);
   }
-  const tar = process.platform === "win32" ? "tar.exe" : "tar";
-  const result = spawnSync(tar, ["-xf", packFile, "-C", dest], { encoding: "utf8" });
+  const result = spawnDirect("tar", ["-xf", packFile, "-C", dest]);
   if (result.status !== 0) {
     throw new Error(
       `packaged self-check: could not extract ${path.basename(packFile)} (${result.status})`,
@@ -524,7 +521,7 @@ function runPhase(phase, options, root) {
     if (process.env.EXPECTED_PUBLISHER) {
       signArgs.push("-ExpectedPublisher", process.env.EXPECTED_PUBLISHER);
     }
-    const result = spawnSync("powershell", signArgs, { cwd: root, stdio: "inherit" });
+    const result = spawnDirect("powershell", signArgs, { cwd: root, stdio: "inherit" });
     if (result.status !== 0) throw new Error("Authenticode signing failed");
     return "signed";
   }
@@ -598,7 +595,7 @@ function runPhase(phase, options, root) {
     const setup = fs.readdirSync(releaseDir).find((name) => /Setup-.+\.exe$/i.test(name));
     if (!setup) throw new Error("installer smoke found no Setup EXE");
     const product = options.channel === "test" ? "FRIDAY Test" : "FRIDAY";
-    const result = spawnSync(
+    const result = spawnDirect(
       "powershell",
       [
         "-NoProfile",

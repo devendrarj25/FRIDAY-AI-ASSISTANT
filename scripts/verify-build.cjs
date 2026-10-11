@@ -13,7 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { spawnDirect } = require("./win-spawn.cjs");
 const IDENTITY = require("./identity.cjs");
 const engine = require("./release-engine.cjs");
 
@@ -151,9 +151,11 @@ const exe = path.join(release, "win-unpacked", "FRIDAY.exe");
 if (process.platform === "win32" && fs.existsSync(exe)) {
   try {
     const ps = `$i=(Get-Item '${exe}').VersionInfo; "$($i.ProductName)|$($i.CompanyName)|$($i.FileVersion)|$($i.ProductVersion)|$($i.FileMajorPart).$($i.FileMinorPart).$($i.FileBuildPart).$($i.FilePrivatePart)"`;
-    const info = execFileSync("powershell", ["-NoProfile", "-Command", ps], {
-      encoding: "utf8",
-    }).trim();
+    const probed = spawnDirect("powershell", ["-NoProfile", "-Command", ps]);
+    if (probed.status !== 0) {
+      throw new Error(String(probed.stderr || "powershell identity probe failed").trim());
+    }
+    const info = String(probed.stdout || "").trim();
     const [product, company, fileVersion, productVersion, fileVersionRaw] = info.split("|");
     // "FRIDAY Test" is the separate Windows identity of a TEST build; every
     // other product name means the rcedit branding step did not run.

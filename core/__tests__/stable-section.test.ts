@@ -47,7 +47,12 @@ describe("stable section is in the default npm test run", () => {
       ".github/workflows/test-build.yml",
       ".github/workflows/release.yml",
     ]) {
-      expect(read(file)).toMatch(/run:\s*npm test\b/);
+      const text = read(file);
+      expect(text).toContain(
+        "npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json",
+      );
+      expect(text).toContain("scripts/vitest-failure-summary.cjs");
+      expect(text).toMatch(/shell:\s*bash[\s\S]{0,200}npm test --/);
     }
   });
 });

@@ -10,18 +10,17 @@
 //   --ci             skip the local-only branch check, add the dependency audit
 //   --report <file>  also write the result as a Markdown table (used for the
 //                    single "health" issue the workflow opens and closes)
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnCaptured } = require("./win-spawn.cjs");
 const ROOT = path.resolve(__dirname, "..");
-const win = process.platform === "win32";
 const argv = process.argv.slice(2);
 const CI = argv.includes("--ci");
 const reportIdx = argv.indexOf("--report");
 const REPORT = reportIdx >= 0 ? argv[reportIdx + 1] : "";
 
 const run = (cmd, args, opts = {}) =>
-  spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8", shell: win, ...opts });
+  spawnCaptured(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts });
 
 const results = [];
 function step(name, fn) {

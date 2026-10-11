@@ -231,16 +231,12 @@ async function downloadViaElectronGet(version) {
   try {
     get = require("@electron/get");
   } catch {
-    const install = spawnSync(
-      process.platform === "win32" ? "npm.cmd" : "npm",
-      ["install", "--no-save", "--no-audit", "--no-fund", "@electron/get"],
-      {
-        stdio: quiet ? "ignore" : "inherit",
-        cwd: root,
-        env: downloadEnv(),
-        shell: process.platform === "win32",
-      },
-    );
+    const { spawnNpm } = require("./win-spawn.cjs");
+    const install = spawnNpm(["install", "--no-save", "--no-audit", "--no-fund", "@electron/get"], {
+      stdio: quiet ? "ignore" : "inherit",
+      cwd: root,
+      env: downloadEnv(),
+    });
     if (install.status !== 0)
       throw new Error(`@electron/get could not be installed (exit ${install.status})`);
     get = require("@electron/get");

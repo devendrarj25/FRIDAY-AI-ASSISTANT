@@ -15,7 +15,7 @@
 "use strict";
 
 const fs = require("node:fs");
-const { spawnSync } = require("node:child_process");
+const { spawnDirect } = require("./win-spawn.cjs");
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -80,9 +80,7 @@ function fetchEvidence(sha) {
   if (!repo || !sha || !process.env.GH_TOKEN) return [];
   const evidence = [];
   const pull = (path, expression) => {
-    const result = spawnSync("gh", ["api", "--paginate", path, "--jq", expression], {
-      encoding: "utf8",
-    });
+    const result = spawnDirect("gh", ["api", "--paginate", path, "--jq", expression]);
     if (result.status !== 0) return;
     for (const line of String(result.stdout || "").split("\n")) {
       const trimmed = line.trim();
@@ -102,22 +100,18 @@ function fetchEvidence(sha) {
     `repos/${repo}/commits/${sha}/status`,
     `.statuses[] | {name: .context, state, updated_at, sha: "${sha}"}`,
   );
-  const runs = spawnSync(
-    "gh",
-    [
-      "run",
-      "list",
-      "--workflow",
-      "pr-validation.yml",
-      "--commit",
-      sha,
-      "--limit",
-      "20",
-      "--json",
-      "conclusion,status,headSha,name,updatedAt",
-    ],
-    { encoding: "utf8" },
-  );
+  const runs = spawnDirect("gh", [
+    "run",
+    "list",
+    "--workflow",
+    "pr-validation.yml",
+    "--commit",
+    sha,
+    "--limit",
+    "20",
+    "--json",
+    "conclusion,status,headSha,name,updatedAt",
+  ]);
   if (runs.status === 0) {
     try {
       const rows = JSON.parse(runs.stdout || "[]");

@@ -487,6 +487,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        shell: cmd
         run: npm ci
 
       - name: Update version and changelog
@@ -518,14 +519,23 @@ jobs:
       # for a different commit and cannot be reused.
       - name: Run tests
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          mkdir -p test-results
+          npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json
+          code=$?
+          node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
+          exit "$code"
 
       - name: Type check
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        shell: cmd
         run: npm run typecheck
 
       - name: Verify FRIDAY layout and dependencies
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        shell: cmd
         run: |
           node scripts/arrange-project.cjs
           node scripts/verify-deps.cjs
@@ -535,6 +545,7 @@ jobs:
         # Reports duplicate, conflicting, orphan and legacy implementations.
         # Duplicates and resurrected legacy paths stop the release; anything
         # uncertain is only listed for review and never deleted automatically.
+        shell: cmd
         run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
 
       - name: Open the release Pull Request
@@ -1328,6 +1339,7 @@ jobs:
 
       - name: Prepare the build environment
         # Heal and verify run in-tree, never pushed. main is PR-only.
+        shell: cmd
         run: node scripts/build-pipeline.cjs --channel production --caller release --through verify-versions --report release/prepare-report.json
 
       - name: Compare the merged tree with the validated pin
@@ -1354,7 +1366,14 @@ jobs:
 
       - name: Run tests
         if: steps.linux.outputs.skip_linux != 'true'
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          mkdir -p test-results
+          npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json
+          code=$?
+          node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
+          exit "$code"
 
       - name: Restore reviewed release notes after tests
         # Defense in depth: unit tests must never be able to poison the GitHub
@@ -1376,19 +1395,23 @@ jobs:
 
       - name: Type check
         if: steps.linux.outputs.skip_linux != 'true'
+        shell: cmd
         run: npm run typecheck
 
       - name: Verify FRIDAY layout and dependencies
         if: steps.linux.outputs.skip_linux != 'true'
+        shell: cmd
         run: |
           node scripts/arrange-project.cjs
           node scripts/verify-deps.cjs
 
       - name: Clean-architecture audit
         if: steps.linux.outputs.skip_linux != 'true'
+        shell: cmd
         run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
 
       - name: Verify version/documentation synchronization
+        shell: cmd
         run: node scripts/release-engine.cjs verify
 
       - name: Build with the shared pipeline
@@ -1406,6 +1429,11 @@ jobs:
           node scripts/build-pipeline.cjs --channel production --caller release --from stage-toolchain --report release/build-report.json
           if ($LASTEXITCODE -ne 0) { throw "shared build pipeline failed" }
           if ($env:FRIDAY_PFX) { Remove-Item $env:FRIDAY_PFX -Force -ErrorAction SilentlyContinue }
+
+      - name: Explain a failed build
+        if: failure()
+        shell: bash
+        run: node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
 
       - name: Guard canonical What's New before publishing
         shell: bash

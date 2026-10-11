@@ -248,10 +248,9 @@ function verifyBackend() {
 
 // ------------------------------------------------------------------- repairs
 const buildDesktop = () =>
-  spawnSync(win ? "npm.cmd" : "npm", ["run", "build:desktop"], {
+  require("./win-spawn.cjs").spawnNpm(["run", "build:desktop"], {
     stdio: "inherit",
     cwd: root,
-    shell: false,
   });
 
 const stages = [

@@ -28,9 +28,22 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
+const require_ = createRequire(import.meta.url);
 const ROOT = path.resolve(__dirname, "../..");
+const winSpawn = require_(path.join(ROOT, "scripts/win-spawn.cjs")) as {
+  spawnNpm: (
+    args: string[],
+    extra: { cwd: string; stdio: "pipe"; timeout: number },
+  ) => { status: number | null; stdout?: string; stderr?: string; error?: Error };
+  spawnDirect: (
+    cmd: string,
+    args: string[],
+    extra: { cwd: string; stdio: "pipe"; timeout: number },
+  ) => { status: number | null; stdout?: string; stderr?: string; error?: Error };
+};
 const WORKING_LAYER_DIR = "FRIDAY-DEVELOPMENT & VISION";
 const WORKING_LAYER_INDEX = "READMEFIRST.md";
 
@@ -232,19 +245,17 @@ describe("development/vision layer independence", () => {
 
       let installOk = false;
       let installSkippedReason = "";
-      const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
       const pythonBin = process.platform === "win32" ? "python" : "python3";
-      // Node refuses to spawn .cmd files directly (EINVAL). Windows needs a shell.
-      const npmOpts = {
-        cwd: tmpRoot,
-        stdio: "pipe" as const,
-        shell: process.platform === "win32",
+      const runNpm = (args: string[], timeout: number) => {
+        const result = winSpawn.spawnNpm(args, { cwd: tmpRoot, stdio: "pipe", timeout });
+        if (result.status !== 0) {
+          throw new Error(
+            `${result.stdout || ""}\n${result.stderr || ""}\n${result.error?.message || ""}`,
+          );
+        }
       };
       try {
-        execFileSync(npmBin, ["install", "--no-audit", "--no-fund"], {
-          ...npmOpts,
-          timeout: 240_000,
-        });
+        runNpm(["install", "--no-audit", "--no-fund"], 240_000);
         installOk = true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -266,10 +277,7 @@ describe("development/vision layer independence", () => {
       }
 
       // Real typecheck against the isolated, working-layer-free copy.
-      execFileSync(npmBin, ["run", "typecheck"], {
-        ...npmOpts,
-        timeout: 120_000,
-      });
+      runNpm(["run", "typecheck"], 120_000);
 
       execFileSync(process.execPath, ["scripts/docs-engine.cjs"], {
         cwd: tmpRoot,
@@ -295,10 +303,9 @@ describe("development/vision layer independence", () => {
         ],
         { cwd: tmpRoot, stdio: "pipe", timeout: 30_000 },
       );
-      execFileSync(
-        npmBin,
+      runNpm(
         ["exec", "--", "vitest", "run", "core/__tests__/project-independence.test.ts"],
-        { ...npmOpts, timeout: 180_000 },
+        180_000,
       );
 
       // Lightweight kernel proxy: every kernel .py file must at least
@@ -308,11 +315,14 @@ describe("development/vision layer independence", () => {
       // layer to be syntactically/importably self-contained.
       const kernelDir = path.join(tmpRoot, "kernel");
       if (fs.existsSync(kernelDir)) {
-        execFileSync(
+        const compiled = winSpawn.spawnDirect(
           pythonBin,
           ["-m", "py_compile", ...walk(kernelDir).filter((f) => f.endsWith(".py"))],
           { cwd: tmpRoot, stdio: "pipe", timeout: 60_000 },
         );
+        if (compiled.status !== 0) {
+          throw new Error(`${compiled.stdout || ""}\n${compiled.stderr || ""}`);
+        }
       }
     } finally {
       // Windows can keep this temp copy locked after npm and python have

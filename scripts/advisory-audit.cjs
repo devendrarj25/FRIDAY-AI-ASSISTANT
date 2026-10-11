@@ -12,7 +12,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawnCaptured } = require("./win-spawn.cjs");
 
 const root = path.resolve(__dirname, "..");
 const DEFAULT_ALLOW = path.join(root, "config", "advisory-allow.json");
@@ -120,7 +120,7 @@ function jsonFromOutput(text) {
 }
 
 function runTool(command, args) {
-  const result = spawnSync(command, args, { cwd: root, encoding: "utf8" });
+  const result = spawnCaptured(command, args, { cwd: root });
   return {
     status: result.status,
     error: result.error ? result.error.message : "",

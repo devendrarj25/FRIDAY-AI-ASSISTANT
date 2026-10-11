@@ -33,18 +33,15 @@ const GUI_COMMANDS = new Set([
   "notepad.exe",
 ]);
 
-const run = (cmd, args, timeout = 6000) =>
-  new Promise((resolve) => {
-    if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return resolve(null);
-    try {
-      execFile(cmd, args, { timeout, windowsHide: true }, (err, stdout, stderr) => {
-        const out = `${stdout || ""}${stderr || ""}`.trim();
-        resolve(err && !out ? null : out);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+const run = (cmd, args, timeout = 6000) => {
+  if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return Promise.resolve(null);
+  return require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .captureOutput(cmd, args || [], {
+      timeout,
+      windowsHide: true,
+    });
+};
 
 const which = async (cmd) => {
   const out = await run(WIN ? "where" : "which", [cmd], 4000);
@@ -2294,16 +2291,8 @@ async function isElevated() {
  * through the command processor while every real .exe still spawns directly.
  */
 function spawnCommand(cmd, args) {
-  if (WIN && /\.(cmd|bat)$/i.test(cmd)) {
-    const quote = (a) => (/[\s"&|<>^]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
-    const line = [quote(cmd), ...args.map(quote)].join(" ");
-    return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], {
-      windowsHide: true,
-      windowsVerbatimArguments: true,
-      shell: false,
-    });
-  }
-  return spawn(cmd, args, { windowsHide: true, shell: false });
+  const { loadWinSpawn } = require("./load-win-spawn.cjs");
+  return loadWinSpawn(__dirname).spawnChild(cmd, args || []);
 }
 
 function elevatedCommand(cmd, args) {

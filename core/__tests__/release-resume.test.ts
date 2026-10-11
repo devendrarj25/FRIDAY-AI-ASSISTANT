@@ -3,7 +3,8 @@
  * publish an already-merged unpublished line once, and refuse to move a
  * tag that is already a GitHub release.
  */
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { writeCommandStub } from "./helpers/platform-command";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -31,14 +32,6 @@ const winSpawn = require_(path.join(ROOT, "scripts/win-spawn.cjs")) as {
   ) => { status: number | null; stdout?: string; stderr?: string };
 };
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function cmdQuote(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-
 /**
  * Node on Windows does not run a shebang and does not apply PATHEXT.
  * A colon is not that platform's PATH delimiter, so a POSIX `gh` is
@@ -63,19 +56,8 @@ function installGhStub(dir: string): { command: string; pathEnv: string } {
       "",
     ].join("\n"),
   );
-  const cmdFile = path.join(dir, "gh.cmd");
-  writeFileSync(cmdFile, `@echo off\r\n${cmdQuote(process.execPath)} ${cmdQuote(logger)} %*\r\n`);
-  const shFile = path.join(dir, "gh");
-  writeFileSync(
-    shFile,
-    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(logger)} "$@"\n`,
-  );
-  chmodSync(shFile, 0o755);
-  const command = process.platform === "win32" ? cmdFile : shFile;
-  const pathEnv = [dir, process.env["PATH"] || ""]
-    .filter((part) => part.length > 0)
-    .join(path.delimiter);
-  return { command, pathEnv };
+  const stub = writeCommandStub(dir, "gh", logger);
+  return { command: stub.file, pathEnv: stub.pathEnv };
 }
 
 describe("FRIDAY Release resume", () => {

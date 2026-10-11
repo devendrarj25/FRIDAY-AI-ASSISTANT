@@ -22,7 +22,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn, execFile } = require("child_process");
+const { spawn } = require("child_process");
 
 const toolchain = require("./toolchain.cjs");
 const sandbox = require("./sandbox.cjs");
@@ -134,20 +134,9 @@ function readLog(root, projectId, limit = 60000) {
 /* ---------------------------------------------------------------- runtime */
 
 const run = (cmd, args, timeout = 8000) =>
-  new Promise((resolve) => {
-    try {
-      // Windows shims (npm.cmd, npx.cmd …) can only be executed through the
-      // command processor on current Node versions — without this they fail
-      // with EINVAL and the runtime is wrongly reported as "not detected".
-      const shell = WIN && /\.(cmd|bat)$/i.test(cmd);
-      execFile(cmd, args, { timeout, windowsHide: true, shell }, (err, stdout, stderr) => {
-        const out = `${stdout || ""}${stderr || ""}`.trim();
-        resolve(err && !out ? null : out);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+  require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .captureOutput(cmd, args || [], { timeout, windowsHide: true });
 
 const which = async (cmd) => {
   const out = await run(WIN ? "where" : "which", [cmd.replace(/\.(cmd|bat)$/i, "")], 5000);

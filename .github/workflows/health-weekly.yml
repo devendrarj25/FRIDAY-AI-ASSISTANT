@@ -50,6 +50,7 @@ jobs:
         uses: ./.github/actions/python
 
       - name: Install dependencies (npm ci, retried on network errors)
+        shell: bash
         run: |
           for attempt in 1 2 3; do
             npm ci && exit 0
@@ -61,6 +62,7 @@ jobs:
       - name: Install kernel test dependencies
         # resume.cjs calls python3 on Linux. Install into that same interpreter.
         # The advisory script calls `python`, which the Python action put on PATH.
+        shell: bash
         run: |
           python3 -m pip install -r kernel/requirements-dev.txt
           python -m pip install --quiet pip-audit
@@ -68,10 +70,12 @@ jobs:
       - name: Run the health check
         id: health
         continue-on-error: true
+        shell: bash
         run: node scripts/resume.cjs --ci --report health-report.md
 
       - name: Show the report
         if: always()
+        shell: bash
         run: |
           [ -f health-report.md ] && cat health-report.md >> "$GITHUB_STEP_SUMMARY" || echo "no report was produced"
 
