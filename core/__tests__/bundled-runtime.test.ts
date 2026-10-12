@@ -177,11 +177,19 @@ describe("archive extract", () => {
     expect(fs.existsSync(path.join(root, "..", "outside.txt"))).toBe(false);
   });
 
-  it("extracts a tar whose folder name contains a colon", () => {
+  it("extracts a tar whose path contains a colon", () => {
     const root = temp("friday-colon-");
-    const folder = path.join(root, "c:work");
+    // A colon is a legal directory name on POSIX. On Windows it is legal only
+    // as the drive letter, and the temp path already contains that letter.
+    const folder = process.platform === "win32" ? root : path.join(root, "c:work");
     fs.mkdirSync(folder, { recursive: true });
     const archiveFile = path.join(folder, "pack.tar");
+    expect(archiveFile.includes(":")).toBe(true);
+    if (process.platform === "win32") {
+      expect(path.win32.parse(archiveFile).root).toMatch(/^[A-Za-z]:\\$/);
+    } else {
+      expect(path.basename(folder)).toBe("c:work");
+    }
     const staging = path.join(folder, "src");
     fs.mkdirSync(path.join(staging, "demo"), { recursive: true });
     fs.writeFileSync(path.join(staging, "demo", "marker.txt"), "new");
@@ -190,6 +198,10 @@ describe("archive extract", () => {
       localTar: (file: string, args: string[]) => { cwd: string; args: string[] };
     };
     const spec = spawn.localTar(archiveFile, ["-cf", archiveFile, "-C", staging, "demo"]);
+    expect(spec.cwd).toBe(folder);
+    expect(spec.args).toContain("pack.tar");
+    expect(spec.args.filter((arg) => arg.includes("pack.tar"))).toEqual(["pack.tar"]);
+    expect(spec.args.includes("--force-local")).toBe(false);
     execFileSync("tar", spec.args, { cwd: spec.cwd });
     const dest = path.join(folder, "out");
     const extracted = archive.extractArchiveFile(archiveFile, dest);
