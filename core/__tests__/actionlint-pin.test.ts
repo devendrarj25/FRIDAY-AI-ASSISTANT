@@ -15,6 +15,18 @@ const lint = require_(path.resolve(__dirname, "../../scripts/run-actionlint.cjs"
   };
   assertSha256: (file: string, expected: string) => string;
   cachedBinary: (home: string, name: string) => string | null;
+  actionlintArguments: (shellcheck: string, platform?: string) => string[];
+  sanitizeExpressions: (src: string) => string;
+  shellScriptsFromWorkflow: (doc: unknown) => { shell: string; source: string }[];
+  shellcheckFindings: (
+    shellcheck: string,
+    scripts: { shell: string; source: string; file?: string }[],
+    spawnImpl?: (
+      cmd: string,
+      args: string[],
+      opts: { input: string },
+    ) => { status: number | null; stdout?: string; stderr?: string; error?: Error },
+  ) => string[];
 };
 
 describe("actionlint pin", () => {
@@ -38,6 +50,59 @@ describe("actionlint pin", () => {
   it("treats a missing cache directory as a download, not a crash", () => {
     const missing = path.join(tmpdir(), "friday-lint-missing", "no-such-cache");
     expect(lint.cachedBinary(missing, "actionlint")).toBeNull();
+  });
+
+  it("does not let actionlint write shellcheck stdin on Windows", () => {
+    const linux = lint.actionlintArguments("/opt/shellcheck", "linux");
+    expect(linux).toContain("-shellcheck");
+    expect(linux).toContain("/opt/shellcheck");
+    const windows = lint.actionlintArguments("/opt/shellcheck", "win32");
+    expect(windows[0]).toBe("-shellcheck=");
+    expect(windows).not.toContain("/opt/shellcheck");
+  });
+
+  it("keeps bash and sh scripts and skips a Windows shell", () => {
+    const scripts = lint.shellScriptsFromWorkflow({
+      defaults: { run: { shell: "bash" } },
+      jobs: {
+        one: {
+          "runs-on": "windows-latest",
+          steps: [
+            { run: "echo ${{ github.ref }}\n" },
+            { shell: "pwsh", run: "Write-Host hi" },
+            { shell: "cmd", run: "echo hi" },
+          ],
+        },
+      },
+    });
+    expect(scripts).toEqual([{ shell: "bash", source: "echo ${{ github.ref }}\n" }]);
+    expect(lint.sanitizeExpressions(scripts[0].source)).toBe("echo _________________\n");
+  });
+
+  it("reports a shellcheck finding from output written after the process starts", () => {
+    const findings = lint.shellcheckFindings(
+      "shellcheck",
+      [{ shell: "bash", source: "echo $UNQUOTED", file: "demo.yml" }],
+      (_cmd, args, opts) => {
+        expect(args).toContain("-");
+        expect(opts.input.startsWith("set -eo pipefail\n")).toBe(true);
+        return {
+          status: 1,
+          stdout: JSON.stringify([
+            {
+              code: 2086,
+              level: "info",
+              line: 2,
+              column: 6,
+              message: "Double quote to prevent globbing.",
+            },
+          ]),
+        };
+      },
+    );
+    expect(findings).toEqual([
+      "demo.yml: shellcheck reported issue in this script: SC2086:info:1:6: Double quote to prevent globbing",
+    ]);
   });
 
   it("refuses an archive whose SHA-256 does not match the pin", () => {

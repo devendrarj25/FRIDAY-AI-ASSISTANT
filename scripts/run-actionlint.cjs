@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const yaml = require("js-yaml");
 const { spawnDirect, localTar } = require("./win-spawn.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -126,28 +127,158 @@ async function ensureTool(name) {
   return extracted;
 }
 
+const SHELLCHECK_EXCLUDES = "SC1091,SC2194,SC2050,SC2153,SC2154,SC2157,SC2043";
+
+/**
+ * The March 2026 actionlint release writes a whole run script into shellcheck's
+ * stdin before starting the process. Windows anonymous pipes are 4 KiB, and
+ * these workflows are larger, so that write never returns. An empty
+ * `-shellcheck` turns the integration off. Shellcheck still runs afterwards.
+ */
+function actionlintArguments(shellcheck, platform = process.platform) {
+  const ignore = 'specifying action "\\$/.+" in invalid format';
+  if (platform === "win32") return ["-shellcheck=", "-color", "-ignore", ignore];
+  return ["-shellcheck", shellcheck, "-color", "-ignore", ignore];
+}
+
+function shellKind(shell) {
+  const text = String(shell || "");
+  if (text === "bash" || text === "sh") return text;
+  if (text.startsWith("bash ")) return "bash";
+  if (text.startsWith("sh ")) return "sh";
+  return "";
+}
+
+function sanitizeExpressions(src) {
+  let out = "";
+  let rest = String(src);
+  while (rest.length) {
+    const start = rest.indexOf("${{");
+    if (start === -1) return out + rest;
+    const end = rest.indexOf("}}", start);
+    if (end === -1) return out + rest;
+    const close = end + 2;
+    out += rest.slice(0, start) + "_".repeat(close - start);
+    rest = rest.slice(close);
+  }
+  return out;
+}
+
+function runnerShell(runsOn) {
+  const labels = [];
+  if (typeof runsOn === "string") labels.push(runsOn);
+  else if (Array.isArray(runsOn)) labels.push(...runsOn);
+  else if (runsOn && Array.isArray(runsOn.labels)) labels.push(...runsOn.labels);
+  for (const label of labels) {
+    const text = String(label).toLowerCase();
+    if (text === "windows" || text.startsWith("windows-")) return "pwsh";
+  }
+  return "";
+}
+
+function shellScriptsFromWorkflow(doc) {
+  const scripts = [];
+  const workflowShell =
+    doc && doc.defaults && doc.defaults.run && doc.defaults.run.shell
+      ? String(doc.defaults.run.shell)
+      : "";
+  const jobs = doc && doc.jobs && typeof doc.jobs === "object" ? doc.jobs : {};
+  for (const job of Object.values(jobs)) {
+    if (!job || typeof job !== "object") continue;
+    const jobShell =
+      job.defaults && job.defaults.run && job.defaults.run.shell
+        ? String(job.defaults.run.shell)
+        : "";
+    const fallback = jobShell || workflowShell || runnerShell(job["runs-on"]) || "bash";
+    const steps = Array.isArray(job.steps) ? job.steps : [];
+    for (const step of steps) {
+      if (!step || typeof step.run !== "string") continue;
+      const shell = shellKind(step.shell || fallback);
+      if (!shell) continue;
+      scripts.push({ shell, source: step.run });
+    }
+  }
+  return scripts;
+}
+
+function workflowShellScripts(root = ROOT) {
+  const dir = path.join(root, ".github", "workflows");
+  const scripts = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
+    const file = path.join(dir, name);
+    const doc = yaml.load(fs.readFileSync(file, "utf8"));
+    for (const script of shellScriptsFromWorkflow(doc)) scripts.push({ ...script, file: name });
+  }
+  return scripts;
+}
+
+function shellcheckFindings(shellcheck, scripts, spawnImpl = spawnSync) {
+  const findings = [];
+  for (const script of scripts) {
+    const shell = shellKind(script.shell);
+    if (!shell) continue;
+    const setup = shell === "bash" ? "set -eo pipefail" : "set -e";
+    const body = `${setup}\n${sanitizeExpressions(script.source)}\n`;
+    const args = ["--norc", "-f", "json", "-x", "--shell", shell, "-e", SHELLCHECK_EXCLUDES, "-"];
+    const result = spawnImpl(shellcheck, args, { input: body, encoding: "utf8", timeout: 30000 });
+    if (result.error) throw result.error;
+    const stdout = String(result.stdout || "");
+    if (result.status && !stdout.trim()) {
+      const stderr = String(result.stderr || "").trim();
+      throw new Error(
+        `shellcheck exited with status ${result.status} and no output${stderr ? `: ${stderr}` : ""}`,
+      );
+    }
+    const parsed = stdout.trim() ? JSON.parse(stdout) : [];
+    for (const item of parsed) {
+      const line = Math.max(1, Number(item.line || 1) - 1);
+      const message = String(item.message || "").replace(/\.$/, "");
+      const where = script.file ? `${script.file}: ` : "";
+      findings.push(
+        `${where}shellcheck reported issue in this script: SC${item.code}:${item.level}:${line}:${item.column}: ${message}`,
+      );
+    }
+  }
+  return findings;
+}
+
 async function main() {
   const actionlint = await ensureTool("actionlint");
   const shellcheck = await ensureTool("shellcheck");
   // actionlint 1.7.12 (2026-03-30) does not know the 2026-07-30 `$/`
   // same-repository syntax. Ignore only that message. Every other finding,
   // including shellcheck, still fails the run.
-  const result = spawnSync(
-    actionlint,
-    [
-      "-shellcheck",
-      shellcheck,
-      "-color",
-      "-ignore",
-      'specifying action "\\$/.+" in invalid format',
-    ],
-    { cwd: ROOT, stdio: "inherit" },
-  );
+  process.stdout.write("workflow lint: actionlint\n");
+  const result = spawnSync(actionlint, actionlintArguments(shellcheck), {
+    cwd: ROOT,
+    stdio: "inherit",
+    timeout: 180000,
+  });
   if (result.error) throw result.error;
-  process.exit(result.status === null ? 1 : result.status);
+  if (result.status !== 0) process.exit(result.status === null ? 1 : result.status);
+  if (process.platform === "win32") {
+    const scripts = workflowShellScripts(ROOT);
+    process.stdout.write(`workflow lint: shellcheck ${scripts.length} scripts\n`);
+    const findings = shellcheckFindings(shellcheck, scripts);
+    if (findings.length) {
+      for (const line of findings) console.error(line);
+      process.exit(1);
+    }
+  }
 }
 
-module.exports = { PINS, assertSha256, pinFor, sha256File, cachedBinary };
+module.exports = {
+  PINS,
+  assertSha256,
+  pinFor,
+  sha256File,
+  cachedBinary,
+  actionlintArguments,
+  sanitizeExpressions,
+  shellScriptsFromWorkflow,
+  shellcheckFindings,
+};
 
 if (require.main === module) {
   main().catch((error) => {
