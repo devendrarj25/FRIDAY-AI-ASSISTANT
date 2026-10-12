@@ -269,7 +269,9 @@ jobs:
       - name: Explain a failed build
         if: failure()
         shell: bash
-        run: node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
+        run: |
+          node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
+          node scripts/ci-gate-summary.cjs --gate test-build --status failure --reproduce "npm run build:win" || true
 
       - name: Publish the TEST prerelease (Test update channel)
         if: inputs.publish || env.TEST_PUBLISH == 'true'

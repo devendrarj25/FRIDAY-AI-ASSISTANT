@@ -2,15 +2,17 @@
 #
 # The single validation workflow. It runs on pull requests targeting main and
 # on manual dispatch, and when FRIDAY Release calls it for one pinned
-# commit. One run covers what used to be split across CI Fast and
-# the pull-request Security Scan: typecheck, docs and version sync, layout and
+# commit. One run covers typecheck, docs and version sync, layout and
 # architecture audits, kernel tests, the full Vitest suite, a warn-only
 # "code changed without a test" note, secret scan, CodeQL, and the dependency
 # advisory policy (high, critical, and unknown severity fail unless allow-listed),
 # and (unless the change is documentation only) a real Windows NSIS installer
-# plus install/boot/uninstall smoke. It never versions, tags, publishes or
-# writes to main. It does not enforce branch protection. A public repository
-# may have a ruleset; a private free repository does not. See
+# plus install/boot/uninstall smoke. Static checks, kernel tests, Windows
+# Vitest, and the Windows pack run in parallel with fail-fast off. The
+# validate job publishes one commit status named "PR Validation" from that
+# combined result. It never versions, tags, publishes or writes to main.
+# It does not enforce branch protection. A public repository may have a
+# ruleset; a private free repository does not. See
 # docs/FRIDAY_MERGE_FLOW.md.
 #
 # Direct pushes to main are NOT watched here (no push trigger at all): making
@@ -163,23 +165,23 @@ jobs:
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "### PR Validation scope: $([ "$docs_only" = true ] && echo 'documentation only (installer build skipped, all tests still run)' || echo 'full (Windows build)')" >> "$GITHUB_STEP_SUMMARY"
 
-  validate:
+  # Parallel gates. fail-fast is off: a red typecheck does not hide the
+  # Windows tests or the installer. The `validate` job only publishes the
+  # commit status "PR Validation" from the combined result.
+  static:
     needs: gate
-    # `needs.gate.result == 'success'` is required. A custom `if` replaces the
-    # default success check, so a skipped gate (a draft) would otherwise start
-    # the Windows job and spend minutes on a pull request that cannot merge.
     if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+      healed: ${{ steps.heal.outputs.sha }}
     env:
       GH_TOKEN: ${{ github.token }}
-
     steps:
       - name: Fetch source
         uses: $/.github/actions/checkout
         with:
-          # A manual validation may name the exact commit it must validate, so
-          # the evidence it publishes always belongs to that commit.
           ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
           fetch-tags: true
@@ -187,11 +189,8 @@ jobs:
 
       - name: Report what is being validated
         id: target
-        # Reporting only - this workflow reports pass/fail; it never blocks a
-        # push and never modifies main.
         shell: bash
         env:
-          # Branch names are attacker-influenced text: never splice them into a script.
           HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.ref || github.ref_name }}
         run: |
           branch="$HEAD_REF"
@@ -212,27 +211,9 @@ jobs:
         uses: ./.github/actions/friday-node
 
       - name: Install dependencies (npm ci — package-lock is authoritative)
-        shell: cmd
+        shell: bash
         run: npm ci
 
-      # Version/documentation synchronization - SELF-HEALING.
-      #
-      # A human may bump package.json by hand, hand-edit the changelog, or open
-      # a pull request without running the release engine. That used to
-      # hard-fail here (and in `npm test`, whose version-sync and documentation
-      # contract tests audit the same declarations). Now CI repairs it BEFORE the
-      # tests with the release engine's single `heal` command - package-lock,
-      # renderer fallback, LICENSE year, every governed document, CHANGELOG
-      # (exactly one heading per version), releases/notes/vX.Y.Z.md, README
-      # "What is new" and the generated docs index/map, all derived from the
-      # version the branch already declares (idempotent, never a version bump of
-      # its own) - commits the result to the pull request branch and continues
-      # validating on the healed tree.
-      #
-      # Hard failure is kept for exactly the cases auto-heal cannot fix:
-      # an invalid/absent version, drift that survives the repair, a fork PR
-      # (no push rights), or a repair that touched anything outside the
-      # version/documentation allowlist below - code logic is never rewritten.
       - name: Verify version/documentation synchronization (auto-heal)
         id: heal
         shell: bash
@@ -255,16 +236,9 @@ jobs:
           branch="$HEAD_REF"
           same_repo='${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}'
           echo "::notice::version/documentation drift detected - auto-healing to v$version"
-          # One idempotent repair for every derived version source and document.
-          # It never bumps a version and never touches code logic; it exits
-          # non-zero only when a problem survived the repair.
           node scripts/release-engine.cjs heal --version "$version"
-          # Missing structure folders are empty placeholders. Create them here
-          # so the same run can commit the .gitkeep instead of failing later.
           node scripts/arrange-project.cjs --fix
 
-          # Auto-heal may only touch version/documentation sources and those
-          # empty placeholder files. Code logic is never rewritten.
           changed=$(git status --porcelain --untracked-files=all | awk '{print $2}')
           if [ -n "$changed" ]; then
             bad=$(echo "$changed" | grep -vE '(^|/)[^/]+\.md$|^package(-lock)?\.json$|^src/lib/friday/version\.ts$|^LICENSE$|^config/friday-version\.json$|^installer/build/friday-version\.nsh$|(^|/)\.gitkeep$' || true)
@@ -274,7 +248,6 @@ jobs:
             fi
           fi
 
-          # The repair must actually have fixed the drift.
           node scripts/release-engine.cjs verify
 
           if [ -z "$changed" ]; then
@@ -283,15 +256,8 @@ jobs:
           fi
 
           # PINNED-COMMIT GUARD.
-          #
-          # When this run was dispatched for an EXACT commit (inputs.sha), the
-          # release orchestrator is waiting for evidence about that very commit
-          # and has pinned the pull request head to it. Pushing an auto-heal
-          # commit here would move the head, invalidate the pin and abort
-          # FRIDAY Release at "Wait for the required checks" - which is
-          # exactly the failure this guard removes. The repair still happens
-          # in the working tree (so the validation below is honest); it is
-          # simply not pushed.
+          # When this run was dispatched for an exact commit, pushing would
+          # move the pinned head. The repair stays in this workspace.
           if [ -n "$PINNED_SHA" ]; then
             echo "::notice::validating pinned commit $PINNED_SHA - documentation was repaired in-tree and deliberately NOT pushed (pushing would move the pinned head)"
             exit 0
@@ -308,10 +274,6 @@ jobs:
           git commit -m "chore: sync docs to v$version"
           git push origin "HEAD:refs/heads/$branch"
 
-          # A push made with GITHUB_TOKEN never starts a new workflow run, so the
-          # healed commit (now the pull request head) would otherwise carry no
-          # "PR Validation" status and stay BLOCKED forever. The rest of this run
-          # validates exactly this tree, so the result is published on it too.
           healed=$(git rev-parse HEAD)
           echo "sha=$healed" >> "$GITHUB_OUTPUT"
           gh api "repos/${{ github.repository }}/statuses/$healed" \
@@ -322,63 +284,164 @@ jobs:
           echo "::notice::pushed 'chore: sync docs to v$version' to $branch - validation continues on the healed tree"
 
       - name: Type check
-        shell: cmd
+        shell: bash
         run: npm run typecheck
 
       - name: Documentation and version in sync
-        shell: cmd
+        shell: bash
         run: |
           npm run docs:check
           npm run verify:version
 
       - name: Tests changed with the code (warn only)
         if: github.event_name == 'pull_request'
-        shell: cmd
+        shell: bash
         run: node scripts/tests-required.cjs "origin/${{ github.base_ref }}"
 
       - name: Commit provenance
         if: github.event_name == 'pull_request'
-        shell: cmd
+        shell: bash
         run: node scripts/check-provenance.cjs "origin/${{ github.base_ref }}"
+
+      - name: Python for lint
+        uses: ./.github/actions/python
+
+      - name: Install kernel dev requirements
+        shell: bash
+        run: python -m pip install -r kernel/requirements-dev.txt
+
+      - name: Lint
+        shell: bash
+        run: npm run lint
+
+      - name: Workflow lint
+        shell: bash
+        run: node scripts/run-actionlint.cjs
+
+      - name: Verify FRIDAY layout and dependencies
+        shell: bash
+        run: |
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Clean-architecture audit
+        shell: bash
+        run: node scripts/audit-architecture.cjs --strict
+
+      - name: Explain a failed check
+        if: failure()
+        shell: bash
+        run: node scripts/ci-gate-summary.cjs --gate static --status failure --reproduce "npm run preflight"
+
+  kernel:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch source
+        uses: $/.github/actions/checkout
+        with:
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Python for lint and kernel tests
+        uses: ./.github/actions/python
+
+      - name: Install kernel dev requirements
+        shell: bash
+        run: python -m pip install -r kernel/requirements-dev.txt
+
+      - name: Repair version and documentation in this workspace
+        shell: bash
+        run: node scripts/heal-workspace.cjs
+
+      - name: Kernel tests
+        shell: bash
+        run: npm run test:kernel
+
+      - name: Kernel pyright baseline
+        shell: bash
+        run: npm run typecheck:py
+
+      - name: Explain a failed check
+        if: failure()
+        shell: bash
+        run: node scripts/ci-gate-summary.cjs --gate kernel --status failure --reproduce "npm run test:kernel"
+
+  tests-windows:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Fetch source
+        uses: $/.github/actions/checkout
+        with:
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
+
+      - name: Install dependencies (npm ci — package-lock is authoritative)
+        shell: cmd
+        run: npm ci
+
+      - name: Repair version and documentation in this workspace
+        shell: bash
+        run: node scripts/heal-workspace.cjs
 
       - name: Run tests
         shell: bash
         run: |
           set +e
           mkdir -p test-results
-          npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json
+          npm test -- --shard=${{ matrix.shard }}/2 --reporter=default --reporter=json --outputFile=test-results/vitest.json
           code=$?
           node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
+          node scripts/vitest-slow-report.cjs test-results/vitest.json || true
           exit "$code"
 
-      - name: Python for lint and kernel tests
-        uses: ./.github/actions/python
+      - name: Explain a failed check
+        if: failure()
+        shell: bash
+        run: node scripts/ci-gate-summary.cjs --gate tests-windows --status failure --reproduce "npm test" --log test-results/vitest.json
 
-      - name: Install kernel dev requirements
-        shell: cmd
-        run: python -m pip install -r kernel/requirements-dev.txt
+  package-windows:
+    needs: gate
+    if: needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Fetch source
+        uses: $/.github/actions/checkout
+        with:
+          ref: ${{ inputs.sha || github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
 
-      - name: Lint
-        shell: cmd
-        run: npm run lint
+      - name: Node toolchain (from package.json engines)
+        uses: ./.github/actions/friday-node
 
-      - name: Workflow lint
+      - name: Install dependencies (npm ci — package-lock is authoritative)
         shell: cmd
-        run: node scripts/run-actionlint.cjs
+        run: npm ci
 
-      - name: Kernel tests
-        shell: cmd
-        run: npm run test:kernel
-
-      - name: Verify FRIDAY layout and dependencies
-        shell: cmd
-        run: |
-          node scripts/arrange-project.cjs
-          node scripts/verify-deps.cjs
-
-      - name: Clean-architecture audit
-        shell: cmd
-        run: node scripts/audit-architecture.cjs --strict
+      - name: Repair version and documentation in this workspace
+        shell: bash
+        run: node scripts/heal-workspace.cjs
 
       - name: Validate Electron runtime
         shell: cmd
@@ -408,34 +471,61 @@ jobs:
       - name: Explain a failed check
         if: failure()
         shell: bash
-        run: node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
+        run: node scripts/ci-gate-summary.cjs --gate package-windows --status failure --reproduce "npm run build:win"
+
+  validate:
+    needs: [gate, static, kernel, tests-windows, package-windows]
+    if: always() && needs.gate.result == 'success' && needs.gate.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Fetch source
+        uses: $/.github/actions/checkout
+        with:
+          ref: ${{ needs.static.outputs.healed || needs.static.outputs.sha || inputs.sha || github.event.pull_request.head.sha || github.ref }}
+          fetch-depth: 1
 
       - name: Publish the "PR Validation" result for the validated commit
         if: always()
         shell: bash
         env:
-          TARGET_SHA: ${{ steps.target.outputs.sha }}
-          HEALED_SHA: ${{ steps.heal.outputs.sha }}
-          JOB_STATUS: ${{ job.status }}
-        # The real outcome of THIS run, on the exact commit THIS run checked
-        # out - and, when auto-heal pushed a docs-only commit, on that healed
-        # commit as well, because it is the tree that was validated. Nothing is
-        # fabricated: a failed or cancelled job publishes a failure, which the
-        # release orchestrator treats as a hard stop.
+          STATIC: ${{ needs.static.result }}
+          KERNEL: ${{ needs.kernel.result }}
+          TESTS: ${{ needs.tests-windows.result }}
+          PACKAGE: ${{ needs.package-windows.result }}
+          TARGET_SHA: ${{ needs.static.outputs.sha }}
+          HEALED_SHA: ${{ needs.static.outputs.healed }}
         run: |
-          case "$JOB_STATUS" in
-            success) state=success ;;
-            cancelled) state=error ;;
-            *) state=failure ;;
-          esac
-          for sha in $TARGET_SHA $HEALED_SHA; do
-            [ -n "$sha" ] || continue
-            gh api "repos/${{ github.repository }}/statuses/$sha" \
+          set -euo pipefail
+          sha="$TARGET_SHA"
+          if [ -z "$sha" ]; then
+            sha=$(git rev-parse HEAD)
+          fi
+          node scripts/pr-validation-aggregate.cjs \
+            --static "$STATIC" \
+            --kernel "$KERNEL" \
+            --tests "$TESTS" \
+            --package "$PACKAGE" \
+            --sha "$sha" \
+            --healed "$HEALED_SHA" > decision.json
+          state=$(node -e "process.stdout.write(require('./decision.json').state)")
+          desc=$(node -e "process.stdout.write(require('./decision.json').description)")
+          node scripts/pr-validation-aggregate.cjs --summary decision.json
+          for one in "$sha" "$HEALED_SHA"; do
+            [ -n "$one" ] || continue
+            gh api "repos/${{ github.repository }}/statuses/$one" \
               -f state="$state" -f context='PR Validation' \
-              -f description="FRIDAY PR validation: $JOB_STATUS" \
+              -f description="$desc" \
               -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
               >/dev/null || echo "::warning title=PR Validation status::Could not publish the status (read-only token, for example a Dependabot run). Run PR Validation from the Actions tab with this commit SHA to publish it."
           done
+          [ "$state" = "success" ]
+
 
   # Documentation-only pull requests: everything that can actually break for a
   # docs change (type check, the full Vitest suite, docs registry, version sync)

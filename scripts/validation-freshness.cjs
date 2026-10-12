@@ -137,6 +137,22 @@ function readFlag(name) {
   return process.argv[index + 1];
 }
 
+function releaseGate(decision, sha) {
+  if (decision && decision.reuse === true && decision.action === "reuse") {
+    return { ok: true, sha: sha || "", message: decision.reason };
+  }
+  const reason = (decision && decision.reason) || "no PR Validation evidence";
+  const commit = sha || "(unknown commit)";
+  return {
+    ok: false,
+    sha: commit,
+    message:
+      `PR Validation on ${commit} is not fresh and green (${reason}). ` +
+      `Run PR Validation for ${commit}, then run FRIDAY Release again. ` +
+      "Publish does not re-run the suite.",
+  };
+}
+
 function main() {
   const sha = readFlag("--sha");
   const file = readFlag("--evidence");
@@ -157,9 +173,16 @@ function main() {
     evidence,
     now: Number.isFinite(now) ? now : Date.now(),
   });
+  if (process.argv.includes("--require-reuse")) {
+    const gated = releaseGate(decision, sha);
+    process.stdout.write(
+      `${JSON.stringify({ ...decision, ok: gated.ok, message: gated.message })}\n`,
+    );
+    process.exit(gated.ok ? 0 : 1);
+  }
   process.stdout.write(`${JSON.stringify(decision)}\n`);
 }
 
-module.exports = { MAX_AGE_MS, isPrValidation, decideReuse };
+module.exports = { MAX_AGE_MS, isPrValidation, decideReuse, releaseGate };
 
 if (require.main === module) main();

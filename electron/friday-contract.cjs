@@ -249,6 +249,7 @@ const SOURCE_LAYOUT = {
         "electron",
         "kernel",
         "scripts",
+        "scripts/git-hooks",
         "builder",
         "installer",
         "updater",

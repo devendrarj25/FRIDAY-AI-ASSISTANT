@@ -466,12 +466,17 @@ describe("build pipeline", () => {
     expect(testBuild).toContain("official (non-prerelease) releases are never");
     expect(release).toContain("merged tree is not the validated tree");
     const publish = release.slice(release.indexOf("\n  publish:\n"));
-    const testsAt = publish.indexOf("- name: Run tests");
-    expect(publish.slice(testsAt, testsAt + 180)).toContain("skip_linux");
-    const notesAt = publish.indexOf("- name: Restore reviewed release notes after tests");
-    expect(publish.slice(notesAt, notesAt + 220)).not.toContain("skip_linux");
+    expect(publish).not.toContain("npm test");
+    expect(publish).toContain("--require-reuse");
+    expect(publish.indexOf("npm run typecheck")).toBeLessThan(
+      publish.indexOf("Build with the shared pipeline"),
+    );
+    const notesAt = publish.indexOf("- name: Restore reviewed release notes before packaging");
+    expect(notesAt).toBeGreaterThan(publish.indexOf("Require a fresh green PR Validation"));
+    expect(publish.slice(notesAt, notesAt + 400)).toContain("guard-notes");
     const verifyAt = publish.indexOf("- name: Verify version/documentation synchronization");
-    expect(publish.slice(verifyAt, verifyAt + 160)).not.toContain("skip_linux");
+    expect(verifyAt).toBeGreaterThan(-1);
+    expect(verifyAt).toBeLessThan(publish.indexOf("Build with the shared pipeline"));
     expect(smoke).toContain("Assert-NoInstallOrphans");
     expect(smoke).toContain("Verify-UpdateManifest");
     expect(smoke).toContain("kernel health");

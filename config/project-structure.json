@@ -17,6 +17,7 @@
         "electron",
         "kernel",
         "scripts",
+        "scripts/git-hooks",
         "builder",
         "installer",
         "updater",

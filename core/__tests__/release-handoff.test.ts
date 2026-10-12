@@ -303,7 +303,7 @@ describe("release workflow wiring", () => {
   it("publish still ships the reviewed What's New from the prepared notes", () => {
     expect(yml).toContain('file="releases/notes/${{ steps.plan.outputs.tag }}.md"');
     expect(yml).toContain("release-engine.cjs guard-notes");
-    expect(yml).toContain("Restore reviewed release notes after tests");
+    expect(yml).toContain("Restore reviewed release notes before packaging");
   });
 });
 
