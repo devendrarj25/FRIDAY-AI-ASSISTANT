@@ -14,6 +14,9 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(__dirname, "../..");
+const packScript = require("../../scripts/electron-pack.cjs") as {
+  packPublishArgs: (extra: string[]) => string[];
+};
 const engine = require("../../scripts/release-engine.cjs") as {
   readCanonicalIdentity: (opts?: { root?: string }) => {
     releaseVersion: string;
@@ -136,6 +139,19 @@ describe("Windows packaging uses the public four-part identity", () => {
     expect(pack).toContain("refusing to package a three-part identity");
     expect(pack).toContain("syncLatestYml");
     expect(pack.indexOf("syncLatestYml")).toBeGreaterThan(pack.indexOf("spawnSync"));
+    expect(packScript.packPublishArgs(["--win", "nsis"])).toEqual([
+      "--publish",
+      "never",
+      "--win",
+      "nsis",
+    ]);
+    expect(packScript.packPublishArgs(["--publish", "always", "--win", "nsis"])).toEqual([
+      "--publish",
+      "always",
+      "--win",
+      "nsis",
+    ]);
+    expect(packScript.packPublishArgs(["--publish=never"])).toEqual(["--publish=never"]);
 
     const yml = read("electron-builder.yml");
     expect(yml).toMatch(/from:\s*config\b/);
