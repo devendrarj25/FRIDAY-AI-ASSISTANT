@@ -439,4 +439,5 @@ module.exports = {
   doctorRows,
   sha256File,
   quarantineMessage,
+  flattenSingleRoot,
 };
