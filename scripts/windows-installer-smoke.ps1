@@ -61,11 +61,37 @@ function Start-Tracked {
 }
 
 # Kill ONLY the process tree this smoke test started.
+# The parent often exits first. Electron children are also FRIDAY.exe and get
+# reparented, so taskkill still runs after the parent has exited. taskkill /T
+# cannot see those children once the parent pid is gone, so anything whose
+# executable is still under this install directory is closed too.
 function Stop-Tree([Diagnostics.Process]$Process) {
   if ($null -eq $Process) { return }
-  try { if ($Process.HasExited) { return } } catch { return }
   try { & "$env:SystemRoot\System32\taskkill.exe" /PID $Process.Id /T /F | Out-Null } catch {}
-  try { $null = $Process.WaitForExit(15000) } catch {}
+  foreach ($hit in @(Get-OwnedProcesses)) {
+    try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F | Out-Null } catch {}
+  }
+  try {
+    if (-not $Process.HasExited) { $null = $Process.WaitForExit(15000) }
+  } catch {}
+}
+
+function Test-OwnedPath([string]$ExePath) {
+  if (-not $ExePath) { return $false }
+  try { $full = [IO.Path]::GetFullPath($ExePath) } catch { return $false }
+  $root = [IO.Path]::GetFullPath($installDir).TrimEnd('\')
+  return $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-OwnedProcesses {
+  $names = @("FRIDAY", "whisper-server", "whisper-cli", "python", "node", "msedge", "chrome")
+  $wanted = @{}
+  foreach ($name in $names) { $wanted[$name.ToLowerInvariant()] = $true }
+  @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $base = [IO.Path]::GetFileNameWithoutExtension([string]$_.Name)
+    if (-not $base -or -not $wanted.ContainsKey($base.ToLowerInvariant())) { return $false }
+    return (Test-OwnedPath ([string]$_.ExecutablePath))
+  })
 }
 
 function Wait-Exit([Diagnostics.Process]$Process, [int]$Seconds, [string]$Label) {
@@ -206,29 +232,22 @@ function Verify-Boot {
 }
 
 function Assert-NoInstallOrphans {
-  foreach ($name in @("FRIDAY", "whisper-server", "whisper-cli")) {
-    $hits = @(Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object {
-      $procPath = ""
-      try { $procPath = $_.Path } catch { $procPath = "" }
-      if (-not $procPath) { return $true }
-      return $procPath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
-    })
-    if ($hits.Count -gt 0) {
-      throw "Orphan $name is still running after the boot self-test."
+  # A child can still be exiting when the parent has already reported success.
+  # Give that teardown a few seconds, and close any install-directory process
+  # that is still there. A process with no readable path is not this install.
+  $deadline = (Get-Date).AddSeconds(8)
+  do {
+    $hits = @(Get-OwnedProcesses)
+    if ($hits.Count -eq 0) { return }
+    foreach ($hit in $hits) {
+      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F | Out-Null } catch {}
     }
-  }
-  foreach ($marker in @("python.exe", "node.exe", "msedge.exe", "chrome.exe")) {
-    $hits = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-      $procPath = ""
-      try { $procPath = $_.Path } catch { $procPath = "" }
-      if (-not $procPath) { return $false }
-      $leaf = [IO.Path]::GetFileName($procPath)
-      if ($leaf -ne $marker) { return $false }
-      return $procPath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
-    })
-    if ($hits.Count -gt 0) {
-      throw "Orphan $marker under the install directory is still running."
-    }
+    Start-Sleep -Milliseconds 400
+  } while ((Get-Date) -lt $deadline)
+  $left = @(Get-OwnedProcesses)
+  if ($left.Count -gt 0) {
+    $detail = ($left | ForEach-Object { "$($_.ProcessId) $($_.Name) $($_.ExecutablePath)" }) -join "; "
+    throw "Orphan is still running after the boot self-test: $detail"
   }
 }
 

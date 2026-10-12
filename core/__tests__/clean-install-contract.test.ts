@@ -201,6 +201,18 @@ describe("node toolchain version set", () => {
     const smoke = read("scripts/windows-installer-smoke.ps1");
     expect(smoke).toContain("kernel health");
     expect(smoke).toContain("Assert-NoInstallOrphans");
+    expect(smoke).toContain("function Get-OwnedProcesses");
+    expect(smoke).toContain("function Test-OwnedPath");
+    expect(smoke).toContain("ExecutablePath");
+    expect(smoke).toContain("$root + '\\'");
+    const stopTree = smoke.slice(
+      smoke.indexOf("function Stop-Tree"),
+      smoke.indexOf("function Test-OwnedPath"),
+    );
+    expect(stopTree).toContain("Get-OwnedProcesses");
+    expect(stopTree).toContain("/PID $Process.Id /T /F");
+    expect(smoke).not.toContain("if ($Process.HasExited) { return }");
+    expect(smoke).not.toContain("if (-not $procPath) { return $true }");
     expect(smoke).toContain("sha512:");
     expect(pipeline).toContain('"-ReleaseDir"');
     expect(pipeline).toContain("packaged-self-check");
