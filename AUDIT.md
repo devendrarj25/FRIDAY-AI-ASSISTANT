@@ -13,7 +13,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint and kernel ruff passed inside `npm run preflight -- --full`. The `static` job runs the same command. |
 | Types | `npm run typecheck` | clean (`tsc --noEmit`). `core/__tests__/actionlint-pin.test.ts` typechecks. |
-| Tests | `npm test` | 348 files, 2890 passed, 1 skipped |
+| Tests | `npm test` | 348 files, 2891 passed, 2 skipped |
 | Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
 | Docs registry | `npm run docs:check` | clean (registered docs, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.1.2** (npm encoding **1.1.1**) |
@@ -21,7 +21,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
 | Local CI substitute | `npm run preflight -- --full` | passed on Linux. NSIS, verify-build, and installer smoke were skipped. Electron and the renderer bundle passed. `npm run validate:local` calls the same script. |
 | Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped. Not re-run in this session. |
-| Hosted Actions | PR Validation / FRIDAY Release | PR Validation run 38286374788 and FRIDAY Release run 38288784028 succeeded on `2ad9a83`. Eleven workflow files. The owner's later edit of those files is unverified until a new run. |
+| Hosted Actions | PR Validation / FRIDAY Release | PR Validation run 38286374788 and FRIDAY Release run 38288784028 succeeded on `2ad9a83`. Pull-request run 38306698165 on `17d619b` failed in `docs-only`. Workflow dispatch run 38312765069 of that SHA passed the Windows jobs. Eleven workflow files. A hosted re-run of the container mount fix is unverified. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.1.1.2

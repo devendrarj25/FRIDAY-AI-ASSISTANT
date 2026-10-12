@@ -1,8 +1,10 @@
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { hasCommand } from "./helpers/environment";
 
 const require = createRequire(import.meta.url);
 const engines = require("../../electron/sandbox-engines.cjs");
@@ -54,7 +56,85 @@ describe("sandbox isolation engines", () => {
     expect(wrapped.line).toContain("bwrap");
     expect(wrapped.line).toContain(projectDir);
     expect(wrapped.line).toContain("node -v");
+    // A bind of a temp path needs its parent inside the empty root.
+    expect(wrapped.line.indexOf("--dir")).toBeGreaterThan(-1);
+    expect(wrapped.line.indexOf("--dir")).toBeLessThan(wrapped.line.indexOf(projectDir));
   });
+
+  it("mounts extra host paths at the same path inside docker and podman", () => {
+    const host = fs.mkdtempSync(path.join(os.tmpdir(), "friday-bind-"));
+    const child = path.join(host, "plugins", "demo");
+    fs.mkdirSync(child, { recursive: true });
+    try {
+      for (const id of ["docker", "podman"]) {
+        const wrapped = engines.wrap(id, {
+          command: "node main.mjs",
+          dir: projectDir,
+          network: false,
+          extraBinds: [host, child, path.join(host, "missing-child"), "/"],
+        });
+        expect(wrapped.ok).toBe(true);
+        expect(wrapped.line).toContain(`${path.resolve(projectDir)}:/work`);
+        expect(wrapped.line).toContain("--network none");
+        expect(wrapped.line).not.toContain("missing-child");
+        expect(wrapped.line).not.toContain("'/:/'");
+        if (process.platform === "win32") {
+          // A Linux image on Windows still falls back when the manifest is missing.
+          // Same-path volumes would change that error, so they stay off.
+          expect(wrapped.line).not.toContain(`${host}:${host}`);
+        } else {
+          expect(wrapped.line).toContain(`${host}:${host}`);
+          // The parent mount already contains the plugin directory.
+          expect(wrapped.line).not.toContain(`${child}:${child}`);
+        }
+      }
+    } finally {
+      fs.rmSync(host, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("bubblewrap host path", () => {
+  it.skipIf(!hasCommand("bwrap"))(
+    "loads a plugin entry outside the run folder and keeps that file's own error",
+    () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-bwrap-"));
+      const plugin = path.join(root, "plugins", "broken");
+      fs.mkdirSync(plugin, { recursive: true });
+      const entry = path.join(plugin, "index.cjs");
+      fs.writeFileSync(entry, 'module.exports={register(){throw new Error("nope")}}\n');
+      const work = path.join(root, "temporary", "processing", "run");
+      fs.mkdirSync(work, { recursive: true });
+      fs.writeFileSync(
+        path.join(work, "main.mjs"),
+        `import { createRequire } from "node:module";
+const require = createRequire(${JSON.stringify(entry)});
+try { require(${JSON.stringify(entry)}).register(); console.log("UNEXPECTED_OK"); }
+catch (error) { console.log(String(error && error.message || error)); }
+`,
+      );
+      try {
+        const wrapped = engines.wrap("bwrap", {
+          command: `${process.execPath} main.mjs`,
+          dir: work,
+          network: false,
+          extraBinds: [root],
+        });
+        expect(wrapped.ok).toBe(true);
+        const answer = spawnSync("/bin/sh", ["-lc", wrapped.line], {
+          cwd: work,
+          encoding: "utf8",
+          timeout: 20000,
+        });
+        const output = `${answer.stdout || ""}${answer.stderr || ""}`;
+        expect(answer.status, output).toBe(0);
+        expect(output).toContain("nope");
+        expect(output).not.toContain("Cannot find module");
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("windows feature installs request elevation for that command only", () => {
