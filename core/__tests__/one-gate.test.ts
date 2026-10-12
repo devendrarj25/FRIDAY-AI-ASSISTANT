@@ -24,6 +24,14 @@ const freshness = require("../../scripts/validation-freshness.cjs") as {
     decision: { action: string; reuse: boolean; reason: string },
     sha: string,
   ) => { ok: boolean; message: string };
+  releaseEvidenceCandidates: (input: {
+    head?: string;
+    headTree?: string;
+    validated?: string;
+    validatedTree?: string;
+    mergeParent?: string;
+    mergeParentTree?: string;
+  }) => { ok: boolean; candidates: string[]; reason: string };
 };
 const preflight = require("../../scripts/preflight.cjs") as {
   GATES: Array<{ id: string }>;
@@ -239,5 +247,37 @@ describe("publish evidence gate", () => {
     expect(denied.status).not.toBe(0);
     expect(denied.stdout).toContain("not fresh and green");
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("asks HEAD first, then a merge parent with the same tree", () => {
+    const head = "a".repeat(40);
+    const parent = "b".repeat(40);
+    const tree = "c".repeat(40);
+    const same = freshness.releaseEvidenceCandidates({
+      head,
+      headTree: tree,
+      mergeParent: parent,
+      mergeParentTree: tree,
+    });
+    expect(same.ok).toBe(true);
+    expect(same.candidates).toEqual([head, parent]);
+    const drifted = freshness.releaseEvidenceCandidates({
+      head,
+      headTree: tree,
+      mergeParent: parent,
+      mergeParentTree: "d".repeat(40),
+    });
+    expect(drifted.candidates).toEqual([head]);
+    const pinned = freshness.releaseEvidenceCandidates({
+      head,
+      headTree: tree,
+      validated: parent,
+      validatedTree: "e".repeat(40),
+    });
+    expect(pinned.ok).toBe(false);
+    expect(pinned.candidates).toEqual([]);
+    expect(pinned.reason).toContain("merged tree is not the validated tree");
+    expect(publish).toContain("releaseEvidenceCandidates");
+    expect(publish).toContain("HEAD^2");
   });
 });

@@ -137,6 +137,47 @@ function readFlag(name) {
   return process.argv[index + 1];
 }
 
+/**
+ * Commits publish may ask for a green PR Validation.
+ * A pin wins. Otherwise HEAD is first, then a merge parent with the same tree
+ * (the pull-request commit a merge leaves as HEAD^2).
+ */
+function releaseEvidenceCandidates({
+  head = "",
+  headTree = "",
+  validated = "",
+  validatedTree = "",
+  mergeParent = "",
+  mergeParentTree = "",
+} = {}) {
+  if (validated) {
+    if (headTree && validatedTree && headTree !== validatedTree) {
+      return {
+        ok: false,
+        candidates: [],
+        reason: "merged tree is not the validated tree",
+      };
+    }
+    return { ok: true, candidates: [validated], reason: "pinned validation commit" };
+  }
+  const candidates = [];
+  if (head) candidates.push(head);
+  if (
+    mergeParent &&
+    mergeParent !== head &&
+    headTree &&
+    mergeParentTree &&
+    headTree === mergeParentTree
+  ) {
+    candidates.push(mergeParent);
+  }
+  return {
+    ok: candidates.length > 0,
+    candidates,
+    reason: candidates.length > 1 ? "head, then the merge parent with the same tree" : "head",
+  };
+}
+
 function releaseGate(decision, sha) {
   if (decision && decision.reuse === true && decision.action === "reuse") {
     return { ok: true, sha: sha || "", message: decision.reason };
@@ -183,6 +224,12 @@ function main() {
   process.stdout.write(`${JSON.stringify(decision)}\n`);
 }
 
-module.exports = { MAX_AGE_MS, isPrValidation, decideReuse, releaseGate };
+module.exports = {
+  MAX_AGE_MS,
+  isPrValidation,
+  decideReuse,
+  releaseGate,
+  releaseEvidenceCandidates,
+};
 
 if (require.main === module) main();

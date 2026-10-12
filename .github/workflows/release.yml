@@ -1366,20 +1366,46 @@ jobs:
         run: |
           set -euo pipefail
           sha=$(git rev-parse HEAD)
-          evidence_sha="$sha"
+          here=$(git rev-parse "HEAD^{tree}")
+          validated=""
+          validated_tree=""
+          parent=""
+          parent_tree=""
           if [ -n "${VALIDATED}" ]; then
             git fetch origin "$VALIDATED" --quiet || git fetch origin "$VALIDATED"
-            here=$(git rev-parse "HEAD^{tree}")
-            there=$(git rev-parse "${VALIDATED}^{tree}")
-            if [ "$here" != "$there" ]; then
-              echo "::error::merged tree is not the validated tree ($here vs $there). Commit $sha has no matching PR Validation tree. Run PR Validation on $sha, then run FRIDAY Release again."
-              exit 1
-            fi
-            evidence_sha="$VALIDATED"
+            validated="$VALIDATED"
+            validated_tree=$(git rev-parse "${VALIDATED}^{tree}")
+          elif git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
+            parent=$(git rev-parse 'HEAD^2')
+            parent_tree=$(git rev-parse 'HEAD^2^{tree}')
           fi
-          if ! node scripts/validation-freshness.cjs --sha "$evidence_sha" --require-reuse > decision.json; then
+          plan=$(node -e "
+            const { releaseEvidenceCandidates } = require('./scripts/validation-freshness.cjs');
+            process.stdout.write(JSON.stringify(releaseEvidenceCandidates({
+              head: process.argv[1],
+              headTree: process.argv[2],
+              validated: process.argv[3],
+              validatedTree: process.argv[4],
+              mergeParent: process.argv[5],
+              mergeParentTree: process.argv[6],
+            })));
+          " "$sha" "$here" "$validated" "$validated_tree" "$parent" "$parent_tree")
+          ok=$(node -e "process.stdout.write(String(JSON.parse(process.argv[1]).ok))" "$plan")
+          if [ "$ok" != "true" ]; then
+            echo "::error::merged tree is not the validated tree. Commit $sha has no matching PR Validation tree. Run PR Validation on $sha, then run FRIDAY Release again."
+            exit 1
+          fi
+          evidence_sha=""
+          while IFS= read -r one; do
+            [ -n "$one" ] || continue
+            if node scripts/validation-freshness.cjs --sha "$one" --require-reuse > decision.json; then
+              evidence_sha="$one"
+              break
+            fi
+          done < <(node -e "for (const sha of JSON.parse(process.argv[1]).candidates) console.log(sha)" "$plan")
+          if [ -z "$evidence_sha" ]; then
             reason=$(node -e "try{process.stdout.write(require('./decision.json').message||require('./decision.json').reason||'')}catch{process.stdout.write('')}")
-            echo "::error::${reason:-PR Validation on $evidence_sha is not fresh and green. Run PR Validation for $evidence_sha, then run FRIDAY Release again. Publish does not re-run the suite.}"
+            echo "::error::${reason:-PR Validation on $sha is not fresh and green. Run PR Validation for $sha, then run FRIDAY Release again. Publish does not re-run the suite.}"
             exit 1
           fi
           echo "fresh green PR Validation on $evidence_sha"
