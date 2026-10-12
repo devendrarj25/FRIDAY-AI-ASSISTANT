@@ -334,6 +334,33 @@ describe("official publish · workflow contract", () => {
     expect(creates).toHaveLength(1);
   });
 
+  it("gives prepare the same mode and release type the plan job already uses", () => {
+    expect(doc.jobs.plan.env.MODE).toBe("${{ inputs.mode }}");
+    expect(doc.jobs.plan.env.RELEASE_TYPE).toBe("${{ inputs.release_type }}");
+    expect(doc.jobs.prepare.env.MODE).toBe("${{ inputs.mode }}");
+    expect(doc.jobs.prepare.env.RELEASE_TYPE).toBe("${{ inputs.release_type }}");
+    expect(doc.jobs.publish.env.MODE).toBeUndefined();
+    expect(doc.jobs.publish.env.RELEASE_TYPE).toBeUndefined();
+    const analyse = src.slice(
+      src.indexOf("Analyse changes and determine version"),
+      src.indexOf("Refuse to reuse an existing version"),
+    );
+    expect(analyse).toContain("PLAN_STEP: ${{ needs.plan.outputs.step }}");
+    expect(analyse).toContain("PLAN_VERSION: ${{ needs.plan.outputs.version }}");
+    expect(analyse).toContain('if [ "$PLAN_STEP" = "prepare" ] && [ "$action" != "update" ]; then');
+    expect(analyse).toContain(
+      'if [ "$PLAN_STEP" = "prepare" ] && [ -n "$PLAN_VERSION" ] && [ "$version" != "$PLAN_VERSION" ]; then',
+    );
+    expect(analyse).toContain("Prepare stopped and did not open a pull request.");
+    expect(analyse).toContain("but prepare decided v");
+    expect(analyse).toContain("cat decision.json");
+    expect(analyse).toContain('if [ "$decide_code" != "0" ]; then');
+    const stop = analyse.indexOf("Prepare stopped and did not open a pull request.");
+    const soft = analyse.indexOf("No version change is required.");
+    expect(stop).toBeGreaterThan(-1);
+    expect(soft).toBeGreaterThan(stop);
+  });
+
   it("passes the release type into the orchestrator and does not decide a version itself", () => {
     const step = src.indexOf("Decide the next safe step");
     const prepare = src.indexOf("\n  prepare:\n");

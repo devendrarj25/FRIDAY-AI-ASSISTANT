@@ -21,7 +21,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
 | Local CI substitute | `npm run preflight -- --full` | passed on Linux. NSIS, verify-build, and installer smoke were skipped. Electron and the renderer bundle passed. `npm run validate:local` calls the same script. |
 | Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped. Not re-run in this session. |
-| Hosted Actions | PR Validation / FRIDAY Release | PR Validation run 38286374788 and FRIDAY Release run 38288784028 succeeded on `2ad9a83`. Pull-request run 38306698165 on `17d619b` failed in `docs-only`. Workflow dispatch run 38312765069 of that SHA passed the Windows jobs. Eleven workflow files. A hosted re-run of the container mount fix is unverified. |
+| Hosted Actions | PR Validation / FRIDAY Release | PR Validation run 38286374788 and FRIDAY Release run 38288784028 succeeded on `2ad9a83`. Pull-request run 38306698165 on `17d619b` failed in `docs-only`. Workflow dispatch run 38312765069 of that SHA passed the Windows jobs. FRIDAY Release runs 38321724754 and 38321908412 on `4067247` failed in `pin` after prepare skipped the pull request. Eleven workflow files. A hosted re-run of the prepare mode fix is unverified. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.1.1.2
