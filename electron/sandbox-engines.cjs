@@ -98,6 +98,85 @@ const winQuote = (text) => (/\s/.test(String(text)) ? `"${text}"` : String(text)
 
 const sh = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
+/** True when `parent` is `child` or a real directory above it. */
+function pathCovers(parent, child) {
+  const root = path.resolve(parent);
+  const full = path.resolve(child);
+  if (full === root) return true;
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  return full.startsWith(prefix);
+}
+
+/**
+ * Docker and Podman only see what is mounted. The harness still requires the
+ * host path (`/tmp/.../index.cjs`, `main.py`), so each extra directory is
+ * mounted at that same path. The run folder stays at `/work`. Windows keeps
+ * the single `/work` mount: a Linux image there falls back to the guarded
+ * process, and a `C:\` volume spec would change that error.
+ */
+function containerVolumes(dir, extraBinds) {
+  const work = path.resolve(dir);
+  const specs = [`${work}:/work`];
+  if (WIN) return specs;
+  const mounted = [work];
+  const candidates = [];
+  for (const extra of Array.isArray(extraBinds) ? extraBinds : []) {
+    if (!extra) continue;
+    let resolved = "";
+    try {
+      resolved = path.resolve(String(extra));
+    } catch {
+      continue;
+    }
+    if (!resolved || resolved === path.parse(resolved).root) continue;
+    if (candidates.includes(resolved)) continue;
+    try {
+      if (!fs.existsSync(resolved)) continue;
+    } catch {
+      continue;
+    }
+    candidates.push(resolved);
+  }
+  candidates.sort((a, b) => a.length - b.length);
+  for (const resolved of candidates) {
+    if (mounted.some((parent) => pathCovers(parent, resolved))) continue;
+    mounted.push(resolved);
+    specs.push(`${resolved}:${resolved}`);
+  }
+  return specs;
+}
+
+/**
+ * Bubblewrap starts with an empty root. A bind of `/tmp/foo` fails until
+ * `/tmp` exists in that root. `--dir` creates the missing parents. A parent
+ * that is already mounted (`/usr`) is left alone.
+ */
+function bwrapParentFlags(paths, mountedRoots) {
+  const flags = [];
+  const emitted = new Set();
+  const mounts = (mountedRoots || []).map((item) => path.resolve(item));
+  const covered = (candidate) => mounts.some((mount) => pathCovers(mount, candidate));
+  for (const full of paths) {
+    const resolved = path.resolve(full);
+    const ancestors = [];
+    let current = path.dirname(resolved);
+    const root = path.parse(resolved).root;
+    while (current && current !== root) {
+      ancestors.push(current);
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    ancestors.reverse();
+    for (const ancestor of ancestors) {
+      if (covered(ancestor) || emitted.has(ancestor)) continue;
+      emitted.add(ancestor);
+      flags.push(`--dir ${sh(ancestor)}`);
+    }
+  }
+  return flags;
+}
+
 /* ------------------------------------------------------- UAC elevation */
 
 /**
@@ -1545,9 +1624,12 @@ function wrap(engineId, { command, dir, image, network = false, extraBinds = [] 
       const bin = engine.id;
       const useImage = image || engine.image;
       const net = network ? "" : " --network none";
+      const volumes = containerVolumes(dir, extraBinds)
+        .map((spec) => `-v ${sh(spec)}`)
+        .join(" ");
       return done({
         ok: true,
-        line: `${bin} run --rm -v ${sh(`${path.resolve(dir)}:/work`)} -w /work${net} ${useImage} sh -lc ${sh(line)}`,
+        line: `${bin} run --rm ${volumes} -w /work${net} ${useImage} sh -lc ${sh(line)}`,
         engine: engine.id,
         note: `${useImage}${network ? "" : " · no network"}`,
       });
@@ -1585,6 +1667,7 @@ function wrap(engineId, { command, dir, image, network = false, extraBinds = [] 
       if (fs.existsSync("/usr/local")) binds.push("--ro-bind /usr/local /usr/local");
       // nvm Node and other host runtimes live outside /usr; hide the rest of $HOME.
       const seen = new Set(["/usr", "/etc", "/usr/local", "/bin", "/lib", "/lib64", target]);
+      const hostBinds = [];
       for (const dirPath of String(process.env.PATH || "").split(path.delimiter)) {
         if (!dirPath || seen.has(dirPath)) continue;
         try {
@@ -1593,19 +1676,25 @@ function wrap(engineId, { command, dir, image, network = false, extraBinds = [] 
           continue;
         }
         seen.add(dirPath);
-        binds.push(`--ro-bind ${sh(dirPath)} ${sh(dirPath)}`);
+        hostBinds.push(`--ro-bind ${sh(dirPath)} ${sh(dirPath)}`);
       }
       for (const extra of extraBinds) {
         const resolved = path.resolve(extra);
         if (!resolved || seen.has(resolved)) continue;
+        if (resolved === path.parse(resolved).root) continue;
         try {
           if (!fs.existsSync(resolved)) continue;
         } catch {
           continue;
         }
         seen.add(resolved);
-        binds.push(`--bind ${sh(resolved)} ${sh(resolved)}`);
+        hostBinds.push(`--bind ${sh(resolved)} ${sh(resolved)}`);
       }
+      const parents = bwrapParentFlags(
+        [...seen].filter((item) => item !== "/usr" && item !== "/etc" && item !== "/usr/local"),
+        ["/usr", "/etc", "/usr/local"],
+      );
+      binds.push(...parents, ...hostBinds);
       const links = [
         "--symlink usr/bin /bin",
         "--symlink usr/lib /lib",
