@@ -76,7 +76,9 @@ describe("actionlint pin", () => {
       },
     });
     expect(scripts).toEqual([{ shell: "bash", source: "echo ${{ github.ref }}\n" }]);
-    expect(lint.sanitizeExpressions(scripts[0].source)).toBe("echo _________________\n");
+    const script = scripts[0];
+    if (!script) throw new Error("expected one shell script");
+    expect(lint.sanitizeExpressions(script.source)).toBe("echo _________________\n");
   });
 
   it("reports a shellcheck finding from output written after the process starts", () => {
