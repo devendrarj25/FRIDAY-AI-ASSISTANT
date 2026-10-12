@@ -11,16 +11,16 @@ First Lint / Types / Tests rows are what Self-Management reads.
 
 | Check | `command` | result |
 | --- | --- | --- |
-| Lint | `npm run lint` | **0 errors**, warnings only (prettier clean; the warnings are five React Compiler advisory rules kept visible on purpose, see FRIDAY_STATE.md). PR Validation does not run eslint. |
-| Types | `npm run typecheck` | clean (`tsc --noEmit`) |
-| Tests | `npm test` | all passed; skips are network, OS-tool or git-clone checks that run where those exist |
-| Kernel tests | `python -m pytest kernel/tests` | all passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
+| Lint | `npm run lint` | **0 errors**. ESLint and kernel ruff passed inside `npm run preflight -- --full`. The `static` job runs the same command. |
+| Types | `npm run typecheck` | clean (`tsc --noEmit`). `core/__tests__/actionlint-pin.test.ts` typechecks. |
+| Tests | `npm test` | 348 files, 2888 passed, 1 skipped |
+| Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
 | Docs registry | `npm run docs:check` | clean (registered docs, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.1.2** (npm encoding **1.1.1**) |
-| Layout | `npm run arrange:check` | **139 folders**, missing 0, duplicates 0 |
+| Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
-| Local CI substitute | `npm run validate:local` | passes on Linux; NSIS / verify-build / installer smoke need Windows and are skipped |
-| Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped |
+| Local CI substitute | `npm run preflight -- --full` | passed on Linux. NSIS, verify-build, and installer smoke were skipped. Electron and the renderer bundle passed. `npm run validate:local` calls the same script. |
+| Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped. Not re-run in this session. |
 | Hosted Actions | PR Validation / FRIDAY Test Build / FRIDAY Release | **NOT VERIFIED** on this checkout. Eleven workflow files exist. An older `main` commit has a finished green PR Validation; that run is not evidence for this head. FRIDAY Release on this tree has not been dispatched. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
