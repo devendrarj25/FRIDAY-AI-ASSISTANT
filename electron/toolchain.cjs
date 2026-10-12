@@ -265,16 +265,86 @@ async function detectHuggingFace() {
  * builds an isolated 3.12 virtual environment inside her own runtime folder
  * and installs the package there. Returns { exe, prefix } or null.
  */
+function useBundledEmbedDirect(chosen, embedFile) {
+  if (!chosen || !chosen.exe || !embedFile) return false;
+  const exe = String(chosen.exe);
+  if (!path.isAbsolute(exe)) return false;
+  try {
+    return path.resolve(exe) === path.resolve(String(embedFile));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An existing managed venv wins. The embeddable zip is used as itself.
+ * A system interpreter still gets a venv. The embeddable package has no pip
+ * and is not a base for `python -m venv`.
+ */
+function managedRuntimeChoice(input = {}) {
+  if (input.venvExe) return { action: "venv-ready", exe: input.venvExe, prefix: [] };
+  if (input.legacyFile) return { action: "legacy", exe: input.legacyFile, prefix: [] };
+  if (input.embedExists && input.embedFile) {
+    return { action: "embed", exe: input.embedFile, prefix: [] };
+  }
+  if (useBundledEmbedDirect(input.chosen, input.embedFile)) {
+    return { action: "embed", exe: path.resolve(String(input.embedFile)), prefix: [] };
+  }
+  if (input.chosen && input.chosen.exe) {
+    return {
+      action: "venv",
+      exe: input.chosen.exe,
+      prefix: input.chosen.prefix || [],
+    };
+  }
+  return { action: "missing", exe: "", prefix: [] };
+}
+
 async function ensureManagedPython(series = "3.12", onLine = () => {}) {
   const base = fridayPaths.hasRoot()
     ? fridayPaths.dir("runtime")
     : path.join(__dirname, "..", "runtime");
   const envDir = path.join(base, `py${series.replace(".", "")}`);
   const exe = WIN ? path.join(envDir, "Scripts", "python.exe") : path.join(envDir, "bin", "python");
-  if (fs.existsSync(exe)) return { exe, prefix: [] };
+  const runtimeLayout = require("./runtime-layout.cjs");
+  const embedFile = runtimeLayout.entryFile(base, "python-embed");
+  const present = managedRuntimeChoice({
+    venvExe: fs.existsSync(exe) ? exe : "",
+    legacyFile: series === "3.12" ? require("./toolchain-pack.cjs").findPythonExe(base) || "" : "",
+    embedFile,
+    embedExists: Boolean(embedFile && fs.existsSync(embedFile)),
+  });
+  if (
+    present.action === "venv-ready" ||
+    present.action === "legacy" ||
+    present.action === "embed"
+  ) {
+    return { exe: present.exe, prefix: present.prefix };
+  }
+
   if (series === "3.12") {
-    const bundled = require("./toolchain-pack.cjs").findPythonExe(base);
-    if (bundled) return { exe: bundled, prefix: [] };
+    const resourcesRoots = runtimeLayout.resourceRoots({
+      resourcesPath: process.resourcesPath,
+      devRoot: path.join(__dirname, ".."),
+      execPath: process.execPath,
+      portableDir: process.env.PORTABLE_EXECUTABLE_DIR || "",
+    });
+    if (runtimeLayout.findPack("python-embed", resourcesRoots)) {
+      const bundled = require("./bundled-runtime.cjs");
+      const landed = bundled.materialise({
+        resourcesRoots,
+        runtimeRoot: base,
+        ids: ["python-embed", "get-pip"],
+        prove: process.platform === "win32",
+      });
+      const row = landed.tools && landed.tools["python-embed"];
+      const file = row && row.file;
+      if (process.platform === "win32" && row && row.proved && file && fs.existsSync(file)) {
+        onLine(`using the bundled Python at ${file}`);
+        return { exe: file, prefix: [] };
+      }
+      if (landed.log && landed.log.length) onLine(landed.log.join("; "));
+    }
   }
 
   if (WIN && series === "3.12") {
@@ -359,6 +429,11 @@ async function ensureManagedPython(series = "3.12", onLine = () => {}) {
       10_000,
     );
     if ((out || "").trim() === series) chosen = { exe: "py", prefix: [`-${series}`] };
+  }
+  const picked = managedRuntimeChoice({ embedFile, chosen });
+  if (picked.action === "embed") {
+    onLine(`using the bundled Python at ${picked.exe}`);
+    return { exe: picked.exe, prefix: [] };
   }
   if (!chosen) {
     const packApi = require("./toolchain-pack.cjs");
@@ -2931,6 +3006,8 @@ module.exports = {
   llamaCppStrategy,
   repairedWingetSource,
   ensureManagedPython,
+  useBundledEmbedDirect,
+  managedRuntimeChoice,
   acceptPinnedFile,
   diskRoom,
   fileSha256,

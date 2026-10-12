@@ -119,6 +119,27 @@ function scanSource(file: string, findings: string[]) {
   if (file.startsWith("core/__tests__/") && /#!\/bin\/(?:sh|bash)/.test(raw)) {
     push(findings, file, "shebang-stub", 1, "#!/bin/sh");
   }
+  raw.split("\n").forEach((line, index) => {
+    const code = line.replace(/(^|[^:])\/\/.*$/, "$1");
+    const trimmed = code.trim();
+    if (trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed.startsWith("//")) return;
+    if (/process\.platform\s*[!=]==\s*["']win32["']/.test(code)) return;
+    if (
+      !/\b(?:path\s*\.\s*)?(?:join|resolve)\s*\(|mkdir(?:Sync)?\s*\(|mkdtemp(?:Sync)?\s*\(/.test(
+        code,
+      )
+    ) {
+      return;
+    }
+    for (const quoted of code.match(/["']([^"']+)["']/g) || []) {
+      const value = quoted.slice(1, -1);
+      if (value.startsWith("node:")) continue;
+      if (/^[A-Za-z]:(?:[\\/]|$)/.test(value)) continue;
+      if (/^[A-Za-z0-9._~-]+:[A-Za-z0-9._~-]+$/.test(value)) {
+        push(findings, file, "colon-segment", index + 1, line);
+      }
+    }
+  });
 }
 
 function workflowSteps(file: string): { shell: boolean; run: boolean; at: number }[] {
@@ -155,7 +176,7 @@ describe("Windows hazard scan", () => {
     }
   });
 
-  it("rejects shell options, batch spawns, shebang stubs, /tmp writes, and colon PATH joins", () => {
+  it("rejects shell options, batch spawns, shebang stubs, /tmp writes, colon PATH joins, and colon path segments", () => {
     const files = [
       ...walk(path.join(ROOT, "scripts")).filter((file) => file.endsWith(".cjs")),
       ...walk(path.join(ROOT, "electron")).filter((file) => file.endsWith(".cjs")),

@@ -149,7 +149,10 @@ function resolvePackagedTool(spec) {
   const entry = spec?.entry;
   const roots = Array.isArray(spec?.roots) ? spec.roots : [];
   if (!id || !entry) return null;
+  const layout = require("./runtime-layout.cjs");
+  const runtimeRel = layout.entryRelative(id);
   const relatives = [
+    ...(runtimeRel ? [runtimeRel, path.join("runtime", runtimeRel)] : []),
     path.join("resources", "toolchain", id, entry),
     path.join("resources", "speech", id, entry),
     path.join("runtime", id, entry),

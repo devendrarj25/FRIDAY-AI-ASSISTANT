@@ -165,6 +165,34 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
   const need = ["Node.js LTS", "npm", "Python", "pip", "Git", "SQLite", "PowerShell 7", "Ollama"];
   checks.push(ocrDoctorRow(byId.get("Tesseract OCR") || null));
 
+  try {
+    const bundled = require("./bundled-runtime.cjs");
+    const runtimeLayout = require("./runtime-layout.cjs");
+    const fridayPaths = require("./friday-paths.cjs");
+    const runtimeRoot = fridayPaths.hasRoot()
+      ? fridayPaths.dir("runtime")
+      : path.join(userData, "runtime");
+    const report = bundled.inspect({
+      runtimeRoot,
+      resourcesRoots: runtimeLayout.resourceRoots({
+        resourcesPath: process.resourcesPath,
+        devRoot: install,
+        execPath: process.execPath,
+      }),
+    });
+    for (const row of bundled.doctorRows(report.tools)) checks.push(check(row));
+  } catch (error) {
+    checks.push(
+      check({
+        id: "bundled-runtime",
+        label: "Bundled runtime",
+        group: "Bundled runtime",
+        status: "Error",
+        detail: String(error.message || error),
+      }),
+    );
+  }
+
   need.forEach((id) => {
     const t = byId.get(id);
     if (!t) return;
@@ -907,6 +935,32 @@ async function applyFix(ctx, id, helpers = {}) {
   const say = (line) => log.push(line);
 
   try {
+    if (String(id).startsWith("toolchain:")) {
+      const tool = String(id).slice("toolchain:".length);
+      const bundled = require("./bundled-runtime.cjs");
+      const runtimeLayout = require("./runtime-layout.cjs");
+      const fridayPaths = require("./friday-paths.cjs");
+      const runtimeRoot = fridayPaths.hasRoot()
+        ? fridayPaths.dir("runtime")
+        : path.join(userData, "runtime");
+      const landed = bundled.materialise({
+        resourcesRoots: runtimeLayout.resourceRoots({
+          resourcesPath: process.resourcesPath,
+          devRoot: install,
+          execPath: process.execPath,
+        }),
+        runtimeRoot,
+        ids: tool === "python-embed" || tool === "get-pip" ? ["python-embed", "get-pip"] : [tool],
+        force: true,
+        prove: process.platform === "win32",
+      });
+      const row = landed.tools && landed.tools[tool];
+      return {
+        ok: Boolean(row && row.ok),
+        log: landed.log || [row ? row.message : "the bundled pack did not extract"],
+      };
+    }
+
     if (id === "cloud-providers") {
       const result = await healCloudProviders(say);
       return { ok: result.ok, log, repaired: result.repaired, failed: result.failed };

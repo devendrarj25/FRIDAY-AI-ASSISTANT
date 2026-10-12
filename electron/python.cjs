@@ -200,6 +200,52 @@ function resolveManagedPython(fridayRoot, options = {}) {
   };
 }
 
+function bundledEmbedCandidate() {
+  try {
+    const layout = require("./runtime-layout.cjs");
+    const roots = [];
+    if (paths.hasRoot()) roots.push(paths.dir("runtime"));
+    if (process.env.FRIDAY_RUNTIME) roots.push(process.env.FRIDAY_RUNTIME);
+    const file = layout.findToolFile("python-embed", roots);
+    return file ? { exe: file, prefix: [] } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Explicit files and venvs stay ahead of a bare `py` or `python`. */
+function interpreterPhase(candidate) {
+  const exe = String(candidate && candidate.exe ? candidate.exe : "");
+  if (!exe) return "skip";
+  if (exe === "py" || exe === "python" || exe === "python3") return "system";
+  return "explicit";
+}
+
+/**
+ * Extract staged packs into the user runtime once, before any system
+ * interpreter. A missing pack returns null and does not download.
+ */
+function materialiseBundledRuntime() {
+  const layout = require("./runtime-layout.cjs");
+  const bundled = require("./bundled-runtime.cjs");
+  const runtimeRoots = [];
+  if (paths.hasRoot()) runtimeRoots.push(paths.dir("runtime"));
+  if (process.env.FRIDAY_RUNTIME) runtimeRoots.push(process.env.FRIDAY_RUNTIME);
+  if (!runtimeRoots.length) return null;
+  const resourcesRoots = layout.resourceRoots({
+    resourcesPath: process.resourcesPath,
+    devRoot: path.join(__dirname, ".."),
+    execPath: process.execPath,
+    portableDir: process.env.PORTABLE_EXECUTABLE_DIR || "",
+  });
+  if (!layout.findPack("python-embed", resourcesRoots)) return null;
+  return bundled.materialise({
+    resourcesRoots,
+    runtimeRoot: runtimeRoots[0],
+    prove: process.platform === "win32",
+  });
+}
+
 function candidates(projectRoot = null) {
   // A FRIDAY-managed environment inside the selected folder always wins, so a
   // moved or re-selected FRIDAY home brings its own runtime with it.
@@ -228,6 +274,7 @@ function candidates(projectRoot = null) {
       : null,
 
     process.env.FRIDAY_PYTHON ? { exe: process.env.FRIDAY_PYTHON, prefix: [] } : null,
+    bundledEmbedCandidate(),
 
     WIN ? { exe: "py", prefix: ["-3"] } : null,
     { exe: WIN ? "python" : "python3", prefix: [] },
@@ -349,9 +396,26 @@ async function resolvePython(projectRoot = null, force = false) {
   if (cached && cachedKey === key && !force && fs.existsSync(cached.executable)) return cached;
   cached = null;
   cachedKey = key;
+  let staged = false;
   for (const candidate of candidates(projectRoot)) {
     // Sequential by design: explicit configuration and the project venv win.
-
+    // The bundled embed is extracted once, before py or the system interpreter.
+    if (!staged && interpreterPhase(candidate) === "system") {
+      staged = true;
+      try {
+        materialiseBundledRuntime();
+      } catch {
+        /* a missing pack stays missing */
+      }
+      const embed = bundledEmbedCandidate();
+      if (embed) {
+        const landed = await probe(embed);
+        if (landed) {
+          cached = landed;
+          return landed;
+        }
+      }
+    }
     const found = await probe(candidate);
     if (found) {
       cached = found;
@@ -370,6 +434,8 @@ function invalidatePython() {
 module.exports = {
   resolvePython,
   invalidatePython,
+  interpreterPhase,
+  materialiseBundledRuntime,
   MINIMUM,
   isSupported,
   venvPython,

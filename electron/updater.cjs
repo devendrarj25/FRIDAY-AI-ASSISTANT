@@ -109,19 +109,6 @@ async function checkAllUpdates({ version, scan, appUpdate }) {
 // bytes arrived, copy the current artifact to <root>/backups, swap, and record
 // enough information for a one-click rollback.
 
-const { execFile } = require("child_process");
-
-const run = (cmd, args, cwd) =>
-  new Promise((resolve) => {
-    execFile(cmd, args, { cwd, windowsHide: true, timeout: 120000 }, (err, stdout, stderr) =>
-      resolve({ ok: !err, output: String(stdout || stderr || "") }),
-    );
-  });
-
-function localTar(archive, args) {
-  return require("./load-win-spawn.cjs").loadWinSpawn(__dirname).localTar(archive, args);
-}
-
 function folderFor(root, kind, id) {
   const folders = {
     plugin: "plugins",
@@ -147,19 +134,12 @@ async function download(url, target) {
 
 async function extract(archive, targetDir) {
   fs.mkdirSync(targetDir, { recursive: true });
-  if (process.platform === "win32") {
-    const result = await run("powershell", [
-      "-NoProfile",
-      "-Command",
-      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${targetDir}' -Force`,
-    ]);
-    if (result.ok) return true;
+  try {
+    require("./archive-safe.cjs").extractArchiveFile(archive, targetDir);
+    return { ok: true, via: "archive-safe" };
+  } catch (error) {
+    return { ok: false, error: String(error.message || error), via: "archive-safe" };
   }
-  const spec = localTar(archive, ["-xf", archive, "-C", targetDir]);
-  const tar = await run("tar", spec.args, spec.cwd);
-  if (tar.ok) return true;
-  const unzip = await run("unzip", ["-o", archive, "-d", targetDir]);
-  return unzip.ok;
 }
 
 /**
@@ -216,9 +196,12 @@ async function applyUpdate({ root, update, onProgress = () => {}, installApp = n
   onProgress({ id: update.id, phase: "Installing" });
   const staging = path.join(updatesDir, `staging-${update.id}-${stamp}`);
   const extracted = await extract(downloaded.file, staging);
-  if (!extracted) {
+  if (!extracted.ok) {
     fs.rmSync(staging, { recursive: true, force: true });
-    return { ok: false, error: "The downloaded package could not be extracted." };
+    return {
+      ok: false,
+      error: extracted.error || "The downloaded package could not be extracted.",
+    };
   }
 
   // A package may wrap its contents in a single top-level folder.
@@ -228,14 +211,17 @@ async function applyUpdate({ root, update, onProgress = () => {}, installApp = n
       ? path.join(staging, entries[0].name)
       : staging;
 
-  try {
-    fs.rmSync(target, { recursive: true, force: true });
-    fs.cpSync(source, target, { recursive: true });
-  } catch (error) {
-    if (backup) fs.cpSync(backup, target, { recursive: true });
-    return { ok: false, error: `Install failed and was rolled back: ${error.message}` };
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+  const replaced = require("./archive-safe.cjs").replaceDirectory({
+    source,
+    target,
+    backup,
+  });
+  fs.rmSync(staging, { recursive: true, force: true });
+  if (!replaced.ok) {
+    const reason = replaced.error
+      ? String(replaced.error.message || replaced.error)
+      : "replace failed";
+    return { ok: false, error: `Install failed and was rolled back: ${reason}` };
   }
 
   return {
@@ -255,13 +241,20 @@ function rollbackUpdate({ backup, target }) {
   if (!backup || !fs.existsSync(backup)) {
     return { ok: false, error: "No backup is available for this update." };
   }
+  const safe = require("./archive-safe.cjs");
+  const removed = safe.removeTree(target);
+  if (!removed.ok && fs.existsSync(target)) {
+    const reason = removed.error
+      ? String(removed.error.message || removed.error)
+      : "rollback failed";
+    return { ok: false, error: reason };
+  }
   try {
-    fs.rmSync(target, { recursive: true, force: true });
     fs.cpSync(backup, target, { recursive: true });
-    return { ok: true, restored: target };
   } catch (error) {
     return { ok: false, error: String(error.message || error) };
   }
+  return { ok: true, restored: target };
 }
 
 module.exports = { checkAllUpdates, applyUpdate, rollbackUpdate };

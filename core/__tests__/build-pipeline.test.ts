@@ -3,6 +3,7 @@
  * must run these phases in this order. Named differences are options.
  */
 import { describe, expect, it } from "vitest";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +38,8 @@ const pipeline = require(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
     whisper: { command: string[] };
     sandbox: { command: string[] };
     mcp: { command: string[]; expect: string };
+    node: { command: string[] } | null;
+    model: { kind: string; file: string } | null;
   };
 };
 
@@ -239,6 +242,9 @@ describe("build pipeline", () => {
     expect(plan.sandbox.command[0]).toBe("python.exe");
     expect(plan.mcp.command).toEqual(["node", "electron/friday-mcp.cjs"]);
     expect(plan.mcp.expect).toBe("initialize");
+    expect(plan.node?.command).toEqual(["node.exe", "--version"]);
+    expect(plan.model?.kind).toBe("header");
+    expect(plan.model?.file).toBe("ggml-base.bin");
   });
 
   it("keeps the CMD pack, FRIDAY Release, and FRIDAY Test Build on one phase list", () => {
@@ -374,21 +380,23 @@ describe("build pipeline", () => {
     };
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-self-"));
     const unpack = path.join(root, "win-unpacked");
+    const body = Buffer.from("pack");
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
     const manifest = {
       budgetBytes: 100,
       packs: [
         {
           id: "python-embed",
           tier: "bundled",
-          sha256: "a".repeat(64),
-          bytes: 4,
+          sha256: sha,
+          bytes: body.length,
           license: "MIT",
         },
         {
           id: "whisper-cpp",
           tier: "bundled",
-          sha256: "b".repeat(64),
-          bytes: 4,
+          sha256: sha,
+          bytes: body.length,
           license: "MIT",
         },
       ],
@@ -399,7 +407,7 @@ describe("build pipeline", () => {
     ]) {
       const file = path.join(unpack, rel);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, Buffer.from("pack"));
+      fs.writeFileSync(file, body);
     }
     const ran: string[] = [];
     const commands: string[][] = [];
