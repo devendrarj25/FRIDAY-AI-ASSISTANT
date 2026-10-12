@@ -60,6 +60,7 @@ const PHASE_COMMANDS = {
   "verify-boot": ["scripts/verify-boot.cjs"],
   readiness: ["scripts/readiness-test.cjs --pack"],
   "packaged-self-check": [
+    "python.exe get-pip.py",
     "python.exe -m pip --version",
     "python.exe -c import sys",
     "whisper-cli -h",
@@ -224,6 +225,15 @@ function runtimeSmokePlan(manifest = readManifest()) {
       bytes: byId["python-embed"] ? byId["python-embed"].bytes : 0,
       command: ["python.exe", "-m", "pip", "--version"],
     },
+    getPip: byId["get-pip"]
+      ? {
+          id: "get-pip",
+          pack: `resources/${byId["get-pip"].dest}/get-pip/pack.bin`,
+          sha256: byId["get-pip"].sha256,
+          bytes: byId["get-pip"].bytes,
+          command: ["python.exe", "get-pip.py"],
+        }
+      : null,
     whisper: {
       id: "whisper-cpp",
       pack: byId["whisper-cpp"]
@@ -238,7 +248,10 @@ function runtimeSmokePlan(manifest = readManifest()) {
     },
     mcp: {
       command: ["node", "electron/friday-mcp.cjs"],
+      // A live server echoes the handshake. A build machine has no server,
+      // and the launcher then reports that FRIDAY is not running.
       expect: "initialize",
+      also: "FRIDAY is not running",
     },
     node: byId["node-win"]
       ? {
@@ -284,8 +297,15 @@ function defaultSelfCheckRunner({ command, cwd, stdin }) {
   });
   return {
     status: result.status,
-    stdout: `${result.stdout || ""}${result.stderr || ""}`,
+    stdout: `${result.stdout || ""}${result.stderr || ""}${result.error ? result.error.message : ""}`,
   };
+}
+
+function whisperProbeCommand(whisperDir, fallback) {
+  const nested = path.join(whisperDir, "Release", "whisper-cli.exe");
+  const flat = path.join(whisperDir, "whisper-cli.exe");
+  if (fs.existsSync(flat) && !fs.existsSync(nested)) return ["whisper-cli.exe", "-h"];
+  return fallback;
 }
 
 function extractZipPack(packFile, dest) {
@@ -348,6 +368,20 @@ function runPackagedSelfCheck(input = {}) {
     extract,
     plan.python,
   );
+  if (plan.getPip) {
+    // The embeddable zip has no pip. First run copies the pinned script,
+    // enables site, then runs it. The same order is the proof here.
+    materialisePack(
+      unpackDir,
+      plan.getPip.pack,
+      pythonDir,
+      (file, dest) => {
+        fs.copyFileSync(file, path.join(dest, "get-pip.py"));
+      },
+      plan.getPip,
+    );
+    require("../electron/toolchain-pack.cjs").writeEmbedPth(pythonDir);
+  }
   const whisperDir = materialisePack(
     unpackDir,
     plan.whisper.pack,
@@ -364,6 +398,7 @@ function runPackagedSelfCheck(input = {}) {
       extract,
       plan.node,
     );
+    require("../electron/bundled-runtime.cjs").flattenSingleRoot(nodeDir);
   }
   let modelDir = "";
   if (plan.model) {
@@ -379,18 +414,27 @@ function runPackagedSelfCheck(input = {}) {
       plan.model,
     );
   }
-  const probes = [
+  const probes = [];
+  if (plan.getPip) {
+    probes.push({ name: "get-pip", command: plan.getPip.command, cwd: pythonDir });
+  }
+  probes.push(
     { name: "python", command: plan.python.command, cwd: pythonDir },
     { name: "sandbox", command: plan.sandbox.command, cwd: pythonDir },
-    { name: "whisper", command: plan.whisper.command, cwd: whisperDir },
+    {
+      name: "whisper",
+      command: whisperProbeCommand(whisperDir, plan.whisper.command),
+      cwd: whisperDir,
+    },
     {
       name: "mcp",
       command: plan.mcp.command,
       cwd: root,
       stdin: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
       expect: plan.mcp.expect,
+      also: plan.mcp.also,
     },
-  ];
+  );
   if (plan.node) probes.push({ name: "node", command: plan.node.command, cwd: nodeDir });
   if (plan.model) {
     probes.push({ name: "model", kind: "header", file: plan.model.file, cwd: modelDir });
@@ -417,12 +461,18 @@ function runPackagedSelfCheck(input = {}) {
     const status = result.status;
     const stdout = String(result.stdout || "");
     if (status !== 0) {
+      const detail = stdout.replace(/\s+/g, " ").trim().slice(0, 300);
       throw new Error(
-        `packaged self-check: ${probe.name} failed (${status === null || status === undefined ? "no exit" : status})`,
+        `packaged self-check: ${probe.name} failed (${status === null || status === undefined ? "no exit" : status})${detail ? `: ${detail}` : ""}`,
       );
     }
-    if (probe.expect && !stdout.includes(probe.expect)) {
-      throw new Error(`packaged self-check: ${probe.name} did not answer ${probe.expect}`);
+    const accepted =
+      !probe.expect || stdout.includes(probe.expect) || (probe.also && stdout.includes(probe.also));
+    if (!accepted) {
+      const detail = stdout.replace(/\s+/g, " ").trim().slice(0, 300);
+      throw new Error(
+        `packaged self-check: ${probe.name} did not answer ${probe.expect}${detail ? `: ${detail}` : ""}`,
+      );
     }
     lines.push(`${probe.name} ok`);
   }

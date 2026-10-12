@@ -21,7 +21,7 @@
 | `verify-artifacts` | `verify-build`, then the unpacked layout and the installer size floor |
 | `verify-boot` | Boot the packed app |
 | `readiness` | `readiness-test.cjs --pack` |
-| `packaged-self-check` | On Windows, extract the staged Python and whisper packs and run `python -m pip --version`, the sandbox probe, `whisper-cli -h`, and the MCP launcher `initialize`. Other systems skip this phase with an explicit message |
+| `packaged-self-check` | On Windows, extract the staged packs, write the embed `._pth`, run the pinned get-pip, then `python -m pip --version`, the sandbox probe, `whisper-cli -h`, and the MCP launcher. The launcher passes when the output contains `initialize` or `FRIDAY is not running`. Other systems skip this phase with an explicit message |
 | `installer-smoke` | Silent install, boot, kernel health, update-manifest hash, orphan check, uninstall on Windows when the target includes NSIS |
 
 | Path | How you start it | Named difference |
@@ -147,7 +147,7 @@ The installer floor is 70 percent of the bundled pin sum (205084080 bytes), whic
 
 The first toolchain stage needs network. After that, the cache is `.cache/toolchain/<sha256>.bin`. `--offline` and `FRIDAY_OFFLINE=1` reuse that cache. A miss fails with `offline build: <id> is not in the staging cache` and does not fetch. The CMD wrapper forwards extra arguments, so `build-windows.cmd --offline` is the same flag.
 
-`packaged-self-check` checks each staged pack hash and size, extracts Python, whisper.cpp, and Node with the pure-Node extractor, and copies ggml-base. It then runs `python -m pip --version`, the sandbox probe, `whisper-cli -h`, the MCP launcher `initialize`, `node.exe --version`, and a 16-byte model header that must not be a zip. On anything other than Windows the phase returns `skipped: packaged self-check runs on Windows only`. A missing unpack or a failed probe fails the build. The detail is in `release/build-report.json`.
+`packaged-self-check` checks each staged pack hash and size, extracts Python, whisper.cpp, and Node with the pure-Node extractor, flattens the Node zip when it has one top folder, and copies ggml-base. The embeddable zip has no pip. The check writes `python312._pth` through `embedPthText`, copies the pinned get-pip script, runs `python.exe get-pip.py`, then `python -m pip --version`, the sandbox probe, `whisper-cli -h`, the MCP launcher, `node.exe --version`, and a 16-byte model header that must not be a zip. On a build machine the launcher reports that FRIDAY is not running, and that answer passes. Output that contains `initialize` also passes. On anything other than Windows the phase returns `skipped: packaged self-check runs on Windows only`. A missing unpack or a failed probe fails the build, and the probe output is in the error. The detail is in `release/build-report.json`. FRIDAY Release run 38275652829 stopped at `python failed (1)` before this order. A hosted re-run is unverified.
 
 Installer smoke is `scripts/windows-installer-smoke.ps1` for both channels. It installs silent per-user, boots, checks kernel health, the update-manifest sha512, orphans (kernel, whisper, browser, MCP launcher), the chosen data folder, then uninstalls. POSIX skips that phase with an explicit message. A Windows run of the script is unverified on this Linux tree.
 

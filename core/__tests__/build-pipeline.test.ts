@@ -35,9 +35,10 @@ const pipeline = require(path.join(ROOT, "scripts/build-pipeline.cjs")) as {
   };
   runtimeSmokePlan: (manifest?: unknown) => {
     python: { command: string[] };
+    getPip: { command: string[] } | null;
     whisper: { command: string[] };
     sandbox: { command: string[] };
-    mcp: { command: string[]; expect: string };
+    mcp: { command: string[]; expect: string; also?: string };
     node: { command: string[] } | null;
     model: { kind: string; file: string } | null;
   };
@@ -238,6 +239,8 @@ describe("build pipeline", () => {
   it("names the clean-runner probes for Python, whisper.cpp, and the sandbox", () => {
     const plan = pipeline.runtimeSmokePlan();
     expect(plan.python.command).toEqual(["python.exe", "-m", "pip", "--version"]);
+    expect(plan.getPip?.command).toEqual(["python.exe", "get-pip.py"]);
+    expect(plan.mcp.also).toBe("FRIDAY is not running");
     expect(plan.whisper.command[0]).toContain("whisper-cli");
     expect(plan.sandbox.command[0]).toBe("python.exe");
     expect(plan.mcp.command).toEqual(["node", "electron/friday-mcp.cjs"]);
@@ -450,7 +453,79 @@ describe("build pipeline", () => {
           stdout: "initialize",
         }),
       }),
-    ).toThrow(/whisper failed/);
+    ).toThrow(/whisper failed \(1\): initialize/);
+  });
+
+  it("bootstraps pip from the pinned script and flattens the Node zip before the probes", () => {
+    const checker = pipeline as unknown as {
+      runPackagedSelfCheck: (input: Record<string, unknown>) => string;
+    };
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pip-"));
+    const unpack = path.join(root, "win-unpacked");
+    const body = Buffer.from("pack-bytes");
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
+    const pack = (id: string) => ({
+      id,
+      tier: "bundled",
+      sha256: sha,
+      bytes: body.length,
+      license: "MIT",
+    });
+    const manifest = {
+      budgetBytes: 1000,
+      packs: [pack("python-embed"), pack("get-pip"), pack("whisper-cpp"), pack("node-win")],
+    };
+    for (const rel of [
+      "resources/toolchain/python-embed/pack.bin",
+      "resources/toolchain/get-pip/pack.bin",
+      "resources/speech/whisper-cpp/pack.bin",
+      "resources/toolchain/node-win/pack.bin",
+    ]) {
+      const file = path.join(unpack, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+    }
+    const commands: string[][] = [];
+    const detail = checker.runPackagedSelfCheck({
+      platform: "win32",
+      unpackDir: unpack,
+      root,
+      manifest,
+      extract: (_packFile: string, dest: string) => {
+        if (dest.endsWith("python")) fs.writeFileSync(path.join(dest, "python.exe"), "");
+        else if (dest.endsWith("whisper")) fs.writeFileSync(path.join(dest, "whisper-cli.exe"), "");
+        else if (dest.endsWith("node")) {
+          const nested = path.join(dest, "node-v22.23.3-win-x64");
+          fs.mkdirSync(nested, { recursive: true });
+          fs.writeFileSync(path.join(nested, "node.exe"), "");
+        }
+      },
+      runner: (probe: {
+        name: string;
+        command?: string[];
+        cwd?: string;
+        expect?: string;
+        stdin?: string;
+      }) => {
+        commands.push(probe.command || []);
+        if (probe.name === "node" && probe.cwd) {
+          expect(fs.existsSync(path.join(probe.cwd, "node.exe"))).toBe(true);
+        }
+        if (probe.name === "mcp") expect(probe.stdin || "").toContain("initialize");
+        return { status: 0, stdout: probe.expect || "ok" };
+      },
+    });
+    const pythonDir = path.join(root, "self-check", "python");
+    expect(fs.readFileSync(path.join(pythonDir, "get-pip.py")).equals(body)).toBe(true);
+    const pth = fs.readFileSync(path.join(pythonDir, "python312._pth"), "utf8");
+    expect(pth).toMatch(/^import site$/m);
+    expect(pth).not.toMatch(/^#import site/m);
+    expect(commands[0]).toEqual(["python.exe", "get-pip.py"]);
+    expect(commands[1]).toEqual(["python.exe", "-m", "pip", "--version"]);
+    expect(commands.map((command) => command.join(" ")).join("\n")).toContain("whisper-cli.exe -h");
+    expect(detail).toContain("get-pip ok");
+    expect(detail).toContain("python ok");
+    expect(detail).toContain("node ok");
   });
 
   it("names the official and test differences and keeps new checks in the pipeline", () => {
