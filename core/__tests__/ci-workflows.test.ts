@@ -424,12 +424,13 @@ describe("self-heal is wired into every build and publish path", () => {
     expect(prepare).toContain("release-engine.cjs files --version");
   });
 
-  it("release publish heals in-tree before the tests and never pushes the repair", () => {
+  it("release publish heals in-tree before the build and never pushes the repair", () => {
     const src = read("release.yml");
     const publish = src.slice(src.indexOf("\n  publish:\n"));
     const heal = publish.indexOf("--through verify-versions");
     expect(heal).toBeGreaterThan(-1);
-    expect(heal).toBeLessThan(publish.indexOf("npm test -- --reporter=default"));
+    expect(publish.indexOf("npm run typecheck")).toBeLessThan(heal);
+    expect(publish).not.toContain("npm test");
     expect(publish).toContain("in-tree, never pushed");
     expect(publish).not.toContain("git push origin main");
     const pipeline = fs.readFileSync(
@@ -931,19 +932,22 @@ describe("official release", () => {
     expect(pipeline).toContain("force: true");
   });
 
-  it("re-restores reviewed notes after npm test and guards them before GitHub publish", () => {
-    expect(src).toContain("Restore reviewed release notes after tests");
+  it("re-restores reviewed notes before packaging and guards them before GitHub publish", () => {
+    expect(src).toContain("Restore reviewed release notes before packaging");
     expect(src).toContain("release-engine.cjs guard-notes");
     expect(src).toContain("Refusing to describe the whole history as this release.");
     expect(src).not.toContain("measuring the full history");
     expect(src).not.toContain("git log --no-merges --pretty=%s > commits.txt");
-    expect(at("Restore reviewed release notes after tests")).toBeGreaterThan(
-      at("npm test -- --reporter=default"),
+    const publish = src.slice(src.indexOf("\n  publish:\n"));
+    expect(publish.indexOf("Require a fresh green PR Validation")).toBeLessThan(
+      publish.indexOf("Restore reviewed release notes before packaging"),
+    );
+    expect(publish.indexOf("Restore reviewed release notes before packaging")).toBeLessThan(
+      publish.indexOf("Build with the shared pipeline"),
     );
     expect(at("Guard canonical What's New before publishing")).toBeLessThan(
       at("gh release create"),
     );
-    const publish = src.slice(src.indexOf("  publish:"));
     expect(publish).toContain("--setup");
     const rebuild = publish.slice(publish.indexOf("steps.plan.outputs.exists"));
     expect(rebuild).toContain("gh release upload");
@@ -1312,8 +1316,9 @@ describe("automatic-health workflows", () => {
     // GITHUB_TOKEN pushes start no workflow run, so the auto-healed head needs
     // its own "PR Validation" status or the pull request is BLOCKED forever.
     expect(src).toContain("id: heal");
-    expect(src).toContain("HEALED_SHA: ${{ steps.heal.outputs.sha }}");
-    expect(src).toContain("for sha in $TARGET_SHA $HEALED_SHA");
+    expect(src).toContain("healed: ${{ steps.heal.outputs.sha }}");
+    expect(src).toContain("HEALED_SHA: ${{ needs.static.outputs.healed }}");
+    expect(src).toContain('for one in "$sha" "$HEALED_SHA"');
     expect(src.indexOf('echo "sha=$healed" >> "$GITHUB_OUTPUT"')).toBeGreaterThan(
       src.indexOf('git push origin "HEAD:refs/heads/$branch"'),
     );
@@ -1400,20 +1405,34 @@ describe("automatic-health workflows", () => {
     );
     expect(pythonAt).toBeGreaterThan(-1);
     expect(auditAt).toBeGreaterThan(pythonAt);
-    const validateSteps = doc.jobs.validate.steps as Array<{ name?: string; run?: string }>;
-    const devInstalls = validateSteps.filter((step) =>
+    const staticSteps = doc.jobs.static.steps as Array<{ name?: string; run?: string }>;
+    const kernelSteps = doc.jobs.kernel.steps as Array<{ name?: string; run?: string }>;
+    const staticInstalls = staticSteps.filter((step) =>
       String(step.run || "").includes("kernel/requirements-dev.txt"),
     );
-    expect(devInstalls).toHaveLength(1);
-    const lintAt = validateSteps.findIndex((step) => step.name === "Lint");
-    const kernelAt = validateSteps.findIndex((step) => step.name === "Kernel tests");
-    const installAt = validateSteps.findIndex(
+    const kernelInstalls = kernelSteps.filter((step) =>
+      String(step.run || "").includes("kernel/requirements-dev.txt"),
+    );
+    expect(staticInstalls).toHaveLength(1);
+    expect(kernelInstalls).toHaveLength(1);
+    const lintAt = staticSteps.findIndex((step) => step.name === "Lint");
+    const kernelAt = kernelSteps.findIndex((step) => step.name === "Kernel tests");
+    const staticInstallAt = staticSteps.findIndex(
       (step) => step.name === "Install kernel dev requirements",
     );
-    expect(installAt).toBeGreaterThan(-1);
-    expect(lintAt).toBeGreaterThan(installAt);
-    expect(kernelAt).toBeGreaterThan(lintAt);
-    expect(String(validateSteps[lintAt]?.run)).not.toContain("pip install");
+    const kernelInstallAt = kernelSteps.findIndex(
+      (step) => step.name === "Install kernel dev requirements",
+    );
+    expect(staticInstallAt).toBeGreaterThan(-1);
+    expect(kernelInstallAt).toBeGreaterThan(-1);
+    expect(lintAt).toBeGreaterThan(staticInstallAt);
+    expect(kernelAt).toBeGreaterThan(kernelInstallAt);
+    expect(String(staticSteps[lintAt]?.run)).not.toContain("pip install");
+    expect(
+      doc.jobs.validate.steps.some((step: { run?: string }) =>
+        String(step.run || "").includes("context='PR Validation'"),
+      ),
+    ).toBe(true);
     expect(src).not.toContain("npm audit fix");
   });
 
@@ -1446,10 +1465,18 @@ describe("automatic-health workflows", () => {
     expect(prepare).toContain("previous result is");
     expect(prepare).toContain("npm test");
     expect(prepare).not.toContain("validation-freshness.cjs");
-    expect(publishJob).toContain("npm test");
+    expect(prepare.indexOf("npm run typecheck")).toBeLessThan(prepare.indexOf("npm test"));
+    expect(publishJob).not.toContain("npm test");
     expect(publishJob).toContain("merged tree is not the validated tree");
-    expect(publishJob).toContain("skip_linux");
-    expect(publishJob).not.toContain("validation-freshness.cjs");
+    expect(publishJob).toContain("validation-freshness.cjs");
+    expect(publishJob).toContain("--require-reuse");
+    expect(publishJob).not.toContain("skip_linux");
+    expect(publishJob.indexOf("npm run typecheck")).toBeLessThan(
+      publishJob.indexOf("Require a fresh green PR Validation"),
+    );
+    expect(publishJob.indexOf("Require a fresh green PR Validation")).toBeLessThan(
+      publishJob.indexOf("Build with the shared pipeline"),
+    );
     expect(read("pr-validation.yml")).toContain("node scripts/run-actionlint.cjs");
     expect(read("pr-validation.yml")).toContain("gitleaks:v8.30.1@sha256:");
     expect(read("security.yml")).toContain("gitleaks:v8.30.1@sha256:");

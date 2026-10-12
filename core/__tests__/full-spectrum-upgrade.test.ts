@@ -5,7 +5,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isOnline } from "./helpers/environment";
 import { createRequire } from "node:module";
 
 import { pageActionNeedsApproval, webClick } from "../../src/lib/friday/browser-engine";
@@ -66,33 +65,26 @@ describe("self-dev git policy", () => {
   });
 });
 
-const ONLINE = await isOnline();
-
 describe("real page numbers become a real chart", () => {
-  it.skipIf(!ONLINE)(
-    "fetches example.com, charts measured status and body length, and refuses empty charts",
-    async () => {
-      const response = await fetch("https://example.com/");
-      const body = await response.text();
-      expect(response.ok).toBe(true);
-      expect(body.length).toBeGreaterThan(20);
-      const title = /<title>([\s\S]*?)<\/title>/i.exec(body)?.[1]?.trim() || "example.com";
-      const chart = showRealChart({
-        title: `Fetched ${title}`,
-        source: "web-open",
-        body: `HTTP ${response.status}, ${body.length} characters (real fetch).`,
-        series: [
-          { label: "HTTP status", value: response.status },
-          { label: "body characters", value: body.length },
-        ],
-      });
-      expect("id" in chart).toBe(true);
-      if ("series" in chart) {
-        expect(chart.series?.some((point) => point.value === response.status)).toBe(true);
-      }
-    },
-    20_000,
-  );
+  it("charts measured status and body length from a fetched page", () => {
+    const status = 200;
+    const body = "<title>Example Domain</title><p>example body text for a chart</p>";
+    const title = /<title>([\s\S]*?)<\/title>/i.exec(body)?.[1]?.trim() || "example.com";
+    const chart = showRealChart({
+      title: `Fetched ${title}`,
+      source: "web-open",
+      body: `HTTP ${status}, ${body.length} characters (fixture page).`,
+      series: [
+        { label: "HTTP status", value: status },
+        { label: "body characters", value: body.length },
+      ],
+    });
+    expect("id" in chart).toBe(true);
+    if ("series" in chart) {
+      expect(chart.series?.some((point) => point.value === status)).toBe(true);
+      expect(chart.series?.some((point) => point.value === body.length)).toBe(true);
+    }
+  });
 });
 
 describe("tone stays identity-safe (owner review)", () => {

@@ -12,11 +12,17 @@ Run these from the repo root. `npm ci` installs Node dependencies. `npm run setu
 - `npm run test:kernel`
 - `npm run docs:sync` then `npm run docs:check`
 - `npm run arrange:check`
-- `npm run validate:local` — the local stand-in for PR Validation
+- `npm run validate:local` — the local stand-in for PR Validation. It calls the same command as `npm run preflight`.
+- `npm run preflight` — one gate. Cheap static checks run first, then the kernel, then the fast tests. It keeps going after a failure and prints one table. `npm run preflight -- --full` adds the Vitest suite and the Windows pack when this machine can run them. `npm run preflight -- --changed` runs the gates the diff can affect.
+- `npm run setup:hooks` — optional. Points this clone at `scripts/git-hooks` so pre-push runs preflight. Off until you run it.
 - `npm run check:provenance`
 - `npm run verify:version` when a governed doc or `config/friday-version.json` could drift
 
 `CLAUDE.md` is only `@AGENTS.md`. It is not a second copy of this file.
+
+## One gate
+
+Before any push or pull request update, run `npm run preflight` and report its table. A push with a red preflight is a failed task. `npm run validate:local` is that same command. The optional pre-push hook is `npm run setup:hooks`. The product does not require the hook.
 
 ## What FRIDAY is
 
@@ -92,7 +98,7 @@ This is the whole path for a fix, an upgrade, or a later public revision. The se
 4. **Keep what already works.** A task that leaves a previously working area broken has failed.
 5. **Same change, same pull request.** Tests for the new behaviour, the owning document, and `FRIDAY_STATE.md` land with the code. There is never a later cleanup. A problem found while doing the work is fixed in that same change.
 6. **Check in proportion.** Run the checks under "Checks". Say "unverified" when a Windows CMD, install, or publish path was not actually run.
-7. **Leave the pull request a draft.** Assistants must **not dispatch** PR Validation, FRIDAY Test Build, FRIDAY Release, or any other workflow, and must not mark the draft ready or merge it. The owner merges. Marking ready is only when the owner says to do that for *this* pull request. A draft starts only the secret scan. The owner marks it ready; that is the one full validation. Minutes running out is not a reason to commit to `main`. Run `npm run validate:local` and record that hosted Actions were unverified.
+7. **Leave the pull request a draft.** Assistants must **not dispatch** PR Validation, FRIDAY Test Build, FRIDAY Release, or any other workflow, and must not mark the draft ready or merge it. The owner merges. Marking ready is only when the owner says to do that for *this* pull request. A draft starts only the secret scan. The owner marks it ready; that is the one full validation. Minutes running out is not a reason to commit to `main`. Run `npm run preflight` and record that hosted Actions were unverified.
 8. **Finish the landing checklist** below before calling the task done. **Never commit, push, or land work on `main`.** The owner merges. Merging is the landing. Branch Cleanup deletes the merged head. This repo's `delete_branch_on_merge` setting is off, so if a merged head is still on `origin`, delete it with `git fetch origin --prune` then `git push origin --delete <branch>`. Never delete `main`, `master`, `develop`, `development`, `release`, `recovery/*`, or a branch whose pull request is still open or that still has unique unmerged work. When no pull request is in flight, GitHub shows **only `main`**.
 
 ## Research-led upgrades

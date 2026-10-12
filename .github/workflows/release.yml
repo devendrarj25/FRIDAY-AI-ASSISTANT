@@ -514,9 +514,13 @@ jobs:
           node scripts/release-engine.cjs heal --version '${{ steps.plan.outputs.version }}'
           node scripts/release-engine.cjs verify
 
-      # These tests stay even when main already has a green PR Validation.
-      # `apply` and `heal` just changed this tree, so the previous result is
-      # for a different commit and cannot be reused.
+      # apply and heal just changed this tree, so the previous result is
+      # for a different commit and cannot be reused. Typecheck runs first.
+      - name: Type check
+        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
+        shell: cmd
+        run: npm run typecheck
+
       - name: Run tests
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
         shell: bash
@@ -527,11 +531,6 @@ jobs:
           code=$?
           node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
           exit "$code"
-
-      - name: Type check
-        if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
-        shell: cmd
-        run: npm run typecheck
 
       - name: Verify FRIDAY layout and dependencies
         if: steps.pending.outputs.complete != 'true' && steps.pending.outputs.mode == 'create'
@@ -1337,52 +1336,85 @@ jobs:
             cp owner-notes.md release-notes.md
           fi
 
-      - name: Prepare the build environment
-        # Heal and verify run in-tree, never pushed. main is PR-only.
+      - name: Install dependencies
         shell: cmd
-        run: node scripts/build-pipeline.cjs --channel production --caller release --through verify-versions --report release/prepare-report.json
+        run: npm ci
 
-      - name: Compare the merged tree with the validated pin
-        id: linux
+      - name: Type check
+        shell: cmd
+        run: npm run typecheck
+
+      - name: Documentation and version in sync
+        shell: cmd
+        run: |
+          npm run docs:check
+          node scripts/arrange-project.cjs
+          node scripts/verify-deps.cjs
+
+      - name: Clean-architecture audit
+        shell: cmd
+        run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
+
+      - name: Verify version/documentation synchronization
+        shell: cmd
+        run: node scripts/release-engine.cjs verify
+
+      - name: Require a fresh green PR Validation
         shell: bash
         env:
           VALIDATED: ${{ needs.pin.outputs.head }}
         run: |
           set -euo pipefail
-          if [ -z "${VALIDATED}" ]; then
-            echo "skip_linux=false" >> "$GITHUB_OUTPUT"
-            echo "pin output is empty - Linux gates run on this Windows job"
-            exit 0
-          fi
-          git fetch origin "$VALIDATED" --quiet || git fetch origin "$VALIDATED"
+          sha=$(git rev-parse HEAD)
           here=$(git rev-parse "HEAD^{tree}")
-          there=$(git rev-parse "${VALIDATED}^{tree}")
-          if [ "$here" != "$there" ]; then
-            echo "::error::merged tree is not the validated tree ($here vs $there)"
+          validated=""
+          validated_tree=""
+          parent=""
+          parent_tree=""
+          if [ -n "${VALIDATED}" ]; then
+            git fetch origin "$VALIDATED" --quiet || git fetch origin "$VALIDATED"
+            validated="$VALIDATED"
+            validated_tree=$(git rev-parse "${VALIDATED}^{tree}")
+          elif git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
+            parent=$(git rev-parse 'HEAD^2')
+            parent_tree=$(git rev-parse 'HEAD^2^{tree}')
+          fi
+          plan=$(node -e "
+            const { releaseEvidenceCandidates } = require('./scripts/validation-freshness.cjs');
+            process.stdout.write(JSON.stringify(releaseEvidenceCandidates({
+              head: process.argv[1],
+              headTree: process.argv[2],
+              validated: process.argv[3],
+              validatedTree: process.argv[4],
+              mergeParent: process.argv[5],
+              mergeParentTree: process.argv[6],
+            })));
+          " "$sha" "$here" "$validated" "$validated_tree" "$parent" "$parent_tree")
+          ok=$(node -e "process.stdout.write(String(JSON.parse(process.argv[1]).ok))" "$plan")
+          if [ "$ok" != "true" ]; then
+            echo "::error::merged tree is not the validated tree. Commit $sha has no matching PR Validation tree. Run PR Validation on $sha, then run FRIDAY Release again."
             exit 1
           fi
-          echo "skip_linux=true" >> "$GITHUB_OUTPUT"
-          echo "validated tree matches this publish checkout - Linux gates already ran"
+          evidence_sha=""
+          while IFS= read -r one; do
+            [ -n "$one" ] || continue
+            if node scripts/validation-freshness.cjs --sha "$one" --require-reuse > decision.json; then
+              evidence_sha="$one"
+              break
+            fi
+          done < <(node -e "for (const sha of JSON.parse(process.argv[1]).candidates) console.log(sha)" "$plan")
+          if [ -z "$evidence_sha" ]; then
+            reason=$(node -e "try{process.stdout.write(require('./decision.json').message||require('./decision.json').reason||'')}catch{process.stdout.write('')}")
+            echo "::error::${reason:-PR Validation on $sha is not fresh and green. Run PR Validation for $sha, then run FRIDAY Release again. Publish does not re-run the suite.}"
+            exit 1
+          fi
+          echo "fresh green PR Validation on $evidence_sha"
 
-      - name: Run tests
-        if: steps.linux.outputs.skip_linux != 'true'
-        shell: bash
-        run: |
-          set +e
-          mkdir -p test-results
-          npm test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json
-          code=$?
-          node scripts/vitest-failure-summary.cjs test-results/vitest.json || true
-          exit "$code"
-
-      - name: Restore reviewed release notes after tests
-        # Defense in depth: unit tests must never be able to poison the GitHub
-        # Release body. Re-copy the reviewed notes and fail closed on fixture
-        # or version mismatch before packaging.
+      - name: Restore reviewed release notes before packaging
         shell: bash
         run: |
           file="releases/notes/${{ steps.plan.outputs.tag }}.md"
-          [ -f "$file" ] || { echo "::error::reviewed release notes missing after tests — refusing to publish."; exit 1; }
+          [ -f "$file" ] || { echo "::error::reviewed release notes missing — refusing to publish."; exit 1; }
           cp "$file" release-notes.md
           node scripts/release-engine.cjs guard-notes \
             --version '${{ steps.plan.outputs.version }}' \
@@ -1393,26 +1425,10 @@ jobs:
             --notes-file "$file" \
             --channel stable
 
-      - name: Type check
-        if: steps.linux.outputs.skip_linux != 'true'
+      - name: Prepare the build environment
+        # Heal and verify run in-tree, never pushed. main is PR-only.
         shell: cmd
-        run: npm run typecheck
-
-      - name: Verify FRIDAY layout and dependencies
-        if: steps.linux.outputs.skip_linux != 'true'
-        shell: cmd
-        run: |
-          node scripts/arrange-project.cjs
-          node scripts/verify-deps.cjs
-
-      - name: Clean-architecture audit
-        if: steps.linux.outputs.skip_linux != 'true'
-        shell: cmd
-        run: node scripts/audit-architecture.cjs --strict --json release/architecture-audit.json
-
-      - name: Verify version/documentation synchronization
-        shell: cmd
-        run: node scripts/release-engine.cjs verify
+        run: node scripts/build-pipeline.cjs --channel production --caller release --through verify-versions --report release/prepare-report.json
 
       - name: Build with the shared pipeline
         shell: powershell
@@ -1433,7 +1449,9 @@ jobs:
       - name: Explain a failed build
         if: failure()
         shell: bash
-        run: node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
+        run: |
+          node scripts/vitest-failure-summary.cjs test-results/vitest.json --pipeline release/build-report.json || true
+          node scripts/ci-gate-summary.cjs --gate publish --status failure --reproduce "npm run preflight -- --full" || true
 
       - name: Guard canonical What's New before publishing
         shell: bash

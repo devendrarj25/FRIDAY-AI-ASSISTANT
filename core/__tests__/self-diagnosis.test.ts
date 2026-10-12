@@ -111,10 +111,10 @@ describe("source health", () => {
 
   it("reads the live AUDIT.md table; lint is a problem only when that table still fails", async () => {
     const audit = readFileSync(auditPath, "utf8");
-    expect(audit).toMatch(/prettier/i);
     const problems = problemsFromAuditText(audit);
     const lint = problems.find((problem) => problem.id === "source:audit:lint");
     const lintRow = audit.match(/\|\s*Lint\s*\|\s*`npm run lint`\s*\|\s*(.+?)\s*\|/);
+    expect(lintRow?.[1], "the first Lint row is what Self-Management reads").toBeTruthy();
     const lintFailed = /(?:[1-9]\d*)\s+(prettier\s+)?errors?/i.test(lintRow?.[1] ?? "");
     if (lintFailed) {
       expect(lint).toBeDefined();

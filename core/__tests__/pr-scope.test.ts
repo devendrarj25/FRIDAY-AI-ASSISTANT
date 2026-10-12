@@ -93,10 +93,22 @@ describe("pr-scope: how the workflows use it", () => {
   it("PR Validation gates Windows behind a cheap gate and gives docs-only its own full Linux job", () => {
     const doc = load("pr-validation.yml");
     expect(doc.jobs.gate["runs-on"]).toBe("ubuntu-latest");
-    expect(doc.jobs.validate.needs).toBe("gate");
-    expect(doc.jobs.validate["runs-on"]).toBe("windows-latest");
+    expect(doc.jobs.static.needs).toBe("gate");
+    expect(doc.jobs.static["runs-on"]).toBe("ubuntu-latest");
+    expect(doc.jobs.kernel["runs-on"]).toBe("ubuntu-latest");
+    expect(doc.jobs["tests-windows"]["runs-on"]).toBe("windows-latest");
+    expect(doc.jobs["package-windows"]["runs-on"]).toBe("windows-latest");
+    expect(doc.jobs["tests-windows"].strategy["fail-fast"]).toBe(false);
+    expect(doc.jobs.validate.needs).toEqual([
+      "gate",
+      "static",
+      "kernel",
+      "tests-windows",
+      "package-windows",
+    ]);
     expect(doc.jobs.validate.if).toContain("needs.gate.result == 'success'");
     expect(doc.jobs.validate.if).toContain("docs_only != 'true'");
+    expect(doc.jobs.validate.if).toContain("always()");
     const dj = doc.jobs["docs-only"];
     expect(dj.needs).toBe("gate");
     expect(dj.if).toContain("docs_only == 'true'");
