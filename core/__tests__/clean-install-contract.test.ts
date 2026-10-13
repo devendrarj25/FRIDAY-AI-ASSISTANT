@@ -144,6 +144,21 @@ describe("node toolchain version set", () => {
   it("allows Electron's trusted package installer during npm ci", () => {
     expect(read(".npmrc")).toContain("ignore-scripts=false");
     expect(read("node_modules/electron/install.js")).toContain("downloadArtifact");
+    const pkgJson = JSON.parse(read("package.json")) as {
+      allowScripts?: { electron?: boolean; "electron-winstaller"?: boolean };
+      npm?: { allowScripts?: unknown };
+    };
+    expect(pkgJson.npm).toBeUndefined();
+    expect(pkgJson.allowScripts?.electron).toBe(true);
+    expect(pkgJson.allowScripts?.["electron-winstaller"]).toBe(false);
+    const electronPkg = JSON.parse(read("node_modules/electron/package.json")) as {
+      scripts?: { install?: string; postinstall?: string; preinstall?: string };
+    };
+    expect(
+      electronPkg.scripts?.install ||
+        electronPkg.scripts?.postinstall ||
+        electronPkg.scripts?.preinstall,
+    ).toBeUndefined();
   });
 
   it("provisions and resolves an isolated Python runtime for installed builds", () => {
@@ -436,6 +451,8 @@ describe("python requirement set", () => {
     expect(setup).toContain("faster_whisper");
     expect(setup).toContain("edge_tts");
     expect(setup).toContain("--load-probe");
+    expect(setup).toContain("INFO speech model not cached yet; it downloads on first use");
+    expect(setup).toContain("whisper-load-probe.json");
     expect(setup).toContain("requirements-capabilities.txt");
     expect(setup).toContain("timeout: 120000");
   });

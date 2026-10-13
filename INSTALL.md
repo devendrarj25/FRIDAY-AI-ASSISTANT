@@ -326,7 +326,7 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 | `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | Pack is good; no local LLM is loaded. This tree's `--pack` gate continues. Load a model in Ollama / LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fail-closes Chat |
 | Doctor reports `MISSING npm` right after `npm ci` added hundreds of packages | npm is present. A checkout folder with a space (`FRIDAY- AI OS`) plus a broken `cmd.exe /S /C` quote strip made `--version` fail. Pull `main` and re-run `npm run doctor`. Do not reinstall Node |
 | `The directory name is invalid` while cleaning `release` | Cosmetic when `rmdir` runs on a name that is not a folder. Pack continues (`2>nul`). Do **not** write `if exist "release\\"` — cmd.exe escapes the quote and can stop the pack |
-| `npm warn allow-scripts electron-winstaller` | Warning only. The pack does not require that install script |
+| `npm warn allow-scripts electron-winstaller` | The package is explicitly denied in `package.json` `allowScripts`. Its install script only copies Squirrel 7-Zip. NSIS and Portable do not use it. `electron` is explicitly allowed. Electron 43 has no install script, so `npm run setup:electron` still downloads the binary |
 | `(node:…) [DEP0190] DeprecationWarning` after `check:env` | Node 22+ warning when `shell: true` was used with an args array. This tree spawns `.cmd` via `cmd.exe /c` instead |
 
 Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.

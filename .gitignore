@@ -47,6 +47,10 @@ release-notes.md
 bun.lock
 .friday-readiness-root/
 
+# Isolated Python environments created by setup. Not part of the installer.
+.venv/
+runtime/.venv/
+
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
 
@@ -70,7 +74,9 @@ releases/previous/*
 temporary/**
 !temporary/**/
 !temporary/**/.gitkeep
-debug/**/*.json
+debug/**
+!debug/**/
+!debug/**/.gitkeep
 backup/**
 !backup/**/
 !backup/**/.gitkeep

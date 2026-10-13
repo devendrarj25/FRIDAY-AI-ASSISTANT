@@ -23,27 +23,45 @@
 #
 # Nothing here is weakened to make CI green: every check either proves the real
 # behaviour or fails the job.
+#
+# Local runs do not have GitHub's RUNNER_TEMP. PowerShell 7.6 Join-Path rejects
+# a null Path. When -Installer is omitted, the Setup EXE is
+# release\FRIDAY-Setup-<public version>.exe under the repo root.
 
 param(
-  [Parameter(Mandatory = $true)][string]$Installer,
+  [string]$Installer = "",
   [string]$Product = "FRIDAY",
   [string]$ReleaseDir = ""
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-$installerPath = (Resolve-Path $Installer).Path
-$sandbox = Join-Path $env:RUNNER_TEMP ("friday-installer-smoke-" + [Guid]::NewGuid().ToString("N"))
-# Single-root contract: the installer takes ONE root folder via /D, installs
-# the program into <root>\App and keeps every data sibling under <root>.
-$rootDir = Join-Path $sandbox "FRIDAY"
-$installDir = Join-Path $rootDir "App"
-# Data lives directly under the SAME root, as siblings of App - there is no
-# separate "Data" root any more (single-root contract).
-$dataDir = $rootDir
-$sentinel = Join-Path $dataDir "config\installer-smoke-sentinel.txt"
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+  $PSNativeCommandUseErrorActionPreference = $true
+}
+
+function Test-Blank([string]$Value) {
+  return [string]::IsNullOrWhiteSpace($Value)
+}
+
+function Get-Note($Object, [string]$Name) {
+  if ($null -eq $Object) { return $null }
+  $prop = $Object.PSObject.Properties[$Name]
+  if ($null -eq $prop) { return $null }
+  return $prop.Value
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$sandbox = $null
+$rootDir = $null
+$installDir = $null
+$dataDir = $null
+$sentinel = $null
+$installerPath = $null
 $registry = "HKCU:\Software\FRIDAY"
 $oldWorkspace = $null
 $oldInstall = $null
+$smokeError = $null
 
 # Start a process and immediately cache its handle, so ExitCode is available
 # after it exits (PowerShell/.NET drop the handle otherwise and ExitCode
@@ -125,10 +143,10 @@ function Resolve-Uninstaller {
     foreach ($key in (Get-ChildItem $root -ErrorAction SilentlyContinue)) {
       $entry = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
       if ($null -eq $entry) { continue }
-      $location = "$($entry.InstallLocation)".TrimEnd('\')
+      $location = "$(Get-Note $entry 'InstallLocation')".TrimEnd('\')
       if ($location -ne $installDir.TrimEnd('\')) { continue }
-      $command = "$($entry.QuietUninstallString)"
-      if (-not $command) { $command = "$($entry.UninstallString)" }
+      $command = "$(Get-Note $entry 'QuietUninstallString')"
+      if (-not $command) { $command = "$(Get-Note $entry 'UninstallString')" }
       if (-not $command) { continue }
       $exe = $command.Trim()
       if ($exe.StartsWith('"')) { $exe = $exe.Substring(1, $exe.IndexOf('"', 1) - 1) }
@@ -160,14 +178,15 @@ function Run-Setup {
     # Real diagnosis instead of a bare "missing": report the setup exit code,
     # every place the program could have landed, and the registry pointers the
     # installer writes, so a wrong install location is provable from the log.
-    Write-Host "[friday] setup exit code: $($p.ExitCode)"
+    Write-Host "[friday] setup exit code: $(Get-Note $p 'ExitCode')"
     Write-Host "[friday] sandbox tree:"
     Get-ChildItem -LiteralPath $sandbox -Recurse -Depth 3 -ErrorAction SilentlyContinue |
       Select-Object -First 60 -ExpandProperty FullName | ForEach-Object { Write-Host "    $_" }
-    foreach ($candidate in @(
-        (Join-Path $env:LOCALAPPDATA "Programs"),
-        (Join-Path $env:PROGRAMFILES $Product),
-        (Join-Path $env:USERPROFILE "FRIDAY"))) {
+    $parents = @()
+    if (-not (Test-Blank $env:LOCALAPPDATA)) { $parents += (Join-Path $env:LOCALAPPDATA "Programs") }
+    if (-not (Test-Blank $env:PROGRAMFILES)) { $parents += (Join-Path $env:PROGRAMFILES $Product) }
+    if (-not (Test-Blank $env:USERPROFILE)) { $parents += (Join-Path $env:USERPROFILE "FRIDAY") }
+    foreach ($candidate in $parents) {
       if (Test-Path -LiteralPath $candidate) {
         Get-ChildItem -LiteralPath $candidate -Recurse -Filter "FRIDAY.exe" -ErrorAction SilentlyContinue |
           ForEach-Object { Write-Host "[friday] stray install: $($_.FullName)" }
@@ -176,7 +195,7 @@ function Run-Setup {
     foreach ($key in @("HKCU:\Software\FRIDAY", "HKCU:\Software\FRIDAY Test")) {
       if (Test-Path $key) {
         $props = Get-ItemProperty $key
-        Write-Host "[friday] $key WorkspacePath=$($props.WorkspacePath) InstallPath=$($props.InstallPath)"
+        Write-Host "[friday] $key WorkspacePath=$(Get-Note $props 'WorkspacePath') InstallPath=$(Get-Note $props 'InstallPath')"
       }
     }
     $listing = (Get-ChildItem -LiteralPath $installDir -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ", "
@@ -265,13 +284,50 @@ function Verify-UpdateManifest {
   Write-Host "[friday] update manifest hash verified"
 }
 
-
 try {
+  if (Test-Blank $Installer) {
+    $versionFile = Join-Path $repoRoot "config\friday-version.json"
+    if (-not (Test-Path -LiteralPath $versionFile)) {
+      throw "installer smoke needs -Installer, or $versionFile, so it can find release\FRIDAY-Setup-<public version>.exe."
+    }
+    $versionJson = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
+    $publicVersion = "$(Get-Note $versionJson 'major').$(Get-Note $versionJson 'minor').$(Get-Note $versionJson 'patch').$(Get-Note $versionJson 'revision')"
+    if ($publicVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+      throw "installer smoke could not read a four-part public version from $versionFile (got '$publicVersion'). Expected release\FRIDAY-Setup-<public version>.exe."
+    }
+    $Installer = Join-Path $repoRoot "release\FRIDAY-Setup-$publicVersion.exe"
+    if (-not (Test-Path -LiteralPath $Installer)) {
+      throw "installer smoke found no Setup EXE. Expected $Installer (release\FRIDAY-Setup-<public version>.exe from config\friday-version.json). Pass -Installer to use another file."
+    }
+  }
+  if (Test-Blank $Installer -or -not (Test-Path -LiteralPath $Installer)) {
+    throw "installer smoke found no Setup EXE. Expected path: '$Installer'. Pass -Installer or place release\FRIDAY-Setup-<public version>.exe in the repo root."
+  }
+  $installerPath = (Resolve-Path -LiteralPath $Installer).Path
+
+  $tempRoot = $env:RUNNER_TEMP
+  if (Test-Blank $tempRoot) { $tempRoot = [IO.Path]::GetTempPath() }
+  if (Test-Blank $tempRoot) {
+    throw "installer smoke has no temp directory. RUNNER_TEMP is unset and GetTempPath() returned nothing."
+  }
+  $sandbox = Join-Path $tempRoot.TrimEnd('\', '/') ("friday-installer-smoke-" + [Guid]::NewGuid().ToString("N"))
+  # Single-root contract: the installer takes ONE root folder via /D, installs
+  # the program into <root>\App and keeps every data sibling under <root>.
+  $rootDir = Join-Path $sandbox "FRIDAY"
+  $installDir = Join-Path $rootDir "App"
+  # Data lives directly under the SAME root, as siblings of App - there is no
+  # separate "Data" root any more (single-root contract).
+  $dataDir = $rootDir
+  $sentinel = Join-Path $dataDir "config\installer-smoke-sentinel.txt"
+
   New-Item -ItemType Directory -Path (Split-Path $sentinel) -Force | Out-Null
   Set-Content -Path $sentinel -Value "preserve-me" -NoNewline
   if (Test-Path $registry) {
-    $oldWorkspace = (Get-ItemProperty $registry -Name WorkspacePath -ErrorAction SilentlyContinue).WorkspacePath
-    $oldInstall = (Get-ItemProperty $registry -Name InstallPath -ErrorAction SilentlyContinue).InstallPath
+    $saved = Get-ItemProperty $registry -ErrorAction SilentlyContinue
+    if ($null -ne $saved) {
+      $oldWorkspace = Get-Note $saved "WorkspacePath"
+      $oldInstall = Get-Note $saved "InstallPath"
+    }
   }
   New-Item -Path $registry -Force | Out-Null
   Set-ItemProperty $registry WorkspacePath $rootDir
@@ -318,7 +374,7 @@ try {
     foreach ($key in (Get-ChildItem $rootKey -ErrorAction SilentlyContinue)) {
       $entry = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
       if ($null -eq $entry) { continue }
-      $location = "$($entry.InstallLocation)".TrimEnd('\')
+      $location = "$(Get-Note $entry 'InstallLocation')".TrimEnd('\')
       if ($location -eq $installDir.TrimEnd('\')) { $uninstallHits++ }
     }
   }
@@ -341,12 +397,27 @@ try {
   Assert-NoInstallOrphans
   if (-not (Test-Path $sentinel)) { throw "Uninstall removed the FRIDAY data folder." }
   Write-Host "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved"
-  exit 0
+} catch {
+  $smokeError = $_
+  Write-Host "[friday] FAIL installer smoke: $($_.Exception.Message)"
 } finally {
-  Remove-Item Env:\FRIDAY_BOOT_SELFTEST -ErrorAction SilentlyContinue
-  if ($null -ne $oldWorkspace) { Set-ItemProperty $registry WorkspacePath $oldWorkspace }
-  else { Remove-ItemProperty $registry WorkspacePath -ErrorAction SilentlyContinue }
-  if ($null -ne $oldInstall) { Set-ItemProperty $registry InstallPath $oldInstall }
-  else { Remove-ItemProperty $registry InstallPath -ErrorAction SilentlyContinue }
-  Remove-Item $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+  try {
+    Remove-Item Env:\FRIDAY_BOOT_SELFTEST -ErrorAction SilentlyContinue
+    if (Test-Path $registry) {
+      if ($null -ne $oldWorkspace) { Set-ItemProperty $registry WorkspacePath $oldWorkspace }
+      else { Remove-ItemProperty $registry WorkspacePath -ErrorAction SilentlyContinue }
+      if ($null -ne $oldInstall) { Set-ItemProperty $registry InstallPath $oldInstall }
+      else { Remove-ItemProperty $registry InstallPath -ErrorAction SilentlyContinue }
+    }
+    if (-not (Test-Blank $sandbox)) {
+      Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  } catch {
+    if ($null -eq $smokeError) {
+      $smokeError = $_
+      Write-Host "[friday] FAIL installer smoke cleanup: $($_.Exception.Message)"
+    }
+  }
 }
+if ($null -ne $smokeError) { exit 1 }
+exit 0

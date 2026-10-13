@@ -11,19 +11,15 @@
   "private": true,
   "sideEffects": false,
   "trustedDependencies": [
-    "electron",
-    "electron-winstaller"
+    "electron"
   ],
-  "npm": {
-    "allowScripts": {
-      "electron": true,
-      "electron-winstaller": true
-    }
+  "allowScripts": {
+    "electron": true,
+    "electron-winstaller": false
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron",
-      "electron-winstaller"
+      "electron"
     ]
   },
   "type": "module",

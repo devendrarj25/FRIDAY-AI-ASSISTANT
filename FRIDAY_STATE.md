@@ -30,7 +30,7 @@ Baseline `npm run preflight` exited 0 before these docs were edited. Fourteen ga
 
 ## UNVERIFIED
 
-The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched for this docs change. The owner checked workflow runs on 2026-10-13 and reported them green. That report is not a new run of this branch.
+The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched. The owner checked workflow runs on 2026-10-13 and reported them green. That report is not a new run of this branch.
 
 ## Snapshot
 
@@ -107,13 +107,13 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
-- Owner Windows CMD pack, EXE install, boot, uninstall, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree.
+- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, uninstall, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. The smoke script no longer passes a null `RUNNER_TEMP` to `Join-Path`. That fix has not been run on Windows.
 - Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.
 - Live keyed provider calls and `npm run models:check --live` were not run. No owner keys are in this environment.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- `npm audit`, `pip-audit`, and `npm run models:check` were not re-run here. Do not treat an older zero as this session's result.
+- `npm audit` on this tree reported 0 vulnerabilities. `pip-audit` and `npm run models:check` were not re-run.
 
 ## Next priorities
 
@@ -130,9 +130,13 @@ Owner checks stay in order. A failed step should be reported with the step numbe
    7. Ask it to write a file. Approve once, then deny a second write.
    8. Revoke the client, then turn the MCP server off. The other app should fail the next call with a clear error.
 3. Voice and Auto, in this order: Doctor voice self-test, the wake word plus one sentence, a 3-turn conversation, an interruption, a network drop, Refresh free list, Test my free models, one Chat turn and one Auto turn on the same free pool, then unplug and replug the microphone, sleep and resume, then Python, Node, a C compile, Git status, and the local CI report. If a step fails, copy the Voice rows, the Toolchain rows, and the on-screen status. Confirm Install Manager no longer says Manual for faster-whisper when that runtime or an existing Python can be created, and confirm a model download names the failing step. Speaker: a missing file is not a match, a match never executes, and enrol waits until the file is on this PC.
-4. Local CMD pack on that PC: `npm run build:win`. Expect `release\FRIDAY-Setup-1.1.2.2.exe`, `release\FRIDAY-Portable-1.1.2.2.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin` (and the other staged packs beside it, not under a second `resources` folder). That pack is not a GitHub release.
+4. Local CMD pack on that PC, from this branch, in `D:\FRIDAY-AI-ASSISTANT`: `git fetch`, check out the branch, `npm run setup`, then `npm run build:win`. Expect the log to end with every step PASS, no installer-smoke Path error, no `first run failed`, and `echo %ERRORLEVEL%` printing `0`. Then `git status` should be clean. Expect `release\FRIDAY-Setup-1.1.2.2.exe`, `release\FRIDAY-Portable-1.1.2.2.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin` (and the other staged packs beside it, not under a second `resources` folder). That pack is not a GitHub release. If a step fails, keep the log tail and the newest `debug\reports\readiness-*.json`.
 5. With the owner's keys, run `npm run models:check --live`. Offline classification is already covered by tests. A live keyed call is not.
 6. Do not stage-publish `1.1.2.2` again. The next update is a separate owner run. With no stronger change, the patch is `1.1.2.3`. Do not open a second non-release pull request while one into `main` is open. Do not dispatch a workflow. Workflow files stay locked until a second yes or ok.
 7. Finding, not fixed here. `src/routeTree.gen.ts` is generated by Vite (`vite dev`, `vite build`, Vitest) with a trailing `declare module` block, and `npm run build:desktop` removes that block. After a desktop build, restore the committed file. Impact: a one-block diff that is not a product change. Owner area: build and packaging, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 8. Finding, not fixed here. No `Content-Security-Policy` header is set on the packaged page (`electron/` has no such string). Impact: the packaged window relies on the existing sandbox and navigation allow-list. Owner area: Electron security, already noted in [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md).
 9. Finding, not fixed here. `npm run test:fast` is `vitest run --changed`. On a markdown-only diff it printed `No test files found` and exited 0. Impact: the tests that read these docs are not selected until `npm test`. Owner area: the local gate, `scripts/test-fast.cjs`.
+10. Owner decision. recharts 2.15.4 to 3.x is a UI change and was not done. Latest 3.10.1. Breaking notes from the [3.0 migration guide](https://github.com/recharts/recharts/wiki/3.0-migration-guide): `CategoricalChartState` is gone, `Customized` no longer receives internal state, internal props such as `activeIndex` were removed, `ResponsiveContainer` `ref.current.current` is gone, and `accessibilityLayer` is on by default. The only import is `src/components/ui/chart.tsx`. `core/__tests__/project-governance.test.ts` pins `dependencies.recharts` to `^2.`. Impact: the install warns that 2.x is deprecated. Owner area: UI, a separate task.
+11. Waiting on a parent. `tsconfck` 3.1.6 (unmaintained) is required by `vite-tsconfig-paths` 6.1.1, which is the latest 6.x. `rcedit` 5.0.2 is the latest and is marked unsupported; `scripts/brand-windows.cjs` still imports it. No override. Owner area: build, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+12. Finding, not fixed here. The desktop Vite build warns that the AppShell chunk is over 500 kB. `autoCodeSplitting` is already on. `chunkSizeWarningLimit` was not raised. Further splits would edit `src/components/friday/AppShell.tsx`. Impact: a slower first paint of the shell. Owner area: UI.
+13. Finding, not a change. A constraints file that pins Node, npm, Python, and PowerShell would fight the `>=` floors (newer versions are reused). The 2026-10-13 known-good line is in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). Owner area: toolchain floors.

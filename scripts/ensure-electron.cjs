@@ -1,9 +1,10 @@
 /**
  * FRIDAY — Electron binary guard.
  *
- * Electron's npm install script is the primary installer. If it did not leave a
- * usable binary, this guard runs that installer once and then downloads the
- * exact resolved Electron release archive as a deterministic fallback.
+ * Electron 42 and later publish no install script. npm ci therefore does not
+ * download the binary. This guard runs the official installer (install.js)
+ * and then the release archive and @electron/get if that installer does not
+ * leave a usable binary.
  *
  * The fallback follows redirects, honours HTTP_PROXY/HTTPS_PROXY through
  * undici, validates the response/archive and extracts into electron/dist.
@@ -376,8 +377,24 @@ async function ensureElectron() {
       run: () => downloadViaElectronGet(version),
     },
   ];
+  const lifecycle = (() => {
+    try {
+      const scripts =
+        JSON.parse(fs.readFileSync(path.join(electronDir, "package.json"), "utf8")).scripts || {};
+      return Boolean(scripts.install || scripts.postinstall || scripts.preinstall);
+    } catch {
+      return false;
+    }
+  })();
+  if (!initial.present && !lifecycle) {
+    log(
+      `installing Electron v${version} (the package has no install script, so npm ci does not download the binary)`,
+    );
+  } else if (!initial.present) {
+    log("electron install script did not leave a binary — installing it now");
+  }
   for (const method of methods) {
-    log(`electron binary missing — trying ${method.label} ...`);
+    log(`trying ${method.label} ...`);
     try {
       const done = await method.run();
       if (done && isUsable()) {

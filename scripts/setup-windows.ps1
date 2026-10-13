@@ -321,13 +321,13 @@ try {
   Write-Step 'Installing the exact Node dependency lockfile'
   & npm.cmd ci --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) {
-    Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - retrying with a clean npm cache"
+    Write-MethodFailure 'npm ci' "exit code $LASTEXITCODE - npm cache verify, then one retry"
     & npm.cmd cache verify
     & npm.cmd ci --no-audit --no-fund --registry https://registry.npmjs.org/
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed. See the output above for the failing package.' }
   }
 
-  Write-Step 'Verifying the Electron binary (multi-method repair only if it is missing)'
+  Write-Step 'Installing the Electron binary when npm ci did not download it'
   & node.exe scripts\ensure-electron.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Electron binary installation failed after every official method.' }
 
@@ -344,7 +344,16 @@ try {
   Write-Step 'Running final readiness verification'
   & npm.cmd run doctor
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY Doctor did not pass.' }
+  Write-Step ("resolved versions - node {0}, npm {1}, python {2}, git {3}, pwsh {4} (floors in config\toolchain-versions.json; newer versions are reused)" -f `
+    (Get-Version 'node.exe' @('--version')), `
+    (Get-Version 'npm.cmd' @('--version')), `
+    (Get-Version 'py.exe' @('-3', '--version')), `
+    (Get-Version 'git.exe' @('--version')), `
+    (Get-Version 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()')))
   Write-Host '[FRIDAY] SETUP PASS - FRIDAY is ready to test, build and run.' -ForegroundColor Green
+} catch {
+  Write-Host "[FRIDAY] SETUP FAIL - $($_.Exception.Message)" -ForegroundColor Red
+  exit 1
 } finally {
   Pop-Location
 }
