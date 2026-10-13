@@ -20,7 +20,7 @@ import type { LucideIcon } from "lucide-react";
 import { FridayOrb } from "@/components/friday/FridayOrb";
 import type { ComponentId, LiveComponent } from "@/lib/friday/use-friday-live";
 import { circuitReadoutLines, useFridayLive } from "@/lib/friday/use-friday-live";
-import { noteVoiceFrame, voiceDebugOn } from "@/lib/friday/voice-doctor";
+import { noteVoiceFrame, resetVoiceRenderRate, voiceDebugOn } from "@/lib/friday/voice-doctor";
 import { cn } from "@/lib/utils";
 
 /**
@@ -215,6 +215,7 @@ export const NeuralCircuit = memo(function NeuralCircuit({
   const linesRef = useRef(large ? 0 : 3);
   useEffect(() => {
     if (voiceDebugOn()) noteVoiceFrame();
+    else resetVoiceRenderRate();
   });
   // Auto Mode slots are height-bound: measure the stage once (and on resize)
   // and show only as many readout lines as fit without boxes ever touching.
