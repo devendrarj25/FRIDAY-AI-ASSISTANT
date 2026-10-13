@@ -49,11 +49,19 @@ describe("model access classification", () => {
       modelId: "openai/gpt-oss-20b",
     });
     expect(groqOther.billingMode).toBe("UNKNOWN");
-    expect(groqFreePlan.billingMode).toBe("FREE_QUOTA");
+    expect(groqFreePlan.billingMode).toBe("PAID");
     expect(groqFreePlan.eligibility).toBe("ELIGIBLE");
     expect(groqFreePlan.pricing.input).toBe(0.075);
-    expect(groqFreePlan.evidence.source).toBe("provider_free_plan");
-    expect(access.coarseAccess(groqFreePlan)).toBe("free");
+    expect(groqFreePlan.evidence.source).toBe("provider_pricing");
+    expect(access.coarseAccess(groqFreePlan)).toBe("paid");
+    expect(access.isFreeCandidate(groqFreePlan)).toBe(false);
+    const declared = access.classifyModel({
+      providerId: "groq",
+      modelId: "openai/gpt-oss-20b",
+      ownerDeclaration: { model: "free" },
+    });
+    expect(declared.billingMode).toBe("FREE_QUOTA");
+    expect(declared.evidence.source).toBe("owner_declared");
   });
 
   it("C. rejects a paid model in free-only mode", () => {
@@ -155,10 +163,11 @@ describe("model access classification", () => {
       providerId: "groq",
       modelId: "qwen/qwen3.8-27b",
     });
-    expect(plan.billingMode).toBe("FREE_QUOTA");
+    expect(plan.billingMode).toBe("PAID");
     expect(plan.pricing.input).toBe(0.8);
     expect(plan.pricing.output).toBe(4);
-    expect(plan.evidence.source).toBe("provider_free_plan");
+    expect(plan.evidence.source).toBe("provider_pricing");
+    expect(access.isFreeCandidate(plan)).toBe(false);
   });
 
   it("I. Gemini Free Tier is model-specific and project-tier-specific", () => {
@@ -451,7 +460,12 @@ describe("model access classification", () => {
 
   it("Groq prices are an exact-id list: contact-sales and unlisted ids stay unknown", () => {
     const listed = access.classifyModel({ providerId: "groq", modelId: "qwen/qwen3.8-27b" });
-    expect(listed.billingMode).toBe("FREE_QUOTA");
+    expect(listed.billingMode).toBe("PAID");
+    expect(listed.evidence.source).toBe("provider_pricing");
+    const dropped = access.classifyModel({ providerId: "zhipu", modelId: "glm-4.6v-flash" });
+    expect(dropped.billingMode).toBe("UNKNOWN");
+    const oldGemini = access.classifyModel({ providerId: "gemini", modelId: "gemini-3.7-flash" });
+    expect(oldGemini.billingMode).toBe("UNKNOWN");
     for (const modelId of [
       "llama-3.3-70b-versatile",
       "llama-3.1-8b-instant",
@@ -655,11 +669,18 @@ describe("model access classification", () => {
       expired: boolean;
     }>;
     expect(due.some((row) => row.id === "mistral" && row.due && !row.expired)).toBe(true);
-    expect(due.some((row) => row.id === "groq" && row.due && !row.expired)).toBe(true);
+    expect(due.some((row) => row.id === "groq")).toBe(false);
+    const later = Date.parse("2026-10-26T00:00:00Z");
+    const laterDue = access.planKnowledgeRefresh(later) as Array<{
+      id: string;
+      due: boolean;
+      expired: boolean;
+    }>;
+    expect(laterDue.some((row) => row.id === "groq" && row.due && !row.expired)).toBe(true);
   });
 
   it("changes a price only when the page parses", () => {
-    const now = Date.parse("2026-10-08T00:00:00Z");
+    const now = Date.parse("2026-10-14T00:00:00Z");
     const before = (
       access.knowledgeCatalogue(now) as Array<{ id: string; checkedAt: number }>
     ).find((row) => row.id === "groq");

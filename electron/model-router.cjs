@@ -297,67 +297,141 @@ function cooldownJitter(ms, salt = 0) {
   return base + wobble;
 }
 
+function headerValue(input, name) {
+  if (!input || typeof input !== "object") return undefined;
+  const headers = input.headers && typeof input.headers === "object" ? input.headers : {};
+  const wanted = String(name || "").toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (String(key).toLowerCase() === wanted) return headers[key];
+  }
+  return undefined;
+}
+
+/** Groq documents x-ratelimit-remaining-requests as the daily (RPD) counter. */
+function dailyRemaining(input) {
+  const raw = headerValue(input, "x-ratelimit-remaining-requests");
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+const NEXT_STEP = Object.freeze({
+  rate_limited: "Wait for the per-minute limit, then try this model again.",
+  daily_limit: "The daily limit is used. Wait until it resets, or use another free model.",
+  quota_exceeded: "This account's quota is used. Wait, or use a different provider.",
+  billing_required:
+    "This model needs paid access. Other free models can still be tried. Turn paid access on only if you mean to spend.",
+  invalid_key: "Check this provider's API key in Models.",
+  model_access: "This key cannot use this model. Other models on this provider are still eligible.",
+  region_block: "This model is blocked in this region. Pick a model that is available here.",
+  model_unavailable: "This model id is gone. FRIDAY will try the next candidate.",
+  offline: "The engine is not running. Start it, then try again.",
+  provider_error: "The provider failed. FRIDAY will try a different provider.",
+});
+
 function classifyError(input) {
   const text = String(input?.message || input || "").toLowerCase();
   const status = Number(input?.status || /http (\d{3})/.exec(text)?.[1] || 0);
 
   const has = (...needles) => needles.some((n) => text.includes(n));
+  const withStep = (row) => ({ ...row, nextStep: NEXT_STEP[row.category] || "" });
 
   if (status === 429 || has("rate limit", "rate-limit", "rate_limit", "too many requests")) {
     const retryAfter = cooldownFromRetryAfter(input);
     if (has("quota", "insufficient_quota", "billing", "exceeded your current quota")) {
-      return {
+      return withStep({
         category: "quota_exceeded",
         retryable: true,
         cooldownMs: retryAfter || 30 * 60_000,
-      };
+      });
     }
     // A DAILY cap (OpenRouter's free tier is 50/day under 10 credits, 1000/day
-    // after) is not the same as a per-minute burst limit: retrying in a minute
-    // cannot clear it, so it cools down for an hour and reads differently.
-    if (has("per day", "per-day", "daily", "free-models-per-day")) {
-      return { category: "daily_limit", retryable: true, cooldownMs: 60 * 60_000 };
+    // after) is not the same as a per-minute burst limit. Groq's
+    // x-ratelimit-remaining-requests header is the daily counter.
+    const remaining = dailyRemaining(input);
+    if (remaining === 0 || has("per day", "per-day", "daily", "free-models-per-day")) {
+      return withStep({
+        category: "daily_limit",
+        retryable: true,
+        cooldownMs: retryAfter || 60 * 60_000,
+      });
     }
-    return { category: "rate_limited", retryable: true, cooldownMs: retryAfter || 60_000 };
+    return withStep({
+      category: "rate_limited",
+      retryable: true,
+      cooldownMs: retryAfter || 60_000,
+    });
   }
   if (has("insufficient_quota", "exceeded your current quota", "quota")) {
-    return { category: "quota_exceeded", retryable: true, cooldownMs: 30 * 60_000 };
+    return withStep({ category: "quota_exceeded", retryable: true, cooldownMs: 30 * 60_000 });
   }
-  if (has("billing", "payment required") || status === 402) {
-    return { category: "billing_required", retryable: false, cooldownMs: 60 * 60_000 };
-  }
-  if (status === 401 || status === 403 || has("api key", "unauthorized", "invalid_api_key")) {
-    return { category: "invalid_key", retryable: false, cooldownMs: 15 * 60_000 };
-  }
-  if (has("content_filter", "content filter", "content policy")) {
-    return {
-      category: "content_filter",
-      retryable: false,
-      cooldownMs: cooldownJitter(60_000, 1),
-    };
-  }
-  if (has("region block", "not available in your region", "geo-blocked")) {
-    return {
+  if (has("not available in your region", "region block", "geo-blocked")) {
+    return withStep({
       category: "region_block",
       retryable: false,
       cooldownMs: cooldownJitter(60 * 60_000, 2),
-    };
+    });
+  }
+  if (
+    status === 402 ||
+    has("payment required", "insufficient credit", "billing_required", "billing required")
+  ) {
+    return withStep({ category: "billing_required", retryable: false, cooldownMs: 60 * 60_000 });
+  }
+  if (
+    status === 401 ||
+    has("invalid_api_key", "invalid api key", "incorrect api key", "api key not valid")
+  ) {
+    return withStep({ category: "invalid_key", retryable: false, cooldownMs: 15 * 60_000 });
+  }
+  // 403 is this model or this tier, not a dead key. A bad key is 401 above.
+  // Cooling the whole provider here hid every other free model on it.
+  if (
+    status === 403 ||
+    has(
+      "free tier is not enabled",
+      "free tier not enabled",
+      "does not have access to this model",
+      "model access denied",
+    )
+  ) {
+    return withStep({
+      category: "model_access",
+      retryable: false,
+      cooldownMs: 15 * 60_000,
+    });
+  }
+  if (has("content_filter", "content filter", "content policy")) {
+    return withStep({
+      category: "content_filter",
+      retryable: false,
+      cooldownMs: cooldownJitter(60_000, 1),
+    });
   }
   if (has("has been deprecated", "was renamed", "model was removed")) {
-    return {
+    return withStep({
       category: "model_unavailable",
       retryable: false,
       cooldownMs: 10 * 60_000,
       delist: true,
-    };
+    });
   }
   if (status === 404 || has("model not found", "does not exist", "unknown model")) {
-    return {
+    return withStep({
       category: "model_unavailable",
       retryable: false,
       cooldownMs: 10 * 60_000,
-      delist: has("model not found", "does not exist", "unknown model", "deprecated", "renamed"),
-    };
+      delist:
+        status === 404 ||
+        has(
+          "model not found",
+          "not found",
+          "does not exist",
+          "unknown model",
+          "deprecated",
+          "renamed",
+        ),
+    });
   }
   if (status === 408 || has("timeout", "timed out", "deadline")) {
     return { category: "timeout", retryable: true, cooldownMs: 30_000 };
@@ -423,6 +497,8 @@ const HEALTH_REASON = {
   quota_exceeded: "quota exceeded",
   billing_required: "billing required",
   invalid_key: "API key rejected",
+  model_access: "this key cannot use this model",
+  region_block: "blocked in this region",
   model_unavailable: "model not available",
   timeout: "did not respond in time",
   context_overflow: "context window exceeded",
@@ -437,11 +513,27 @@ const HEALTH_REASON = {
   unknown: "failed",
 };
 
+function redactRouterText(value) {
+  return String(value || "")
+    .replace(/\b(?:api[_ -]?key|authorization|bearer)\s*[:=]\s*\S+/gi, "secret")
+    .replace(/\bsk-[a-z0-9]{8,}\b/gi, "secret");
+}
+
+function percentile(samples, pct) {
+  const list = (Array.isArray(samples) ? samples : [])
+    .filter((n) => typeof n === "number" && Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (!list.length) return null;
+  const index = Math.min(list.length - 1, Math.max(0, Math.ceil((pct / 100) * list.length) - 1));
+  return list[index];
+}
+
 // --------------------------------------------------------- health tracking -
 class ProviderHealthManager {
   constructor() {
     /** modelId → { status, category, cooldownUntil, failures, lastError, lastOkAt, latencyMs } */
     this.state = new Map();
+    this.decisions = [];
   }
 
   get(modelId) {
@@ -462,6 +554,11 @@ class ProviderHealthManager {
 
   noteSuccess(modelId, latencyMs = null) {
     const entry = this.get(modelId);
+    const samples = [...(entry.latencySamples || [])];
+    if (typeof latencyMs === "number" && Number.isFinite(latencyMs)) {
+      samples.push(latencyMs);
+      if (samples.length > 20) samples.shift();
+    }
     this.state.set(modelId, {
       ...entry,
       modelId,
@@ -473,10 +570,12 @@ class ProviderHealthManager {
       lastError: null,
       lastOkAt: Date.now(),
       latencyMs: latencyMs ?? entry.latencyMs,
+      latencySamples: samples,
       consecutive: 0,
       recent: [],
       quarantined: false,
       recoveryProbe: "passed",
+      breaker: "CLOSED",
     });
     return this.state.get(modelId);
   }
@@ -506,7 +605,10 @@ class ProviderHealthManager {
       quarantined,
       failureClass: classified.category,
       lastFailureAt: now,
-      lastError: String(error?.message || error || "").slice(0, 400),
+      lastError: redactRouterText(String(error?.message || error || "")).slice(0, 400),
+      nextStep: classified.nextStep || NEXT_STEP[classified.category] || "",
+      breaker: backoff > 0 ? "OPEN" : entry.breaker || "CLOSED",
+      recoveryProbe: backoff > 0 ? "pending" : entry.recoveryProbe,
     };
 
     this.state.set(modelId, next);
@@ -529,7 +631,80 @@ class ProviderHealthManager {
   }
 
   isCoolingDown(modelId, now = Date.now()) {
-    return this.get(modelId).cooldownUntil > now;
+    return this.breakerState(modelId, now) === "OPEN";
+  }
+
+  /** CLOSED, OPEN while cooling, HALF-OPEN for one probe after the cooldown. */
+  breakerState(modelId, now = Date.now()) {
+    const entry = this.get(modelId);
+    if (entry.cooldownUntil > now) return "OPEN";
+    if ((entry.consecutive || 0) >= 3 && entry.recoveryProbe !== "passed" && entry.lastFailureAt) {
+      return "HALF-OPEN";
+    }
+    return "CLOSED";
+  }
+
+  noteDecision(row) {
+    const decisions = this.decisions || [];
+    decisions.push({
+      at: row.at || Date.now(),
+      modelId: String(row.modelId || "").slice(0, 120),
+      why: redactRouterText(row.why || "").slice(0, 240),
+      latencyMs: typeof row.latencyMs === "number" ? row.latencyMs : null,
+      outcome: String(row.outcome || "").slice(0, 40),
+    });
+    this.decisions = decisions.slice(-8);
+  }
+
+  exportState() {
+    return {
+      models: this.snapshot().map((entry) => ({
+        modelId: entry.modelId,
+        status: entry.status,
+        category: entry.category,
+        cooldownUntil: entry.cooldownUntil,
+        failures: entry.failures,
+        consecutive: entry.consecutive || 0,
+        lastFailureAt: entry.lastFailureAt || 0,
+        lastOkAt: entry.lastOkAt || 0,
+        latencyMs: entry.latencyMs,
+        latencySamples: entry.latencySamples || [],
+        recoveryProbe: entry.recoveryProbe || null,
+        breaker: entry.breaker || "CLOSED",
+        nextStep: entry.nextStep || "",
+      })),
+      decisions: this.decisions || [],
+    };
+  }
+
+  importState(saved) {
+    this.state.clear();
+    const models = Array.isArray(saved?.models) ? saved.models : [];
+    for (const row of models) {
+      if (!row || !row.modelId) continue;
+      this.state.set(row.modelId, {
+        ...this.get(row.modelId),
+        ...row,
+        lastError: null,
+      });
+    }
+    this.decisions = Array.isArray(saved?.decisions) ? saved.decisions.slice(-8) : [];
+  }
+
+  debugReport(now = Date.now()) {
+    return {
+      decisions: this.decisions || [],
+      models: this.snapshot(now).map((entry) => ({
+        modelId: entry.modelId,
+        breaker: this.breakerState(entry.modelId, now),
+        category: entry.category,
+        nextStep: entry.nextStep || "",
+        latencyMs: entry.latencyMs,
+        p50Ms: percentile(entry.latencySamples, 50),
+        p95Ms: percentile(entry.latencySamples, 95),
+        evidence: entry.evidence || null,
+      })),
+    };
   }
 
   /** Cooldowns expire on their own; this is how a model gets a second chance. */
@@ -878,6 +1053,12 @@ function modelAvailability(model, policy, now, task = "chat") {
   const quota =
     model?.accessRecord?.eligibility === "EXHAUSTED" || model?.healthCategory === "quota_exceeded";
   if (quota) return { visibility: "disabled", reason: "out of quota" };
+  if (model?.meta?.loaded === false || model?.status === "unavailable") {
+    return {
+      visibility: "disabled",
+      reason: model?.meta?.notice || "Not available locally",
+    };
+  }
   if (model?.coolingDown) {
     const remain = Math.max(0, (model.cooldownUntil || now) - now);
     return { visibility: "disabled", reason: `limit reached · back in ${formatRemain(remain)}` };
@@ -1092,6 +1273,7 @@ function hardReject(model, ctx) {
     return "cost";
   }
   if (avail.visibility === "disabled") {
+    if (m.meta?.loaded === false || m.status === "unavailable") return "unavailable";
     return String(avail.reason || "").startsWith("limit reached") ? "cooldown" : "quota";
   }
   if (!ctx.cloudOptIn(m)) return "cloud-opt-in";
@@ -1107,6 +1289,7 @@ function hardReject(model, ctx) {
     if (m.access === "paid" && ctx.usage !== "allow-paid") return "cost";
     if (m.access === "unknown" && ctx.usage !== "allow-paid") return "cost";
   }
+  if (m.meta?.loaded === false || m.status === "unavailable") return "unavailable";
   if (m.coolingDown) return "cooldown";
   if (m.role === "embed" && ctx.task !== "embed" && ctx.task !== "embeddings") return "role";
   const life = String(m.lifecycle || m.meta?.lifecycle || "").toLowerCase();
@@ -1446,13 +1629,7 @@ function repairModelIssue(kind) {
 function fallbackAdvances(category, options = {}) {
   const name = String(category || "");
   if (name === "context_overflow" && options.compacted === true) return true;
-  return ![
-    "invalid_request",
-    "context_overflow",
-    "content_filter",
-    "region_block",
-    "billing_required",
-  ].includes(name);
+  return !["invalid_request", "context_overflow", "content_filter", "region_block"].includes(name);
 }
 
 function fallbackTier(candidate, failed) {
@@ -1806,6 +1983,18 @@ function planRoute(models, options = {}) {
   const strategy = chosen.length ? route.strategy : "single";
   const planType = planTypeFor(strategy, candidates.length);
   const why = publicDecision(held || explainPlan({ ...route, chosen }));
+  const winner = chosen[0] || null;
+  const whyThisModel = winner
+    ? [
+        winner.type === "local" ? "local" : winner.access === "free" ? "free" : winner.access,
+        winner.meta?.resident || winner.meta?.loaded ? "loaded" : "",
+        route.task && winner.capabilities?.[TASK_CAPABILITY[route.task] || ""]
+          ? TASK_CAPABILITY[route.task]
+          : "",
+      ]
+        .filter(Boolean)
+        .join(", ") || "passed the filters"
+    : "";
   const steps = assignSteps(chosen, strategy);
   const explanation = [
     why,
@@ -1857,6 +2046,7 @@ function planRoute(models, options = {}) {
     trace,
     explanation,
     why,
+    whyThisModel,
   };
 }
 
@@ -2012,9 +2202,10 @@ function explainFailure({
   if (failures.length) {
     lines.push("", "Unavailable:");
     for (const failure of failures.slice(0, 8)) {
-      const reason =
-        HEALTH_REASON[failure.category || classifyError(failure.error).category] || "failed";
-      lines.push(`• ${failure.label || failure.modelId} — ${reason}`);
+      const category = failure.category || classifyError(failure.error).category;
+      const reason = HEALTH_REASON[category] || "failed";
+      const step = failure.nextStep || NEXT_STEP[category] || "";
+      lines.push(`• ${failure.label || failure.modelId} — ${reason}${step ? `. ${step}` : ""}`);
     }
   }
   lines.push(

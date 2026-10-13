@@ -1274,8 +1274,22 @@ function emitModelLifecycle(kind, extra = {}) {
   return payload;
 }
 
+function persistRouterHealth() {
+  try {
+    const current = readSettings();
+    writeSettings({ ...current, routerHealth: providerHealth.exportState() });
+  } catch (error) {
+    log(`router health could not be saved: ${error?.message || error}`);
+  }
+}
+
 function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
+  try {
+    providerHealth.importState(readSettings().routerHealth);
+  } catch {
+    /* a missing settings file is a fresh install */
+  }
   modelRefreshTimer = setInterval(() => {
     void refreshRoutable(true, "background").then((result) => {
       void syncKernelModels();
@@ -1388,7 +1402,16 @@ async function resolveChatModels(
   // earlier UNVERIFIED catalogue snapshot and correctly block it.
   await syncKernelModels();
   const plan = modelRouter.planRoute(models, routeOptions);
-  log(`route plan (${plan.planType}): ${plan.why}`);
+  log(
+    `route plan (${plan.planType}): ${plan.why}${plan.whyThisModel ? ` — ${plan.whyThisModel}` : ""}`,
+  );
+  if (plan.selected) {
+    providerHealth.noteDecision({
+      modelId: plan.selected,
+      why: plan.whyThisModel || "passed the filters",
+      outcome: "planned",
+    });
+  }
   return modelRouter.selectEligible(models, routeOptions);
 }
 
@@ -2155,6 +2178,13 @@ async function startChat(request) {
       }
       if (result.ok) {
         providerHealth.noteSuccess(model.id, result.latencyMs);
+        providerHealth.noteDecision({
+          modelId: model.id,
+          why: "answered",
+          outcome: "ok",
+          latencyMs: result.latencyMs,
+        });
+        persistRouterHealth();
         const verified = modelAccess.applyProbe(model.accessRecord || model.meta?.accessRecord, {
           ok: true,
           response: result.text || "ok",
@@ -2196,6 +2226,25 @@ async function startChat(request) {
         return;
       }
       const noted = providerHealth.noteFailure(model.id, result.error);
+      providerHealth.noteDecision({
+        modelId: model.id,
+        why: noted.nextStep || noted.category,
+        outcome: noted.category,
+        latencyMs: result.latencyMs,
+      });
+      if (noted.delist) {
+        model.status = "unavailable";
+        if (model.meta) model.meta.loaded = false;
+        routableCache = {
+          ...routableCache,
+          models: (routableCache.models || []).map((row) =>
+            row.id === model.id
+              ? { ...row, status: "unavailable", meta: { ...(row.meta || {}), loaded: false } }
+              : row,
+          ),
+        };
+      }
+      persistRouterHealth();
       const failed = modelAccess.applyProbe(model.accessRecord || model.meta?.accessRecord, {
         ok: false,
         status: Number(noted.status || /http (\d{3})/i.exec(String(result.error || ""))?.[1] || 0),
@@ -2210,6 +2259,7 @@ async function startChat(request) {
         label: model.label,
         display: model.displayName || model.label,
         category: noted.category,
+        nextStep: noted.nextStep,
       });
       log(
         `chat ${requestId}: ${model.id} failed (${noted.category}) — cooldown ${Math.round(
@@ -2412,6 +2462,7 @@ async function runParallelChat(request = {}) {
     });
     if (result.ok) providerHealth.noteSuccess(model.id, result.latencyMs);
     else if (!result.cancelled) providerHealth.noteFailure(model.id, result.error);
+    persistRouterHealth();
     return {
       modelId: model.id,
       label: model.label || model.id,
@@ -4671,6 +4722,7 @@ const diagnosticsContext = () => ({
   appVersion: productVersion(),
   isPackaged: app.isPackaged,
   kernelPort: KERNEL_PORT,
+  routerHealth: providerHealth.debugReport(),
   kernelRunning: Boolean(kernel && !kernel.killed),
   logPath: logFile(),
   packaged: app.isPackaged,
