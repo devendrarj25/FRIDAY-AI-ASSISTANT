@@ -1627,9 +1627,16 @@ function wrap(engineId, { command, dir, image, network = false, extraBinds = [] 
       const volumes = containerVolumes(dir, extraBinds)
         .map((spec) => `-v ${sh(spec)}`)
         .join(" ");
+      // Rootful Docker (the GitHub Ubuntu runner) writes bind-mounted files as
+      // root. The caller then cannot delete them (EACCES). Podman rootless
+      // already maps container root to the caller, so it stays unchanged.
+      const callerUid = typeof process.getuid === "function" ? process.getuid() : 0;
+      const callerGid = typeof process.getgid === "function" ? process.getgid() : callerUid;
+      const userFlag =
+        engine.id === "docker" && callerUid !== 0 ? ` --user ${callerUid}:${callerGid}` : "";
       return done({
         ok: true,
-        line: `${bin} run --rm ${volumes} -w /work${net} ${useImage} sh -lc ${sh(line)}`,
+        line: `${bin} run --rm${userFlag} ${volumes} -w /work${net} ${useImage} sh -lc ${sh(line)}`,
         engine: engine.id,
         note: `${useImage}${network ? "" : " · no network"}`,
       });

@@ -165,6 +165,17 @@ Checked against the tree. One line each. Long write-ups stay out.
 | [Realtime voice activity detection](https://developers.openai.com/api/docs/guides/realtime-vad) | ADAPT | Wait longer on an unfinished utterance and drop a duplicate final transcript. Do not add the Realtime API. |
 | [Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations) | ADAPT | Barge-in keeps the text already shown, and a replaced answer is what gets spoken. One conversation item is not inserted twice. |
 
+## Research record (2026-10-13)
+
+Agent-instruction hygiene for this docs pass. One line each. No second instruction file was added.
+
+| Source | Decision | Reason |
+| --- | --- | --- |
+| [AGENTS.md](https://agents.md/) | ADOPT | One root file, with commands near the top. A nested file is for a package that breaks a root rule. This repo is one app, so the root file stays the only instruction file. |
+| [How to write a good AGENTS.md](https://docs.plannotator.ai/learn/ai-development/how-to-write-a-good-agents-md) | ADAPT | Keep the root file to rules that do not change, and move dated facts into `FRIDAY_STATE.md`. `CLAUDE.md` stays a one-line import. |
+| [One owner per rule](https://agentalk.org/guides/design-agents-md-files-across-coding-agents/) | ADAPT | State a rule once and link to it. A copied paragraph is already rejected by `npm run docs:check`. |
+| [Nested files in a monorepo](https://www.ssdnodes.com/learn/nested-agents-md-for-monorepos) | REJECT | A second instruction file would split the locked rules. No package here needs a different contract. |
+
 ## Definition of done
 
 A change is done when the behaviour exists in the canonical owner, a test from this change passes, the owning document matches the code, and PASS is backed by command output. A written plan is not done. Windows install, boot, microphone, and hosted Actions stay unverified until a Windows run or the owner's PC shows them.

@@ -1,5 +1,13 @@
 # AGENTS.md — instructions for AI tools working on FRIDAY
 
+## Start of session
+
+Dated facts live in [FRIDAY_STATE.md](FRIDAY_STATE.md). This file holds rules.
+
+1. Read this file, then [FRIDAY_STATE.md](FRIDAY_STATE.md), then [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md), then the one owning doc.
+2. Branch and pull request: follow [Upgrade flow](#upgrade-flow) below. One open pull request into `main`. Do not edit `main`. Do not merge. Leave the pull request a draft. Do not dispatch a workflow.
+3. One gate: `npm run preflight` before any push or pull request update. Report its table. A red preflight is a failed task. `npm run validate:local` is that same command.
+
 ## Commands
 
 Run these from the repo root. `npm ci` installs Node dependencies. `npm run setup:python` prepares the kernel. A cloud machine uses `bash scripts/cloud-agent-install.sh` and `bash scripts/cloud-agent-start.sh`.
@@ -18,11 +26,7 @@ Run these from the repo root. `npm ci` installs Node dependencies. `npm run setu
 - `npm run check:provenance`
 - `npm run verify:version` when a governed doc or `config/friday-version.json` could drift
 
-`CLAUDE.md` is only `@AGENTS.md`. It is not a second copy of this file.
-
-## One gate
-
-Before any push or pull request update, run `npm run preflight` and report its table. A push with a red preflight is a failed task. `npm run validate:local` is that same command. The optional pre-push hook is `npm run setup:hooks`. The product does not require the hook.
+`CLAUDE.md` is only `@AGENTS.md`. It is not a second copy of this file. The optional pre-push hook is `npm run setup:hooks`. The product does not require the hook.
 
 ## What FRIDAY is
 
@@ -124,14 +128,14 @@ Anything found and not built goes in `FRIDAY_STATE.md` under Next priorities. Do
 On every landing:
 
 - Windows CMD EXE build, NSIS installer, portable EXE, install, uninstall, reinstall, and in-app update/rollback keep today's behaviour.
-- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. Do not add a twelfth. Do not dispatch a workflow. An edit follows **GitHub workflows stay locked** below.
+- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. An edit follows **GitHub workflows stay locked** below.
 - User data under `<FRIDAY_ROOT>` is never destroyed by install, update, rollback, or app-only uninstall.
 
 **Locked areas may be changed** only when the owner asks for that change, or when this task cannot be finished without it. Do not open them to tinker. The set is UI organization, EXE install/update/uninstall, GitHub Actions, FRIDAY Release, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md` → Deliberate design decisions. After any change in that set, make the area working again in the same session, with the bugs and issues fixed.
 
 ### GitHub workflows stay locked
 
-The owner checked the workflow runs on 2026-10-13 and reported them green. The eleven files under `.github/workflows/` and the composite actions under `.github/actions/` stay as they are. Do not open them to tidy, refactor, or improve them. Do not add a twelfth workflow. Do not dispatch one.
+The eleven files under `.github/workflows/` and the composite actions under `.github/actions/` stay as they are. Do not open them to tidy, refactor, or improve them. Do not add a twelfth workflow. Do not dispatch one.
 
 If the owner asks for a change in those files, ask one more time whether to make that change. Edit them only after the owner answers with a second yes or ok. The first request is not that answer.
 
@@ -207,7 +211,7 @@ Methods that already fit FRIDAY. Extend these. Do not replace them with a second
 - API keys stay in Electron `safeStorage` (`electron/models.cjs`, `electron/credentials.cjs`).
 - The shipped kernel file keeps `automation.auto_approve_exec: false`. Full autonomy is the owner's dial in the app. Ask every time and Balanced still wait before a write or an exec. Auto mode is the only microphone and speech session. The `handsFree` field still initializes false; turning Hands-free off requires the wake word again.
 - A long chat keeps its full transcript on this PC. The model receives only what this turn needs. That extends the existing chat path.
-- Pricing stays fail-closed after 14 days. A refresh re-reads the provider pages named in `electron/model-access.cjs`, then sets `KNOWLEDGE_CHECKED_AT`. Showing each model's source and age inside FRIDAY starts only when the owner asks. A date change alone is not that upgrade.
+- Pricing stays fail-closed after 14 days. A refresh re-reads the provider pages named in `electron/model-access.cjs`, then sets `KNOWLEDGE_CHECKED_AT`. The Models page reads that stamp. A date change alone does not refresh it.
 - MCP stays in `electron/mcp-protocol.cjs`. The desktop server and the connector client share that layer. The server is off until the owner turns it on. Loopback and the stdio launcher are the only transports. Pairing, scopes, and the client setup live in `docs/FRIDAY_MCP.md`.
 
 ## Checks
