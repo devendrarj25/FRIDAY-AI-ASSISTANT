@@ -203,6 +203,10 @@ jobs:
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
+      # Job env is not shared. Plan already has these. Without them this job
+      # decides mode auto and skips the pull request, then pin fails.
+      MODE: ${{ inputs.mode }}
+      RELEASE_TYPE: ${{ inputs.release_type }}
 
     steps:
       - name: Refuse to prepare a release from anything but main
@@ -301,6 +305,9 @@ jobs:
       - name: Analyse changes and determine version
         id: plan
         shell: bash
+        env:
+          PLAN_STEP: ${{ needs.plan.outputs.step }}
+          PLAN_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           prev='${{ steps.previous.outputs.tag }}'
           baseline='${{ steps.previous.outputs.baseline }}'
@@ -338,6 +345,9 @@ jobs:
             --jq '.[] | select(.isDraft|not) | select(.isPrerelease|not) | .tagName' > released.txt 2>/dev/null || true
           git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' >> released.txt || true
           current=$(node scripts/release-engine.cjs identity --field releaseVersion)
+          # An error decision exits 1 after writing JSON. Print that JSON
+          # before the step stops, so the log shows the reason.
+          set +e
           node scripts/release-engine.cjs decide \
             --mode "$MODE" \
             --current "$current" \
@@ -345,10 +355,18 @@ jobs:
             --type "$RELEASE_TYPE" \
             --log commits.txt \
             --released released.txt > decision.json
+          decide_code=$?
+          set -e
+          cat decision.json
+          if [ "$decide_code" != "0" ]; then
+            echo "::error::the release decision failed"
+            exit "$decide_code"
+          fi
           action=$(node -e "process.stdout.write(require('./decision.json').action)")
           version=$(node -e "process.stdout.write(require('./decision.json').version)")
           bump=$(node -e "process.stdout.write(require('./decision.json').bump)")
           reason=$(node -e "process.stdout.write(require('./decision.json').reason)")
+          printf 'release decision: %s v%s - %s\n' "$action" "$version" "$reason"
           {
             echo "action=$action"
             echo "version=$version"
@@ -359,6 +377,20 @@ jobs:
             echo "### Release decision: $action v$version"
             echo "$reason"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Plan already chose prepare. A rebuild/keep decision here used to
+          # exit 0, skip the pull request, and fail later in pin. A different
+          # version would open the wrong pull request and fail in pin.
+          if [ "$PLAN_STEP" = "prepare" ] && [ "$action" != "update" ]; then
+            echo "::error::FRIDAY Release planned a prepare of v${PLAN_VERSION}, but this job decided ${action}. Prepare stopped and did not open a pull request."
+            printf '%s\n' "$reason"
+            exit 1
+          fi
+          if [ "$PLAN_STEP" = "prepare" ] && [ -n "$PLAN_VERSION" ] && [ "$version" != "$PLAN_VERSION" ]; then
+            echo "::error::FRIDAY Release planned v${PLAN_VERSION}, but prepare decided v${version}. Prepare stopped and did not open a pull request."
+            printf '%s\n' "$reason"
+            exit 1
+          fi
 
           if [ "$action" != "update" ]; then
             {
