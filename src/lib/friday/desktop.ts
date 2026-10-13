@@ -464,6 +464,9 @@ type DesktopApi = {
     inference?: string;
     loadCount?: number;
   }>;
+  onSttProgress?: (
+    cb: (payload: { status?: string; progress?: number | null }) => void,
+  ) => () => void;
   installStt?: () => Promise<{ ok: boolean; error?: string }>;
   transcribe?: (payload: {
     audioBase64: string;

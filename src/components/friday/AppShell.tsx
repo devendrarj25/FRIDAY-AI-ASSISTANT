@@ -144,10 +144,20 @@ function HeaderChip({
   );
 }
 
+function CharacterLinkHost() {
+  useCharacterLink();
+  return null;
+}
+
 export function AppShell(props: AppShellProps) {
   const inShell = useContext(ShellPresenceContext);
   if (inShell) return <AppShellPage {...props} />;
-  return <AppShellChrome>{props.children}</AppShellChrome>;
+  return (
+    <>
+      <CharacterLinkHost />
+      <AppShellChrome>{props.children}</AppShellChrome>
+    </>
+  );
 }
 
 function AppShellChrome({ children }: { children: ReactNode }) {
@@ -167,8 +177,6 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   useDesktopRuntime();
   // Saved theme / font / density / motion, applied on every page.
   useAppearance();
-  // Desktop companion: publish real FRIDAY state to the overlay (no-op in web).
-  useCharacterLink();
   // First run: FRIDAY cannot work before it has a primary folder to scan.
   const workspaceRoot = useWorkspaceRootState();
   // One version for the whole app (package.json → installed EXE version).

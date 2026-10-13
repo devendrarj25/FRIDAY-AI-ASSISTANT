@@ -4,7 +4,7 @@ import { Minus, Mic, MicOff, Wifi, WifiOff, X } from "lucide-react";
 import "@/lib/friday/bridge";
 import { NotificationCenter } from "@/components/friday/NotificationCenter";
 import { assistantMode } from "@/lib/friday/assistant-mode";
-import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
+import { useAssistantSlice } from "@/lib/friday/use-assistant-mode";
 import { useNetwork } from "@/lib/friday/use-network";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +21,19 @@ export function TitleStrip() {
   const [fps, setFps] = useState(60);
   const net = useNetwork();
   const [now, setNow] = useState<Date | null>(null);
-  const mode = useAssistantMode();
+  const strip = useAssistantSlice((state) =>
+    [state.mode, state.error ?? "", state.status, state.heard, state.listening ? "1" : "0"].join(
+      "\u001f",
+    ),
+  );
+  const [modeName, error, status, heard, listeningFlag] = strip.split("\u001f");
+  const mode = {
+    mode: modeName,
+    error,
+    status,
+    heard,
+    listening: listeningFlag === "1",
+  };
   const frames = useRef(0);
 
   // Live FPS — measured every frame, published once per second, and suspended

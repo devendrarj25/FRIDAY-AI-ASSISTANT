@@ -20,7 +20,7 @@
 | `manifest` | Checksums and the update manifest (skipped for `dir` only) |
 | `verify-artifacts` | `verify-build`, then the unpacked layout and the installer size floor |
 | `verify-boot` | Boot the packed app |
-| `readiness` | `readiness-test.cjs --pack` |
+| `readiness` | `readiness-test.cjs --pack`. The VOICE stage still passes when speech synthesis exists, and its detail names the planned speaker: edge-tts hi-IN-SwaraNeural when online and privacy is off, Supertonic F2 when that model is installed, otherwise a female Indian Windows voice |
 | `packaged-self-check` | On Windows, extract the staged packs, write the embed `._pth`, run the pinned get-pip, then `python -m pip --version`, the sandbox probe, `whisper-cli -h`, and the MCP launcher. The launcher passes when the output contains `initialize` or `FRIDAY is not running`. Other systems skip this phase with an explicit message |
 | `installer-smoke` | Silent install, boot, kernel health, update-manifest hash, orphan check, uninstall on Windows when the target includes NSIS |
 

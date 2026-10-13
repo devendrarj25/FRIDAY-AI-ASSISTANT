@@ -30,7 +30,14 @@ import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
 import { preferSpoken } from "./conversation-style";
-import { activeVoiceSettings, speakText, spokenSummary, stopSpeaking } from "./voice-library";
+import {
+  activeVoiceSettings,
+  lastSpeechRoute,
+  speakText,
+  spokenSummary,
+  statusWithVoice,
+  stopSpeaking,
+} from "./voice-library";
 import { formatVoiceProbeReport } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
@@ -66,7 +73,7 @@ import {
 } from "./asr-bias";
 import { noteArc } from "./conversation-arc";
 import { voiceBudgets } from "./failure-guard";
-import { applySession } from "./mic-session";
+import { applySession, savedInputPlan } from "./mic-session";
 import { noteStyleCorrection } from "./response-policy";
 import {
   outputReachable,
@@ -77,6 +84,7 @@ import {
 } from "./tts-ladder";
 import {
   EMPTY_MIC_STATUS,
+  listAudioDevices,
   noteMicHolders,
   probeMicrophone,
   voiceGate,
@@ -288,6 +296,9 @@ type VoiceDesktop = {
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
   }>;
   meetingStatus?: () => Promise<{ meeting?: boolean; names?: string[] }>;
+  onSttProgress?: (
+    cb: (payload: { status?: string; progress?: number | null }) => void,
+  ) => () => void;
 };
 const desktop = (): VoiceDesktop | null =>
   typeof window === "undefined"
@@ -516,9 +527,31 @@ class AssistantModeStore {
     // hidden, not destroyed, and backgroundThrottling is off in main.cjs).
     // Only re-arm recognition when the page becomes visible again in case
     // Chromium dropped the stream while the window was down.
+    document.documentElement.classList.toggle("friday-hidden", document.hidden);
     document.addEventListener("visibilitychange", () => {
+      document.documentElement.classList.toggle("friday-hidden", document.hidden);
       if (this.state.mode !== "auto" || this.state.paused) return;
-      if (!document.hidden && !this.dictation?.active) this.noteVoiceTrigger("focus");
+      if (document.hidden) return;
+      const track = voiceGate.micStream()?.getAudioTracks()[0];
+      const dead = !track || track.readyState === "ended";
+      const ctx = voiceGate.contextState();
+      const suspended = ctx === "suspended" || ctx === "closed" || ctx === "missing";
+      if (dead || suspended) {
+        void this.reopenInput("resume");
+        return;
+      }
+      if (!this.dictation?.active) this.noteVoiceTrigger("focus");
+    });
+    desktop()?.onSttProgress?.((payload) => {
+      if (this.state.mode !== "auto") return;
+      const text = String(payload?.status || "").slice(0, 80);
+      if (!text) return;
+      const pct =
+        typeof payload?.progress === "number"
+          ? ` ${Math.max(0, Math.min(100, Math.round(payload.progress)))}%`
+          : "";
+      this.state.status = `${text}${pct}`;
+      this.emit();
     });
     // "Pause listening" from the tray really stops the microphone here.
     desktop()?.onVoicePause?.((payload) => this.setPaused(Boolean(payload?.paused)));
@@ -582,12 +615,11 @@ class AssistantModeStore {
     });
     // A headset being plugged/unplugged kills the audio track: rebuild it.
     navigator.mediaDevices?.addEventListener?.("devicechange", () => {
-      this.stopRecognition();
-      void this.probeMic();
       if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
-      this.hotplugTimer = null;
-      const session = applySession("hotplug", "a2dp");
-      if (session.reopen) this.noteVoiceTrigger("device");
+      this.hotplugTimer = window.setTimeout(() => {
+        this.hotplugTimer = null;
+        void this.reopenInput("hotplug");
+      }, 400);
     });
     if (this.state.mode === "auto") this.enterAuto();
     this.emit();
@@ -777,6 +809,36 @@ class AssistantModeStore {
     return status;
   }
 
+  /** Hot-plug, sleep, and resume. A missing saved device falls back and says so. */
+  private async reopenInput(reason: "hotplug" | "resume") {
+    if (this.state.mode !== "auto" || this.state.paused) return;
+    applySession(reason === "hotplug" ? "hotplug" : "resume");
+    const listed = await listAudioDevices();
+    const saved = preferences.getSnapshot().voice.inputDeviceId || "";
+    const plan = savedInputPlan(saved, listed.inputs);
+    if (plan.cleared) preferences.setVoice({ inputDeviceId: "" });
+    this.stopRecognition();
+    const opened = await voiceGate.restart(plan.deviceId);
+    const track = voiceGate.micStream()?.getAudioTracks()[0];
+    const settings = track?.getSettings?.() ?? {};
+    const failure = voiceGate.lastCaptureFailure();
+    this.state.status = opened ? plan.message : failure?.reason || plan.message;
+    this.state.mic = {
+      ...this.state.mic,
+      available: opened,
+      state: opened ? "available" : (failure?.state ?? "device-error"),
+      deviceId: typeof settings.deviceId === "string" ? settings.deviceId : plan.deviceId,
+      deviceLabel: track?.label || (opened ? "default device" : this.state.mic.deviceLabel),
+      sampleRate:
+        typeof settings.sampleRate === "number" ? settings.sampleRate : this.state.mic.sampleRate,
+      reason: opened ? null : this.state.status,
+    };
+    this.state.micReady = opened;
+    this.emit();
+    if (reason === "hotplug") this.noteVoiceTrigger("device");
+    else this.noteVoiceTrigger("focus");
+  }
+
   private enterAuto() {
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
@@ -955,7 +1017,7 @@ class AssistantModeStore {
       this.recognitionPending = false;
       return;
     }
-    this.state.status = "Checking local speech recognition…";
+    this.state.status = "Preparing speech model…";
     this.emit();
     const ladder = chooseStt({
       whisperCpp: false,
@@ -1071,6 +1133,7 @@ class AssistantModeStore {
     if (this.dictation?.active) return;
     const dictation = new DesktopDictation({
       language: preferences.getSnapshot().voice.recognitionLang || "hi-IN",
+      deviceId: preferences.getSnapshot().voice.inputDeviceId || null,
       localOnly: true,
       silenceMs: () =>
         endpointSilenceMs(Date.now() < this.awakeUntil || this.state.handsFree, this.state.interim),
@@ -1295,7 +1358,7 @@ class AssistantModeStore {
     this.state.voiceState = next;
     this.state.listening = stateIsListening(next);
     this.state.speaking = stateIsSpeaking(next);
-    this.state.status = stateLabel(next);
+    this.state.status = statusWithVoice(stateLabel(next));
     if (next !== from && detail) this.trace("segment", `${from} → ${next} (${event}) · ${detail}`);
     return true;
   }
@@ -1806,6 +1869,7 @@ class AssistantModeStore {
         rate: tone.rate,
         pitch: tone.pitch,
         volume: tone.volume,
+        allowCloud: fallen === "neural" && !privacy,
         ...(localVoice
           ? {
               voiceName: "",
@@ -1844,12 +1908,24 @@ class AssistantModeStore {
     )
       .then((how) => {
         if (gen !== this.speechGen) return;
+        const route = lastSpeechRoute();
+        const engine =
+          how === "none"
+            ? "none"
+            : route.engine.includes("supertonic")
+              ? "supertonic"
+              : route.engine === "sapi"
+                ? "sapi"
+                : how;
         this.state.tts = {
-          engine: how,
-          voice: tuning.voiceName || "",
+          engine,
+          voice: route.voiceId || tuning.voiceName || "",
           lastSpokenAt: how === "none" ? this.state.tts.lastSpokenAt : Date.now(),
           lastError: how === "none" ? "no speech engine could speak the reply" : null,
         };
+        if (how !== "none" && (route.note || (route.voiceId && !route.cloud))) {
+          this.state.status = statusWithVoice(this.state.status);
+        }
         this.trace("segment", `tts engine: ${how.toUpperCase()}`);
         if (how !== "none") return;
         this.to("tts-failed");

@@ -254,6 +254,32 @@ function finish(
  * and AGC are handled by the platform audio stack — this is what keeps fans,
  * keyboards and FRIDAY's own speaker output out of the recogniser.
  */
+/**
+ * Level ticks are for the meter. Speech edges always publish, including while
+ * the window is hidden, because VAD still has to end the utterance.
+ * A hidden window does not publish level-only ticks.
+ */
+export function shouldPublishVad(input: {
+  speechChanged: boolean;
+  hidden: boolean;
+  elapsedMs: number;
+  levelDelta: number;
+}): boolean {
+  if (input.speechChanged) return true;
+  if (input.hidden) return false;
+  return input.elapsedMs >= 200 && input.levelDelta > 0.01;
+}
+
+/** Level ticks do not change this key, so a meter can paint them outside React. */
+export function gateSpeechKey(snapshot: {
+  running: boolean;
+  speech: boolean;
+  speakingGuard: boolean;
+  noiseFloor: number;
+}): string {
+  return `${snapshot.running ? 1 : 0}|${snapshot.speech ? 1 : 0}|${snapshot.speakingGuard ? 1 : 0}|${snapshot.noiseFloor.toFixed(3)}`;
+}
+
 export function audioConstraints(deviceId?: string): MediaTrackConstraints {
   return {
     ...(deviceId && deviceId !== "default" ? { deviceId: { exact: deviceId } } : {}),
@@ -382,12 +408,42 @@ export class VoiceGate {
   private deviceWatch: (() => void) | null = null;
   /** Last time UI subscribers were notified (speech edges always emit). */
   private lastEmitAt = 0;
+  /** Last five capture failures. No audio and no transcript. */
+  private captureErrors: string[] = [];
 
   /**
    * The single live microphone stream. Dictation and any other consumer share
    * it instead of opening a second capture, which on Windows would fight the
    * first one for the device and stall input.
    */
+  contextState(): string {
+    return this.ctx?.state || "missing";
+  }
+
+  recentErrors(): string[] {
+    return this.captureErrors.slice();
+  }
+
+  /** What the live track reports. A missing field means the open asked for it. */
+  echoCancellation(): boolean | null {
+    const track = this.stream?.getAudioTracks()[0];
+    if (!track) return null;
+    const settings = track.getSettings?.() as { echoCancellation?: boolean } | undefined;
+    if (typeof settings?.echoCancellation === "boolean") return settings.echoCancellation;
+    return true;
+  }
+
+  /**
+   * Close the graph and open again. Holders stay, so dictation is not dropped
+   * on the floor while the default device is selected.
+   */
+  async restart(deviceId?: string | null): Promise<boolean> {
+    const holders = new Set(this.holders);
+    this.teardown();
+    this.holders = holders;
+    return this.start(deviceId);
+  }
+
   micStream(): MediaStream | null {
     return this.stream;
   }
@@ -499,6 +555,7 @@ export class VoiceGate {
       const own =
         this.stream?.getAudioTracks().filter((track) => track.readyState === "live").length ?? 0;
       this.lastFailure = classify(err, own, namedHolders);
+      this.rememberError(this.lastFailure.reason);
       if (!this.ctx) void ctx?.close().catch(() => undefined);
       if (this.holders.size) this.teardown();
       else this.stop();
@@ -657,8 +714,15 @@ export class VoiceGate {
     };
     const now = Date.now();
     const speechChanged = speech !== prev.speech;
-    const uiTick = now - this.lastEmitAt >= 200;
-    if (speechChanged || (uiTick && Math.abs(level - prev.level) > 0.01)) {
+    const hidden = typeof document !== "undefined" && document.hidden;
+    if (
+      shouldPublishVad({
+        speechChanged,
+        hidden,
+        elapsedMs: now - this.lastEmitAt,
+        levelDelta: Math.abs(level - prev.level),
+      })
+    ) {
       this.lastEmitAt = now;
       this.emit();
     }
@@ -667,6 +731,15 @@ export class VoiceGate {
 
   private emit() {
     this.listeners.forEach((fn) => fn(this.snapshot));
+  }
+
+  private rememberError(message: string) {
+    const text = String(message || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+    if (!text) return;
+    this.captureErrors = [...this.captureErrors.filter((row) => row !== text), text].slice(-5);
   }
 }
 

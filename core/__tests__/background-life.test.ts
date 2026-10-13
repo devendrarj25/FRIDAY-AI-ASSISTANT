@@ -46,7 +46,9 @@ describe("wake word while hidden", () => {
 
   it("does not stop the microphone when the window is hidden", () => {
     expect(mode).not.toContain("if (document.hidden) this.stopRecognition();");
-    expect(mode).toContain("!document.hidden && !this.dictation?.active");
+    expect(mode).toContain("if (document.hidden) return;");
+    expect(mode).toContain('if (!this.dictation?.active) this.noteVoiceTrigger("focus");');
+    expect(mode).toContain('void this.reopenInput("resume");');
   });
 
   it("shows the window when the wake word is heard while hidden", () => {

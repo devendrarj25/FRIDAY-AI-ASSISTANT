@@ -424,6 +424,7 @@
 }
 @utility node-glow {
   animation: friday-node-glow 2.8s ease-in-out infinite;
+  will-change: opacity;
 }
 @utility gpu-layer {
   transform: translateZ(0);
@@ -571,6 +572,20 @@ html[data-density="Compact"] { --friday-density-scale: 0.88; }
 html[data-density="Normal"] { --friday-density-scale: 1; }
 html[data-density="Comfortable"] { --friday-density-scale: 1.12; }
 html.no-blur [class*="backdrop-blur"] { backdrop-filter: none !important; }
+html.friday-hidden .circuit-flow,
+html.friday-hidden .circuit-flicker,
+html.friday-hidden .node-glow,
+html.friday-hidden .pulse-dot,
+html.friday-hidden .orb-breathe,
+html.friday-hidden .orb-spin-slow,
+html.friday-hidden .orb-spin-rev,
+html.friday-hidden .orb-halo,
+html.friday-hidden .orb-sweep {
+  animation-play-state: paused;
+}
+.neural-circuit {
+  contain: layout paint;
+}
 html.no-circuit .circuit-flow { display: none !important; }
 html.no-circuit .neural-circuit svg { visibility: hidden; }
 html.no-circuit .neural-circuit .panel-grid { display: none; }

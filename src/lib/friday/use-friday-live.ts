@@ -11,12 +11,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { StageId } from "./brain-catalog";
 import { agentSpecs } from "./brain-catalog";
 import { useCapabilities } from "./capability-trees";
-import { useAssistantMode } from "./use-assistant-mode";
+import { useAssistantSlice } from "./use-assistant-mode";
 import { useBrain } from "./use-brain";
 import { useModels } from "./use-models";
 import { useOps } from "./use-ops";
 import { useLedger } from "./self/use-self";
-import { voicePhaseFromState, type VoicePhase } from "./voice-state";
+import { voicePhaseFromState, type VoicePhase, type VoiceState } from "./voice-state";
 
 export type ComponentId =
   | "brain"
@@ -198,11 +198,48 @@ const ageOf = (at: number | undefined, now: number): string | undefined => {
   return `${Math.round(s / 3600)}h ago`;
 };
 
+/** The live graphic watches this key. A voice log or caption does not change it. */
+export function voiceCueKey(state: {
+  mode: string;
+  voiceState: string;
+  paused: boolean;
+  interim: string;
+}): string {
+  return `${state.mode}\u001f${state.voiceState}\u001f${state.paused ? "1" : "0"}\u001f${state.interim.slice(0, 24)}`;
+}
+
+function readVoiceCue(key: string): {
+  mode: string;
+  voiceState: string;
+  paused: boolean;
+  interim: string;
+} {
+  const [mode = "manual", voiceState = "OFF", paused = "0", interim = ""] = key.split("\u001f");
+  return { mode, voiceState, paused: paused === "1", interim };
+}
+
+/**
+ * How many readout lines fit. A one-pixel resize keeps the previous count so
+ * the boxes do not grow and shrink on a measurement jitter.
+ */
+export function circuitReadoutLines(heightPx: number, large: boolean, previous = 3): number {
+  if (!large) return 3;
+  const linesAt = (height: number) => {
+    const slotPx = height > 0 ? (height * 0.86) / 6 : 0;
+    return Math.max(0, Math.min(3, Math.floor((slotPx - 86) / 13)));
+  };
+  const next = linesAt(heightPx);
+  if (previous < 0 || previous > 3 || next === previous) return next;
+  const held = linesAt(next > previous ? heightPx - 8 : heightPx + 8);
+  return held === previous ? previous : next;
+}
+
 export function useFridayLive(): FridayLive {
   const brainState = useBrain();
   const modelsState = useModels();
   const ledgerState = useLedger();
-  const voiceState = useAssistantMode();
+  const cueKey = useAssistantSlice((state) => voiceCueKey(state));
+  const voiceState = readVoiceCue(cueKey);
   // Real, disk-backed module registry (empty until the workspace scan fills it).
   const moduleRegistry = useOps().modules;
   const caps = useCapabilities();
@@ -212,7 +249,7 @@ export function useFridayLive(): FridayLive {
     [brainState.runs, brainState.activeRunId],
   );
 
-  const reported = voicePhaseFromState(voiceState.mode, voiceState.voiceState);
+  const reported = voicePhaseFromState(voiceState.mode, voiceState.voiceState as VoiceState);
   const voice: VoicePhase =
     voiceState.mode === "auto" && run && (reported === "listening" || reported === "off")
       ? "thinking"
