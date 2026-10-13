@@ -23,6 +23,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+trap {
+  Write-Host "[FRIDAY] FAIL $($_.Exception.Message)"
+  exit 1
+}
 
 function Get-SignTool {
   $candidates = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |

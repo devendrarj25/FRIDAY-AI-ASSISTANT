@@ -180,6 +180,12 @@ describe("build and packaging chain", () => {
     expect(inApp).toContain("isUnloadedLocalChat");
     expect(driver).toContain("packGate");
     expect(driver).toContain("packChatOnlyUnloaded");
+    expect(driver).toContain("packChatOnlyUnloaded(first)");
+    expect(driver).toContain("PASS (no answering model loaded - pack continues)");
+    expect(driver).not.toContain("WARN  CHAT");
+    expect(driver).toContain("repair ran:");
+    expect(driver).toContain("first.ok ? 0 : 1");
+    expect(driver).toContain("the in-app report passed, so the process must exit 0");
     expect(driver).toContain("FRIDAY_PYTHON");
     expect(driver).toContain("checkoutPython");
     expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");
@@ -194,6 +200,7 @@ describe("build and packaging chain", () => {
     const yml = read("electron-builder.yml");
     expect(yml).toMatch(/!cloud-agent-/);
     expect(yml).toContain("!ci-workflow-run.sh");
+    expect(yml).toContain("!dist-desktop/**/*.map");
   });
 
   it("boots Cloud Agents from the default image and starts the desk", () => {

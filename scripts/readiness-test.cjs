@@ -246,21 +246,45 @@ function report(payload) {
     process.exit(1);
   }
 
+  const stageText = (result) => {
+    const failed = (result.stages || []).filter((stage) => !stage.ok);
+    if (failed.length) {
+      return failed.map((stage) => `${stage.name}: ${stage.detail || "no detail"}`).join("; ");
+    }
+    return result.error || "no stage list on the report";
+  };
+
   // First run: START → BOOT → KERNEL → DATABASE → CHAT → VOICE → MODEL → TASK,
   // then the process must shut itself down.
   let first = await launch(app, "FRIDAY");
   if (!first.ok && repairEnabled && !first.skipped) {
-    fail(`first run failed (${first.error || "see stages"}) — repairing and retesting`);
-    registry.repairAll({ onLog: (m) => console.log(m) });
-    first = await launch(app, "FRIDAY (after repair)");
+    if (packChatOnlyUnloaded(first)) {
+      log(
+        `first run only missed CHAT (${stageText(first)}) — pack continues without a repair`,
+      );
+    } else {
+      fail(`first run failed — ${stageText(first)}`);
+      const repaired = registry.repairAll({ onLog: (m) => console.log(m) });
+      const rows = repaired.results || [];
+      if (!rows.length) {
+        log("repair ran: no blocking component was behind (nothing to repair)");
+      } else {
+        for (const row of rows) log(`repair ran: ${row.id} ${row.ok ? "ok" : "failed"}`);
+      }
+      first = await launch(app, "FRIDAY (after repair)");
+    }
   }
   if (first.skipped) {
     log("SKIP  in-app stages — this machine has no desktop session");
   } else {
     for (const s of first.stages) {
       if (packGate && s.name === "CHAT" && !s.ok && isUnloadedLocalChat(s.detail)) {
-        log(`WARN  CHAT — pack continues without a loaded answering model: ${s.detail}`);
-        add("CHAT", true, `pack-ok: engine registered but no loaded answering model — ${s.detail}`);
+        log("PASS (no answering model loaded - pack continues)");
+        stages.push({
+          name: "CHAT",
+          ok: true,
+          detail: "no answering model loaded - pack continues",
+        });
       } else {
         add(s.name, s.ok, s.detail);
       }
@@ -275,11 +299,15 @@ function report(payload) {
     // FRIDAY exits itself after reporting: 0 when every stage passed, 1 when a
     // stage failed (electron/main.cjs). SHUTDOWN therefore checks the exit code
     // against the reported result instead of accepting any exit.
+    const inAppFailed = (first.stages || []).filter((stage) => !stage.ok).map((stage) => stage.name);
     const expected = first.ok ? 0 : 1;
+    const why = first.ok
+      ? "the in-app report passed, so the process must exit 0"
+      : `the in-app report failed (${inAppFailed.join(", ") || "no stage names"}), so the process must exit 1`;
     add(
       "SHUTDOWN",
       first.exitCode === expected,
-      `exit code ${first.exitCode} (expected ${expected} for a ${first.ok ? "passing" : "failing"} run)`,
+      `exit code ${first.exitCode} (expected ${expected}: ${why})`,
     );
   }
 

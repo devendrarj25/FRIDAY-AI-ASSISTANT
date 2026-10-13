@@ -19,6 +19,10 @@ beforePack: scripts/stage-toolchain.cjs
 # app.getAppPath()/dist-desktop/index.html — it must always be inside app.asar.
 files:
   - dist-desktop/**
+  # Vite writes external .map files beside the bundle for local debugging.
+  # friday:// serves a .map only when the file is present. The packaged app
+  # does not read them, so they stay out of app.asar.
+  - "!dist-desktop/**/*.map"
   - electron/**
   - package.json
   # The single semver/changelog implementation shared by the release workflow

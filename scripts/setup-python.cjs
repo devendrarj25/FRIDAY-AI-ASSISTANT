@@ -88,6 +88,12 @@ if (!python) {
   process.exit(1);
 }
 log(`using Python: ${python}`);
+const pyVersion = capture(python, ["-c", "import sys; print(sys.version.split()[0])"]);
+if (pyVersion.status === 0) {
+  log(
+    `resolved Python ${String(pyVersion.stdout || "").trim()} (floor >=${versions.pythonMinimum}; newer versions are reused)`,
+  );
+}
 
 const venvPython = runtime.targetVenvPython();
 const venv = path.dirname(path.dirname(venvPython));
@@ -311,7 +317,7 @@ if (!voiceImportable()) {
     log(
       `probing faster-whisper model into ${path.join(picked.root, "cache", "stt")} (offline miss does not fail the build)`,
     );
-    const probe = run(python, [stt, "--load-probe"], {
+    const probe = capture(python, [stt, "--load-probe"], {
       env: {
         ...process.env,
         FRIDAY_ROOT: picked.root,
@@ -319,8 +325,43 @@ if (!voiceImportable()) {
       },
       timeout: 600000,
     });
-    if (probe.status !== 0) {
-      log("note: whisper model probe did not complete — first-run / Install Manager will retry");
+    const probeText = `${probe.stdout || ""}\n${probe.stderr || ""}`;
+    const jsonLine =
+      probeText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("{"))
+        .pop() || "";
+    let payload = null;
+    try {
+      payload = jsonLine ? JSON.parse(jsonLine) : null;
+    } catch {
+      payload = null;
+    }
+    try {
+      const reportDir = path.join(root, "debug", "reports");
+      fs.mkdirSync(reportDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(reportDir, "whisper-load-probe.json"),
+        JSON.stringify(
+          {
+            at: new Date().toISOString(),
+            status: probe.status,
+            payload,
+            stdout: String(probe.stdout || "").slice(-4000),
+            stderr: String(probe.stderr || "").slice(-4000),
+          },
+          null,
+          2,
+        ),
+      );
+    } catch {
+      /* the debug report is diagnostic; a write failure must not fail the build */
+    }
+    if (payload && payload.ok) {
+      log(`speech model cached (${payload.model || "whisper"})`);
+    } else {
+      log("INFO speech model not cached yet; it downloads on first use");
     }
   }
 }

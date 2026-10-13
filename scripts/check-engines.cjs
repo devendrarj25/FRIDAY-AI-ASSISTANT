@@ -72,8 +72,14 @@ if (require.main === module) {
     console.error("[FRIDAY] build stopped before npm ci — fix the toolchain and run it again.");
     process.exit(1);
   }
+  let npmNow = "";
+  try {
+    npmNow = npmVersion();
+  } catch {
+    npmNow = "unreadable";
+  }
   console.log(
-    `[FRIDAY] toolchain OK — node ${process.versions.node} (needs ${engines.node}), npm (needs ${engines.npm})`,
+    `[FRIDAY] toolchain OK — node ${process.versions.node} (needs ${engines.node}), npm ${npmNow} (needs ${engines.npm})`,
   );
 }
 
