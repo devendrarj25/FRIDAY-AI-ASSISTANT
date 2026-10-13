@@ -55,6 +55,11 @@ describe("AGENTS.md anchors", () => {
     expect(text).toMatch(/Never delete, skip, weaken, or\s+fake-pass a test/);
     expect(text).toContain("Never dispatch a workflow");
     expect(text).toContain("Do not add a twelfth");
+    expect(text).toContain("### GitHub workflows stay locked");
+    expect(text).toContain("second yes or ok");
+    const state = fs.readFileSync(path.join(ROOT, "FRIDAY_STATE.md"), "utf8");
+    expect(state).toContain("GitHub workflows stay locked");
+    expect(state).toContain("second yes or ok");
     expect(text).toContain("## Direction");
     expect(text).toContain("only `main`");
     expect(text.match(/Never commit, push, or land work on `main`/g)?.length).toBe(1);

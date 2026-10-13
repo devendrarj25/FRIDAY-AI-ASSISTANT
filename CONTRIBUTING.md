@@ -95,5 +95,5 @@ second registry or a second What's New store.
 ## 6. What not to touch
 
 - Do not bump `config/friday-version.json` unless the owner asked.
-- Do not dispatch GitHub Actions; leave the tree so those jobs would stay green.
+- Do not dispatch GitHub Actions; leave the tree so those jobs would stay green. Do not edit `.github/workflows/` or `.github/actions/` unless [AGENTS.md](AGENTS.md) → GitHub workflows stay locked allows it. A request to edit them still needs a second yes or ok.
 - Do not commit to `main`. Open a pull request; the owner merges.
