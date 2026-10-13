@@ -21,12 +21,12 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
 | Local CI substitute | `npm run preflight -- --full` | passed on Linux. NSIS, verify-build, and installer smoke were skipped. Electron and the renderer bundle passed. `npm run validate:local` calls the same script. |
 | Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped. Not re-run in this session. |
-| Hosted Actions | PR Validation / FRIDAY Release | PR Validation run 38286374788 and FRIDAY Release run 38288784028 succeeded on `2ad9a83`. Pull-request run 38306698165 on `17d619b` failed in `docs-only`. Workflow dispatch run 38312765069 of that SHA passed the Windows jobs. FRIDAY Release runs 38321724754 and 38321908412 on `4067247` failed in `pin` after prepare skipped the pull request. Eleven workflow files. A hosted re-run of the prepare mode fix is unverified. |
+| Hosted Actions | PR Validation / FRIDAY Release | FRIDAY Release run 38348306084 published `v1.1.2.2`. On 2026-10-13, PR Validation 38356829986, FRIDAY Test Build 38359175064, Maintenance Cleanup 38356896257, Auto Recover 38360366455, Branch Cleanup 38348218762, and Main Safety Recovery 38348218697 succeeded. Safe Merge ran inside the release. Health Weekly's last listed success is 38247606809 on an older commit. Actions history lists no run for Repository Control or Security Scan. Eleven workflow files stay locked. |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.1.2.2
 
-GitHub release **v1.1.2.2** (published 2026-10-12, run 38288784028): Setup (325603802 bytes), Portable (325225718 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. `latest.yml` matches the checksum file. The Setup and Portable hashes in that file were not recomputed on this Linux tree. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release **v1.1.2.2** (published 2026-10-13, run 38348306084): Setup (325604495 bytes), Portable (325226416 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. The earlier release `v1.1.1.2` is run 38288784028. The Setup and Portable hashes in `SHA256SUMS.txt` were not recomputed on this Linux tree. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 

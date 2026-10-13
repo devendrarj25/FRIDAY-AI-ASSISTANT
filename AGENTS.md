@@ -124,10 +124,18 @@ Anything found and not built goes in `FRIDAY_STATE.md` under Next priorities. Do
 On every landing:
 
 - Windows CMD EXE build, NSIS installer, portable EXE, install, uninstall, reinstall, and in-app update/rollback keep today's behaviour.
-- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. Do not add a twelfth. An edit follows the locked-area permission below. Do not dispatch a workflow.
+- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees. Do not add a twelfth. Do not dispatch a workflow. An edit follows **GitHub workflows stay locked** below.
 - User data under `<FRIDAY_ROOT>` is never destroyed by install, update, rollback, or app-only uninstall.
 
 **Locked areas may be changed** only when the owner asks for that change, or when this task cannot be finished without it. Do not open them to tinker. The set is UI organization, EXE install/update/uninstall, GitHub Actions, FRIDAY Release, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md` → Deliberate design decisions. After any change in that set, make the area working again in the same session, with the bugs and issues fixed.
+
+### GitHub workflows stay locked
+
+The owner checked the workflow runs on 2026-10-13 and reported them green. The eleven files under `.github/workflows/` and the composite actions under `.github/actions/` stay as they are. Do not open them to tidy, refactor, or improve them. Do not add a twelfth workflow. Do not dispatch one.
+
+If the owner asks for a change in those files, ask one more time whether to make that change. Edit them only after the owner answers with a second yes or ok. The first request is not that answer.
+
+If other work cannot be finished without a change in those files, make the smallest change. Read the effect on every workflow that shares that behaviour. Fix every error that change causes in the same change, so the workflows still work. A hosted run of that change stays unverified until a real run or the owner checks it.
 
 A change in that set must do all of these:
 
@@ -179,7 +187,7 @@ After a gap, follow [FRIDAY_STATE.md](FRIDAY_STATE.md) → Coming back after a g
 
 ## Owner directive and build autonomy
 
-FRIDAY is the owner's private personal assistant. The owner's instruction for a task is final. Decide, build, and report. Do not stop a build to ask permission, and do not leave a list of decisions for later.
+FRIDAY is the owner's private personal assistant. The owner's instruction for a task is final. Decide, build, and report. Do not stop a build to ask permission, and do not leave a list of decisions for later. GitHub workflow files are the exception under GitHub workflows stay locked: a request to edit them still needs a second yes or ok.
 
 Free and open-source tools may be installed from npm, PyPI, or an official GitHub release. Prefer packages that ship inside the app so the feature works offline after install. For a binary, download the Windows release, compute the SHA-256, pin it in the existing Install Manager catalog, and let the app install it, with a Doctor row and repair. A missing vendor checksum is not a reason to skip the tool.
 
