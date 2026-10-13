@@ -1,6 +1,6 @@
 # FRIDAY — Master Operating Flow
 
-**Current shipping version: 1.1.1.2**
+**Current shipping version: 1.1.2.2**
 
 🔁 The owner loop is indexed in `src/lib/friday/flow-chart.ts`. That module owns no behaviour: every node `resolve()`s a live module. Contract: `core/__tests__/owner-flow-chart.test.ts`. Layer map: [ARCHITECTURE.md](../ARCHITECTURE.md). Feature files: [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md).
 

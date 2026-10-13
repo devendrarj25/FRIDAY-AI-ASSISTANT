@@ -1,6 +1,6 @@
 # FRIDAY — Feature & Capability Catalog
 
-**Current shipping version: 1.1.1.2**
+**Current shipping version: 1.1.2.2**
 
 🗂️ What ships in this checkout, the file that implements it, and a test that covers it. How to click the UI: [FRIDAY_USER_GUIDE.md](FRIDAY_USER_GUIDE.md). Keys and providers: [FRIDAY_PROVIDERS_AND_SECRETS.md](FRIDAY_PROVIDERS_AND_SECRETS.md). The operating loop: [FRIDAY_MASTER_FLOW.md](FRIDAY_MASTER_FLOW.md). This catalog does not repeat those pages.
 
