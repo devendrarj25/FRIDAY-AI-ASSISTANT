@@ -2,6 +2,26 @@
 
 What changed in each released version. Each entry is the owner-facing What's New for that version, kept in sync with releases/notes.
 
+## v1.1.2.2
+
+**Released:** October 13, 2026  
+**Channel:** Stable (official release)  
+**Release type:** MINOR / CHANGES  
+**Changes since:** v1.1.1.2  
+**Summary:** This update refreshes how FRIDAY is packaged and checked, so the app you install stays consistent.
+
+### What's New
+
+FRIDAY 1.1.2.2 is an update with changes. Here is what changed for you.
+
+#### Improved
+- This update refreshes how FRIDAY is packaged and checked, so the app you install stays consistent.
+
+### Important Notes
+
+- Your FRIDAY data remains preserved during updates. Installing this release replaces application files only.
+- Downloads are verified against the published SHA-256 before installation.
+
 ## v1.1.1.2
 
 **Released:** October 11, 2026  

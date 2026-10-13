@@ -1,7 +1,7 @@
 # FRIDAY — Build, Release, Version & Update Guide
 
 **Made by:** Devendra Singh Meena (devendrarj25)
-**Current shipping version: 1.1.1.2**
+**Current shipping version: 1.1.2.2**
 
 📦 This is the packaging document. It tells you how a Windows pack is made, how a TEST pack stays beside the Official app, and how an installed copy chooses Stable or Test. Click-by-click publish is [RELEASE.md](../RELEASE.md). The counters are [VERSIONING.md](../VERSIONING.md). Each workflow file is [FRIDAY_GITHUB_ACTIONS.md](FRIDAY_GITHUB_ACTIONS.md). Disk rules are [FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md). This file is the documentation contract for packaging behaviour.
 
