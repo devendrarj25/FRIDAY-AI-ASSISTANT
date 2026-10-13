@@ -145,7 +145,7 @@ describe("node toolchain version set", () => {
     expect(read(".npmrc")).toContain("ignore-scripts=false");
     expect(read("node_modules/electron/install.js")).toContain("downloadArtifact");
     const pkgJson = JSON.parse(read("package.json")) as {
-      allowScripts?: Record<string, boolean>;
+      allowScripts?: { electron?: boolean; "electron-winstaller"?: boolean };
       npm?: { allowScripts?: unknown };
     };
     expect(pkgJson.npm).toBeUndefined();
@@ -155,7 +155,9 @@ describe("node toolchain version set", () => {
       scripts?: { install?: string; postinstall?: string; preinstall?: string };
     };
     expect(
-      electronPkg.scripts?.install || electronPkg.scripts?.postinstall || electronPkg.scripts?.preinstall,
+      electronPkg.scripts?.install ||
+        electronPkg.scripts?.postinstall ||
+        electronPkg.scripts?.preinstall,
     ).toBeUndefined();
   });
 

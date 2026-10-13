@@ -113,7 +113,7 @@ These look like bugs. They are not. Do not "fix" them.
 - Live keyed provider calls and `npm run models:check --live` were not run. No owner keys are in this environment.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- `npm audit`, `pip-audit`, and `npm run models:check` were not re-run here. Do not treat an older zero as this session's result.
+- `npm audit` on this tree reported 0 vulnerabilities. `pip-audit` and `npm run models:check` were not re-run.
 
 ## Next priorities
 

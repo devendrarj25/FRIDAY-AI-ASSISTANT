@@ -259,9 +259,7 @@ function report(payload) {
   let first = await launch(app, "FRIDAY");
   if (!first.ok && repairEnabled && !first.skipped) {
     if (packChatOnlyUnloaded(first)) {
-      log(
-        `first run only missed CHAT (${stageText(first)}) — pack continues without a repair`,
-      );
+      log(`first run only missed CHAT (${stageText(first)}) — pack continues without a repair`);
     } else {
       fail(`first run failed — ${stageText(first)}`);
       const repaired = registry.repairAll({ onLog: (m) => console.log(m) });
@@ -299,7 +297,9 @@ function report(payload) {
     // FRIDAY exits itself after reporting: 0 when every stage passed, 1 when a
     // stage failed (electron/main.cjs). SHUTDOWN therefore checks the exit code
     // against the reported result instead of accepting any exit.
-    const inAppFailed = (first.stages || []).filter((stage) => !stage.ok).map((stage) => stage.name);
+    const inAppFailed = (first.stages || [])
+      .filter((stage) => !stage.ok)
+      .map((stage) => stage.name);
     const expected = first.ok ? 0 : 1;
     const why = first.ok
       ? "the in-app report passed, so the process must exit 0"

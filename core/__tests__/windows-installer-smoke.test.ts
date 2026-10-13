@@ -12,17 +12,17 @@ const smoke = fs.readFileSync(path.join(root, "scripts/windows-installer-smoke.p
 
 describe("windows installer smoke", () => {
   it("stays 7-bit ASCII so Windows PowerShell 5.1 can parse it", () => {
-    const high = [...fs.readFileSync(path.join(root, "scripts/windows-installer-smoke.ps1"))].filter(
-      (byte) => byte > 127,
-    );
+    const high = [
+      ...fs.readFileSync(path.join(root, "scripts/windows-installer-smoke.ps1")),
+    ].filter((byte) => byte > 127);
     expect(high).toEqual([]);
   });
 
   it("defaults the Setup EXE from the repo and never joins a null RUNNER_TEMP", () => {
     expect(smoke).toContain("Set-StrictMode -Version Latest");
-    expect(smoke).toContain("[string]$Installer = \"\"");
-    expect(smoke).toContain("[string]$Product = \"FRIDAY\"");
-    expect(smoke).toContain("[string]$ReleaseDir = \"\"");
+    expect(smoke).toContain('[string]$Installer = ""');
+    expect(smoke).toContain('[string]$Product = "FRIDAY"');
+    expect(smoke).toContain('[string]$ReleaseDir = ""');
     expect(smoke).toContain("config\\friday-version.json");
     expect(smoke).toContain("FRIDAY-Setup-");
     expect(smoke).toContain("release\\FRIDAY-Setup-<public version>.exe");
@@ -34,7 +34,9 @@ describe("windows installer smoke", () => {
     expect(smoke).toContain('ArgumentList @("/S"');
     expect(smoke).toContain("Remove-Item -LiteralPath $sandbox");
     expect(smoke).toContain("[friday] FAIL installer smoke:");
-    expect(smoke).toContain("[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved");
+    expect(smoke).toContain(
+      "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved",
+    );
     const passAt = smoke.indexOf("[friday] PASS installer");
     const failExit = smoke.indexOf("if ($null -ne $smokeError) { exit 1 }");
     expect(passAt).toBeGreaterThan(-1);
