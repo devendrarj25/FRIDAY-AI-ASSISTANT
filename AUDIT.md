@@ -13,7 +13,7 @@ First Lint / Types / Tests rows are what Self-Management reads.
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint and kernel ruff passed inside `npm run preflight -- --full`. The `static` job runs the same command. |
 | Types | `npm run typecheck` | clean (`tsc --noEmit`). `core/__tests__/actionlint-pin.test.ts` typechecks. |
-| Tests | `npm test` | 348 files, 2891 passed, 2 skipped |
+| Tests | `npm test` | 348 files, 2892 passed, 2 skipped |
 | Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
 | Docs registry | `npm run docs:check` | clean (registered docs, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.1.2** (npm encoding **1.1.1**) |

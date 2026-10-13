@@ -11,7 +11,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 | Check | Result |
 | --- | --- |
 | `npm run preflight -- --full` | Passed on this Linux tree. 16 gates passed and 3 Windows pack gates skipped (NSIS, packaged verify, installer smoke). |
-| `npm test` | 348 files, 2891 passed, 2 skipped. One skip is `hub-revert-center.test.ts` when `git checkout` is refused in the throwaway repo. The other is the bubblewrap host-path test when `bwrap` is not on PATH. With bubblewrap 0.9.0 that test returned the plugin's own error. |
+| `npm test` | 348 files, 2892 passed, 2 skipped. One skip is `hub-revert-center.test.ts` when `git checkout` is refused in the throwaway repo. The other is the bubblewrap host-path test when `bwrap` is not on PATH. With bubblewrap 0.9.0 that test returned the plugin's own error. |
 | `npm run lint` | Passed. ESLint and kernel ruff reported no problems. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.1.2`. `core/__tests__/actionlint-pin.test.ts` typechecks under `noUncheckedIndexedAccess`. |
 | `npm run typecheck:py` | 4 passed in 5.70s. The pyright baseline did not skip. The ceiling file stays 70. |
