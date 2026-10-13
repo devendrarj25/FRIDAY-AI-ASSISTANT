@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 import {
   Blocks,
   Bot,
@@ -19,7 +19,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { FridayOrb } from "@/components/friday/FridayOrb";
 import type { ComponentId, LiveComponent } from "@/lib/friday/use-friday-live";
-import { useFridayLive } from "@/lib/friday/use-friday-live";
+import { circuitReadoutLines, useFridayLive } from "@/lib/friday/use-friday-live";
+import { noteVoiceFrame, resetVoiceRenderRate, voiceDebugOn } from "@/lib/friday/voice-doctor";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,7 +59,7 @@ const STATE_LABEL: Record<LiveComponent["state"], string> = {
   blocked: "blocked",
 };
 
-function ComponentBox({
+const ComponentBox = memo(function ComponentBox({
   node,
   large = false,
   onSelect,
@@ -198,19 +199,24 @@ function ComponentBox({
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * `large` only changes presentation (bigger boxes, wider spread, bigger rings
  * and mark) for the Auto Mode stage. The data, wiring and animations stay
  * identical, and Manual mode renders exactly as before.
  */
-export function NeuralCircuit({
+export const NeuralCircuit = memo(function NeuralCircuit({
   large = false,
   onSelectNode,
 }: { large?: boolean; onSelectNode?: (node: LiveComponent) => void } = {}) {
   const gid = useId();
   const liveRaw = useFridayLive();
+  const linesRef = useRef(large ? 0 : 3);
+  useEffect(() => {
+    if (voiceDebugOn()) noteVoiceFrame();
+    else resetVoiceRenderRate();
+  });
   // Auto Mode slots are height-bound: measure the stage once (and on resize)
   // and show only as many readout lines as fit without boxes ever touching.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -224,8 +230,8 @@ export function NeuralCircuit({
   }, []);
   // Slot pitch = 82% of the canvas spread across 6 gaps; a box needs ~62px of
   // chrome plus ~13px per readout line, and 10px of breathing room.
-  const slotPx = stageH ? (stageH * 0.86) / 6 : 0;
-  const maxDetails = !large ? 3 : Math.max(0, Math.min(3, Math.floor((slotPx - 76 - 10) / 13)));
+  const maxDetails = circuitReadoutLines(stageH, large, linesRef.current);
+  linesRef.current = maxDetails;
   // Auto Mode boxes are much taller (they carry real readouts), so they are
   // laid out as two fixed-slot columns: evenly spaced, never overlapping.
   const live = large
@@ -393,4 +399,4 @@ export function NeuralCircuit({
       )}
     </div>
   );
-}
+});

@@ -254,6 +254,9 @@ async function runReadiness(ctx) {
   );
 
   // ---------------------------------------------------------------- VOICE
+  function plannedVoiceDetail() {
+    return "planned edge-tts hi-IN-SwaraNeural when online and privacy is off; offline Supertonic F2 for hi or na; else SAPI female Indian if Windows has one";
+  }
   let voice = { ok: false, detail: "renderer unavailable" };
   if (alive) {
     try {
@@ -262,6 +265,7 @@ async function runReadiness(ctx) {
         const recog = typeof window.SpeechRecognition !== 'undefined' || typeof window.webkitSpeechRecognition !== 'undefined';
         return { ok: synth, detail: 'speech synthesis ' + (synth ? 'available' : 'missing') + ', recognition ' + (recog ? 'available' : 'missing') };
       })()`);
+      if (voice && voice.detail) voice.detail = `${voice.detail}. ${plannedVoiceDetail()}`;
     } catch (error) {
       voice = { ok: false, detail: String(error.message || error) };
     }

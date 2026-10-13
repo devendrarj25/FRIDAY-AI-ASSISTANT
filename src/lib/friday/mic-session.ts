@@ -63,3 +63,29 @@ export function applySession(
 export function captureRate(): number {
   return negotiateRate(offered);
 }
+
+/**
+ * A saved input that is no longer plugged in must not stay selected.
+ * An empty saved id, or a missing one, reopens the system default and says so.
+ */
+export function savedInputPlan(
+  savedId: string | null,
+  inputs: ReadonlyArray<{ id: string }>,
+): { deviceId: string | null; cleared: boolean; message: string } {
+  const saved = String(savedId || "").trim();
+  if (!saved) {
+    return {
+      deviceId: null,
+      cleared: false,
+      message: "Microphone changed. Using the default device.",
+    };
+  }
+  if (inputs.some((row) => row.id === saved)) {
+    return { deviceId: saved, cleared: false, message: "Microphone reopened." };
+  }
+  return {
+    deviceId: null,
+    cleared: true,
+    message: "The saved microphone is gone. Using the default device.",
+  };
+}

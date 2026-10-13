@@ -3105,11 +3105,21 @@ ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
 // ------------------------------------------- desktop speech-to-text (STT) --
 // Real on-device transcription. Auto Mode sets localOnly so neither status
 // discovery nor transcription can select a cloud provider.
-ipcMain.handle("voice:stt-status", (_e, request) => {
+ipcMain.handle("voice:stt-status", (e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
   return stt.status(Boolean(options.force), {
     localOnly: Boolean(options.localOnly),
     warm: Boolean(options.warm),
+    onProgress: (payload) => {
+      try {
+        e.sender.send("voice:stt-progress", {
+          status: String(payload?.status || "").slice(0, 80),
+          progress: typeof payload?.progress === "number" ? payload.progress : null,
+        });
+      } catch {
+        /* the window is already gone */
+      }
+    },
   });
 });
 ipcMain.handle("voice:stt-install", () => stt.install());

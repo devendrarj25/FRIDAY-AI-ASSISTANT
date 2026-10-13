@@ -1,9 +1,13 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
-import { formatVoiceProbeReport, redactDiagnostics } from "@/lib/friday/voice-doctor";
+import {
+  formatVoiceProbeReport,
+  liveVoiceRuntimeLine,
+  redactDiagnostics,
+} from "@/lib/friday/voice-doctor";
 import type { AssistantModeState } from "@/lib/friday/assistant-mode";
-import { voiceGate } from "@/lib/friday/voice-audio";
+import { gateSpeechKey, voiceGate } from "@/lib/friday/voice-audio";
 
 /**
  * Voice Diagnostics — the real values behind Auto Mode, in the Auto Mode
@@ -16,11 +20,27 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     Array<{ id: string; label: string; ok: boolean; detail: string }>
   >([]);
   const [busy, setBusy] = useState(false);
-  const gate = useSyncExternalStore(
+  const levelRef = useRef<HTMLSpanElement>(null);
+  const gateKey = useSyncExternalStore(
     (fn) => voiceGate.subscribe(() => fn()),
-    () => voiceGate.getSnapshot(),
-    () => voiceGate.getSnapshot(),
+    () => gateSpeechKey(voiceGate.getSnapshot()),
+    () => gateSpeechKey(voiceGate.getSnapshot()),
   );
+  const [runningFlag, speechFlag, guardFlag, floor] = gateKey.split("|");
+  const gate = {
+    running: runningFlag === "1",
+    speech: speechFlag === "1",
+    speakingGuard: guardFlag === "1",
+    noiseFloor: Number(floor) || 0,
+  };
+  useEffect(() => {
+    const paint = () => {
+      const node = levelRef.current;
+      if (node) node.textContent = voiceGate.getSnapshot().level.toFixed(3);
+    };
+    paint();
+    return voiceGate.subscribe(() => paint());
+  }, [gate.running]);
 
   const rows: Array<{ label: string; value: string; bad?: boolean }> = [
     { label: "state", value: voice.voiceState },
@@ -34,7 +54,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     {
       label: "vad",
       value: gate.running
-        ? `level ${gate.level.toFixed(3)} · floor ${gate.noiseFloor.toFixed(3)} · ${
+        ? `level · floor ${gate.noiseFloor.toFixed(3)} · ${
             gate.speech ? "speech" : gate.speakingGuard ? "guarded" : "silence"
           }`
         : "analyser stopped",
@@ -59,6 +79,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       bad: Boolean(voice.stt.lastError),
     },
     { label: "last transcript", value: voice.stt.lastTranscript || "—" },
+    { label: "route", value: liveVoiceRuntimeLine(voice) },
     {
       label: "tts",
       value: voice.tts.engine
@@ -102,7 +123,16 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                 row.bad ? "text-destructive" : "text-foreground/80",
               )}
             >
-              {row.value}
+              {row.label === "vad" && gate.running ? (
+                <>
+                  level <span ref={levelRef}>0.000</span>
+                  {` · floor ${gate.noiseFloor.toFixed(3)} · ${
+                    gate.speech ? "speech" : gate.speakingGuard ? "guarded" : "silence"
+                  }`}
+                </>
+              ) : (
+                row.value
+              )}
             </span>
           </li>
         ))}

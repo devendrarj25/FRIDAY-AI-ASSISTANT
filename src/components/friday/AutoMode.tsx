@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
+import type { LiveComponent } from "@/lib/friday/use-friday-live";
 import { assistantMode, type PanelDisplay } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -80,6 +81,18 @@ function DisplayPanel({ display }: { display: PanelDisplay }) {
       )}
     </div>
   );
+}
+
+function selectCircuitNode(node: LiveComponent) {
+  assistantMode.show({
+    kind: "list",
+    title: `${node.label} · ${node.state}`,
+    items: [
+      node.active ? (node.action ?? node.status) : node.status,
+      ...node.details.map((detail) => `${detail.k}: ${detail.v}`),
+      node.age ? `last activity: ${node.age}` : "",
+    ].filter(Boolean),
+  });
 }
 
 export function AutoMode() {
@@ -221,20 +234,7 @@ export function AutoMode() {
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <NeuralCircuit
-            large
-            onSelectNode={(node) =>
-              assistantMode.show({
-                kind: "list",
-                title: `${node.label} · ${node.state}`,
-                items: [
-                  node.active ? (node.action ?? node.status) : node.status,
-                  ...node.details.map((d) => `${d.k}: ${d.v}`),
-                  node.age ? `last activity: ${node.age}` : "",
-                ].filter(Boolean),
-              })
-            }
-          />
+          <NeuralCircuit large onSelectNode={selectCircuitNode} />
         </div>
 
         <div className="flex shrink-0 flex-col gap-2 px-3 pb-3">

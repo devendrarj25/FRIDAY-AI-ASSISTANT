@@ -9,6 +9,8 @@ import { outputReachable } from "./tts-ladder";
 import { roomWakeDecision } from "./wake-engine";
 import { CLEAN_PC_SCRIPT, freshMachine, walkVoiceFlow } from "./voice-flow";
 import { voicePackReport } from "./voice-pack";
+import { voiceGate } from "./voice-audio";
+import { lastSpeechRoute } from "./voice-library";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -148,4 +150,87 @@ export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
     .map((check, index) => `${lines[index]} ${check.label}: ${check.detail}`)
     .join("\n");
   return { lines, diagnostics, checks: safe };
+}
+
+const VOICE_DEBUG_KEY = "friday.voice.debug";
+let frameCount = 0;
+let frameWindow = 0;
+let frameRate = 0;
+
+/** True only when the owner set friday.voice.debug to 1. No transcript is stored. */
+export function voiceDebugOn(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(VOICE_DEBUG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Counts voice-screen commits. The rate is reported only while the debug flag is on. */
+export function noteVoiceFrame(now = Date.now()): number {
+  if (!frameWindow) frameWindow = now;
+  frameCount += 1;
+  const elapsed = now - frameWindow;
+  if (elapsed >= 1000) {
+    frameRate = Math.round((frameCount * 1000) / elapsed);
+    frameCount = 0;
+    frameWindow = now;
+  }
+  return frameRate;
+}
+
+export function voiceRenderRate(): number {
+  return frameRate;
+}
+
+export function resetVoiceRenderRate(): void {
+  frameCount = 0;
+  frameWindow = 0;
+  frameRate = 0;
+}
+
+/** One diagnostics line. No audio, no transcript, no secrets. */
+export function formatVoiceRuntimeLine(input: {
+  engine: string;
+  voiceId: string;
+  lang: string;
+  sttModel: string;
+  deviceId: string;
+  deviceLabel: string;
+  sampleRate: number | null;
+  echo: boolean | null;
+  errors: string[];
+  renderRate?: number | null;
+}): string {
+  const errors =
+    input.errors
+      .slice(-5)
+      .map((row) => redactDiagnostics(row))
+      .join("; ") || "none";
+  const echo = input.echo === null ? "unknown" : input.echo ? "on" : "off";
+  const rate = input.renderRate == null ? "" : ` render ${input.renderRate}/s`;
+  return redactDiagnostics(
+    `engine ${input.engine || "none"} voice ${input.voiceId || "none"} lang ${input.lang || "none"} stt ${input.sttModel || "none"} device ${input.deviceId || "default"} ${input.deviceLabel || ""} sample ${input.sampleRate ?? "unknown"} echo ${echo} errors ${errors}${rate}`,
+  );
+}
+
+export function liveVoiceRuntimeLine(voice: {
+  tts: { engine: string | null; voice: string };
+  stt: { model: string | null };
+}): string {
+  const route = lastSpeechRoute();
+  const track = voiceGate.micStream()?.getAudioTracks()[0];
+  const settings = (track?.getSettings?.() ?? {}) as { deviceId?: string; sampleRate?: number };
+  return formatVoiceRuntimeLine({
+    engine: route.engine || voice.tts.engine || "",
+    voiceId: route.voiceId || voice.tts.voice || "",
+    lang: route.lang,
+    sttModel: voice.stt.model || "",
+    deviceId: settings.deviceId || "",
+    deviceLabel: track?.label || "",
+    sampleRate: typeof settings.sampleRate === "number" ? settings.sampleRate : null,
+    echo: voiceGate.echoCancellation(),
+    errors: voiceGate.recentErrors(),
+    renderRate: voiceDebugOn() ? voiceRenderRate() : null,
+  });
 }

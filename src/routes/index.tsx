@@ -4,7 +4,7 @@ import { AutoMode } from "@/components/friday/AutoMode";
 import { ChatDock } from "@/components/friday/ChatDock";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
 import { Stage } from "@/components/friday/Stage";
-import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
+import { useAssistantSlice } from "@/lib/friday/use-assistant-mode";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { useEffect } from "react";
 
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/")({
  * shared stores, so switching either way loses nothing.
  */
 function MainWindow() {
-  const { mode } = useAssistantMode();
+  const mode = useAssistantSlice((state) => state.mode);
   // FRIDAY keeps working in the background while the window is open.
   useEffect(() => {
     backgroundTasks.start();

@@ -317,17 +317,18 @@ function workerRequest(session, payload, timeoutMs, onStream) {
   });
 }
 
-async function prepareWeights(model) {
+async function prepareWeights(model, onEvent) {
   const weights = require("./voice-weights.cjs");
   return weights.ensureSttWeights(model, paths.root() || "", {
     exists: (file) => fs.existsSync(file),
     downloadModel: require("./model-download.cjs").downloadModel,
+    onEvent,
   });
 }
 
-async function ensureWorker(model) {
+async function ensureWorker(model, onEvent) {
   const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
-  const prepared = await prepareWeights(wanted);
+  const prepared = await prepareWeights(wanted, onEvent);
   if (!prepared.ok) throw new Error(prepared.error || "speech weights are not on disk");
   const modelPath = prepared.dir;
   if (worker?.alive) {
@@ -536,7 +537,15 @@ async function status(force = false, options = {}) {
     try {
       const voiceInstall = require("./voice-install.cjs");
       const boot = voiceInstall.bootModel({ requested: "auto" });
-      await ensureWorker(boot.model);
+      await ensureWorker(boot.model, (event) => {
+        if (typeof options.onProgress !== "function") return;
+        const raw = String(event?.status || "");
+        if (!raw || raw === "already on disk") return;
+        options.onProgress({
+          status: "Downloading speech model, first time only",
+          progress: typeof event?.progress === "number" ? Math.round(event.progress) : null,
+        });
+      });
     } catch (error) {
       lastLocalLayers.reason = String(error?.message || error);
       if (lastLocalLayers.dependency !== "ready") lastLocalLayers.dependency = "missing";

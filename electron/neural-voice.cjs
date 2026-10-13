@@ -8,6 +8,7 @@
  * edge-tts is the cloud path: Microsoft neural voices, including
  * hi-IN-SwaraNeural and en-IN-NeerjaNeural. It runs only when the caller
  * passes one of those Neural voice ids and the text is not sensitive.
+ * A fresh install asks for Swara. Privacy mode passes no Neural id.
  * Sensitive text stays on the local model or the system voice.
  *
  * Rules kept from the rest of FRIDAY:
@@ -17,6 +18,7 @@
  *     failed synth falls back to the existing SAPI voices.
  */
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
@@ -271,6 +273,7 @@ async function speakLocal({ text, rate = 1, lang = "" } = {}) {
       ok: true,
       engine: "supertonic-3",
       cloud: false,
+      voice: "F2",
       mime: "audio/wav",
       audioBase64: fs.readFileSync(file).toString("base64"),
       path: file,
@@ -303,6 +306,7 @@ async function speakLocal({ text, rate = 1, lang = "" } = {}) {
     ok: true,
     engine: "supertonic-3",
     cloud: false,
+    voice: "F2",
     mime: "audio/wav",
     audioBase64: fs.readFileSync(file).toString("base64"),
     path: file,
@@ -359,26 +363,69 @@ async function speakCloud({ text, voice, rate = 1, volume = 1, pitch = 1 } = {})
     ok: true,
     engine: "edge-tts",
     cloud: true,
+    voice: voiceId,
     mime: "audio/mpeg",
     audioBase64: fs.readFileSync(file).toString("base64"),
     path: file,
   };
 }
 
-async function speakSystem(text) {
+async function speakSystem(text, options = {}) {
   const sapi = require("./sapi-voice.cjs");
   if (!sapi.sapiAvailable()) return { ok: false, engine: "sapi", reason: "not-windows" };
   const { execFile } = require("child_process");
-  const command = sapi.sapiCommand(text);
+  const dir = path.join(os.tmpdir(), "friday-sapi");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${crypto.randomBytes(8).toString("hex")}.wav`);
+  const command = sapi.sapiCommand(text, { wav: file, rate: options.rate, volume: options.volume });
   const exe = command[0];
   const args = command.slice(1);
   const result = await new Promise((resolve) => {
-    execFile(exe, args, { timeout: 20000, windowsHide: true }, (error) => {
-      resolve({ ok: !error, error: error ? String(error.message || error) : "" });
-    });
+    execFile(
+      exe,
+      args,
+      { timeout: 20000, windowsHide: true, maxBuffer: 256 * 1024 },
+      (error, stdout) => {
+        resolve({
+          ok: !error,
+          error: error ? String(error.message || error) : "",
+          stdout: String(stdout || ""),
+        });
+      },
+    );
   });
-  if (!result.ok) return { ok: false, engine: "sapi", reason: result.error.slice(0, 240) };
-  return { ok: true, engine: "sapi", cloud: false, mime: "", audioBase64: "", path: "" };
+  const ready = result.ok && fs.existsSync(file) && fs.statSync(file).size > 44;
+  if (!ready) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      /* nothing written */
+    }
+    return {
+      ok: false,
+      engine: "sapi",
+      reason: (result.error || "sapi wrote no audio").slice(0, 240),
+    };
+  }
+  const audioBase64 = fs.readFileSync(file).toString("base64");
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* the clip is already in memory */
+  }
+  const line = (result.stdout.match(/VOICE\s+(\S.*)/) || [])[1]?.trim() || "";
+  const other = line.startsWith("other ");
+  const indian = Boolean(line) && line !== "none-indian" && !other;
+  return {
+    ok: true,
+    engine: "sapi",
+    cloud: false,
+    mime: "audio/wav",
+    audioBase64,
+    voice: indian ? line : other ? line.slice(6).trim() : "",
+    note: indian ? "" : sapi.NO_INDIAN_VOICE,
+    path: "",
+  };
 }
 
 async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" } = {}) {
@@ -393,7 +440,7 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" }
   }
   const local = await speakLocal({ text: spoken, rate, lang });
   if (local.ok) return local;
-  const system = await speakSystem(spoken);
+  const system = await speakSystem(spoken, { rate, volume });
   if (system.ok) return system;
   return {
     ok: false,

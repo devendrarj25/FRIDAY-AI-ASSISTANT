@@ -54,8 +54,9 @@ const pack = require_("../../electron/toolchain-pack.cjs") as {
   windowsLongPath: (file: string) => string;
 };
 const sapi = require_("../../electron/sapi-voice.cjs") as {
-  sapiCommand: (text: string) => string[];
+  sapiCommand: (text: string, options?: { wav?: string; rate?: number }) => string[];
   sapiAvailable: (platform?: string) => boolean;
+  NO_INDIAN_VOICE: string;
 };
 const whisperCpp = require_("../../electron/whisper-cpp.cjs") as {
   locateFrom: (roots: string[]) => { cli: string; model: string } | null;
@@ -169,7 +170,14 @@ describe("wave 6 speech core and toolchain", () => {
     expect(speechTurnPlan("hello", "hi-IN")).toContain("not-approved");
     expect(ownerAcceptanceSteps().length).toBe(9);
     const command = sapi.sapiCommand('say "hi"');
-    expect(command.join(" ")).toContain("System.Speech");
+    const script = command.join(" ");
+    expect(script).toContain("System.Speech");
+    expect(script).toContain("SelectVoice");
+    expect(script).toContain("Swara");
+    expect(script).not.toMatch(/[^\x00-\x7F]/);
+    const wav = sapi.sapiCommand("hello", { wav: "C:\\Friday\\clip.wav", rate: 0.96 });
+    expect(wav.join(" ")).toContain("SetOutputToWaveFile");
+    expect(sapi.NO_INDIAN_VOICE).toContain("Hindi (India)");
     expect(sapi.sapiAvailable("linux")).toBe(false);
     const missing = whisperCpp.locateFrom([path.join(os.tmpdir(), "no-whisper-pack")]);
     expect(missing).toBeNull();
