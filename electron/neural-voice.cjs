@@ -401,7 +401,11 @@ async function speakSystem(text, options = {}) {
     } catch {
       /* nothing written */
     }
-    return { ok: false, engine: "sapi", reason: (result.error || "sapi wrote no audio").slice(0, 240) };
+    return {
+      ok: false,
+      engine: "sapi",
+      reason: (result.error || "sapi wrote no audio").slice(0, 240),
+    };
   }
   const audioBase64 = fs.readFileSync(file).toString("base64");
   try {
