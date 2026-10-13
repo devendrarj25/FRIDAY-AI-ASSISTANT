@@ -3,25 +3,25 @@
 Owner: **Devendra Singh Meena (`devendrarj25`)**
 Scope: state of the codebase at version **1.1.2.2**.
 
-📋 What is verified versus not, with the command that is the evidence. Live briefing (architecture, counts, next): [FRIDAY_STATE.md](FRIDAY_STATE.md). Feature map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md).
+📋 What is verified versus not, with the command that is the evidence. Live briefing: [FRIDAY_STATE.md](FRIDAY_STATE.md). Feature map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md).
 
 ## 1. Verification table (Linux check)
 
-First Lint / Types / Tests rows are what Self-Management reads.
+First Lint / Types / Tests rows are what Self-Management reads. This table is the 2026-10-13 Linux session. A later row must not put a positive error count in front of these three.
 
 | Check | `command` | result |
 | --- | --- | --- |
-| Lint | `npm run lint` | **0 errors**. ESLint and kernel ruff passed inside `npm run preflight -- --full`. The `static` job runs the same command. |
-| Types | `npm run typecheck` | clean (`tsc --noEmit`). `core/__tests__/actionlint-pin.test.ts` typechecks. |
-| Tests | `npm test` | 348 files, 2892 passed, 2 skipped |
-| Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning |
-| Docs registry | `npm run docs:check` | clean (registered docs, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
+| Lint | `npm run lint` | **0 errors**. Inside `npm run preflight`, ESLint was silent and ruff reported `All checks passed!` plus `63 files already formatted`. |
+| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.2`. |
+| Tests | `npm test` | 348 files passed, 2892 passed, 2 skipped, 92.68s |
+| Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning; 21.34s |
+| Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.2.2** (npm encoding **1.1.2**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
-| Dependencies | `npm audit` | 0 vulnerabilities when checked; the advisory database changes daily, so re-run it |
-| Local CI substitute | `npm run preflight -- --full` | passed on Linux. NSIS, verify-build, and installer smoke were skipped. Electron and the renderer bundle passed. `npm run validate:local` calls the same script. |
-| Pricing knowledge | `npm run pricing:status` | reports FRESH or EXPIRED against a 14-day TTL; when EXPIRED, affected models classify as "unknown" until the provider pages are re-read and `KNOWLEDGE_CHECKED_AT` is bumped. Not re-run in this session. |
-| Hosted Actions | PR Validation / FRIDAY Release | FRIDAY Release run 38348306084 published `v1.1.2.2`. On 2026-10-13, PR Validation 38356829986, FRIDAY Test Build 38359175064, Maintenance Cleanup 38356896257, Auto Recover 38360366455, Branch Cleanup 38348218762, and Main Safety Recovery 38348218697 succeeded. Safe Merge ran inside the release. Health Weekly's last listed success is 38247606809 on an older commit. Actions history lists no run for Repository Control or Security Scan. Eleven workflow files stay locked. |
+| Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
+| Local CI substitute | `npm run preflight` | exit 0 on Linux. Fourteen gates passed. This run was not `--full`, so NSIS, packaged verify, installer smoke, Electron, and the renderer bundle were not run. `npm run validate:local` calls the same script |
+| Pricing knowledge | `npm run pricing:status` | FRESH. Oldest source perplexity, checked 2026-10-07, expires 2026-10-21 |
+| Hosted Actions | PR Validation / FRIDAY Release | Release `v1.1.2.2` is run 38348306084. The owner reported the workflow runs checked on 2026-10-13 green. Health Weekly's last listed success is 38247606809 on an older commit. Actions history lists no run for Repository Control or Security Scan. This docs branch was not dispatched. Eleven workflow files stay locked |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.1.2.2
@@ -46,7 +46,7 @@ GitHub release **v1.1.2.2** (published 2026-10-13, run 38348306084): Setup (3256
 - numpy / chromadb / device extras are optional at kernel boot; missing extras must not abort FastAPI startup.
 - Physical microphone / wake word / barge-in: **NOT VERIFIED** (needs a Windows desktop with capture hardware).
 - Dependency updates change the lockfile: let PR Validation rebuild the Windows package before merging them.
-- Five React Compiler advisory lint rules are set to `warn`, not fixed: FRIDAY does not ship the React Compiler and fixing them rewrites locked UI logic.
+- Five React Compiler rules and `react-hooks/exhaustive-deps` are `"error"` in `eslint.config.js`. `react-refresh/only-export-components` stays `"warn"`. FRIDAY does not ship the React Compiler.
 
 ## 5. What this file is not
 
