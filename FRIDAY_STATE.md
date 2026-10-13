@@ -108,7 +108,7 @@ These look like bugs. They are not. Do not "fix" them.
 ## Known gaps (honest)
 
 - Owner Windows CMD pack, EXE install, boot, uninstall, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree.
-- A hosted `docs-only` run of the current workspace mount has no recorded success. Later PR Validation runs skipped that job.
+- Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.
 - Live keyed provider calls and `npm run models:check --live` were not run. No owner keys are in this environment.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.

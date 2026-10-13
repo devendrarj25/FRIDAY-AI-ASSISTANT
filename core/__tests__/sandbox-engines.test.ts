@@ -47,6 +47,19 @@ describe("sandbox isolation engines", () => {
     expect(wrapped.line).toContain("docker run");
     expect(wrapped.line).toContain(projectDir);
     expect(wrapped.line).toContain("npm test");
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    if (uid !== undefined && uid !== 0 && gid !== undefined) {
+      expect(wrapped.line).toContain(`--user ${uid}:${gid}`);
+    } else {
+      expect(wrapped.line).not.toContain("--user");
+    }
+    const podman = engines.wrap("podman", {
+      command: "npm test",
+      dir: projectDir,
+      network: false,
+    });
+    expect(podman.line).not.toContain("--user");
   });
 
   it("keeps host PATH runtimes visible inside a bwrap wrap", () => {

@@ -21,7 +21,7 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is th
 | Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
 | Local CI substitute | `npm run preflight` | exit 0 on Linux. Fourteen gates passed. This run was not `--full`, so NSIS, packaged verify, installer smoke, Electron, and the renderer bundle were not run. `npm run validate:local` calls the same script |
 | Pricing knowledge | `npm run pricing:status` | FRESH. Oldest source perplexity, checked 2026-10-07, expires 2026-10-21 |
-| Hosted Actions | PR Validation / FRIDAY Release | Release `v1.1.2.2` is run 38348306084. The owner reported the workflow runs checked on 2026-10-13 green. Health Weekly's last listed success is 38247606809 on an older commit. Actions history lists no run for Repository Control or Security Scan. This docs branch was not dispatched. Eleven workflow files stay locked |
+| Hosted Actions | PR Validation / FRIDAY Release | Release `v1.1.2.2` is run 38348306084. Docs-only run 38372554640 on this branch stopped in `npm test` with 18 EACCES errors from root-owned sandbox files. Docker wraps now pass `--user` for a non-root caller. A re-run of that job is unverified. Eleven workflow files stay locked |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
 ## 2. Published 1.1.2.2
