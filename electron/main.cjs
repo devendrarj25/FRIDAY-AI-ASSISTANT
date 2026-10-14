@@ -18,7 +18,9 @@ for (const arg of process.argv) {
     : arg.startsWith("friday-workspace=")
       ? arg.slice("friday-workspace=".length)
       : "";
-  if (workspaceArg) process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg;
+  if (workspaceArg) {
+    process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg.replace(/^["']|["']$/g, "");
+  }
 }
 
 // Boot self-test (scripts/verify-boot.cjs, scripts/windows-installer-smoke.ps1)
@@ -64,6 +66,46 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
+// Windows launches FRIDAY as a GUI subsystem process. Redirected stdout from
+// that process is often empty (the bytes go to a console, not the pipe), so
+// installer smoke also reads logs/boot-selftest.txt. The line is replaced, not
+// appended, and it is written before the single-instance lock so a second copy
+// cannot reuse an older OK.
+function emitBootSelfTestLine(line) {
+  const text = String(line || "").replace(/\r?\n/g, " ");
+  const payload = `${text}\n`;
+  try {
+    process.stdout.write(payload);
+  } catch {
+    /* closed pipe */
+  }
+  try {
+    fs.writeSync(1, payload);
+  } catch {
+    /* a GUI subsystem has no stdout handle */
+  }
+  const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
+  if (!root) return;
+  let dirOk = false;
+  try {
+    dirOk = fs.statSync(root).isDirectory();
+  } catch {
+    dirOk = false;
+  }
+  if (!dirOk) return;
+  const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, payload);
+  } catch {
+    /* stdout remains the other signal */
+  }
+}
+
+if (process.env.FRIDAY_BOOT_SELFTEST) {
+  emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
+}
+
 const {
   verifyWorkspace,
   repairWorkspace,
@@ -96,6 +138,14 @@ try {
   paths.setFallbackRoot(app.getPath("userData"));
 } catch {
   /* userData is unavailable in some test harnesses; the tmp fallback stands */
+}
+if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
+  const raw = String(process.env.FRIDAY_WORKSPACE_ROOT).replace(/^["']|["']$/g, "");
+  try {
+    if (fs.statSync(raw).isDirectory()) paths.setRoot(path.resolve(raw));
+  } catch {
+    /* resolveWorkspaceRoot asks when the folder is missing */
+  }
 }
 const { WorkspaceWatcher } = require("./watcher.cjs");
 const { checkAllUpdates } = require("./updater.cjs");
@@ -220,8 +270,19 @@ ipcMain.handle = (channel, handler) =>
 
 // One FRIDAY per machine: a second launch focuses the running window instead of
 // spawning a duplicate kernel against the same workspace.
+let fridayInstanceLockHeld = true;
 const singleInstance = app.requestSingleInstanceLock();
-if (!singleInstance) app.quit();
+if (!singleInstance) {
+  fridayInstanceLockHeld = false;
+  if (process.env.FRIDAY_BOOT_SELFTEST) {
+    // app.quit() exits 0 and would look like a mounted boot. The smoke test
+    // needs a failed exit and a line it can read after stdout is dropped.
+    emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_FAIL another FRIDAY already holds this PC");
+    app.exit(1);
+  } else {
+    app.quit();
+  }
+}
 
 // Native spellchecking can block Chromium's UI thread while Windows language
 // services initialise. Keep only the browser spellchecker disabled. Do not
@@ -2732,15 +2793,11 @@ function finishBootSelfTest(code, line) {
   if (bootSelfTestFinished) return;
   bootSelfTestFinished = true;
   const text = String(line || "");
-  try {
-    console.log(text);
-  } catch {
-    /* stdout is what the installer smoke reads; a closed pipe must not hang boot */
-  }
+  emitBootSelfTestLine(text);
   try {
     log(text);
   } catch {
-    /* the console line is the smoke signal */
+    /* the stdout line and boot-selftest.txt are the smoke signals */
   }
   // Closing the last window would otherwise app.quit() with code 0 and hide a
   // failed probe. The explicit exit below is the smoke result.
@@ -2761,7 +2818,7 @@ function finishBootSelfTest(code, line) {
 function armBootSelfTestWatchdog() {
   if (!process.env.FRIDAY_BOOT_SELFTEST || bootSelfTestWatchdogArmed) return;
   bootSelfTestWatchdogArmed = true;
-  console.log("FRIDAY_BOOT_SELFTEST_BEGIN");
+  emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
   setTimeout(() => {
     finishBootSelfTest(1, "FRIDAY_BOOT_SELFTEST_FAIL interface did not mount before the deadline");
   }, 70000);
@@ -7192,6 +7249,7 @@ ipcMain.handle("env:readiness", () =>
 app
   .whenReady()
   .then(async () => {
+    if (!fridayInstanceLockHeld) return;
     if (process.env.FRIDAY_BOOT_SELFTEST) armBootSelfTestWatchdog();
     log(`FRIDAY ${productVersion()} starting · packaged=${app.isPackaged}`);
     // Voice needs the microphone. Electron denies every permission request by

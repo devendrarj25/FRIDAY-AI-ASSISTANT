@@ -41,6 +41,9 @@ describe("windows installer smoke", () => {
     expect(smoke).toContain("--friday-workspace=$rootDir");
     expect(smoke).toContain("$env:FRIDAY_WORKSPACE_ROOT = $rootDir");
     expect(smoke).toContain("(main.log missing at $mainLog)");
+    expect(smoke).toContain("logs\\boot-selftest.txt");
+    expect(smoke).toContain("(boot-selftest.txt missing at $markerPath)");
+    expect(smoke).toContain("Remove-Item -LiteralPath $markerPath -Force");
     const passAt = smoke.indexOf("[friday] PASS installer");
     const failExit = smoke.indexOf("if ($null -ne $smokeError) { exit 1 }");
     expect(passAt).toBeGreaterThan(-1);

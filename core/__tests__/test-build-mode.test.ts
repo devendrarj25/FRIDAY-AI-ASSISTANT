@@ -256,6 +256,14 @@ describe("installer lifecycle smoke contract", () => {
     expect(probe).toContain("FRIDAY_BOOT_SELFTEST_OK interface mounted");
     expect(probe).toContain("setTimeout");
     expect(probe).not.toContain("if (!win || win.isDestroyed()) return;");
+    const marker = main.indexOf("boot-selftest.txt");
+    const lock = main.indexOf("requestSingleInstanceLock");
+    expect(marker).toBeGreaterThan(-1);
+    expect(lock).toBeGreaterThan(marker);
+    const lockBlock = main.slice(lock, lock + 700);
+    expect(lockBlock).toContain("another FRIDAY already holds this PC");
+    expect(lockBlock).toContain("app.exit(1)");
+    expect(main).toContain("if (!fridayInstanceLockHeld) return;");
   });
 });
 

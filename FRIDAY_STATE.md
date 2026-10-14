@@ -8,7 +8,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 ## Verified on this Linux tree (2026-10-14)
 
-The boot self-test was re-checked after the installer-smoke timeout. Windows CMD, install, and publish were not run. `npm run preflight`, `typecheck:py`, `test:kernel`, `arrange:check`, `build:desktop`, and gitleaks were not re-run in this pass.
+The boot self-test writes `logs/boot-selftest.txt` and exits on its own clock. Windows CMD, install, and publish were not run. `npm run preflight`, `typecheck:py`, `test:kernel`, `arrange:check`, `build:desktop`, and gitleaks were not re-run in this pass.
 
 | Check | Result |
 | --- | --- |
@@ -17,15 +17,15 @@ The boot self-test was re-checked after the installer-smoke timeout. Windows CMD
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
-| `npm test` | 357 files passed, 2975 passed, 2 skipped, 98.14s. Exit 0. |
-| Electron boot self-test under Xvfb | With a working renderer: `FRIDAY_BOOT_SELFTEST_OK interface mounted (722 nodes, 1703 chars)`, exit 0. When `/dev/shm` cannot be used: `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed`, exit 1, under a second. Not a Windows installer run. |
+| `npm test` | 357 files passed, 2975 passed, 2 skipped, 86.75s. Exit 0. |
+| Electron boot self-test under Xvfb | With `--disable-dev-shm-usage --no-sandbox`: exit 0. Stdout and `logs/boot-selftest.txt` both ended `FRIDAY_BOOT_SELFTEST_OK interface mounted (722 nodes, 1703 chars)`. A stale OK line in that file was replaced. Without those CLI flags: exit 1, marker `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed`, under a second. Not a Windows installer run. |
 | `npm run preflight` / `typecheck:py` / `test:kernel` / `arrange:check` / `build:desktop` / gitleaks / `npm audit` / `pip-audit` / `models:check` | Not re-run in this pass. |
 
 `npm run validate:local` calls the same preflight script. A failure does not hide later gates.
 
 ## UNVERIFIED
 
-The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched from this session. PR Validation run 38553815649 on this branch failed `package-windows`: the installed boot self-test stayed up for 240 seconds and printed nothing. The same timeout is on run 38540692201, which is already on `main`. A push re-runs that check. It is unverified until the new `package-windows` job exits 0.
+The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, background use, uninstall with data kept and with data removed, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched from this session. PR Validation run 38553815649 failed `package-windows`: the installed boot self-test stayed up for 240 seconds and printed nothing. The same timeout is on run 38540692201, which is already on `main`. Run 38562947541 for the exit-on-deadline commit started no jobs (`startup_failure`). A push starts another check. It is unverified until the new `package-windows` job exits 0.
 
 ## Snapshot
 
@@ -102,7 +102,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
-- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, uninstall with data kept and with data removed, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. Silent uninstall keeps the data folder. The installer page "Delete all FRIDAY data too" is the remove path and stays unchecked. PR Validation run 38553815649 failed `package-windows` because the installed boot self-test did not exit within 240 seconds and both stdout and the sandbox `logs\main.log` were empty. The self-test now reads `--friday-boot-selftest` and `--friday-workspace`, skips Python extraction, and exits on a deadline or a renderer crash. On this Linux machine the same probe printed `FRIDAY_BOOT_SELFTEST_OK` (722 nodes) and exited 0 when the renderer could start, and printed `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed` and exited 0.5 seconds later when `/dev/shm` could not be used. That is not a Windows installer run. Hosted `package-windows` after this change is unverified until the new job finishes.
+- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, background use, uninstall with data kept and with data removed, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. Silent uninstall keeps the data folder. The installer page "Delete all FRIDAY data too" is the remove path and stays unchecked. PR Validation run 38553815649 failed `package-windows` because the installed boot self-test did not exit within 240 seconds and both stdout and the sandbox `logs\main.log` were empty. Run 38562947541 started no jobs (`startup_failure`). The self-test reads `--friday-boot-selftest` and `--friday-workspace`, skips Python extraction, replaces `logs/boot-selftest.txt`, and exits on a deadline or a renderer crash. A second copy exits 1. On this Linux machine a stale OK line was replaced, the probe printed `FRIDAY_BOOT_SELFTEST_OK` (722 nodes, exit 0) when the renderer could start, and `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed` (exit 1, under a second) when `/dev/shm` could not be used. That is not a Windows installer run. Hosted `package-windows` stays unverified until the new job exits 0.
 - Voice-screen redraws no longer follow captions or a one-second React clock. The drawing clock pauses while the window is hidden. A live Windows microphone, addressing quality, flicker on a real GPU, voice quality, the first speech-model download, and installer smoke are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
 - Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.

@@ -227,6 +227,11 @@ function Verify-Boot {
   # arguments still reach the process and select the same FRIDAY folder Setup wrote.
   $env:FRIDAY_BOOT_SELFTEST = "1"
   $env:FRIDAY_WORKSPACE_ROOT = $rootDir
+  # A GUI process often leaves the redirected pipe empty. The app replaces this
+  # file with BEGIN, then with OK or FAIL. Removing it first stops an older OK
+  # from counting as this launch.
+  $markerPath = Join-Path $dataDir "logs\boot-selftest.txt"
+  if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }
   $p = Start-Tracked -FilePath (Join-Path $installDir "FRIDAY.exe") -ArgumentList @(
     "--friday-boot-selftest",
     "--friday-workspace=$rootDir"
@@ -244,16 +249,22 @@ function Verify-Boot {
     Remove-Item Env:\FRIDAY_BOOT_SELFTEST -ErrorAction SilentlyContinue
   }
   $output = ((Get-Content $stdout -Raw -ErrorAction SilentlyContinue) + (Get-Content $stderr -Raw -ErrorAction SilentlyContinue))
+  $markerText = "(boot-selftest.txt missing at $markerPath)"
+  if (Test-Path -LiteralPath $markerPath) {
+    $markerText = Get-Content -LiteralPath $markerPath -Raw -ErrorAction SilentlyContinue
+  }
   $mainLog = Join-Path $dataDir "logs\main.log"
   $logTail = "(main.log missing at $mainLog)"
   if (Test-Path -LiteralPath $mainLog) {
     $logTail = (Get-Content $mainLog -Tail 60 -ErrorAction SilentlyContinue) -join "`n"
   }
+  $evidence = "$output`n--- boot-selftest.txt ---`n$markerText`n--- main.log (tail) ---`n$logTail"
   if ($failure) {
-    throw "$failure`n--- stdout/stderr ---`n$output`n--- main.log (tail) ---`n$logTail"
+    throw "$failure`n--- stdout/stderr ---`n$evidence"
   }
-  if ($output -notmatch "FRIDAY_BOOT_SELFTEST_OK") {
-    throw "Installed FRIDAY did not report a mounted interface.`n$output`n--- main.log (tail) ---`n$logTail"
+  $mounted = "$output`n$markerText"
+  if ($mounted -notmatch "FRIDAY_BOOT_SELFTEST_OK") {
+    throw "Installed FRIDAY did not report a mounted interface.`n$evidence"
   }
 }
 
