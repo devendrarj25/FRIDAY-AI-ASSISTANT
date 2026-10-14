@@ -22,8 +22,11 @@ Never edit `main`. Work stays on one non-release pull request into `main`.
    and it is not a release pull request, continue there.
 3. If neither is open, create one branch and one draft pull request.
 
-Do not merge a pull request. The owner merges. Do not mark a draft ready
-unless the owner says to do that for this pull request. A release pull
+Do not merge a pull request. Do not pull a pull request into `main`. The
+owner merges. Do not run a GitHub Actions workflow. The owner runs them. A
+run that is already going may be watched, and the code fixed from its log.
+Do not mark a draft ready unless the owner says to do that for this pull
+request. The full rule is [AGENTS.md](AGENTS.md) → Actions, pull, and merge. A release pull
 request (`release/v…`) is created by `release.yml` only. Do not add other
 work to it.
 
@@ -95,5 +98,5 @@ second registry or a second What's New store.
 ## 6. What not to touch
 
 - Do not bump `config/friday-version.json` unless the owner asked.
-- Do not dispatch GitHub Actions; leave the tree so those jobs would stay green. Do not edit `.github/workflows/` or `.github/actions/` unless [AGENTS.md](AGENTS.md) → GitHub workflows stay locked allows it. A request to edit them still needs a second yes or ok.
+- Do not run a GitHub Actions workflow. The owner runs them. Leave the tree so those jobs would stay green. Do not edit `.github/workflows/` or `.github/actions/` unless [AGENTS.md](AGENTS.md) → GitHub workflows stay locked allows it. A request to edit them still needs a second yes or ok.
 - Do not commit to `main`. Open a pull request; the owner merges.

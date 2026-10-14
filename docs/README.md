@@ -57,7 +57,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | Document | Answers | For |
 | --- | --- | --- |
 | [FRIDAY_STATE.md](../FRIDAY_STATE.md) | Live briefing for a new session: architecture snapshot, counts, decisions, next priorities | AI tools (current facts, after the session rules) |
-| [AGENTS.md](../AGENTS.md) | The upgrade flow for AI tools: one pull request, keep what works, fix a locked-area bug without breaking it, same-change tests and docs, owner merges | AI tools |
+| [AGENTS.md](../AGENTS.md) | Session rules: one pull request, the owner runs every workflow and merges, keep what works, same-change tests and docs | AI tools |
 
 ## 6. Document roles
 
