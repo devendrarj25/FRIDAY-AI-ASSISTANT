@@ -151,6 +151,17 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 | An LLM that chooses the provider | REJECT | The supplied architecture note asked for a master prompt that picks providers. That adds latency, cost, an injection surface, and a non-deterministic route. The router stays ordinary code. |
 | Mistral Experiment, Cohere trial keys, Hugging Face `:cheapest`, NVIDIA, Cerebras, Fireworks, Together, SambaNova, Moonshot, DeepInfra, Nebius | unverified | Those pages were not re-read on 2026-10-13. Their previous rules stay. |
 
+### Routing lanes (2026-10-14)
+
+Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher download, library catalogs, and the Models section switch are not in this change.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Separate `:free` catalogue entry | ADOPT | [Free variant](https://openrouter.ai/docs/guides/routing/model-variants/free) and [suffixes](https://openrouter.ai/docs/guides/routing/model-variants/overview), read 2026-10-14. Stripping `:free` resolves the paid id. FRIDAY keeps free and paid in different lanes. |
+| Ordered model fallback | ADAPT | [Model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) and [failover](https://openrouter.ai/blog/insights/reliability-failover/), read 2026-10-14. FRIDAY already lists the next model in code. The list is the lane hand-off, and a paid id is not added unless the owner, the firewall, and the budget allow it. |
+| Provider load-balance across hosts | REJECT | [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), read 2026-10-14. That is a second router. FRIDAY keeps one handler per provider and one funnel. |
+| An LLM that chooses the lane | REJECT | Same reason as 2026-10-13. Latency, cost, injection, and a route that changes between two identical turns. |
+
 ### Routing added (2026-10-08, escalation)
 
 The model plan's learned value estimator and a second providers package tree were not added. Bedrock, Foundry, and Vertex stay off the cloud list until the owner connects those accounts. vLLM stays an optional local serve command. The vLLM package is not a dependency. Video demos are not an implementation source, and a video index was not added.

@@ -1244,6 +1244,14 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:allowlist",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:budget",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:cancel",
       file: "electron/main.cjs",
     },
@@ -1341,6 +1349,14 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "models:selection",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:set-allowlist",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:set-budget",
       file: "electron/main.cjs",
     },
     {
@@ -8428,8 +8444,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 438,
-      total: 438,
+      mapped: 442,
+      total: 442,
     },
     kernel: {
       mapped: 14,

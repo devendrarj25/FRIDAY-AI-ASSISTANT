@@ -1401,18 +1401,31 @@ async function resolveChatModels(
   // firewall sees the request; otherwise the kernel would still hold the
   // earlier UNVERIFIED catalogue snapshot and correctly block it.
   await syncKernelModels();
-  const plan = modelRouter.planRoute(models, routeOptions);
+  const settings = readSettings();
+  const allowlist = modelRouter.normaliseAllowlist(settings.modelAllowlist);
+  const billing = billingState();
+  const unlocked = billingPolicy.paidUnlocked(billing);
+  const budget = modelRouter.budgetDecision(settings.modelBudget);
+  const legacyPaid =
+    allowlist == null && unlocked.allowed === true && billing.autoPaidUsage === true;
+  const plan = modelRouter.routeRequest(models, {
+    ...routeOptions,
+    allowlist,
+    paidEnabled: allowlist ? allowlist.paidEnabled === true : legacyPaid,
+    firewallAllowsPaid: unlocked.allowed === true,
+    budgetAllows: budget.allows,
+  });
   log(
-    `route plan (${plan.planType}): ${plan.why}${plan.whyThisModel ? ` — ${plan.whyThisModel}` : ""}`,
+    `route plan (${plan.planType}) lane ${plan.lane}: ${plan.why}${plan.whyThisModel ? ` — ${plan.whyThisModel}` : ""}`,
   );
   if (plan.selected) {
     providerHealth.noteDecision({
       modelId: plan.selected,
-      why: plan.whyThisModel || "passed the filters",
+      why: `${plan.lane}: ${plan.reason}`,
       outcome: "planned",
     });
   }
-  return modelRouter.selectEligible(models, routeOptions);
+  return plan.models;
 }
 
 /**
@@ -1477,6 +1490,42 @@ function setModelSelection(ids) {
   writeSettings({ ...readSettings(), modelSelection: next });
   send("models:selection", { ids: next });
   return { ids: next };
+}
+
+/** Cloud allowlist. Absent until the owner saves one. Keys are not stored here. */
+function modelAllowlist() {
+  return modelRouter.normaliseAllowlist(readSettings().modelAllowlist);
+}
+
+function setModelAllowlist(value) {
+  const next = modelRouter.normaliseAllowlist(value) || {
+    saved: true,
+    ids: [],
+    paidEnabled: false,
+  };
+  writeSettings({
+    ...readSettings(),
+    modelAllowlist: { ids: next.ids, paidEnabled: next.paidEnabled },
+  });
+  return { ids: next.ids, paidEnabled: next.paidEnabled };
+}
+
+function modelBudget() {
+  return modelRouter.budgetDecision(readSettings().modelBudget);
+}
+
+function setModelBudget(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const current = readSettings().modelBudget;
+  const stored = {
+    perRequestUsd: source.perRequestUsd ?? null,
+    perDayUsd: source.perDayUsd ?? null,
+    perMonthUsd: source.perMonthUsd ?? null,
+    spentDayUsd: Number(current?.spentDayUsd) || 0,
+    spentMonthUsd: Number(current?.spentMonthUsd) || 0,
+  };
+  writeSettings({ ...readSettings(), modelBudget: stored });
+  return modelRouter.budgetDecision(stored);
 }
 
 /**
@@ -4233,12 +4282,16 @@ ipcMain.handle("models:route-mode", () => ({ mode: modelRouteMode() }));
 ipcMain.handle("models:quality-target", () => ({ qualityTarget: modelQualityTarget() }));
 ipcMain.handle("models:route-strategy", () => ({ strategy: modelRouteStrategy() }));
 ipcMain.handle("models:selection", () => ({ ids: modelSelection() }));
+ipcMain.handle("models:allowlist", () => modelAllowlist());
+ipcMain.handle("models:budget", () => modelBudget());
 ipcMain.handle("system:network", (_e, force) => checkNetwork(Boolean(force)));
 
 ipcMain.handle("models:set-route-mode", (_e, mode) => setModelRouteMode(mode));
 ipcMain.handle("models:set-quality-target", (_e, value) => setModelQualityTarget(value));
 ipcMain.handle("models:set-route-strategy", (_e, value) => setModelRouteStrategy(value));
 ipcMain.handle("models:set-selection", (_e, ids) => setModelSelection(ids));
+ipcMain.handle("models:set-allowlist", (_e, value) => setModelAllowlist(value));
+ipcMain.handle("models:set-budget", (_e, value) => setModelBudget(value));
 ipcMain.handle("models:set-policy", (_e, value) => setModelUsagePolicy(value));
 // ------------------------------------------------------------ billing safety
 // Paid AI usage is off by default and can only be unlocked here. Every answer

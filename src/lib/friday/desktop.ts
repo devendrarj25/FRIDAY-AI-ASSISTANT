@@ -543,6 +543,17 @@ type DesktopApi = {
   setModelRouteStrategy?: (value: string) => Promise<{ strategy: string }>;
   modelSelection?: () => Promise<{ ids: string[] }>;
   setModelSelection?: (ids: string[]) => Promise<{ ids: string[] }>;
+  modelAllowlist?: () => Promise<{ saved: boolean; ids: string[]; paidEnabled: boolean } | null>;
+  setModelAllowlist?: (value: {
+    ids?: string[];
+    paidEnabled?: boolean;
+  }) => Promise<{ ids: string[]; paidEnabled: boolean }>;
+  modelBudget?: () => Promise<{ allows: boolean; reason: string; configured: boolean }>;
+  setModelBudget?: (value: {
+    perRequestUsd?: number | null;
+    perDayUsd?: number | null;
+    perMonthUsd?: number | null;
+  }) => Promise<{ allows: boolean; reason: string; configured: boolean }>;
   /** The one authoritative provider registry (configured/reachable/health). */
   providerRegistry?: () => Promise<{
     at: number;

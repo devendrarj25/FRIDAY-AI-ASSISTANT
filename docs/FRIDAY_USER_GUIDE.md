@@ -67,6 +67,8 @@ On the owner's PC with real keys. These steps are unverified until that PC runs 
 5. Privacy mode on: confirm no cloud call happens and the route is local only.
 6. Paid-only off + billing firewall: confirm no paid model is ever used silently.
 
+Chat and Voice use the same route. The Doctor line names the lane (`local`, `cloud-free`, `cloud-paid`, `multi-local`, `hybrid`, or `manual`) and one reason. A saved cloud allowlist drops every cloud model that is not on it. Until that list is saved, today's free-first pool stays. Paid stays off unless paid access, the billing firewall, and a budget all allow it.
+
 Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
 
 ## How to watch, edit, and build flows
