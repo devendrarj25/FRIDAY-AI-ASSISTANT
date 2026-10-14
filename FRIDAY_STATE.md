@@ -8,30 +8,24 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 ## Verified on this Linux tree (2026-10-14)
 
-`npm run preflight` exited 0. It was not `--full`, so the Vitest suite below was run on its own. Windows CMD, install, and publish were not run. Gitleaks 8.30.1 was the same tag the secret-scan job runs.
+The boot self-test was re-checked after the installer-smoke timeout. Windows CMD, install, and publish were not run. `npm run preflight`, `typecheck:py`, `test:kernel`, `arrange:check`, `build:desktop`, and gitleaks were not re-run in this pass.
 
 | Check | Result |
 | --- | --- |
-| `npm run preflight` | Exit 0. heal-check, typecheck, docs, version, tests-required, provenance, lint, actionlint, arrange, deps, architecture audit, kernel, pyright, and test:fast all passed. Not `--full`. Architecture REVIEW notes are the same pre-existing names. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.2`. |
 | `npm run verify:version` | Passed. `version 1.1.2.2 - all version sources and governed documents are in sync`. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
-| `npm run typecheck:py` | 4 passed in 5.26s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
-| `npm run test:kernel` | 198 passed, 1 pre-existing Starlette TestClient warning, 20.50s. |
-| `npm run arrange:check` | 140 folders declared, missing 0, duplicates 0. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
-| `npm run test:fast` | 129 files, 1070 passed. |
-| `npm test` | 355 files passed, 2951 passed, 2 skipped, 90.53s. Exit 0. |
-| `npm run build:desktop` | Passed in 4.46s. JavaScript 6518970 bytes, 11781 more than `origin/main`. The Models chunk is 52512 bytes, 11229 more. AppShell is 164 bytes more. CSS is unchanged. The chunk warning is the pre-existing AppShell size. |
-| gitleaks 8.30.1 | 157 commits scanned, no leaks found. |
-| `npm audit` / `pip-audit` / `npm run models:check` / `npm run pricing:status` | Not re-run in this session. |
+| `npm test` | 357 files passed, 2975 passed, 2 skipped, 98.14s. Exit 0. |
+| Electron boot self-test under Xvfb | With a working renderer: `FRIDAY_BOOT_SELFTEST_OK interface mounted (722 nodes, 1703 chars)`, exit 0. When `/dev/shm` cannot be used: `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed`, exit 1, under a second. Not a Windows installer run. |
+| `npm run preflight` / `typecheck:py` / `test:kernel` / `arrange:check` / `build:desktop` / gitleaks / `npm audit` / `pip-audit` / `models:check` | Not re-run in this pass. |
 
 `npm run validate:local` calls the same preflight script. A failure does not hide later gates.
 
 ## UNVERIFIED
 
-The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched. The owner checked workflow runs on 2026-10-13 and reported them green. That report is not a new run of this branch.
+The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched from this session. PR Validation run 38553815649 on this branch failed `package-windows`: the installed boot self-test stayed up for 240 seconds and printed nothing. The same timeout is on run 38540692201, which is already on `main`. A push re-runs that check. It is unverified until the new `package-windows` job exits 0.
 
 ## Snapshot
 
@@ -108,7 +102,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
-- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, uninstall, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. The smoke script no longer passes a null `RUNNER_TEMP` to `Join-Path`. That fix has not been run on Windows.
+- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, uninstall with data kept and with data removed, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. Silent uninstall keeps the data folder. The installer page "Delete all FRIDAY data too" is the remove path and stays unchecked. PR Validation run 38553815649 failed `package-windows` because the installed boot self-test did not exit within 240 seconds and both stdout and the sandbox `logs\main.log` were empty. The self-test now reads `--friday-boot-selftest` and `--friday-workspace`, skips Python extraction, and exits on a deadline or a renderer crash. On this Linux machine the same probe printed `FRIDAY_BOOT_SELFTEST_OK` (722 nodes) and exited 0 when the renderer could start, and printed `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed` and exited 0.5 seconds later when `/dev/shm` could not be used. That is not a Windows installer run. Hosted `package-windows` after this change is unverified until the new job finishes.
 - Voice-screen redraws no longer follow captions or a one-second React clock. The drawing clock pauses while the window is hidden. A live Windows microphone, addressing quality, flicker on a real GPU, voice quality, the first speech-model download, and installer smoke are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
 - Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.

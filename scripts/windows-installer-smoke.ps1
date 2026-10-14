@@ -222,8 +222,15 @@ function Verify-Boot {
   $stamp = [Guid]::NewGuid().ToString("N")
   $stdout = Join-Path $sandbox "boot-out-$stamp.txt"
   $stderr = Join-Path $sandbox "boot-err-$stamp.txt"
+  # The environment and the arguments both name this run. A GUI launch with
+  # redirected output has dropped the inherited environment before; the
+  # arguments still reach the process and select the same FRIDAY folder Setup wrote.
   $env:FRIDAY_BOOT_SELFTEST = "1"
-  $p = Start-Tracked -FilePath (Join-Path $installDir "FRIDAY.exe") -StdOut $stdout -StdErr $stderr
+  $env:FRIDAY_WORKSPACE_ROOT = $rootDir
+  $p = Start-Tracked -FilePath (Join-Path $installDir "FRIDAY.exe") -ArgumentList @(
+    "--friday-boot-selftest",
+    "--friday-workspace=$rootDir"
+  ) -StdOut $stdout -StdErr $stderr
   $failure = $null
   try {
     Wait-Exit $p 240 "Installed FRIDAY boot self-test" | Out-Null
@@ -238,7 +245,7 @@ function Verify-Boot {
   }
   $output = ((Get-Content $stdout -Raw -ErrorAction SilentlyContinue) + (Get-Content $stderr -Raw -ErrorAction SilentlyContinue))
   $mainLog = Join-Path $dataDir "logs\main.log"
-  $logTail = ""
+  $logTail = "(main.log missing at $mainLog)"
   if (Test-Path -LiteralPath $mainLog) {
     $logTail = (Get-Content $mainLog -Tail 60 -ErrorAction SilentlyContinue) -join "`n"
   }

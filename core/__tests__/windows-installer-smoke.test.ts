@@ -37,6 +37,10 @@ describe("windows installer smoke", () => {
     expect(smoke).toContain(
       "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved",
     );
+    expect(smoke).toContain("--friday-boot-selftest");
+    expect(smoke).toContain("--friday-workspace=$rootDir");
+    expect(smoke).toContain("$env:FRIDAY_WORKSPACE_ROOT = $rootDir");
+    expect(smoke).toContain("(main.log missing at $mainLog)");
     const passAt = smoke.indexOf("[friday] PASS installer");
     const failExit = smoke.indexOf("if ($null -ne $smokeError) { exit 1 }");
     expect(passAt).toBeGreaterThan(-1);

@@ -228,6 +228,35 @@ describe("installer lifecycle smoke contract", () => {
     expect(smoke).toContain("Reinstall registered");
     expect(smoke).toContain("uninstall entries for $installDir");
   });
+
+  it("exits the packaged boot self-test even when the page probe never settles", () => {
+    const main = fs.readFileSync(path.join(process.cwd(), "electron", "main.cjs"), "utf8");
+    const python = fs.readFileSync(path.join(process.cwd(), "electron", "python.cjs"), "utf8");
+    expect(main).toContain("--friday-boot-selftest");
+    expect(main).toContain("armBootSelfTestWatchdog");
+    expect(main).toContain("interface did not mount before the deadline");
+    expect(main).toContain("boot self-test checks the window only");
+    const registry = main.slice(
+      main.indexOf("function readRegistryWorkspace"),
+      main.indexOf("function writeRegistryWorkspace"),
+    );
+    expect(registry).toContain("timeout: 8000");
+    const resolver = python.slice(
+      python.indexOf("async function resolvePython"),
+      python.indexOf("function invalidatePython"),
+    );
+    expect(resolver.indexOf("FRIDAY_BOOT_SELFTEST")).toBeLessThan(
+      resolver.indexOf("materialiseBundledRuntime"),
+    );
+    // The mount signal is unchanged. A hung executeJavaScript must not be the only clock.
+    const probe = main.slice(
+      main.indexOf("function scheduleBootSelfTest"),
+      main.indexOf("function createWindow"),
+    );
+    expect(probe).toContain("FRIDAY_BOOT_SELFTEST_OK interface mounted");
+    expect(probe).toContain("setTimeout");
+    expect(probe).not.toContain("if (!win || win.isDestroyed()) return;");
+  });
 });
 
 describe("test-build workflow publish contract", () => {
