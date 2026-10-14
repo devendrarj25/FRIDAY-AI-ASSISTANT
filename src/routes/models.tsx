@@ -79,6 +79,7 @@ import { useModels } from "@/lib/friday/use-models";
 import runnersFile from "../../config/local-runners.json";
 import {
   MODEL_SECTIONS,
+  firstPage,
   isModelSection,
   launcherLines,
   normaliseLocalAnswer,
@@ -397,6 +398,10 @@ function ModelsPage() {
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
   const [query, setQuery] = useState("");
+  const [catalogPages, setCatalogPages] = useState(1);
+  const [catalogStamp, setCatalogStamp] = useState("");
+  const [foundPages, setFoundPages] = useState(1);
+  const [foundStamp, setFoundStamp] = useState("");
   const [routeDraft, setRouteDraft] = useState("");
   const [routePreview, setRoutePreview] = useState("No dry run yet.");
   const [notified, setNotified] = useState<string[]>([]);
@@ -435,6 +440,11 @@ function ModelsPage() {
         .includes(q);
     });
   }, [query, kind, category, tab, statuses]);
+
+  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}`;
+  const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;
+  const catalogWindow = firstPage(filtered, (catalogStamp === catalogKey ? catalogPages : 1) * 40);
+  const foundWindow = firstPage(state.discovered, (foundStamp === foundKey ? foundPages : 1) * 40);
 
   /**
    * What this exact PC can run well today — measured against the detected
@@ -801,7 +811,7 @@ function ModelsPage() {
                   ) : null}
                 </div>
                 <div className="max-h-56 space-y-1 overflow-y-auto">
-                  {state.discovered.map((d) => (
+                  {foundWindow.rows.map((d) => (
                     <div
                       key={d.id}
                       className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-muted/40"
@@ -826,6 +836,18 @@ function ModelsPage() {
                       </div>
                     </div>
                   ))}
+                  {foundWindow.more ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setFoundStamp(foundKey);
+                        setFoundPages((pages) => (foundStamp === foundKey ? pages + 1 : 2));
+                      }}
+                    >
+                      Show more
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -912,7 +934,7 @@ function ModelsPage() {
 
             <DataTable
               columns={["Model", "Provider", "Type", "Size / Ctx", "Support", "Status", "Actions"]}
-              rows={filtered.map((m) => {
+              rows={catalogWindow.rows.map((m) => {
                 const status = statuses.get(m.id)!;
                 const support = checkSupport(m, state.system);
                 const runtime = state.runtimes[m.id];
@@ -1026,6 +1048,19 @@ function ModelsPage() {
                 ];
               })}
             />
+            {catalogWindow.more ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => {
+                  setCatalogStamp(catalogKey);
+                  setCatalogPages((pages) => (catalogStamp === catalogKey ? pages + 1 : 2));
+                }}
+              >
+                Show more
+              </Button>
+            ) : null}
           </HudPanel>
         )}
 

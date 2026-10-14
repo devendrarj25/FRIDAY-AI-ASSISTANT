@@ -64,6 +64,26 @@ describe("provider endpoints", () => {
     expect(models.resolveEndpoints(root, "openai").custom).toBe(false);
   });
 
+  it("keeps cloud bases on https or localhost and refuses metadata", () => {
+    const root = tempRoot();
+    expect(models.writeEndpoint(root, "openai", "http://127.0.0.1:9/v1").ok).toBe(true);
+    expect(models.writeEndpoint(root, "openai", "http://example.com/v1").ok).toBe(false);
+    expect(models.writeEndpoint(root, "openai", "https://169.254.169.254/latest").ok).toBe(false);
+    expect(models.writeEndpoint(root, "openai", "https://metadata.google.internal/").ok).toBe(
+      false,
+    );
+    expect(models.writeEndpoint(root, "openai", "https://user:secret@example.com/v1").ok).toBe(
+      false,
+    );
+    expect(models.resolveEndpoints(root, "openai").base).toBe("http://127.0.0.1:9/v1");
+    fs.writeFileSync(
+      path.join(root, "config", "provider-endpoints.json"),
+      JSON.stringify({ openai: "http://169.254.169.254/latest" }),
+    );
+    expect(models.readEndpoints(root).openai).toBeUndefined();
+    expect(models.resolveEndpoints(root, "openai").custom).toBe(false);
+  });
+
   it("never stores an API key inside the endpoint file", () => {
     const root = tempRoot();
     models.writeEndpoint(root, "openai", "https://gateway.internal/v1");

@@ -58,7 +58,7 @@ This checklist is unverified until it is run on the owner's Windows PC. A Linux 
 
 ## Live listening
 
-On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them.
+On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them. A finished clause is spoken while later tokens are still arriving. A failed turn is spoken as one sentence, and the chat text stays complete. A partial answer that already started is not spoken again.
 
 1. Auto mode on: Live Captions shows the mic live; speak 5 normal sentences, then a very short word, then a long paragraph: every one appears with the right tag, none is dropped, none shows "already active elsewhere".
 2. Close all other apps using the mic and also leave Zoom/Meet open: FRIDAY still hears. Toggle Windows "Let desktop apps access your microphone" off/on: a clear message appears once and listening recovers by itself.

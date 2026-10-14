@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Offline adapter self-test. Live provider calls run only with --live and a key.
+const fs = require("node:fs");
 const path = require("node:path");
 const federation = require(path.resolve(__dirname, "..", "electron", "provider-federation.cjs"));
 
@@ -210,6 +211,22 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
   return lines;
 }
 
+function writeLiveReport(rows, file) {
+  const providers = (Array.isArray(rows) ? rows : []).map((row) => ({
+    id: String(row.id || ""),
+    result: String(row.result || ""),
+    detail: federation.redactSecrets(String(row.detail || "")),
+    latencyMs: Number.isFinite(row.latencyMs) ? row.latencyMs : null,
+  }));
+  const body = JSON.stringify({ providers }, null, 2);
+  if (/sk-(?!redacted\b)[a-z0-9_-]{8,}/i.test(body)) {
+    throw new Error("live report contained a key");
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body);
+  return file;
+}
+
 async function main() {
   if (!live) {
     console.log("SKIP  live keyed checks (pass --live with provider keys; missing keys skip)");
@@ -217,6 +234,11 @@ async function main() {
   }
   const models = require(path.resolve(__dirname, "..", "electron", "models.cjs"));
   const rows = await runLive(models.CLOUD, process.env, globalThis.fetch, models);
+  const report = writeLiveReport(
+    rows,
+    path.join(process.cwd(), "debug", "reports", "models-check-live.json"),
+  );
+  console.log(`REPORT  ${report}`);
   for (const row of rows) {
     if (row.result === "FAIL") failed += 1;
     console.log(`${row.result}  ${row.id} — ${row.detail}`);
@@ -224,4 +246,6 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { writeLiveReport, runLive };

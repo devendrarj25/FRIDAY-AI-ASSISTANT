@@ -585,6 +585,59 @@ const cleanBase = (value) =>
     .replace(/\s+/g, "")
     .replace(/\/+$/, "");
 
+function endpointHost(value) {
+  try {
+    return new URL(value).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function loopbackHost(host) {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+/** Metadata and link-local addresses are never a provider base. */
+function blockedEndpointHost(host) {
+  if (!host) return true;
+  if (host === "metadata.google.internal" || host.endsWith(".metadata.google.internal"))
+    return true;
+  if (host.startsWith("fe80:")) return true;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ipv4) return false;
+  const a = Number(ipv4[1]);
+  const b = Number(ipv4[2]);
+  return (a === 169 && b === 254) || a === 0;
+}
+
+/**
+ * A cloud base is https, or http on localhost only.
+ * A local engine may keep its loopback http port. Neither may target metadata.
+ */
+function acceptEndpoint(id, base) {
+  if (!base) return { ok: true, endpoint: null };
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch {
+    return { ok: false, error: "endpoint must be a URL" };
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: "endpoint must not contain a secret" };
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return { ok: false, error: "endpoint must start with http:// or https://" };
+  }
+  const host = endpointHost(base);
+  if (blockedEndpointHost(host)) {
+    return { ok: false, error: "endpoint must not be a metadata or link-local address" };
+  }
+  if (CLOUD[id] && parsed.protocol !== "https:" && !loopbackHost(host)) {
+    return { ok: false, error: "a cloud endpoint must be https, or localhost" };
+  }
+  return { ok: true, endpoint: base };
+}
+
 function readEndpoints(userData) {
   const source = endpointFile(userData);
   if (!source) return {};
@@ -592,8 +645,8 @@ function readEndpoints(userData) {
     const raw = JSON.parse(fs.readFileSync(source, "utf8"));
     const out = {};
     for (const [id, value] of Object.entries(raw || {})) {
-      const base = cleanBase(value);
-      if (base && /^https?:\/\//i.test(base)) out[id] = base;
+      const decision = acceptEndpoint(id, cleanBase(value));
+      if (decision.ok && decision.endpoint) out[id] = decision.endpoint;
     }
     return out;
   } catch {
@@ -604,9 +657,9 @@ function readEndpoints(userData) {
 function writeEndpoint(userData, id, endpoint) {
   const file = endpointFile(userData);
   if (!file) return { ok: false, error: "no FRIDAY folder selected yet" };
-  const base = cleanBase(endpoint);
-  if (base && !/^https?:\/\//i.test(base))
-    return { ok: false, error: "endpoint must start with http:// or https://" };
+  const decision = acceptEndpoint(id, cleanBase(endpoint));
+  if (!decision.ok) return decision;
+  const base = decision.endpoint;
   let raw = {};
   try {
     raw = JSON.parse(fs.readFileSync(file, "utf8")) || {};

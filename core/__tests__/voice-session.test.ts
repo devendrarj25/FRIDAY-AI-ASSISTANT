@@ -13,6 +13,7 @@ import {
   microphoneAllowed,
   nextSpokenCursor,
   spokenReplyAllowed,
+  spokenRouteError,
   takeSpeakable,
 } from "../../src/lib/friday/voice-session";
 
@@ -72,6 +73,21 @@ describe("microphone and speech stay in Auto mode", () => {
     expect(takeSpeakable("version v1.2 is next", true).spoken).toBe("version v1.2 is next");
   });
 
+  it("speaks a route failure as one sentence and keeps the chat text intact", () => {
+    const full = [
+      "I can't answer that one on my own — it needs a connected AI model, and none is reachable right now.",
+      "Want me to help you connect a model in Models, or start a local one with Ollama?",
+    ].join("\n\n");
+    expect(spokenRouteError(full)).toBe(
+      "No model is reachable. Connect one in Models, or start a local engine.",
+    );
+    expect(spokenRouteError("Checked the key. Try again.")).toBe("Checked the key. Try again.");
+    expect(spokenRouteError("Hello there.\n\n[This model id is gone.]")).toBe(
+      "This model id is gone.",
+    );
+    expect(spokenRouteError("")).toBe("");
+  });
+
   it("drops a repeated final and restarts speech when the answer is replaced", () => {
     expect(duplicateFinalUtterance("open chrome", "open chrome", 400)).toBe(true);
     expect(duplicateFinalUtterance("open chrome", "open chrome", 2500)).toBe(false);
@@ -95,6 +111,8 @@ describe("the existing voice owners enforce that policy", () => {
     expect(assistant).toContain("duplicateFinalUtterance");
     expect(assistant).toContain("captionUserTurn");
     expect(assistant).toContain("nextSpokenCursor");
+    expect(assistant).toContain("spokenRouteError");
+    expect(assistant).toContain("voicedFaultFor");
   });
 
   it("does not let chat open a microphone or a browser recogniser", () => {

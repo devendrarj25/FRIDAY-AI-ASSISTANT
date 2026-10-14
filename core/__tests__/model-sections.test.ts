@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import {
   MODEL_SECTIONS,
   SECTION_TABS,
+  firstPage,
   launcherLines,
   sectionCovers,
   selectCloud,
@@ -39,6 +40,7 @@ describe("model sections", () => {
     expect(SECTION_TABS.routing).toEqual(["routing"]);
     const page = readFileSync(path.resolve("src/routes/models.tsx"), "utf8");
     expect(page).toContain("MODEL_SECTIONS");
+    expect(page).toContain("firstPage");
     expect(page).toContain("Select all free");
     expect(page).toContain("Local answer strategy");
     expect(page).not.toMatch(/disabled=\{true\}/);
@@ -66,5 +68,13 @@ describe("model sections", () => {
     expect(selectCloud(models, "paid", false).refused).toMatch(/confirm/i);
     expect(selectCloud(models, "paid", false).ids).toEqual(["free-a"]);
     expect(selectCloud(models, "both", true).ids).toEqual(["free-a", "paid-a"]);
+  });
+
+  it("pages a long model list and leaves the rest behind Show more", () => {
+    const rows = Array.from({ length: 100 }, (_, index) => index);
+    expect(firstPage(rows, 40).rows).toHaveLength(40);
+    expect(firstPage(rows, 40).more).toBe(true);
+    expect(firstPage(rows, 100).more).toBe(false);
+    expect(firstPage(rows, 0).rows).toEqual([]);
   });
 });

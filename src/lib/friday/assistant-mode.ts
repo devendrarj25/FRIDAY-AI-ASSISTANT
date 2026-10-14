@@ -61,6 +61,7 @@ import {
   prosodyAffect,
   speakingProsody,
   spokenReplyAllowed,
+  spokenRouteError,
   takeSpeakable,
   voiceClaimsAuthority,
   wakeOnCooldown,
@@ -354,6 +355,8 @@ class AssistantModeStore {
   /** How much of the live answer has already been handed to speech. */
   private voicedRunId = "";
   private voicedChars = 0;
+  /** A failed turn speaks its short line once. The partial answer is not restarted. */
+  private voicedFaultFor = "";
   /** User lines already shown before the brain echoes them into captions. */
   private pendingUserEcho = 0;
   /** Last finalized transcript, so the same utterance is not run twice. */
@@ -2272,6 +2275,11 @@ class AssistantModeStore {
       return;
     }
     this.to("brain-replied");
+    const failed = fresh.some((message) => {
+      if (message.role === "user") return false;
+      return runs.find((row) => row.id === message.runId)?.state === "failed";
+    });
+    const spoken = failed ? spokenRouteError(say) : say;
     this.caption("friday", say);
     this.setAwake();
     // FRIDAY manages her own box: show structured content, expand when needed.
@@ -2280,7 +2288,15 @@ class AssistantModeStore {
     else this.clearDisplay();
     this.emit();
     const runId = fresh.find((message) => message.role !== "user")?.runId || this.voicedRunId;
-    this.speakStreamed(runId || "reply", say, true);
+    if (failed && this.voicedRunId === runId && this.voicedChars > 0) {
+      if (this.voicedFaultFor !== runId) {
+        this.voicedFaultFor = runId;
+        this.speak(spoken);
+      }
+      return;
+    }
+    if (failed) this.voicedFaultFor = runId || "reply";
+    this.speakStreamed(runId || "reply", spoken, true);
   }
 }
 
