@@ -4,6 +4,7 @@ import { Minus, Mic, MicOff, Wifi, WifiOff, X } from "lucide-react";
 import "@/lib/friday/bridge";
 import { NotificationCenter } from "@/components/friday/NotificationCenter";
 import { assistantMode } from "@/lib/friday/assistant-mode";
+import { onVisibleFrame } from "@/lib/friday/frame-clock";
 import { useAssistantSlice } from "@/lib/friday/use-assistant-mode";
 import { useNetwork } from "@/lib/friday/use-network";
 import { cn } from "@/lib/utils";
@@ -36,33 +37,18 @@ export function TitleStrip() {
   };
   const frames = useRef(0);
 
-  // Live FPS — measured every frame, published once per second, and suspended
-  // entirely while the window is hidden so a minimised FRIDAY costs nothing.
+  // Live FPS — one shared frame clock, published once per second, and
+  // suspended entirely while the window is hidden.
   useEffect(() => {
-    let raf = 0;
     let last = performance.now();
-    let stopped = false;
-    const loop = (t: number) => {
-      if (stopped) return;
-      if (document.hidden) {
-        frames.current = 0;
-        last = t;
-        raf = requestAnimationFrame(loop);
-        return;
-      }
+    return onVisibleFrame((t) => {
       frames.current += 1;
       if (t - last >= 1000) {
         setFps(Math.round((frames.current * 1000) / (t - last)));
         frames.current = 0;
         last = t;
       }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
-    };
+    });
   }, []);
 
   // Clock — a single shared interval, paused while the window is hidden.

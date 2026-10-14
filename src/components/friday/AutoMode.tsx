@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
-import type { LiveComponent } from "@/lib/friday/use-friday-live";
+import { ageOf, type LiveComponent } from "@/lib/friday/use-friday-live";
 import { assistantMode, type PanelDisplay } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -90,7 +90,11 @@ function selectCircuitNode(node: LiveComponent) {
     items: [
       node.active ? (node.action ?? node.status) : node.status,
       ...node.details.map((detail) => `${detail.k}: ${detail.v}`),
-      node.age ? `last activity: ${node.age}` : "",
+      node.active
+        ? "last activity: now"
+        : node.activeAt
+          ? `last activity: ${ageOf(node.activeAt, Date.now()) ?? "now"}`
+          : "",
     ].filter(Boolean),
   });
 }

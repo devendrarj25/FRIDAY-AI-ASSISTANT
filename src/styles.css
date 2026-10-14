@@ -358,18 +358,23 @@
 
 @utility orb-breathe {
   animation: friday-breathe 4.2s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 @utility orb-spin-slow {
   animation: friday-spin 24s linear infinite;
+  will-change: transform;
 }
 @utility orb-spin-rev {
   animation: friday-spin 16s linear infinite reverse;
+  will-change: transform;
 }
 @utility orb-halo {
   animation: friday-halo 4.2s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 @utility orb-sweep {
   animation: friday-sweep 3.4s linear infinite;
+  will-change: transform, opacity;
 }
 @utility pulse-dot {
   animation: friday-pulse-dot 2s ease-in-out infinite;

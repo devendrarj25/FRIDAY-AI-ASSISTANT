@@ -12,6 +12,7 @@
  * The renderer owns no application state: it is fed a target pose each frame
  * and reports its real measured frame rate back to the caller.
  */
+import { onVisibleFrame } from "@/lib/friday/frame-clock";
 import type { CharacterAction, CharacterEmotion, CharacterRig } from "./types";
 
 const VERT = `#version 300 es
@@ -189,7 +190,7 @@ export class CharacterRenderer {
   private shapeVao: WebGLVertexArrayObject;
   private indexCount = 0;
   private texture: WebGLTexture | null = null;
-  private raf = 0;
+  private unlisten: (() => void) | null = null;
   private running = false;
   private startedAt = performance.now();
   private lastFrame = performance.now();
@@ -366,10 +367,8 @@ export class CharacterRenderer {
     if (this.running) return;
     this.running = true;
     this.lastFrame = performance.now();
-    const loop = () => {
+    this.unlisten = onVisibleFrame((now) => {
       if (!this.running) return;
-      this.raf = requestAnimationFrame(loop);
-      const now = performance.now();
       const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
       // Battery/balanced modes really do render fewer frames.
       const budget =
@@ -377,14 +376,13 @@ export class CharacterRenderer {
       if (budget && dt < budget) return;
       this.lastFrame = now;
       this.frame(now, dt);
-    };
-    this.raf = requestAnimationFrame(loop);
+    });
   }
 
   stop() {
     this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    this.unlisten?.();
+    this.unlisten = null;
   }
 
   /** Real measured frame rate over the recent window. */

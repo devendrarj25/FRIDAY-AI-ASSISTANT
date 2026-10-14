@@ -18,9 +18,21 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { FridayOrb } from "@/components/friday/FridayOrb";
-import type { ComponentId, LiveComponent } from "@/lib/friday/use-friday-live";
-import { circuitReadoutLines, useFridayLive } from "@/lib/friday/use-friday-live";
-import { noteVoiceFrame, resetVoiceRenderRate, voiceDebugOn } from "@/lib/friday/voice-doctor";
+import { onVisibleFrame, onVisibleSecond } from "@/lib/friday/frame-clock";
+import {
+  ageOf,
+  circuitReadoutLines,
+  rememberActive,
+  useFridayLive,
+  type ComponentId,
+  type LiveComponent,
+} from "@/lib/friday/use-friday-live";
+import {
+  noteDisplayFrame,
+  noteVoiceFrame,
+  resetVoiceRenderRate,
+  voiceDebugOn,
+} from "@/lib/friday/voice-doctor";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,6 +70,37 @@ const STATE_LABEL: Record<LiveComponent["state"], string> = {
   done: "done",
   blocked: "blocked",
 };
+
+function AgeLabel({
+  id,
+  active,
+  at,
+}: {
+  id: ComponentId;
+  active: boolean;
+  at?: number | undefined;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const paint = (now: number) => {
+      const el = ref.current;
+      if (!el) return;
+      const text = active ? "· now" : at ? `· ${ageOf(at, now) ?? ""}` : "";
+      if (el.textContent !== text) el.textContent = text;
+    };
+    if (active) rememberActive(id, Date.now());
+    paint(Date.now());
+    if (active) return onVisibleSecond((now) => rememberActive(id, now));
+    if (at) return onVisibleSecond(paint);
+    return undefined;
+  }, [active, at, id]);
+  if (!active && !at) return null;
+  return (
+    <span ref={ref} className="text-muted-foreground/60">
+      {active ? "· now" : ""}
+    </span>
+  );
+}
 
 const ComponentBox = memo(function ComponentBox({
   node,
@@ -194,7 +237,7 @@ const ComponentBox = memo(function ComponentBox({
           >
             {STATE_LABEL[node.state]}
           </span>
-          {node.age ? <span className="text-muted-foreground/60">· {node.age}</span> : null}
+          <AgeLabel id={node.id} active={node.active} at={node.activeAt} />
         </div>
       ) : null}
     </div>
@@ -212,11 +255,15 @@ export const NeuralCircuit = memo(function NeuralCircuit({
 }: { large?: boolean; onSelectNode?: (node: LiveComponent) => void } = {}) {
   const gid = useId();
   const liveRaw = useFridayLive();
-  const linesRef = useRef(large ? 0 : 3);
+  const [heldLines, setHeldLines] = useState(large ? 0 : 3);
   useEffect(() => {
     if (voiceDebugOn()) noteVoiceFrame();
     else resetVoiceRenderRate();
   });
+  useEffect(() => {
+    if (!voiceDebugOn()) return;
+    return onVisibleFrame((now) => noteDisplayFrame(now));
+  }, []);
   // Auto Mode slots are height-bound: measure the stage once (and on resize)
   // and show only as many readout lines as fit without boxes ever touching.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -230,8 +277,8 @@ export const NeuralCircuit = memo(function NeuralCircuit({
   }, []);
   // Slot pitch = 82% of the canvas spread across 6 gaps; a box needs ~62px of
   // chrome plus ~13px per readout line, and 10px of breathing room.
-  const maxDetails = circuitReadoutLines(stageH, large, linesRef.current);
-  linesRef.current = maxDetails;
+  const maxDetails = circuitReadoutLines(stageH, large, heldLines);
+  if (maxDetails !== heldLines) setHeldLines(maxDetails);
   // Auto Mode boxes are much taller (they carry real readouts), so they are
   // laid out as two fixed-slot columns: evenly spaced, never overlapping.
   const live = large

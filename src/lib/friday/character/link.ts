@@ -72,6 +72,10 @@ export function useCharacterLink() {
   const voiceState = useAssistantMode();
   const live = useFridayLive();
   const lastPublished = useRef<string>("");
+  const lastStructural = useRef<string>("");
+  const lastSpeechAt = useRef(0);
+  const pendingSpeech = useRef<Partial<CharacterState> | null>(null);
+  const speechTimer = useRef(0);
   const amplitudeAt = useRef(0);
   const snapshot = useRef<Partial<CharacterState>>({});
 
@@ -111,12 +115,44 @@ export function useCharacterLink() {
     };
 
     // Publishing is cheap but not free: only send when something really moved.
+    // Speech text alone is throttled so a streaming caption does not hitch the rig.
     const key = JSON.stringify(state);
     if (key === lastPublished.current) return;
+    const structural = `${state.action}|${state.emotion}|${state.progress}|${state.label}|${state.offline}|${state.approval?.id ?? ""}`;
+    const speechOnly = structural === lastStructural.current;
+    const now = Date.now();
+    if (speechOnly && now - lastSpeechAt.current < 250) {
+      pendingSpeech.current = state;
+      if (!speechTimer.current) {
+        speechTimer.current = window.setTimeout(() => {
+          speechTimer.current = 0;
+          const next = pendingSpeech.current;
+          pendingSpeech.current = null;
+          if (!next) return;
+          const packed = JSON.stringify(next);
+          if (packed === lastPublished.current) return;
+          lastSpeechAt.current = Date.now();
+          lastPublished.current = packed;
+          snapshot.current = next;
+          void bridge.characterPublish(next);
+        }, 250);
+      }
+      return;
+    }
+    lastSpeechAt.current = now;
+    lastStructural.current = structural;
     lastPublished.current = key;
+    pendingSpeech.current = null;
     snapshot.current = state;
     void bridge.characterPublish(state);
   }, [brainState.approval, brainState.messages, voiceState, live]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(speechTimer.current);
+    },
+    [],
+  );
 
   // -------------------------------------------------------- lip-sync stream
   useEffect(() => {

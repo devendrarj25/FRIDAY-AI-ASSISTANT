@@ -74,6 +74,8 @@ Any failing step: send the step number, the on-screen text and the newest `debug
 
 Live listening research, 14 October 2026. An ended track cannot be resumed ([microphone track](https://www.webrtc-developers.com/how-to-know-if-my-microphone-works/)): ADOPT, reopen the one stream. Windows sleep can freeze the process before a suspend handler runs ([electron#47739](https://github.com/electron/electron/issues/47739)): ADAPT, rebuild on `resume`. faster-whisper yields segments from a generator ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)): ADAPT, show a stream line and keep Hindi and Hinglish on auto-detect. A second streaming engine: REJECT.
 
+Voice graphic research, 14 October 2026. React compares an external snapshot with Object.is ([useSyncExternalStore](https://react.dev/reference/react/useSyncExternalStore)): ADOPT, the voice cue is a string and a caption does not change it. A hidden document keeps scheduling frames until the page hides them ([visibilitychange](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)): ADOPT, one clock pauses while hidden. Drawing the orb from React state on every audio frame: REJECT.
+
 ## Model routing checks
 
 On the owner's PC with real keys. These steps are unverified until that PC runs them.

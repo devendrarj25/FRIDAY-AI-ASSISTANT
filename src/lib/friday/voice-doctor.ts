@@ -156,6 +156,11 @@ const VOICE_DEBUG_KEY = "friday.voice.debug";
 let frameCount = 0;
 let frameWindow = 0;
 let frameRate = 0;
+let displayFrames = 0;
+let displayWindow = 0;
+let displayFps = 0;
+let longTasks = 0;
+let longObserver: { disconnect: () => void } | null = null;
 
 /** True only when the owner set friday.voice.debug to 1. No transcript is stored. */
 export function voiceDebugOn(): boolean {
@@ -183,10 +188,52 @@ export function voiceRenderRate(): number {
   return frameRate;
 }
 
+/** Display frames, counted only while the voice debug flag is on. */
+export function noteDisplayFrame(now = Date.now()): number {
+  if (!voiceDebugOn()) return 0;
+  armLongTasks();
+  if (!displayWindow) displayWindow = now;
+  displayFrames += 1;
+  const elapsed = now - displayWindow;
+  if (elapsed >= 1000) {
+    displayFps = Math.round((displayFrames * 1000) / elapsed);
+    displayFrames = 0;
+    displayWindow = now;
+  }
+  return displayFps;
+}
+
+export function voiceDisplayFps(): number {
+  return displayFps;
+}
+
+export function voiceLongTasks(): number {
+  return longTasks;
+}
+
+function armLongTasks(): void {
+  if (longObserver || typeof PerformanceObserver === "undefined") return;
+  try {
+    const observer = new PerformanceObserver((list) => {
+      longTasks += list.getEntries().length;
+    });
+    observer.observe({ type: "longtask", buffered: true });
+    longObserver = observer;
+  } catch {
+    longObserver = { disconnect() {} };
+  }
+}
+
 export function resetVoiceRenderRate(): void {
   frameCount = 0;
   frameWindow = 0;
   frameRate = 0;
+  displayFrames = 0;
+  displayWindow = 0;
+  displayFps = 0;
+  longTasks = 0;
+  longObserver?.disconnect();
+  longObserver = null;
 }
 
 /** One diagnostics line. No audio, no transcript, no secrets. */
@@ -201,6 +248,8 @@ export function formatVoiceRuntimeLine(input: {
   echo: boolean | null;
   errors: string[];
   renderRate?: number | null;
+  fps?: number | null;
+  longTasks?: number | null;
 }): string {
   const errors =
     input.errors
@@ -209,8 +258,12 @@ export function formatVoiceRuntimeLine(input: {
       .join("; ") || "none";
   const echo = input.echo === null ? "unknown" : input.echo ? "on" : "off";
   const rate = input.renderRate == null ? "" : ` render ${input.renderRate}/s`;
+  const perf =
+    input.fps == null && input.longTasks == null
+      ? ""
+      : ` fps ${input.fps ?? 0} long ${input.longTasks ?? 0}`;
   return redactDiagnostics(
-    `engine ${input.engine || "none"} voice ${input.voiceId || "none"} lang ${input.lang || "none"} stt ${input.sttModel || "none"} device ${input.deviceId || "default"} ${input.deviceLabel || ""} sample ${input.sampleRate ?? "unknown"} echo ${echo} errors ${errors}${rate}`,
+    `engine ${input.engine || "none"} voice ${input.voiceId || "none"} lang ${input.lang || "none"} stt ${input.sttModel || "none"} device ${input.deviceId || "default"} ${input.deviceLabel || ""} sample ${input.sampleRate ?? "unknown"} echo ${echo} errors ${errors}${rate}${perf}`,
   );
 }
 
@@ -232,5 +285,7 @@ export function liveVoiceRuntimeLine(voice: {
     echo: voiceGate.echoCancellation(),
     errors: voiceGate.recentErrors(),
     renderRate: voiceDebugOn() ? voiceRenderRate() : null,
+    fps: voiceDebugOn() ? voiceDisplayFps() : null,
+    longTasks: voiceDebugOn() ? voiceLongTasks() : null,
   });
 }

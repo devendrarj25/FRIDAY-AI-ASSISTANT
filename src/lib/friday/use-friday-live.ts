@@ -7,7 +7,7 @@
  * the store that owns it.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { StageId } from "./brain-catalog";
 import { agentSpecs } from "./brain-catalog";
 import { useCapabilities } from "./capability-trees";
@@ -56,6 +56,8 @@ export type LiveComponent = {
   details: LiveDetail[];
   /** Human age of the node's last real activity, e.g. "4s ago". */
   age?: string | undefined;
+  /** Monotonic-enough stamp for the age label. The label ticks without a render. */
+  activeAt?: number | undefined;
   /** Extra lines shown only while the component is actually working. */
   action?: string | undefined;
   progress?: number | undefined;
@@ -189,7 +191,12 @@ export function streamingStageProgress(stage: { id: StageId; ms: number }): numb
 /** Last time a node was genuinely doing something (module scope on purpose). */
 const lastActiveAt = new Map<ComponentId, number>();
 
-const ageOf = (at: number | undefined, now: number): string | undefined => {
+/** Remember when a node was last genuinely active. The age label reads this. */
+export function rememberActive(id: ComponentId, now: number): void {
+  if (now) lastActiveAt.set(id, now);
+}
+
+export const ageOf = (at: number | undefined, now: number): string | undefined => {
   if (!at) return undefined;
   const s = Math.max(0, Math.round((now - at) / 1000));
   if (s < 1) return "now";
@@ -198,14 +205,39 @@ const ageOf = (at: number | undefined, now: number): string | undefined => {
   return `${Math.round(s / 3600)}h ago`;
 };
 
-/** The live graphic watches this key. A voice log or caption does not change it. */
+/**
+ * The live graphic watches this key. A voice log, a caption, and a partial
+ * line do not change it, so the stage does not render while someone is talking.
+ */
 export function voiceCueKey(state: {
   mode: string;
   voiceState: string;
   paused: boolean;
-  interim: string;
+  interim?: string;
 }): string {
-  return `${state.mode}\u001f${state.voiceState}\u001f${state.paused ? "1" : "0"}\u001f${state.interim.slice(0, 24)}`;
+  return `${state.mode}\u001f${state.voiceState}\u001f${state.paused ? "1" : "0"}`;
+}
+
+/** Identity of the drawing. An age label is not part of it. */
+export function liveGraphicKey(input: {
+  voice: string;
+  action: string;
+  emotion: string;
+  nodes: {
+    id: string;
+    active: boolean;
+    state: string;
+    status: string;
+    action?: string | undefined;
+  }[];
+}): string {
+  const nodes = input.nodes
+    .map(
+      (node) =>
+        `${node.id}:${node.active ? 1 : 0}:${node.state}:${node.status}:${node.action ?? ""}`,
+    )
+    .join(",");
+  return `${input.voice}|${input.action}|${input.emotion}|${nodes}`;
 }
 
 function readVoiceCue(key: string): {
@@ -255,22 +287,8 @@ export function useFridayLive(): FridayLive {
       ? "thinking"
       : reported;
 
-  // Ages only need to advance while something real is in flight.
-  const ticking = Boolean(run) || voice !== "off";
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    if (!ticking) return;
-    const tick = () => setNow(Date.now());
-    const kick = window.setTimeout(tick, 0);
-    const id = window.setInterval(tick, 1000);
-    return () => {
-      window.clearTimeout(kick);
-      window.clearInterval(id);
-    };
-  }, [ticking]);
-
   return useMemo(() => {
-    const clock = now ?? 0;
+    const heard = readVoiceCue(cueKey);
     const awaitingApproval = Boolean(brainState.approval);
     const busy = Boolean(run) && !awaitingApproval;
 
@@ -356,7 +374,7 @@ export function useFridayLive(): FridayLive {
       brain: `${enabledAgents}/${agentSpecs.length} agents ready`,
       intent:
         voice === "unavailable"
-          ? voiceState.paused
+          ? heard.paused
             ? "microphone paused"
             : "microphone unavailable"
           : voice === "listening" || voice === "hearing"
@@ -385,7 +403,7 @@ export function useFridayLive(): FridayLive {
             : "orchestrating",
       intent:
         voice === "hearing"
-          ? `hearing “${voiceState.interim.slice(0, 24)}”`
+          ? "hearing you"
           : voice === "listening"
             ? "listening for “FRIDAY”"
             : run
@@ -527,7 +545,7 @@ export function useFridayLive(): FridayLive {
             : finishedIds.has(id)
               ? "done"
               : "idle";
-      if (active && now != null) lastActiveAt.set(id, now);
+      const activeAt = lastActiveAt.get(id);
       return {
         id,
         label: LABELS[id],
@@ -539,7 +557,8 @@ export function useFridayLive(): FridayLive {
         state: nodeState,
         status: idleStatus[id],
         details: detailMap[id].filter((d): d is LiveDetail => d !== null).slice(0, 3),
-        age: active ? "now" : now == null ? undefined : ageOf(lastActiveAt.get(id), clock),
+        activeAt,
+        age: active ? "now" : undefined,
         ...(active
           ? {
               action: activeAction[id],
@@ -572,7 +591,7 @@ export function useFridayLive(): FridayLive {
       action = "Starting up the pipeline";
       emotion = "Alert";
     } else if (voice === "unavailable") {
-      action = voiceState.paused ? "Microphone paused" : "Microphone unavailable";
+      action = heard.paused ? "Microphone paused" : "Microphone unavailable";
       emotion = "Concerned";
     } else if (justAnswered) {
       action = "Idle · answer delivered";
@@ -600,15 +619,5 @@ export function useFridayLive(): FridayLive {
         tasks: liveTasks.length,
       },
     };
-  }, [
-    brainState,
-    modelsState,
-    ledgerState,
-    voiceState,
-    moduleRegistry,
-    caps.items,
-    voice,
-    run,
-    now,
-  ]);
+  }, [brainState, modelsState, ledgerState, cueKey, moduleRegistry, caps.items, voice, run]);
 }

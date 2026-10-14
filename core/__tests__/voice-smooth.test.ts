@@ -1,12 +1,29 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, afterEach } from "vitest";
 import { savedInputPlan } from "../../src/lib/friday/mic-session";
-import { circuitReadoutLines, voiceCueKey } from "../../src/lib/friday/use-friday-live";
+import {
+  frameClockJobCount,
+  onVisibleFrame,
+  onVisibleSecond,
+  pumpFrameClock,
+  pumpSecondClock,
+  resetFrameClock,
+  setFrameClockHidden,
+} from "../../src/lib/friday/frame-clock";
+import {
+  ageOf,
+  circuitReadoutLines,
+  liveGraphicKey,
+  voiceCueKey,
+} from "../../src/lib/friday/use-friday-live";
 import { gateSpeechKey, shouldPublishVad } from "../../src/lib/friday/voice-audio";
 import {
   formatVoiceRuntimeLine,
+  noteDisplayFrame,
   noteVoiceFrame,
   resetVoiceRenderRate,
+  voiceDisplayFps,
+  voiceLongTasks,
 } from "../../src/lib/friday/voice-doctor";
 import {
   cloudVoiceFor,
@@ -21,6 +38,7 @@ import {
 afterEach(() => {
   rememberSpeechRoute({ engine: "", voiceId: "", lang: "", cloud: false, note: "" });
   resetVoiceRenderRate();
+  resetFrameClock();
 });
 
 describe("spoken Hinglish", () => {
@@ -157,6 +175,58 @@ describe("voice screen render budget", () => {
     expect(cueChanges).toBe(0);
     expect(modeChanges).toBe(0);
 
+    const legacyCue = (interim: string) =>
+      `auto\u001fLISTENING\u001f0\u001f${interim.slice(0, 24)}`;
+    let legacyChanges = 0;
+    let cueStable = 0;
+    let previousLegacy = "";
+    let previousStable = "";
+    for (let i = 0; i < 60; i += 1) {
+      const interim = `partial ${i} the quick brown fox`;
+      const legacy = legacyCue(interim);
+      const stable = voiceCueKey({
+        mode: "auto",
+        voiceState: "LISTENING",
+        paused: false,
+        interim,
+      });
+      if (legacy !== previousLegacy) {
+        legacyChanges += 1;
+        previousLegacy = legacy;
+      }
+      if (stable !== previousStable) {
+        cueStable += 1;
+        previousStable = stable;
+      }
+    }
+    expect(legacyChanges).toBe(60);
+    expect(cueStable).toBe(1);
+
+    const nodes = [{ id: "intent", active: true, state: "listening", status: "wake word armed" }];
+    const graphic = liveGraphicKey({
+      voice: "listening",
+      action: "Listening for “FRIDAY”",
+      emotion: "Relaxed",
+      nodes,
+    });
+    expect(
+      liveGraphicKey({
+        voice: "listening",
+        action: "Listening for “FRIDAY”",
+        emotion: "Relaxed",
+        nodes,
+      }),
+    ).toBe(graphic);
+    expect(
+      liveGraphicKey({
+        voice: "speaking",
+        action: "Speaking",
+        emotion: "Smiling",
+        nodes,
+      }),
+    ).not.toBe(graphic);
+    expect(ageOf(1_000, 5_000)).toBe("4s ago");
+
     let hiddenLevels = 0;
     for (let i = 0; i < 10; i += 1) {
       if (
@@ -251,6 +321,72 @@ describe("voice runtime line", () => {
     expect(line).toContain("[blank]");
     expect(line).not.toContain("secret-value");
     expect(line).not.toContain("render ");
+    expect(line).not.toContain("fps ");
+    const debug = formatVoiceRuntimeLine({
+      engine: "edge-tts",
+      voiceId: "hi-IN-SwaraNeural",
+      lang: "hi-IN",
+      sttModel: "small",
+      deviceId: "mic-1",
+      deviceLabel: "Headset",
+      sampleRate: 48000,
+      echo: true,
+      errors: [],
+      renderRate: 2,
+      fps: 60,
+      longTasks: 0,
+    });
+    expect(debug).toContain("render 2/s");
+    expect(debug).toContain("fps 60");
+    expect(debug).toContain("long 0");
+    expect(noteDisplayFrame(3_000)).toBe(0);
+    expect(voiceDisplayFps()).toBe(0);
+    expect(voiceLongTasks()).toBe(0);
+  });
+});
+
+describe("voice frame clock", () => {
+  it("pauses drawing and age ticks while hidden", () => {
+    setFrameClockHidden(() => true);
+    let frames = 0;
+    let seconds = 0;
+    const stopFrame = onVisibleFrame(() => {
+      frames += 1;
+    });
+    const stopSecond = onVisibleSecond(() => {
+      seconds += 1;
+    });
+    expect(frameClockJobCount()).toBe(1);
+    for (let i = 0; i < 60; i += 1) pumpFrameClock(i * 16);
+    expect(pumpSecondClock(1_000)).toBe(0);
+    expect(frames).toBe(0);
+    expect(seconds).toBe(0);
+    setFrameClockHidden(() => false);
+    expect(pumpFrameClock(2_000)).toBe(1);
+    expect(pumpSecondClock(2_000)).toBe(1);
+    expect(frames).toBe(1);
+    expect(seconds).toBe(1);
+    stopFrame();
+    stopSecond();
+    expect(frameClockJobCount()).toBe(0);
+  });
+
+  it("does not remount the voice stage and does not render it on a timer", () => {
+    const auto = readFileSync("src/components/friday/AutoMode.tsx", "utf8");
+    expect(auto).toContain("<NeuralCircuit large");
+    expect(auto).not.toMatch(/<NeuralCircuit[^>]*key=/);
+    const live = readFileSync("src/lib/friday/use-friday-live.ts", "utf8");
+    expect(live).not.toContain("setInterval");
+    expect(live).not.toContain("hearing “");
+    const rig = readFileSync("src/lib/friday/character/rig.ts", "utf8");
+    expect(rig).toContain("onVisibleFrame");
+    expect(rig).not.toContain("requestAnimationFrame");
+    const speech = readFileSync("src/lib/friday/character/speech-audio.ts", "utf8");
+    expect(speech).toContain("onVisibleFrame");
+    expect(speech).not.toContain("new Uint8Array(analyser.frequencyBinCount)");
+    const main = readFileSync("electron/main.cjs", "utf8");
+    const accel = main.indexOf("disableHardwareAcceleration");
+    expect(main.slice(0, accel)).toContain("FRIDAY_BOOT_SELFTEST");
   });
 });
 

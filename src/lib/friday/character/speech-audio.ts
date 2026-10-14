@@ -9,6 +9,8 @@
  * FRIDAY is silent the value is exactly zero.
  */
 
+import { onVisibleFrame } from "@/lib/friday/frame-clock";
+
 type Listener = (amplitude: number) => void;
 
 const listeners = new Set<Listener>();
@@ -16,7 +18,8 @@ let context: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
 let source: MediaElementAudioSourceNode | null = null;
 let attached: HTMLAudioElement | null = null;
-let raf = 0;
+let unlisten: (() => void) | null = null;
+let timeBuffer: Uint8Array<ArrayBuffer> | null = null;
 let amplitude = 0;
 let fallbackUntil = 0;
 
@@ -33,8 +36,9 @@ function publish(value: number) {
 
 function loop() {
   if (!analyser) return;
-  raf = requestAnimationFrame(loop);
-  const buffer = new Uint8Array(analyser.frequencyBinCount);
+  const bins = analyser.frequencyBinCount;
+  if (!timeBuffer || timeBuffer.length !== bins) timeBuffer = new Uint8Array(new ArrayBuffer(bins));
+  const buffer = timeBuffer;
   analyser.getByteTimeDomainData(buffer);
   let sum = 0;
   for (let i = 0; i < buffer.length; i += 2) {
@@ -76,7 +80,7 @@ export function attachSpeechAudio(audio: HTMLAudioElement) {
     attached = audio;
     audio.addEventListener("ended", () => publish(0), { once: true });
     audio.addEventListener("pause", () => publish(0), { once: true });
-    if (!raf) loop();
+    if (!unlisten) unlisten = onVisibleFrame(loop);
   } catch {
     // Some builds disallow a second MediaElementSource; the caller still gets
     // the word-boundary fallback below.
