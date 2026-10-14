@@ -153,7 +153,7 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 
 ### Routing lanes (2026-10-14)
 
-Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher offers and the host allowlist are recorded below. The Models screen still uses its current tabs.
+Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher offers and the host allowlist are recorded below. The Models screen groups the same tabs under LOCAL AI, CLOUD AI, and ROUTING.
 
 | Topic | Decision | Why, for FRIDAY |
 | --- | --- | --- |

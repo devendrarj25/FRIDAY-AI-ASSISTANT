@@ -73,6 +73,8 @@ A local launcher offer reads `config/local-runners.json`. FRIDAY does not start 
 
 A verified free model that fails falls back to the previous verified version of that family. The failed id stays visible later in the same route. Paid charges are added only with an explicit time, and a day or month cap that would be crossed is refused. Turning paid on is still a separate owner step.
 
+Models has three sections. LOCAL AI holds Catalog, Installed, Live Runtime, Benchmarks, Import & Connect, and Activity, plus a card for each local launcher. CLOUD AI holds Providers, Catalog, Import & Connect, and Activity, plus Select all free, Select all paid, and Select both. ROUTING holds Routing & Modes, including the dry run and the local answer choice. A launcher card shows the source URL, the size, and the checksum status. Install does not start the file. Confirm paid is required before a paid model can be selected. Save selection is the allowlist.
+
 Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
 
 ## How to watch, edit, and build flows

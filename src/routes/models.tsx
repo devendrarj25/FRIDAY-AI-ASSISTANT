@@ -71,10 +71,21 @@ import {
 } from "@/lib/friday/models-engine";
 import { billing, type AccessTier } from "@/lib/friday/billing";
 import { useBilling } from "@/lib/friday/use-billing";
+import { desktopApi } from "@/lib/friday/desktop";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { sourceCount } from "@/lib/friday/model-sources";
 import { useModels } from "@/lib/friday/use-models";
+import runnersFile from "../../config/local-runners.json";
+import {
+  MODEL_SECTIONS,
+  isModelSection,
+  launcherLines,
+  normaliseLocalAnswer,
+  selectCloud,
+  tabsForSection,
+  type ModelSection,
+} from "@/lib/friday/model-sections";
 
 const modelsPageClock = Date.now();
 
@@ -125,9 +136,263 @@ function phaseTone(phase: Job["phase"]) {
   return "primary" as const;
 }
 
+function LocalRunners() {
+  const [clicked, setClicked] = useState<Record<string, boolean>>({});
+  const [note, setNote] = useState<Record<string, string>>({});
+  return (
+    <div className="grid gap-4">
+      <HudPanel title="Runners" hint="official launchers, not started from here">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {runnersFile.runners.map((runner) => {
+            const lines = launcherLines(runner, clicked[runner.id] === true);
+            return (
+              <div key={runner.id} className="hud-tile min-w-0 rounded-md px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-medium" title={runner.name}>
+                    {runner.name}
+                  </p>
+                  <Badge variant="outline" className="label-xs">
+                    {runner.catalog === "none" ? "no catalog" : runner.catalog}
+                  </Badge>
+                </div>
+                <p
+                  className="mt-1 truncate font-mono text-[10px] text-muted-foreground"
+                  title={lines.source}
+                >
+                  {lines.source}
+                </p>
+                <p
+                  className="truncate text-[11px] text-muted-foreground"
+                  title={runner.catalogNote}
+                >
+                  {runner.catalogNote}
+                </p>
+                <p
+                  className="mt-1 text-[11px] text-muted-foreground"
+                  title={note[runner.id] || lines.check}
+                >
+                  {note[runner.id] || lines.check}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Download ${runner.name}`}
+                    onClick={() =>
+                      setNote((prev) => ({
+                        ...prev,
+                        [runner.id]: `${lines.source} · ${lines.size || "size not pinned"} · ${lines.check}`,
+                      }))
+                    }
+                  >
+                    Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Install ${runner.name}`}
+                    title={launcherLines(runner, true).check}
+                    onClick={() => {
+                      setClicked((prev) => ({ ...prev, [runner.id]: true }));
+                      setNote((prev) => ({
+                        ...prev,
+                        [runner.id]: launcherLines(runner, true).check,
+                      }));
+                    }}
+                  >
+                    Install
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Start ${runner.name}`}
+                    onClick={() =>
+                      setNote((prev) => ({
+                        ...prev,
+                        [runner.id]:
+                          "Start stays on this PC. This view does not launch the installer.",
+                      }))
+                    }
+                  >
+                    Start
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Stop ${runner.name}`}
+                    onClick={() => setNote((prev) => ({ ...prev, [runner.id]: runner.stopHint }))}
+                  >
+                    Stop
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Open ${runner.name}`}
+                    onClick={() => {
+                      void desktopApi()?.openExternalUrl?.(runner.officialPage);
+                    }}
+                  >
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Uninstall help for ${runner.name}`}
+                    onClick={() =>
+                      setNote((prev) => ({ ...prev, [runner.id]: runner.uninstallHint }))
+                    }
+                  >
+                    Uninstall help
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </HudPanel>
+      <HudPanel title="Curated library" hint="official page plus a manual import">
+        <ul className="space-y-1.5">
+          {runnersFile.curated.map((row) => (
+            <li key={row.id} className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm" title={row.name}>
+                {row.name}
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Open ${row.name}`}
+                onClick={() => {
+                  void desktopApi()?.openExternalUrl?.(row.officialPage);
+                }}
+              >
+                Official page
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </HudPanel>
+    </div>
+  );
+}
+
+function CloudSelection({
+  models,
+}: {
+  models: {
+    id: string;
+    type?: string;
+    access?: string;
+    displayName?: string;
+    modelName?: string;
+  }[];
+}) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [paidOn, setPaidOn] = useState(false);
+  const [note, setNote] = useState("Only the selected models are ever used.");
+  const [shown, setShown] = useState(24);
+  const cloud = models.filter((model) => model.type === "cloud");
+  const visible = cloud.slice(0, shown);
+  const apply = (mode: "free" | "paid" | "both") => {
+    const next = selectCloud(models, mode, paidOn);
+    setPicked(next.ids);
+    setNote(next.refused || "Only the selected models are ever used.");
+  };
+  return (
+    <HudPanel title="Cloud models" hint="selected models are the allowlist">
+      <p className="mb-2 text-[11px] text-muted-foreground">{note}</p>
+      <div className="mb-2 flex flex-wrap gap-1">
+        <Button size="sm" variant="outline" onClick={() => apply("free")}>
+          Select all free
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => apply("paid")}>
+          Select all paid
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => apply("both")}>
+          Select both
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label="Confirm paid models"
+          onClick={() => {
+            setPaidOn(true);
+            setNote("Paid is on for the models you select. A budget cap still applies.");
+          }}
+        >
+          Confirm paid
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void desktopApi()?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn });
+            setNote(
+              paidOn
+                ? "Saved. Paid models you selected still need a budget."
+                : "Saved. Only the selected models are ever used.",
+            );
+          }}
+        >
+          Save selection
+        </Button>
+      </div>
+      {cloud.length === 0 ? (
+        <p className="py-4 text-center text-sm text-muted-foreground">
+          No cloud models detected yet. Connect a key, then refresh.
+        </p>
+      ) : (
+        <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+          {visible.map((model) => {
+            const label = model.displayName || model.modelName || model.id;
+            return (
+              <li key={model.id} className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm" title={label}>
+                    {label}
+                  </p>
+                  <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    {model.access || "unknown"}
+                  </p>
+                </div>
+                <Switch
+                  checked={picked.includes(model.id)}
+                  onCheckedChange={() =>
+                    setPicked((prev) =>
+                      prev.includes(model.id)
+                        ? prev.filter((id) => id !== model.id)
+                        : [...prev, model.id],
+                    )
+                  }
+                  aria-label={`Use ${label}`}
+                  title={
+                    model.access === "paid" && !paidOn
+                      ? "Confirm paid before this model is used"
+                      : label
+                  }
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {cloud.length > shown ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mt-2"
+          onClick={() => setShown((count) => count + 24)}
+        >
+          More
+        </Button>
+      ) : null}
+    </HudPanel>
+  );
+}
+
 function ModelsPage() {
   const state = useModels();
   const registry = useModelRegistry();
+  const [section, setSection] = useState<ModelSection>("local");
   const [tab, setTab] = useState("catalog");
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
@@ -432,6 +697,17 @@ function ModelsPage() {
                       {job.detail}
                     </p>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Pause keeps the partial file"
+                    aria-label={`Pause ${job.modelId}`}
+                    onClick={() => {
+                      void desktopApi()?.transferModel?.(job.id, "pause");
+                    }}
+                  >
+                    Pause
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => engine.cancel(job.id)}>
                     <X className="size-4" />
                   </Button>
@@ -441,7 +717,24 @@ function ModelsPage() {
           </HudPanel>
         ) : null}
 
-        <FilterTabs tabs={TABS} value={tab} onChange={setTab} />
+        <FilterTabs
+          tabs={MODEL_SECTIONS.map((item) => ({ key: item.key, label: item.label }))}
+          value={section}
+          onChange={(key) => {
+            if (!isModelSection(key)) return;
+            setSection(key);
+            const next = tabsForSection(key);
+            if (!next.includes(tab)) setTab(next[0] || "catalog");
+          }}
+        />
+        {section === "local" ? <LocalRunners /> : null}
+        {section === "cloud" ? <CloudSelection models={registry.models} /> : null}
+
+        <FilterTabs
+          tabs={TABS.filter((item) => tabsForSection(section).includes(item.key))}
+          value={tab}
+          onChange={setTab}
+        />
 
         {/* --------------------------------------------------------- catalog */}
         {(tab === "catalog" || tab === "installed") && (
@@ -878,13 +1171,26 @@ function ModelsPage() {
               title="Multi-model mode"
               hint={`${state.multiModel.length} selected`}
               actions={
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="label-xs text-muted-foreground">parallel</span>
                   <Switch
                     checked={state.parallel}
                     onCheckedChange={(v) => engine.setParallel(v)}
                     aria-label="Parallel execution"
                   />
+                  <select
+                    aria-label="Local answer strategy"
+                    value={state.localAnswer}
+                    onChange={(event) =>
+                      engine.setLocalAnswer(normaliseLocalAnswer(event.target.value))
+                    }
+                    className="h-8 rounded-sm border border-border bg-surface px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/50"
+                  >
+                    <option value="show-all">Show all</option>
+                    <option value="first-good">First good</option>
+                    <option value="majority">Majority</option>
+                    <option value="judged">Judged</option>
+                  </select>
                 </div>
               }
             >
