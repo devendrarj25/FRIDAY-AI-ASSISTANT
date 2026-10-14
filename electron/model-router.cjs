@@ -2354,10 +2354,10 @@ function budgetDecision(raw, estimateUsd = 0) {
   if (perRequest != null && estimate > perRequest) {
     return { allows: false, reason: "this request is over the per-request cap", configured: true };
   }
-  if (perDay != null && spentDay >= perDay) {
+  if (perDay != null && (spentDay >= perDay || spentDay + estimate > perDay)) {
     return { allows: false, reason: "the daily budget is spent", configured: true };
   }
-  if (perMonth != null && spentMonth >= perMonth) {
+  if (perMonth != null && (spentMonth >= perMonth || spentMonth + estimate > perMonth)) {
     return { allows: false, reason: "the monthly budget is spent", configured: true };
   }
   return { allows: true, reason: "budget remains", configured: true };
@@ -2549,7 +2549,10 @@ function routeRequest(models, options = {}) {
     : [];
   const groups = {
     local: localPick,
-    "cloud-free": cloudPick.filter((model) => model.access === "free"),
+    "cloud-free": preferNewestFree(
+      cloudPick.filter((model) => model.access === "free"),
+      { failedIds: options.failedIds, allowlist },
+    ).order,
     "cloud-paid": decision.paidOpen ? cloudPick.filter((model) => model.access === "paid") : [],
   };
   const droppedPaid = !decision.paidOpen && cloudPick.some((model) => model.access === "paid");
@@ -2597,6 +2600,135 @@ function routeRequest(models, options = {}) {
     options,
     surface,
   );
+}
+
+function modelVersion(model) {
+  const name = String(model?.providerModelId || model?.meta?.modelName || model?.id || "");
+  const match = name.match(/(\d+(?:\.\d+){0,3})/);
+  return match ? match[1].split(".").map((part) => Number(part) || 0) : [0];
+}
+
+function compareVersion(left, right) {
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+
+function freeFamilyKey(model) {
+  const provider = String(model?.providerId || model?.meta?.providerId || "cloud");
+  const name = String(model?.providerModelId || model?.meta?.modelName || model?.id || "")
+    .toLowerCase()
+    .replace(/(\d+(?:\.\d+){0,3})/g, "#");
+  return `${provider}:${name}`;
+}
+
+/**
+ * Newest verified-free model in each family. A failed newest id falls back
+ * to the previous verified version. Unverified rows keep their order.
+ */
+function preferNewestFree(models, options = {}) {
+  const failed = new Set((options.failedIds || []).map((id) => String(id)));
+  const allow = normaliseAllowlist(options.allowlist);
+  const verified = [];
+  const rest = [];
+  for (const model of models || []) {
+    if (!model || modelAccess.isLocalModel(model)) {
+      rest.push(model);
+      continue;
+    }
+    if (allow && !allowlistHit(model, allow.ids)) {
+      rest.push(model);
+      continue;
+    }
+    const record = modelAccess.accessOf(model);
+    if (!modelAccess.isVerifiedFree(record)) {
+      rest.push(model);
+      continue;
+    }
+    verified.push(model);
+  }
+  const groups = new Map();
+  for (const model of verified) {
+    const key = freeFamilyKey(model);
+    const list = groups.get(key) || [];
+    list.push(model);
+    groups.set(key, list);
+  }
+  const front = [];
+  const deferred = [];
+  for (const list of groups.values()) {
+    const sorted = [...list].sort((a, b) => compareVersion(modelVersion(b), modelVersion(a)));
+    const live = sorted.filter(
+      (model) => !failed.has(String(model.id)) && !failed.has(String(model.providerModelId || "")),
+    );
+    const dead = sorted.filter(
+      (model) => failed.has(String(model.id)) || failed.has(String(model.providerModelId || "")),
+    );
+    if (live[0]) front.push(live[0]);
+    deferred.push(...live.slice(1), ...dead);
+  }
+  return { chosen: front[0] || null, order: [...front, ...deferred, ...rest] };
+}
+
+function spendStamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+/** Add one paid charge. The caller passes `at`. A secret in the model id is refused. */
+function recordSpend(raw, event = {}) {
+  const amount = Number(event.usd);
+  const at = spendStamp(event.at);
+  const modelId = String(event.modelId || "").slice(0, 120);
+  const current = raw && typeof raw === "object" ? raw : {};
+  if (!Number.isFinite(amount) || amount < 0) {
+    return { ok: false, reason: "spend must be a non-negative number", budget: current, log: [] };
+  }
+  if (!at) {
+    return { ok: false, reason: "spend needs an explicit time", budget: current, log: [] };
+  }
+  if (/\b(?:sk-[a-z0-9]{8,}|api[_-]?key|bearer)\b/i.test(modelId)) {
+    return { ok: false, reason: "spend row refused a secret", budget: current, log: [] };
+  }
+  const day = at.slice(0, 10);
+  const month = at.slice(0, 7);
+  const sameDay = current.spentDay === day;
+  const sameMonth = current.spentMonth === month;
+  const spentDayUsd = Number(
+    ((sameDay || !current.spentDay ? Number(current.spentDayUsd) || 0 : 0) + amount).toFixed(6),
+  );
+  const spentMonthUsd = Number(
+    ((sameMonth || !current.spentMonth ? Number(current.spentMonthUsd) || 0 : 0) + amount).toFixed(
+      6,
+    ),
+  );
+  const budget = {
+    perRequestUsd: current.perRequestUsd ?? null,
+    perDayUsd: current.perDayUsd ?? null,
+    perMonthUsd: current.perMonthUsd ?? null,
+    spentDayUsd,
+    spentMonthUsd,
+    spentDay: day,
+    spentMonth: month,
+  };
+  const prior = Array.isArray(event.log) ? event.log : [];
+  const log = prior
+    .filter((row) => row && typeof row === "object")
+    .slice(-49)
+    .map((row) => ({
+      at: String(row.at || ""),
+      usd: Number(row.usd) || 0,
+      modelId: String(row.modelId || "").slice(0, 120),
+      lane: "cloud-paid",
+    }))
+    .filter((row) => row.at && !/\b(?:sk-[a-z0-9]{8,}|api[_-]?key|bearer)\b/i.test(row.modelId));
+  log.push({ at, usd: amount, modelId, lane: "cloud-paid" });
+  const decision = budgetDecision(budget, 0);
+  return { ok: true, budget, log, allows: decision.allows, reason: decision.reason };
 }
 
 const LOCAL_ANSWER_STRATEGIES = ["show-all", "first-good", "majority", "judged"];
@@ -2746,6 +2878,8 @@ module.exports = {
   LANES,
   normaliseAllowlist,
   budgetDecision,
+  preferNewestFree,
+  recordSpend,
   paidLaneOpen,
   decideLane,
   routeRequest,

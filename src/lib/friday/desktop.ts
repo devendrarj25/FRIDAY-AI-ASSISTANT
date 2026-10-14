@@ -570,6 +570,11 @@ type DesktopApi = {
     perDayUsd?: number | null;
     perMonthUsd?: number | null;
   }) => Promise<{ allows: boolean; reason: string; configured: boolean }>;
+  recordSpend?: (event: {
+    usd: number;
+    at: string;
+    modelId: string;
+  }) => Promise<{ ok: boolean; allows?: boolean; reason?: string }>;
   /** The one authoritative provider registry (configured/reachable/health). */
   providerRegistry?: () => Promise<{
     at: number;

@@ -1312,6 +1312,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:record-spend",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:registry",
       file: "electron/main.cjs",
     },
@@ -8452,8 +8456,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 444,
-      total: 444,
+      mapped: 445,
+      total: 445,
     },
     kernel: {
       mapped: 14,

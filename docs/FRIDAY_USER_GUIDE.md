@@ -71,6 +71,8 @@ Chat and Voice use the same route. The Doctor line names the lane (`local`, `clo
 
 A local launcher offer reads `config/local-runners.json`. FRIDAY does not start that file. Run stays off until the published checksum matches, Windows has checked the signature, and you click. Pause keeps the partial file. Cancel removes it. Closing the app mid-download leaves that partial file so the next open can continue. Those Windows clicks are still unchecked on this tree.
 
+A verified free model that fails falls back to the previous verified version of that family. The failed id stays visible later in the same route. Paid charges are added only with an explicit time, and a day or month cap that would be crossed is refused. Turning paid on is still a separate owner step.
+
 Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
 
 ## How to watch, edit, and build flows

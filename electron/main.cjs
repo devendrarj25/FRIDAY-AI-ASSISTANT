@@ -1523,6 +1523,8 @@ function setModelBudget(value) {
     perMonthUsd: source.perMonthUsd ?? null,
     spentDayUsd: Number(current?.spentDayUsd) || 0,
     spentMonthUsd: Number(current?.spentMonthUsd) || 0,
+    spentDay: current?.spentDay || null,
+    spentMonth: current?.spentMonth || null,
   };
   writeSettings({ ...readSettings(), modelBudget: stored });
   return modelRouter.budgetDecision(stored);
@@ -4293,6 +4295,27 @@ ipcMain.handle("models:set-route-strategy", (_e, value) => setModelRouteStrategy
 ipcMain.handle("models:set-selection", (_e, ids) => setModelSelection(ids));
 ipcMain.handle("models:set-allowlist", (_e, value) => setModelAllowlist(value));
 ipcMain.handle("models:set-budget", (_e, value) => setModelBudget(value));
+ipcMain.handle("models:record-spend", (_e, event) => {
+  const settings = readSettings();
+  const result = modelRouter.recordSpend(settings.modelBudget, {
+    usd: event?.usd,
+    at: event?.at,
+    modelId: event?.modelId,
+    log: settings.modelSpendLog,
+  });
+  if (!result.ok) return { ok: false, reason: result.reason };
+  writeSettings({
+    ...readSettings(),
+    modelBudget: result.budget,
+    modelSpendLog: result.log,
+  });
+  return {
+    ok: true,
+    allows: result.allows,
+    reason: result.reason,
+    budget: modelRouter.budgetDecision(result.budget),
+  };
+});
 ipcMain.handle("models:set-policy", (_e, value) => setModelUsagePolicy(value));
 // ------------------------------------------------------------ billing safety
 // Paid AI usage is off by default and can only be unlocked here. Every answer

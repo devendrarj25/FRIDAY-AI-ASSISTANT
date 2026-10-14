@@ -181,6 +181,7 @@ contextBridge.exposeInMainWorld("friday", {
   setModelSelection: (ids) => ipcRenderer.invoke("models:set-selection", ids),
   setModelAllowlist: (value) => ipcRenderer.invoke("models:set-allowlist", value || {}),
   setModelBudget: (value) => ipcRenderer.invoke("models:set-budget", value || {}),
+  recordSpend: (event) => ipcRenderer.invoke("models:record-spend", event || {}),
   providerModeReadiness: (mode) => ipcRenderer.invoke("providers:mode-readiness", mode || null),
   showModel: (model) => ipcRenderer.invoke("models:show", model),
   runningModels: () => ipcRenderer.invoke("models:running"),

@@ -180,6 +180,17 @@ Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is o
 | hf-mirror.com | ADAPT | The voice installer already lists that host, so the allowlist keeps it. A custom endpoint off the list is refused. |
 | An LLM judge that picks a provider | REJECT | Show-all, first-good, and majority stay in `combineLocalAnswers`. A judged merge runs only after the owner names a model, and that model does not choose a provider. |
 
+### Cloud spend and newest free (2026-10-14)
+
+`preferNewestFree` in `electron/model-router.cjs` orders the free lane. Only a record that `isVerifiedFree` already accepts can move to the front. A failed newest id falls back to the previous verified version, and that failed id stays later in the same list. An unverified pricing-page row does not jump the queue. `recordSpend` adds one charge when the caller passes the time. It rolls the day and the month from that time, and it refuses a model id that looks like a key. The billing firewall is still the spend authority. A new reading of every provider's error page was not done for this step.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Newest verified-free id, then the previous version | ADOPT | The free lane already has proof in `isVerifiedFree`. Version order is a sort on that list, not a second router. |
+| An unverified name as the newest free model | REJECT | A newer id without `verification: VERIFIED` stays behind a proven older id. |
+| Spend log beside the budget caps | ADOPT | One function updates `spentDayUsd` and `spentMonthUsd` and appends amount, time, and model id. The desktop handler is `models:record-spend`. |
+| A second billing check for paid models | REJECT | `budgetDecision` remains the cap. The firewall still has to allow paid before the lane opens. |
+
 ### Routing added (2026-10-08, escalation)
 
 The model plan's learned value estimator and a second providers package tree were not added. Bedrock, Foundry, and Vertex stay off the cloud list until the owner connects those accounts. vLLM stays an optional local serve command. The vLLM package is not a dependency. Video demos are not an implementation source, and a video index was not added.
