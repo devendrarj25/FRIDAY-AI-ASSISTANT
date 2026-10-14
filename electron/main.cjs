@@ -32,7 +32,28 @@ for (const arg of process.argv) {
 // software compositor: the SAME application, the SAME renderer bundle, only
 // without a GPU device that does not exist. Normal launches keep full hardware
 // acceleration.
+// A full redirected pipe blocks the main thread inside a stdout write. The
+// 70s mount deadline then never runs, and installer smoke waits out its 240s
+// kill. Non-blocking stdio drops that backpressure. The marker file is the
+// result smoke reads.
+function releaseBootSelfTestStdio() {
+  for (const stream of [process.stdout, process.stderr]) {
+    try {
+      const handle = stream && stream._handle;
+      if (handle && typeof handle.setBlocking === "function") handle.setBlocking(false);
+    } catch {
+      /* a console handle can refuse this */
+    }
+    try {
+      stream.on("error", () => {});
+    } catch {
+      /* already closed */
+    }
+  }
+}
+
 if (process.env.FRIDAY_BOOT_SELFTEST) {
+  releaseBootSelfTestStdio();
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch("disable-gpu");
   app.commandLine.appendSwitch("disable-gpu-compositing");
@@ -74,31 +95,25 @@ const path = require("path");
 function emitBootSelfTestLine(line) {
   const text = String(line || "").replace(/\r?\n/g, " ");
   const payload = `${text}\n`;
-  try {
-    process.stdout.write(payload);
-  } catch {
-    /* closed pipe */
+  // The marker file is written first. A direct fd copy follows for the smoke
+  // log. The stdout stream is left alone: writing both ways on one redirected
+  // Windows pipe blocks the main thread, so the mount deadline never runs.
+  const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
+  if (root) {
+    try {
+      if (fs.statSync(root).isDirectory()) {
+        const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, payload);
+      }
+    } catch {
+      /* the fd copy below remains the other signal */
+    }
   }
   try {
     fs.writeSync(1, payload);
   } catch {
-    /* a GUI subsystem has no stdout handle */
-  }
-  const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
-  if (!root) return;
-  let dirOk = false;
-  try {
-    dirOk = fs.statSync(root).isDirectory();
-  } catch {
-    dirOk = false;
-  }
-  if (!dirOk) return;
-  const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, payload);
-  } catch {
-    /* stdout remains the other signal */
+    /* a GUI subsystem has no stdout handle, or the pipe is full */
   }
 }
 

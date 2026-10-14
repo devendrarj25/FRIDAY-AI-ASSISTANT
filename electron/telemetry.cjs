@@ -103,7 +103,9 @@ function persist(entry) {
   if (process.env.VITEST) return;
   // Kernel stdout is already forwarded by main.cjs; everything else still
   // prints so a packaged run without the Logs page open is diagnosable.
-  if (entry.source !== "kernel") {
+  // Boot self-test smoke redirects stdout. A blocking write there freezes the
+  // main thread before the window mounts. The marker file carries that result.
+  if (entry.source !== "kernel" && !process.env.FRIDAY_BOOT_SELFTEST) {
     try {
       process.stdout.write(`${formatLogLine(entry)}\n`);
     } catch {

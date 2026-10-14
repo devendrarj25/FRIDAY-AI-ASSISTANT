@@ -256,6 +256,16 @@ describe("installer lifecycle smoke contract", () => {
     expect(probe).toContain("FRIDAY_BOOT_SELFTEST_OK interface mounted");
     expect(probe).toContain("setTimeout");
     expect(probe).not.toContain("if (!win || win.isDestroyed()) return;");
+    const emit = main.slice(
+      main.indexOf("function emitBootSelfTestLine"),
+      main.indexOf("function emitBootSelfTestLine") + 1800,
+    );
+    const emitBody = emit.slice(0, emit.indexOf("\nif (process.env.FRIDAY_BOOT_SELFTEST)"));
+    expect(emitBody).toContain("writeFileSync");
+    expect(emitBody).toContain("writeSync(1, payload)");
+    expect(emitBody).not.toContain("process.stdout.write");
+    expect(main).toContain("releaseBootSelfTestStdio");
+    expect(main).toContain("setBlocking(false)");
     const marker = main.indexOf("boot-selftest.txt");
     const lock = main.indexOf("requestSingleInstanceLock");
     expect(marker).toBeGreaterThan(-1);
