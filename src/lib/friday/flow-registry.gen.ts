@@ -286,6 +286,7 @@ export const FLOW_REGISTRY = {
     "voice.allowAmbientCloud",
     "voice.duckOthers",
     "voice.heardKeepMin",
+    "voice.heardKeepRows",
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.models",
@@ -1257,6 +1258,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "models:cancel",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:check-launcher",
       file: "electron/main.cjs",
     },
     {
@@ -8452,16 +8457,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 108,
-      total: 108,
+      mapped: 109,
+      total: 109,
     },
     capabilities: {
       mapped: 1014,
       total: 1014,
     },
     ipc: {
-      mapped: 445,
-      total: 445,
+      mapped: 446,
+      total: 446,
     },
     kernel: {
       mapped: 14,

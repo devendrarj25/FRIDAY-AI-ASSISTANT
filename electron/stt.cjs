@@ -833,8 +833,16 @@ async function transcribe(req = {}, onPartial) {
   }
 }
 
+function turnAudioBuffer(req = {}) {
+  const raw = req.audioBytes;
+  if (raw && (raw.length || raw.byteLength)) {
+    return Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  }
+  return Buffer.from(String(req.audioBase64 || ""), "base64");
+}
+
 async function scoreTurn(req = {}) {
-  const bytes = Buffer.from(String(req.audioBase64 || ""), "base64");
+  const bytes = turnAudioBuffer(req);
   if (!bytes.length) return { ok: true, ready: false, probability: null, reason: "no-audio" };
   const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
   const file = path.join(audioDir(), `${crypto.randomBytes(8).toString("hex")}.${ext}`);
@@ -957,6 +965,7 @@ module.exports = {
   install,
   transcribe,
   scoreTurn,
+  turnAudioBuffer,
   sweep,
   shutdown,
   onMute,

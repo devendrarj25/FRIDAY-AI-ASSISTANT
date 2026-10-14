@@ -19,8 +19,10 @@ import {
   emptyHistogram,
   encodeWav,
   micWatch,
+  PRE_ROLL_MS,
   preRollFrom,
   segmentClock,
+  workletCapturing,
   type MicFaultKind,
 } from "./pcm-capture";
 import { preferences } from "./preferences";
@@ -222,8 +224,9 @@ export interface DictationOptions {
 }
 
 /**
- * Continuous on-device dictation. One microphone stream, one MediaRecorder,
- * one transcription at a time — no timers left running when it stops.
+ * Continuous on-device dictation. One microphone stream. The PCM ring records
+ * when it is capturing. MediaRecorder is only the fallback. One transcription
+ * at a time — no timers left running when it stops.
  */
 /**
  * One microphone lease for dictation. Auto Mode is the only caller. Chat does
@@ -352,6 +355,8 @@ let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 export class DesktopDictation {
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
+  /** True while this utterance is taken from the PCM ring, not MediaRecorder. */
+  private pcmSegment = false;
   private chunks: Blob[] = [];
   private timer: number | null = null;
   private startedAt = 0;
@@ -418,7 +423,7 @@ export class DesktopDictation {
       return false;
     }
     this.leaseToken = claim.token;
-    if (typeof MediaRecorder === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
+    if (!navigator?.mediaDevices?.getUserMedia) {
       this.releaseLease();
       this.options.onError?.("audio capture is unavailable in this runtime");
       return false;
@@ -435,6 +440,13 @@ export class DesktopDictation {
       this.releaseLease();
       const captured = voiceGate.lastCaptureFailure();
       this.options.onError?.(captured?.reason || "the microphone could not be opened");
+      return false;
+    }
+    if (!workletCapturing() && typeof MediaRecorder === "undefined") {
+      voiceGate.release("dictation");
+      this.stream = null;
+      this.releaseLease();
+      this.options.onError?.("audio capture is unavailable in this runtime");
       return false;
     }
     const state = await sttStatus(true, Boolean(this.options.localOnly), true);
@@ -501,6 +513,7 @@ export class DesktopDictation {
       /* already stopped */
     }
     this.recorder = null;
+    this.pcmSegment = false;
     this.chunks = [];
     this.queue = [];
     this.earlyWake = null;
@@ -532,7 +545,7 @@ export class DesktopDictation {
       if (voiceGate.getSnapshot().speech) {
         if (!this.speechSince) this.speechSince = performance.now();
       } else this.speechSince = 0;
-      if (this.pcmFrom) this.segmentSamples = preRollFrom(this.pcmFrom + 500).length;
+      if (this.pcmFrom) this.segmentSamples = preRollFrom(this.pcmFrom + PRE_ROLL_MS).length;
       const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
       const decision = micWatch({
         live: true,
@@ -611,6 +624,7 @@ export class DesktopDictation {
   private beginSegment(): boolean {
     this.stream = voiceGate.micStream();
     if (this.recorder) return this.recorder.stream === this.stream;
+    if (this.pcmSegment) return Boolean(this.stream);
     if (!this.stream) {
       this.options.onDiagnostic?.({ stage: "dropped", detail: "no microphone stream" });
       return false;
@@ -619,6 +633,16 @@ export class DesktopDictation {
     // independent of whisper, so the next utterance is recorded now and queued
     // (see `enqueue`) instead of being thrown away while FRIDAY is thinking.
 
+    if (workletCapturing()) {
+      this.openSegmentClock();
+      this.pcmSegment = true;
+      this.recorder = null;
+      return true;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      this.options.onDiagnostic?.({ stage: "error", detail: "MediaRecorder refused the stream" });
+      return false;
+    }
     const mime = pickMime();
     try {
       this.recorder = mime
@@ -630,17 +654,7 @@ export class DesktopDictation {
       this.options.onDiagnostic?.({ stage: "error", detail: "MediaRecorder refused the stream" });
       return false;
     }
-    this.chunks = [];
-    this.turnHold = "idle";
-    this.startedAt = Date.now();
-    this.startedMono = performance.now();
-    this.pcmFrom = this.startedMono - 500;
-    this.segmentSamples = 0;
-    this.delivered = false;
-    this.bugLogged = false;
-    this.earlyWake = null;
-    this.earlyWakeTried = false;
-    this.earlyWakeGen += 1;
+    this.openSegmentClock();
     this.recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) this.chunks.push(event.data);
       this.maybeEarlyWake();
@@ -699,9 +713,24 @@ export class DesktopDictation {
     return true;
   }
 
+  /** Shared start of a segment. The ring keeps PRE_ROLL_MS of audio before speech. */
+  private openSegmentClock(): void {
+    this.chunks = [];
+    this.turnHold = "idle";
+    this.startedAt = Date.now();
+    this.startedMono = performance.now();
+    this.pcmFrom = this.startedMono - PRE_ROLL_MS;
+    this.segmentSamples = 0;
+    this.delivered = false;
+    this.bugLogged = false;
+    this.earlyWake = null;
+    this.earlyWakeTried = false;
+    this.earlyWakeGen += 1;
+  }
+
   /** Pull the shared ring, including the pre-roll, and prefer that over a late recorder. */
   private takePcm(): Uint8Array | null {
-    const samples = preRollFrom(this.pcmFrom + 500);
+    const samples = preRollFrom(this.pcmFrom + PRE_ROLL_MS);
     this.segmentSamples = samples.length;
     if (samples.length < 1600) return null;
     return encodeWav(samples);
@@ -735,6 +764,7 @@ export class DesktopDictation {
     }
     if (this.timer) window.clearInterval(this.timer);
     this.timer = null;
+    this.pcmSegment = false;
     this.speaking = false;
     try {
       if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
@@ -759,7 +789,7 @@ export class DesktopDictation {
     }
     if (this.timer) return;
     this.timer = window.setInterval(() => {
-      if (!this.running || !this.recorder) {
+      if (!this.running || (!this.recorder && !this.pcmSegment)) {
         if (this.timer) window.clearInterval(this.timer);
         this.timer = null;
         return;
@@ -794,6 +824,10 @@ export class DesktopDictation {
       }
       const budget = this.turnHold === "extend" ? cap : silenceMs;
       if ((!snapshot.speech && quietFor >= budget) || tooLong) {
+        if (this.pcmSegment || !this.recorder) {
+          this.finishSegment(tooLong ? "segment closed" : "silence");
+          return;
+        }
         if (this.timer) window.clearInterval(this.timer);
         this.timer = null;
         this.speaking = false;
@@ -809,14 +843,14 @@ export class DesktopDictation {
 
   private async requestTurnScore(): Promise<void> {
     const api = desktop();
-    if (!api?.scoreTurn || !this.chunks.length || turnScoreReady === "absent") {
+    const wav = this.takePcm();
+    if (!api?.scoreTurn || !wav || turnScoreReady === "absent") {
       this.turnHold = "done";
       return;
     }
     try {
-      const blob = new Blob(this.chunks, { type: this.chunks[0]?.type || "audio/webm" });
-      const audioBase64 = toBase64(await blob.arrayBuffer());
-      const scored = await api.scoreTurn({ audioBase64, mime: blob.type });
+      const audioBytes = wav.slice();
+      const scored = await api.scoreTurn({ audioBytes, mime: "audio/wav" });
       if (scored?.ready) turnScoreReady = "ready";
       else if (/absent/.test(scored?.reason || "")) turnScoreReady = "absent";
       const probability = scored?.probability;

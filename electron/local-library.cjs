@@ -95,6 +95,113 @@ function installOffer(runner, check = {}) {
   };
 }
 
+function pinAgeDays(checked, now = Date.now()) {
+  const start = Date.parse(`${String(checked || "").slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(start)) return null;
+  return Math.max(0, Math.floor((Number(now) - start) / 86_400_000));
+}
+
+function versionParts(tag) {
+  const raw = String(tag || "")
+    .trim()
+    .replace(/^v/i, "");
+  const build = /^b(\d+)$/i.exec(raw);
+  if (build) return [Number(build[1])];
+  return raw
+    .split(/[^0-9]+/)
+    .filter(Boolean)
+    .map((part) => Number(part));
+}
+
+function newerTag(latest, pinned) {
+  const next = versionParts(latest);
+  const current = versionParts(pinned);
+  const width = Math.max(next.length, current.length);
+  for (let i = 0; i < width; i += 1) {
+    const delta = (next[i] || 0) - (current[i] || 0);
+    if (delta > 0) return true;
+    if (delta < 0) return false;
+  }
+  return false;
+}
+
+/**
+ * Compare a pinned launcher with one official release payload.
+ * This does not download, install, or rewrite the pin file.
+ * A new sha256 is offered only when that release publishes one.
+ */
+function assessOfficialRelease(runner, payload, now = Date.now()) {
+  const pinned = runner?.release || null;
+  const ageDays = pinAgeDays(RUNNERS.checked, now);
+  const parsed = parseGithubRelease(payload, pinned?.asset || "");
+  const latestTag = parsed?.tag || String(payload?.tag_name || "");
+  const updateAvailable = Boolean(pinned?.tag && latestTag && newerTag(latestTag, pinned.tag));
+  const published = String(parsed?.sha256 || "");
+  const storedSha256 = pinned?.sha256 || null;
+  const offeredSha256 = published || null;
+  let label = ageDays == null ? "Pin age: unknown" : `Pin age: ${ageDays} days`;
+  if (!pinned?.tag) label += " · no pinned release";
+  else if (updateAvailable) label += " · update available";
+  else if (latestTag) label += " · this pin is current";
+  return {
+    ok: true,
+    id: runner?.id || "",
+    updateAvailable,
+    pinnedTag: pinned?.tag || "",
+    latestTag,
+    ageDays,
+    label,
+    storedSha256,
+    offeredSha256,
+    wouldReplaceSha256: Boolean(published),
+    autoInstall: false,
+    canRun: false,
+  };
+}
+
+async function checkRunnerRelease(id, options = {}) {
+  const runner = typeof id === "string" ? runnerById(id) : id;
+  const now = options.now || Date.now();
+  if (!runner) {
+    return {
+      ok: false,
+      updateAvailable: false,
+      autoInstall: false,
+      canRun: false,
+      reason: "unknown launcher",
+    };
+  }
+  if (options.payload) return assessOfficialRelease(runner, options.payload, now);
+  if (!runner.release?.repo) return assessOfficialRelease(runner, null, now);
+  const url = `https://api.github.com/repos/${runner.release.repo}/releases/latest`;
+  const safety = require("./download-safety.cjs");
+  safety.assertAllowedUrl(url);
+  if (!options.fetchImpl) {
+    const res = await safety.fetchAllowlisted(url, {
+      headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
+    });
+    if (!res.ok) {
+      const ageDays = pinAgeDays(RUNNERS.checked, now);
+      return {
+        ok: false,
+        id: runner.id,
+        updateAvailable: false,
+        ageDays,
+        label: `Pin age: ${ageDays} days`,
+        storedSha256: runner.release?.sha256 || null,
+        offeredSha256: null,
+        wouldReplaceSha256: false,
+        autoInstall: false,
+        canRun: false,
+        reason: `release API HTTP ${res.status}`,
+      };
+    }
+    return assessOfficialRelease(runner, await res.json(), now);
+  }
+  const payload = await options.fetchImpl(url);
+  return assessOfficialRelease(runner, payload, now);
+}
+
 function launcherCard(runner, probe = {}) {
   const installed = probe.installed === true;
   const running = probe.running === true;
@@ -104,6 +211,9 @@ function launcherCard(runner, probe = {}) {
   else if (!running) nextStep = "Installed and stopped. Start when you want the local API.";
   else if (!probe.api) nextStep = "The process is up and the API is not answering yet.";
   else nextStep = probe.loaded ? `Active model: ${probe.loaded}` : "Running. No model is loaded.";
+  const now = probe.now || Date.now();
+  const ageDays = pinAgeDays(RUNNERS.checked, now);
+  const pinAgeLabel = ageDays == null ? "Pin age: unknown" : `Pin age: ${ageDays} days`;
   return {
     id: runner.id,
     name: runner.name,
@@ -117,6 +227,8 @@ function launcherCard(runner, probe = {}) {
     catalogNote: runner.catalogNote,
     offer: installOffer(runner, probe.check || {}),
     nextStep,
+    pinAgeDays: ageDays,
+    pinAgeLabel,
     stopHint: runner.stopHint,
     uninstallHint: runner.uninstallHint,
   };
@@ -130,4 +242,8 @@ module.exports = {
   parseGithubRelease,
   installOffer,
   launcherCard,
+  pinAgeDays,
+  newerTag,
+  assessOfficialRelease,
+  checkRunnerRelease,
 };

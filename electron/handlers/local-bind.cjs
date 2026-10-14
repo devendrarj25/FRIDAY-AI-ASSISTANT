@@ -58,7 +58,9 @@ function localHandler(id, overrides = {}) {
       };
     },
     parseStream(chunk) {
-      return require("../models.cjs").parseOpenAiSse(chunk);
+      const models = require("../models.cjs");
+      if (id === "ollama") return models.parseOllamaStream(chunk);
+      return models.parseOpenAiSse(chunk);
     },
     mapError(error) {
       return require("../model-router.cjs").classifyError(error);

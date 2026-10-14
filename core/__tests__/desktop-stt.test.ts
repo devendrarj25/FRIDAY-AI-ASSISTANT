@@ -18,6 +18,15 @@ describe("desktop stt", () => {
     if (!state.available) expect(String(state.reason || "")).not.toHaveLength(0);
   });
 
+  it("reads turn-score audio as bytes and keeps an empty capture empty", () => {
+    const bytes = stt.turnAudioBuffer({ audioBytes: Uint8Array.from([1, 2, 3, 4]) });
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(bytes.length).toBe(4);
+    const fromText = stt.turnAudioBuffer({ audioBase64: Buffer.from("wav").toString("base64") });
+    expect(fromText.toString()).toBe("wav");
+    expect(stt.turnAudioBuffer({ audioBytes: new Uint8Array(), audioBase64: "" }).length).toBe(0);
+  });
+
   it("refuses an empty capture with a reason", async () => {
     const result = await stt.transcribe({ audioBase64: "" });
     expect(result.ok).toBe(false);

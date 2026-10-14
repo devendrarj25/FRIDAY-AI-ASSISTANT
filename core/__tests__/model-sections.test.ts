@@ -11,6 +11,8 @@ import {
   SECTION_TABS,
   firstPage,
   launcherLines,
+  pinAgeDays,
+  pinAgeLabel,
   sectionCovers,
   selectCloud,
 } from "../../src/lib/friday/model-sections";
@@ -43,7 +45,17 @@ describe("model sections", () => {
     expect(page).toContain("firstPage");
     expect(page).toContain("Select all free");
     expect(page).toContain("Local answer strategy");
+    expect(page).toContain("pinAgeLabel");
+    expect(page).toContain("Check for update");
+    expect(page).toContain("checkLauncherRelease");
     expect(page).not.toMatch(/disabled=\{true\}/);
+  });
+
+  it("shows how old a launcher pin is without using today's date", () => {
+    const now = Date.parse("2026-10-16T00:00:00Z");
+    expect(pinAgeDays("2026-10-14", now)).toBe(2);
+    expect(pinAgeLabel("2026-10-14", now)).toBe("Pin age: 2 days");
+    expect(pinAgeDays("", now)).toBeNull();
   });
 
   it("never offers to run a launcher from the screen helper", () => {

@@ -400,6 +400,18 @@ type DesktopApi = {
     attempts?: { source: string; error: string }[];
   }>;
   cancelModelJob?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
+  checkLauncherRelease?: (id: string) => Promise<{
+    ok: boolean;
+    updateAvailable?: boolean;
+    label?: string;
+    ageDays?: number | null;
+    storedSha256?: string | null;
+    offeredSha256?: string | null;
+    wouldReplaceSha256?: boolean;
+    autoInstall?: boolean;
+    canRun?: boolean;
+    reason?: string;
+  }>;
   listTransfers?: () => Promise<{
     ok: boolean;
     jobs: Array<{
@@ -504,7 +516,8 @@ type DesktopApi = {
     engine?: string;
   }>;
   scoreTurn?: (payload: {
-    audioBase64: string;
+    audioBytes?: Uint8Array;
+    audioBase64?: string;
     mime?: string;
   }) => Promise<{ ok: boolean; ready?: boolean; probability?: number | null; reason?: string }>;
   duckAudio?: (payload: {

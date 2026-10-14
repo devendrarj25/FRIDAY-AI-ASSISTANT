@@ -4734,6 +4734,10 @@ ipcMain.handle("models:download", async (_e, payload) => {
   }
 });
 
+ipcMain.handle("models:check-launcher", (_e, id) => {
+  return require("./local-library.cjs").checkRunnerRelease(String(id || ""));
+});
+
 ipcMain.handle("models:transfers", () => {
   const dir = paths.ensureDir("models");
   const file = path.join(dir, "transfers.json");

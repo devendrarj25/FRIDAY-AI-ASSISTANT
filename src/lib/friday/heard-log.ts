@@ -15,22 +15,31 @@ export type HeardRow = {
   confidence: number;
 };
 
-const MAX_ROWS = 80;
+/** Hard cap. The owner can keep fewer rows. Zero turns the log off. */
+export const HEARD_ROW_CAP = 80;
+/** Short default. Ten minutes and this many rows, both on this PC. */
+export const HEARD_ROW_DEFAULT = 40;
 let rows: HeardRow[] = [];
 
 export function resetHeardLog(): void {
   rows = [];
 }
 
-export function noteHeard(row: HeardRow, keepMs: number, now: number): HeardRow[] {
-  if (keepMs <= 0) {
+export function noteHeard(
+  row: HeardRow,
+  keepMs: number,
+  now: number,
+  keepRows: number = HEARD_ROW_DEFAULT,
+): HeardRow[] {
+  const cap = Number(keepRows);
+  if (keepMs <= 0 || !Number.isFinite(cap) || cap <= 0) {
     rows = [];
     return rows;
   }
   rows = rows
     .concat(row)
     .filter((item) => now - item.at <= keepMs)
-    .slice(-MAX_ROWS);
+    .slice(-Math.min(HEARD_ROW_CAP, Math.floor(cap)));
   return rows;
 }
 

@@ -1,7 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { decideAddressing } from "../../src/lib/friday/addressing";
-import { ambientContextForRoute, noteHeard, resetHeardLog } from "../../src/lib/friday/heard-log";
+import {
+  ambientContextForRoute,
+  clearHeard,
+  heardRows,
+  noteHeard,
+  resetHeardLog,
+} from "../../src/lib/friday/heard-log";
 import { microphoneAllowed } from "../../src/lib/friday/voice-session";
 import {
   admitUtterance,
@@ -174,6 +181,37 @@ describe("privacy and chat", () => {
     expect(ambientContextForRoute({ privacy: false, allowAmbientCloud: true })).toContain(
       "secret nearby",
     );
+    resetHeardLog();
+  });
+
+  it("expires rows, turns off, and clears without sending text off this PC", () => {
+    resetHeardLog();
+    const row = {
+      at: 1_000,
+      text: "keep this nearby",
+      tag: "ambient" as const,
+      language: "en",
+      confidence: 0.4,
+    };
+    noteHeard(row, 1_000, 1_500, 40);
+    noteHeard({ ...row, at: 1_000, text: "old line" }, 500, 2_000, 40);
+    expect(heardRows().map((item) => item.text)).toEqual([]);
+    noteHeard({ ...row, at: 4_000, text: "still here" }, 2_000, 5_000, 2);
+    noteHeard({ ...row, at: 4_500, text: "second" }, 2_000, 5_000, 2);
+    noteHeard({ ...row, at: 4_800, text: "third" }, 2_000, 5_000, 2);
+    expect(heardRows()).toHaveLength(2);
+    expect(heardRows().every((item) => 5_000 - item.at <= 2_000)).toBe(true);
+    noteHeard({ ...row, at: 6_000, text: "off" }, 0, 6_000, 40);
+    expect(heardRows()).toEqual([]);
+    noteHeard({ ...row, at: 7_000, text: "rows off" }, 60_000, 7_000, 0);
+    expect(heardRows()).toEqual([]);
+    noteHeard({ ...row, at: 8_000, text: "cleared secret" }, 60_000, 8_000, 40);
+    clearHeard();
+    expect(heardRows()).toEqual([]);
+    expect(ambientContextForRoute({ privacy: true, allowAmbientCloud: true })).toBe("");
+    expect(ambientContextForRoute({ privacy: false, allowAmbientCloud: true })).toBe("");
+    const source = readFileSync("src/lib/friday/heard-log.ts", "utf8");
+    expect(source).not.toMatch(/fetch\(|https?:|websocket/i);
     resetHeardLog();
   });
 });

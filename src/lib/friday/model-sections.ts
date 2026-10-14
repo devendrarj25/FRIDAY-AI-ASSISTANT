@@ -47,6 +47,18 @@ type RunnerRelease = {
   sha256?: string | null;
 } | null;
 
+/** Days since the pin date in config/local-runners.json. The file is not rewritten. */
+export function pinAgeDays(checked: string, now = Date.now()): number | null {
+  const start = Date.parse(`${String(checked || "").slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(start)) return null;
+  return Math.max(0, Math.floor((now - start) / 86_400_000));
+}
+
+export function pinAgeLabel(checked: string, now = Date.now()): string {
+  const days = pinAgeDays(checked, now);
+  return days == null ? "Pin age: unknown" : `Pin age: ${days} days`;
+}
+
 export function launcherLines(
   runner: { officialPage?: string; release?: RunnerRelease },
   clicked = false,
