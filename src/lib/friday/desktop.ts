@@ -400,6 +400,22 @@ type DesktopApi = {
     attempts?: { source: string; error: string }[];
   }>;
   cancelModelJob?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
+  listTransfers?: () => Promise<{
+    ok: boolean;
+    jobs: Array<{
+      id: string;
+      modelId: string;
+      status: string;
+      sourceUrl: string;
+      bytes: number;
+      done: number;
+      error: string;
+    }>;
+  }>;
+  transferModel?: (
+    jobId: string,
+    action: "pause" | "resume" | "cancel",
+  ) => Promise<{ ok: boolean; status?: string; error?: string }>;
   removeModel?: (model: string) => Promise<{ ok: boolean; error?: string }>;
   unloadModel?: (model: string) => Promise<{ ok: boolean; error?: string }>;
   probeModel?: (model: string, prompt?: string) => Promise<ModelProbeRun>;

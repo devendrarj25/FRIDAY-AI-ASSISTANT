@@ -69,6 +69,8 @@ On the owner's PC with real keys. These steps are unverified until that PC runs 
 
 Chat and Voice use the same route. The Doctor line names the lane (`local`, `cloud-free`, `cloud-paid`, `multi-local`, `hybrid`, or `manual`) and one reason. A saved cloud allowlist drops every cloud model that is not on it. Until that list is saved, today's free-first pool stays. Paid stays off unless paid access, the billing firewall, and a budget all allow it.
 
+A local launcher offer reads `config/local-runners.json`. FRIDAY does not start that file. Run stays off until the published checksum matches, Windows has checked the signature, and you click. Pause keeps the partial file. Cancel removes it. Closing the app mid-download leaves that partial file so the next open can continue. Those Windows clicks are still unchecked on this tree.
+
 Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
 
 ## How to watch, edit, and build flows

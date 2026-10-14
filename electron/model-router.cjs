@@ -2599,6 +2599,75 @@ function routeRequest(models, options = {}) {
   );
 }
 
+const LOCAL_ANSWER_STRATEGIES = ["show-all", "first-good", "majority", "judged"];
+
+function localDrafts(answers) {
+  return (answers || []).map((row) => ({
+    modelId: String(row?.modelId || ""),
+    text: String(row?.text || ""),
+    error: row?.error ? String(row.error).slice(0, 180) : "",
+  }));
+}
+
+/** Combine finished local drafts. A judge is never asked to pick a provider. */
+function combineLocalAnswers(answers, options = {}) {
+  const strategy = LOCAL_ANSWER_STRATEGIES.includes(options.strategy)
+    ? options.strategy
+    : "show-all";
+  const drafts = localDrafts(answers);
+  if (strategy === "first-good") {
+    const hit = drafts.find((row) => row.text && !row.error);
+    return { strategy, answers: drafts, text: hit?.text || "", chosen: hit?.modelId || null };
+  }
+  if (strategy === "majority") {
+    const counts = new Map();
+    for (const row of drafts) {
+      const key = row.text.trim().toLowerCase();
+      if (!key || row.error) continue;
+      const bucket = counts.get(key) || { text: row.text, n: 0, modelId: row.modelId };
+      bucket.n += 1;
+      counts.set(key, bucket);
+    }
+    const best = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+    return {
+      strategy,
+      answers: drafts,
+      text: best?.text || "",
+      chosen: best?.modelId || null,
+      votes: best?.n || 0,
+    };
+  }
+  if (strategy === "judged") {
+    if (options.judgeEnabled !== true || !options.judgeModelId) {
+      return {
+        strategy,
+        answers: drafts,
+        refused: true,
+        reason: "the judge stays off until the owner enables a model",
+      };
+    }
+    return {
+      strategy,
+      answers: drafts,
+      needsJudge: true,
+      judgeModelId: String(options.judgeModelId),
+      reason: "the owner-picked model judges these drafts and does not choose a provider",
+    };
+  }
+  return { strategy: "show-all", answers: drafts, text: null };
+}
+
+function localFanout(models, hardware = {}) {
+  const ram = Number(hardware.freeRamGb);
+  const need = (models || []).reduce((sum, model) => sum + (Number(model?.ramGb) || 0), 0);
+  if (!Number.isFinite(ram) || ram <= 0) {
+    return { mode: "sequential", reason: "free memory was not measured" };
+  }
+  if (need > ram)
+    return { mode: "sequential", reason: "the models do not fit in free memory together" };
+  return { mode: "parallel", reason: "the models fit in free memory" };
+}
+
 module.exports = {
   POLICIES,
   COST_MODES,
@@ -2653,6 +2722,9 @@ module.exports = {
   freeNowBoard,
   routeFreeTurn,
   hedgeFree,
+  LOCAL_ANSWER_STRATEGIES,
+  combineLocalAnswers,
+  localFanout,
   nudgePrior,
   cooldownJitter,
   localSafetyNet,

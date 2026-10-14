@@ -4112,6 +4112,7 @@ ipcMain.handle("providers:ollama-models", () => listOllamaModels());
 // ------------------------------------------------------------ models manager
 // Real inventory, real pulls, real health checks. Nothing here is simulated.
 const modelJobs = new Map(); // jobId -> AbortController
+const modelPumps = new Map(); // jobId -> { paused }
 
 const modelsContext = () => ({
   // Provider keys are read from the same place they are written.
@@ -4499,14 +4500,27 @@ ipcMain.handle("models:download", async (_e, payload) => {
   if (!modelId) return { ok: false, error: "modelId is required" };
   const id = jobId || `dl-${Date.now()}`;
   if (modelJobs.has(id)) return { ok: false, error: "job already running" };
+  const cap = Math.max(1, Number(payload?.concurrency) || 2);
+  const gate = modelDownload.safety.admitJobs(
+    [
+      ...[...modelJobs.keys()].map((runningId) => ({ id: runningId, status: "downloading" })),
+      { id: "__next__", status: "queued" },
+    ],
+    cap,
+  );
+  if (!gate.starting.includes("__next__")) {
+    return { ok: false, error: "concurrency limit reached" };
+  }
   const controller = new AbortController();
   modelJobs.set(id, controller);
   const ctx = modelsContext();
   const dir = paths.ensureDir("models");
   send("models:pull-progress", { jobId: id, model: modelId, status: "starting", progress: 0 });
   try {
+    const pump = { paused: false };
+    modelPumps.set(id, pump);
     const result = await modelDownload.downloadModel(
-      { modelId, sources, dir },
+      { modelId, sources, dir, control: pump, transferId: id },
       (event) => send("models:pull-progress", { jobId: id, model: modelId, ...event }),
       controller.signal,
       { ollamaPull: modelsApi.ollamaPull },
@@ -4527,7 +4541,32 @@ ipcMain.handle("models:download", async (_e, payload) => {
     return { jobId: id, ok: false, error };
   } finally {
     modelJobs.delete(id);
+    modelPumps.delete(id);
   }
+});
+
+ipcMain.handle("models:transfers", () => {
+  const dir = paths.ensureDir("models");
+  const file = path.join(dir, "transfers.json");
+  return { ok: true, jobs: modelDownload.safety.recoverTransfers(file) };
+});
+
+ipcMain.handle("models:transfer", (_e, jobId, action) => {
+  const pump = modelPumps.get(jobId);
+  if (!pump) return { ok: false, error: "no such job" };
+  if (action === "pause") {
+    pump.paused = true;
+    return { ok: true, status: "paused" };
+  }
+  if (action === "resume") {
+    pump.paused = false;
+    return { ok: true, status: "downloading" };
+  }
+  if (action === "cancel") {
+    modelJobs.get(jobId)?.abort();
+    return { ok: true, status: "cancelled" };
+  }
+  return { ok: false, error: "unknown action" };
 });
 
 ipcMain.handle("models:cancel", (_e, jobId) => {
@@ -7287,6 +7326,15 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   app.__fridayQuitting = true;
+  for (const [id, controller] of modelJobs) {
+    const pump = modelPumps.get(id);
+    if (pump) pump.paused = true;
+    try {
+      controller.abort("pause");
+    } catch {
+      controller.abort();
+    }
+  }
   try {
     void plugins.dispatch(
       capabilityRoots(),
