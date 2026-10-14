@@ -503,6 +503,57 @@ def _frame_error(model: Model, problem) -> str:
     return f"{model.label} refused mid-stream: {problem}"
 
 
+def http_error_hint(status: int, detail: str = "") -> str:
+    """Owner-facing suffix for one provider HTTP error.
+
+    A 401 is the key. A 403 is this model or this tier, not a dead key.
+    A daily 429 keeps the word DAILY so a burst retry does not treat it as transient.
+    """
+    low = str(detail or "").lower()
+    code = int(status or 0)
+    if code == 429:
+        if "per day" in low or "daily" in low or "per-day" in low:
+            return " — provider DAILY request limit reached for this account"
+        return " — provider rate limit reached (per-minute burst), try again shortly"
+    if any(token in low for token in ("not available in your region", "region block", "geo-blocked")):
+        return " — this model is blocked in this region"
+    if code == 402 or any(
+        token in low
+        for token in (
+            "payment required",
+            "insufficient credit",
+            "billing_required",
+            "billing required",
+        )
+    ):
+        return " — this model needs paid access; other free models can still be tried"
+    if code == 401 or any(
+        token in low
+        for token in (
+            "invalid_api_key",
+            "invalid api key",
+            "incorrect api key",
+            "api key not valid",
+        )
+    ):
+        return " — check this provider's API key in Models → Providers"
+    if code == 403 or any(
+        token in low
+        for token in (
+            "free tier is not enabled",
+            "free tier not enabled",
+            "does not have access",
+            "model access denied",
+        )
+    ):
+        return " — this key cannot use this model; other models on this provider are still eligible"
+    if code == 404 or any(
+        token in low for token in ("model not found", "does not exist", "unknown model", "was removed")
+    ):
+        return " — the provider does not expose this model id"
+    return ""
+
+
 async def _raise_with_body(resp) -> None:
     """Turn a provider HTTP error into a message the owner can act on."""
     if resp.status_code < 400:
@@ -523,19 +574,7 @@ async def _raise_with_body(resp) -> None:
         )
     except Exception:  # noqa: BLE001,S110 — a non-JSON error body falls through to the status
         pass
-    hint = ""
-    if resp.status_code in (401, 403):
-        hint = " — check this provider's API key in Models → Providers"
-    elif resp.status_code == 404:
-        hint = " — the provider does not expose this model id"
-    elif resp.status_code == 429:
-        low = str(detail).lower()
-        if "per day" in low or "daily" in low or "per-day" in low:
-            # A daily cap, not a burst limit — say so, because "try again
-            # shortly" would be wrong advice here.
-            hint = " — provider DAILY request limit reached for this account"
-        else:
-            hint = " — provider rate limit reached (per-minute burst), try again shortly"
+    hint = http_error_hint(resp.status_code, str(detail or ""))
     raise RuntimeError(f"HTTP {resp.status_code}{hint}: {str(detail)[:400]}")
 
 

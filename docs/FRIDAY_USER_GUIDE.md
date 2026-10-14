@@ -56,6 +56,21 @@ Voice research, 13 October 2026. Chromium echo cancellation covers audio this ap
 
 This checklist is unverified until it is run on the owner's Windows PC. A Linux run does not pass it.
 
+## Model routing checks
+
+On the owner's PC with real keys. These steps are unverified until that PC runs them.
+
+1. Open Models. Each connected provider shows its models with a state and a next step. Free models verified by proof show as Free. Nothing paid is selected.
+2. Send a chat with only free models available: it answers and the Doctor shows "why this model". Repeat for code, a long document, and an image if a vision model is free.
+3. Force an error: remove one key, use a model your key cannot access, and (if possible) hit a rate limit. Each gives a distinct clear message and a correct cooldown, and other models on that provider still work.
+4. Local: start LM Studio with no model loaded, then load one; start and stop Ollama. Status text follows within a few seconds and chat routes to the loaded model; stale ids are marked unavailable.
+5. Privacy mode on: confirm no cloud call happens and the route is local only.
+6. Paid-only off + billing firewall: confirm no paid model is ever used silently.
+
+Chat and Voice use the same route. The Doctor line names the lane (`local`, `cloud-free`, `cloud-paid`, `multi-local`, `hybrid`, or `manual`) and one reason. A saved cloud allowlist drops every cloud model that is not on it. Until that list is saved, today's free-first pool stays. Paid stays off unless paid access, the billing firewall, and a budget all allow it.
+
+Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
+
 ## How to watch, edit, and build flows
 
 On any page that has a title, **Flow** opens Flow Studio for that page. System wiring still has its list; **Graph** and **Watch** open the same studio.
@@ -137,7 +152,7 @@ The chat model list shows only what can answer right now. A provider with no key
 
 Local models appear when that engine is installed and answering. A model that has hit its limit stays in the list, disabled, with the reason and when it returns, for example `limit reached · back in 12 min`.
 
-Every row is `Provider · Model`, with `FREE`, `PAID`, `LOCAL`, or `cost unknown`. The conversation strip says what will answer before you send, and what did answer after, with the step count and the chart button. Auto shows the pick there (`used Auto → Groq · openai/gpt-oss-20b`). That Groq id is on the free-plan list. `llama-3.3-70b-versatile` is not, so Auto does not pick it while paid access is off. If a fallback took over, that same strip names both. The messages stay the conversation and the result. On Providers, each card counts usable models and hidden models, and says why the hidden ones are hidden. Test chat sends one streamed token through the same router. `npm run models:check --live` prints the same picture for each key on this PC.
+Every row is `Provider · Model`, with `FREE`, `PAID`, `LOCAL`, or `cost unknown`. A row can also say it is cooling, or not available locally, and the next step. The conversation strip says what will answer before you send, and what did answer after, with the step count and the chart button. Auto shows the pick there (`used Auto → Google Gemini · gemini-2.5-flash`). That Gemini id is on the free-tier list. Groq `openai/gpt-oss-20b` has a published Developer price, so Auto leaves it out until you declare that account free or turn paid access on. `llama-3.3-70b-versatile` stays unknown. If a fallback took over, that same strip names both. The messages stay the conversation and the result. On Providers, each card counts usable models and hidden models, and says why the hidden ones are hidden. Test chat sends one streamed token through the same router. `npm run models:check --live` prints the same picture for each key on this PC. LM Studio is routed only when a model is loaded. If the server is up and nothing is loaded, the status says to load one. If Ollama is not running, the status says that.
 - **Devices** — Android / Bluetooth / LAN discovery via kernel tools.
 - **n8n Automation** — talk to a running n8n instance you already host.
 

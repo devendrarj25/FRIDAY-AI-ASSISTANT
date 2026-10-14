@@ -735,10 +735,20 @@ function filterByTier(models, tier, providerId = null) {
   return modelAccess.filterByTier(models, tier, providerId);
 }
 
+function ollamaListError(res) {
+  if (!res || res.ok) return null;
+  return res.status ? res.error || `HTTP ${res.status}` : "Ollama not running";
+}
+
 async function ollamaModels() {
   const res = await request(`${OLLAMA}/api/tags`, { timeout: 4000 });
   if (!res.ok)
-    return { online: false, latencyMs: null, models: [], error: res.error || `HTTP ${res.status}` };
+    return {
+      online: false,
+      latencyMs: null,
+      models: [],
+      error: ollamaListError(res),
+    };
   return {
     online: true,
     latencyMs: res.latencyMs,
@@ -925,9 +935,101 @@ function localEndpointCandidates(id, userData = null) {
   ];
 }
 
+/**
+ * LM Studio native lists say which models are loaded. The OpenAI-compatible
+ * list can include every download when JIT is on, and chatting with one of
+ * those returns "No models loaded". Only a loaded row is routable.
+ * Sources: https://lmstudio.ai/docs/developer/rest/list and
+ * https://lmstudio.ai/docs/developer/openai-compat/models
+ */
+function lmStudioCatalog(body, kind) {
+  if (kind === "v1") {
+    const rows = Array.isArray(body?.models)
+      ? body.models
+      : Array.isArray(body?.data)
+        ? body.data
+        : [];
+    return rows
+      .map((row) => ({
+        id: String(row?.key || row?.id || ""),
+        loaded: Array.isArray(row?.loaded_instances) && row.loaded_instances.length > 0,
+        raw: row,
+      }))
+      .filter((row) => row.id);
+  }
+  if (kind === "v0") {
+    const rows = Array.isArray(body?.data) ? body.data : [];
+    return rows
+      .map((row) => ({
+        id: String(row?.id || ""),
+        loaded: row?.state === "loaded",
+        raw: row,
+      }))
+      .filter((row) => row.id);
+  }
+  const rows = Array.isArray(body?.data) ? body.data : [];
+  return rows
+    .map((row) => ({ id: String(row?.id || ""), loaded: false, raw: row }))
+    .filter((row) => row.id);
+}
+
+function lmStudioResult(endpoint, rows, latencyMs) {
+  const loaded = rows.filter((row) => row.loaded);
+  return {
+    id: "lmstudio",
+    name: "LM Studio",
+    kind: "local",
+    endpoint,
+    online: true,
+    latencyMs: latencyMs || null,
+    error: loaded.length ? null : "LM Studio running, no model loaded",
+    models: loaded.map((row) => ({
+      id: row.id,
+      name: row.id,
+      provider: "lmstudio",
+      kind: "local",
+      sizeGb: 0,
+      format: "server",
+      loaded: true,
+      catalogue: row.raw,
+    })),
+  };
+}
+
+async function lmStudioEngine(endpoints) {
+  const fallback = endpoints[0] || LOCAL_ENGINES.lmstudio.endpoint;
+  let lastError = "LM Studio is not running";
+  for (const candidate of endpoints) {
+    const native = await request(`${candidate}/api/v1/models`, { timeout: 2500 });
+    if (native.ok) {
+      return lmStudioResult(candidate, lmStudioCatalog(native.body, "v1"), native.latencyMs);
+    }
+    const legacy = await request(`${candidate}/api/v0/models`, { timeout: 2500 });
+    if (legacy.ok) {
+      return lmStudioResult(candidate, lmStudioCatalog(legacy.body, "v0"), legacy.latencyMs);
+    }
+    const compat = await request(`${candidate}/v1/models`, { timeout: 2500 });
+    if (compat.ok) {
+      return lmStudioResult(candidate, lmStudioCatalog(compat.body, "openai"), compat.latencyMs);
+    }
+    lastError = native.error || legacy.error || compat.error || lastError;
+  }
+  return {
+    id: "lmstudio",
+    name: "LM Studio",
+    kind: "local",
+    endpoint: fallback,
+    online: false,
+    latencyMs: null,
+    error: lastError,
+    models: [],
+  };
+}
+
 async function localEngine(id, userData = null) {
   const spec = LOCAL_ENGINES[id];
   const endpoints = localEndpointCandidates(id, userData);
+  if (id === "lmstudio") return lmStudioEngine(endpoints);
   let endpoint = endpoints[0] || spec.endpoint;
   let res = null;
   for (const candidate of endpoints) {
@@ -2752,6 +2854,9 @@ async function aiModelSuggestions({ userData = null, system = null, query = "" }
 
 module.exports = {
   OLLAMA,
+  ollamaListError,
+  lmStudioCatalog,
+  lmStudioResult,
   chatHeaders,
   providerMessage,
   describeFailure,

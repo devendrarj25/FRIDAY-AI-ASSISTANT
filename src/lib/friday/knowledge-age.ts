@@ -13,12 +13,12 @@ export const PROVIDER_KNOWLEDGE_VIEW: Record<string, KnowledgeView> = {
   groq: {
     source: "https://console.groq.com/docs/models",
     sourceName: "Groq supported models",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-13T00:00:00.000Z",
   },
   gemini: {
     source: "https://ai.google.dev/gemini-api/docs/pricing",
     sourceName: "Gemini API pricing",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-13T00:00:00.000Z",
   },
   openai: {
     source: "https://platform.openai.com/docs/pricing",

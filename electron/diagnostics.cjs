@@ -777,6 +777,30 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
     );
   }
 
+  const routerHealth = ctx.routerHealth;
+  if (routerHealth && typeof routerHealth === "object") {
+    const decisions = Array.isArray(routerHealth.decisions) ? routerHealth.decisions : [];
+    const models = Array.isArray(routerHealth.models) ? routerHealth.models : [];
+    const open = models.filter((row) => row.breaker === "OPEN").length;
+    const detail = decisions.length
+      ? decisions
+          .slice(-5)
+          .map((row) => `${row.modelId}: ${row.outcome || "routed"} ${row.why || ""}`.trim())
+          .join(" · ")
+      : "no routing decision yet";
+    checks.push(
+      check({
+        id: "router",
+        label: "Model router",
+        group: "AI",
+        status: open ? "Warning" : "Ready",
+        detail,
+        cause: open ? `${open} model${open === 1 ? "" : "s"} cooling` : null,
+        fix: open ? "Wait for the cooldown, or pick another free model in Models." : null,
+      }),
+    );
+  }
+
   return { at: Date.now(), durationMs: Date.now() - started, deep, checks };
 }
 

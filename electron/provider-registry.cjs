@@ -234,6 +234,23 @@ function modeReadiness(registry, mode) {
   };
 }
 
+let handlersReady = false;
+
+/** Load the one handler per provider. Safe to call more than once. */
+function ensureHandlers() {
+  const handlers = require("./provider-handler.cjs");
+  if (!handlersReady) {
+    require("./handlers/index.cjs").registerAll();
+    handlersReady = true;
+  }
+  return handlers.listHandlers();
+}
+
+function handlerFor(id) {
+  ensureHandlers();
+  return require("./provider-handler.cjs").getHandler(id);
+}
+
 module.exports = {
   MODES,
   DEFAULT_MODE,
@@ -243,4 +260,7 @@ module.exports = {
   healthForProvider,
   buildRegistry,
   modeReadiness,
+  ensureHandlers,
+  handlerFor,
+  LOCAL_PROVIDER_IDS,
 };

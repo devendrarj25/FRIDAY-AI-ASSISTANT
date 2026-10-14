@@ -50,7 +50,7 @@ describe("official free evidence is usable", () => {
       ["openai", "gpt-4o", "PAID"],
       ["anthropic", "claude-sonnet-4-5", "PAID"],
       ["gemini", "gemini-2.5-flash", "FREE_QUOTA"],
-      ["groq", "openai/gpt-oss-20b", "FREE_QUOTA"],
+      ["groq", "openai/gpt-oss-20b", "PAID"],
       ["groq", "llama-3.3-70b-versatile", "UNKNOWN"],
       ["mistral", "mistral-small-latest", "PAID"],
       ["deepseek", "deepseek-chat", "PAID"],
@@ -116,35 +116,38 @@ describe("router and selector share usableModels", () => {
     const plan = router.planRoute(pool, { mode: "auto", policy: "free-preferred", limit: 20 });
     const ids = idsOf(plan);
     expect(ids).toContain("ollama:llama3.2");
-    expect(ids).toContain("groq:openai/gpt-oss-20b");
     expect(ids).toContain("gemini:gemini-2.5-flash");
+    expect(ids).not.toContain("groq:openai/gpt-oss-20b");
     expect(ids).not.toContain("openai:gpt-4o");
     expect(ids).not.toContain("cerebras:llama3.1-8b");
     expect(ids).not.toContain("nvidia:meta/llama-3.1-8b-instruct");
     const rejected = new Map(
       plan.rejected.map((row: { id: string; reason: string }) => [row.id, row.reason]),
     );
+    expect(rejected.get("groq:openai/gpt-oss-20b")).toBe("cost");
     expect(rejected.get("openai:gpt-4o")).toBe("cost");
     expect(rejected.get("cerebras:llama3.1-8b")).toBe("cost");
     expect(rejected.get("nvidia:meta/llama-3.1-8b-instruct")).toBe("unconnected");
   });
 
   it("covers mode, cost policy, and paid access", () => {
-    const free = cloud("groq", "openai/gpt-oss-20b");
+    const free = cloud("gemini", "gemini-2.5-flash");
+    const priced = cloud("groq", "openai/gpt-oss-20b");
     const paid = cloud("openai", "gpt-4o");
     const unknown = cloud("cerebras", "llama3.1-8b");
     const cases: { mode: string; policy: string; want: string[]; skip: string[] }[] = [
       {
         mode: "auto",
         policy: "free-only",
-        want: ["ollama:llama3.2", "groq:openai/gpt-oss-20b"],
-        skip: ["openai:gpt-4o", "cerebras:llama3.1-8b"],
+        want: ["ollama:llama3.2", "gemini:gemini-2.5-flash"],
+        skip: ["openai:gpt-4o", "groq:openai/gpt-oss-20b", "cerebras:llama3.1-8b"],
       },
       {
         mode: "auto",
         policy: "allow-paid",
         want: [
           "ollama:llama3.2",
+          "gemini:gemini-2.5-flash",
           "groq:openai/gpt-oss-20b",
           "openai:gpt-4o",
           "cerebras:llama3.1-8b",
@@ -155,23 +158,23 @@ describe("router and selector share usableModels", () => {
         mode: "local-only",
         policy: "free-preferred",
         want: ["ollama:llama3.2"],
-        skip: ["groq:openai/gpt-oss-20b", "openai:gpt-4o"],
+        skip: ["groq:openai/gpt-oss-20b", "gemini:gemini-2.5-flash", "openai:gpt-4o"],
       },
       {
         mode: "cloud-only",
         policy: "free-preferred",
-        want: ["groq:openai/gpt-oss-20b"],
-        skip: ["ollama:llama3.2", "openai:gpt-4o"],
+        want: ["gemini:gemini-2.5-flash"],
+        skip: ["ollama:llama3.2", "groq:openai/gpt-oss-20b", "openai:gpt-4o"],
       },
       {
         mode: "auto",
         policy: "paid-only",
-        want: ["openai:gpt-4o"],
-        skip: ["groq:openai/gpt-oss-20b", "ollama:llama3.2", "cerebras:llama3.1-8b"],
+        want: ["openai:gpt-4o", "groq:openai/gpt-oss-20b"],
+        skip: ["gemini:gemini-2.5-flash", "ollama:llama3.2", "cerebras:llama3.1-8b"],
       },
     ];
     for (const row of cases) {
-      const plan = router.planRoute([local, free, paid, unknown], {
+      const plan = router.planRoute([local, free, priced, paid, unknown], {
         mode: row.mode,
         policy: row.policy,
         limit: 20,
@@ -202,11 +205,11 @@ describe("router and selector share usableModels", () => {
         cloud("openrouter", "anthropic/claude", {
           catalogue: { pricing: { prompt: "0.000003", completion: "0.000015" } },
         }),
-        cloud("groq", "openai/gpt-oss-20b"),
+        cloud("gemini", "gemini-2.5-flash"),
       ],
       { mode: "auto", policy: "free-preferred", limit: 5 },
     );
-    expect(idsOf(plan)[0]).toBe("groq:openai/gpt-oss-20b");
+    expect(idsOf(plan)[0]).toBe("gemini:gemini-2.5-flash");
   });
 
   it("shows the same rows the router would use", () => {
@@ -247,7 +250,7 @@ describe("router and selector share usableModels", () => {
   it("keeps a cooled-down free model visible and disabled", () => {
     const now = Date.now();
     const health = new router.ProviderHealthManager();
-    const model = cloud("groq", "openai/gpt-oss-20b");
+    const model = cloud("gemini", "gemini-2.5-flash");
     health.noteFailure(model.id, { status: 429, message: "rate limit" }, now);
     const view = router.usableModels([model], {
       policy: "free-preferred",
@@ -268,14 +271,14 @@ describe("router and selector share usableModels", () => {
 
   it("shows an exhausted free model disabled, not hidden", () => {
     const record = access.applyProbe(
-      access.classifyModel({ providerId: "groq", modelId: "openai/gpt-oss-20b" }),
+      access.classifyModel({ providerId: "gemini", modelId: "gemini-2.5-flash" }),
       { ok: false, status: 429, error: "insufficient_quota", headers: {} },
     );
     expect(record.eligibility).toBe("EXHAUSTED");
     const view = router.usableModels(
       [
         {
-          ...cloud("groq", "openai/gpt-oss-20b"),
+          ...cloud("gemini", "gemini-2.5-flash"),
           accessRecord: record,
         },
       ],
@@ -294,7 +297,13 @@ describe("router and selector share usableModels", () => {
       row.model.id.startsWith("groq:"),
     );
     expect(groq.choiceLabel).toBe("Groq · openai/gpt-oss-20b");
-    expect(groq.badge).toBe("FREE");
+    expect(groq.badge).toBe("PAID");
+    expect(groq.visibility).toBe("hide");
+    const gemini = view.rows.find((row: { model: { id: string } }) =>
+      row.model.id.startsWith("gemini:"),
+    );
+    expect(gemini.badge).toBe("FREE");
+    expect(gemini.visibility).toBe("show");
     const groups = groupModels(
       view.rows
         .filter((row: { visibility: string }) => row.visibility !== "hide")
@@ -339,9 +348,8 @@ describe("router and selector share usableModels", () => {
     );
     expect(groups[0]?.label).toBe("Local");
     expect(groups.map((group) => group.label)).not.toContain("online");
-    expect(groups.map((group) => group.label)).toEqual(
-      expect.arrayContaining(["Groq", "Google Gemini"]),
-    );
+    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["Google Gemini"]));
+    expect(groups.map((group) => group.label)).not.toContain("Groq");
   });
 
   it("shows a cost-unknown model only when paid access is on", () => {
@@ -361,17 +369,17 @@ describe("answered-by uses the router trace", () => {
     expect(auto.line).toBe("Auto → Cerebras · llama3.1-8b");
     expect(auto.badge).toBe("cost unknown");
     const fallback = router.formatAnsweredBy({
-      winner: router.describe(cloud("groq", "openai/gpt-oss-20b")),
+      winner: router.describe(cloud("gemini", "gemini-2.5-flash")),
       failures: [
         {
-          modelId: "gemini:gemini-2.5-flash",
-          display: "Google Gemini · gemini-2.5-flash",
+          modelId: "ollama:llama3.2",
+          display: "Ollama · llama3.2",
           category: "rate_limited",
         },
       ],
     });
     expect(fallback.line).toBe(
-      "Google Gemini · gemini-2.5-flash failed (rate limit) → Groq · openai/gpt-oss-20b answered",
+      "Ollama · llama3.2 failed (rate limit) → Google Gemini · gemini-2.5-flash answered",
     );
     expect(fallback.badge).toBe("FREE");
   });
@@ -479,7 +487,7 @@ describe("test chat stays on the router path", () => {
     const server = http.createServer((req, res) => {
       if (req.method === "GET") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ data: [{ id: "openai/gpt-oss-20b" }] }));
+        res.end(JSON.stringify({ data: [{ id: "gemini-2.5-flash" }] }));
         return;
       }
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -489,7 +497,7 @@ describe("test chat stays on the router path", () => {
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
     const base = `http://127.0.0.1:${port}`;
-    const result = await models.testProviderChat("groq", {
+    const result = await models.testProviderChat("gemini", {
       apiKey: "test-key",
       policy: "free-preferred",
       fetchImpl: async (url: string, init?: { method?: string; body?: string }) => {
@@ -509,8 +517,8 @@ describe("test chat stays on the router path", () => {
     server.close();
     expect(result.ok).toBe(true);
     expect(result.stream).toBe(true);
-    expect(result.modelId).toBe("openai/gpt-oss-20b");
-    expect(result.display).toContain("Groq ·");
+    expect(result.modelId).toBe("gemini-2.5-flash");
+    expect(result.display).toContain("Google Gemini ·");
     expect(JSON.stringify(result)).not.toContain("test-key");
   });
 

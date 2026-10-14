@@ -6,9 +6,9 @@ This briefing is the tree as it is now. Evidence: [AUDIT.md](AUDIT.md). Features
 
 Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, then the one owning doc.
 
-## Verified on this Linux tree (2026-10-13)
+## Verified on this Linux tree (2026-10-14)
 
-Baseline `npm run preflight` exited 0 before these docs were edited. Fourteen gates passed. It was not `--full`, so it did not run the Vitest suite, Electron, or the renderer bundle.
+`npm run preflight` exited 0. It was not `--full`, so the Vitest suite below was run on its own. Windows CMD, install, and publish were not run. Gitleaks 8.30.1 was the same tag the secret-scan job runs.
 
 | Check | Result |
 | --- | --- |
@@ -16,15 +16,15 @@ Baseline `npm run preflight` exited 0 before these docs were edited. Fourteen ga
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.2`. |
 | `npm run verify:version` | Passed. `version 1.1.2.2 - all version sources and governed documents are in sync`. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
-| `npm run lint` | Passed inside preflight. ESLint was silent. Ruff reported `All checks passed!` and `63 files already formatted`. |
-| `npm run typecheck:py` | 4 passed in 5.53s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
-| `npm run test:kernel` | 196 passed, 1 Starlette TestClient warning, 21.34s. |
+| `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
+| `npm run typecheck:py` | 4 passed in 5.40s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
+| `npm run test:kernel` | 198 passed, 1 pre-existing Starlette TestClient warning, 20.21s. |
 | `npm run arrange:check` | 140 folders declared, missing 0, duplicates 0. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
-| `npm run pricing:status` | FRESH. Oldest source perplexity, checked 2026-10-07, expires 2026-10-21 (7 days left on 2026-10-13). |
-| `npm run test:fast` | Exit 0 with `No test files found` because this tree matched `origin/main`. That is not the full suite. |
-| `npm test` | 348 files passed, 2892 passed, 2 skipped, 92.68s. Exit 0. |
-| `npm audit` / `pip-audit` / `npm run models:check` | Not re-run in this session. |
+| `npm run test:fast` | 1 file, 10 passed (the changed test only). |
+| `npm test` | 352 files passed, 2925 passed, 2 skipped, 86.68s. Exit 0. |
+| gitleaks 8.30.1 | 154 commits scanned, no leaks found. |
+| `npm audit` / `pip-audit` / `npm run models:check` / `npm run pricing:status` | Not re-run in this session. |
 
 `npm run validate:local` calls the same preflight script. A failure does not hide later gates.
 
@@ -50,7 +50,7 @@ Stack (from `package.json` / toolchain file): Electron ^43.7.7, electron-builder
 
 ## Architecture (code, not a second copy of ARCHITECTURE.md)
 
-Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py`. `kernel/router.py` is the model router. `core/` is Vitest and contracts only. Navigation in `src/lib/friday/navigation.ts`: 28 sidebar paths, Settings in the footer, `/character` and `/workflow-visual` are not sidebar rows. Layer map: [ARCHITECTURE.md](ARCHITECTURE.md).
+Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py`. Chat and Voice call `electron/model-router.cjs` `routeRequest`. `kernel/router.py` executes the ids that funnel already chose. `core/` is Vitest and contracts only. Navigation in `src/lib/friday/navigation.ts`: 28 sidebar paths, Settings in the footer, `/character` and `/workflow-visual` are not sidebar rows. Layer map: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Product code does not require `.cursor/`. `scripts/cloud-agent-install.sh` and `scripts/cloud-agent-start.sh` stay required. `.cursor/environment.json` is the cloud install and start when that file is present.
 
@@ -111,7 +111,9 @@ These look like bugs. They are not. Do not "fix" them.
 - Voice-screen redraws, the default spoken voice, and microphone reopen changed on this branch. Flicker on a real GPU, voice quality, the Windows microphone, the first speech-model download, and installer smoke are unverified on the owner's PC. The seven checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness.
 - Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.
-- Live keyed provider calls and `npm run models:check --live` were not run. No owner keys are in this environment.
+- Live keyed provider calls, free-proof probes, LM Studio and Ollama on Windows, and rate-limit behaviour are unverified. `npm run models:check --live` was not run. No owner keys are in this environment. The six checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Model routing checks.
+- Local and cloud router phases: Phase 1 is in this tree (one handler per provider, lane decision, cloud allowlist, paid gate, Chat and Voice on `routeRequest`). Phase 2 (launcher download and install, library catalogs, download states), Phase 3 (live connect, refresh, spend log), and Phase 4 (LOCAL AI, CLOUD AI, and ROUTING sections) are not built. Real downloads, launcher installs, and the new screens are unverified.
+- PR Validation run 38529511282 failed the secrets job. The live redaction fixture is a repeated-character stand-in, and `.gitleaksignore` names the one historical finding. Gitleaks 8.30.1 on this tree reports no leaks. A hosted re-run is unverified. The two CodeQL warnings on that run are the workflow `::warning` echoes; those jobs exited 0. The seven notices are GitHub's `ubuntu-latest` migration note for Ubuntu 26. Workflow files were not edited.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
 - `npm audit` on this tree reported 0 vulnerabilities. `pip-audit` and `npm run models:check` were not re-run.
@@ -132,8 +134,8 @@ Owner checks stay in order. A failed step should be reported with the step numbe
    8. Revoke the client, then turn the MCP server off. The other app should fail the next call with a clear error.
 3. Voice and Auto, in this order: Doctor voice self-test, the wake word plus one sentence, a 3-turn conversation, an interruption, a network drop, Refresh free list, Test my free models, one Chat turn and one Auto turn on the same free pool, then unplug and replug the microphone, sleep and resume, then Python, Node, a C compile, Git status, and the local CI report. If a step fails, copy the Voice rows, the Toolchain rows, and the on-screen status. Confirm Install Manager no longer says Manual for faster-whisper when that runtime or an existing Python can be created, and confirm a model download names the failing step. Speaker: a missing file is not a match, a match never executes, and enrol waits until the file is on this PC.
 4. Local CMD pack on that PC, from this branch, in `D:\FRIDAY-AI-ASSISTANT`: `git fetch`, check out the branch, `npm run setup`, then `npm run build:win`. Expect the log to end with every step PASS, no installer-smoke Path error, no `first run failed`, and `echo %ERRORLEVEL%` printing `0`. Then `git status` should be clean. Expect `release\FRIDAY-Setup-1.1.2.2.exe`, `release\FRIDAY-Portable-1.1.2.2.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin` (and the other staged packs beside it, not under a second `resources` folder). That pack is not a GitHub release. If a step fails, keep the log tail and the newest `debug\reports\readiness-*.json`.
-5. With the owner's keys, run `npm run models:check --live`. Offline classification is already covered by tests. A live keyed call is not.
-6. Do not stage-publish `1.1.2.2` again. The next update is a separate owner run. With no stronger change, the patch is `1.1.2.3`. Do not open a second non-release pull request while one into `main` is open. Do not dispatch a workflow. Workflow files stay locked until a second yes or ok.
+5. With the owner's keys, run the six steps under Model routing checks in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md), then `npm run models:check --live`. Offline classification is already covered by tests. A live keyed call, a free-proof probe, LM Studio, Ollama, and a real rate limit are not. A failing step needs the step number, the on-screen text, and the newest `debug\reports` file.
+6. Do not stage-publish `1.1.2.2` again. The next update is a separate owner run. With no stronger change, the patch is `1.1.2.3`. Do not open a second non-release pull request while one into `main` is open. Do not dispatch a workflow. Workflow files stay locked until a second yes or ok. That includes silencing the two CodeQL `::warning` echoes and pinning `ubuntu-24.04` so the Ubuntu 26 runner notice stops.
 7. Finding, not fixed here. `src/routeTree.gen.ts` is generated by Vite (`vite dev`, `vite build`, Vitest) with a trailing `declare module` block, and `npm run build:desktop` removes that block. After a desktop build, restore the committed file. Impact: a one-block diff that is not a product change. Owner area: build and packaging, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 8. Finding, not fixed here. No `Content-Security-Policy` header is set on the packaged page (`electron/` has no such string). Impact: the packaged window relies on the existing sandbox and navigation allow-list. Owner area: Electron security, already noted in [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md).
 9. Finding, not fixed here. `npm run test:fast` is `vitest run --changed`. On a markdown-only diff it printed `No test files found` and exited 0. Impact: the tests that read these docs are not selected until `npm test`. Owner area: the local gate, `scripts/test-fast.cjs`.
@@ -144,3 +146,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 14. Voice smoothness on the owner's PC is unverified. After `npm run setup` and `npm run build:win`, run the seven steps under Voice smoothness in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md). A failure needs the step number, the on-screen text, and the newest `debug\reports` file.
 15. Finding, not fixed here. faster-whisper stays on CPU int8. CUDA float16 and a larger model need extra libraries, and a failed load looks like a dead microphone. Impact: Hindi stays on the small model. Owner area: speech, `kernel/stt.py`.
 16. Owner decision. An offline Hindi voice is not bundled. Supertonic 3 F2 speaks Hindi when it is installed. With the network off and that model missing, Windows needs a female Indian voice or the status says how to add Hindi (India). Owner area: voice.
+17. Finding, not added. Rerank and embeddings are not a new route. `baseRouting()` still leaves rerank empty. Impact: a rerank ask is not dispatched. Owner area: Models.
+18. Finding, not changed. `src/lib/friday/models-engine.ts` `baseInstalled` still marks `qwen2.5-32b`, `llama3.1-8b`, `llama3.2-3b`, and `deepseek-coder-v2` installed before a scan. Refresh clears a missing Ollama tag only. Impact: the Models page can show those rows installed until inventory returns. Owner area: Models.
+19. Owner decision. Groq still publishes a Free plan, but the 2026-10-13 rate-limits table is the Developer plan and does not list free ids. Declare the account free in Models if that key is on the Free plan. No new provider was added. Mistral Experiment, Cohere trial limits, and Hugging Face `:cheapest` were not re-read on 2026-10-13.
+20. Next router phase is Phase 2. Phase 1 routes Chat and Voice through `routeRequest` and registers one handler per provider. Still missing: official launcher download and install, per-runner library catalogs, Hugging Face and GitHub model sources, the download state machine (pause, resume, verify, disk, `.part` cleanup), local multi-model strategies, cloud connect and refresh, budgets that record spend, and the LOCAL AI / CLOUD AI / ROUTING sections inside Models. The eight owner checks for those screens are in the pull request report. They cannot be run until Phase 4. Owner area: Models, `electron/model-download.cjs` and `electron/handlers/`.

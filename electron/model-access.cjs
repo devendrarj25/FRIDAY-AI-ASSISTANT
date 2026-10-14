@@ -81,15 +81,15 @@ const REFRESH_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
  * Sources absent here keep `KNOWLEDGE_CHECKED_AT`.
  */
 const RECHECKED_AT = Object.freeze({
-  groq: Date.parse("2026-10-07T00:00:00Z"),
-  gemini: Date.parse("2026-10-07T00:00:00Z"),
+  groq: Date.parse("2026-10-13T00:00:00Z"),
+  gemini: Date.parse("2026-10-13T00:00:00Z"),
   openai: Date.parse("2026-10-07T00:00:00Z"),
   anthropic: Date.parse("2026-10-07T00:00:00Z"),
   deepseek: Date.parse("2026-10-07T00:00:00Z"),
   perplexity: Date.parse("2026-10-07T00:00:00Z"),
   mistral: Date.parse("2026-10-07T00:00:00Z"),
   nvidia: Date.parse("2026-10-07T00:00:00Z"),
-  zhipu: Date.parse("2026-10-07T00:00:00Z"),
+  zhipu: Date.parse("2026-10-13T00:00:00Z"),
 });
 
 function checkedAtFor(id) {
@@ -141,42 +141,32 @@ const GROQ_MODEL_PRICING = Object.freeze({
 });
 
 /**
- * Groq Free Plan limits. The rate-limits page embeds `freeRows` separately
- * from `devRows`. These exact ids are on the free plan (rate-limited, no
- * paid access required). The same ids also have Developer-plan prices.
- * A declared developer or paid account stays PAID. Ids absent from freeRows,
- * including llama-3.3-70b-versatile, are not free.
- * Source: https://console.groq.com/docs/rate-limits (re-read 2026-10-07).
+ * Groq rate-limits page, re-read 2026-10-13. The only table on that page is
+ * labeled the Developer plan base limits, not a free plan. Those ids have
+ * published Developer prices, so they are PAID until the owner declares the
+ * account free or a limits read proves a free quota. An id that is not in
+ * the price table, including llama-3.3-70b-versatile, stays UNKNOWN.
+ * Source: https://console.groq.com/docs/rate-limits
  */
 const GROQ_FREE_PLAN = Object.freeze({
   source: "https://console.groq.com/docs/rate-limits",
-  sourceName: "Groq free plan limits",
+  sourceName: "Groq rate limits",
   checkedAt: checkedAtFor("groq"),
   ttlMs: DOC_TTL_MS,
-  ids: Object.freeze([
-    "canopylabs/orpheus-arabic-saudi",
-    "canopylabs/orpheus-v1-english",
-    "meta-llama/llama-prompt-guard-2-22m",
-    "meta-llama/llama-prompt-guard-2-86m",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-safeguard-20b",
-    "qwen/qwen3.8-27b",
-    "whisper-large-v3",
-    "whisper-large-v3-turbo",
-  ]),
+  ids: Object.freeze([]),
 });
 
 /**
  * Z.ai pricing page marks three chat models Free on every token column.
- * Source: https://docs.z.ai/guides/overview/pricing (re-read 2026-10-07).
+ * Source: https://docs.z.ai/guides/overview/pricing (re-read 2026-10-13).
+ * glm-4.6v-flash is no longer a Free row on that page.
  */
 const ZHIPU_FREE_IDS = Object.freeze({
   source: "https://docs.z.ai/guides/overview/pricing",
   sourceName: "Z.ai pricing",
   checkedAt: checkedAtFor("zhipu"),
   ttlMs: DOC_TTL_MS,
-  ids: Object.freeze(["glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash"]),
+  ids: Object.freeze(["glm-4.7-flash", "glm-4.5-flash"]),
 });
 
 /**
@@ -204,25 +194,23 @@ const GEMINI_FREE_TIER = Object.freeze({
   checkedAt: checkedAtFor("gemini"),
   ttlMs: DOC_TTL_MS,
   // Prefix match covers dated preview ids. Only families whose Standard input
-  // price was "Free of charge" on the 2026-10-07 page. Image, Omni, Veo, and
-  // Lyria rows were "Not available" and are not listed. 2.0 and 1.5 were not
-  // on that page.
+  // price was "Free of charge" on the 2026-10-13 page. Image, Omni, Veo, and
+  // Lyria rows were "Not available" and are not listed. 3.7, 3.5 Flash (not
+  // Lite), live-translate, and 3.1 Flash TTS were not on that page.
   freeTierPrefixes: Object.freeze([
     "gemini-3.8-flash",
     "gemini-3.8-live",
-    "gemini-3.7-flash",
+    "gemini-3.8-flash-tts",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-live-translate",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-transcribe",
     "gemini-3.1-flash-lite",
     "gemini-3.1-flash-live",
-    "gemini-3.1-flash-tts",
-    "gemini-3-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-embedding-2",
+    "gemini-robotics-er-2-preview",
     "gemini-robotics-er-2-streaming-preview",
   ]),
 });

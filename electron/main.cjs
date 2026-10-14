@@ -1274,8 +1274,22 @@ function emitModelLifecycle(kind, extra = {}) {
   return payload;
 }
 
+function persistRouterHealth() {
+  try {
+    const current = readSettings();
+    writeSettings({ ...current, routerHealth: providerHealth.exportState() });
+  } catch (error) {
+    log(`router health could not be saved: ${error?.message || error}`);
+  }
+}
+
 function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
+  try {
+    providerHealth.importState(readSettings().routerHealth);
+  } catch {
+    /* a missing settings file is a fresh install */
+  }
   modelRefreshTimer = setInterval(() => {
     void refreshRoutable(true, "background").then((result) => {
       void syncKernelModels();
@@ -1387,9 +1401,31 @@ async function resolveChatModels(
   // firewall sees the request; otherwise the kernel would still hold the
   // earlier UNVERIFIED catalogue snapshot and correctly block it.
   await syncKernelModels();
-  const plan = modelRouter.planRoute(models, routeOptions);
-  log(`route plan (${plan.planType}): ${plan.why}`);
-  return modelRouter.selectEligible(models, routeOptions);
+  const settings = readSettings();
+  const allowlist = modelRouter.normaliseAllowlist(settings.modelAllowlist);
+  const billing = billingState();
+  const unlocked = billingPolicy.paidUnlocked(billing);
+  const budget = modelRouter.budgetDecision(settings.modelBudget);
+  const legacyPaid =
+    allowlist == null && unlocked.allowed === true && billing.autoPaidUsage === true;
+  const plan = modelRouter.routeRequest(models, {
+    ...routeOptions,
+    allowlist,
+    paidEnabled: allowlist ? allowlist.paidEnabled === true : legacyPaid,
+    firewallAllowsPaid: unlocked.allowed === true,
+    budgetAllows: budget.allows,
+  });
+  log(
+    `route plan (${plan.planType}) lane ${plan.lane}: ${plan.why}${plan.whyThisModel ? ` — ${plan.whyThisModel}` : ""}`,
+  );
+  if (plan.selected) {
+    providerHealth.noteDecision({
+      modelId: plan.selected,
+      why: `${plan.lane}: ${plan.reason}`,
+      outcome: "planned",
+    });
+  }
+  return plan.models;
 }
 
 /**
@@ -1454,6 +1490,42 @@ function setModelSelection(ids) {
   writeSettings({ ...readSettings(), modelSelection: next });
   send("models:selection", { ids: next });
   return { ids: next };
+}
+
+/** Cloud allowlist. Absent until the owner saves one. Keys are not stored here. */
+function modelAllowlist() {
+  return modelRouter.normaliseAllowlist(readSettings().modelAllowlist);
+}
+
+function setModelAllowlist(value) {
+  const next = modelRouter.normaliseAllowlist(value) || {
+    saved: true,
+    ids: [],
+    paidEnabled: false,
+  };
+  writeSettings({
+    ...readSettings(),
+    modelAllowlist: { ids: next.ids, paidEnabled: next.paidEnabled },
+  });
+  return { ids: next.ids, paidEnabled: next.paidEnabled };
+}
+
+function modelBudget() {
+  return modelRouter.budgetDecision(readSettings().modelBudget);
+}
+
+function setModelBudget(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const current = readSettings().modelBudget;
+  const stored = {
+    perRequestUsd: source.perRequestUsd ?? null,
+    perDayUsd: source.perDayUsd ?? null,
+    perMonthUsd: source.perMonthUsd ?? null,
+    spentDayUsd: Number(current?.spentDayUsd) || 0,
+    spentMonthUsd: Number(current?.spentMonthUsd) || 0,
+  };
+  writeSettings({ ...readSettings(), modelBudget: stored });
+  return modelRouter.budgetDecision(stored);
 }
 
 /**
@@ -2155,6 +2227,13 @@ async function startChat(request) {
       }
       if (result.ok) {
         providerHealth.noteSuccess(model.id, result.latencyMs);
+        providerHealth.noteDecision({
+          modelId: model.id,
+          why: "answered",
+          outcome: "ok",
+          latencyMs: result.latencyMs,
+        });
+        persistRouterHealth();
         const verified = modelAccess.applyProbe(model.accessRecord || model.meta?.accessRecord, {
           ok: true,
           response: result.text || "ok",
@@ -2196,6 +2275,25 @@ async function startChat(request) {
         return;
       }
       const noted = providerHealth.noteFailure(model.id, result.error);
+      providerHealth.noteDecision({
+        modelId: model.id,
+        why: noted.nextStep || noted.category,
+        outcome: noted.category,
+        latencyMs: result.latencyMs,
+      });
+      if (noted.delist) {
+        model.status = "unavailable";
+        if (model.meta) model.meta.loaded = false;
+        routableCache = {
+          ...routableCache,
+          models: (routableCache.models || []).map((row) =>
+            row.id === model.id
+              ? { ...row, status: "unavailable", meta: { ...(row.meta || {}), loaded: false } }
+              : row,
+          ),
+        };
+      }
+      persistRouterHealth();
       const failed = modelAccess.applyProbe(model.accessRecord || model.meta?.accessRecord, {
         ok: false,
         status: Number(noted.status || /http (\d{3})/i.exec(String(result.error || ""))?.[1] || 0),
@@ -2210,6 +2308,7 @@ async function startChat(request) {
         label: model.label,
         display: model.displayName || model.label,
         category: noted.category,
+        nextStep: noted.nextStep,
       });
       log(
         `chat ${requestId}: ${model.id} failed (${noted.category}) — cooldown ${Math.round(
@@ -2412,6 +2511,7 @@ async function runParallelChat(request = {}) {
     });
     if (result.ok) providerHealth.noteSuccess(model.id, result.latencyMs);
     else if (!result.cancelled) providerHealth.noteFailure(model.id, result.error);
+    persistRouterHealth();
     return {
       modelId: model.id,
       label: model.label || model.id,
@@ -4182,12 +4282,16 @@ ipcMain.handle("models:route-mode", () => ({ mode: modelRouteMode() }));
 ipcMain.handle("models:quality-target", () => ({ qualityTarget: modelQualityTarget() }));
 ipcMain.handle("models:route-strategy", () => ({ strategy: modelRouteStrategy() }));
 ipcMain.handle("models:selection", () => ({ ids: modelSelection() }));
+ipcMain.handle("models:allowlist", () => modelAllowlist());
+ipcMain.handle("models:budget", () => modelBudget());
 ipcMain.handle("system:network", (_e, force) => checkNetwork(Boolean(force)));
 
 ipcMain.handle("models:set-route-mode", (_e, mode) => setModelRouteMode(mode));
 ipcMain.handle("models:set-quality-target", (_e, value) => setModelQualityTarget(value));
 ipcMain.handle("models:set-route-strategy", (_e, value) => setModelRouteStrategy(value));
 ipcMain.handle("models:set-selection", (_e, ids) => setModelSelection(ids));
+ipcMain.handle("models:set-allowlist", (_e, value) => setModelAllowlist(value));
+ipcMain.handle("models:set-budget", (_e, value) => setModelBudget(value));
 ipcMain.handle("models:set-policy", (_e, value) => setModelUsagePolicy(value));
 // ------------------------------------------------------------ billing safety
 // Paid AI usage is off by default and can only be unlocked here. Every answer
@@ -4671,6 +4775,7 @@ const diagnosticsContext = () => ({
   appVersion: productVersion(),
   isPackaged: app.isPackaged,
   kernelPort: KERNEL_PORT,
+  routerHealth: providerHealth.debugReport(),
   kernelRunning: Boolean(kernel && !kernel.killed),
   logPath: logFile(),
   packaged: app.isPackaged,
