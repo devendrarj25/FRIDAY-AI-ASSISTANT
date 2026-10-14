@@ -151,6 +151,19 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 | An LLM that chooses the provider | REJECT | The supplied architecture note asked for a master prompt that picks providers. That adds latency, cost, an injection surface, and a non-deterministic route. The router stays ordinary code. |
 | Mistral Experiment, Cohere trial keys, Hugging Face `:cheapest`, NVIDIA, Cerebras, Fireworks, Together, SambaNova, Moonshot, DeepInfra, Nebius | unverified | Those pages were not re-read on 2026-10-13. Their previous rules stay. |
 
+### Completeness matrix (2026-10-14)
+
+Rows are the handlers in `electron/handlers/`. Columns are discover, classify, connect, select, route, stream, tools, vision, embeddings, audio, errors, quota, health, and the Models screen. D is an automated test on this tree. P is implemented, with the missing proof named. N is not a route for that provider.
+
+| Id | discover | classify | connect | select | route | stream | tools | vision | embed | audio | errors | quota | health | ui |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| openai, anthropic, groq, mistral, deepseek, nvidia, fireworks, deepinfra, cerebras, sambanova, moonshot, zhipu, huggingface, together, xai, perplexity, nebius, openrouter | D | D | P live key | D | D | P no live stream | P flag only | P name filter | N | N | D | P header | D breaker | D |
+| gemini | D | D | P live key | D | D | D fake 429 and one SSE | P flag only | P name filter | N | N | D | D Retry-After | D breaker | D |
+| cohere | D | D | P live key | D | D | P no live stream | P flag only | N | N chat list drops embed | N | D | P header | D breaker | D |
+| ollama, lmstudio, llamacpp, vllm, localai, jan, mlx, local | D | N local | P daemon | D | D | P daemon | P flag only | P name filter | N | N | D | N | P daemon down | D |
+
+P live key: `npm run models:check --live` writes `debug/reports/models-check-live.json` with keys removed. It was not run here. Gemini's fake server returned HTTP 429 and one SSE clause through `testProviderChat`. A successful live stream was not run. P flag only: a tool call can ride the existing request body; the SSE parser sees `tool_calls`, and there is no separate tool round-trip per provider. P name filter: vision that is only a name guess is dropped. N embed and N audio: embeddings, rerank, and speech stay off this chat lane. Speech stays on the voice ladder. P daemon: a local engine is routed only when its probe says it is up. A removed id and a connection refusal are classified here. A Windows daemon was not started here. The catalog and the online search show 40 rows, then Show more.
+
 ### Routing lanes (2026-10-14)
 
 Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher offers and the host allowlist are recorded below. The Models screen groups the same tabs under LOCAL AI, CLOUD AI, and ROUTING.
@@ -161,6 +174,7 @@ Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is o
 | Ordered model fallback | ADAPT | [Model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) and [failover](https://openrouter.ai/blog/insights/reliability-failover/), read 2026-10-14. FRIDAY already lists the next model in code. The list is the lane hand-off, and a paid id is not added unless the owner, the firewall, and the budget allow it. |
 | Provider load-balance across hosts | REJECT | [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), read 2026-10-14. That is a second router. FRIDAY keeps one handler per provider and one funnel. |
 | An LLM that chooses the lane | REJECT | Same reason as 2026-10-13. Latency, cost, injection, and a route that changes between two identical turns. |
+| Gemini OpenAI base and Groq list URL | ADOPT | Re-read 2026-10-14. [Gemini OpenAI](https://ai.google.dev/gemini-api/docs/openai) still uses `generativelanguage.googleapis.com/v1beta/openai` and Bearer. Its example id is `gemini-3.8-flash`, which stays unknown until a pricing row proves it free. [Groq models](https://console.groq.com/docs/models) still lists `api.groq.com/openai/v1/models`. [Groq limits](https://console.groq.com/docs/rate-limits) still titles that table as Developer plan. A third-party page that calls the same table a free plan is not proof. |
 
 ### Local launcher offers (2026-10-14)
 

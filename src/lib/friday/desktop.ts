@@ -485,7 +485,8 @@ type DesktopApi = {
   ) => () => void;
   installStt?: () => Promise<{ ok: boolean; error?: string }>;
   transcribe?: (payload: {
-    audioBase64: string;
+    audioBase64?: string;
+    audioBytes?: Uint8Array;
     mime?: string;
     language?: string | undefined;
     model?: string;
@@ -519,6 +520,7 @@ type DesktopApi = {
   voiceprintStatus?: () => Promise<{ ok?: boolean; enrolled?: boolean; reason?: string }>;
   clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
+  onSystemResume?: (cb: () => void) => () => void;
   /** Low-latency wake detection (openWakeWord) — the real engine when present. */
   wakeEngineStatus?: (payload: { wakeWord?: string; force?: boolean }) => Promise<{
     engine: "openwakeword" | "friday-linear" | "transcript";

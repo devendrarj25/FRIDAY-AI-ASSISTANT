@@ -162,10 +162,19 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </button>
         <button
           type="button"
+          onClick={() => assistantMode.resetMicrophone()}
+          className="font-mono text-[10px] uppercase text-accent"
+        >
+          reset microphone
+        </button>
+        <button
+          type="button"
           onClick={() => {
             const probes = formatVoiceProbeReport(checks);
             const live = redactDiagnostics(
-              rows.map((row) => `${row.label}: ${row.value}`).join("\n"),
+              [rows.map((row) => `${row.label}: ${row.value}`).join("\n"), assistantMode.micDebug()]
+                .filter(Boolean)
+                .join("\n"),
             );
             void navigator.clipboard?.writeText(
               [probes.diagnostics, live].filter(Boolean).join("\n"),

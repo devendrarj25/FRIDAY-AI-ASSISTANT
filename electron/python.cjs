@@ -392,6 +392,10 @@ function cacheKey(projectRoot) {
 }
 
 async function resolvePython(projectRoot = null, force = false) {
+  // The packaged boot self-test only has to mount the window. Extracting the
+  // bundled runtime and probing every interpreter is synchronous or several
+  // seconds each, and that work was holding the probe past the smoke limit.
+  if (process.env.FRIDAY_BOOT_SELFTEST) return null;
   const key = cacheKey(projectRoot);
   if (cached && cachedKey === key && !force && fs.existsSync(cached.executable)) return cached;
   cached = null;

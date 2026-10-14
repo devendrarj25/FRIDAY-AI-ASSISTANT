@@ -87,6 +87,28 @@ export function VoiceSettings() {
             onChange={(v) => preferences.setVoice({ voiceName: v })}
           />
           <label className="block sm:col-span-2">
+            <span className="label-xs text-muted-foreground">When FRIDAY answers</span>
+            <select
+              value={prefs.voice.addressMode || "conversation"}
+              onChange={(e) =>
+                preferences.setVoice({
+                  addressMode: e.target.value as "name-only" | "conversation" | "meant-for-me",
+                })
+              }
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="name-only" className="bg-background">
+                Only when I say FRIDAY
+              </option>
+              <option value="conversation" className="bg-background">
+                Conversation (name + follow-ups)
+              </option>
+              <option value="meant-for-me" className="bg-background">
+                Respond to anything meant for me
+              </option>
+            </select>
+          </label>
+          <label className="block sm:col-span-2">
             <span className="label-xs text-muted-foreground">Microphone</span>
             <select
               value={prefs.voice.inputDeviceId}

@@ -54,6 +54,10 @@ describe("AGENTS.md anchors", () => {
     expect(text).toMatch(/hunt for bugs and weak spots and fix them in the\s+same change/);
     expect(text).toMatch(/Never delete, skip, weaken, or\s+fake-pass a test/);
     expect(text).toContain("Never dispatch a workflow");
+    expect(text).toContain("No agent and no AI runs one");
+    expect(text).toContain("If a run is already going, read its logs and fix the code");
+    expect(text).toContain("Do not merge a pull request");
+    expect(text).toContain("Do not pull a pull request");
     expect(text).toContain("Do not add a twelfth");
     expect(text).toContain("### GitHub workflows stay locked");
     expect(text).toContain("second yes or ok");

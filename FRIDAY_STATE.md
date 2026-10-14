@@ -8,30 +8,24 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 ## Verified on this Linux tree (2026-10-14)
 
-`npm run preflight` exited 0. It was not `--full`, so the Vitest suite below was run on its own. Windows CMD, install, and publish were not run. Gitleaks 8.30.1 was the same tag the secret-scan job runs.
+The boot self-test writes `logs/boot-selftest.txt` and exits on its own clock. Session rules now say the owner runs every workflow and lands every pull request. Windows CMD, install, and publish were not run. `npm run preflight`, `typecheck:py`, `test:kernel`, `arrange:check`, `build:desktop`, and gitleaks were not re-run in this pass.
 
 | Check | Result |
 | --- | --- |
-| `npm run preflight` | Exit 0. heal-check, typecheck, docs, version, tests-required, provenance, lint, actionlint, arrange, deps, architecture audit, kernel, pyright, and test:fast all passed. Not `--full`. Architecture REVIEW notes are the same pre-existing names. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.2`. |
 | `npm run verify:version` | Passed. `version 1.1.2.2 - all version sources and governed documents are in sync`. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
-| `npm run typecheck:py` | 4 passed in 5.26s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
-| `npm run test:kernel` | 198 passed, 1 pre-existing Starlette TestClient warning, 20.50s. |
-| `npm run arrange:check` | 140 folders declared, missing 0, duplicates 0. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
-| `npm run test:fast` | 129 files, 1070 passed. |
-| `npm test` | 355 files passed, 2951 passed, 2 skipped, 90.53s. Exit 0. |
-| `npm run build:desktop` | Passed in 4.46s. JavaScript 6518970 bytes, 11781 more than `origin/main`. The Models chunk is 52512 bytes, 11229 more. AppShell is 164 bytes more. CSS is unchanged. The chunk warning is the pre-existing AppShell size. |
-| gitleaks 8.30.1 | 157 commits scanned, no leaks found. |
-| `npm audit` / `pip-audit` / `npm run models:check` / `npm run pricing:status` | Not re-run in this session. |
+| `npm test` | 357 files passed, 2975 passed, 2 skipped, 92.50s. Exit 0. |
+| Electron boot self-test under Xvfb | With `--disable-dev-shm-usage --no-sandbox`: exit 0. Stdout and `logs/boot-selftest.txt` both ended `FRIDAY_BOOT_SELFTEST_OK interface mounted (722 nodes, 1703 chars)`. A stale OK line in that file was replaced. Without those CLI flags: exit 1, marker `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed`, under a second. Not a Windows installer run. |
+| `npm run preflight` / `typecheck:py` / `test:kernel` / `arrange:check` / `build:desktop` / gitleaks / `npm audit` / `pip-audit` / `models:check` | Not re-run in this pass. |
 
 `npm run validate:local` calls the same preflight script. A failure does not hide later gates.
 
 ## UNVERIFIED
 
-The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, uninstall, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. Hosted Actions were not dispatched. The owner checked workflow runs on 2026-10-13 and reported them green. That report is not a new run of this branch.
+The owner's Windows CMD pack (`scripts\build-windows.cmd`), Setup and Portable install, boot, background use, uninstall with data kept and with data removed, reinstall, in-app update and rollback, installer smoke, readiness, a real speech-model download, live microphone, wake word, speech playback, live keyed provider calls, real downloads, and SmartScreen. Linux output is not those checks. This session did not start a workflow. The owner ran PR Validation `38565828515` on `main` (`ba2a62f`) by workflow dispatch. `package-windows` failed: the installed boot self-test stayed up for 240 seconds and printed nothing. That commit is before the boot-file fix on this branch. The same timeout is on runs 38553815649 and 38540692201. Cloud pushes 38562947541, 38565163644, and 38565451017 finished `startup_failure` with zero jobs. Hosted `package-windows` on this branch stays unverified until the owner runs PR Validation here and that job exits 0.
 
 ## Snapshot
 
@@ -80,7 +74,7 @@ Python floors stay in `kernel/requirements.txt` (FastAPI, `faster-whisper`, `edg
 
 ## GitHub automation
 
-Eleven workflow files: eight release and repository workflows plus Health Weekly, Auto Recover, and Security Scan. Catalog and triggers: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). GitHub workflows stay locked. The owner checked the runs on 2026-10-13 and reported them green. An edit waits for a second yes or ok, unless other work cannot finish without the smallest change, and every error that change causes is fixed in that same change. The rule text is in [AGENTS.md](AGENTS.md).
+Eleven workflow files: eight release and repository workflows plus Health Weekly, Auto Recover, and Security Scan. Catalog and triggers: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). GitHub workflows stay locked. The owner checked the runs on 2026-10-13 and reported them green. An edit waits for a second yes or ok, unless other work cannot finish without the smallest change, and every error that change causes is fixed in that same change. The owner runs every workflow. No agent runs one. The rule text is in [AGENTS.md](AGENTS.md) → Actions, pull, and merge.
 
 ## Deliberate design decisions
 
@@ -98,7 +92,7 @@ These look like bugs. They are not. Do not "fix" them.
 - One feature, one implementation (`config/project-structure.json`).
 - Requirements are **floors**, not pins. numpy and chromadb stay optional at FastAPI boot.
 - The look of the app stays outside the Flow Studio canvas. Inside that canvas the drawing uses canvas tokens on the same theme. Which areas are locked is the rule in [AGENTS.md](AGENTS.md). A change that is not re-checked on the owner's PC stays unverified until the owner re-checks.
-- GitHub workflows stay locked. The owner checked the runs on 2026-10-13 and reported them green. Do not add a twelfth. Do not dispatch a workflow from an assistant session. Do not edit those files to tidy them. If the owner asks for a change there, ask once more and edit only after a second yes or ok. If other work cannot finish without a change there, make the smallest change, read the effect on every workflow that shares that behaviour, and fix every error that change causes in the same change. The rule is [AGENTS.md](AGENTS.md) → GitHub workflows stay locked.
+- GitHub workflows stay locked. The owner checked the runs on 2026-10-13 and reported them green. Do not add a twelfth. No agent or AI runs a workflow. The owner runs every workflow. A run that is already going may be watched, and the code fixed from its log. Do not start, rerun, or cancel one. Do not pull a pull request into `main`. The owner merges. Do not edit those files to tidy them. If the owner asks for a change there, ask once more and edit only after a second yes or ok. If other work cannot finish without a change there, make the smallest change, read the effect on every workflow that shares that behaviour, and fix every error that change causes in the same change. The rule is [AGENTS.md](AGENTS.md) → Actions, pull, and merge, and → GitHub workflows stay locked.
 - Windows CMD pack (`scripts\build-windows.cmd` / `npm run build:win`), NSIS Setup and Portable, install, boot, open, uninstall, reinstall, and in-app update/rollback were owner-verified on an earlier tree. After a later change they are unverified until the owner re-checks. Do not wrap `build:win` for Linux. Do not invent a second pack or installer.
 - `electron-builder.yml`: `perMachine: false`, `signExecutable: false`, `nsis.deleteAppDataOnUninstall: false`.
 - TEST uses `dev.friday.desk.test` so it can sit beside Official.
@@ -108,12 +102,12 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
-- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, uninstall, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. The smoke script no longer passes a null `RUNNER_TEMP` to `Join-Path`. That fix has not been run on Windows.
-- Voice-screen redraws, the default spoken voice, and microphone reopen changed on this branch. Flicker on a real GPU, voice quality, the Windows microphone, the first speech-model download, and installer smoke are unverified on the owner's PC. The seven checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness.
+- Owner Windows CMD pack, EXE install, installer smoke, readiness, speech download, boot, background use, uninstall with data kept and with data removed, reinstall, in-app update/rollback, live microphone, wake word, speech, and SmartScreen are unverified on this tree. Silent uninstall keeps the data folder. The installer page "Delete all FRIDAY data too" is the remove path and stays unchecked. PR Validation run 38553815649 failed `package-windows` because the installed boot self-test did not exit within 240 seconds and both stdout and the sandbox `logs\main.log` were empty. Owner run 38565828515 on `main` (`ba2a62f`) failed the same way. That commit is before the boot-file fix on this branch. Cloud pushes 38562947541, 38565163644, and 38565451017 finished `startup_failure` with zero jobs. The self-test reads `--friday-boot-selftest` and `--friday-workspace`, skips Python extraction, replaces `logs/boot-selftest.txt`, and exits on a deadline or a renderer crash. A second copy exits 1. On this Linux machine a stale OK line was replaced, the probe printed `FRIDAY_BOOT_SELFTEST_OK` (722 nodes, exit 0) when the renderer could start, and `FRIDAY_BOOT_SELFTEST_FAIL render process gone: crashed` (exit 1, under a second) when `/dev/shm` could not be used. That is not a Windows installer run. Hosted `package-windows` on this branch stays unverified until the owner runs PR Validation here and that job exits 0.
+- Voice-screen redraws no longer follow captions or a one-second React clock. The drawing clock pauses while the window is hidden. A live Windows microphone, addressing quality, flicker on a real GPU, voice quality, the first speech-model download, and installer smoke are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
 - Hosted docs-only run 38372554640 failed 18 plugin and module tests with EACCES. Rootful Docker wrote the bind-mounted files as root, so the runner could not delete them. Docker wraps now add `--user` with the caller id when that id is not root. A hosted re-run of that job is unverified until PR Validation runs again.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.
 - Live keyed provider calls, free-proof probes, LM Studio and Ollama on Windows, and rate-limit behaviour are unverified. `npm run models:check --live` was not run. No owner keys are in this environment. The six checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Model routing checks.
-- Local and cloud router phases: Phase 1 routes Chat and Voice through `routeRequest`. Phase 2 pins launchers and the transfer machine. Phase 3 logs paid spend and prefers the newest verified-free model. Phase 4 is in this tree: Models groups the existing tabs under LOCAL AI, CLOUD AI, and ROUTING. Real downloads, launcher installs, Authenticode, live keys, the resized window, and voice through the funnel are unverified.
+- Local and cloud router phases: Phase 1 routes Chat and Voice through `routeRequest`. Phase 2 pins launchers and the transfer machine. Phase 3 logs paid spend and prefers the newest verified-free model. Phase 4 groups Models under LOCAL AI, CLOUD AI, and ROUTING. The completeness matrix is in [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md). A cloud base must be https or localhost, and a metadata or link-local address is refused. The catalog and online search show 40 rows, then Show more. A voice failure is spoken as one sentence; the chat text stays complete. Real downloads, launcher installs, Authenticode, live keys, and the resized window are unverified.
 - PR Validation run 38529511282 failed the secrets job. The live redaction fixture is a repeated-character stand-in, and `.gitleaksignore` names the one historical finding. Gitleaks 8.30.1 on this tree reports no leaks. A hosted re-run is unverified. The two CodeQL warnings on that run are the workflow `::warning` echoes; those jobs exited 0. The seven notices are GitHub's `ubuntu-latest` migration note for Ubuntu 26. Workflow files were not edited.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.

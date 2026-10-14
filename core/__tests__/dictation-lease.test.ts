@@ -5,6 +5,7 @@ import {
   DICTATION_LEASE_TTL_MS,
   heartbeatDictation,
   markDictationLive,
+  reclaimUnowned,
   releaseDictation,
   resetDictationLease,
   type DictationHolder,
@@ -75,6 +76,42 @@ describe("dictation lease", () => {
     if (!taken.ok) return;
     expect(taken.reclaimed).toBe(true);
     expect(dead.stopped).toBe(true);
+    releaseDictation(taken.token);
+  });
+
+  it("reclaims a heartbeating holder whose capture is dead", () => {
+    resetDictationLease();
+    const dead = holder(true);
+    dead.healthy = false;
+    const opened = claimDictation(dead, 30_000);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    markDictationLive(opened.token, 30_000);
+    expect(heartbeatDictation(opened.token, 31_000)).toBe(true);
+    const next = holder(false);
+    const taken = claimDictation(next, 32_000);
+    expect(taken.ok).toBe(true);
+    if (!taken.ok) return;
+    expect(taken.reclaimed).toBe(true);
+    expect(dead.stopped).toBe(true);
+    releaseDictation(taken.token);
+  });
+
+  it("drops a lease the Auto session no longer owns", () => {
+    resetDictationLease();
+    const orphan = holder(true);
+    const opened = claimDictation(orphan, 40_000);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    markDictationLive(opened.token, 40_000);
+    heartbeatDictation(opened.token, 41_000);
+    expect(reclaimUnowned(null)).toBe(true);
+    expect(orphan.stopped).toBe(true);
+    const next = holder(false);
+    const taken = claimDictation(next, 42_000);
+    expect(taken.ok).toBe(true);
+    if (!taken.ok) return;
+    expect(taken.reclaimed).toBe(false);
     releaseDictation(taken.token);
   });
 });

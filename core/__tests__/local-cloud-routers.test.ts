@@ -324,5 +324,16 @@ describe("single funnel", () => {
     expect(chat).toContain('routingSurface: "chat"');
     expect(brain).toContain("routingSurface:");
     expect(brain).not.toContain("/chat/completions");
+    const spawned: string[] = [];
+    for (const file of [...walk(path.join(ROOT, "src")), ...walk(path.join(ROOT, "electron"))]) {
+      const text = readFileSync(file, "utf8");
+      if (
+        /spawn\([\s\S]{0,120}router\.py/.test(text) ||
+        /execFile\([\s\S]{0,120}router\.py/.test(text)
+      ) {
+        spawned.push(path.relative(ROOT, file));
+      }
+    }
+    expect(spawned).toEqual([]);
   });
 });

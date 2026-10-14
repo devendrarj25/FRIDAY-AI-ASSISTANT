@@ -280,8 +280,12 @@ export const FLOW_REGISTRY = {
     "toggles.updateCheck",
     "toggles.workspaceWrites",
     "voice.activeId",
+    "voice.addressMode",
     "voice.addressName",
+    "voice.addressWindowSec",
+    "voice.allowAmbientCloud",
     "voice.duckOthers",
+    "voice.heardKeepMin",
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.models",
@@ -8448,8 +8452,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 104,
-      total: 104,
+      mapped: 108,
+      total: 108,
     },
     capabilities: {
       mapped: 1014,

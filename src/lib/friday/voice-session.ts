@@ -449,6 +449,26 @@ export function takeSpeakable(
   return { spoken: pending.slice(0, end).trim(), consumed };
 }
 
+/**
+ * Voice hears one sentence. Chat keeps the full error.
+ * A bracketed failure is the sentence. A missing model names the next step.
+ */
+export function spokenRouteError(text: string): string {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const bracket = /\[([^\]\n]+)\]\s*$/.exec(raw);
+  const inner = bracket?.[1];
+  const source = inner ? inner.trim() : raw;
+  const flat = source.replace(/\s+/g, " ").trim();
+  if (/connect a model|start a local/i.test(flat)) {
+    return "No model is reachable. Connect one in Models, or start a local engine.";
+  }
+  if (flat.length <= 180) return flat;
+  const sentence = flat.split(/(?<=[.!?])\s/)[0] || flat;
+  if (sentence.length <= 180) return sentence;
+  return `${sentence.slice(0, 177).trim()}…`;
+}
+
 /** How many capture reopens follow a lost device. Matches the gate backoff. */
 export const CAPTURE_RETRY_CAP = 6;
 

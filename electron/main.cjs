@@ -3,6 +3,44 @@
 // providers, spawns the local Python kernel, then loads the React UI and keeps
 // watching the workspace for changes.
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
+
+// Installer smoke passes these on the command line as well as the environment.
+// A GUI process started with redirected standard handles does not always see
+// the parent's environment. The arguments still arrive. Apply them before any
+// other startup work so the software compositor is selected before Chromium
+// creates a renderer.
+for (const arg of process.argv) {
+  if (arg === "--friday-boot-selftest" || arg === "friday-boot-selftest") {
+    process.env.FRIDAY_BOOT_SELFTEST = "1";
+  }
+  const workspaceArg = arg.startsWith("--friday-workspace=")
+    ? arg.slice("--friday-workspace=".length)
+    : arg.startsWith("friday-workspace=")
+      ? arg.slice("friday-workspace=".length)
+      : "";
+  if (workspaceArg) {
+    process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg.replace(/^["']|["']$/g, "");
+  }
+}
+
+// Boot self-test (scripts/verify-boot.cjs, scripts/windows-installer-smoke.ps1)
+// runs FRIDAY on machines that have no real GPU and no interactive desktop
+// session (CI runners, Windows Server images, RDP-detached sessions). Chromium's
+// GPU/ANGLE stack faults with an access violation (0xC0000005 / exit -1073741819)
+// there long before the window exists, which looks like an application crash but
+// is a driver-surface problem. The self-test therefore renders through the
+// software compositor: the SAME application, the SAME renderer bundle, only
+// without a GPU device that does not exist. Normal launches keep full hardware
+// acceleration.
+if (process.env.FRIDAY_BOOT_SELFTEST) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("no-sandbox");
+  // Headless Linux gives the renderer a broken /dev/shm. Windows ignores this.
+  app.commandLine.appendSwitch("disable-dev-shm-usage");
+}
+
 const { spawn, execFile } = require("child_process");
 const net = require("node:net");
 
@@ -27,6 +65,46 @@ const { Worker } = require("worker_threads");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+
+// Windows launches FRIDAY as a GUI subsystem process. Redirected stdout from
+// that process is often empty (the bytes go to a console, not the pipe), so
+// installer smoke also reads logs/boot-selftest.txt. The line is replaced, not
+// appended, and it is written before the single-instance lock so a second copy
+// cannot reuse an older OK.
+function emitBootSelfTestLine(line) {
+  const text = String(line || "").replace(/\r?\n/g, " ");
+  const payload = `${text}\n`;
+  try {
+    process.stdout.write(payload);
+  } catch {
+    /* closed pipe */
+  }
+  try {
+    fs.writeSync(1, payload);
+  } catch {
+    /* a GUI subsystem has no stdout handle */
+  }
+  const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
+  if (!root) return;
+  let dirOk = false;
+  try {
+    dirOk = fs.statSync(root).isDirectory();
+  } catch {
+    dirOk = false;
+  }
+  if (!dirOk) return;
+  const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, payload);
+  } catch {
+    /* stdout remains the other signal */
+  }
+}
+
+if (process.env.FRIDAY_BOOT_SELFTEST) {
+  emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
+}
 
 const {
   verifyWorkspace,
@@ -60,6 +138,14 @@ try {
   paths.setFallbackRoot(app.getPath("userData"));
 } catch {
   /* userData is unavailable in some test harnesses; the tmp fallback stands */
+}
+if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
+  const raw = String(process.env.FRIDAY_WORKSPACE_ROOT).replace(/^["']|["']$/g, "");
+  try {
+    if (fs.statSync(raw).isDirectory()) paths.setRoot(path.resolve(raw));
+  } catch {
+    /* resolveWorkspaceRoot asks when the folder is missing */
+  }
 }
 const { WorkspaceWatcher } = require("./watcher.cjs");
 const { checkAllUpdates } = require("./updater.cjs");
@@ -184,8 +270,19 @@ ipcMain.handle = (channel, handler) =>
 
 // One FRIDAY per machine: a second launch focuses the running window instead of
 // spawning a duplicate kernel against the same workspace.
+let fridayInstanceLockHeld = true;
 const singleInstance = app.requestSingleInstanceLock();
-if (!singleInstance) app.quit();
+if (!singleInstance) {
+  fridayInstanceLockHeld = false;
+  if (process.env.FRIDAY_BOOT_SELFTEST) {
+    // app.quit() exits 0 and would look like a mounted boot. The smoke test
+    // needs a failed exit and a line it can read after stdout is dropped.
+    emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_FAIL another FRIDAY already holds this PC");
+    app.exit(1);
+  } else {
+    app.quit();
+  }
+}
 
 // Native spellchecking can block Chromium's UI thread while Windows language
 // services initialise. Keep only the browser spellchecker disabled. Do not
@@ -196,22 +293,6 @@ app.commandLine.appendSwitch(
   "disable-features",
   "CalculateNativeWinOcclusion,WinUseBrowserSpellChecker,HardwareMediaKeyHandling",
 );
-
-// Boot self-test (scripts/verify-boot.cjs, scripts/windows-installer-smoke.ps1)
-// runs FRIDAY on machines that have no real GPU and no interactive desktop
-// session (CI runners, Windows Server images, RDP-detached sessions). Chromium's
-// GPU/ANGLE stack faults with an access violation (0xC0000005 / exit -1073741819)
-// there long before the window exists, which looks like an application crash but
-// is a driver-surface problem. The self-test therefore renders through the
-// software compositor: the SAME application, the SAME renderer bundle, only
-// without a GPU device that does not exist. Normal launches keep full hardware
-// acceleration.
-if (process.env.FRIDAY_BOOT_SELFTEST) {
-  app.disableHardwareAcceleration();
-  app.commandLine.appendSwitch("disable-gpu");
-  app.commandLine.appendSwitch("disable-gpu-compositing");
-  app.commandLine.appendSwitch("no-sandbox");
-}
 
 // Windows groups the taskbar icon and the installed shortcut by this id — with
 // the default id the app is filed under "Electron" instead of FRIDAY.
@@ -262,7 +343,11 @@ process.on("uncaughtException", (err) => {
   }
   log(`uncaught exception: ${err?.stack || err}`, "error");
   if (win && !win.isDestroyed()) showLoadFailure(String(err?.stack || err));
-  else if (app.isReady()) dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
+  else if (app.isReady()) {
+    if (process.env.FRIDAY_BOOT_SELFTEST) {
+      finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${text.split("\n")[0]}`);
+    } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
+  }
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -290,6 +375,7 @@ const REGISTRY_KEY = "HKCU\\Software\\FRIDAY";
 
 let kernel = null;
 let win = null;
+let powerResumeBound = false;
 let watcher = null;
 let stayHiddenOnLaunch = false;
 let forceVisible = false;
@@ -464,16 +550,26 @@ function writeSettings(next) {
 function readRegistryWorkspace() {
   if (process.platform !== "win32") return null;
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    // `reg` has hung a boot on CI. The built-in timeout ends the query; the
+    // outer timer still resolves if the callback itself never arrives.
+    const timer = setTimeout(() => finish(null), 8000);
     execFile(
       "reg",
       ["query", REGISTRY_KEY, "/v", "WorkspacePath"],
       // windowsHide keeps the console window of `reg` off the screen; without
       // it every launch flashes a black window over FRIDAY.
-      { windowsHide: true },
+      { windowsHide: true, timeout: 8000 },
       (err, stdout) => {
-        if (err) return resolve(null);
+        clearTimeout(timer);
+        if (err) return finish(null);
         const match = /WorkspacePath\s+REG_SZ\s+(.+)/i.exec(stdout);
-        resolve(match ? match[1].trim() : null);
+        finish(match ? match[1].trim() : null);
       },
     );
   });
@@ -2689,6 +2785,111 @@ function pushWindowState() {
   });
 }
 
+let bootSelfTestFinished = false;
+let bootSelfTestScheduled = false;
+let bootSelfTestWatchdogArmed = false;
+
+function finishBootSelfTest(code, line) {
+  if (bootSelfTestFinished) return;
+  bootSelfTestFinished = true;
+  const text = String(line || "");
+  emitBootSelfTestLine(text);
+  try {
+    log(text);
+  } catch {
+    /* the stdout line and boot-selftest.txt are the smoke signals */
+  }
+  // Closing the last window would otherwise app.quit() with code 0 and hide a
+  // failed probe. The explicit exit below is the smoke result.
+  app.__fridayQuitting = true;
+  // `app.exit()` tears the process down while the renderer is still live; on
+  // Windows that teardown can fault and hide a successful boot. Close the
+  // windows first, let stdout flush, then exit.
+  try {
+    for (const open of BrowserWindow.getAllWindows()) {
+      if (!open.isDestroyed()) open.destroy();
+    }
+  } catch {
+    /* teardown must never change the self-test result */
+  }
+  setTimeout(() => app.exit(code), 400);
+}
+
+function armBootSelfTestWatchdog() {
+  if (!process.env.FRIDAY_BOOT_SELFTEST || bootSelfTestWatchdogArmed) return;
+  bootSelfTestWatchdogArmed = true;
+  emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
+  setTimeout(() => {
+    finishBootSelfTest(1, "FRIDAY_BOOT_SELFTEST_FAIL interface did not mount before the deadline");
+  }, 70000);
+}
+
+const BOOT_SELFTEST_PROBE = `(() => {
+  const root = document.querySelector('#root');
+  if (!root || !root.childElementCount) return { mounted: false, reason: 'app root is empty' };
+  const text = (document.body.innerText || '').trim();
+  const painted = root.querySelectorAll('*').length;
+  if (painted < 5 || text.length < 3)
+    return { mounted: false, reason: 'interface rendered no content' };
+  return { mounted: true, painted, chars: text.length };
+})()`;
+
+function scheduleBootSelfTest(target) {
+  if (!process.env.FRIDAY_BOOT_SELFTEST || bootSelfTestScheduled) return;
+  bootSelfTestScheduled = true;
+  const deadline = Date.now() + 55000;
+  const tick = () => {
+    if (bootSelfTestFinished) return;
+    if (Date.now() >= deadline) {
+      finishBootSelfTest(
+        1,
+        "FRIDAY_BOOT_SELFTEST_FAIL interface did not mount before the deadline",
+      );
+      return;
+    }
+    const open = target && !target.isDestroyed() ? target : null;
+    if (!open || open.webContents.isDestroyed()) {
+      setTimeout(tick, 400);
+      return;
+    }
+    let settled = false;
+    const slow = setTimeout(() => {
+      if (settled || bootSelfTestFinished) return;
+      settled = true;
+      setTimeout(tick, 400);
+    }, 2500);
+    open.webContents
+      .executeJavaScript(BOOT_SELFTEST_PROBE)
+      .then((result) => {
+        if (settled || bootSelfTestFinished) return;
+        settled = true;
+        clearTimeout(slow);
+        if (result && result.mounted) {
+          finishBootSelfTest(
+            0,
+            `FRIDAY_BOOT_SELFTEST_OK interface mounted (${result.painted} nodes, ${result.chars} chars)`,
+          );
+          return;
+        }
+        setTimeout(tick, 400);
+      })
+      .catch((err) => {
+        if (settled || bootSelfTestFinished) return;
+        settled = true;
+        clearTimeout(slow);
+        if (Date.now() >= deadline) {
+          finishBootSelfTest(
+            1,
+            `FRIDAY_BOOT_SELFTEST_FAIL ${(err && err.message) || "interface did not mount"}`,
+          );
+          return;
+        }
+        setTimeout(tick, 400);
+      });
+  };
+  tick();
+}
+
 function createWindow() {
   const state = readWindowState();
 
@@ -2837,11 +3038,24 @@ function createWindow() {
   win.webContents.on("did-fail-load", (_e, code, description, url, isMainFrame) => {
     if (!isMainFrame) return;
     log(`renderer failed to load [${code}] ${description} ${url}`);
+    if (process.env.FRIDAY_BOOT_SELFTEST) {
+      finishBootSelfTest(
+        1,
+        `FRIDAY_BOOT_SELFTEST_FAIL renderer failed to load [${code}] ${description}`,
+      );
+      return;
+    }
     showLoadFailure(`${description} (${code})\n${url}`);
   });
 
   win.webContents.on("render-process-gone", (_e, details) => {
     log(`render process gone: ${details.reason}`);
+    if (process.env.FRIDAY_BOOT_SELFTEST) {
+      // Reloading here starts another renderer that crashes the same way, and
+      // the process never reaches app.exit. The smoke test then waits 240s.
+      finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL render process gone: ${details.reason}`);
+      return;
+    }
     showLoadFailure(`The FRIDAY interface stopped unexpectedly (${details.reason}).`);
   });
 
@@ -2901,57 +3115,9 @@ function createWindow() {
     // Shared boot self-test (scripts/verify-boot.cjs). Only active when the
     // verifier asks for it; normal launches are completely unaffected.
     // It waits for the REAL FRIDAY interface to mount (app root with rendered
-    // content), not merely for the document to finish loading.
-    if (process.env.FRIDAY_BOOT_SELFTEST) {
-      const probe = `(() => {
-        const root = document.querySelector('#root');
-        if (!root || !root.childElementCount) return { mounted: false, reason: 'app root is empty' };
-        const text = (document.body.innerText || '').trim();
-        const painted = root.querySelectorAll('*').length;
-        if (painted < 5 || text.length < 3)
-          return { mounted: false, reason: 'interface rendered no content' };
-        return { mounted: true, painted, chars: text.length };
-      })()`;
-      const deadline = Date.now() + 45000;
-      // `app.exit()` tears the process down while the renderer, the character
-      // overlay and the kernel child process are still live; on Windows that
-      // teardown itself can fault (exit code -1073741819) and hide a perfectly
-      // successful boot. Close the windows first, let stdout flush, then exit.
-      const finish = (code) => {
-        try {
-          for (const w of BrowserWindow.getAllWindows()) {
-            if (!w.isDestroyed()) w.destroy();
-          }
-        } catch {
-          /* teardown must never change the self-test result */
-        }
-        setTimeout(() => app.exit(code), 400);
-      };
-      const check = () => {
-        if (!win || win.isDestroyed()) return;
-        win.webContents
-          .executeJavaScript(probe)
-          .then((result) => {
-            if (result && result.mounted) {
-              console.log(
-                `FRIDAY_BOOT_SELFTEST_OK interface mounted (${result.painted} nodes, ${result.chars} chars)`,
-              );
-              return finish(0);
-            }
-            if (Date.now() < deadline) return setTimeout(check, 500);
-            console.log(
-              `FRIDAY_BOOT_SELFTEST_FAIL ${(result && result.reason) || "interface did not mount"}`,
-            );
-            finish(1);
-          })
-          .catch((err) => {
-            if (Date.now() < deadline) return setTimeout(check, 500);
-            console.log(`FRIDAY_BOOT_SELFTEST_FAIL ${err && err.message}`);
-            finish(1);
-          });
-      };
-      check();
-    }
+    // content), not merely for the document to finish loading. The deadline
+    // lives outside executeJavaScript, so a wedged renderer still exits.
+    if (process.env.FRIDAY_BOOT_SELFTEST) scheduleBootSelfTest(win);
 
     // Full post-install readiness run (scripts/readiness-test.cjs). Exercises
     // the real kernel, database, chat, voice, model and task paths inside this
@@ -7083,6 +7249,8 @@ ipcMain.handle("env:readiness", () =>
 app
   .whenReady()
   .then(async () => {
+    if (!fridayInstanceLockHeld) return;
+    if (process.env.FRIDAY_BOOT_SELFTEST) armBootSelfTestWatchdog();
     log(`FRIDAY ${productVersion()} starting · packaged=${app.isPackaged}`);
     // Voice needs the microphone. Electron denies every permission request by
     // default when no handler is installed, which is what made the renderer's
@@ -7101,6 +7269,15 @@ app
       });
       session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
       log("session permissions: microphone/camera allowed, everything else denied");
+      const { powerMonitor } = require("electron");
+      if (powerMonitor && !powerResumeBound) {
+        powerResumeBound = true;
+        powerMonitor.on("resume", () => {
+          for (const open of BrowserWindow.getAllWindows()) {
+            if (!open.isDestroyed()) open.webContents.send("system:resume");
+          }
+        });
+      }
     } catch (err) {
       log(`permission handler install failed: ${String(err?.message || err)}`);
     }
@@ -7153,7 +7330,18 @@ app
       createWindow();
     } catch (err) {
       log(`window creation failed: ${err?.stack || err}`);
-      dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
+      if (process.env.FRIDAY_BOOT_SELFTEST) {
+        finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${err?.message || err}`);
+      } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
+      return;
+    }
+
+    // The smoke test only needs a mounted window. Python extraction and the
+    // kernel spawn used to run first and block this process until the 240s
+    // kill. A normal launch still starts the kernel below.
+    if (process.env.FRIDAY_BOOT_SELFTEST) {
+      scheduleBootSelfTest(win);
+      boot("Starting services", "ok", "boot self-test checks the window only");
       return;
     }
 

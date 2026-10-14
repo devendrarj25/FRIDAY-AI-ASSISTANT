@@ -463,9 +463,10 @@ function classifyError(input) {
     return { category: "stream_failure", retryable: true, cooldownMs: 30_000 };
   }
   if (has("econnrefused", "enotfound", "network", "connect", "offline", "socket")) {
-    return { category: "offline", retryable: true, cooldownMs: 60_000 };
+    return withStep({ category: "offline", retryable: true, cooldownMs: 60_000 });
   }
-  if (status >= 500) return { category: "provider_error", retryable: true, cooldownMs: 30_000 };
+  if (status >= 500)
+    return withStep({ category: "provider_error", retryable: true, cooldownMs: 30_000 });
   // A deterministic 400/422 is the request, not an outage. Do not retry it
   // and do not cool the provider down (cooldown 0 keeps coolingDown false).
   if (

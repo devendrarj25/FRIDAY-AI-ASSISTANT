@@ -25,6 +25,9 @@ import { brain } from "./brain-engine";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { composer } from "./composer";
 import { armChartOffer, voiceAutoGraph } from "./flow-modes";
+import { decideAddressing, normalizeAddressMode, type AddressDecision } from "./addressing";
+import { ambientContextForRoute, clearHeard, heardSummary, noteHeard } from "./heard-log";
+import { allowRestart } from "./pcm-capture";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
@@ -58,6 +61,7 @@ import {
   prosodyAffect,
   speakingProsody,
   spokenReplyAllowed,
+  spokenRouteError,
   takeSpeakable,
   voiceClaimsAuthority,
   wakeOnCooldown,
@@ -92,7 +96,7 @@ import {
 } from "./voice-audio";
 import { rememberDevice } from "./mic-truth";
 import { readFeeling } from "./brain/affect";
-import { DesktopDictation, sttInitialPrompt, sttStatus } from "./voice-stt";
+import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
 import { isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
 import { alertsAudible } from "./settings-runtime";
 import {
@@ -150,6 +154,9 @@ export type Caption = {
   at: number;
   /** Still being recognised / still being spoken. */
   partial?: boolean;
+  tag?: "addressed" | "ambient" | "self";
+  confidence?: number;
+  language?: string;
 };
 
 export type PendingConfirm = {
@@ -177,6 +184,7 @@ export type VoiceTrace = {
   at: number;
   stage: "speech" | "segment" | "dropped" | "transcribing" | "transcript" | "wake" | "error";
   detail: string;
+  repeat?: number;
 };
 
 export type AssistantModeState = {
@@ -289,6 +297,7 @@ type VoiceDesktop = {
   }) => void;
   onVoicePause?: (cb: (payload: { paused: boolean }) => void) => () => void;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
+  onSystemResume?: (cb: () => void) => () => void;
   /** Real faster-whisper / edge-tts probes run by the main process. */
   verifyVoiceRuntime?: (payload?: { loadModel?: boolean }) => Promise<{
     ok: boolean;
@@ -346,6 +355,8 @@ class AssistantModeStore {
   /** How much of the live answer has already been handed to speech. */
   private voicedRunId = "";
   private voicedChars = 0;
+  /** A failed turn speaks its short line once. The partial answer is not restarted. */
+  private voicedFaultFor = "";
   /** User lines already shown before the brain echoes them into captions. */
   private pendingUserEcho = 0;
   /** Last finalized transcript, so the same utterance is not run twice. */
@@ -358,6 +369,9 @@ class AssistantModeStore {
   private spokenUpTo = 0;
   private unBrain: (() => void) | null = null;
   private awakeUntil = 0;
+  private followUpUntil = 0;
+  private readonly micRestarts: number[] = [];
+  private shownMicFault = "";
   private awakeTimer: number | null = null;
   /** Last accepted wake, so a second copy of the name inside the cooldown is ignored. */
   private lastWakeAt = 0;
@@ -542,6 +556,17 @@ class AssistantModeStore {
       }
       if (!this.dictation?.active) this.noteVoiceTrigger("focus");
     });
+    desktop()?.onSystemResume?.(() => {
+      if (this.state.mode !== "auto" || this.state.paused) return;
+      this.trace("segment", "sleep-resume — reopening the microphone");
+      void this.reopenInput("resume");
+    });
+    desktop()?.onVoicePartial?.((payload) => {
+      const text = String(payload?.text || "").trim();
+      if (!text || this.state.mode !== "auto") return;
+      this.state.interim = text;
+      this.emit();
+    });
     desktop()?.onSttProgress?.((payload) => {
       if (this.state.mode !== "auto") return;
       const text = String(payload?.status || "").slice(0, 80);
@@ -670,12 +695,51 @@ class AssistantModeStore {
     this.caption("user", text);
   }
 
-  private caption(who: Caption["who"], text: string, partial = false) {
+  private caption(
+    who: Caption["who"],
+    text: string,
+    partial = false,
+    meta?: { tag?: Caption["tag"]; confidence?: number; language?: string },
+  ) {
     const list = this.state.captions.slice();
     const last = list[list.length - 1];
     if (last && last.partial && last.who === who) list.pop();
-    list.push({ id: captionId(), who, text, at: Date.now(), partial });
+    list.push({
+      id: captionId(),
+      who,
+      text,
+      at: Date.now(),
+      partial,
+      ...(meta?.tag ? { tag: meta.tag } : {}),
+      ...(typeof meta?.confidence === "number" ? { confidence: meta.confidence } : {}),
+      ...(meta?.language ? { language: meta.language } : {}),
+    });
     this.state.captions = list.slice(-MAX_CAPTIONS);
+  }
+
+  clearHeardLog() {
+    clearHeard();
+    this.emit();
+  }
+
+  /** Counts for the debug report. No audio and no transcript text. */
+  micDebug(): string {
+    const report = this.dictation?.captureReport();
+    const summary = heardSummary();
+    const echo = voiceGate.echoCancellation();
+    return [
+      "pipeline listening",
+      "owner auto-mode",
+      `restarts ${this.micRestarts.length}`,
+      `device ${this.state.mic.deviceLabel || "default"}`,
+      `rate ${this.state.mic.sampleRate ?? "unknown"}`,
+      `echo ${echo === null ? "requested" : echo ? "on" : "off"}`,
+      `fps ${report?.fps ?? 0}`,
+      `queue ${report?.queue ?? 0}`,
+      `dropped ${report?.dropped ?? 0}`,
+      `heard ${summary.count} addressed ${summary.addressed} ambient ${summary.ambient} self ${summary.self}`,
+      `histogram ${JSON.stringify(report?.histogram ?? {})}`,
+    ].join("\n");
   }
 
   clearCaptions() {
@@ -983,6 +1047,8 @@ class AssistantModeStore {
     voiceGate.duck(false);
     voiceGate.release("auto-mode");
     voiceGate.stop();
+    clearHeard();
+    this.followUpUntil = 0;
     if (this.awakeTimer) window.clearTimeout(this.awakeTimer);
     this.awakeTimer = null;
     this.awakeUntil = 0;
@@ -1131,6 +1197,7 @@ class AssistantModeStore {
   private startDesktopDictation() {
     if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
     if (this.dictation?.active) return;
+    reclaimUnowned(this.dictation);
     const dictation = new DesktopDictation({
       language: preferences.getSnapshot().voice.recognitionLang || "hi-IN",
       deviceId: preferences.getSnapshot().voice.inputDeviceId || null,
@@ -1240,14 +1307,24 @@ class AssistantModeStore {
         }
         this.emit();
       },
+      onFault: (fault) => {
+        this.noteMicFault(fault.message);
+      },
       onError: (message) => {
+        const current = this.dictation;
         this.state.error = `voice: ${message}`;
         this.state.stt = { ...this.state.stt, lastError: message };
         this.to("error");
         this.state.status = "Voice error";
         this.trace("error", message);
         this.emit();
-        this.dictation = null;
+        if (current?.active) return;
+        try {
+          current?.stop();
+        } catch {
+          /* already stopped */
+        }
+        if (this.dictation === current) this.dictation = null;
         this.scheduleSttRecovery(`voice: ${message}`);
       },
     });
@@ -1365,6 +1442,16 @@ class AssistantModeStore {
 
   /** Record one pipeline step. Never throws, never blocks the audio path. */
   private trace(stage: VoiceTrace["stage"], detail: string) {
+    const previous = this.state.voiceLog[this.state.voiceLog.length - 1];
+    if (previous && previous.stage === stage && previous.detail === detail) {
+      const repeat = (previous.repeat ?? 1) + 1;
+      this.state.voiceLog = [
+        ...this.state.voiceLog.slice(0, -1),
+        { ...previous, at: Date.now(), repeat },
+      ];
+      this.emit();
+      return;
+    }
     this.state.voiceLog = [
       ...this.state.voiceLog.slice(-(MAX_VOICE_LOG - 1)),
       { at: Date.now(), stage, detail },
@@ -1485,20 +1572,38 @@ class AssistantModeStore {
     if (foreignAssistant(text) && !matched) {
       this.trace("dropped", "addressed to another assistant");
       this.remember("not-addressed", text, "ignored");
+      this.noteAddress(text, {
+        tag: "ambient",
+        answer: false,
+        reason: "other-assistant",
+        confidence: 0.8,
+        tools: false,
+        closeFollowUp: false,
+      });
+      this.emit();
+      return;
+    }
+    const decision = decideAddressing({
+      text,
+      mode: normalizeAddressMode(preferences.getSnapshot().voice.addressMode),
+      wakeWord: wakeWord(),
+      followUpOpen: Date.now() < this.followUpUntil,
+      lastSpoken: this.spokenText,
+      recentlySpeaking: this.recentlySpeaking(),
+    });
+    this.noteAddress(text, decision);
+    if (decision.closeFollowUp) this.followUpUntil = 0;
+    if (decision.tag === "self") {
+      this.trace("dropped", "ignored FRIDAY's own voice (echo)");
+      this.to("transcript");
       this.emit();
       return;
     }
     const awake = Date.now() < this.awakeUntil;
-    const accepted = acceptsVoiceTurn({
-      mode: this.state.mode,
-      paused: this.state.paused,
-      wakeMatched: wake.matched,
-      awake,
-      handsFree: this.state.handsFree,
-      wakeWordRequired: this.wakeWordRequired,
-      words,
-      stop: isStopCommand(text),
-    });
+    const stop = isStopCommand(text);
+    const accepted =
+      microphoneAllowed(this.state.mode, this.state.paused) &&
+      (stop || (decision.answer && decision.tools));
     this.trace(
       "wake",
       wake.matched
@@ -1553,7 +1658,10 @@ class AssistantModeStore {
       this.speak("Yes?");
       return;
     }
-    this.caption("user", command);
+    const lastCaption = this.state.captions[this.state.captions.length - 1];
+    if (!(lastCaption?.who === "user" && lastCaption.text.includes(command))) {
+      this.caption("user", command, false, { tag: "addressed" });
+    }
 
     if (wantsContinue(command) && this.unfinished) {
       const rest = this.unfinished;
@@ -1684,6 +1792,71 @@ class AssistantModeStore {
     this.speak(spoken);
   }
 
+  private followMs(): number {
+    const raw = Number(preferences.getSnapshot().voice.addressWindowSec);
+    if (!Number.isFinite(raw) || raw <= 0) return 8000;
+    return Math.min(60_000, raw * 1000);
+  }
+
+  private openFollowUp() {
+    if (normalizeAddressMode(preferences.getSnapshot().voice.addressMode) === "name-only") return;
+    this.followUpUntil = Date.now() + this.followMs();
+  }
+
+  private noteAddress(text: string, decision: AddressDecision) {
+    const voice = preferences.getSnapshot().voice;
+    const keepMin = Number(voice.heardKeepMin);
+    const keepMs = Number.isFinite(keepMin) ? Math.max(0, keepMin) * 60_000 : 10 * 60_000;
+    noteHeard(
+      {
+        at: Date.now(),
+        text,
+        tag: decision.tag,
+        language: languageId(text),
+        confidence: decision.confidence,
+      },
+      keepMs,
+      Date.now(),
+    );
+    this.caption(decision.tag === "self" ? "friday" : "user", text, false, {
+      tag: decision.tag,
+      confidence: decision.confidence,
+      language: languageId(text),
+    });
+    this.trace("wake", `${decision.reason} · ${decision.confidence.toFixed(2)}`);
+  }
+
+  private noteMicFault(message: string) {
+    if (this.shownMicFault === message) return;
+    this.shownMicFault = message;
+    this.state.error = message;
+    this.trace("error", message);
+    const now = Date.now();
+    if (!allowRestart(this.micRestarts, now)) {
+      this.state.status = "Press Reset microphone";
+      this.emit();
+      return;
+    }
+    this.micRestarts.push(now);
+    this.emit();
+    this.resetMicrophone();
+  }
+
+  /** Tear the one microphone pipeline down and open it again. */
+  resetMicrophone() {
+    if (this.state.mode !== "auto") return;
+    this.shownMicFault = "";
+    this.stopRecognition();
+    voiceGate.release("auto-mode");
+    voiceGate.stop(true);
+    this.wantRunning = true;
+    const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
+    void voiceGate.acquire("auto-mode", preferred || undefined).then((opened) => {
+      if (!opened || this.state.mode !== "auto") return;
+      this.startRecognition();
+    });
+  }
+
   /** Run a command through the existing brain pipeline. */
   private dispatch(command: string) {
     this.dropPlayback();
@@ -1695,7 +1868,17 @@ class AssistantModeStore {
     // Voice turns carry exactly the same attached capabilities and pinned
     // models as typed turns, so manual and auto mode stay continuous.
     const { extra, modelIds } = composer.directive();
-    const merged = mergeTurnExtra(extra, turnAwarenessExtra(command, { kind: "voice" }));
+    this.openFollowUp();
+    const voiceNow = preferences.getSnapshot().voice;
+    const ambient = ambientContextForRoute({
+      privacy: voiceNow.privacyMode === true,
+      allowAmbientCloud: voiceNow.allowAmbientCloud === true,
+    });
+    const merged = mergeTurnExtra(
+      extra,
+      turnAwarenessExtra(command, { kind: "voice" }),
+      ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+    );
     const payload = {
       ...(merged ? { extra: merged } : {}),
       ...(modelIds.length ? { modelIds } : {}),
@@ -1861,6 +2044,7 @@ class AssistantModeStore {
     const out = outputReachable({ deviceId: "default", volume: tone.volume });
     if (!out.ok) this.state.status = out.reason;
     this.spokenText = spoken;
+    this.openFollowUp();
     return speakText(
       spoken,
       {
@@ -2091,6 +2275,11 @@ class AssistantModeStore {
       return;
     }
     this.to("brain-replied");
+    const failed = fresh.some((message) => {
+      if (message.role === "user") return false;
+      return runs.find((row) => row.id === message.runId)?.state === "failed";
+    });
+    const spoken = failed ? spokenRouteError(say) : say;
     this.caption("friday", say);
     this.setAwake();
     // FRIDAY manages her own box: show structured content, expand when needed.
@@ -2099,7 +2288,15 @@ class AssistantModeStore {
     else this.clearDisplay();
     this.emit();
     const runId = fresh.find((message) => message.role !== "user")?.runId || this.voicedRunId;
-    this.speakStreamed(runId || "reply", say, true);
+    if (failed && this.voicedRunId === runId && this.voicedChars > 0) {
+      if (this.voicedFaultFor !== runId) {
+        this.voicedFaultFor = runId;
+        this.speak(spoken);
+      }
+      return;
+    }
+    if (failed) this.voicedFaultFor = runId || "reply";
+    this.speakStreamed(runId || "reply", spoken, true);
   }
 }
 

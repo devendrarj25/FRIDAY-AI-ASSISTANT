@@ -11,6 +11,18 @@
  * returns false and the caller keeps using Web Speech.
  */
 import { desktopApi as desktop } from "./desktop";
+import {
+  admitUtterance,
+  allowRestart,
+  captureClock,
+  durationBucket,
+  emptyHistogram,
+  encodeWav,
+  micWatch,
+  preRollFrom,
+  segmentClock,
+  type MicFaultKind,
+} from "./pcm-capture";
 import { preferences } from "./preferences";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
@@ -205,6 +217,8 @@ export interface DictationOptions {
     ms?: number;
     bytes?: number;
   }) => void;
+  /** One clear line when the shared capture must be rebuilt. */
+  onFault?: (fault: { kind: MicFaultKind; message: string }) => void;
 }
 
 /**
@@ -216,7 +230,7 @@ export interface DictationOptions {
  * not open a microphone. A stale or dead holder is reclaimed; a live holder
  * is told why a second start was refused. voiceGate remains the single capture.
  */
-export type DictationHolder = { active: boolean; stop?: () => void };
+export type DictationHolder = { active: boolean; healthy?: boolean; stop?: () => void };
 
 export type DictationClaim =
   | { ok: true; token: string; reclaimed: boolean }
@@ -235,9 +249,11 @@ type DictationLease = {
 
 let dictationLease: DictationLease | null = null;
 let dictationSeq = 0;
+const boundTracks = new WeakSet<MediaStreamTrack>();
 
 function dictationStale(now: number): boolean {
   if (!dictationLease) return false;
+  if (dictationLease.holder.healthy === false) return true;
   if (now >= dictationLease.expiresAt) return true;
   if (dictationLease.phase === "live" && !dictationLease.holder.active) return true;
   if (
@@ -310,6 +326,26 @@ export function resetDictationLease(): void {
   dictationSeq = 0;
 }
 
+/**
+ * Auto mode is the only dictation owner. A lease whose holder is no longer
+ * the live instance (an error path dropped the reference, a reload left the
+ * heartbeat) is stopped and cleared. A live owner is left alone.
+ */
+export function reclaimUnowned(holder: DictationHolder | null): boolean {
+  if (!dictationLease) return false;
+  if (holder && dictationLease.holder === holder && holder.active && holder.healthy !== false) {
+    return false;
+  }
+  const dying = dictationLease;
+  dictationLease = null;
+  try {
+    dying.holder.stop?.();
+  } catch {
+    /* a dead holder must not block the next start */
+  }
+  return true;
+}
+
 /** Skip the turn-score process after the file is known to be missing. */
 let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 
@@ -330,6 +366,18 @@ export class DesktopDictation {
   private earlyWakeGen = 0;
   /** idle → scoring once → extend (probability under 0.5) or done. */
   private turnHold: "idle" | "scoring" | "extend" | "done" = "idle";
+  private captureHealthy = true;
+  private startedMono = 0;
+  private pcmFrom = 0;
+  private segmentSamples = 0;
+  private delivered = false;
+  private watchTimer: number | null = null;
+  private droppedCount = 0;
+  private speechSince = 0;
+  private bugLogged = false;
+  private lastFault = "";
+  private histogram = emptyHistogram();
+  private readonly restartStamps: number[] = [];
 
   private unsubscribe: (() => void) | null = null;
   private leaseToken = "";
@@ -340,6 +388,26 @@ export class DesktopDictation {
 
   get active(): boolean {
     return this.running;
+  }
+
+  /** False when the live track is producing no audio. A dead holder is reclaimed. */
+  get healthy(): boolean {
+    return this.captureHealthy;
+  }
+
+  /** Counts only. No audio and no transcript text. */
+  captureReport(): {
+    dropped: number;
+    histogram: Record<string, number>;
+    queue: number;
+    fps: number;
+  } {
+    return {
+      dropped: this.droppedCount,
+      histogram: { ...this.histogram },
+      queue: this.queue.length,
+      fps: captureClock().fps,
+    };
   }
 
   async start(): Promise<boolean> {
@@ -388,21 +456,28 @@ export class DesktopDictation {
       return false;
     }
     this.running = true;
+    this.captureHealthy = true;
     markDictationLive(this.leaseToken, Date.now());
     this.armLease();
+    this.armWatchdog();
+    this.bindTrack(voiceGate.micStream());
     this.options.onStateChange?.("listening");
     this.unsubscribe = voiceGate.subscribe((snapshot) => {
       if (!this.running) return;
+      const live = voiceGate.micStream();
+      if (live && live !== this.stream) {
+        this.stream = live;
+        this.bindTrack(live);
+        if (this.recorder) this.finishSegment("microphone stream changed");
+      }
       if (snapshot.speech && !this.speaking) {
         this.options.onDiagnostic?.({ stage: "speech", detail: "speech detected" });
-        // THE deadlock that made Auto Mode go permanently deaf: `speaking` used
-        // to be latched true even when the recorder could not start (a
-        // transcription still in flight, a MediaRecorder constructor throw).
-        // Nothing ever cleared it, so `speech && !speaking` never fired again
-        // and every later utterance was silently ignored. `speaking` is now
-        // only latched when a segment really started recording.
+        // `speaking` latches only when a segment really starts. A failed
+        // start must not freeze the next utterance.
         this.speaking = this.beginSegment();
         if (this.speaking) this.options.onSpeechStart?.();
+      } else if (!snapshot.speech) {
+        this.speechSince = 0;
       }
       if (this.speaking) this.evaluateSegment(snapshot.speech);
     });
@@ -418,6 +493,8 @@ export class DesktopDictation {
     this.unsubscribe = null;
     if (this.timer) window.clearInterval(this.timer);
     this.timer = null;
+    if (this.watchTimer) window.clearInterval(this.watchTimer);
+    this.watchTimer = null;
     try {
       if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
     } catch {
@@ -446,6 +523,49 @@ export class DesktopDictation {
     this.leaseToken = "";
   }
 
+  private armWatchdog() {
+    if (typeof window === "undefined") return;
+    this.watchTimer = window.setInterval(() => {
+      if (!this.running) return;
+      const clock = captureClock();
+      const track = voiceGate.micStream()?.getAudioTracks()[0];
+      if (voiceGate.getSnapshot().speech) {
+        if (!this.speechSince) this.speechSince = performance.now();
+      } else this.speechSince = 0;
+      if (this.pcmFrom) this.segmentSamples = preRollFrom(this.pcmFrom + 500).length;
+      const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
+      const decision = micWatch({
+        live: true,
+        lastFrameMono: clock.lastFrameMono,
+        nowMono: performance.now(),
+        lastWall: clock.lastFrameWall,
+        nowWall: Date.now(),
+        speechForMs: speechFor,
+        capturedSamples: this.segmentSamples,
+        segmentWallMs: this.startedAt && this.speaking ? Date.now() - this.startedAt : 0,
+        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+        trackState: track?.readyState ?? "live",
+        muted: Boolean(track?.muted),
+      });
+      if (!decision.restart || !decision.kind) return;
+      if (this.lastFault === decision.message) return;
+      const now = Date.now();
+      if (!allowRestart(this.restartStamps, now)) {
+        this.lastFault = decision.message;
+        this.options.onDiagnostic?.({
+          stage: "error",
+          detail: `${decision.message} Press Reset microphone.`,
+        });
+        return;
+      }
+      this.restartStamps.push(now);
+      this.captureHealthy = false;
+      this.lastFault = decision.message;
+      this.options.onDiagnostic?.({ stage: "error", detail: decision.message });
+      if (decision.kind) this.options.onFault?.({ kind: decision.kind, message: decision.message });
+    }, 1000);
+  }
+
   private armLease() {
     if (typeof window === "undefined") return;
     window.addEventListener("pagehide", this.onPageHide);
@@ -454,9 +574,43 @@ export class DesktopDictation {
     }, 5_000);
   }
 
+  private bindTrack(stream: MediaStream | null) {
+    const track = stream?.getAudioTracks()[0];
+    if (!track || boundTracks.has(track)) return;
+    boundTracks.add(track);
+    const mark = () => {
+      this.captureHealthy = false;
+      this.raiseFault(track.readyState === "ended" ? "track-ended" : "track-muted");
+    };
+    track.addEventListener("ended", mark);
+    track.addEventListener("mute", mark);
+  }
+
+  private raiseFault(kind: MicFaultKind) {
+    const watched = micWatch({
+      live: true,
+      lastFrameMono: 0,
+      nowMono: 1,
+      lastWall: 0,
+      nowWall: 0,
+      speechForMs: 0,
+      capturedSamples: 0,
+      segmentWallMs: 0,
+      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      trackState: kind === "track-ended" ? "ended" : "live",
+      muted: kind === "track-muted",
+    });
+    const message = watched.message || "The microphone needs a reset.";
+    if (this.lastFault === message) return;
+    this.lastFault = message;
+    this.options.onDiagnostic?.({ stage: "error", detail: message });
+    this.options.onFault?.({ kind, message });
+  }
+
   /** @returns true only when a segment is really recording now. */
   private beginSegment(): boolean {
-    if (this.recorder) return true;
+    this.stream = voiceGate.micStream();
+    if (this.recorder) return this.recorder.stream === this.stream;
     if (!this.stream) {
       this.options.onDiagnostic?.({ stage: "dropped", detail: "no microphone stream" });
       return false;
@@ -479,6 +633,11 @@ export class DesktopDictation {
     this.chunks = [];
     this.turnHold = "idle";
     this.startedAt = Date.now();
+    this.startedMono = performance.now();
+    this.pcmFrom = this.startedMono - 500;
+    this.segmentSamples = 0;
+    this.delivered = false;
+    this.bugLogged = false;
     this.earlyWake = null;
     this.earlyWakeTried = false;
     this.earlyWakeGen += 1;
@@ -496,10 +655,42 @@ export class DesktopDictation {
       const blob = new Blob(this.chunks, { type: this.chunks[0]?.type || mime || "audio/webm" });
       this.chunks = [];
       this.recorder = null;
+      if (this.delivered) return;
+      const clock = segmentClock({
+        startedMono: this.startedMono,
+        nowMono: performance.now(),
+        startedWall: this.startedAt,
+        nowWall: Date.now(),
+        maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+      });
+      if (clock.bug && !this.bugLogged) {
+        this.bugLogged = true;
+        this.options.onDiagnostic?.({
+          stage: "error",
+          detail: clock.reason,
+          ms: clock.reportMs,
+        });
+      }
+      if (chunkCount === 0 || blob.size < 2000) {
+        this.captureHealthy = chunkCount > 0;
+        this.options.onDiagnostic?.({
+          stage: "dropped",
+          detail:
+            chunkCount === 0
+              ? "no audio frames in this segment"
+              : "utterance too short to transcribe",
+          ms: clock.reportMs,
+          bytes: blob.size,
+        });
+        if (chunkCount === 0) this.raiseFault("vad-without-audio");
+        return;
+      }
+      this.histogram[durationBucket(clock.reportMs)] =
+        (this.histogram[durationBucket(clock.reportMs)] ?? 0) + 1;
       this.options.onDiagnostic?.({
         stage: "segment",
         detail: `utterance captured · ${chunkCount} chunks`,
-        ms: Date.now() - this.startedAt,
+        ms: clock.reportMs,
         bytes: blob.size,
       });
       this.enqueue(blob, this.earlyWake);
@@ -508,9 +699,64 @@ export class DesktopDictation {
     return true;
   }
 
+  /** Pull the shared ring, including the pre-roll, and prefer that over a late recorder. */
+  private takePcm(): Uint8Array | null {
+    const samples = preRollFrom(this.pcmFrom + 500);
+    this.segmentSamples = samples.length;
+    if (samples.length < 1600) return null;
+    return encodeWav(samples);
+  }
+
+  private finishSegment(reason: string) {
+    const wav = this.pcmFrom ? this.takePcm() : null;
+    const clock = segmentClock({
+      startedMono: this.startedMono || performance.now(),
+      nowMono: performance.now(),
+      startedWall: this.startedAt || Date.now(),
+      nowWall: Date.now(),
+      maxUtteranceMs: this.options.maxUtteranceMs ?? 20_000,
+    });
+    if (wav) {
+      this.delivered = true;
+      this.histogram[durationBucket(clock.reportMs)] =
+        (this.histogram[durationBucket(clock.reportMs)] ?? 0) + 1;
+      this.options.onDiagnostic?.({
+        stage: "segment",
+        detail: `utterance captured · pcm${reason ? ` · ${reason}` : ""}`,
+        ms: clock.reportMs,
+        bytes: wav.byteLength,
+      });
+      const pcm = new ArrayBuffer(wav.byteLength);
+      new Uint8Array(pcm).set(wav);
+      this.enqueue(new Blob([pcm], { type: "audio/wav" }), this.earlyWake);
+    } else if (clock.bug && !this.bugLogged) {
+      this.bugLogged = true;
+      this.options.onDiagnostic?.({ stage: "error", detail: clock.reason, ms: clock.reportMs });
+    }
+    if (this.timer) window.clearInterval(this.timer);
+    this.timer = null;
+    this.speaking = false;
+    try {
+      if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
+    } catch {
+      /* already stopped */
+    }
+  }
+
   /** End the utterance after enough trailing silence, or at the hard cap. */
   private evaluateSegment(speech: boolean) {
     const maxMs = this.options.maxUtteranceMs ?? 20_000;
+    const clock = segmentClock({
+      startedMono: this.startedMono || performance.now(),
+      nowMono: performance.now(),
+      startedWall: this.startedAt || Date.now(),
+      nowWall: Date.now(),
+      maxUtteranceMs: maxMs,
+    });
+    if (clock.close) {
+      this.finishSegment(clock.reason);
+      return;
+    }
     if (this.timer) return;
     this.timer = window.setInterval(() => {
       if (!this.running || !this.recorder) {
@@ -518,9 +764,20 @@ export class DesktopDictation {
         this.timer = null;
         return;
       }
+      const late = segmentClock({
+        startedMono: this.startedMono,
+        nowMono: performance.now(),
+        startedWall: this.startedAt,
+        nowWall: Date.now(),
+        maxUtteranceMs: maxMs,
+      });
+      if (late.close) {
+        this.finishSegment(late.reason);
+        return;
+      }
       const snapshot = voiceGate.getSnapshot();
       const quietFor = snapshot.sinceSpeech ?? 0;
-      const tooLong = Date.now() - this.startedAt > maxMs;
+      const tooLong = performance.now() - this.startedMono > maxMs;
       const silenceMs = this.silenceBudget();
       const cap = Math.min(1600, silenceMs >= 1000 ? silenceMs : silenceMs + 780);
       if (this.turnHold === "scoring" && quietFor < cap && !tooLong) return;
@@ -619,19 +876,24 @@ export class DesktopDictation {
    * drops the OLDEST one, and even that is reported.
    */
   private enqueue(blob: Blob, wake: WakeProbe | null = null) {
-    this.queue.push({ blob, wake });
-    if (this.busy)
+    const admitted = admitUtterance(
+      this.queue.map((row) => ({ item: row, samples: row.blob.size })),
+      { blob, wake },
+      blob.size,
+    );
+    this.queue = admitted.queue.map((row) => row.item);
+    if (admitted.dropped) {
+      this.droppedCount += admitted.dropped;
+      this.options.onDiagnostic?.({
+        stage: "dropped",
+        detail: `transcription backlog — oldest utterance discarded x${this.droppedCount}`,
+        bytes: blob.size,
+      });
+    } else if (this.busy) {
       this.options.onDiagnostic?.({
         stage: "segment",
         detail: "queued — still transcribing the previous utterance",
         bytes: blob.size,
-      });
-    while (this.queue.length > 3) {
-      const dropped = this.queue.shift();
-      this.options.onDiagnostic?.({
-        stage: "dropped",
-        detail: "transcription backlog — oldest utterance discarded",
-        bytes: dropped?.blob.size ?? 0,
       });
     }
     void this.pump();
@@ -669,7 +931,8 @@ export class DesktopDictation {
     this.busy = true;
     const startedAt = Date.now();
     try {
-      const audioBase64 = toBase64(await blob.arrayBuffer());
+      const audioBytes = new Uint8Array(await blob.arrayBuffer());
+      const audioBase64 = this.options.wakeProbe ? toBase64(audioBytes.buffer) : "";
       // Low-latency wake scoring FIRST: openWakeWord answers in milliseconds
       // from the raw audio, so FRIDAY knows whether she was called before the
       // (much slower) transcription even starts. Reuse an in-utterance match
@@ -704,7 +967,8 @@ export class DesktopDictation {
           : (promptOpt ?? sttInitialPrompt({ preference: this.options.language ?? "" }));
       const sttSize = preferences.getSnapshot().voice.sttSize;
       const result = (await api.transcribe({
-        audioBase64,
+        audioBytes,
+        ...(audioBase64 ? { audioBase64 } : {}),
         mime: blob.type,
         language,
         ...(this.options.language ? { speechPref: this.options.language } : {}),

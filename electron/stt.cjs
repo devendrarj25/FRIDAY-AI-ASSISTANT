@@ -643,7 +643,7 @@ async function install() {
 
 /**
  * Transcribe one utterance.
- * @param {{ audioBase64?: string, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, localOnly?: boolean }} req
+ * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, localOnly?: boolean }} req
  */
 async function transcribe(req = {}, onPartial) {
   const state = await status(false, { localOnly: Boolean(req.localOnly) });
@@ -655,7 +655,9 @@ async function transcribe(req = {}, onPartial) {
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
   let temporary = false;
   if (!file) {
-    const bytes = Buffer.from(String(req.audioBase64 || ""), "base64");
+    const bytes = req.audioBytes
+      ? Buffer.from(req.audioBytes)
+      : Buffer.from(String(req.audioBase64 || ""), "base64");
     if (!bytes.length) return { ok: false, reason: "no-audio", error: "No audio was captured." };
     const ext = /wav/i.test(req.mime || "") ? "wav" : /ogg/i.test(req.mime || "") ? "ogg" : "webm";
     file = path.join(audioDir(), `${crypto.randomBytes(8).toString("hex")}.${ext}`);

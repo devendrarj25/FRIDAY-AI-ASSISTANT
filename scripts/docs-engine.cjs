@@ -273,7 +273,7 @@ const DOCUMENTS = [
     section: "sessions",
     audience: "AI tools",
     answers:
-      "The upgrade flow for AI tools: one pull request, keep what works, fix a locked-area bug without breaking it, same-change tests and docs, owner merges",
+      "Session rules: one pull request, the owner runs every workflow and merges, keep what works, same-change tests and docs",
     topic: "AI session protocol and landing bar",
     role: "session",
   },

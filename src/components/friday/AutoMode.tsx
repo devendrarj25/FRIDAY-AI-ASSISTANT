@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
-import type { LiveComponent } from "@/lib/friday/use-friday-live";
+import { ageOf, type LiveComponent } from "@/lib/friday/use-friday-live";
 import { assistantMode, type PanelDisplay } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -90,7 +90,11 @@ function selectCircuitNode(node: LiveComponent) {
     items: [
       node.active ? (node.action ?? node.status) : node.status,
       ...node.details.map((detail) => `${detail.k}: ${detail.v}`),
-      node.age ? `last activity: ${node.age}` : "",
+      node.active
+        ? "last activity: now"
+        : node.activeAt
+          ? `last activity: ${ageOf(node.activeAt, Date.now()) ?? "now"}`
+          : "",
     ].filter(Boolean),
   });
 }
@@ -194,6 +198,20 @@ export function AutoMode() {
               : voice.awake && !voice.error
                 ? "awake · go ahead"
                 : "say “FRIDAY …”"}
+          </button>
+          <button
+            type="button"
+            onClick={() => assistantMode.setPaused(!voice.paused)}
+            className="rounded-sm border border-primary/20 px-2 py-0.5 text-muted-foreground hover:text-primary"
+          >
+            {voice.paused ? "Resume listening" : "Pause listening"}
+          </button>
+          <button
+            type="button"
+            onClick={() => assistantMode.resetMicrophone()}
+            className="rounded-sm border border-primary/20 px-2 py-0.5 text-muted-foreground hover:text-primary"
+          >
+            Reset microphone
           </button>
 
           {run ? (
@@ -345,6 +363,15 @@ export function AutoMode() {
             </button>
             <button
               type="button"
+              onClick={() => assistantMode.clearHeardLog()}
+              className="inline-flex items-center gap-1 hover:text-primary"
+              title="Delete the heard log on this PC"
+            >
+              <Eraser className="size-3.5" />
+              delete heard
+            </button>
+            <button
+              type="button"
               onClick={() => assistantMode.toggleExpanded()}
               className="inline-flex items-center gap-1 rounded-sm border border-primary/30 px-2 py-0.5 text-primary hover:bg-primary/10"
               title={voice.expanded ? "Collapse box" : "Expand box"}
@@ -376,7 +403,16 @@ export function AutoMode() {
               >
                 {c.who === "user" ? "you" : "friday"}
               </span>
-              <span className="min-w-0 text-foreground/90">{c.text}</span>
+              <span className="min-w-0 text-foreground/90">
+                {c.text}
+                {c.tag ? (
+                  <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">
+                    {c.tag}
+                    {c.language ? ` · ${c.language}` : ""}
+                    {typeof c.confidence === "number" ? ` · ${c.confidence.toFixed(2)}` : ""}
+                  </span>
+                ) : null}
+              </span>
             </div>
           ))}
 
@@ -421,6 +457,7 @@ export function AutoMode() {
                       </span>
                       <span className="min-w-0 font-mono text-[10px] text-muted-foreground">
                         {entry.detail}
+                        {entry.repeat && entry.repeat > 1 ? ` x${entry.repeat}` : ""}
                       </span>
                     </li>
                   ))}
