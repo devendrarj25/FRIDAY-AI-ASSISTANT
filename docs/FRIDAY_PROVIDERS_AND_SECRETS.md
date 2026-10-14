@@ -153,7 +153,7 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 
 ### Routing lanes (2026-10-14)
 
-Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher download, library catalogs, and the Models section switch are not in this change.
+Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is ordinary code. A provider is one handler file under `electron/handlers/`. No second router, registry, or billing check was added. Launcher offers and the host allowlist are recorded below. The Models screen groups the same tabs under LOCAL AI, CLOUD AI, and ROUTING.
 
 | Topic | Decision | Why, for FRIDAY |
 | --- | --- | --- |
@@ -161,6 +161,35 @@ Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is o
 | Ordered model fallback | ADAPT | [Model fallbacks](https://openrouter.ai/docs/guides/routing/model-fallbacks) and [failover](https://openrouter.ai/blog/insights/reliability-failover/), read 2026-10-14. FRIDAY already lists the next model in code. The list is the lane hand-off, and a paid id is not added unless the owner, the firewall, and the budget allow it. |
 | Provider load-balance across hosts | REJECT | [Provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), read 2026-10-14. That is a second router. FRIDAY keeps one handler per provider and one funnel. |
 | An LLM that chooses the lane | REJECT | Same reason as 2026-10-13. Latency, cost, injection, and a route that changes between two identical turns. |
+
+### Local launcher offers (2026-10-14)
+
+`config/download-hosts.json` is the only remote download host list. `config/local-runners.json` holds the Windows assets read on 2026-10-14. `electron/local-library.cjs` builds the card and the install offer. `electron/download-safety.cjs` is the transfer state machine, and `electron/model-download.cjs` is the only public entry. This process does not start an installer. `canRun` stays false until a published sha256 matches, Windows Authenticode names a publisher, and the owner clicks. A missing digest never offers Run. Quit pauses a job and leaves the `.part` file. The next start marks a `downloading` row `paused`. Real downloads and Authenticode were not run here.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Ollama Windows setup v0.40.4 | ADOPT as a pin | `OllamaSetup.exe`, 1581967176 bytes, sha256 `45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde`. User scope, no Administrator. [Windows](https://docs.ollama.com/windows) and [v0.40.4](https://github.com/ollama/ollama/releases/tag/v0.40.4). The [library](https://ollama.com/library) has no machine-readable full list. Pull stays the local `POST /api/pull`. Curated tags are llama3.2 and qwen2.5. |
+| Third-party silent installer flags | REJECT | The Windows page names `/DIR=` only. A silent switch from another site is not used. |
+| LM Studio direct exe | REJECT as a pin | [Download](https://lmstudio.ai/download), [CLI](https://lmstudio.ai/docs/cli), and [install.ps1](https://lmstudio.ai/install.ps1) were read. Those pages did not publish a sha256. The card links the official page. `lms get` stays the documented pull. The API is `http://127.0.0.1:1234`. |
+| Jan v0.8.6 | ADOPT as a pin | `Jan_0.8.6_x64-setup.exe`, 556441144 bytes, sha256 `f47f2d205eb92743bdd60ffe7d3b7b434b45a97a8dce092c1185c97d1f5a5268`. [v0.8.6](https://github.com/janhq/jan/releases/tag/v0.8.6) and [jan.ai](https://jan.ai). No catalog API. Models come from Hugging Face or a manual import. |
+| GPT4All v3.10.0 | ADAPT | The GitHub asset has no digest, so Run stays off. [Official page](https://www.nomic.ai/gpt4all). Import a GGUF or open that page. |
+| KoboldCpp v1.123 | ADOPT as a pin | Portable `koboldcpp.exe`, 642223685 bytes, sha256 `ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38`. [v1.123](https://github.com/LostRuins/koboldcpp/releases/tag/v1.123). No catalog. The API is `http://127.0.0.1:5001`. |
+| llama.cpp b11609 CPU zip | ADOPT as the Models card pin | `llama-b11609-bin-win-cpu-x64.zip`, 19518618 bytes, sha256 `8708a7b81842333927f6377ac3f17ff8bba4dbe1ee0cf28dfd5e7a32e3a46b38`. Tag v0.6.0 only published `nightly-tag.txt`. [b11609](https://github.com/ggml-org/llama.cpp/releases/tag/b11609). The older Install Manager pin is unchanged. |
+| Hugging Face file metadata | ADOPT | The models API returns `siblings[].lfs.sha256` and `gated`. [Hub API](https://huggingface.co/docs/hub/api). A gated repo stops before any byte. |
+| GitHub release digest | ADOPT | `assets[].digest` with a `sha256:` prefix is the checksum when the API sends one. |
+| hf-mirror.com | ADAPT | The voice installer already lists that host, so the allowlist keeps it. A custom endpoint off the list is refused. |
+| An LLM judge that picks a provider | REJECT | Show-all, first-good, and majority stay in `combineLocalAnswers`. A judged merge runs only after the owner names a model, and that model does not choose a provider. |
+
+### Cloud spend and newest free (2026-10-14)
+
+`preferNewestFree` in `electron/model-router.cjs` orders the free lane. Only a record that `isVerifiedFree` already accepts can move to the front. A failed newest id falls back to the previous verified version, and that failed id stays later in the same list. An unverified pricing-page row does not jump the queue. `recordSpend` adds one charge when the caller passes the time. It rolls the day and the month from that time, and it refuses a model id that looks like a key. The billing firewall is still the spend authority. A new reading of every provider's error page was not done for this step.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Newest verified-free id, then the previous version | ADOPT | The free lane already has proof in `isVerifiedFree`. Version order is a sort on that list, not a second router. |
+| An unverified name as the newest free model | REJECT | A newer id without `verification: VERIFIED` stays behind a proven older id. |
+| Spend log beside the budget caps | ADOPT | One function updates `spentDayUsd` and `spentMonthUsd` and appends amount, time, and model id. The desktop handler is `models:record-spend`. |
+| A second billing check for paid models | REJECT | `budgetDecision` remains the cap. The firewall still has to allow paid before the lane opens. |
 
 ### Routing added (2026-10-08, escalation)
 

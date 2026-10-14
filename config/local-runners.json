@@ -1,0 +1,148 @@
+{
+  "checked": "2026-10-14",
+  "runners": [
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "officialPage": "https://ollama.com/download/windows",
+      "docs": "https://docs.ollama.com/windows",
+      "libraryPage": "https://ollama.com/library",
+      "api": "http://127.0.0.1:11434",
+      "installScope": "user",
+      "requiresAdmin": false,
+      "catalog": "curated",
+      "catalogNote": "Ollama publishes no machine-readable list of the whole library. Pull is the local daemon POST /api/pull. The library page is the official list.",
+      "release": {
+        "repo": "ollama/ollama",
+        "tag": "v0.40.4",
+        "asset": "OllamaSetup.exe",
+        "url": "https://github.com/ollama/ollama/releases/download/v0.40.4/OllamaSetup.exe",
+        "bytes": 1581967176,
+        "sha256": "45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde"
+      },
+      "start": ["ollama", ["serve"]],
+      "stopHint": "Quit the Ollama tray app.",
+      "uninstallHint": "Windows Settings, Add or remove programs, Ollama. A custom OLLAMA_MODELS folder is left in place."
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "officialPage": "https://lmstudio.ai/download",
+      "docs": "https://lmstudio.ai/docs/cli",
+      "installScript": "https://lmstudio.ai/install.ps1",
+      "api": "http://127.0.0.1:1234",
+      "installScope": "user",
+      "requiresAdmin": false,
+      "catalog": "none",
+      "catalogNote": "No official machine-readable model catalog was found. lms get is the documented download. Use the official page or import a GGUF.",
+      "release": null,
+      "start": ["lms", ["server", "start"]],
+      "stopHint": "lms server stop",
+      "uninstallHint": "Use the LM Studio uninstaller. FRIDAY does not remove it."
+    },
+    {
+      "id": "jan",
+      "name": "Jan",
+      "officialPage": "https://jan.ai",
+      "docs": "https://github.com/janhq/jan",
+      "api": "http://127.0.0.1:1337",
+      "installScope": "user",
+      "requiresAdmin": false,
+      "catalog": "none",
+      "catalogNote": "Jan has no separate model catalog API. Models come from Hugging Face or a manual import.",
+      "release": {
+        "repo": "janhq/jan",
+        "tag": "v0.8.6",
+        "asset": "Jan_0.8.6_x64-setup.exe",
+        "url": "https://github.com/janhq/jan/releases/download/v0.8.6/Jan_0.8.6_x64-setup.exe",
+        "bytes": 556441144,
+        "sha256": "f47f2d205eb92743bdd60ffe7d3b7b434b45a97a8dce092c1185c97d1f5a5268"
+      },
+      "start": null,
+      "stopHint": "Quit Jan.",
+      "uninstallHint": "Use the Jan uninstaller."
+    },
+    {
+      "id": "gpt4all",
+      "name": "GPT4All",
+      "officialPage": "https://www.nomic.ai/gpt4all",
+      "docs": "https://github.com/nomic-ai/gpt4all",
+      "api": null,
+      "installScope": "user",
+      "requiresAdmin": false,
+      "catalog": "none",
+      "catalogNote": "No official machine-readable catalog was found. Import a GGUF, or open the official page.",
+      "release": {
+        "repo": "nomic-ai/gpt4all",
+        "tag": "v3.10.0",
+        "asset": "gpt4all-installer-win64-v3.10.0.exe",
+        "url": "https://github.com/nomic-ai/gpt4all/releases/download/v3.10.0/gpt4all-installer-win64-v3.10.0.exe",
+        "bytes": 744456856,
+        "sha256": null
+      },
+      "start": null,
+      "stopHint": "Quit GPT4All.",
+      "uninstallHint": "Use the GPT4All uninstaller."
+    },
+    {
+      "id": "koboldcpp",
+      "name": "KoboldCpp",
+      "officialPage": "https://github.com/LostRuins/koboldcpp/releases",
+      "docs": "https://github.com/LostRuins/koboldcpp",
+      "api": "http://127.0.0.1:5001",
+      "installScope": "portable",
+      "requiresAdmin": false,
+      "catalog": "none",
+      "catalogNote": "KoboldCpp is one executable. Models are GGUF files you import. There is no separate catalog API.",
+      "release": {
+        "repo": "LostRuins/koboldcpp",
+        "tag": "v1.123",
+        "asset": "koboldcpp.exe",
+        "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
+        "bytes": 642223685,
+        "sha256": "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38"
+      },
+      "start": null,
+      "stopHint": "Close the KoboldCpp window.",
+      "uninstallHint": "Delete the downloaded executable. It is not an installed app."
+    },
+    {
+      "id": "llamacpp",
+      "name": "llama.cpp",
+      "officialPage": "https://github.com/ggml-org/llama.cpp/releases",
+      "docs": "https://github.com/ggml-org/llama.cpp",
+      "api": "http://127.0.0.1:8080",
+      "installScope": "portable",
+      "requiresAdmin": false,
+      "catalog": "none",
+      "catalogNote": "llama.cpp publishes release binaries, not a model library. Import a GGUF or use a Hugging Face file.",
+      "release": {
+        "repo": "ggml-org/llama.cpp",
+        "tag": "b11609",
+        "asset": "llama-b11609-bin-win-cpu-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11609/llama-b11609-bin-win-cpu-x64.zip",
+        "bytes": 19518618,
+        "sha256": "8708a7b81842333927f6377ac3f17ff8bba4dbe1ee0cf28dfd5e7a32e3a46b38"
+      },
+      "start": null,
+      "stopHint": "Stop the llama-server process.",
+      "uninstallHint": "Delete the unzipped folder."
+    }
+  ],
+  "curated": [
+    {
+      "id": "ollama:llama3.2",
+      "provider": "ollama",
+      "name": "llama3.2",
+      "officialPage": "https://ollama.com/library/llama3.2",
+      "pull": "llama3.2"
+    },
+    {
+      "id": "ollama:qwen2.5",
+      "provider": "ollama",
+      "name": "qwen2.5",
+      "officialPage": "https://ollama.com/library/qwen2.5",
+      "pull": "qwen2.5"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "checked": "2026-10-14",
+  "hosts": [
+    "ollama.com",
+    "registry.ollama.ai",
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+    "lmstudio.ai",
+    "installers.lmstudio.ai",
+    "huggingface.co",
+    "hf-mirror.com",
+    "cdn-lfs.huggingface.co",
+    "cdn-lfs-us-1.huggingface.co",
+    "cdn-lfs-eu-1.huggingface.co",
+    "cas-bridge.xethub.hf.co",
+    "transfer.xethub.hf.co"
+  ],
+  "loopbackHttp": ["127.0.0.1", "localhost", "::1"]
+}

@@ -24,6 +24,8 @@ const path = require("node:path");
 // The one canonical FRIDAY root contract — downloads never stage outside it.
 const contract = require("./friday-contract.cjs");
 const voiceInstall = require("./voice-install.cjs");
+const safety = require("./download-safety.cjs");
+const library = require("./local-library.cjs");
 
 const HF_HOSTS = voiceInstall.hfHostList(process.env);
 const OLLAMA = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
@@ -83,6 +85,7 @@ async function hfFiles(repo, signal) {
   let lastError = "unreachable";
   for (const host of HF_HOSTS) {
     try {
+      safety.assertAllowedUrl(`${host}/api/models/${repo}`);
       const res = await fetch(`${host}/api/models/${repo}`, { signal });
       if (!res.ok) {
         lastError = `HTTP ${res.status}`;
@@ -114,9 +117,9 @@ function pickGguf(files, match = []) {
 }
 
 // ------------------------------------------------------------- HTTP fetching
-async function headInfo(url, signal) {
+async function headInfo(url, signal, extraHosts = []) {
   try {
-    const res = await fetch(url, { method: "HEAD", redirect: "follow", signal });
+    const { res } = await safety.fetchAllowlisted(url, { method: "HEAD", signal }, extraHosts);
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     return {
       ok: true,
@@ -155,17 +158,33 @@ function progressReporter(total, onEvent, label) {
   };
 }
 
-async function pipeInto(handle, res, position, report, signal) {
+function abortError(signal) {
+  const paused = signal?.reason === "pause";
+  const error = new Error(paused ? "paused" : "cancelled");
+  error.code = paused ? "PAUSE" : "CANCEL";
+  return error;
+}
+
+async function pipeInto(handle, res, position, report, signal, control) {
   const reader = res.body.getReader();
   let pos = position;
   for (;;) {
-    if (signal?.aborted) throw new Error("cancelled");
+    if (signal?.aborted) throw abortError(signal);
+    while (control?.paused) {
+      if (signal?.aborted) throw abortError(signal);
+      await sleep(30);
+    }
     const { value, done } = await reader.read();
     if (done) break;
     const buf = Buffer.from(value);
     await handle.write(buf, 0, buf.length, pos);
     pos += buf.length;
     report.add(buf.length);
+    const limit = Number(control?.maxBytesPerSecond || 0);
+    if (limit > 0) {
+      const wait = Math.min(1000, Math.ceil((buf.length / limit) * 1000));
+      if (wait > 0) await sleep(wait);
+    }
   }
   return pos - position;
 }
@@ -177,37 +196,48 @@ async function pipeInto(handle, res, position, report, signal) {
 async function downloadUrl(
   url,
   dest,
-  { onEvent, signal, label = "downloading", sha256, needBytes } = {},
+  { onEvent, signal, label = "downloading", sha256, needBytes, control, extraHosts = [] } = {},
 ) {
+  safety.assertAllowedUrl(url, extraHosts);
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   assertDiskRoom(path.dirname(dest), needBytes);
   const part = `${dest}.part`;
-  const head = await headInfo(url, signal);
+  const head = await headInfo(url, signal, extraHosts);
   const total = head.ok ? head.size : 0;
   const segments = head.ok && head.ranges && total > SEGMENT_THRESHOLD ? MAX_SEGMENTS : 1;
   const report = progressReporter(total, onEvent, label);
 
-  const handle = await fsp.open(part, "w+");
+  const existed = fs.existsSync(part);
+  const segmentCount = existed ? 1 : segments;
+  const handle = await fsp.open(part, existed ? "r+" : "w+");
+  const existingSize = existed ? (await handle.stat()).size : 0;
   try {
-    if (segments > 1) {
-      const chunk = Math.ceil(total / segments);
+    if (segmentCount > 1) {
+      const chunk = Math.ceil(total / segmentCount);
       await Promise.all(
-        Array.from({ length: segments }, async (_, i) => {
+        Array.from({ length: segmentCount }, async (_, i) => {
           const start = i * chunk;
           const end = Math.min(total - 1, start + chunk - 1);
           if (start > end) return;
           for (let attempt = 0; attempt < RETRIES; attempt += 1) {
             try {
-              const res = await fetch(url, {
-                headers: { Range: `bytes=${start}-${end}` },
-                redirect: "follow",
-                signal,
-              });
+              const { res } = await safety.fetchAllowlisted(
+                url,
+                { headers: { Range: `bytes=${start}-${end}` }, signal },
+                extraHosts,
+              );
               if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-              await pipeInto(handle, res, start, report, signal);
+              await pipeInto(handle, res, start, report, signal, control);
               return;
             } catch (err) {
-              if (signal?.aborted) throw err;
+              if (
+                signal?.aborted ||
+                err?.code === "PAUSE" ||
+                err?.code === "CANCEL" ||
+                err?.code === "OFF_ALLOWLIST" ||
+                err?.code === "UNSAFE_URL"
+              )
+                throw err;
               if (attempt === RETRIES - 1) throw err;
               await sleep(600 * (attempt + 1));
             }
@@ -215,19 +245,26 @@ async function downloadUrl(
         }),
       );
     } else {
-      let written = 0;
+      let written = existingSize;
       for (let attempt = 0; attempt < RETRIES; attempt += 1) {
         try {
-          const res = await fetch(url, {
-            headers: written > 0 ? { Range: `bytes=${written}-` } : {},
-            redirect: "follow",
-            signal,
-          });
+          const { res } = await safety.fetchAllowlisted(
+            url,
+            { headers: written > 0 ? { Range: `bytes=${written}-` } : {}, signal },
+            extraHosts,
+          );
           if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-          written += await pipeInto(handle, res, written, report, signal);
+          written += await pipeInto(handle, res, written, report, signal, control);
           break;
         } catch (err) {
-          if (signal?.aborted) throw err;
+          if (
+            signal?.aborted ||
+            err?.code === "PAUSE" ||
+            err?.code === "CANCEL" ||
+            err?.code === "OFF_ALLOWLIST" ||
+            err?.code === "UNSAFE_URL"
+          )
+            throw err;
           const message = String(err?.message || err);
           const offline = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|network|fetch failed/i.test(
             message,
@@ -241,6 +278,15 @@ async function downloadUrl(
         }
       }
     }
+  } catch (err) {
+    const paused = err?.code === "PAUSE" || signal?.reason === "pause";
+    if (!paused) await fsp.rm(part, { force: true }).catch(() => {});
+    if (signal?.aborted && !paused) {
+      const error = new Error("cancelled");
+      error.code = "CANCEL";
+      throw error;
+    }
+    throw err;
   } finally {
     await handle.close();
   }
@@ -291,6 +337,25 @@ async function registerGguf(name, file, onEvent, signal) {
   }
 }
 
+function remember(root, job, fields) {
+  if (job.persist === false || !root) return;
+  const file = job.storePath || path.join(root, "transfers.json");
+  const id = String(job.transferId || job.modelId || "transfer");
+  const jobs = safety.loadTransfers(file).filter((row) => row.id !== id);
+  const row = safety.blankTransfer({
+    id,
+    modelId: job.modelId,
+    sourceUrl: fields.sourceUrl,
+    dest: fields.dest,
+    bytes: fields.bytes,
+    sha256: fields.sha256,
+  });
+  row.status = fields.status || "queued";
+  row.done = Number(fields.done) || 0;
+  row.error = fields.error || "";
+  safety.saveTransfers(file, [...jobs, row]);
+}
+
 // ------------------------------------------------------------------- driver
 /**
  * Try every source in order until one really succeeds.
@@ -309,6 +374,7 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
   const canonical = contract.rootFromEnv();
   const root = dir || (canonical ? path.join(canonical, "models") : null);
   const attempts = [];
+  let active = null;
 
   if (!sources.length) return { ok: false, error: "no download source is known", attempts };
   if (!root)
@@ -330,6 +396,49 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
         return { ok: true, via: "ollama", ref: source.ref, source: label, attempts };
       }
 
+      if (source.gated)
+        throw new Error("gated repo: accept the license on the official page first");
+
+      if (source.kind === "github" || source.kind === "url") {
+        const fileUrl = source.url;
+        if (!fileUrl) throw new Error("source has no url");
+        const name = path.basename(new URL(fileUrl).pathname) || `${modelId}.bin`;
+        const dest = path.join(root, modelId, name);
+        if (
+          fs.existsSync(dest) &&
+          (!source.sha256 || hashFile(dest) === String(source.sha256).toLowerCase())
+        ) {
+          onEvent?.({ status: "already on disk", progress: 100 });
+          remember(root, job, { status: "installed", dest, sourceUrl: fileUrl });
+          return {
+            ok: true,
+            via: source.kind,
+            path: dest,
+            bytes: fs.statSync(dest).size,
+            source: label,
+            attempts,
+          };
+        }
+        active = { dest, sourceUrl: fileUrl, sha256: source.sha256 || "" };
+        remember(root, job, { status: "downloading", ...active });
+        const bytes = await downloadUrl(fileUrl, dest, {
+          onEvent,
+          signal,
+          sha256: source.sha256,
+          needBytes: source.bytes,
+          label: source.label,
+          control: job.control,
+        });
+        remember(root, job, {
+          status: "installed",
+          dest,
+          sourceUrl: fileUrl,
+          bytes,
+          sha256: source.sha256,
+        });
+        return { ok: true, via: source.kind, path: dest, bytes, source: label, attempts };
+      }
+
       if (source.kind === "hf-gguf") {
         // Bytes land in `<FRIDAY_ROOT>/models` for llama.cpp. Ollama
         // registration is optional: if the daemon is up, the same file is
@@ -342,6 +451,11 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
         const dest = path.join(root, modelId, path.basename(file));
         if (fs.existsSync(dest)) {
           onEvent?.({ status: "already on disk", progress: 100 });
+          remember(root, job, {
+            status: "installed",
+            dest,
+            sourceUrl: `https://huggingface.co/${source.repo}`,
+          });
           const already = await registerGguf(modelId, dest, onEvent, signal);
           return {
             ok: true,
@@ -355,12 +469,19 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
 
         let bytes = 0;
         let lastError = null;
+        active = { dest, sourceUrl: `https://huggingface.co/${source.repo}`, sha256: "" };
+        remember(root, job, { status: "downloading", ...active });
         for (const host of HF_HOSTS) {
           try {
             bytes = await downloadUrl(
               `${host}/${source.repo}/resolve/main/${encodeURI(file)}?download=true`,
               dest,
-              { onEvent, signal, label: `downloading ${path.basename(file)}` },
+              {
+                onEvent,
+                signal,
+                label: `downloading ${path.basename(file)}`,
+                control: job.control,
+              },
             );
             lastError = null;
             break;
@@ -370,6 +491,7 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
           }
         }
         if (lastError) throw lastError;
+        remember(root, job, { status: "installed", dest, sourceUrl: active.sourceUrl, bytes });
         const registered = await registerGguf(modelId, dest, onEvent, signal);
         return {
           ok: true,
@@ -397,42 +519,33 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
           bytes += await downloadUrl(
             `${listing.host}/${source.repo}/resolve/main/${encodeURI(file)}?download=true`,
             target,
-            { onEvent, signal, label: `downloading ${path.basename(file)}` },
+            { onEvent, signal, label: `downloading ${path.basename(file)}`, control: job.control },
           );
         }
-        return { ok: true, via: "hf-repo", path: dest, bytes, source: label, attempts };
-      }
-
-      if (source.kind === "url") {
-        const name = path.basename(new URL(source.url).pathname) || `${modelId}.bin`;
-        const dest = path.join(root, modelId, name);
-        if (
-          fs.existsSync(dest) &&
-          (!source.sha256 || hashFile(dest) === String(source.sha256).toLowerCase())
-        ) {
-          onEvent?.({ status: "already on disk", progress: 100 });
-          return {
-            ok: true,
-            via: "url",
-            path: dest,
-            bytes: fs.statSync(dest).size,
-            source: label,
-            attempts,
-          };
-        }
-        const bytes = await downloadUrl(source.url, dest, {
-          onEvent,
-          signal,
-          sha256: source.sha256,
-          needBytes: source.bytes,
-          label: source.label,
+        remember(root, job, {
+          status: "installed",
+          dest,
+          sourceUrl: `https://huggingface.co/${source.repo}`,
+          bytes,
         });
-        return { ok: true, via: "url", path: dest, bytes, source: label, attempts };
+        return { ok: true, via: "hf-repo", path: dest, bytes, source: label, attempts };
       }
 
       throw new Error(`unsupported source kind: ${source.kind}`);
     } catch (err) {
       if (signal?.aborted) {
+        if (signal.reason === "pause") {
+          if (active) {
+            remember(root, job, {
+              status: "paused",
+              dest: active.dest,
+              sourceUrl: active.sourceUrl,
+              sha256: active.sha256,
+              error: "paused",
+            });
+          }
+          return { ok: false, error: "paused", cause: "pause", attempts };
+        }
         const cancelled = voiceInstall.classifyDownloadError("cancelled");
         return { ok: false, error: cancelled.line, cause: cancelled.cause, attempts };
       }
@@ -526,4 +639,6 @@ module.exports = {
   listLocalWeights,
   uniqueGgufPaths,
   uniqueSafetensorDirs,
+  safety,
+  library,
 };

@@ -400,6 +400,22 @@ type DesktopApi = {
     attempts?: { source: string; error: string }[];
   }>;
   cancelModelJob?: (jobId: string) => Promise<{ ok: boolean; error?: string }>;
+  listTransfers?: () => Promise<{
+    ok: boolean;
+    jobs: Array<{
+      id: string;
+      modelId: string;
+      status: string;
+      sourceUrl: string;
+      bytes: number;
+      done: number;
+      error: string;
+    }>;
+  }>;
+  transferModel?: (
+    jobId: string,
+    action: "pause" | "resume" | "cancel",
+  ) => Promise<{ ok: boolean; status?: string; error?: string }>;
   removeModel?: (model: string) => Promise<{ ok: boolean; error?: string }>;
   unloadModel?: (model: string) => Promise<{ ok: boolean; error?: string }>;
   probeModel?: (model: string, prompt?: string) => Promise<ModelProbeRun>;
@@ -554,6 +570,11 @@ type DesktopApi = {
     perDayUsd?: number | null;
     perMonthUsd?: number | null;
   }) => Promise<{ allows: boolean; reason: string; configured: boolean }>;
+  recordSpend?: (event: {
+    usd: number;
+    at: string;
+    modelId: string;
+  }) => Promise<{ ok: boolean; allows?: boolean; reason?: string }>;
   /** The one authoritative provider registry (configured/reachable/health). */
   providerRegistry?: () => Promise<{
     at: number;

@@ -132,6 +132,7 @@ export type ModelsState = {
   routing: Record<RoutingTask, string | null>;
   multiModel: string[];
   parallel: boolean;
+  localAnswer: "show-all" | "first-good" | "majority" | "judged";
   device: "auto" | "gpu" | "cpu";
   imported: ImportedModel[];
   log: LogLine[];
@@ -247,6 +248,7 @@ class ModelsStore {
     routing: baseRouting(),
     multiModel: ["qwen2.5-32b", "deepseek-coder-v2"],
     parallel: true,
+    localAnswer: "show-all",
     device: "auto",
     active: [],
     discovered: [],
@@ -293,6 +295,13 @@ class ModelsStore {
     this.state.discoveryAt = saved.discoveryAt ?? null;
     this.state.multiModel = saved.multiModel ?? this.state.multiModel;
     this.state.parallel = saved.parallel ?? true;
+    this.state.localAnswer =
+      saved.localAnswer === "first-good" ||
+      saved.localAnswer === "majority" ||
+      saved.localAnswer === "judged" ||
+      saved.localAnswer === "show-all"
+        ? saved.localAnswer
+        : "show-all";
     this.state.device = saved.device ?? "auto";
     this.state.log = (saved.log ?? []).slice(0, MAX_LOG);
     if (saved.providerState) {
@@ -355,6 +364,7 @@ class ModelsStore {
       discoveryAt: this.state.discoveryAt,
       multiModel: this.state.multiModel,
       parallel: this.state.parallel,
+      localAnswer: this.state.localAnswer,
       device: this.state.device,
       providerState: this.state.providerState,
       log: this.state.log.slice(0, 60),
@@ -1429,6 +1439,17 @@ class ModelsStore {
   setParallel(on: boolean) {
     this.state.parallel = on;
     this.push("info", `parallel execution ${on ? "enabled" : "disabled"}`);
+    this.emit();
+  }
+
+  setLocalAnswer(strategy: ModelsState["localAnswer"]) {
+    this.state.localAnswer = strategy;
+    this.push(
+      "info",
+      strategy === "judged"
+        ? "local answers: judged. The judge does not choose a provider."
+        : `local answers: ${strategy}`,
+    );
     this.emit();
   }
 
