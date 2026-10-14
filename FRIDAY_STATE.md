@@ -8,7 +8,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 ## Verified on this Linux tree (2026-10-14)
 
-`npm run preflight` exited 0. It was not `--full`, so the Vitest suite below was run on its own. Windows CMD, install, and publish were not run.
+`npm run preflight` exited 0. It was not `--full`, so the Vitest suite below was run on its own. Windows CMD, install, and publish were not run. Gitleaks 8.30.1 was the same tag the secret-scan job runs.
 
 | Check | Result |
 | --- | --- |
@@ -17,12 +17,13 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 | `npm run verify:version` | Passed. `version 1.1.2.2 - all version sources and governed documents are in sync`. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
-| `npm run typecheck:py` | 4 passed in 5.27s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
-| `npm run test:kernel` | 198 passed, 1 pre-existing Starlette TestClient warning, 19.83s. |
+| `npm run typecheck:py` | 4 passed in 5.40s. The ceiling file `kernel/pyright-baseline.txt` is 70. |
+| `npm run test:kernel` | 198 passed, 1 pre-existing Starlette TestClient warning, 20.21s. |
 | `npm run arrange:check` | 140 folders declared, missing 0, duplicates 0. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
-| `npm run test:fast` | 129 files passed, 1077 passed, 25.26s. |
-| `npm test` | 352 files passed, 2925 passed, 2 skipped, 90.43s. Exit 0. |
+| `npm run test:fast` | 1 file, 10 passed (the changed test only). |
+| `npm test` | 352 files passed, 2925 passed, 2 skipped, 86.68s. Exit 0. |
+| gitleaks 8.30.1 | 154 commits scanned, no leaks found. |
 | `npm audit` / `pip-audit` / `npm run models:check` / `npm run pricing:status` | Not re-run in this session. |
 
 `npm run validate:local` calls the same preflight script. A failure does not hide later gates.
@@ -112,6 +113,7 @@ These look like bugs. They are not. Do not "fix" them.
 - Health Weekly's last listed success is run 38247606809 on `3d7a514`. Actions history lists no run for Repository Control or Security Scan.
 - Live keyed provider calls, free-proof probes, LM Studio and Ollama on Windows, and rate-limit behaviour are unverified. `npm run models:check --live` was not run. No owner keys are in this environment. The six checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Model routing checks.
 - Local and cloud router phases: Phase 1 is in this tree (one handler per provider, lane decision, cloud allowlist, paid gate, Chat and Voice on `routeRequest`). Phase 2 (launcher download and install, library catalogs, download states), Phase 3 (live connect, refresh, spend log), and Phase 4 (LOCAL AI, CLOUD AI, and ROUTING sections) are not built. Real downloads, launcher installs, and the new screens are unverified.
+- PR Validation run 38529511282 failed the secrets job. The live redaction fixture is a repeated-character stand-in, and `.gitleaksignore` names the one historical finding. Gitleaks 8.30.1 on this tree reports no leaks. A hosted re-run is unverified. The two CodeQL warnings on that run are the workflow `::warning` echoes; those jobs exited 0. The seven notices are GitHub's `ubuntu-latest` migration note for Ubuntu 26. Workflow files were not edited.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities. This docs change does not edit it.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
 - `npm audit` on this tree reported 0 vulnerabilities. `pip-audit` and `npm run models:check` were not re-run.
@@ -133,7 +135,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 3. Voice and Auto, in this order: Doctor voice self-test, the wake word plus one sentence, a 3-turn conversation, an interruption, a network drop, Refresh free list, Test my free models, one Chat turn and one Auto turn on the same free pool, then unplug and replug the microphone, sleep and resume, then Python, Node, a C compile, Git status, and the local CI report. If a step fails, copy the Voice rows, the Toolchain rows, and the on-screen status. Confirm Install Manager no longer says Manual for faster-whisper when that runtime or an existing Python can be created, and confirm a model download names the failing step. Speaker: a missing file is not a match, a match never executes, and enrol waits until the file is on this PC.
 4. Local CMD pack on that PC, from this branch, in `D:\FRIDAY-AI-ASSISTANT`: `git fetch`, check out the branch, `npm run setup`, then `npm run build:win`. Expect the log to end with every step PASS, no installer-smoke Path error, no `first run failed`, and `echo %ERRORLEVEL%` printing `0`. Then `git status` should be clean. Expect `release\FRIDAY-Setup-1.1.2.2.exe`, `release\FRIDAY-Portable-1.1.2.2.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin` (and the other staged packs beside it, not under a second `resources` folder). That pack is not a GitHub release. If a step fails, keep the log tail and the newest `debug\reports\readiness-*.json`.
 5. With the owner's keys, run the six steps under Model routing checks in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md), then `npm run models:check --live`. Offline classification is already covered by tests. A live keyed call, a free-proof probe, LM Studio, Ollama, and a real rate limit are not. A failing step needs the step number, the on-screen text, and the newest `debug\reports` file.
-6. Do not stage-publish `1.1.2.2` again. The next update is a separate owner run. With no stronger change, the patch is `1.1.2.3`. Do not open a second non-release pull request while one into `main` is open. Do not dispatch a workflow. Workflow files stay locked until a second yes or ok.
+6. Do not stage-publish `1.1.2.2` again. The next update is a separate owner run. With no stronger change, the patch is `1.1.2.3`. Do not open a second non-release pull request while one into `main` is open. Do not dispatch a workflow. Workflow files stay locked until a second yes or ok. That includes silencing the two CodeQL `::warning` echoes and pinning `ubuntu-24.04` so the Ubuntu 26 runner notice stops.
 7. Finding, not fixed here. `src/routeTree.gen.ts` is generated by Vite (`vite dev`, `vite build`, Vitest) with a trailing `declare module` block, and `npm run build:desktop` removes that block. After a desktop build, restore the committed file. Impact: a one-block diff that is not a product change. Owner area: build and packaging, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 8. Finding, not fixed here. No `Content-Security-Policy` header is set on the packaged page (`electron/` has no such string). Impact: the packaged window relies on the existing sandbox and navigation allow-list. Owner area: Electron security, already noted in [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md).
 9. Finding, not fixed here. `npm run test:fast` is `vitest run --changed`. On a markdown-only diff it printed `No test files found` and exited 0. Impact: the tests that read these docs are not selected until `npm test`. Owner area: the local gate, `scripts/test-fast.cjs`.

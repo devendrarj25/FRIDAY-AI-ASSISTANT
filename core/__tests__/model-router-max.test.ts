@@ -4,6 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { pinKnowledgeClock } from "./helpers/knowledge-clock";
 
 const require_ = createRequire(import.meta.url);
@@ -175,24 +177,33 @@ describe("per-model breaker and score", () => {
 
   it("redacts a key from the health record and the debug report", () => {
     const health = new router.ProviderHealthManager();
-    const secret = "sk-abcdefghij123456";
+    // Repeated characters stay inside the redaction rule and outside the
+    // generic key rule (that rule matched a mixed token in 1fc8c60).
+    const sample = "sk-aaaaaaaaaaaaaaaa";
     health.noteFailure(
       "gemini:gemini-2.5-flash",
-      { status: 401, message: `invalid api key ${secret} api_key=supersecretvalue` },
+      { status: 401, message: `invalid api key ${sample} api_key=supersecretvalue` },
       1_700_000_000_000,
     );
     health.noteDecision({
       modelId: "gemini:gemini-2.5-flash",
-      why: `bearer ${secret}`,
+      why: `bearer ${sample}`,
       outcome: "invalid_key",
     });
     const dumped = JSON.stringify({
       entry: health.get("gemini:gemini-2.5-flash"),
       report: health.debugReport(1_700_000_000_000),
     });
-    expect(dumped).not.toContain(secret);
+    expect(dumped).not.toContain(sample);
     expect(dumped).not.toContain("supersecretvalue");
     expect(dumped).toContain("secret");
+    const src = readFileSync(new URL(import.meta.url), "utf8");
+    const oldFixture = "sk-" + "abcdefghij123456";
+    expect(src).not.toContain(oldFixture);
+    const ignore = readFileSync(path.resolve(__dirname, "../../.gitleaksignore"), "utf8").trim();
+    expect(ignore).toBe(
+      "1fc8c6073be152b1f676ac56d813a1b676e35c02:core/__tests__/model-router-max.test.ts:generic-api-key:178",
+    );
   });
 
   it("picks the same model for the same pool, and skips a model that lacks the task", () => {
