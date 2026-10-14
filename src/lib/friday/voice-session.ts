@@ -457,7 +457,8 @@ export function spokenRouteError(text: string): string {
   const raw = String(text || "").trim();
   if (!raw) return "";
   const bracket = /\[([^\]\n]+)\]\s*$/.exec(raw);
-  const source = bracket ? bracket[1].trim() : raw;
+  const inner = bracket?.[1];
+  const source = inner ? inner.trim() : raw;
   const flat = source.replace(/\s+/g, " ").trim();
   if (/connect a model|start a local/i.test(flat)) {
     return "No model is reachable. Connect one in Models, or start a local engine.";
