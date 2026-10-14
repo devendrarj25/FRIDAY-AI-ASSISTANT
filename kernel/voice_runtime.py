@@ -154,7 +154,8 @@ def speaker_status() -> dict:
     return {
         "ready": present,
         "engine": "wespeaker-ecapa" if present else "none",
-        "reason": "" if present else "model-not-on-disk",
+        "reason": "" if present else "optional - not installed",
+        "optional": True,
         "gate": False,
         "license": SPEAKER_LICENSE,
         "attribution": SPEAKER_ATTRIBUTION,
@@ -547,7 +548,7 @@ def check_lines() -> list[str]:
     if speaker["ready"]:
         lines.append("PASS speaker wespeaker-ecapa")
     else:
-        lines.append(f"FAIL speaker {speaker['reason']}")
+        lines.append(f"OPTIONAL speaker {speaker['reason']}")
     providers = execution_providers()
     lines.append(f"PASS cpu-fallback selected={providers['selected']} gpu={providers['gpuDetected']}")
     room = disk_room(voice_root(), SILERO_BYTES)

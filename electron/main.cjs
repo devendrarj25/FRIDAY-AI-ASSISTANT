@@ -290,6 +290,7 @@ const REGISTRY_KEY = "HKCU\\Software\\FRIDAY";
 
 let kernel = null;
 let win = null;
+let powerResumeBound = false;
 let watcher = null;
 let stayHiddenOnLaunch = false;
 let forceVisible = false;
@@ -7101,6 +7102,15 @@ app
       });
       session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
       log("session permissions: microphone/camera allowed, everything else denied");
+      const { powerMonitor } = require("electron");
+      if (powerMonitor && !powerResumeBound) {
+        powerResumeBound = true;
+        powerMonitor.on("resume", () => {
+          for (const open of BrowserWindow.getAllWindows()) {
+            if (!open.isDestroyed()) open.webContents.send("system:resume");
+          }
+        });
+      }
     } catch (err) {
       log(`permission handler install failed: ${String(err?.message || err)}`);
     }

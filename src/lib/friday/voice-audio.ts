@@ -13,6 +13,7 @@
  */
 
 import { captureRate } from "./mic-session";
+import { markWorklet, noteCaptureFrame, workletCapturing } from "./pcm-capture";
 import { captureMayRetry } from "./voice-session";
 import { classifyMicHold, relaxedCapture } from "./mic-truth";
 
@@ -410,6 +411,7 @@ export class VoiceGate {
   private lastEmitAt = 0;
   /** Last five capture failures. No audio and no transcript. */
   private captureErrors: string[] = [];
+  private worklet: AudioWorkletNode | null = null;
 
   /**
    * The single live microphone stream. Dictation and any other consumer share
@@ -536,6 +538,7 @@ export class VoiceGate {
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.2;
       source.connect(analyser);
+      void this.attachWorklet(ctx, source);
       this.stream = stream;
       this.ctx = ctx;
       this.source = source;
@@ -607,6 +610,10 @@ export class VoiceGate {
   private teardown() {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.worklet?.port.close();
+    this.worklet?.disconnect();
+    this.worklet = null;
+    markWorklet(false);
     this.source?.disconnect();
     this.analyser?.disconnect();
     this.stream?.getTracks().forEach((t) => t.stop());
@@ -672,6 +679,37 @@ export class VoiceGate {
     await this.resumeContext();
   }
 
+  /**
+   * The audio thread keeps a PCM ring while Auto listening is open.
+   * The analyser loop feeds the same ring only when the worklet did not start.
+   */
+  private async attachWorklet(ctx: AudioContext, source: MediaStreamAudioSourceNode) {
+    if (!ctx.audioWorklet) return;
+    const code = [
+      "class FridayCapture extends AudioWorkletProcessor {",
+      "process(inputs){ const ch=inputs[0]&&inputs[0][0]; if(ch) this.port.postMessage(ch); return true; }",
+      "}",
+      "registerProcessor('friday-capture', FridayCapture);",
+    ].join("");
+    const url = URL.createObjectURL(new Blob([code], { type: "application/javascript" }));
+    try {
+      await ctx.audioWorklet.addModule(url);
+      if (this.ctx !== ctx) return;
+      const node = new AudioWorkletNode(ctx, "friday-capture");
+      node.port.onmessage = (event) => {
+        const frame = event.data as Float32Array;
+        noteCaptureFrame(frame, performance.now(), ctx.sampleRate || 48000, Date.now());
+      };
+      source.connect(node);
+      this.worklet = node;
+      markWorklet(true);
+    } catch {
+      markWorklet(false);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   private loop = () => {
     const analyser = this.analyser;
     if (!analyser) return;
@@ -693,6 +731,9 @@ export class VoiceGate {
       sum += v * v;
     }
     const level = Math.sqrt(sum / this.buffer.length);
+    if (!workletCapturing()) {
+      noteCaptureFrame(this.buffer, performance.now(), this.ctx?.sampleRate || 48000, Date.now());
+    }
     const prev = this.snapshot;
     const step = advanceVad({
       level,

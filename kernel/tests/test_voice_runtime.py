@@ -53,7 +53,8 @@ class VoiceRuntimeTests(unittest.TestCase):
         self.assertIn("PASS boot", proc.stdout)
         self.assertIn("FAIL local-tts", proc.stdout)
         self.assertIn("FAIL vad-silero", proc.stdout)
-        self.assertIn("FAIL speaker", proc.stdout)
+        self.assertIn("OPTIONAL speaker", proc.stdout)
+        self.assertNotIn("FAIL speaker", proc.stdout)
         self.assertIn("PASS cpu-fallback", proc.stdout)
 
     def test_speak_without_a_model_is_not_audio(self):

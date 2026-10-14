@@ -58,6 +58,14 @@ export type VoicePreferences = {
   sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
+  /** When a heard line is a turn. Conversation is the fresh-install default. */
+  addressMode: "name-only" | "conversation" | "meant-for-me";
+  /** Seconds after FRIDAY speaks in which the next line is a follow-up. */
+  addressWindowSec: number;
+  /** Minutes of heard lines kept on this PC. Zero turns the log off. */
+  heardKeepMin: number;
+  /** Ambient lines may be added to a cloud prompt only when Privacy mode is off. */
+  allowAmbientCloud: boolean;
   /** Voice library — imported and registered voices, each with its tuning. */
   models: VoiceModel[];
   /** Id of the active entry in `models` ("" = use the plain fields above). */
@@ -182,6 +190,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pauseDuringCalls: true,
     sttSize: "auto",
     addressName: "",
+    addressMode: "conversation",
+    addressWindowSec: 8,
+    heardKeepMin: 10,
+    allowAmbientCloud: false,
     models: [],
     activeId: "",
   },

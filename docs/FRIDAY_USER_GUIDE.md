@@ -56,6 +56,24 @@ Voice research, 13 October 2026. Chromium echo cancellation covers audio this ap
 
 This checklist is unverified until it is run on the owner's Windows PC. A Linux run does not pass it.
 
+## Live listening
+
+On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them.
+
+1. Auto mode on: Live Captions shows the mic live; speak 5 normal sentences, then a very short word, then a long paragraph: every one appears with the right tag, none is dropped, none shows "already active elsewhere".
+2. Close all other apps using the mic and also leave Zoom/Meet open: FRIDAY still hears. Toggle Windows "Let desktop apps access your microphone" off/on: a clear message appears once and listening recovers by itself.
+3. Say "FRIDAY, kal ka schedule batao", then (without the name, within a few seconds) a follow-up; then talk to someone else out loud, and say a sentence with the word Friday as a weekday: she answers only when meant for her.
+4. While she speaks, speak over her: she stops at once; her own voice never shows up as your words in the captions.
+5. Unplug/plug the headset or USB mic, sleep and wake the PC, change the default device: the mic recovers or falls back with a message; press Reset microphone.
+6. Open the voice screen for 10 minutes: no flicker, no stutter, comparable to Chat mode; if not, send a 10-second screen recording and the newest debug report.
+7. Chat mode: confirm the microphone is NOT used.
+8. Same question in Chat and in Voice: the Doctor shows the same lane/model/reason.
+9. Models: connect a key, Test, Refresh, select only some models, confirm only they are used; run `npm run models:check --live` once and send the report file; leave paid OFF and confirm nothing paid is ever used.
+
+Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
+
+Live listening research, 14 October 2026. An ended track cannot be resumed ([microphone track](https://www.webrtc-developers.com/how-to-know-if-my-microphone-works/)): ADOPT, reopen the one stream. Windows sleep can freeze the process before a suspend handler runs ([electron#47739](https://github.com/electron/electron/issues/47739)): ADAPT, rebuild on `resume`. faster-whisper yields segments from a generator ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)): ADAPT, show a stream line and keep Hindi and Hinglish on auto-detect. A second streaming engine: REJECT.
+
 ## Model routing checks
 
 On the owner's PC with real keys. These steps are unverified until that PC runs them.
