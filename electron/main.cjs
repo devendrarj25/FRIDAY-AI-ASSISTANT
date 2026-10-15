@@ -13,6 +13,9 @@ for (const arg of process.argv) {
   if (arg === "--friday-boot-selftest" || arg === "friday-boot-selftest") {
     process.env.FRIDAY_BOOT_SELFTEST = "1";
   }
+  if (arg === "--friday-readiness" || arg === "friday-readiness") {
+    process.env.FRIDAY_READINESS = "1";
+  }
   const workspaceArg = arg.startsWith("--friday-workspace=")
     ? arg.slice("--friday-workspace=".length)
     : arg.startsWith("friday-workspace=")
@@ -41,6 +44,20 @@ if (process.env.FRIDAY_BOOT_SELFTEST) {
   app.commandLine.appendSwitch("disable-dev-shm-usage");
   // A separate GPU process on a runner with no GPU never signals ready, so
   // app.whenReady never runs. Keep compositing in this process for the check.
+  app.commandLine.appendSwitch("in-process-gpu");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+}
+
+// Readiness is the full app, not the boot check. Release 38777044711 passed
+// packaged boot, then the readiness process was still alive at 5 minutes and
+// never printed a report. On a runner with no GPU the separate GPU process
+// never signals ready, so whenReady never runs. A normal launch keeps the GPU.
+if (!process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_READINESS === "1") {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("disable-dev-shm-usage");
   app.commandLine.appendSwitch("in-process-gpu");
   app.commandLine.appendSwitch("disable-gpu-sandbox");
 }
@@ -107,6 +124,24 @@ if (process.env.FRIDAY_BOOT_SELFTEST) {
     app.exit(1);
   }
   return;
+}
+
+// A redirected Windows GUI stdout blocks the main thread on the next write
+// (the boot check already stopped using that pipe). Readiness used to wait
+// on that stream for FRIDAY_READINESS_RESULT and then sat until the 5 minute
+// kill. The result file is the signal. A normal launch keeps the console.
+if (process.env.FRIDAY_READINESS === "1" && process.platform === "win32") {
+  const sink = (_chunk, encoding, callback) => {
+    const done = typeof encoding === "function" ? encoding : callback;
+    if (typeof done === "function") done();
+    return true;
+  };
+  try {
+    process.stdout.write = sink;
+    process.stderr.write = sink;
+  } catch {
+    /* a normal stream still prints the result line */
+  }
 }
 
 const {
@@ -271,6 +306,39 @@ ipcMain.handle = (channel, handler) =>
     }
   });
 
+/** The pack reads this file. Windows GUI stdout is not a reliable pipe. */
+function writeReadinessResult(report) {
+  let root = "";
+  try {
+    root = paths.root() || "";
+  } catch {
+    root = "";
+  }
+  if (!root) {
+    root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
+  }
+  if (!root) return;
+  try {
+    const file = path.join(path.resolve(root), "logs", "readiness-result.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(report));
+    fs.renameSync(tmp, file);
+  } catch {
+    /* the parent reports a missing marker */
+  }
+}
+
+function finishReadiness(report) {
+  const payload =
+    report && typeof report === "object"
+      ? report
+      : { ok: false, stages: [], error: "readiness failed" };
+  writeReadinessResult(payload);
+  console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(payload)}`);
+  setTimeout(() => app.exit(payload.ok ? 0 : 1), 250);
+}
+
 // One FRIDAY per machine: a second launch focuses the running window instead of
 // spawning a duplicate kernel against the same workspace.
 let fridayInstanceLockHeld = true;
@@ -289,6 +357,12 @@ if (!singleInstance) {
     // needs a failed exit and a line it can read after stdout is dropped.
     emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_FAIL another FRIDAY already holds this PC");
     app.exit(1);
+  } else if (process.env.FRIDAY_READINESS === "1") {
+    finishReadiness({
+      ok: false,
+      stages: [],
+      error: "another FRIDAY already holds this PC",
+    });
   } else {
     app.quit();
   }
@@ -356,6 +430,8 @@ process.on("uncaughtException", (err) => {
   else if (app.isReady()) {
     if (process.env.FRIDAY_BOOT_SELFTEST) {
       finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${text.split("\n")[0]}`);
+    } else if (process.env.FRIDAY_READINESS === "1") {
+      finishReadiness({ ok: false, stages: [], error: text.split("\n")[0] });
     } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
   }
 });
@@ -966,7 +1042,9 @@ async function startKernel(root) {
     for (const line of String(text).split(/\r?\n/)) {
       if (line.trim()) telemetry.recordLog(level === "error" ? "error" : "info", "kernel", line);
     }
-    process.stdout.write(`[kernel:${level}] ${text}`);
+    // Readiness owns one result file. Kernel text on this pipe can block the
+    // main thread for the whole 5 minute budget.
+    if (process.env.FRIDAY_READINESS !== "1") process.stdout.write(`[kernel:${level}] ${text}`);
   };
 
   kernel.stdout.on("data", forward("info"));
@@ -3141,14 +3219,14 @@ function createWindow() {
         getWorkspaceRoot,
       })
         .then((report) => {
-          console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(report)}`);
-          setTimeout(() => app.exit(report.ok ? 0 : 1), 250);
+          finishReadiness(report);
         })
         .catch((error) => {
-          console.log(
-            `FRIDAY_READINESS_RESULT ${JSON.stringify({ ok: false, stages: [], error: String(error.message || error) })}`,
-          );
-          setTimeout(() => app.exit(1), 250);
+          finishReadiness({
+            ok: false,
+            stages: [],
+            error: String(error.message || error),
+          });
         });
     }
 
@@ -7346,6 +7424,8 @@ app
       log(`window creation failed: ${err?.stack || err}`);
       if (process.env.FRIDAY_BOOT_SELFTEST) {
         finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${err?.message || err}`);
+      } else if (process.env.FRIDAY_READINESS === "1") {
+        finishReadiness({ ok: false, stages: [], error: String(err?.message || err) });
       } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
       return;
     }

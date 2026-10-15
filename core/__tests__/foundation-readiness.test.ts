@@ -186,6 +186,18 @@ describe("build and packaging chain", () => {
     expect(driver).toContain("repair ran:");
     expect(driver).toContain("first.ok ? 0 : 1");
     expect(driver).toContain("the in-app report passed, so the process must exit 0");
+    expect(driver).toContain("did not finish within 5 minutes");
+    expect(driver).toContain("300000");
+    expect(driver).toContain("--friday-readiness");
+    expect(driver).toContain("--friday-workspace=");
+    expect(driver).toContain("readiness-result.json");
+    expect(driver).toContain("first.exitCode === expected");
+    const main = read("electron/main.cjs");
+    expect(main).toContain("--friday-readiness");
+    expect(main).toContain("readiness-result.json");
+    expect(main).toContain("function finishReadiness");
+    expect(main).toContain("FRIDAY_READINESS_RESULT");
+    expect(read("electron/telemetry.cjs")).toContain('process.env.FRIDAY_READINESS !== "1"');
     expect(driver).toContain("FRIDAY_PYTHON");
     expect(driver).toContain("checkoutPython");
     expect(read("scripts/build-windows.cmd")).toContain("build-pipeline.cjs");

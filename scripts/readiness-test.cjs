@@ -142,8 +142,18 @@ function checkoutPython() {
  * `select` chooses the FRIDAY root explicitly (first run). The restart runs
  * without it so the app has to rediscover the same folder by itself.
  */
+function readinessMarker() {
+  return path.join(FRIDAY_ROOT, "logs", "readiness-result.json");
+}
+
 function launch(app, label, { select = true } = {}) {
   return new Promise((resolve) => {
+    const marker = readinessMarker();
+    try {
+      fs.rmSync(marker, { force: true });
+    } catch {
+      /* nothing from an earlier launch */
+    }
     const env = {
       ...process.env,
       FRIDAY_READINESS: "1",
@@ -153,7 +163,12 @@ function launch(app, label, { select = true } = {}) {
     else delete env.FRIDAY_WORKSPACE_ROOT;
     const python = checkoutPython();
     if (python) env.FRIDAY_PYTHON = python;
-    const child = spawn(app.exe, app.args || [], {
+    // A Windows GUI process can miss the inherited environment. The arguments
+    // still arrive. Restart omits the workspace argument so FRIDAY has to
+    // rediscover the same folder.
+    const args = [...(app.args || []), "--friday-readiness"];
+    if (select) args.push(`--friday-workspace=${FRIDAY_ROOT}`);
+    const child = spawn(app.exe, args, {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -161,36 +176,56 @@ function launch(app, label, { select = true } = {}) {
 
     let output = "";
     let report = null;
+    let poll = null;
+    const accept = (parsed) => {
+      if (report || !parsed || typeof parsed !== "object") return;
+      if (typeof parsed.ok !== "boolean" || !Array.isArray(parsed.stages)) return;
+      report = parsed;
+    };
+    const takeLine = (text) => {
+      const line = String(text || "")
+        .split(/\r?\n/)
+        .find((item) => item.startsWith("FRIDAY_READINESS_RESULT "));
+      if (!line) return;
+      try {
+        accept(JSON.parse(line.slice("FRIDAY_READINESS_RESULT ".length)));
+      } catch {
+        /* wait for a complete line or the marker file */
+      }
+    };
+    const takeMarker = () => {
+      try {
+        accept(JSON.parse(fs.readFileSync(marker, "utf8")));
+      } catch {
+        /* not written yet */
+      }
+    };
     const settle = (result) => {
       clearTimeout(timer);
+      clearInterval(poll);
       killTree(child);
       resolve(result);
     };
-    const timer = setTimeout(
-      () =>
-        settle({
-          ok: false,
-          stages: [],
-          error: `${label} did not finish within 5 minutes`,
-          output,
-        }),
-      300000,
-    );
+    const timer = setTimeout(() => {
+      takeMarker();
+      settle({
+        ok: false,
+        stages: [],
+        error: `${label} did not finish within 5 minutes`,
+        output,
+      });
+    }, 300000);
+    poll = setInterval(takeMarker, 250);
     const read = (chunk) => {
       output += String(chunk);
-      const line = output.split(/\r?\n/).find((l) => l.startsWith("FRIDAY_READINESS_RESULT "));
-      if (line && !report) {
-        try {
-          report = JSON.parse(line.slice("FRIDAY_READINESS_RESULT ".length));
-        } catch {
-          report = null;
-        }
-      }
+      takeLine(output);
     };
     child.stdout.on("data", read);
     child.stderr.on("data", read);
     child.on("error", (error) => settle({ ok: false, stages: [], error: error.message, output }));
     child.on("exit", (code) => {
+      takeMarker();
+      takeLine(output);
       if (report) return settle({ ...report, exitCode: code, output });
       // A desktop-less Linux CI box cannot open a window; that is not a FRIDAY bug.
       if (!win && /error while loading shared libraries|libgtk|libnss/i.test(output))
