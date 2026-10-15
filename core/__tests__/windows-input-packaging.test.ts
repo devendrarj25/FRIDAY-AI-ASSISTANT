@@ -68,7 +68,7 @@ describe("Windows input-safe packaging", () => {
     expect(paths).not.toMatch(/\bnpx\b/);
   });
 
-  it("allows session media on a normal launch and disables GPU only for the boot self-test", () => {
+  it("allows session media on a normal launch and disables GPU for boot and readiness", () => {
     const main = read("electron/main.cjs");
     expect(main).toMatch(/if \(permission === "media"\)/);
     expect(main).toContain("callback(false)");
@@ -77,5 +77,14 @@ describe("Windows input-safe packaging", () => {
     );
     const beforeSelftest = main.slice(0, main.indexOf("if (process.env.FRIDAY_BOOT_SELFTEST)"));
     expect(beforeSelftest).not.toContain("disableHardwareAcceleration");
+    const readiness = main.indexOf(
+      '!process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_READINESS === "1"',
+    );
+    expect(readiness).toBeGreaterThan(-1);
+    expect(main.slice(readiness, readiness + 700)).toContain("disableHardwareAcceleration");
+    expect(main.slice(readiness, readiness + 700)).toContain("in-process-gpu");
+    const normal = main.indexOf("Normal launches keep full hardware");
+    expect(normal).toBeGreaterThan(-1);
+    expect(normal).toBeLessThan(readiness);
   });
 });
