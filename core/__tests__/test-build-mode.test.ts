@@ -266,6 +266,12 @@ describe("installer lifecycle smoke contract", () => {
     expect(emitBody).not.toContain("process.stdout.write");
     expect(main).not.toContain("setBlocking(false)");
     expect(smoke).toContain("Do not redirect stdout or stderr.");
+    expect(smoke).toContain("function Stop-InstalledApp");
+    const bootFn = smoke.indexOf("function Verify-Boot");
+    const stopAt = smoke.indexOf("Stop-InstalledApp", bootFn);
+    const exeAt = smoke.indexOf("FRIDAY.exe", bootFn);
+    expect(stopAt).toBeGreaterThan(bootFn);
+    expect(exeAt).toBeGreaterThan(stopAt);
     const marker = main.indexOf("boot-selftest.txt");
     const lock = main.indexOf("requestSingleInstanceLock");
     expect(marker).toBeGreaterThan(-1);

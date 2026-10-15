@@ -33,10 +33,14 @@ function fromSettingsPointer() {
 
 function fromRegistry() {
   if (process.platform !== "win32") return null;
+  // reg.exe with no timeout has hung a GUI boot on CI. The same 8s bound the
+  // main process uses. windowsHide stops the console allocation deadlock.
   const out = spawnSync("reg", ["query", "HKCU\\Software\\FRIDAY", "/v", "WorkspacePath"], {
     encoding: "utf8",
+    windowsHide: true,
+    timeout: 8000,
   });
-  if (out.status !== 0) return null;
+  if (out.error || out.status !== 0) return null;
   const match = /WorkspacePath\s+REG_SZ\s+(.+)/i.exec(out.stdout || "");
   const value = match ? match[1].trim() : null;
   return value && fs.existsSync(value) ? value : null;

@@ -22,6 +22,13 @@ describe("runtime paths", () => {
     }
   });
 
+  it("bounds the Windows registry read so a GUI boot cannot sit on reg.exe", () => {
+    const source = readFileSync(join(root, "scripts/friday-root.cjs"), "utf8");
+    const call = source.slice(source.indexOf('spawnSync("reg"'));
+    expect(call.slice(0, 500)).toContain("windowsHide: true");
+    expect(call.slice(0, 500)).toContain("timeout: 8000");
+  });
+
   it("probes the runtime venv the installed app actually uses", () => {
     const source = readFileSync(join(root, "scripts/python-runtime.cjs"), "utf8");
     expect(source).toContain("FRIDAY_INSTALL_DIR");
