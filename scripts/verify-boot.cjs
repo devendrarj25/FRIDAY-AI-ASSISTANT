@@ -15,6 +15,7 @@
  */
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 
@@ -161,41 +162,77 @@ function killTree(child) {
 /**
  * Boots an Electron application and waits for the real FRIDAY interface to
  * report itself as mounted. `args` is empty for the packaged EXE, which already
- * contains the app, and points at electron/main.cjs for the development binary.
+ * contains the app, and points at the app directory for the development binary.
+ * Both launches also receive `--friday-workspace` so the boot marker has a folder.
  */
+function readBootMarker(dir) {
+  try {
+    return fs.readFileSync(path.join(dir, "logs", "boot-selftest.txt"), "utf8");
+  } catch {
+    return "";
+  }
+}
+
 function bootElectron(binary, args, label) {
   return new Promise((resolve) => {
     if (!fs.existsSync(binary)) return resolve(`${label} is missing (${binary})`);
-    const child = spawn(binary, args, {
+    // The packaged check writes logs/boot-selftest.txt and does not write the
+    // stdout pipe. A GUI process with a redirected pipe never delivered that
+    // line. Give the check a folder and read the marker the installer reads.
+    const bootRoot = fs.mkdtempSync(path.join(os.tmpdir(), "friday-boot-"));
+    fs.mkdirSync(path.join(bootRoot, "logs"), { recursive: true });
+    const child = spawn(binary, [...args, `--friday-workspace=${bootRoot}`], {
       cwd: root,
-      env: { ...process.env, FRIDAY_BOOT_SELFTEST: "1", ELECTRON_DISABLE_SECURITY_WARNINGS: "1" },
+      env: {
+        ...process.env,
+        FRIDAY_BOOT_SELFTEST: "1",
+        FRIDAY_WORKSPACE_ROOT: bootRoot,
+        ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";
+    let settled = false;
+    let timer = null;
+    let poll = null;
+    const signal = () => `${out}\n${readBootMarker(bootRoot)}`;
     const done = (result) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      clearInterval(poll);
       killTree(child);
+      try {
+        fs.rmSync(bootRoot, { recursive: true, force: true });
+      } catch {
+        /* temp boot folder */
+      }
       resolve(result);
     };
-    const timer = setTimeout(
-      () => done(`${label} did not report a mounted FRIDAY window within 120s`),
+    timer = setTimeout(
+      () => done(`${label} did not report a mounted FRIDAY window within 120s\n${signal()}`),
       120000,
     );
+    const consider = () => {
+      const text = signal();
+      if (text.includes("FRIDAY_BOOT_SELFTEST_OK")) done(null);
+      else if (text.includes("FRIDAY_BOOT_SELFTEST_FAIL"))
+        done(`${label} loaded without mounting the interface\n${text}`);
+    };
     const read = (chunk) => {
       out += String(chunk);
-      if (out.includes("FRIDAY_BOOT_SELFTEST_OK")) done(null);
-      if (out.includes("FRIDAY_BOOT_SELFTEST_FAIL"))
-        done(`${label} loaded without mounting the interface`);
+      consider();
     };
+    poll = setInterval(consider, 500);
     child.stdout.on("data", read);
     child.stderr.on("data", read);
     child.on("error", (err) => done(`${label} could not start: ${err.message}`));
     child.on("exit", (code) => {
-      if (!out.includes("FRIDAY_BOOT_SELFTEST_OK")) {
-        const libs = /error while loading shared libraries|libgtk|libnss/i.test(out);
-        if (libs && !win) return done(null); // headless Linux CI has no desktop libraries
-        done(`${label} exited before the interface mounted (code ${code})`);
-      }
+      const text = signal();
+      if (text.includes("FRIDAY_BOOT_SELFTEST_OK")) return done(null);
+      const libs = /error while loading shared libraries|libgtk|libnss/i.test(text);
+      if (libs && !win) return done(null); // headless Linux CI has no desktop libraries
+      done(`${label} exited before the interface mounted (code ${code})\n${text}`);
     });
   });
 }

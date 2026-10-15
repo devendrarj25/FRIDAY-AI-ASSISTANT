@@ -53,5 +53,12 @@ export default defineConfig({
     emptyOutDir: true,
     // Keep production crash stacks actionable in the installed desktop app.
     sourcemap: true,
+    // AppShell is one shell chunk (3,672 kB on the 2026-10-15 desktop build).
+    // The reporter's default 500 kB line is yellow on every pack. Infinity is
+    // not a limit here: an older reporter read it as 0 kB.
+    chunkSizeWarningLimit: 8192,
+    rolldownOptions: {
+      checks: { bundlerTimings: false, moduleLevelDirective: false },
+    },
   },
 });

@@ -150,6 +150,12 @@ export default defineConfig(({ command }) => ({
     __FRIDAY_VERSION__: JSON.stringify(identity.releaseVersion),
     __FRIDAY_BUILD__: JSON.stringify(new Date().toISOString().slice(0, 10).replace(/-/g, ".")),
   },
+  build: {
+    chunkSizeWarningLimit: 8192,
+    rolldownOptions: {
+      checks: { bundlerTimings: false, moduleLevelDirective: false },
+    },
+  },
   plugins: [
     navGuard,
     tailwindcss(),

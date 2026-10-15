@@ -42,6 +42,14 @@ describe("packaged renderer loading", () => {
     expect(config).toMatch(/outDir: resolve\(import\.meta\.dirname, "dist-desktop"\)/);
     // Stale chunks from a previous build must never survive into app.asar.
     expect(config).toMatch(/emptyOutDir: true/);
+    expect(config).toMatch(/chunkSizeWarningLimit:\s*8192/);
+    expect(config).toMatch(/bundlerTimings:\s*false/);
+    expect(config).toMatch(/moduleLevelDirective:\s*false/);
+    expect(config).not.toMatch(/chunkSizeWarningLimit:\s*Infinity/);
+    const web = read("vite.config.ts");
+    expect(web).toMatch(/chunkSizeWarningLimit:\s*8192/);
+    expect(web).toMatch(/bundlerTimings:\s*false/);
+    expect(web).toMatch(/moduleLevelDirective:\s*false/);
   });
 
   it("packages and verifies dist-desktop in the Windows build", () => {

@@ -159,6 +159,9 @@ describe("flow coverage registry", () => {
     expect(fresh.options).toEqual(preferenceIds());
     expect(fresh.workflows).toEqual(WORKFLOWS);
     expect(fresh.ipc.some((item) => item.channel === "app:version")).toBe(true);
+    expect(fresh.ipc.find((item) => item.channel === "workspace:get")?.file).toBe(
+      "electron/main.cjs",
+    );
     expect(fresh.kernel.some((item) => item.path === "/health" && item.method === "GET")).toBe(
       true,
     );

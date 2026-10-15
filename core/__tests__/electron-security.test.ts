@@ -53,6 +53,7 @@ describe("Electron window hardening", () => {
   it("sandboxes every BrowserWindow and keeps Node out of the page", () => {
     const windows = [
       "electron/main.cjs",
+      "electron/boot-selftest.cjs",
       "electron/browser.cjs",
       "electron/camera.cjs",
       "electron/character/overlay.cjs",
