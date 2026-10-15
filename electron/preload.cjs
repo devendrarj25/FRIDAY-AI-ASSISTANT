@@ -189,6 +189,7 @@ contextBridge.exposeInMainWorld("friday", {
   pullModel: (model, jobId) => ipcRenderer.invoke("models:pull", model, jobId || null),
   downloadModel: (payload) => ipcRenderer.invoke("models:download", payload || {}),
   listTransfers: () => ipcRenderer.invoke("models:transfers"),
+  checkLauncherRelease: (id) => ipcRenderer.invoke("models:check-launcher", id || ""),
   transferModel: (jobId, action) => ipcRenderer.invoke("models:transfer", jobId, action),
   cancelModelJob: (jobId) => ipcRenderer.invoke("models:cancel", jobId),
   removeModel: (model) => ipcRenderer.invoke("models:remove", model),

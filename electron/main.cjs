@@ -39,6 +39,10 @@ if (process.env.FRIDAY_BOOT_SELFTEST) {
   app.commandLine.appendSwitch("no-sandbox");
   // Headless Linux gives the renderer a broken /dev/shm. Windows ignores this.
   app.commandLine.appendSwitch("disable-dev-shm-usage");
+  // A separate GPU process on a runner with no GPU never signals ready, so
+  // app.whenReady never runs. Keep compositing in this process for the check.
+  app.commandLine.appendSwitch("in-process-gpu");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
 }
 
 const { spawn, execFile } = require("child_process");
@@ -74,36 +78,36 @@ const path = require("path");
 function emitBootSelfTestLine(line) {
   const text = String(line || "").replace(/\r?\n/g, " ");
   const payload = `${text}\n`;
-  try {
-    process.stdout.write(payload);
-  } catch {
-    /* closed pipe */
-  }
-  try {
-    fs.writeSync(1, payload);
-  } catch {
-    /* a GUI subsystem has no stdout handle */
-  }
+  // The marker file is the only signal. A redirected Windows pipe blocks the
+  // main thread on the next write, and changing that handle to non-blocking
+  // stopped Chromium from becoming ready (run 38593795698 stayed on BEGIN).
   const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
   if (!root) return;
-  let dirOk = false;
   try {
-    dirOk = fs.statSync(root).isDirectory();
-  } catch {
-    dirOk = false;
-  }
-  if (!dirOk) return;
-  const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
-  try {
+    if (!fs.statSync(root).isDirectory()) return;
+    const file = path.join(path.resolve(root), "logs", "boot-selftest.txt");
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, payload);
   } catch {
-    /* stdout remains the other signal */
+    /* smoke reports a missing marker */
   }
 }
 
 if (process.env.FRIDAY_BOOT_SELFTEST) {
   emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
+  // A redirected or console-less stdout write blocks this thread. The marker
+  // file is the only signal. Leave the real fd alone (setBlocking broke ready).
+  const dropWrite = (chunk, encoding, cb) => {
+    const done = typeof encoding === "function" ? encoding : cb;
+    if (typeof done === "function") done();
+    return true;
+  };
+  try {
+    process.stdout.write = dropWrite;
+    process.stderr.write = dropWrite;
+  } catch {
+    /* the marker file is the signal */
+  }
 }
 
 const {
@@ -271,7 +275,14 @@ ipcMain.handle = (channel, handler) =>
 // One FRIDAY per machine: a second launch focuses the running window instead of
 // spawning a duplicate kernel against the same workspace.
 let fridayInstanceLockHeld = true;
-const singleInstance = app.requestSingleInstanceLock();
+let singleInstance = true;
+if (process.env.FRIDAY_BOOT_SELFTEST) {
+  // Setup already started FRIDAY. The lock waits in ConnectNamedPipe
+  // (Electron issue 33736). Smoke stops that process. Do not take it here.
+  singleInstance = true;
+} else {
+  singleInstance = app.requestSingleInstanceLock();
+}
 if (!singleInstance) {
   fridayInstanceLockHeld = false;
   if (process.env.FRIDAY_BOOT_SELFTEST) {
@@ -4732,6 +4743,10 @@ ipcMain.handle("models:download", async (_e, payload) => {
     modelJobs.delete(id);
     modelPumps.delete(id);
   }
+});
+
+ipcMain.handle("models:check-launcher", (_e, id) => {
+  return require("./local-library.cjs").checkRunnerRelease(String(id || ""));
 });
 
 ipcMain.handle("models:transfers", () => {

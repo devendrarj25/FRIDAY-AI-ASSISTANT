@@ -64,6 +64,8 @@ export type VoicePreferences = {
   addressWindowSec: number;
   /** Minutes of heard lines kept on this PC. Zero turns the log off. */
   heardKeepMin: number;
+  /** Heard rows kept on this PC. Zero turns the log off. */
+  heardKeepRows: number;
   /** Ambient lines may be added to a cloud prompt only when Privacy mode is off. */
   allowAmbientCloud: boolean;
   /** Voice library — imported and registered voices, each with its tuning. */
@@ -193,6 +195,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     addressMode: "conversation",
     addressWindowSec: 8,
     heardKeepMin: 10,
+    heardKeepRows: 40,
     allowAmbientCloud: false,
     models: [],
     activeId: "",

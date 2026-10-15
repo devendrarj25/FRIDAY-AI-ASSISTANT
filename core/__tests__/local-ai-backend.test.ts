@@ -258,10 +258,73 @@ describe("local library parsers", () => {
     });
     expect(gpt.canRun).toBe(false);
     expect(gpt.reason).toMatch(/sha256/i);
-    const card = library.launcherCard(ollama, {});
+    const card = library.launcherCard(ollama, { now: Date.parse("2026-10-16T00:00:00Z") });
     expect(card.detected).toBe(false);
     expect(card.nextStep).toMatch(/Not installed/);
+    expect(card.pinAgeLabel).toBe("Pin age: 2 days");
     expect(JSON.stringify(card)).not.toMatch(/sk-/);
+  });
+
+  it("reports a newer official release without installing or replacing an unpublished checksum", async () => {
+    const ollama = library.runnerById("ollama");
+    const now = Date.parse("2026-10-16T00:00:00Z");
+    const pinned = ollama.release.sha256;
+    const newer = await library.checkRunnerRelease("ollama", {
+      now,
+      payload: {
+        tag_name: "v9.9.9",
+        assets: [
+          {
+            name: "OllamaSetup.exe",
+            browser_download_url:
+              "https://github.com/ollama/ollama/releases/download/v9.9.9/OllamaSetup.exe",
+            size: 10,
+          },
+        ],
+      },
+    });
+    expect(newer.updateAvailable).toBe(true);
+    expect(newer.label).toContain("update available");
+    expect(newer.autoInstall).toBe(false);
+    expect(newer.canRun).toBe(false);
+    expect(newer.offeredSha256).toBeNull();
+    expect(newer.wouldReplaceSha256).toBe(false);
+    expect(newer.storedSha256).toBe(pinned);
+    expect(library.runnerById("ollama").release.sha256).toBe(pinned);
+    const published = await library.checkRunnerRelease("ollama", {
+      now,
+      payload: {
+        tag_name: "v9.9.9",
+        assets: [
+          {
+            name: "OllamaSetup.exe",
+            browser_download_url:
+              "https://github.com/ollama/ollama/releases/download/v9.9.9/OllamaSetup.exe",
+            size: 10,
+            digest: "sha256:abc123",
+          },
+        ],
+      },
+    });
+    expect(published.offeredSha256).toBe("abc123");
+    expect(published.wouldReplaceSha256).toBe(true);
+    expect(published.storedSha256).toBe(pinned);
+    expect(library.runnerById("ollama").release.sha256).toBe(pinned);
+    expect(published.autoInstall).toBe(false);
+    const same = library.assessOfficialRelease(
+      ollama,
+      {
+        tag_name: "v0.40.4",
+        assets: [{ name: "OllamaSetup.exe", digest: `sha256:${pinned}`, size: 1 }],
+      },
+      now,
+    );
+    expect(same.updateAvailable).toBe(false);
+    expect(same.label).toContain("this pin is current");
+    const studio = library.assessOfficialRelease(library.runnerById("lmstudio"), null, now);
+    expect(studio.updateAvailable).toBe(false);
+    expect(studio.label).toContain("no pinned release");
+    expect(studio.offeredSha256).toBeNull();
   });
 
   it("stops a gated repo before any byte is requested", async () => {

@@ -108,6 +108,48 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
+          <label className="block">
+            <span className="label-xs text-muted-foreground">Heard lines kept on this PC</span>
+            <select
+              value={String(prefs.voice.heardKeepMin ?? 10)}
+              onChange={(e) => preferences.setVoice({ heardKeepMin: Number(e.target.value) })}
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="0" className="bg-background">
+                Off
+              </option>
+              <option value="10" className="bg-background">
+                10 minutes
+              </option>
+              <option value="30" className="bg-background">
+                30 minutes
+              </option>
+              <option value="60" className="bg-background">
+                1 hour
+              </option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="label-xs text-muted-foreground">Heard rows kept on this PC</span>
+            <select
+              value={String(prefs.voice.heardKeepRows ?? 40)}
+              onChange={(e) => preferences.setVoice({ heardKeepRows: Number(e.target.value) })}
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="0" className="bg-background">
+                Off
+              </option>
+              <option value="20" className="bg-background">
+                20 rows
+              </option>
+              <option value="40" className="bg-background">
+                40 rows
+              </option>
+              <option value="80" className="bg-background">
+                80 rows
+              </option>
+            </select>
+          </label>
           <label className="block sm:col-span-2">
             <span className="label-xs text-muted-foreground">Microphone</span>
             <select

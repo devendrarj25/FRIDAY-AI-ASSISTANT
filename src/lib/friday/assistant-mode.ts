@@ -497,9 +497,7 @@ class AssistantModeStore {
   private hydrate() {
     if (this.hydrated || typeof window === "undefined") return;
     this.hydrated = true;
-    this.state.supported = Boolean(
-      typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia,
-    );
+    this.state.supported = Boolean(navigator.mediaDevices?.getUserMedia);
     void preferences.hydrate();
     try {
       const saved = readLocalState<AssistantMode>(STORAGE_KEY);
@@ -1807,6 +1805,7 @@ class AssistantModeStore {
     const voice = preferences.getSnapshot().voice;
     const keepMin = Number(voice.heardKeepMin);
     const keepMs = Number.isFinite(keepMin) ? Math.max(0, keepMin) * 60_000 : 10 * 60_000;
+    const keepRows = Number(voice.heardKeepRows);
     noteHeard(
       {
         at: Date.now(),
@@ -1817,6 +1816,7 @@ class AssistantModeStore {
       },
       keepMs,
       Date.now(),
+      Number.isFinite(keepRows) ? keepRows : 40,
     );
     this.caption(decision.tag === "self" ? "friday" : "user", text, false, {
       tag: decision.tag,

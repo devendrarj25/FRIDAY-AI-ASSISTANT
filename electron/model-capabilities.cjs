@@ -230,7 +230,43 @@ function declaredCapabilities(model) {
       out.chat = false;
     }
   }
+  // Ollama POST /api/show publishes a capabilities array. An array that is
+  // present is the list: a missing name is false, not the name-guess flag.
+  if (Array.isArray(raw) && raw.length) {
+    const names = raw.map((item) => String(item || "").toLowerCase());
+    out.tools = names.some((item) => /tool|function/.test(item));
+    out.vision = names.some((item) => /vision|image/.test(item));
+  }
+  // LM Studio GET /api/v1/models uses these two booleans.
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    if (typeof raw.trained_for_tool_use === "boolean") out.tools = raw.trained_for_tool_use;
+    if (typeof raw.vision === "boolean") out.vision = raw.vision;
+  }
+  const modelType = String(catalogue?.type || "").toLowerCase();
+  if (modelType === "vlm") out.vision = true;
+  if (modelType === "embedding" || modelType === "embeddings") {
+    out.embeddings = true;
+    out.chat = false;
+    out.tools = false;
+  }
   return out;
+}
+
+/** Context tokens from a discovery row, when the provider's list names one. */
+function liveContextTokens(model) {
+  const catalogue = model?.meta?.catalogue || model?.catalogue || {};
+  const bags = [catalogue, catalogue.model_info, model?.meta?.model_info];
+  for (const bag of bags) {
+    if (!bag || typeof bag !== "object") continue;
+    const direct = Number(bag.max_context_length || bag.context_length || bag.inputTokenLimit || 0);
+    if (direct > 0) return direct;
+    for (const [key, value] of Object.entries(bag)) {
+      if (!String(key).endsWith(".context_length")) continue;
+      const tokens = Number(value);
+      if (tokens > 0) return tokens;
+    }
+  }
+  return 0;
 }
 
 /** The registry record for a model name, or null when nothing matches. */
@@ -264,7 +300,10 @@ function inferredCapabilities(name) {
  */
 function resolveCapabilities(model) {
   const name = normaliseName(model);
-  const contextK = Number(model?.contextK || model?.context_k || model?.meta?.contextK || 0);
+  const liveTokens = liveContextTokens(model);
+  const liveK = liveTokens ? Math.max(1, Math.round(liveTokens / 1024)) : 0;
+  const passed = Number(model?.contextK || model?.context_k || model?.meta?.contextK || 0);
+  const contextK = liveK || passed;
   const entry = registryEntry(name);
   const declared = declaredCapabilities(model);
   const inferred = inferredCapabilities(name);
@@ -286,9 +325,16 @@ function resolveCapabilities(model) {
       sources[key] = "default";
     }
   }
-  // Context length is a measured number, never a guess.
+  // A listed token count is measured. A name guess stays unverified.
   caps.longContext = contextK >= 64;
-  sources.longContext = contextK ? "measured" : "default";
+  sources.longContext = liveK ? "measured" : contextK ? "unverified" : "default";
+  const proofOf = (source) =>
+    source === "declared" || source === "measured" ? "live" : "unverified";
+  const proof = {
+    tools: proofOf(sources.tools),
+    vision: proofOf(sources.vision),
+    context: proofOf(sources.longContext),
+  };
   // An embedding or audio model cannot chat or call tools, whatever else said.
   if (caps.embeddings || caps.audio) {
     caps.chat = false;
@@ -296,7 +342,7 @@ function resolveCapabilities(model) {
   }
 
   const source = Object.keys(declared).length ? "declared" : entry ? "registry" : "inferred";
-  return { ...caps, contextK, source, registryId: entry ? entry.id : null, sources };
+  return { ...caps, contextK, source, registryId: entry ? entry.id : null, sources, proof };
 }
 
 /**

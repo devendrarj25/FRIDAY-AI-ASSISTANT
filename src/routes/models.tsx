@@ -82,6 +82,7 @@ import {
   firstPage,
   isModelSection,
   launcherLines,
+  pinAgeLabel,
   normaliseLocalAnswer,
   selectCloud,
   tabsForSection,
@@ -140,6 +141,8 @@ function phaseTone(phase: Job["phase"]) {
 function LocalRunners() {
   const [clicked, setClicked] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState<Record<string, string>>({});
+  const [releaseNote, setReleaseNote] = useState<Record<string, string>>({});
+  const pinLine = pinAgeLabel(runnersFile.checked, modelsPageClock);
   return (
     <div className="grid gap-4">
       <HudPanel title="Runners" hint="official launchers, not started from here">
@@ -174,6 +177,12 @@ function LocalRunners() {
                 >
                   {note[runner.id] || lines.check}
                 </p>
+                <p
+                  className="mt-1 text-[11px] text-muted-foreground"
+                  title={releaseNote[runner.id] || pinLine}
+                >
+                  {releaseNote[runner.id] || pinLine}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-1">
                   <Button
                     size="sm"
@@ -187,6 +196,29 @@ function LocalRunners() {
                     }
                   >
                     Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Check ${runner.name} for a newer official release`}
+                    onClick={() => {
+                      const api = desktopApi();
+                      if (!api?.checkLauncherRelease) {
+                        setReleaseNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `${pinLine} · check for update runs in the desktop app`,
+                        }));
+                        return;
+                      }
+                      void api.checkLauncherRelease(runner.id).then((row) => {
+                        setReleaseNote((prev) => ({
+                          ...prev,
+                          [runner.id]: row?.label || pinLine,
+                        }));
+                      });
+                    }}
+                  >
+                    Check for update
                   </Button>
                   <Button
                     size="sm"
