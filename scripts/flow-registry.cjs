@@ -320,7 +320,10 @@ function buildRegistry(root = ROOT) {
   const ipcSeen = new Map();
   for (const file of electronFiles) {
     for (const hit of channelsFrom(file, read(file))) {
-      if (!ipcSeen.has(hit.channel)) ipcSeen.set(hit.channel, hit.file);
+      // The boot check repeats two channels. The normal owner stays main.cjs.
+      if (!ipcSeen.has(hit.channel) || hit.file === "electron/main.cjs") {
+        ipcSeen.set(hit.channel, hit.file);
+      }
     }
   }
   const ipc = [...ipcSeen.entries()]

@@ -95,19 +95,18 @@ function emitBootSelfTestLine(line) {
 
 if (process.env.FRIDAY_BOOT_SELFTEST) {
   emitBootSelfTestLine("FRIDAY_BOOT_SELFTEST_BEGIN");
-  // A redirected or console-less stdout write blocks this thread. The marker
-  // file is the only signal. Leave the real fd alone (setBlocking broke ready).
-  const dropWrite = (chunk, encoding, cb) => {
-    const done = typeof encoding === "function" ? encoding : cb;
-    if (typeof done === "function") done();
-    return true;
-  };
+  // Chromium emits ready only after this file returns to the event loop.
+  // The requires below never got there on the Windows pack (run 38726685910
+  // stayed on BEGIN, with no main.log). The check mounts one window and exits.
   try {
-    process.stdout.write = dropWrite;
-    process.stderr.write = dropWrite;
-  } catch {
-    /* the marker file is the signal */
+    require("./boot-selftest.cjs").start();
+  } catch (error) {
+    emitBootSelfTestLine(
+      `FRIDAY_BOOT_SELFTEST_FAIL ${error && error.message ? error.message : error}`,
+    );
+    app.exit(1);
   }
+  return;
 }
 
 const {
