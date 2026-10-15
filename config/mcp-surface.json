@@ -7,7 +7,7 @@
     "2025-11-25",
     "2026-07-28"
   ],
-  "kernelTools": 51,
+  "kernelTools": 53,
   "exposedTools": [
     {
       "name": "friday.ask",
@@ -704,6 +704,14 @@
     {
       "kernel": "app.list_windows",
       "reason": "Window titles stay on the desktop."
+    },
+    {
+      "kernel": "app_restart",
+      "reason": "Restarting FRIDAY stays on the desktop, after the owner approves."
+    },
+    {
+      "kernel": "app_shutdown",
+      "reason": "Shutting FRIDAY down stays on the desktop, after the owner approves."
     },
     {
       "kernel": "bluetooth.list",

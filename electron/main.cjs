@@ -24,6 +24,20 @@ for (const arg of process.argv) {
   if (workspaceArg) {
     process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg.replace(/^["']|["']$/g, "");
   }
+  const pythonArg = arg.startsWith("--friday-python=")
+    ? arg.slice("--friday-python=".length)
+    : arg.startsWith("friday-python=")
+      ? arg.slice("friday-python=".length)
+      : "";
+  if (pythonArg) {
+    process.env.FRIDAY_PYTHON = pythonArg.replace(/^["']|["']$/g, "");
+  }
+  const progressArg = arg.startsWith("--friday-progress=")
+    ? arg.slice("--friday-progress=".length)
+    : "";
+  if (progressArg) {
+    process.env.FRIDAY_READINESS_PROGRESS = progressArg.replace(/^["']|["']$/g, "");
+  }
 }
 
 // Boot self-test (scripts/verify-boot.cjs, scripts/windows-installer-smoke.ps1)
@@ -86,6 +100,9 @@ const { Worker } = require("worker_threads");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const readinessTrace = require("./readiness-trace.cjs");
+const appLifecycle = require("./app-lifecycle.cjs");
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("process-start");
 
 // Windows launches FRIDAY as a GUI subsystem process. Redirected stdout from
 // that process is often empty (the bytes go to a console, not the pipe), so
@@ -126,24 +143,6 @@ if (process.env.FRIDAY_BOOT_SELFTEST) {
   return;
 }
 
-// A redirected Windows GUI stdout blocks the main thread on the next write
-// (the boot check already stopped using that pipe). Readiness used to wait
-// on that stream for FRIDAY_READINESS_RESULT and then sat until the 5 minute
-// kill. The result file is the signal. A normal launch keeps the console.
-if (process.env.FRIDAY_READINESS === "1" && process.platform === "win32") {
-  const sink = (_chunk, encoding, callback) => {
-    const done = typeof encoding === "function" ? encoding : callback;
-    if (typeof done === "function") done();
-    return true;
-  };
-  try {
-    process.stdout.write = sink;
-    process.stderr.write = sink;
-  } catch {
-    /* a normal stream still prints the result line */
-  }
-}
-
 const {
   verifyWorkspace,
   repairWorkspace,
@@ -168,6 +167,7 @@ const billingFirewall = require("./billing-firewall.cjs");
 const privacyFirewall = require("./privacy-firewall.cjs");
 const toolAuthority = require("./tool-authority.cjs");
 const kernelMethods = require("./kernel-methods.cjs");
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
 const providerHealth = new modelRouter.ProviderHealthManager();
@@ -329,24 +329,58 @@ function writeReadinessResult(report) {
   }
 }
 
+let readinessSettled = false;
 function finishReadiness(report) {
+  if (readinessSettled) return;
+  readinessSettled = true;
+  readinessTrace.stop();
   const payload =
     report && typeof report === "object"
       ? report
       : { ok: false, stages: [], error: "readiness failed" };
+  readinessTrace.trace("finishReadiness", {
+    ok: Boolean(payload.ok),
+    error: payload.error || "",
+  });
   writeReadinessResult(payload);
-  console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(payload)}`);
+  // A Windows GUI pipe blocks the main thread on stdout (Electron issue 4552).
+  // The result file is the signal. Other platforms still print the line.
+  if (!(process.env.FRIDAY_READINESS === "1" && process.platform === "win32")) {
+    console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(payload)}`);
+  }
   setTimeout(() => app.exit(payload.ok ? 0 : 1), 250);
+}
+
+if (process.env.FRIDAY_READINESS === "1") {
+  readinessTrace.onExpire((info) => {
+    finishReadiness({
+      ok: false,
+      stages: [
+        {
+          name: info.stage || "START",
+          ok: false,
+          detail: info.detail || info.error || "readiness watchdog",
+        },
+      ],
+      error: info.error || "hung after process-start",
+      trace: info.events || [],
+    });
+  });
 }
 
 // One FRIDAY per machine: a second launch focuses the running window instead of
 // spawning a duplicate kernel against the same workspace.
 let fridayInstanceLockHeld = true;
 let singleInstance = true;
-if (process.env.FRIDAY_BOOT_SELFTEST) {
+if (process.env.FRIDAY_BOOT_SELFTEST || process.env.FRIDAY_READINESS === "1") {
   // Setup already started FRIDAY. The lock waits in ConnectNamedPipe
   // (Electron issue 33736). Smoke stops that process. Do not take it here.
+  // Readiness is the same runner class: release 38804855858 stayed alive for
+  // 5 minutes with no report after the boot check in that job had passed.
   singleInstance = true;
+  if (process.env.FRIDAY_READINESS === "1") {
+    readinessTrace.trace("single-instance", { held: true, skipped: true });
+  }
 } else {
   singleInstance = app.requestSingleInstanceLock();
 }
@@ -397,7 +431,15 @@ function logFile() {
 
 function logRaw(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
-  process.stdout.write(line);
+  // Readiness must not write the GUI stdout pipe. A blocked write never
+  // reaches the result file (Electron issue 4552, run 38804855858).
+  if (process.env.FRIDAY_READINESS !== "1") {
+    try {
+      process.stdout.write(line);
+    } catch {
+      /* a closed console is not a startup failure */
+    }
+  }
   try {
     const file = logFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -961,6 +1003,7 @@ async function startKernel(root) {
   // A packaged app must resolve its interpreter from the installed runtime and
   // the selected FRIDAY folder — never from a source checkout that only exists
   // on a development machine.
+  readinessTrace.trace("kernel-spawn");
   const resolvedPython = await resolvePython(app.isPackaged ? null : path.join(__dirname, ".."));
   const python = resolvedPython?.exe;
   const pythonPrefix = resolvedPython?.prefix || [];
@@ -1209,7 +1252,8 @@ async function waitForKernel(timeoutMs = 20000) {
       if (response.ok) {
         kernelReady = true;
         kernelFailure = "";
-        connectSessionStream();
+        readinessTrace.trace("kernel-ready");
+        if (process.env.FRIDAY_READINESS !== "1") connectSessionStream();
         // The kernel starts locked down; hand it the owner's real policy.
         void pushBillingToKernel();
         serviceHealth.invalidate();
@@ -3199,6 +3243,7 @@ function createWindow() {
 
   // Replay the boot log and push the first full scan once the UI is ready.
   win.webContents.on("did-finish-load", () => {
+    readinessTrace.trace("did-finish-load");
     reveal();
     // Shared boot self-test (scripts/verify-boot.cjs). Only active when the
     // verifier asks for it; normal launches are completely unaffected.
@@ -3217,6 +3262,7 @@ function createWindow() {
         kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
         kernelRequest,
         getWorkspaceRoot,
+        trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
       })
         .then((report) => {
           finishReadiness(report);
@@ -3337,29 +3383,181 @@ function hideToTray() {
 
 /** The only real exit path. Always works, even if the renderer stalls. */
 let quitting = false;
-function quitFriday() {
-  if (quitting) return;
-  quitting = true;
-  app.__fridayQuitting = true;
+let lifecycleRunning = false;
+
+function lifecyclePreview() {
+  let listening = false;
+  let auto = false;
   try {
-    tray.destroy();
+    const voice = tray.getState() || {};
+    listening = Boolean(voice.listening) && !voice.paused;
+    auto = voice.mode === "auto";
   } catch {
-    /* nothing to destroy */
+    listening = false;
+  }
+  let terminalRuns = [];
+  let agentRuns = [];
+  try {
+    terminalRuns = require("./terminal.cjs").listRuns();
+  } catch {
+    terminalRuns = [];
   }
   try {
-    win?.close();
+    agentRuns = require("./sandbox-lab.cjs").activeRuns();
   } catch {
-    /* already gone */
+    agentRuns = [];
   }
-  setTimeout(() => {
+  return {
+    tasks: activeChats.size + terminalRuns.length,
+    downloads: modelJobs.size,
+    listening,
+    auto,
+    agents: agentRuns.length,
+  };
+}
+
+function pauseOwnedWork() {
+  send("voice:pause", { paused: true });
+  try {
+    stt.onMute(true);
+  } catch {
+    /* microphone worker may already be gone */
+  }
+  for (const [, controller] of modelJobs) {
     try {
-      if (win && !win.isDestroyed()) win.destroy();
+      controller.abort("pause");
     } catch {
-      /* already destroyed */
+      try {
+        controller.abort();
+      } catch {
+        /* the download already ended */
+      }
+    }
+  }
+  try {
+    const terminal = require("./terminal.cjs");
+    for (const run of terminal.listRuns()) {
+      if (appLifecycle.shouldStop({ role: "terminal", command: run.command })) {
+        terminal.cancelRun(run.runId);
+      }
+    }
+  } catch {
+    /* no terminal session */
+  }
+  try {
+    const lab = require("./sandbox-lab.cjs");
+    for (const id of lab.activeRuns()) lab.cancelRun(id);
+  } catch {
+    /* no sandbox run */
+  }
+}
+
+async function releaseOwnedProcesses() {
+  pauseOwnedWork();
+  const plan = appLifecycle.shutdownPlan();
+  await stopKernel({ timeoutMs: plan.kernelWaitMs });
+  stopOwnedProcesses();
+  try {
+    await liveBrowser.shutdown();
+  } catch {
+    /* the embedded browser may never have started */
+  }
+  try {
+    character.dispose();
+  } catch {
+    /* overlay already gone */
+  }
+  try {
+    systemMonitor.stop();
+  } catch {
+    /* sampler already stopped */
+  }
+  try {
+    serviceHealth.stop();
+  } catch {
+    /* prober already stopped */
+  }
+  stopModelRegistryRefresh();
+}
+
+let relaunchQueued = false;
+
+function forceExitSoon(relaunch) {
+  const timer = setTimeout(() => {
+    try {
+      if (relaunch) queueRelaunch();
+    } catch {
+      /* relaunch is best-effort once the deadline hits */
+    }
+    try {
+      app.exit(0);
+    } catch {
+      /* already leaving */
+    }
+  }, appLifecycle.GRACE_MS);
+  timer.unref?.();
+  return timer;
+}
+
+async function shutdownFriday(reason) {
+  if (quitting || lifecycleRunning) return false;
+  quitting = true;
+  lifecycleRunning = true;
+  app.__fridayQuitting = true;
+  log(`shutting FRIDAY down: ${reason || "requested by the owner"}`);
+  const force = forceExitSoon(false);
+  try {
+    await releaseOwnedProcesses();
+    try {
+      tray.destroy();
+    } catch {
+      /* nothing to destroy */
+    }
+    for (const open of BrowserWindow.getAllWindows()) {
+      try {
+        if (!open.isDestroyed()) open.destroy();
+      } catch {
+        /* already closed */
+      }
     }
     app.quit();
-    setTimeout(() => app.exit(0), 1500);
-  }, 1200);
+  } catch (error) {
+    log(`shutdown cleanup failed: ${error?.message || error}`);
+  }
+  clearTimeout(force);
+  app.exit(0);
+  return true;
+}
+
+async function restartFriday(reason) {
+  if (lifecycleRunning) return false;
+  lifecycleRunning = true;
+  log(`restarting FRIDAY: ${reason || "requested by the owner"}`);
+  restartReasons.clear();
+  const force = forceExitSoon(true);
+  try {
+    await releaseOwnedProcesses();
+  } catch (error) {
+    log(`restart cleanup failed: ${error?.message || error}`);
+  }
+  clearTimeout(force);
+  queueRelaunch();
+  app.exit(0);
+  return true;
+}
+
+function queueRelaunch() {
+  if (relaunchQueued) return;
+  relaunchQueued = true;
+  try {
+    app.relaunch();
+  } catch (error) {
+    log(`relaunch failed: ${error?.message || error}`);
+  }
+}
+
+function quitFriday() {
+  void shutdownFriday("quit");
 }
 
 ipcMain.on("window:show", () => showFridayWindow());
@@ -3436,6 +3634,7 @@ ipcMain.handle("character:show-app", () => {
 // It is deliberately late and non-blocking: the main window and the kernel
 // always come first.
 app.whenReady().then(() => {
+  if (!readinessTrace.backgroundWorkAllowed()) return;
   setTimeout(() => {
     try {
       if (character.load().enabled) character.apply();
@@ -3659,6 +3858,13 @@ async function askOwnerForTool(name, risk, args) {
 }
 
 async function authorizeToolCall(name, args) {
+  if (appLifecycle.alwaysAsk(name)) {
+    const answer = await askOwnerForTool(name, "exec", args || {});
+    if (!answer.granted) {
+      return { allowed: false, risk: "exec", reason: `You denied “${name}”.` };
+    }
+    return { allowed: true, risk: "exec", authorization: null, desktop: true };
+  }
   const risk = await toolRisk(name);
   let decision = applyOwnerPermissionOverlay(
     name,
@@ -3708,6 +3914,18 @@ ipcMain.handle("kernel:rpc", async (_e, method, params) => {
     if (!payload.routeMode && !payload.route_mode) {
       payload.routeMode = modelRouteMode();
     }
+  }
+  if (name === "tool.exec" && appLifecycle.isAppControl(payload.name)) {
+    const verdict = await authorizeToolCall(String(payload.name || ""), payload.args || {});
+    if (!verdict.allowed) {
+      return { ok: false, error: verdict.reason, risk: "exec", denied: true };
+    }
+    if (String(payload.name) === appLifecycle.APP_SHUTDOWN) {
+      void shutdownFriday("approved-tool");
+    } else {
+      void restartFriday("approved-tool");
+    }
+    return { ok: true, accepted: true, desktop: true };
   }
   if (name === "tool.exec") {
     const verdict = await authorizeToolCall(String(payload.name || ""), payload.args || {});
@@ -5034,18 +5252,16 @@ function restartState() {
 
 ipcMain.handle("app:restart-state", () => restartState());
 
-/** Real relaunch. Owned processes are stopped first so nothing is orphaned. */
+/** Real relaunch. Owned processes exit before the new instance starts. */
 ipcMain.handle("app:restart", (_e, reason) => {
-  log(`restarting FRIDAY: ${reason || "requested by the user"}`);
-  restartReasons.clear();
-  try {
-    stopOwnedProcesses();
-  } catch (error) {
-    log(`restart cleanup failed: ${error?.message || error}`);
-  }
-  app.relaunch();
-  // Give the cleanup a tick so the kernel exits before the new instance starts.
-  setTimeout(() => app.exit(0), 250);
+  void restartFriday(reason || "requested by the user");
+  return true;
+});
+
+ipcMain.handle("app:lifecycle-preview", () => lifecyclePreview());
+
+ipcMain.handle("app:shutdown", (_e, reason) => {
+  void shutdownFriday(reason || "requested by the user");
   return true;
 });
 
@@ -5061,14 +5277,7 @@ ipcMain.handle("app:confirm-restart", async (_e, reason) => {
     detail: reason || "",
   });
   if (response !== 0) return false;
-  restartReasons.clear();
-  try {
-    stopOwnedProcesses();
-  } catch {
-    /* the relaunch continues even if a child refuses to stop */
-  }
-  app.relaunch();
-  setTimeout(() => app.exit(0), 250);
+  void restartFriday(reason || "restart required");
   return true;
 });
 
@@ -5737,6 +5946,7 @@ function checkUpdateHealth() {
 }
 
 app.whenReady().then(() => {
+  if (!readinessTrace.backgroundWorkAllowed()) return;
   setTimeout(scheduleGithubChecks, 8000);
   setTimeout(() => void reconnectGithub(), 9000);
   setTimeout(checkUpdateHealth, 10000);
@@ -7334,6 +7544,7 @@ ipcMain.handle("env:readiness", () =>
     kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
     kernelRequest,
     getWorkspaceRoot,
+    trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
   }),
 );
 
@@ -7341,7 +7552,15 @@ ipcMain.handle("env:readiness", () =>
 app
   .whenReady()
   .then(async () => {
+    if (!fridayInstanceLockHeld && process.env.FRIDAY_READINESS === "1") {
+      finishReadiness({
+        ok: false,
+        stages: [],
+        error: "another FRIDAY already holds this PC",
+      });
+    }
     if (!fridayInstanceLockHeld) return;
+    readinessTrace.trace("app-ready");
     if (process.env.FRIDAY_BOOT_SELFTEST) armBootSelfTestWatchdog();
     log(`FRIDAY ${productVersion()} starting · packaged=${app.isPackaged}`);
     // Voice needs the microphone. Electron denies every permission request by
@@ -7382,6 +7601,7 @@ app
     // registry lookup is still in flight, and first-run.json can land in the
     // userData fallback.
     const root = await resolveWorkspaceRoot();
+    readinessTrace.trace("root-selected", { selected: Boolean(root) });
     // A folder that was moved or restored from a backup may be missing parts of
     // the canonical layout; recreate only what is absent, never overwrite.
     // ensureStructure repairs the layout INSIDE the root only; the storage
@@ -7429,6 +7649,7 @@ app
       } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
       return;
     }
+    readinessTrace.trace("window-created");
 
     // The smoke test only needs a mounted window. Python extraction and the
     // kernel spawn used to run first and block this process until the 240s
@@ -7439,30 +7660,35 @@ app
       return;
     }
 
-    // FRIDAY lives in the tray: closing the window only hides it, so there is
-    // always a visible way back in and one explicit way out.
-    tray.init({
-      iconPath: appIconPath(),
-      log,
-      onOpen: () => showFridayWindow(),
-      onQuit: () => quitFriday(),
-      onPauseToggle: (paused) => {
-        tray.setState({ paused });
-        stt.onMute(Boolean(paused));
-        // The renderer owns the microphone; it really stops/starts it and then
-        // reports the resulting state back through voice:state.
-        send("voice:pause", { paused });
-      },
-    });
+    // Readiness checks the window, kernel, database, model, chat, voice and
+    // one task. Tray, plugins, catalogues and provider probes are not part of
+    // that contract, and on a runner they wait on the network or on devices.
+    if (readinessTrace.backgroundWorkAllowed()) {
+      // FRIDAY lives in the tray: closing the window only hides it, so there is
+      // always a visible way back in and one explicit way out.
+      tray.init({
+        iconPath: appIconPath(),
+        log,
+        onOpen: () => showFridayWindow(),
+        onQuit: () => quitFriday(),
+        onPauseToggle: (paused) => {
+          tray.setState({ paused });
+          stt.onMute(Boolean(paused));
+          // The renderer owns the microphone; it really stops/starts it and then
+          // reports the resulting state back through voice:state.
+          send("voice:pause", { paused });
+        },
+      });
 
-    liveBrowser.init({ send, workspaceRoot: getWorkspaceRoot });
+      liveBrowser.init({ send, workspaceRoot: getWorkspaceRoot });
 
-    // Watch every capability tree so a newly dropped agent/skill/tool/plugin
-    // manifest appears in the UI without a restart.
-    stopCapabilityWatch?.();
-    stopCapabilityWatch = capabilityIndex.watch(capabilityRoots(), (info) =>
-      send("capabilities:changed", info),
-    );
+      // Watch every capability tree so a newly dropped agent/skill/tool/plugin
+      // manifest appears in the UI without a restart.
+      stopCapabilityWatch?.();
+      stopCapabilityWatch = capabilityIndex.watch(capabilityRoots(), (info) =>
+        send("capabilities:changed", info),
+      );
+    }
 
     // Start the kernel before scans and runtime detection. Those jobs may take
     // seconds on a large workspace, but chat and navigation must be ready now.
@@ -7472,138 +7698,140 @@ app
     if (kernel) {
       boot("Starting services", "ok", `kernel on ${KERNEL_HOST}:${KERNEL_PORT}`);
     }
-    startModelRegistryRefresh();
+    if (readinessTrace.backgroundWorkAllowed()) {
+      startModelRegistryRefresh();
 
-    // Workspace plugins activate in the background so they can never slow down
-    // or block the first paint, but the order is deterministic: plugins are
-    // always loaded before the startup flow evaluates readiness, and a failing
-    // plugin is reported by name instead of silently degrading FRIDAY.
-    const pluginsLoaded = root
-      ? plugins
-          .loadEnabled(capabilityRoots(), pluginServices)
-          .then((results) => {
-            const failed = results.filter((r) => !r.ok);
-            boot(
-              "Activating plugins",
-              !results.length ? "ok" : failed.length ? "warn" : "ok",
-              results.length
-                ? `${results.length - failed.length}/${results.length} loaded${
-                    failed.length ? ` · failed: ${failed.map((f) => f.id).join(", ")}` : ""
-                  }`
-                : "none enabled",
-            );
-            return results;
-          })
-          .catch((error) => {
-            boot("Activating plugins", "warn", String(error?.message || error));
-            return [];
-          })
-          .then((results) => {
-            void plugins
-              .dispatch(
-                capabilityRoots(),
-                "on-app-start",
-                { at: Date.now() },
-                { services: pluginServices },
-              )
-              .catch((error) => log(`plugin on-app-start failed: ${error?.message || error}`));
-            return results;
-          })
-      : Promise.resolve([]);
+      // Workspace plugins activate in the background so they can never slow down
+      // or block the first paint, but the order is deterministic: plugins are
+      // always loaded before the startup flow evaluates readiness, and a failing
+      // plugin is reported by name instead of silently degrading FRIDAY.
+      const pluginsLoaded = root
+        ? plugins
+            .loadEnabled(capabilityRoots(), pluginServices)
+            .then((results) => {
+              const failed = results.filter((r) => !r.ok);
+              boot(
+                "Activating plugins",
+                !results.length ? "ok" : failed.length ? "warn" : "ok",
+                results.length
+                  ? `${results.length - failed.length}/${results.length} loaded${
+                      failed.length ? ` · failed: ${failed.map((f) => f.id).join(", ")}` : ""
+                    }`
+                  : "none enabled",
+              );
+              return results;
+            })
+            .catch((error) => {
+              boot("Activating plugins", "warn", String(error?.message || error));
+              return [];
+            })
+            .then((results) => {
+              void plugins
+                .dispatch(
+                  capabilityRoots(),
+                  "on-app-start",
+                  { at: Date.now() },
+                  { services: pluginServices },
+                )
+                .catch((error) => log(`plugin on-app-start failed: ${error?.message || error}`));
+              return results;
+            })
+        : Promise.resolve([]);
 
-    if (root) {
-      const verified = verifyWorkspace(root);
-      boot(
-        "Detecting workspace",
-        verified.exists ? "ok" : "missing",
-        verified.exists ? root : "No workspace configured",
-      );
-      if (verified.exists) {
-        ensureRootFiles(root, { version: productVersion() });
-        boot("Reading workspace.json", "ok");
-        // Rebuild the root's own indexes: every component is re-validated
-        // against disk, so nothing counts as installed just because a folder
-        // exists. Off the first paint — never blocks the window.
-        setImmediate(() => {
-          void rebuildRootIndexes(root, { ms: Date.now() - bootStartedAt }).then((result) => {
-            if (!result) return boot("Rebuilding registry", "warn", "registry not written");
-            const { totals } = result.registry;
-            boot(
-              "Rebuilding registry",
-              totals.invalid ? "warn" : "ok",
-              `${totals.registered}/${totals.components} components validated`,
-            );
+      if (root) {
+        const verified = verifyWorkspace(root);
+        boot(
+          "Detecting workspace",
+          verified.exists ? "ok" : "missing",
+          verified.exists ? root : "No workspace configured",
+        );
+        if (verified.exists) {
+          ensureRootFiles(root, { version: productVersion() });
+          boot("Reading workspace.json", "ok");
+          // Rebuild the root's own indexes: every component is re-validated
+          // against disk, so nothing counts as installed just because a folder
+          // exists. Off the first paint — never blocks the window.
+          setImmediate(() => {
+            void rebuildRootIndexes(root, { ms: Date.now() - bootStartedAt }).then((result) => {
+              if (!result) return boot("Rebuilding registry", "warn", "registry not written");
+              const { totals } = result.registry;
+              boot(
+                "Rebuilding registry",
+                totals.invalid ? "warn" : "ok",
+                `${totals.registered}/${totals.components} components validated`,
+              );
+            });
           });
-        });
-        boot("Scanning folders", "ok", "running in background");
+          boot("Scanning folders", "ok", "running in background");
 
-        void rescan(root)
-          .then((scan) => {
-            // The canonical config was already validated before the kernel
-            // started; this step only reports the extra files the scan found.
-            boot(
-              "Reading workspace config files",
-              scan?.settingsFiles?.length ? "ok" : "warn",
-              `${scan?.settingsFiles?.length ?? 0} file(s)`,
-            );
-            boot("Loading plugins", "ok", `${scan?.plugins?.length ?? 0} found`);
-            boot("Loading modules", "ok", `${scan?.modules?.length ?? 0} found`);
-            boot("Loading agents", "ok", `${scan?.agents?.length ?? 0} found`);
-            boot("Loading skills", "ok", `${scan?.skills?.length ?? 0} found`);
-            boot("Loading workflows", "ok", `${scan?.workflows?.length ?? 0} found`);
-          })
-          .catch((error) => boot("Scanning folders", "warn", error.message));
-        startWatching(root);
-        try {
-          const saved = JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
-          applyOwnerPreferenceEffects(saved);
-        } catch {
-          /* no saved preferences — senses stay off */
+          void rescan(root)
+            .then((scan) => {
+              // The canonical config was already validated before the kernel
+              // started; this step only reports the extra files the scan found.
+              boot(
+                "Reading workspace config files",
+                scan?.settingsFiles?.length ? "ok" : "warn",
+                `${scan?.settingsFiles?.length ?? 0} file(s)`,
+              );
+              boot("Loading plugins", "ok", `${scan?.plugins?.length ?? 0} found`);
+              boot("Loading modules", "ok", `${scan?.modules?.length ?? 0} found`);
+              boot("Loading agents", "ok", `${scan?.agents?.length ?? 0} found`);
+              boot("Loading skills", "ok", `${scan?.skills?.length ?? 0} found`);
+              boot("Loading workflows", "ok", `${scan?.workflows?.length ?? 0} found`);
+            })
+            .catch((error) => boot("Scanning folders", "warn", error.message));
+          startWatching(root);
+          try {
+            const saved = JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
+            applyOwnerPreferenceEffects(saved);
+          } catch {
+            /* no saved preferences — senses stay off */
+          }
+          initSelfMaintenance(root);
+          boot("Watching for changes", "ok");
         }
-        initSelfMaintenance(root);
-        boot("Watching for changes", "ok");
+      } else {
+        boot("Detecting workspace", "missing", "Choose your FRIDAY folder to continue");
       }
-    } else {
-      boot("Detecting workspace", "missing", "Choose your FRIDAY folder to continue");
+
+      detectComponents()
+        .then((components) => {
+          lastComponents = { detectedAt: Date.now(), components };
+          const missing = components.filter((c) => c.required && !c.installed).map((c) => c.name);
+          boot("Detecting runtimes", missing.length ? "warn" : "ok", missing.join(", "));
+        })
+        .catch(() => boot("Detecting runtimes", "warn"));
+
+      detectProviders({ keyStore: keyStoreRoot() })
+        .then((result) => {
+          lastProviders = result;
+          send("providers:detected", result);
+          const online = result.providers.filter((p) => p.status === "online").map((p) => p.name);
+          boot(
+            "Detecting AI providers",
+            online.length ? "ok" : "warn",
+            online.join(", ") || "none online",
+          );
+        })
+        .catch(() => boot("Detecting AI providers", "warn"));
+
+      detectHardware()
+        .then((hw) => {
+          lastHardware = hw;
+          boot(
+            "Checking acceleration",
+            "ok",
+            `${hw.plan.backend.toUpperCase()} · ${hw.cpu.cores} cores · ${hw.plan.reason}`,
+          );
+        })
+        .catch(() => boot("Checking acceleration", "warn"));
+
+      // The full startup flow runs after the window is interactive and after
+      // plugins have registered their capabilities: scan → persistent state →
+      // auto-start services → verify → readiness. It never blocks first paint,
+      // and its result is broadcast to every screen.
+      void pluginsLoaded.finally(() => setTimeout(() => void runStartup(), 400));
     }
-
-    detectComponents()
-      .then((components) => {
-        lastComponents = { detectedAt: Date.now(), components };
-        const missing = components.filter((c) => c.required && !c.installed).map((c) => c.name);
-        boot("Detecting runtimes", missing.length ? "warn" : "ok", missing.join(", "));
-      })
-      .catch(() => boot("Detecting runtimes", "warn"));
-
-    detectProviders({ keyStore: keyStoreRoot() })
-      .then((result) => {
-        lastProviders = result;
-        send("providers:detected", result);
-        const online = result.providers.filter((p) => p.status === "online").map((p) => p.name);
-        boot(
-          "Detecting AI providers",
-          online.length ? "ok" : "warn",
-          online.join(", ") || "none online",
-        );
-      })
-      .catch(() => boot("Detecting AI providers", "warn"));
-
-    detectHardware()
-      .then((hw) => {
-        lastHardware = hw;
-        boot(
-          "Checking acceleration",
-          "ok",
-          `${hw.plan.backend.toUpperCase()} · ${hw.cpu.cores} cores · ${hw.plan.reason}`,
-        );
-      })
-      .catch(() => boot("Checking acceleration", "warn"));
-
-    // The full startup flow runs after the window is interactive and after
-    // plugins have registered their capabilities: scan → persistent state →
-    // auto-start services → verify → readiness. It never blocks first paint,
-    // and its result is broadcast to every screen.
-    void pluginsLoaded.finally(() => setTimeout(() => void runStartup(), 400));
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -115,7 +115,8 @@ export function roomWakeDecision(
  * is unavailable, which is the caller's signal to use the transcript fallback.
  */
 export async function detectWake(payload: {
-  audioBase64: string;
+  audioBytes?: Uint8Array;
+  audioBase64?: string;
   mime?: string;
   wakeWord?: string;
   threshold?: number;

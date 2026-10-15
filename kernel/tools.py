@@ -33,6 +33,10 @@ RISK = {
     "test.run": "exec",
     # PC / application control — same tier as shell.cmd: always approved first.
     "app.launch": "exec",
+    # FRIDAY herself. The desktop process performs these after an approval.
+    # The kernel never exits the app and never kills a process it does not own.
+    "app_restart": "exec",
+    "app_shutdown": "exec",
     "app.focus": "exec",
     "app.close": "exec",
     "app.list_windows": "exec",
@@ -90,6 +94,8 @@ SUMMARY = {
     "http.fetch": "Fetch a URL and extract text",
     "test.run": "Run the detected test suite",
     "app.launch": "Start any application or executable on this PC",
+    "app_restart": "Restart FRIDAY after the owner approves",
+    "app_shutdown": "Shut FRIDAY down after the owner approves",
     "app.focus": "Bring another application's window to the foreground",
     "app.close": "Ask another application's window to close (unsaved work may be lost)",
     "app.list_windows": "List every visible window title and process id on this PC",
@@ -254,6 +260,20 @@ class ToolRegistry:
         if target != root and root not in target.parents:
             raise PermissionError("path escapes the workspace root")
         return target
+
+    async def _app_restart(self, args: dict) -> dict:
+        return {
+            "ok": False,
+            "error": "app_restart is performed by the desktop after approval",
+            "desktop": True,
+        }
+
+    async def _app_shutdown(self, args: dict) -> dict:
+        return {
+            "ok": False,
+            "error": "app_shutdown is performed by the desktop after approval",
+            "desktop": True,
+        }
 
     async def execute(self, name: str, args: dict, authorization: str | None = None) -> dict:
         """Run one tool.

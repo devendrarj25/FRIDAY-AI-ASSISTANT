@@ -79,18 +79,24 @@ function verifyRootContract() {
 async function runReadiness(ctx) {
   const stages = [];
   const { win, waitForKernel, kernelUrl, kernelRequest, getWorkspaceRoot } = ctx;
+  const note = (name) => {
+    if (typeof ctx.trace === "function") ctx.trace(`stage:${name}`);
+  };
 
   // ---------------------------------------------------------------- START
+  note("START");
   const alive = Boolean(win && !win.isDestroyed());
   stages.push(stage("START", alive, alive ? "main window created" : "no window"));
 
   // ----------------------------------------------------------------- ROOT
   // Everything below depends on one selected FRIDAY folder. It is checked
   // first so a failure blocks the rest instead of letting a fallback pass.
+  note("ROOT");
   const rootContract = verifyRootContract();
   stages.push(stage("ROOT", rootContract.ok, rootContract.detail));
 
   // ----------------------------------------------------------------- BOOT
+  note("BOOT");
   let mounted = { mounted: false, reason: "window unavailable" };
   if (alive) {
     // React mounts a frame or two after the window reports "loaded", and the
@@ -117,6 +123,9 @@ async function runReadiness(ctx) {
       })()`);
       } catch (error) {
         mounted = { mounted: false, reason: String(error.message || error) };
+      }
+      if (mounted.mounted) {
+        if (typeof ctx.trace === "function") ctx.trace("renderer-mounted");
       }
       if (mounted.mounted || Date.now() >= deadline || win.isDestroyed()) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -151,6 +160,7 @@ async function runReadiness(ctx) {
   // --------------------------------------------------------------- KERNEL
   // Without a verified root the kernel must not be running at all; reporting
   // PASS here would hide a second data store outside the FRIDAY folder.
+  note("KERNEL");
   const kernelOk = rootContract.ok ? await waitForKernel(KERNEL_TIMEOUT) : false;
   let kernelDetail = rootContract.ok
     ? kernelOk
@@ -186,6 +196,7 @@ async function runReadiness(ctx) {
 
   // ------------------------------------------------------------- DATABASE
   // A real write/read round-trip through the kernel's SQLite storage.
+  note("DATABASE");
   const token = `readiness-${Date.now()}`;
   const wrote = await call("settings.set", { key: "friday.readiness", value: token });
   const readBack = wrote.ok ? await call("settings.get", {}) : { ok: false };
@@ -200,6 +211,7 @@ async function runReadiness(ctx) {
   );
 
   // ---------------------------------------------------------------- MODEL
+  note("MODEL");
   const modelList = await call("model.list", {});
   const available = modelList.ok ? modelList.result?.models || [] : models;
   // A registry that answers with an empty catalogue is NOT a usable model
@@ -225,6 +237,7 @@ async function runReadiness(ctx) {
   // model is a cloud provider. So the failure must say which of the two it is:
   // a DNS/transport problem is an environment issue, an inference failure is a
   // model/pipeline issue, and they need opposite fixes.
+  note("CHAT");
   const chat = await call(
     "chat.stream",
     { sessionId: "readiness", prompt: "FRIDAY readiness check: reply with OK." },
@@ -254,6 +267,7 @@ async function runReadiness(ctx) {
   );
 
   // ---------------------------------------------------------------- VOICE
+  note("VOICE");
   function plannedVoiceDetail() {
     return "planned edge-tts hi-IN-SwaraNeural when online and privacy is off; offline Supertonic F2 for hi or na; else SAPI female Indian if Windows has one";
   }
@@ -275,6 +289,7 @@ async function runReadiness(ctx) {
   // ----------------------------------------------------------- BASIC TASK
   // The smallest real end-to-end unit of work: list the kernel's tools and run
   // a workspace read through the same tool path the assistant uses.
+  note("BASIC TASK");
   const tools = await call("tool.list", {});
   const workspace = await call("workspace.get", {});
   const taskOk = tools.ok && workspace.ok;

@@ -67,6 +67,7 @@ import { describeUserProfile } from "./user-profile";
 import { describeFridayBehaviour } from "./identity";
 import { PROJECT_IDENTITY } from "./project-identity";
 import { extractTerminalRun } from "../terminal-command";
+import { selfLifecycleAction } from "../app-control";
 import { observeTerminalState, terminalLookRequested } from "./terminal-observe";
 import { extractSandboxRun } from "../sandbox-command";
 import { observeSandboxState, sandboxLookRequested } from "./sandbox-observe";
@@ -367,6 +368,8 @@ export type BaselineContext = {
   ongoing?: boolean;
   /** Injected clock (ms). Social lines do not read today's date on their own. */
   now?: number;
+  /** A page, a document, or ambient audio. It cannot restart or shut FRIDAY down. */
+  untrusted?: boolean;
 };
 
 /**
@@ -565,7 +568,7 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   }
 
   // 4. direct capability execution -----------------------------------------
-  const action = matchAction(text, lower);
+  const action = matchAction(text, lower, session);
   if (action) return { handled: true, kind: "action", text: "", action, confidence: 0.9 };
 
   // 5. local knowledge ------------------------------------------------------
@@ -877,7 +880,13 @@ function matchConnectorAction(text: string, lower: string): BaselineAction | nul
   };
 }
 
-function matchAction(text: string, lower: string): BaselineAction | null {
+function matchAction(
+  text: string,
+  lower: string,
+  session?: BaselineContext,
+): BaselineAction | null {
+  const self = selfLifecycleAction(text, { untrusted: Boolean(session?.untrusted) });
+  if (self) return { tool: self.tool, args: {}, risk: self.risk, label: self.label };
   refreshSkillCache();
   const skill = matchSkill(text);
   if (skill) return skill;

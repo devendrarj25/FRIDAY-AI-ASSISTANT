@@ -321,6 +321,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "app:lifecycle-preview",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "app:paths",
       file: "electron/main.cjs",
     },
@@ -334,6 +338,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "app:restart-state",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "app:shutdown",
       file: "electron/main.cjs",
     },
     {
@@ -8465,8 +8473,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 446,
-      total: 446,
+      mapped: 448,
+      total: 448,
     },
     kernel: {
       mapped: 14,

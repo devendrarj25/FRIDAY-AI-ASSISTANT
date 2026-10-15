@@ -116,7 +116,9 @@ describe("wake engine", () => {
     expect(stt).toContain("wakeProbe");
     expect(stt).toContain('stage: "wake"');
     const assistant = source("src/lib/friday/assistant-mode.ts");
-    expect(assistant).toContain("wakeProbe: async ({ audioBase64, mime })");
+    expect(assistant).toContain("wakeProbe: async ({ audioBytes, mime })");
+    expect(stt).toContain("audioBytes");
+    expect(stt).not.toContain("toBase64(");
     expect(assistant).toContain("matchWakeWord(text, wakeWord())");
   });
 

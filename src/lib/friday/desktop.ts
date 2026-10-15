@@ -299,6 +299,14 @@ type DesktopApi = {
   onUpdateProgress?: (cb: (p: UpdateProgress) => void) => () => void;
   confirmRestart?: (reason: string) => Promise<boolean>;
   restartApp?: (reason?: string) => Promise<boolean>;
+  shutdownApp?: (reason?: string) => Promise<boolean>;
+  lifecyclePreview?: () => Promise<{
+    tasks?: number;
+    downloads?: number;
+    listening?: boolean;
+    auto?: boolean;
+    agents?: number;
+  }>;
   restartState?: () => Promise<RestartState>;
   onRestartRequired?: (cb: (state: RestartState) => void) => () => void;
   kernel?: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
@@ -547,7 +555,8 @@ type DesktopApi = {
   }>;
   installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
   detectWakeWord?: (payload: {
-    audioBase64: string;
+    audioBytes?: Uint8Array;
+    audioBase64?: string;
     mime?: string;
     wakeWord?: string;
     threshold?: number;
@@ -979,6 +988,27 @@ export function onUpdateProgress(cb: (p: UpdateProgress) => void): () => void {
 
 export async function restartApp(reason?: string): Promise<boolean> {
   return (await api()?.restartApp?.(reason)) ?? false;
+}
+
+export async function shutdownApp(reason?: string): Promise<boolean> {
+  return (await api()?.shutdownApp?.(reason)) ?? false;
+}
+
+export async function lifecyclePreview(): Promise<{
+  tasks: number;
+  downloads: number;
+  listening: boolean;
+  auto: boolean;
+  agents: number;
+}> {
+  const preview = await api()?.lifecyclePreview?.();
+  return {
+    tasks: preview?.tasks ?? 0,
+    downloads: preview?.downloads ?? 0,
+    listening: Boolean(preview?.listening),
+    auto: Boolean(preview?.auto),
+    agents: preview?.agents ?? 0,
+  };
 }
 
 /** Non-streaming call into the Python kernel; resolves null off the desktop. */
