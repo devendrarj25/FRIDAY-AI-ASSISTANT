@@ -227,15 +227,16 @@ function Verify-Boot {
   # arguments still reach the process and select the same FRIDAY folder Setup wrote.
   $env:FRIDAY_BOOT_SELFTEST = "1"
   $env:FRIDAY_WORKSPACE_ROOT = $rootDir
-  # A GUI process often leaves the redirected pipe empty. The app replaces this
-  # file with BEGIN, then with OK or FAIL. Removing it first stops an older OK
-  # from counting as this launch.
+  # Do not redirect stdout or stderr. On this GUI process a redirected pipe
+  # blocks the main thread, and the boot then never reaches the window. The
+  # app replaces the marker file with BEGIN, then with OK or FAIL. Removing it
+  # first stops an older OK from counting as this launch.
   $markerPath = Join-Path $dataDir "logs\boot-selftest.txt"
   if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }
   $p = Start-Tracked -FilePath (Join-Path $installDir "FRIDAY.exe") -ArgumentList @(
     "--friday-boot-selftest",
     "--friday-workspace=$rootDir"
-  ) -StdOut $stdout -StdErr $stderr
+  )
   $failure = $null
   try {
     Wait-Exit $p 240 "Installed FRIDAY boot self-test" | Out-Null
