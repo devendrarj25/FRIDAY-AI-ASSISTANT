@@ -12,8 +12,10 @@
  * The tooltip always reports the REAL state it was given (listening / paused /
  * manual mode); it is never optimistic.
  */
-const { Tray, Menu, nativeImage } = require("electron");
+const lazy = require("./lazy-electron.cjs");
 const fridayVersion = require("./friday-version.cjs");
+
+let Menu = null;
 
 let tray = null;
 let hooks = {};
@@ -53,6 +55,24 @@ function refresh() {
 function init({ iconPath, onOpen, onQuit, onPauseToggle, log } = {}) {
   hooks = { onOpen, onQuit, onPauseToggle, log };
   if (tray && !tray.isDestroyed?.()) return tray;
+  if (!lazy.appReady()) {
+    log?.("tray unavailable: the desktop is not ready");
+    return null;
+  }
+  let Tray;
+  let nativeImage;
+  try {
+    const electron = lazy.electron();
+    Tray = electron?.Tray;
+    nativeImage = electron?.nativeImage;
+    Menu = electron?.Menu || null;
+  } catch {
+    Tray = null;
+  }
+  if (!Tray || !nativeImage || !Menu) {
+    log?.("tray unavailable: this desktop has no tray");
+    return null;
+  }
   try {
     const image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty();
     tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);

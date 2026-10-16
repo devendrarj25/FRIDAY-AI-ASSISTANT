@@ -58,10 +58,10 @@ describe("canonical credential stores", () => {
   const preload = fs.readFileSync(path.join(ROOT, "electron/preload.cjs"), "utf8");
 
   it("encrypts with the OS store and refuses plain text in a packaged app", () => {
-    expect(credentials).toContain("safeStorage.encryptString");
+    expect(credentials).toContain("safeStorage().encryptString");
     expect(credentials).toContain("productionMode()");
     expect(models).toContain("productionMode()");
-    expect(models).toContain("safeStorage.encryptString");
+    expect(models).toContain("safeStorage().encryptString");
     expect(models).toMatch(/refuses to save this credential/);
   });
 

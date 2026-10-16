@@ -206,9 +206,13 @@ const billingFirewall = require("./billing-firewall.cjs");
 const privacyFirewall = require("./privacy-firewall.cjs");
 const toolAuthority = require("./tool-authority.cjs");
 const kernelMethods = require("./kernel-methods.cjs");
-// Release 38882530465 wrote this milestone and then nothing for 5 minutes.
-// The next statements used to call app.getPath before ready. On Electron 36+
-// that call waits for ready, and ready cannot fire until this file returns.
+// Release 38882530465 and 38892746988 wrote this milestone and then nothing
+// for 5 minutes. The packaged boot check returns before this graph and reaches
+// ready. Readiness must finish the same turn, so each module is named in the
+// progress log and none of them may read a desktop export that waits for ready.
+function traceLoad(name) {
+  if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace(`load:${name}`);
+}
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("before-subsystems");
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
@@ -223,79 +227,138 @@ if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
     /* resolveWorkspaceRoot asks when the folder is missing */
   }
 }
+traceLoad("watcher");
 const { WorkspaceWatcher } = require("./watcher.cjs");
+traceLoad("updater");
 const { checkAllUpdates } = require("./updater.cjs");
+traceLoad("providers");
 const { detectComponents, detectProviders, listOllamaModels } = require("./providers.cjs");
+traceLoad("provider-registry");
 const providerRegistry = require("./provider-registry.cjs");
+traceLoad("hardware");
 const { detectHardware } = require("./hardware.cjs");
+traceLoad("system-monitor");
 const systemMonitor = require("./system-monitor.cjs");
+traceLoad("service-health");
 const serviceHealth = require("./service-health.cjs");
+traceLoad("updater-apply");
 const { applyUpdate, rollbackUpdate } = require("./updater.cjs");
+traceLoad("importer");
 const importer = require("./importer.cjs");
+traceLoad("builder");
 const buildRunner = require("./builder-run.cjs");
+traceLoad("import-factory");
 const importFactory = require("./import-factory.cjs");
+traceLoad("sandbox");
 const sandbox = require("./sandbox.cjs");
+traceLoad("capabilities");
 const capabilityIndex = require("./capabilities.cjs");
+traceLoad("capability-verify");
 const capabilityVerify = require("./capability-verify.cjs");
+traceLoad("skill-pack");
 const skillPack = require("./skill-pack.cjs");
+traceLoad("tool-pack");
 const toolPack = require("./tool-pack.cjs");
+traceLoad("agent-pack");
 const agentPack = require("./agent-pack.cjs");
+traceLoad("module-pack");
 const modulePack = require("./module-pack.cjs");
+traceLoad("workflow-pack");
 const workflowPack = require("./workflow-pack.cjs");
+traceLoad("tools");
 const fridayTools = require("./tools.cjs");
+traceLoad("modules");
 const fridayModules = require("./modules.cjs");
+traceLoad("connectors");
 const connectors = require("./connectors.cjs");
+traceLoad("mcp-server");
 const mcpServer = require("./mcp-server.cjs");
+traceLoad("mcp-launch");
 const mcpLaunch = require("./mcp-launch.cjs");
+traceLoad("mcp-paths");
 const mcpPaths = require("./mcp-paths.cjs");
+traceLoad("startup");
 const startupFlow = require("./startup.cjs");
+traceLoad("browser");
 const fridayBrowser = require("./browser.cjs");
+traceLoad("browser-live");
 const liveBrowser = require("./browser-live.cjs");
+traceLoad("screen-vision");
 const screenVision = require("./screen-vision.cjs");
+traceLoad("diagram-ocr");
 const diagramOcr = require("./diagram-ocr.cjs");
+traceLoad("camera");
 const camera = require("./camera.cjs");
+traceLoad("skills");
 const fridaySkills = require("./skills.cjs");
+traceLoad("agents");
 const fridayAgents = require("./agents.cjs");
 // 2D desktop companion (additive; inert until the user enables it).
+traceLoad("character");
 const characterRuntime = require("./character/runtime.cjs");
 const { CharacterController } = require("./character/index.cjs");
 // One authoritative renderer loader. The privileged scheme must be declared
 // before the app is ready, so this runs at module scope.
+traceLoad("renderer");
 const renderer = require("./renderer.cjs");
 renderer.registerScheme();
 
+traceLoad("self-maintenance");
 const selfMaintenance = require("./self-maintenance.cjs");
+traceLoad("finetune");
 const finetune = require("./finetune.cjs");
+traceLoad("source-access");
 const sourceAccess = require("./source-access.cjs");
+traceLoad("plugins");
 const plugins = require("./plugins.cjs");
+traceLoad("telemetry");
 const telemetry = require("./telemetry.cjs");
+traceLoad("models");
 const modelsApi = require("./models.cjs");
+traceLoad("model-download");
 const modelDownload = require("./model-download.cjs");
+traceLoad("python");
 const { resolvePython, invalidatePython } = require("./python.cjs");
+traceLoad("tray");
 const tray = require("./tray.cjs");
+traceLoad("startup-tasks");
 const startupTasks = require("./startup-tasks.cjs").createStartupRegistry();
+traceLoad("startup-trace");
 const startupTrace = require("./startup-trace.cjs");
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("load:voice");
+traceLoad("neural-voice");
 const neuralVoice = require("./neural-voice.cjs");
+traceLoad("audio-duck");
 const audioDuck = require("./audio-duck.cjs");
+traceLoad("meeting-watch");
 const meetingWatch = require("./meeting-watch.cjs");
+traceLoad("voiceprint");
 const voiceprint = require("./voiceprint.cjs");
+traceLoad("stt");
 const stt = require("./stt.cjs");
+traceLoad("wake");
 const wakeEngine = require("./wake-engine.cjs");
+traceLoad("voice-verify");
 const voiceVerify = require("./voice-verify.cjs");
+traceLoad("remote-access");
 const remoteAccess = require("./remote-access.cjs");
+traceLoad("library");
 const fridayLibrary = require("./library.cjs");
+traceLoad("projects");
 const fridayProjects = require("./project-workspaces.cjs");
 
+traceLoad("readiness");
 const { runReadiness } = require("./readiness.cjs");
 // Single owner of "what already exists in this root and what may be deleted".
+traceLoad("storage");
 const storageManager = require("./storage-manager.cjs");
 // Production EXE vs portable branch test EXE. Resolved and applied to the path
 // service before ANY FRIDAY path is read, so a test build isolates its mutable
 // state while still sharing the models/runtime/assets already on this PC.
+traceLoad("build-channel");
 const buildChannel = require("./build-channel.cjs");
 const BUILD_CHANNEL = buildChannel.init({ app, paths });
-if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
+traceLoad("env-registry");
 // Shared with the setup scripts and the readiness test: ONE environment truth.
 // In development it lives in the project; in the packaged app it ships as a
 // resource, so both builds load exactly the same implementation.
@@ -320,6 +383,7 @@ const envRegistry = (() => {
     repairAll: () => ({ registry: empty, results: [] }),
   };
 })();
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
 
 // Every IPC handler is instrumented once, here, so the Diagnostics page can
 // show real call counts, durations and failures without each handler
@@ -620,7 +684,16 @@ function appIconPath() {
 // pointer (it is how we find the chosen folder at all); once a folder exists
 // the authoritative copy lives in <workspace>/config, next to
 // friday-preferences.json, so it survives reinstalls with the rest of the data.
-const bootstrapSettingsFile = () => path.join(app.getPath("userData"), "friday-settings.json");
+const bootstrapSettingsFile = () => {
+  try {
+    // userData waits for ready, and this file has not returned to the event
+    // loop yet. The ready handler reads the pointer.
+    if (typeof app.isReady === "function" && !app.isReady()) return "";
+    return path.join(app.getPath("userData"), "friday-settings.json");
+  } catch {
+    return "";
+  }
+};
 
 const workspaceSettingsFile = (root) =>
   root ? path.join(root, "config", "friday-settings.json") : null;
