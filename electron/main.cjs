@@ -2,42 +2,173 @@
 // Locates the existing FRIDAY workspace, scans it, detects runtimes and AI
 // providers, spawns the local Python kernel, then loads the React UI and keeps
 // watching the workspace for changes.
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
 
 // Installer smoke passes these on the command line as well as the environment.
 // A GUI process started with redirected standard handles does not always see
 // the parent's environment. The arguments still arrive. Apply them before any
-// other startup work so the software compositor is selected before Chromium
-// creates a renderer.
-for (const arg of process.argv) {
-  if (arg === "--friday-boot-selftest" || arg === "friday-boot-selftest") {
-    process.env.FRIDAY_BOOT_SELFTEST = "1";
-  }
-  if (arg === "--friday-readiness" || arg === "friday-readiness") {
-    process.env.FRIDAY_READINESS = "1";
-  }
-  const workspaceArg = arg.startsWith("--friday-workspace=")
-    ? arg.slice("--friday-workspace=".length)
-    : arg.startsWith("friday-workspace=")
-      ? arg.slice("friday-workspace=".length)
+// other startup work so a headless failure can see the mode, and so the
+// software compositor is selected before Chromium creates a renderer.
+function applyLaunchArgs() {
+  for (const arg of process.argv) {
+    if (arg === "--friday-boot-selftest" || arg === "friday-boot-selftest") {
+      process.env.FRIDAY_BOOT_SELFTEST = "1";
+    }
+    if (arg === "--friday-readiness" || arg === "friday-readiness") {
+      process.env.FRIDAY_READINESS = "1";
+    }
+    const workspaceArg = arg.startsWith("--friday-workspace=")
+      ? arg.slice("--friday-workspace=".length)
+      : arg.startsWith("friday-workspace=")
+        ? arg.slice("friday-workspace=".length)
+        : "";
+    if (workspaceArg) {
+      process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg.replace(/^["']|["']$/g, "");
+    }
+    const pythonArg = arg.startsWith("--friday-python=")
+      ? arg.slice("--friday-python=".length)
+      : arg.startsWith("friday-python=")
+        ? arg.slice("friday-python=".length)
+        : "";
+    if (pythonArg) {
+      process.env.FRIDAY_PYTHON = pythonArg.replace(/^["']|["']$/g, "");
+    }
+    const progressArg = arg.startsWith("--friday-progress=")
+      ? arg.slice("--friday-progress=".length)
       : "";
-  if (workspaceArg) {
-    process.env.FRIDAY_WORKSPACE_ROOT = workspaceArg.replace(/^["']|["']$/g, "");
+    if (progressArg) {
+      process.env.FRIDAY_READINESS_PROGRESS = progressArg.replace(/^["']|["']$/g, "");
+    }
   }
-  const pythonArg = arg.startsWith("--friday-python=")
-    ? arg.slice("--friday-python=".length)
-    : arg.startsWith("friday-python=")
-      ? arg.slice("friday-python=".length)
-      : "";
-  if (pythonArg) {
-    process.env.FRIDAY_PYTHON = pythonArg.replace(/^["']|["']$/g, "");
+}
+applyLaunchArgs();
+
+function headlessFatalMode() {
+  return (
+    process.env.FRIDAY_READINESS === "1" ||
+    process.env.FRIDAY_BOOT_SELFTEST === "1" ||
+    process.env.CI === "true" ||
+    process.env.GITHUB_ACTIONS === "true"
+  );
+}
+
+function writeFatalArtifacts(kind, err) {
+  let fs;
+  let path;
+  try {
+    fs = require("fs");
+    path = require("path");
+  } catch {
+    return;
   }
-  const progressArg = arg.startsWith("--friday-progress=")
-    ? arg.slice("--friday-progress=".length)
-    : "";
-  if (progressArg) {
-    process.env.FRIDAY_READINESS_PROGRESS = progressArg.replace(/^["']|["']$/g, "");
+  const text = String((err && err.stack) || err);
+  const message = err && err.message ? err.message : text.split("\n")[0];
+  const root = String(process.env.FRIDAY_WORKSPACE_ROOT || "").replace(/^["']|["']$/g, "");
+  const explicit = String(process.env.FRIDAY_READINESS_PROGRESS || "").replace(/^["']|["']$/g, "");
+  const progress =
+    explicit || (root ? path.join(path.resolve(root), "logs", "readiness-progress.jsonl") : "");
+  const row = {
+    t: new Date().toISOString(),
+    milestone: `load-failed:${kind}`,
+    message,
+    stack: text,
+  };
+  if (progress) {
+    try {
+      fs.mkdirSync(path.dirname(progress), { recursive: true });
+      fs.appendFileSync(progress, `${JSON.stringify(row)}\n`);
+    } catch {
+      /* the parent still reports a missing trace */
+    }
   }
+  if (root) {
+    try {
+      const file = path.join(path.resolve(root), "logs", "readiness-result.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ ok: false, stages: [], error: message, stack: text }),
+      );
+    } catch {
+      /* the parent reports a missing marker */
+    }
+  }
+  try {
+    process.stderr.write(`[friday] ${kind}: ${text}\n`);
+  } catch {
+    /* a closed console is not the failure */
+  }
+}
+
+// Assigned after the lifecycle module exists. Until then a headless failure
+// still writes the report and leaves with process.exit.
+let exitNow = null;
+let fatalUiReady = false;
+let fatalHandling = false;
+
+function onFatal(kind, error) {
+  if (fatalHandling) return;
+  fatalHandling = true;
+  const err = error instanceof Error ? error : new Error(String(error));
+  const text = String(err.stack || err);
+  const ignored =
+    /Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available/i.test(
+      text,
+    );
+  if (ignored) {
+    fatalHandling = false;
+    if (kind === "uncaughtException") {
+      try {
+        log(`ignored late shutdown exception: ${text.split("\n")[0]}`);
+      } catch {
+        /* telemetry is not ready yet */
+      }
+    }
+    return;
+  }
+  try {
+    log(`${kind}: ${text}`, "error");
+  } catch {
+    /* log is not ready during the first requires */
+  }
+  if (headlessFatalMode()) {
+    writeFatalArtifacts(kind, err);
+    try {
+      if (typeof exitNow === "function") exitNow(1, kind);
+    } catch {
+      /* process.exit below is the headless leave */
+    }
+    process.exit(1);
+    return;
+  }
+  if (kind === "unhandledRejection") {
+    fatalHandling = false;
+    return;
+  }
+  try {
+    if (fatalUiReady && typeof win !== "undefined" && win && !win.isDestroyed()) {
+      showLoadFailure(text);
+    } else if (fatalUiReady && app && typeof app.isReady === "function" && app.isReady()) {
+      if (process.env.FRIDAY_BOOT_SELFTEST) {
+        finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${text.split("\n")[0]}`);
+      } else if (dialog && typeof dialog.showErrorBox === "function") {
+        dialog.showErrorBox("FRIDAY failed to start", text);
+      }
+    }
+  } catch {
+    writeFatalArtifacts(kind, err);
+  }
+  fatalHandling = false;
+}
+
+process.on("uncaughtException", (error) => onFatal("uncaughtException", error));
+process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
+
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, screen, session } = require("electron");
+
+if (headlessFatalMode() && dialog) {
+  dialog.showErrorBox = (title, content) => {
+    onFatal("showErrorBox", new Error(`${title}\n${content}`));
+  };
 }
 
 // Boot self-test (scripts/verify-boot.cjs, scripts/windows-installer-smoke.ps1)
@@ -120,6 +251,7 @@ const life = appLifecycle.createLifecycle({
   },
   relaunchArgs: restartArgv,
 });
+exitNow = (code, reason) => life.exitNow(code, reason);
 function lifecyclePidFile() {
   try {
     return path.join(app.getPath("userData"), "lifecycle.json");
@@ -213,6 +345,25 @@ const kernelMethods = require("./kernel-methods.cjs");
 function traceLoad(name) {
   if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace(`load:${name}`);
 }
+function loadNamed(name, load) {
+  traceLoad(name);
+  try {
+    return load();
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    if (process.env.FRIDAY_READINESS === "1") {
+      try {
+        readinessTrace.trace(`load-failed:${name}`, {
+          message,
+          stack: String((error && error.stack) || error),
+        });
+      } catch {
+        /* the fatal handler still writes the stack */
+      }
+    }
+    throw error;
+  }
+}
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("before-subsystems");
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
@@ -227,152 +378,98 @@ if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
     /* resolveWorkspaceRoot asks when the folder is missing */
   }
 }
-traceLoad("watcher");
-const { WorkspaceWatcher } = require("./watcher.cjs");
-traceLoad("updater");
-const { checkAllUpdates } = require("./updater.cjs");
-traceLoad("providers");
-const { detectComponents, detectProviders, listOllamaModels } = require("./providers.cjs");
-traceLoad("provider-registry");
-const providerRegistry = require("./provider-registry.cjs");
-traceLoad("hardware");
-const { detectHardware } = require("./hardware.cjs");
-traceLoad("system-monitor");
-const systemMonitor = require("./system-monitor.cjs");
-traceLoad("service-health");
-const serviceHealth = require("./service-health.cjs");
-traceLoad("updater-apply");
-const { applyUpdate, rollbackUpdate } = require("./updater.cjs");
-traceLoad("importer");
-const importer = require("./importer.cjs");
-traceLoad("builder");
-const buildRunner = require("./builder-run.cjs");
-traceLoad("import-factory");
-const importFactory = require("./import-factory.cjs");
-traceLoad("sandbox");
-const sandbox = require("./sandbox.cjs");
-traceLoad("capabilities");
-const capabilityIndex = require("./capabilities.cjs");
-traceLoad("capability-verify");
-const capabilityVerify = require("./capability-verify.cjs");
-traceLoad("skill-pack");
-const skillPack = require("./skill-pack.cjs");
-traceLoad("tool-pack");
-const toolPack = require("./tool-pack.cjs");
-traceLoad("agent-pack");
-const agentPack = require("./agent-pack.cjs");
-traceLoad("module-pack");
-const modulePack = require("./module-pack.cjs");
-traceLoad("workflow-pack");
-const workflowPack = require("./workflow-pack.cjs");
-traceLoad("tools");
-const fridayTools = require("./tools.cjs");
-traceLoad("modules");
-const fridayModules = require("./modules.cjs");
-traceLoad("connectors");
-const connectors = require("./connectors.cjs");
-traceLoad("mcp-server");
-const mcpServer = require("./mcp-server.cjs");
-traceLoad("mcp-launch");
-const mcpLaunch = require("./mcp-launch.cjs");
-traceLoad("mcp-paths");
-const mcpPaths = require("./mcp-paths.cjs");
-traceLoad("startup");
-const startupFlow = require("./startup.cjs");
-traceLoad("browser");
-const fridayBrowser = require("./browser.cjs");
-traceLoad("browser-live");
-const liveBrowser = require("./browser-live.cjs");
-traceLoad("screen-vision");
-const screenVision = require("./screen-vision.cjs");
-traceLoad("diagram-ocr");
-const diagramOcr = require("./diagram-ocr.cjs");
-traceLoad("camera");
-const camera = require("./camera.cjs");
-traceLoad("skills");
-const fridaySkills = require("./skills.cjs");
-traceLoad("agents");
-const fridayAgents = require("./agents.cjs");
+const { WorkspaceWatcher } = loadNamed("watcher", () => require("./watcher.cjs"));
+const { checkAllUpdates } = loadNamed("updater", () => require("./updater.cjs"));
+const { detectComponents, detectProviders, listOllamaModels } = loadNamed("providers", () =>
+  require("./providers.cjs"),
+);
+const providerRegistry = loadNamed("provider-registry", () => require("./provider-registry.cjs"));
+const { detectHardware } = loadNamed("hardware", () => require("./hardware.cjs"));
+const systemMonitor = loadNamed("system-monitor", () => require("./system-monitor.cjs"));
+const serviceHealth = loadNamed("service-health", () => require("./service-health.cjs"));
+const { applyUpdate, rollbackUpdate } = loadNamed("updater-apply", () => require("./updater.cjs"));
+const importer = loadNamed("importer", () => require("./importer.cjs"));
+const buildRunner = loadNamed("builder", () => require("./builder-run.cjs"));
+const importFactory = loadNamed("import-factory", () => require("./import-factory.cjs"));
+const sandbox = loadNamed("sandbox", () => require("./sandbox.cjs"));
+const capabilityIndex = loadNamed("capabilities", () => require("./capabilities.cjs"));
+const capabilityVerify = loadNamed("capability-verify", () => require("./capability-verify.cjs"));
+const skillPack = loadNamed("skill-pack", () => require("./skill-pack.cjs"));
+const toolPack = loadNamed("tool-pack", () => require("./tool-pack.cjs"));
+const agentPack = loadNamed("agent-pack", () => require("./agent-pack.cjs"));
+const modulePack = loadNamed("module-pack", () => require("./module-pack.cjs"));
+const workflowPack = loadNamed("workflow-pack", () => require("./workflow-pack.cjs"));
+const fridayTools = loadNamed("tools", () => require("./tools.cjs"));
+const fridayModules = loadNamed("modules", () => require("./modules.cjs"));
+const connectors = loadNamed("connectors", () => require("./connectors.cjs"));
+const mcpServer = loadNamed("mcp-server", () => require("./mcp-server.cjs"));
+const mcpLaunch = loadNamed("mcp-launch", () => require("./mcp-launch.cjs"));
+const mcpPaths = loadNamed("mcp-paths", () => require("./mcp-paths.cjs"));
+const startupFlow = loadNamed("startup", () => require("./startup.cjs"));
+const fridayBrowser = loadNamed("browser", () => require("./browser.cjs"));
+const liveBrowser = loadNamed("browser-live", () => require("./browser-live.cjs"));
+const screenVision = loadNamed("screen-vision", () => require("./screen-vision.cjs"));
+const diagramOcr = loadNamed("diagram-ocr", () => require("./diagram-ocr.cjs"));
+const camera = loadNamed("camera", () => require("./camera.cjs"));
+const fridaySkills = loadNamed("skills", () => require("./skills.cjs"));
+const fridayAgents = loadNamed("agents", () => require("./agents.cjs"));
 // 2D desktop companion (additive; inert until the user enables it).
-traceLoad("character");
-const characterRuntime = require("./character/runtime.cjs");
-const { CharacterController } = require("./character/index.cjs");
+const { characterRuntime, CharacterController } = loadNamed("character", () => ({
+  characterRuntime: require("./character/runtime.cjs"),
+  CharacterController: require("./character/index.cjs").CharacterController,
+}));
 // One authoritative renderer loader. The privileged scheme must be declared
 // before the app is ready, so this runs at module scope.
-traceLoad("renderer");
-const renderer = require("./renderer.cjs");
-renderer.registerScheme();
+const renderer = loadNamed("renderer", () => require("./renderer.cjs"));
+loadNamed("renderer-scheme", () => {
+  renderer.registerScheme();
+});
 
-traceLoad("self-maintenance");
-const selfMaintenance = require("./self-maintenance.cjs");
-traceLoad("finetune");
-const finetune = require("./finetune.cjs");
-traceLoad("source-access");
-const sourceAccess = require("./source-access.cjs");
-traceLoad("plugins");
-const plugins = require("./plugins.cjs");
-traceLoad("telemetry");
-const telemetry = require("./telemetry.cjs");
-traceLoad("models");
-const modelsApi = require("./models.cjs");
-traceLoad("model-download");
-const modelDownload = require("./model-download.cjs");
-traceLoad("python");
-const { resolvePython, invalidatePython } = require("./python.cjs");
-traceLoad("tray");
-const tray = require("./tray.cjs");
-traceLoad("startup-tasks");
-const startupTasks = require("./startup-tasks.cjs").createStartupRegistry();
-traceLoad("startup-trace");
-const startupTrace = require("./startup-trace.cjs");
+const selfMaintenance = loadNamed("self-maintenance", () => require("./self-maintenance.cjs"));
+const finetune = loadNamed("finetune", () => require("./finetune.cjs"));
+const sourceAccess = loadNamed("source-access", () => require("./source-access.cjs"));
+const plugins = loadNamed("plugins", () => require("./plugins.cjs"));
+const telemetry = loadNamed("telemetry", () => require("./telemetry.cjs"));
+const modelsApi = loadNamed("models", () => require("./models.cjs"));
+const modelDownload = loadNamed("model-download", () => require("./model-download.cjs"));
+const { resolvePython, invalidatePython } = loadNamed("python", () => require("./python.cjs"));
+const tray = loadNamed("tray", () => require("./tray.cjs"));
+const startupTasks = loadNamed("startup-tasks", () =>
+  require("./startup-tasks.cjs").createStartupRegistry(),
+);
+const startupTrace = loadNamed("startup-trace", () => require("./startup-trace.cjs"));
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("load:voice");
-traceLoad("neural-voice");
-const neuralVoice = require("./neural-voice.cjs");
-traceLoad("audio-duck");
-const audioDuck = require("./audio-duck.cjs");
-traceLoad("meeting-watch");
-const meetingWatch = require("./meeting-watch.cjs");
-traceLoad("voiceprint");
-const voiceprint = require("./voiceprint.cjs");
-traceLoad("stt");
-const stt = require("./stt.cjs");
-traceLoad("wake");
-const wakeEngine = require("./wake-engine.cjs");
-traceLoad("voice-verify");
-const voiceVerify = require("./voice-verify.cjs");
-traceLoad("remote-access");
-const remoteAccess = require("./remote-access.cjs");
-traceLoad("library");
-const fridayLibrary = require("./library.cjs");
-traceLoad("projects");
-const fridayProjects = require("./project-workspaces.cjs");
+const neuralVoice = loadNamed("neural-voice", () => require("./neural-voice.cjs"));
+const audioDuck = loadNamed("audio-duck", () => require("./audio-duck.cjs"));
+const meetingWatch = loadNamed("meeting-watch", () => require("./meeting-watch.cjs"));
+const voiceprint = loadNamed("voiceprint", () => require("./voiceprint.cjs"));
+const stt = loadNamed("stt", () => require("./stt.cjs"));
+const wakeEngine = loadNamed("wake", () => require("./wake-engine.cjs"));
+const voiceVerify = loadNamed("voice-verify", () => require("./voice-verify.cjs"));
+const remoteAccess = loadNamed("remote-access", () => require("./remote-access.cjs"));
+const fridayLibrary = loadNamed("library", () => require("./library.cjs"));
+const fridayProjects = loadNamed("projects", () => require("./project-workspaces.cjs"));
 
-traceLoad("readiness");
-const { runReadiness } = require("./readiness.cjs");
+const { runReadiness } = loadNamed("readiness", () => require("./readiness.cjs"));
 // Single owner of "what already exists in this root and what may be deleted".
-traceLoad("storage");
-const storageManager = require("./storage-manager.cjs");
+const storageManager = loadNamed("storage", () => require("./storage-manager.cjs"));
 // Production EXE vs portable branch test EXE. Resolved and applied to the path
 // service before ANY FRIDAY path is read, so a test build isolates its mutable
 // state while still sharing the models/runtime/assets already on this PC.
-traceLoad("build-channel");
-const buildChannel = require("./build-channel.cjs");
+const buildChannel = loadNamed("build-channel", () => require("./build-channel.cjs"));
 const BUILD_CHANNEL = buildChannel.init({ app, paths });
-traceLoad("env-registry");
 // Shared with the setup scripts and the readiness test: ONE environment truth.
 // In development it lives in the project; in the packaged app it ships as a
 // resource, so both builds load exactly the same implementation.
-const envRegistry = (() => {
-  const candidates = [
-    path.join(__dirname, "..", "scripts", "env-registry.cjs"),
-    path.join(process.resourcesPath || "", "scripts", "env-registry.cjs"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (fs.existsSync(candidate)) return require(candidate);
-    } catch (error) {
-      console.error(`[friday] environment registry unavailable: ${error.message}`);
-    }
+const envRegistry = loadNamed("env-registry", () => {
+  const resourcePaths = require("./resource-paths.cjs");
+  try {
+    const candidate = resourcePaths.resolveResourceFile("scripts/env-registry.cjs");
+    if (candidate) return require(candidate);
+  } catch (error) {
+    console.error(
+      `[friday] environment registry unavailable: ${error && error.message ? error.message : error}`,
+    );
   }
   // Never let a missing registry stop FRIDAY from starting.
   const empty = { version: 1, updatedAt: null, ready: false, blocking: [], components: [] };
@@ -382,7 +479,7 @@ const envRegistry = (() => {
     repairComponent: (id) => ({ ok: false, id, error: "registry unavailable in this build" }),
     repairAll: () => ({ registry: empty, results: [] }),
   };
-})();
+});
 if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
 
 // Every IPC handler is instrumented once, here, so the Diagnostics page can
@@ -597,41 +694,6 @@ function log(message, level = "info") {
   }
 }
 
-process.on("uncaughtException", (err) => {
-  const text = String(err?.stack || err);
-  if (
-    /Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available/i.test(
-      text,
-    )
-  ) {
-    log(`ignored late shutdown exception: ${text.split("\n")[0]}`);
-    return;
-  }
-  log(`uncaught exception: ${err?.stack || err}`, "error");
-  if (win && !win.isDestroyed()) showLoadFailure(String(err?.stack || err));
-  else if (app.isReady()) {
-    if (process.env.FRIDAY_BOOT_SELFTEST) {
-      finishBootSelfTest(1, `FRIDAY_BOOT_SELFTEST_FAIL ${text.split("\n")[0]}`);
-    } else if (process.env.FRIDAY_READINESS === "1") {
-      finishReadiness({ ok: false, stages: [], error: text.split("\n")[0] });
-    } else dialog.showErrorBox("FRIDAY failed to start", String(err?.stack || err));
-  }
-});
-
-process.on("unhandledRejection", (reason) => {
-  const text = String((reason && reason.stack) || reason);
-  // A window that closes while an async job is still finishing is normal
-  // shutdown behaviour, not a fault — never surface it as an error.
-  if (
-    /Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available/i.test(
-      text,
-    )
-  ) {
-    return;
-  }
-  log(`unhandled rejection: ${text}`);
-});
-
 const KERNEL_HOST = "127.0.0.1";
 const KERNEL_PORT = 8765;
 // Per-launch token: the kernel rejects any bridge client that does not present it.
@@ -643,6 +705,7 @@ const REGISTRY_KEY = "HKCU\\Software\\FRIDAY";
 
 let kernel = null;
 let win = null;
+fatalUiReady = true;
 let powerResumeBound = false;
 let watcher = null;
 let stayHiddenOnLaunch = false;
@@ -1119,14 +1182,11 @@ function ensureKernelConfigDir() {
   if (!configDir) return null;
   try {
     fs.mkdirSync(configDir, { recursive: true });
-    const sources = [
-      path.join(process.resourcesPath || "", "config"),
-      path.join(__dirname, "..", "config"),
-    ];
+    const resourcePaths = require("./resource-paths.cjs");
     for (const name of ["models.yaml", "kernel.yaml"]) {
       const target = path.join(configDir, name);
       if (fs.existsSync(target)) continue;
-      const from = sources.map((base) => path.join(base, name)).find((file) => fs.existsSync(file));
+      const from = resourcePaths.resolveConfigFile(name);
       if (from) fs.copyFileSync(from, target);
     }
   } catch (error) {
@@ -1224,10 +1284,8 @@ async function startKernel(root) {
   const python = resolvedPython?.exe;
   const pythonPrefix = resolvedPython?.prefix || [];
 
-  const packaged = path.join(process.resourcesPath || "", "kernel", "main.py");
-  const entry = fs.existsSync(packaged)
-    ? packaged
-    : path.join(__dirname, "..", "kernel", "main.py");
+  const resourcePaths = require("./resource-paths.cjs");
+  const entry = resourcePaths.resolveResourceFile("kernel/main.py") || "";
   const kernelConfigDir = ensureKernelConfigDir();
 
   kernelReady = false;

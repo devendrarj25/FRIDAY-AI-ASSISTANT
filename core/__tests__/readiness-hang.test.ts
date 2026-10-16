@@ -149,14 +149,21 @@ describe("readiness progress trace", () => {
     );
     expect(bootstrap.indexOf("!app.isReady()")).toBeGreaterThan(-1);
     expect(bootstrap.indexOf("!app.isReady()")).toBeLessThan(bootstrap.indexOf("getPath"));
-    expect(main.indexOf('traceLoad("connectors")')).toBeGreaterThan(
+    expect(main.indexOf('loadNamed("connectors"')).toBeGreaterThan(
       main.indexOf('trace("before-subsystems")'),
     );
-    expect(main.indexOf('traceLoad("connectors")')).toBeLessThan(
+    expect(main.indexOf('loadNamed("connectors"')).toBeLessThan(
       main.indexOf('require("./connectors.cjs")'),
     );
+    expect(main).toContain("load-failed:${name}");
     expect(main.indexOf('trace("load:voice")')).toBeLessThan(
-      main.indexOf('traceLoad("voiceprint")'),
+      main.indexOf('loadNamed("voiceprint"'),
+    );
+    expect(main.indexOf('process.on("uncaughtException"')).toBeLessThan(
+      main.indexOf('require("electron")'),
+    );
+    expect(main.indexOf('process.on("unhandledRejection"')).toBeLessThan(
+      main.indexOf('require("electron")'),
     );
     const voice = read("electron/voiceprint.cjs");
     expect(voice.slice(0, voice.indexOf("function userDataDir"))).not.toContain("getPath");

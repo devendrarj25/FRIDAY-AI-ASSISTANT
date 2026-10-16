@@ -25,6 +25,7 @@ const PHASES = [
   "stage-toolchain",
   "build-renderer",
   "package",
+  "packaged-requires",
   "sign-hook",
   "manifest",
   "verify-artifacts",
@@ -54,6 +55,7 @@ const PHASE_COMMANDS = {
   "stage-toolchain": ["scripts/stage-toolchain.cjs"],
   "build-renderer": ["npm run build:desktop"],
   package: ["scripts/electron-pack.cjs"],
+  "packaged-requires": ["scripts/packaged-requires.cjs"],
   "sign-hook": ["scripts/sign-windows.ps1"],
   manifest: ["scripts/release-manifest.cjs"],
   "verify-artifacts": ["scripts/verify-build.cjs"],
@@ -624,6 +626,10 @@ function runPhase(phase, options, root) {
     }
     runNode("scripts/electron-pack.cjs", packArgs, root);
     return `packaged ${packArgs.join(" ")}`;
+  }
+  if (phase === "packaged-requires") {
+    runNode("scripts/packaged-requires.cjs", [], root);
+    return "packaged requires resolved";
   }
   if (phase === "sign-hook") {
     if (!signingRequested(options)) {

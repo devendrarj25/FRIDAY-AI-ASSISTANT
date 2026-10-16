@@ -17,11 +17,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const sync = require("./github-sync.cjs");
 const contract = require("./friday-contract.cjs");
+const resourcePaths = require("./resource-paths.cjs");
 
 /**
  * Identity ships beside the app as an extra resource, not inside app.asar.
  * The checkout path works in development. The resources path is what the
- * installed EXE can actually open.
+ * installed EXE can actually open. The read stays inside the function that
+ * needs it so a missing file cannot stop the main process from loading.
  */
 function loadFirstExisting(candidates) {
   const tried = [];
@@ -40,10 +42,35 @@ function loadFirstExisting(candidates) {
   throw error;
 }
 
-const IDENTITY = loadFirstExisting([
-  path.join(__dirname, "..", "scripts", "identity.cjs"),
-  path.join(process.resourcesPath || "", "scripts", "identity.cjs"),
-]);
+let identityCache = null;
+function loadIdentity() {
+  if (identityCache) return identityCache;
+  try {
+    const file = resourcePaths.resolveResourceFile("scripts/identity.cjs");
+    if (!file) {
+      identityCache = {
+        degraded: true,
+        error: "identity.cjs is not in this build",
+        OWNER: "",
+        GITHUB: "",
+      };
+      return identityCache;
+    }
+    identityCache = require(file);
+    return identityCache;
+  } catch (error) {
+    console.error(
+      `[friday] identity unavailable: ${error && error.message ? error.message : error}`,
+    );
+    identityCache = {
+      degraded: true,
+      error: error && error.message ? error.message : String(error),
+      OWNER: "",
+      GITHUB: "",
+    };
+    return identityCache;
+  }
+}
 
 /** Hub GitHub identity — selected connection, not the Updates self-repo unless that is selected. */
 function hubCfg(root) {
@@ -916,8 +943,10 @@ function stripToken(text, token) {
 async function ensureGitIdentity(cwd) {
   const named = await git(["config", "user.name"], cwd);
   if (named.ok && named.out) return;
-  await git(["config", "user.name", IDENTITY.OWNER], cwd);
-  await git(["config", "user.email", `${IDENTITY.GITHUB}@users.noreply.github.com`], cwd);
+  const who = loadIdentity();
+  if (!who || who.degraded || !who.OWNER || !who.GITHUB) return;
+  await git(["config", "user.name", who.OWNER], cwd);
+  await git(["config", "user.email", `${who.GITHUB}@users.noreply.github.com`], cwd);
 }
 
 /**

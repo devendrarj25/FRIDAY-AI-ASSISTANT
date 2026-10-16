@@ -11,13 +11,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const engine = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const resourcePaths = require("./resource-paths.cjs");
 
 function packagedCanonical() {
   try {
-    const resources = process.resourcesPath;
-    if (!resources) return null;
-    const file = path.join(resources, "config", "friday-version.json");
-    if (!fs.existsSync(file)) return null;
+    const file = resourcePaths.resolveConfigFile("friday-version.json");
+    if (!file) return null;
     return engine.identityFromCanonical(JSON.parse(fs.readFileSync(file, "utf8")));
   } catch {
     return null;

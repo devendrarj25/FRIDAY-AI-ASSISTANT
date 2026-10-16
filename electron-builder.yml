@@ -39,9 +39,12 @@ asarUnpack:
   - "resources/toolchain/**"
   - "resources/speech/**"
   # The stdio launcher runs under Electron as Node, outside the asar.
+  # The protocol reads config through the resolver, so that file is a real
+  # sibling too. Config itself stays one extraResources copy.
   - "electron/friday-mcp.cjs"
   - "electron/mcp-protocol.cjs"
   - "electron/mcp-launch.cjs"
+  - "electron/resource-paths.cjs"
 
 extraResources:
   - from: kernel

@@ -16,6 +16,7 @@ const { execFile } = require("child_process");
 const { detectTools, run, which, ping, pool } = require("./toolchain.cjs");
 const project = require("./project.cjs");
 const { resolvePython } = require("./python.cjs");
+const resourcePaths = require("./resource-paths.cjs");
 
 const WIN = process.platform === "win32";
 
@@ -168,6 +169,35 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
         : `${appFiles.length} core files present · project root ${projectRoot}`,
       cause: missingFiles.length ? "Files were not copied by the installer or were deleted." : null,
       fix: missingFiles.length ? "Reinstall FRIDAY with the latest Setup executable." : null,
+    }),
+  );
+
+  let configRows = [];
+  try {
+    configRows = resourcePaths.configHealth();
+  } catch (error) {
+    configRows = [
+      {
+        name: "config",
+        degraded: true,
+        error: error && error.message ? error.message : String(error),
+      },
+    ];
+  }
+  const degradedConfig = configRows.filter((row) => row.degraded);
+  checks.push(
+    check({
+      id: "packaged-config",
+      label: "Packaged configuration",
+      group: "FRIDAY",
+      status: degradedConfig.length ? "Warning" : "Ready",
+      detail: degradedConfig.length
+        ? degradedConfig.map((row) => `${row.name}: ${row.error || "missing"}`).join("; ")
+        : `${configRows.length} config files readable`,
+      cause: degradedConfig.length
+        ? "A config file was not in the install resources or could not be read. FRIDAY is using a built-in fallback where one exists."
+        : null,
+      fix: degradedConfig.length ? "Reinstall FRIDAY. Setup copies config next to the app." : null,
     }),
   );
 

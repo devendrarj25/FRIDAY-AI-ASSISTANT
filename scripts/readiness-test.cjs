@@ -27,6 +27,67 @@ const runtime = require("./python-runtime.cjs");
 const hang = require("./readiness-hang.cjs");
 const { isUnloadedLocalChat } = require("../electron/readiness.cjs");
 
+/** Parent ceiling when milestones keep advancing. A stall fails sooner. */
+const CEILING_MS = 300000;
+/** A require that never returns, or a quiet start, fails inside this window. */
+const LOAD_STALL_MS = 20000;
+const QUIET_STALL_MS = 30000;
+/** Milestones that are allowed to sit still longer than the load stall. */
+const LONG_STALL_MS = {
+  "kernel-spawn": 70000,
+  "stage:KERNEL": 70000,
+  "stage:CHAT": 100000,
+  "stage:MODEL": 45000,
+  "stage:BOOT": 40000,
+  "before-subsystems": 30000,
+};
+
+function stallLimit(milestone) {
+  const name = String(milestone || "");
+  if (name.startsWith("load-failed:")) return 0;
+  if (name.startsWith("load:")) return LOAD_STALL_MS;
+  if (Object.prototype.hasOwnProperty.call(LONG_STALL_MS, name)) return LONG_STALL_MS[name];
+  return QUIET_STALL_MS;
+}
+
+/**
+ * Fail as soon as the process has already died, a require recorded
+ * load-failed, or the progress file has not moved for that milestone's limit.
+ * A launch that keeps writing milestones may still use CEILING_MS.
+ */
+function stallVerdict({ events, startedAt, now }) {
+  const rows = Array.isArray(events) ? events : [];
+  const failed = rows.find((row) => String(row.milestone || "").startsWith("load-failed:"));
+  if (failed) {
+    return {
+      fail: true,
+      reason: "load-failed",
+      milestone: failed.milestone,
+      message: failed.message || "",
+      quiet: 0,
+      limit: 0,
+    };
+  }
+  const last = rows[rows.length - 1];
+  const parsed = last && last.t ? Date.parse(last.t) : NaN;
+  const anchor = Number.isFinite(parsed) ? parsed : startedAt;
+  const quiet = Math.max(0, now - anchor);
+  const limit = stallLimit(last ? last.milestone : "");
+  const milestone = last ? last.milestone : "process-start";
+  if (quiet >= limit) {
+    return { fail: true, reason: "stall", milestone, message: "", quiet, limit };
+  }
+  return { fail: false, reason: "", milestone, message: "", quiet, limit };
+}
+
+function stallMessage(label, verdict) {
+  if (verdict.reason === "load-failed") {
+    return `${label} failed at ${verdict.milestone}${verdict.message ? `: ${verdict.message}` : ""}`;
+  }
+  const seconds = Math.max(0, Math.round((verdict.quiet || 0) / 1000));
+  return `${label} stalled after ${verdict.milestone} (${seconds}s with no new milestone)`;
+}
+
 const root = runtime.root;
 const win = runtime.win;
 const repairEnabled = !process.argv.includes("--no-repair");
@@ -169,6 +230,8 @@ function launch(app, label, { select = true } = {}) {
     let output = "";
     let report = null;
     let poll = null;
+    let settled = false;
+    const startedAt = Date.now();
     const accept = (parsed) => {
       if (report || !parsed || typeof parsed !== "object") return;
       if (typeof parsed.ok !== "boolean" || !Array.isArray(parsed.stages)) return;
@@ -193,6 +256,8 @@ function launch(app, label, { select = true } = {}) {
       }
     };
     const settle = (result) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       clearInterval(poll);
       launchHarness.killTree(child);
@@ -219,8 +284,25 @@ function launch(app, label, { select = true } = {}) {
         noReport: true,
         hang: noted,
       });
-    }, 300000);
-    poll = setInterval(takeMarker, 250);
+    }, CEILING_MS);
+    poll = setInterval(() => {
+      takeMarker();
+      if (report || settled) return;
+      const events = hang.readProgress(progress);
+      const verdict = stallVerdict({ events, startedAt, now: Date.now() });
+      if (!verdict.fail) return;
+      const noted = hang.inspectLaunch({ progressFile: progress, pid: child.pid });
+      console.log(noted.line);
+      settle({
+        ok: false,
+        stages: [],
+        error: stallMessage(label, verdict),
+        output,
+        noReport: true,
+        hang: noted,
+        fastFail: true,
+      });
+    }, 250);
     const read = (chunk) => {
       output += String(chunk);
       takeLine(output);
@@ -255,7 +337,7 @@ function report(payload) {
   return file;
 }
 
-(async () => {
+async function runReadinessHarness() {
   const stages = [];
   const add = (name, ok, detail) => {
     stages.push({ name, ok, detail });
@@ -410,4 +492,20 @@ function report(payload) {
     process.exit(1);
   }
   log("readiness PASSED — installed FRIDAY starts, works and restarts cleanly.");
-})();
+}
+
+if (require.main === module) {
+  runReadinessHarness().catch((error) => {
+    fail(error && error.stack ? error.stack : String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  CEILING_MS,
+  LOAD_STALL_MS,
+  QUIET_STALL_MS,
+  stallLimit,
+  stallVerdict,
+  stallMessage,
+};

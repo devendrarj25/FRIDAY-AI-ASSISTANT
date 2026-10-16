@@ -4,11 +4,16 @@
  */
 const fs = require("fs");
 const path = require("path");
-
-const MANIFEST = path.join(__dirname, "..", "config", "toolchain-manifest.json");
+const resourcePaths = require("./resource-paths.cjs");
 
 function readManifest() {
-  return JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+  const file = resourcePaths.resolveConfigFile("toolchain-manifest.json");
+  if (!file) {
+    const error = new Error("toolchain manifest not found");
+    error.code = "MANIFEST_MISSING";
+    throw error;
+  }
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function packById(id) {
@@ -104,9 +109,29 @@ function installChain(facts) {
 }
 
 function previewBundledStage(manifest) {
-  const stage = require("../scripts/stage-toolchain.cjs");
-  if (manifest && manifest.fetchImpl) return stage.stageBundledPacks(manifest);
-  return stage.stagePlan(manifest);
+  // scripts/stage-toolchain.cjs ships as an extraResource, not inside app.asar.
+  // The call stays inside this function and never throws into the main load.
+  try {
+    const file = resourcePaths.resolveResourceFile("scripts/stage-toolchain.cjs");
+    if (!file) {
+      return {
+        ok: false,
+        errors: ["stage-toolchain.cjs is not in this build"],
+        step: "stage",
+        cause: "missing",
+      };
+    }
+    const stage = require(file);
+    if (manifest && manifest.fetchImpl) return stage.stageBundledPacks(manifest);
+    return stage.stagePlan(manifest);
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [error && error.message ? error.message : String(error)],
+      step: "stage",
+      cause: "runtime",
+    };
+  }
 }
 
 function planExtraction(pack, dest) {
