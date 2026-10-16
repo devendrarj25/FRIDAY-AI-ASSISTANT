@@ -131,6 +131,26 @@ describe("readiness progress trace", () => {
     expect(readinessCandidates).not.toContain("materialiseBundledRuntime");
     expect(readinessCandidates).not.toContain("windowsInstalledPythons");
   });
+
+  it("does not resolve userData before the app is ready", () => {
+    const main = read("electron/main.cjs");
+    const startup = main.slice(0, main.indexOf("// ---- Lifecycle"));
+    expect(startup).not.toContain('setFallbackRoot(app.getPath("userData"))');
+    expect(main).toContain('setFallbackRoot(app.getPath("userData"))');
+    expect(main.indexOf('trace("before-subsystems")')).toBeLessThan(
+      main.indexOf('trace("load:voice")'),
+    );
+    expect(main.indexOf('trace("load:voice")')).toBeLessThan(
+      main.indexOf('trace("after-requires")'),
+    );
+    const voice = read("electron/voiceprint.cjs");
+    expect(voice.slice(0, voice.indexOf("function userDataDir"))).not.toContain("getPath");
+    expect(voice).toContain("!app.isReady()");
+    const engines = read("electron/sandbox-engines.cjs");
+    expect(engines).toContain("!app.isReady()");
+    expect(engines).not.toMatch(/^loadRestartPending\(\);/m);
+    expect(trace.BUDGETS["before-subsystems"]).toBeGreaterThanOrEqual(120_000);
+  });
 });
 
 describe("readiness hang report", () => {

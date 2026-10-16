@@ -8,7 +8,12 @@ const path = require("node:path");
 /** Milliseconds the process may stay on a milestone before the watchdog fails it. */
 const BUDGETS = {
   "process-start": 45000,
-  "after-requires": 20000,
+  // The subsystem requires run on this same turn. A short budget would
+  // expire the moment the thread yields, before the window exists.
+  "before-subsystems": 180000,
+  "load:voice": 180000,
+  "after-requires": 60000,
+  "user-data": 20000,
   "app-ready": 30000,
   "single-instance": 30000,
   "root-selected": 20000,

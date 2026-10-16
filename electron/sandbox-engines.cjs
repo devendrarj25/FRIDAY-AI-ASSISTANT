@@ -242,15 +242,19 @@ const restartPending = new Set();
 function restartStateFile() {
   try {
     const { app } = require("electron");
+    if (typeof app.isReady === "function" && !app.isReady()) return null;
     return path.join(app.getPath("userData"), "sandbox-engine-restart.json");
   } catch {
     return null;
   }
 }
 
+let restartLoaded = false;
 function loadRestartPending() {
+  if (restartLoaded) return;
   const file = restartStateFile();
   if (!file) return;
+  restartLoaded = true;
   try {
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
     if (Array.isArray(saved)) saved.forEach((id) => restartPending.add(String(id)));
@@ -258,7 +262,6 @@ function loadRestartPending() {
     /* nothing remembered yet */
   }
 }
-loadRestartPending();
 
 function saveRestartPending() {
   const file = restartStateFile();
@@ -701,36 +704,39 @@ function catalog() {
   return ENGINES.filter((engine) => engine.platforms.includes(process.platform));
 }
 
-const publicShape = (engine, state = {}) => ({
-  id: engine.id,
-  label: engine.label,
-  kind: engine.kind,
-  isolation: engine.isolation,
-  summary: engine.summary,
-  url: engine.url,
-  image: engine.image ?? null,
-  builtin: Boolean(engine.builtin),
-  launchOnly: Boolean(engine.launchOnly),
-  needsRestart: Boolean(engine.restart),
-  // True when this engine was installed successfully but Windows has not been
-  // restarted yet — the UI shows the restart instruction instead of an error.
-  awaitingRestart: restartPending.has(engine.id),
-  canStartService: Boolean(SERVICES[engine.id]),
+const publicShape = (engine, state = {}) => {
+  loadRestartPending();
+  return {
+    id: engine.id,
+    label: engine.label,
+    kind: engine.kind,
+    isolation: engine.isolation,
+    summary: engine.summary,
+    url: engine.url,
+    image: engine.image ?? null,
+    builtin: Boolean(engine.builtin),
+    launchOnly: Boolean(engine.launchOnly),
+    needsRestart: Boolean(engine.restart),
+    // True when this engine was installed successfully but Windows has not been
+    // restarted yet — the UI shows the restart instruction instead of an error.
+    awaitingRestart: restartPending.has(engine.id),
+    canStartService: Boolean(SERVICES[engine.id]),
 
-  // True when installing this engine enables a Windows feature and therefore
-  // needs one-off Administrator approval (a UAC prompt) — never the whole app.
-  needsElevation: (engine.install || []).some((s) => s.elevate),
-  sources: (engine.install || []).map((s) => s.label || s.tool || s.kind),
-  installed: false,
-  ready: false,
-  version: null,
-  detail: "",
-  // Absolute location when the engine was found off PATH; null when PATH served.
-  path: null,
-  eligible: true,
-  excludedReason: null,
-  ...state,
-});
+    // True when installing this engine enables a Windows feature and therefore
+    // needs one-off Administrator approval (a UAC prompt) — never the whole app.
+    needsElevation: (engine.install || []).some((s) => s.elevate),
+    sources: (engine.install || []).map((s) => s.label || s.tool || s.kind),
+    installed: false,
+    ready: false,
+    version: null,
+    detail: "",
+    // Absolute location when the engine was found off PATH; null when PATH served.
+    path: null,
+    eligible: true,
+    excludedReason: null,
+    ...state,
+  };
+};
 
 /* ------------------------------------------ Windows edition + ranking */
 
@@ -1207,6 +1213,7 @@ function selectionCacheFile(override) {
   if (override) return override;
   try {
     const { app } = require("electron");
+    if (typeof app.isReady === "function" && !app.isReady()) return null;
     return path.join(app.getPath("userData"), "sandbox-engine-selected.json");
   } catch {
     return null;
