@@ -18,15 +18,15 @@ Auto listening can start from the PCM ring when MediaRecorder is missing. Heard-
 | `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `64 files already formatted`. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.3`. |
-| `npm run typecheck:py` | Passed. 4 passed in 5.82s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
-| `npm run test:kernel` | 199 passed, 1 Starlette deprecation warning, 20.69s. Exit 0. |
-| `npm test` | 364 files passed, 3010 passed, 2 skipped, 83.52s. Exit 0. |
+| `npm run typecheck:py` | Passed. 4 passed in 5.70s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 199 passed, 1 Starlette deprecation warning, 20.25s. Exit 0. |
+| `npm test` | 365 files passed, 3017 passed, 2 skipped, 85.22s. Exit 0. |
 | `node scripts/tests-required.cjs origin/main` | Passed. |
 | `npm run check:provenance` | `provenance ok (origin/main)`. |
 | `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
-| `node scripts/audit-architecture.cjs --strict` | Passed. 725 source files. |
+| `node scripts/audit-architecture.cjs --strict` | Passed. 727 source files. |
 | `node scripts/verify-deps.cjs` | Passed. |
-| `npm run preflight` | Passed. Static gates, kernel, pyright, and `test:fast` passed. `test:fast` selected 2 files and 12 tests (`vitest run --changed`). Windows pack gates were skipped on Linux. |
+| `npm run preflight` | Passed. Static gates, kernel, pyright, and `test:fast` passed. `test:fast` printed `No test files found` and exited 0 because this tree was already committed (`vitest run --changed`). Windows pack gates were skipped on Linux. |
 | `npm run build:desktop` | Passed in 5s. `AppShell-DyXcJh_b.js` is 3,674.01 kB (gzip 1,310.34 kB). It was not split. |
 | `node scripts/build-pipeline.cjs --through verify-versions` | Passed. prepare-environment 51674 ms, verify-versions 465 ms. Report `ok: true`. Later phases were not run. |
 
