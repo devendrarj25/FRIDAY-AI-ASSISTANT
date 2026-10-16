@@ -206,16 +206,15 @@ const billingFirewall = require("./billing-firewall.cjs");
 const privacyFirewall = require("./privacy-firewall.cjs");
 const toolAuthority = require("./tool-authority.cjs");
 const kernelMethods = require("./kernel-methods.cjs");
-if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
+// Release 38882530465 wrote this milestone and then nothing for 5 minutes.
+// The next statements used to call app.getPath before ready. On Electron 36+
+// that call waits for ready, and ready cannot fire until this file returns.
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("before-subsystems");
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
 const providerHealth = new modelRouter.ProviderHealthManager();
-// Bootstrap location for the very first launch, before a folder is selected.
-try {
-  paths.setFallbackRoot(app.getPath("userData"));
-} catch {
-  /* userData is unavailable in some test harnesses; the tmp fallback stands */
-}
+// The temp fallback in friday-paths stands until the app is ready. userData
+// is applied in the whenReady handler below, never on this turn.
 if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
   const raw = String(process.env.FRIDAY_WORKSPACE_ROOT).replace(/^["']|["']$/g, "");
   try {
@@ -276,6 +275,7 @@ const { resolvePython, invalidatePython } = require("./python.cjs");
 const tray = require("./tray.cjs");
 const startupTasks = require("./startup-tasks.cjs").createStartupRegistry();
 const startupTrace = require("./startup-trace.cjs");
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("load:voice");
 const neuralVoice = require("./neural-voice.cjs");
 const audioDuck = require("./audio-duck.cjs");
 const meetingWatch = require("./meeting-watch.cjs");
@@ -295,6 +295,7 @@ const storageManager = require("./storage-manager.cjs");
 // state while still sharing the models/runtime/assets already on this PC.
 const buildChannel = require("./build-channel.cjs");
 const BUILD_CHANNEL = buildChannel.init({ app, paths });
+if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires");
 // Shared with the setup scripts and the readiness test: ONE environment truth.
 // In development it lives in the project; in the packaged app it ships as a
 // resource, so both builds load exactly the same implementation.
@@ -7761,6 +7762,12 @@ ipcMain.handle("env:readiness", () =>
 app
   .whenReady()
   .then(async () => {
+    try {
+      paths.setFallbackRoot(app.getPath("userData"));
+    } catch {
+      /* userData is unavailable in some test harnesses; the tmp fallback stands */
+    }
+    if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("user-data");
     if (!fridayInstanceLockHeld && process.env.FRIDAY_READINESS === "1") {
       finishReadiness({
         ok: false,

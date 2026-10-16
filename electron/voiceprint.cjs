@@ -14,17 +14,26 @@ let userData = "";
 try {
   const electron = require("electron");
   safeStorage = electron.safeStorage;
-  try {
-    userData = electron.app?.getPath?.("userData") || "";
-  } catch {
-    userData = "";
-  }
 } catch {
   safeStorage = null;
 }
 
+function userDataDir() {
+  if (userData) return userData;
+  try {
+    const { app } = require("electron");
+    // Electron 36+ can hang in getPath until ready, and ready waits on this
+    // process. Leave the path empty until the app has finished starting.
+    if (typeof app?.isReady === "function" && !app.isReady()) return "";
+    userData = app?.getPath?.("userData") || "";
+  } catch {
+    userData = "";
+  }
+  return userData;
+}
+
 function storePath() {
-  const root = process.env.FRIDAY_ROOT || userData;
+  const root = process.env.FRIDAY_ROOT || userDataDir();
   return root ? path.join(root, "voiceprint.json") : "";
 }
 
