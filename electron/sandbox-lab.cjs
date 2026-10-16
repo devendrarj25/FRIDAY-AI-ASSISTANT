@@ -23,6 +23,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
 
 const toolchain = require("./toolchain.cjs");
 const sandbox = require("./sandbox.cjs");
@@ -1065,7 +1066,7 @@ async function runCommand(root, options = {}, emit = () => {}) {
 
     const timer = setTimeout(() => {
       try {
-        if (WIN) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+        if (WIN) killProcessTree(child.pid);
         else child.kill("SIGKILL");
       } catch {
         /* already gone */
@@ -1090,7 +1091,7 @@ function cancelRun(runId) {
   const child = running.get(runId);
   if (!child) return { ok: false, error: "That run already finished." };
   try {
-    if (WIN) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+    if (WIN) killProcessTree(child.pid);
     else child.kill("SIGKILL");
   } catch {
     /* ignore */

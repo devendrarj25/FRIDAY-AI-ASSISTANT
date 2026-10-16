@@ -10,6 +10,7 @@
  * same package can never be installed twice at the same time.
  */
 const { execFile, execFileSync, spawn } = require("child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
@@ -2956,7 +2957,7 @@ function cancelJob({ id, action }) {
   const child = jobs.get(`${id}:${action}`);
   if (!child) return false;
   try {
-    if (WIN) execFile("taskkill", ["/pid", String(child.pid), "/t", "/f"], () => {});
+    if (WIN) killProcessTree(child.pid);
     else child.kill("SIGTERM");
   } catch {
     /* already gone */

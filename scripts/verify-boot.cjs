@@ -18,6 +18,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
+const launchHarness = require("./packaged-launch.cjs");
 
 const runtime = require("./python-runtime.cjs");
 const root = runtime.root;
@@ -141,24 +142,6 @@ function packagedBinary() {
   return path.join(root, "release", "win-unpacked", win ? "FRIDAY.exe" : "FRIDAY");
 }
 
-/** Kills the whole Electron process tree; a bare kill() orphans renderers. */
-function killTree(child) {
-  try {
-    if (win && child.pid) {
-      spawnSync(path.join(process.env["SystemRoot"] || "C:\\Windows", "System32", "taskkill.exe"), [
-        "/PID",
-        String(child.pid),
-        "/T",
-        "/F",
-      ]);
-    } else {
-      child.kill();
-    }
-  } catch {
-    /* already gone */
-  }
-}
-
 /**
  * Boots an Electron application and waits for the real FRIDAY interface to
  * report itself as mounted. `args` is empty for the packaged EXE, which already
@@ -201,7 +184,7 @@ function bootElectron(binary, args, label) {
       settled = true;
       clearTimeout(timer);
       clearInterval(poll);
-      killTree(child);
+      launchHarness.killTree(child);
       try {
         fs.rmSync(bootRoot, { recursive: true, force: true });
       } catch {

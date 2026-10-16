@@ -1703,6 +1703,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
   const [format, setFormat] = useState("GGUF");
   const [sizeGb, setSizeGb] = useState("4");
   const [provider, setProvider] = useState<ProviderId>("llamacpp");
+  const [browsing, setBrowsing] = useState(false);
 
   const submit = () => {
     if (!name.trim() || !path.trim()) {
@@ -1763,13 +1764,19 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
             <Button
               size="sm"
               variant="outline"
+              disabled={browsing}
               onClick={async () => {
-                const picked = await window.friday?.pickFolder?.();
-                if (picked) setPath(picked);
-                else
-                  toast(
-                    "Folder picker is available in the desktop app — type the path here in preview.",
-                  );
+                setBrowsing(true);
+                try {
+                  const picked = await window.friday?.pickFolder?.();
+                  if (picked) setPath(picked);
+                  else
+                    toast(
+                      "Folder picker is available in the desktop app — type the path here in preview.",
+                    );
+                } finally {
+                  setBrowsing(false);
+                }
               }}
             >
               <Upload className="size-4" />

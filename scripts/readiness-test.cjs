@@ -19,7 +19,8 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
+const launchHarness = require("./packaged-launch.cjs");
 
 const registry = require("./env-registry.cjs");
 const runtime = require("./python-runtime.cjs");
@@ -69,29 +70,12 @@ function resolveApp() {
   return null;
 }
 
-/** Kills the whole process tree; a bare kill() orphans renderer processes. */
-function killTree(child) {
-  try {
-    if (win && child.pid) {
-      spawnSync(path.join(process.env["SystemRoot"] || "C:\\Windows", "System32", "taskkill.exe"), [
-        "/PID",
-        String(child.pid),
-        "/T",
-        "/F",
-      ]);
-    } else {
-      child.kill();
-    }
-  } catch {
-    /* already gone */
-  }
-}
-
 /**
  * Launches FRIDAY in readiness mode and collects the in-app stage results.
  * Also proves SHUTDOWN: the process must exit on its own after reporting.
+ *
+ * The folder FRIDAY already recorded as its home, if it still exists.
  */
-/** The folder FRIDAY already recorded as its home, if it still exists. */
 function recordedRoot() {
   const appData =
     process.env["APPDATA"] ||
@@ -211,7 +195,7 @@ function launch(app, label, { select = true } = {}) {
     const settle = (result) => {
       clearTimeout(timer);
       clearInterval(poll);
-      killTree(child);
+      launchHarness.killTree(child);
       resolve(result);
     };
     const timer = setTimeout(() => {
@@ -248,7 +232,8 @@ function launch(app, label, { select = true } = {}) {
       takeMarker();
       takeLine(output);
       const noted = hang.inspectLaunch({ progressFile: progress, pid: child.pid });
-      if (report) return settle({ ...report, exitCode: code, output, hang: noted });
+      const leak = launchHarness.leakCheck(launchHarness.childPids(child));
+      if (report) return settle({ ...report, exitCode: code, output, hang: noted, leak });
       // A desktop-less Linux CI box cannot open a window; that is not a FRIDAY bug.
       if (!win && /error while loading shared libraries|libgtk|libnss/i.test(output))
         return settle({ ok: true, skipped: true, stages: [], output });
@@ -370,10 +355,11 @@ function report(payload) {
         : `the in-app report failed (${inAppFailed.join(", ") || "no stage names"}), so the process must exit 1`;
       const codeText =
         first.exitCode === undefined || first.exitCode === null ? "none" : String(first.exitCode);
+      const leaked = first.leak && first.leak.ok === false ? first.leak.alive.join(",") : "";
       add(
         "SHUTDOWN",
-        first.exitCode === expected,
-        `exit code ${codeText} (expected ${expected}: ${why})`,
+        first.exitCode === expected && !leaked,
+        `exit code ${codeText} (expected ${expected}: ${why})${leaked ? `; owned pid still alive: ${leaked}` : ""}`,
       );
     }
   }

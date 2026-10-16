@@ -822,19 +822,25 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={busy}
                         onClick={async () => {
                           if (!desktop) {
                             toast.error("Pick a disk folder is desktop-only.");
                             return;
                           }
-                          const picked = await pickProjectFolder();
-                          if (!picked) return;
-                          projectWorkspaces.addSource(active.id, {
-                            label: picked.split(/[\\/]/).filter(Boolean).slice(-1)[0] || "Folder",
-                            path: picked,
-                            selected: true,
-                          });
-                          setItems(projectWorkspaces.list(true));
+                          setBusy(true);
+                          try {
+                            const picked = await pickProjectFolder();
+                            if (!picked) return;
+                            projectWorkspaces.addSource(active.id, {
+                              label: picked.split(/[\\/]/).filter(Boolean).slice(-1)[0] || "Folder",
+                              path: picked,
+                              selected: true,
+                            });
+                            setItems(projectWorkspaces.list(true));
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                       >
                         Add folder from disk

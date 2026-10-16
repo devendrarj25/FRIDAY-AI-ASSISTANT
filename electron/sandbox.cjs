@@ -7,6 +7,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const engines = require("./sandbox-engines.cjs");
 
 const WIN = process.platform === "win32";
@@ -112,11 +113,12 @@ function run(command, args, cwd, timeoutMs) {
             shell: false,
             env,
           });
+    trackOwned("sandbox", child, command);
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
       try {
-        if (WIN) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+        if (WIN) killProcessTree(child.pid);
         else child.kill("SIGKILL");
       } catch {
         /* already gone */
@@ -447,12 +449,12 @@ async function runIsolated({
           shell: false,
           env: python ? env : { ...env, ELECTRON_RUN_AS_NODE: "1" },
         });
+        trackOwned("sandbox", child, shell);
         const timer = setTimeout(() => {
           if (done) return;
           done = true;
           try {
-            if (WIN)
-              spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+            if (WIN) killProcessTree(child.pid);
             else child.kill("SIGKILL");
           } catch {
             /* already gone */
@@ -513,12 +515,12 @@ async function runIsolated({
         shell: false,
         env: python ? env : { ...env, ELECTRON_RUN_AS_NODE: "1" },
       });
+      trackOwned("sandbox", child, python ? "python" : process.execPath);
       const timer = setTimeout(() => {
         if (done) return;
         done = true;
         try {
-          if (WIN)
-            spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+          if (WIN) killProcessTree(child.pid);
           else child.kill("SIGKILL");
         } catch {
           /* already gone */

@@ -8,7 +8,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
 
 const WIN = process.platform === "win32";
 const jobs = new Map();
@@ -510,8 +510,7 @@ function cancelBuild(id) {
   job.aborted = true;
   try {
     if (job.child) {
-      if (WIN)
-        spawn("taskkill", ["/pid", String(job.child.pid), "/T", "/F"], { windowsHide: true });
+      if (WIN) killProcessTree(job.child.pid);
       else job.child.kill("SIGTERM");
     }
   } catch {

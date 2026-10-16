@@ -133,6 +133,18 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
       detail: `Electron ${process.versions.electron || "n/a"} · Node ${process.versions.node} · Chromium ${process.versions.chrome || "n/a"}`,
     }),
   );
+  if (ctx.eventLoop && typeof ctx.eventLoop === "object") {
+    const stalls = Number(ctx.eventLoop.stalls) || 0;
+    checks.push(
+      check({
+        id: "event-loop",
+        label: "Main process event loop",
+        group: "FRIDAY",
+        status: stalls > 0 ? "Warning" : "Ready",
+        detail: `stalls over 100ms: ${stalls}; longest ${Number(ctx.eventLoop.max) || 0}ms`,
+      }),
+    );
+  }
 
   // --- packaged app files ---------------------------------------------------
   // Each file is searched across the project root, resources/ and the

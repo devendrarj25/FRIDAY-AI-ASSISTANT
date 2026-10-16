@@ -9,6 +9,7 @@
  */
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
 const python = require("./python.cjs");
 
 const KERNEL = path.join(__dirname, "..", "kernel");
@@ -58,11 +59,7 @@ function stopProcessTree(child) {
   if (!child || child.pid == null) return;
   try {
     if (process.platform === "win32") {
-      const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-      killer.unref?.();
+      killProcessTree(child.pid);
     } else {
       child.kill("SIGKILL");
     }

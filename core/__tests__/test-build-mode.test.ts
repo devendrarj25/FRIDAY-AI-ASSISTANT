@@ -298,7 +298,9 @@ describe("installer lifecycle smoke contract", () => {
     expect(verify).toContain("--friday-workspace=");
     const lockBlock = main.slice(lock, lock + 700);
     expect(lockBlock).toContain("another FRIDAY already holds this PC");
-    expect(lockBlock).toContain("app.exit(1)");
+    expect(lockBlock).toContain("exitNow(1");
+    const life = fs.readFileSync(path.join(process.cwd(), "electron", "app-lifecycle.cjs"), "utf8");
+    expect(life).toContain("app.exit(code)");
     expect(main).toContain("if (!fridayInstanceLockHeld) return;");
   });
 });
