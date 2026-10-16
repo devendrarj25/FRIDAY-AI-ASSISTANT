@@ -22,6 +22,7 @@
  */
 
 import { brain } from "./brain-engine";
+import { appControlNeedsApproval, selfLifecycleAction } from "./app-control";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { composer } from "./composer";
 import { armChartOffer, voiceAutoGraph } from "./flow-modes";
@@ -1227,9 +1228,9 @@ class AssistantModeStore {
       },
       // Low-latency wake scoring on the RAW audio when openWakeWord is really
       // installed with a model for this wake word; null → transcript fallback.
-      wakeProbe: async ({ audioBase64, mime }) => {
+      wakeProbe: async ({ audioBytes, mime }) => {
         if (!this.state.wakeEngine.ready) return null;
-        const probe = await detectWake({ audioBase64, mime, wakeWord: wakeWord() });
+        const probe = await detectWake({ audioBytes, mime, wakeWord: wakeWord() });
         if (probe) {
           this.state.lastWake = { engine: probe.engine, detail: probe.detail, at: Date.now() };
           this.emit();
@@ -1508,6 +1509,29 @@ class AssistantModeStore {
     text = corrected;
     this.state.heard = text.slice(0, 160);
 
+    const waiting = brain.state.approval;
+    if (
+      waiting &&
+      appControlNeedsApproval(waiting.tool) &&
+      typeof waiting.at === "number" &&
+      approvalFresh(waiting.at, Date.now())
+    ) {
+      if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
+        brain.approve(true);
+        this.caption("user", text);
+        this.caption("friday", "Approved.");
+        this.emit();
+        return;
+      }
+      if (isBoundConfirmation(text, (value) => DENY.test(value))) {
+        brain.approve(false);
+        this.caption("user", text);
+        this.caption("friday", "Cancelled.");
+        this.emit();
+        return;
+      }
+    }
+
     // 1. A consequential command is waiting for a yes/no.
     if (this.state.pending) {
       if (!approvalFresh(this.state.pending.at, Date.now())) {
@@ -1733,7 +1757,7 @@ class AssistantModeStore {
       this.emit();
       return;
     }
-    if (heardSensitive) {
+    if (heardSensitive && !selfLifecycleAction(command)) {
       this.state.pending = {
         command,
         reason: approvalReason("exec", this.state.mode),

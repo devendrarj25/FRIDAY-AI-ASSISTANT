@@ -173,15 +173,6 @@ function pickMime(): string {
   return "";
 }
 
-const toBase64 = (buffer: ArrayBuffer): string => {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary);
-};
-
 export interface DictationOptions {
   language?: string;
   deviceId?: string | null;
@@ -203,7 +194,7 @@ export interface DictationOptions {
    * Optional low-latency wake scoring, run on the RAW audio before whisper.
    * Returning null means the engine is unavailable → transcript fallback.
    */
-  wakeProbe?: (payload: { audioBase64: string; mime: string }) => Promise<WakeProbe | null>;
+  wakeProbe?: (payload: { audioBytes: Uint8Array; mime: string }) => Promise<WakeProbe | null>;
   /** Fired once per utterance when an in-flight wake probe matches. */
   onEarlyWake?: (wake: WakeProbe) => void;
   onSpeechStart?: () => void;
@@ -887,9 +878,9 @@ export class DesktopDictation {
     const blob = new Blob(this.chunks.slice(), { type: mime });
     if (blob.size < 2500) return;
     try {
-      const audioBase64 = toBase64(await blob.arrayBuffer());
+      const audioBytes = new Uint8Array(await blob.arrayBuffer());
       if (!this.running || gen !== this.earlyWakeGen) return;
-      const wake = await this.options.wakeProbe({ audioBase64, mime });
+      const wake = await this.options.wakeProbe({ audioBytes, mime });
       if (!this.running || gen !== this.earlyWakeGen) return;
       this.earlyWake = wake;
       if (wake?.detected) {
@@ -966,14 +957,14 @@ export class DesktopDictation {
     const startedAt = Date.now();
     try {
       const audioBytes = new Uint8Array(await blob.arrayBuffer());
-      const audioBase64 = this.options.wakeProbe ? toBase64(audioBytes.buffer) : "";
       // Low-latency wake scoring FIRST: openWakeWord answers in milliseconds
       // from the raw audio, so FRIDAY knows whether she was called before the
       // (much slower) transcription even starts. Reuse an in-utterance match
-      // instead of scoring the same clip twice.
+      // instead of scoring the same clip twice. The bytes stay bytes — a
+      // base64 string on this thread stalls the interface.
       let wake: WakeProbe | null = early;
       if (!wake?.detected && this.options.wakeProbe) {
-        wake = await this.options.wakeProbe({ audioBase64, mime: blob.type });
+        wake = await this.options.wakeProbe({ audioBytes, mime: blob.type });
         if (wake)
           this.options.onDiagnostic?.({
             stage: "wake",
@@ -1002,7 +993,6 @@ export class DesktopDictation {
       const sttSize = preferences.getSnapshot().voice.sttSize;
       const result = (await api.transcribe({
         audioBytes,
-        ...(audioBase64 ? { audioBase64 } : {}),
         mime: blob.type,
         language,
         ...(this.options.language ? { speechPref: this.options.language } : {}),

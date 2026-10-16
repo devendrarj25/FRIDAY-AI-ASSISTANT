@@ -22,6 +22,8 @@ const WITHHELD = {
   "screen.read_text": "Screen capture can read a credential prompt.",
   "screen.perceive": "Screen capture can read a credential prompt.",
   "app.launch": "Launching another application stays on the desktop.",
+  app_restart: "Restarting FRIDAY stays on the desktop, after the owner approves.",
+  app_shutdown: "Shutting FRIDAY down stays on the desktop, after the owner approves.",
   "app.focus": "Focusing another application stays on the desktop.",
   "app.close": "Closing another application stays on the desktop.",
   "app.list_windows": "Window titles stay on the desktop.",

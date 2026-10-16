@@ -23,6 +23,7 @@ const { spawn, spawnSync } = require("node:child_process");
 
 const registry = require("./env-registry.cjs");
 const runtime = require("./python-runtime.cjs");
+const hang = require("./readiness-hang.cjs");
 const { isUnloadedLocalChat } = require("../electron/readiness.cjs");
 
 const root = runtime.root;
@@ -146,11 +147,17 @@ function readinessMarker() {
   return path.join(FRIDAY_ROOT, "logs", "readiness-result.json");
 }
 
+function readinessProgress() {
+  return path.join(FRIDAY_ROOT, "logs", "readiness-progress.jsonl");
+}
+
 function launch(app, label, { select = true } = {}) {
   return new Promise((resolve) => {
     const marker = readinessMarker();
+    const progress = readinessProgress();
     try {
       fs.rmSync(marker, { force: true });
+      fs.rmSync(progress, { force: true });
     } catch {
       /* nothing from an earlier launch */
     }
@@ -166,7 +173,8 @@ function launch(app, label, { select = true } = {}) {
     // A Windows GUI process can miss the inherited environment. The arguments
     // still arrive. Restart omits the workspace argument so FRIDAY has to
     // rediscover the same folder.
-    const args = [...(app.args || []), "--friday-readiness"];
+    const args = [...(app.args || []), "--friday-readiness", `--friday-progress=${progress}`];
+    if (python) args.push(`--friday-python=${python}`);
     if (select) args.push(`--friday-workspace=${FRIDAY_ROOT}`);
     const child = spawn(app.exe, args, {
       cwd: root,
@@ -208,11 +216,24 @@ function launch(app, label, { select = true } = {}) {
     };
     const timer = setTimeout(() => {
       takeMarker();
+      const noted = hang.inspectLaunch({ progressFile: progress, pid: child.pid });
+      console.log(noted.line);
+      if (report) {
+        settle({
+          ...report,
+          exitCode: null,
+          output,
+          hang: noted,
+        });
+        return;
+      }
       settle({
         ok: false,
         stages: [],
         error: `${label} did not finish within 5 minutes`,
         output,
+        noReport: true,
+        hang: noted,
       });
     }, 300000);
     poll = setInterval(takeMarker, 250);
@@ -226,7 +247,8 @@ function launch(app, label, { select = true } = {}) {
     child.on("exit", (code) => {
       takeMarker();
       takeLine(output);
-      if (report) return settle({ ...report, exitCode: code, output });
+      const noted = hang.inspectLaunch({ progressFile: progress, pid: child.pid });
+      if (report) return settle({ ...report, exitCode: code, output, hang: noted });
       // A desktop-less Linux CI box cannot open a window; that is not a FRIDAY bug.
       if (!win && /error while loading shared libraries|libgtk|libnss/i.test(output))
         return settle({ ok: true, skipped: true, stages: [], output });
@@ -292,7 +314,8 @@ function report(payload) {
   // First run: START → BOOT → KERNEL → DATABASE → CHAT → VOICE → MODEL → TASK,
   // then the process must shut itself down.
   let first = await launch(app, "FRIDAY");
-  if (!first.ok && repairEnabled && !first.skipped) {
+  const firstHung = hang.noReportVerdict(first);
+  if (!first.ok && repairEnabled && !first.skipped && !firstHung) {
     if (packChatOnlyUnloaded(first)) {
       log(`first run only missed CHAT (${stageText(first)}) — pack continues without a repair`);
     } else {
@@ -329,25 +352,35 @@ function report(payload) {
         .slice(-30);
       for (const line of lines) log(line);
     }
-    // FRIDAY exits itself after reporting: 0 when every stage passed, 1 when a
-    // stage failed (electron/main.cjs). SHUTDOWN therefore checks the exit code
-    // against the reported result instead of accepting any exit.
-    const inAppFailed = (first.stages || [])
-      .filter((stage) => !stage.ok)
-      .map((stage) => stage.name);
-    const expected = first.ok ? 0 : 1;
-    const why = first.ok
-      ? "the in-app report passed, so the process must exit 0"
-      : `the in-app report failed (${inAppFailed.join(", ") || "no stage names"}), so the process must exit 1`;
-    add(
-      "SHUTDOWN",
-      first.exitCode === expected,
-      `exit code ${first.exitCode} (expected ${expected}: ${why})`,
-    );
+    if (firstHung) {
+      const cause = first.hang && first.hang.line ? first.hang.line : first.error;
+      add("SHUTDOWN", false, "not evaluated: first run produced no report");
+      add("RESTART", false, "not evaluated");
+      fail(`readiness root cause: ${cause}`);
+    } else {
+      // FRIDAY exits itself after reporting: 0 when every stage passed, 1 when a
+      // stage failed (electron/main.cjs). SHUTDOWN therefore checks the exit code
+      // against the reported result instead of accepting any exit.
+      const inAppFailed = (first.stages || [])
+        .filter((stage) => !stage.ok)
+        .map((stage) => stage.name);
+      const expected = first.ok ? 0 : 1;
+      const why = first.ok
+        ? "the in-app report passed, so the process must exit 0"
+        : `the in-app report failed (${inAppFailed.join(", ") || "no stage names"}), so the process must exit 1`;
+      const codeText =
+        first.exitCode === undefined || first.exitCode === null ? "none" : String(first.exitCode);
+      add(
+        "SHUTDOWN",
+        first.exitCode === expected,
+        `exit code ${codeText} (expected ${expected}: ${why})`,
+      );
+    }
   }
 
   // Restart must be clean: no stale lock, no orphaned kernel, same result.
-  if (!first.skipped) {
+  // A first launch with no report does not start a second 5 minute wait.
+  if (!first.skipped && !firstHung) {
     const second = await launch(app, "FRIDAY (restart)", { select: false });
     // Restart is only clean when the app found the SAME folder on its own.
     const boot = (second.stages || []).find((s) => s.name === "BOOT");
@@ -382,6 +415,8 @@ function report(payload) {
     stages,
     environment: env,
     output: (first.output || "").slice(-8000),
+    hang: first.hang || null,
+    rootCause: firstHung ? (first.hang && first.hang.line) || first.error : "",
   });
   log(`report: ${file}`);
   if (!ok) {

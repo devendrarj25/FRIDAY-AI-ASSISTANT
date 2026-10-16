@@ -62,7 +62,7 @@ Tool, resource, and prompt names below are generated. Edit the catalog, then run
 
 <!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->
 
-Protocol `2026-07-28`. Kernel tools in the risk table: 51.
+Protocol `2026-07-28`. Kernel tools in the risk table: 53.
 
 | Tool | Risk | Scopes |
 | --- | --- | --- |
@@ -146,6 +146,8 @@ Withheld kernel tools stay on the desktop:
 - `app.focus` — Focusing another application stays on the desktop.
 - `app.launch` — Launching another application stays on the desktop.
 - `app.list_windows` — Window titles stay on the desktop.
+- `app_restart` — Restarting FRIDAY stays on the desktop, after the owner approves.
+- `app_shutdown` — Shutting FRIDAY down stays on the desktop, after the owner approves.
 - `bluetooth.list` — A device list is not an MCP tool.
 - `bluetooth.media` — Media keys on another device stay on the desktop.
 - `bluetooth.scan` — A nearby-device scan is not an MCP tool.

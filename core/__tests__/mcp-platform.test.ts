@@ -73,7 +73,7 @@ describe("MCP catalog matches kernel risk", () => {
   const built = catalog.buildCatalog(risk);
 
   it("maps every kernel tool and withholds the ones that must stay on the desktop", () => {
-    expect(Object.keys(risk)).toHaveLength(51);
+    expect(Object.keys(risk)).toHaveLength(53);
     for (const key of Object.keys(risk)) {
       const row = built.mappings.find((item: { kernel: string }) => item.kernel === key);
       expect(row, key).toBeTruthy();
@@ -83,6 +83,12 @@ describe("MCP catalog matches kernel risk", () => {
       expect(risk[key], key).toBeTruthy();
     }
     expect(built.tools.some((tool: { name: string }) => tool.name === "kernel.shell.cmd")).toBe(
+      false,
+    );
+    expect(built.tools.some((tool: { name: string }) => tool.name === "kernel.app_restart")).toBe(
+      false,
+    );
+    expect(built.tools.some((tool: { name: string }) => tool.name === "kernel.app_shutdown")).toBe(
       false,
     );
     expect(

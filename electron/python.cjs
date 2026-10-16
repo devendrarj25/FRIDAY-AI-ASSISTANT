@@ -247,6 +247,21 @@ function materialiseBundledRuntime() {
 }
 
 function candidates(projectRoot = null) {
+  // Readiness must not scan the registry, the py launcher, or extract a
+  // bundled runtime. Those calls are synchronous and held the packaged
+  // process until the parent killed it. The parent passes --friday-python.
+  if (process.env.FRIDAY_READINESS === "1") {
+    const listed = [];
+    if (process.env.FRIDAY_PYTHON) listed.push({ exe: process.env.FRIDAY_PYTHON, prefix: [] });
+    if (paths.hasRoot()) listed.push({ exe: venvIn(paths.dir("runtime")), prefix: [] });
+    if (process.env.FRIDAY_WORKSPACE_ROOT) {
+      listed.push({
+        exe: venvIn(path.join(process.env.FRIDAY_WORKSPACE_ROOT, "runtime")),
+        prefix: [],
+      });
+    }
+    return listed;
+  }
   // A FRIDAY-managed environment inside the selected folder always wins, so a
   // moved or re-selected FRIDAY home brings its own runtime with it.
   const workspaceVenv = paths.hasRoot() ? venvIn(paths.dir("runtime")) : null;
@@ -396,6 +411,20 @@ async function resolvePython(projectRoot = null, force = false) {
   // bundled runtime and probing every interpreter is synchronous or several
   // seconds each, and that work was holding the probe past the smoke limit.
   if (process.env.FRIDAY_BOOT_SELFTEST) return null;
+  if (process.env.FRIDAY_READINESS === "1") {
+    const key = cacheKey(projectRoot);
+    if (cached && cachedKey === key && !force && fs.existsSync(cached.executable)) return cached;
+    cached = null;
+    cachedKey = key;
+    for (const candidate of candidates(projectRoot)) {
+      const found = await probe(candidate);
+      if (found) {
+        cached = found;
+        return found;
+      }
+    }
+    return null;
+  }
   const key = cacheKey(projectRoot);
   if (cached && cachedKey === key && !force && fs.existsSync(cached.executable)) return cached;
   cached = null;

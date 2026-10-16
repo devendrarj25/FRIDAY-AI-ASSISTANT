@@ -1,6 +1,14 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ChevronsLeft, ChevronsRight, RotateCw, Settings } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Power, RotateCw, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FlowStudioHost } from "@/components/friday/FlowStudio";
 import { featureForPath } from "@/lib/friday/flow-adapters";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
@@ -24,6 +32,7 @@ import {
 } from "@/lib/friday/desktop";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
 import { useAppVersion } from "@/lib/friday/version";
+import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
 import { useAppearance } from "@/lib/friday/appearance";
 import { useCharacterLink } from "@/lib/friday/character/link";
 import {
@@ -167,6 +176,9 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   const defaultExpanded = (prefs.fields["sidebarDefault"] ?? "Expanded") === "Expanded";
   // Collapsed by default on first run unless Settings → Appearance says Expanded.
   const [collapsed, setCollapsed] = useState(() => readSidebarCollapsed(defaultExpanded));
+  const [lifeMode, setLifeMode] = useState<"restart" | "shutdown" | null>(null);
+  const [lifeLines, setLifeLines] = useState<string[]>([]);
+  const [lifeBusy, setLifeBusy] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const el = navRef.current;
@@ -402,6 +414,22 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     });
   };
 
+  const askLife = async (mode: "restart" | "shutdown") => {
+    if (lifeBusy) return;
+    const api = desktopApi();
+    const preview = (await api?.lifecyclePreview?.()) ?? ({} as LifecyclePreview);
+    setLifeLines(lifecycleConfirmLines(preview));
+    setLifeMode(mode);
+  };
+
+  const confirmLife = async () => {
+    if (!lifeMode || lifeBusy) return;
+    setLifeBusy(true);
+    const api = desktopApi();
+    if (lifeMode === "shutdown") await api?.shutdownApp?.("Shutdown requested from the sidebar.");
+    else await (api?.restartApp ?? api?.confirmRestart)?.("Restart requested from the sidebar.");
+  };
+
   if (workspaceRoot === undefined) return null;
   if (workspaceRoot === null) return <WorkspaceSetup />;
 
@@ -479,13 +507,9 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   type="button"
                   aria-label="Restart FRIDAY"
                   title="Restart FRIDAY"
-                  onClick={() => {
-                    const api = desktopApi();
-                    void (api?.restartApp ?? api?.confirmRestart)?.(
-                      "Restart requested from the sidebar.",
-                    );
-                  }}
-                  className="grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  disabled={lifeBusy}
+                  onClick={() => void askLife("restart")}
+                  className="grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
                 >
                   <RotateCw className="size-4" />
                 </button>
@@ -502,6 +526,17 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   <Settings className="size-4" />
                 </Link>
               </div>
+              <button
+                type="button"
+                aria-label="Shutdown FRIDAY"
+                title="Shutdown FRIDAY"
+                disabled={lifeBusy}
+                onClick={() => void askLife("shutdown")}
+                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-sm border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+              >
+                <Power className="size-4 shrink-0" />
+                {!collapsed ? <span className="truncate text-xs">Shutdown FRIDAY</span> : null}
+              </button>
               {!collapsed ? (
                 <div className="hud-tile mt-2 rounded-md px-2.5 py-2">
                   <p className="font-mono text-[11px] text-primary">FRIDAY {appVersion.label}</p>
@@ -551,6 +586,46 @@ function AppShellChrome({ children }: { children: ReactNode }) {
         </div>
         <WiringVisualizerHost />
         <SessionLock />
+        <Dialog
+          open={lifeMode !== null}
+          onOpenChange={(open) => {
+            if (!open && !lifeBusy) setLifeMode(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {lifeMode === "shutdown" ? "Shut FRIDAY down?" : "Restart FRIDAY?"}
+              </DialogTitle>
+              <DialogDescription>
+                Active work on this PC is listed below. Start at login stays as you set it.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {lifeLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={lifeBusy}
+                onClick={() => setLifeMode(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={lifeBusy}
+                onClick={() => void confirmLife()}
+              >
+                {lifeMode === "shutdown" ? "Shut down" : "Restart"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </ShellPresenceContext.Provider>
   );

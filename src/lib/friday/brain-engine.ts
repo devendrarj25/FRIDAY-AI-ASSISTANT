@@ -132,7 +132,14 @@ import {
 } from "./self/task-runners";
 import { handleDoctorCommand } from "./doctor-engine";
 import { handleInstallerCommand } from "./installer-engine";
-import { kernelCall, checkForUpdates, applyUpdate as applyDesktopUpdate } from "./desktop";
+import {
+  kernelCall,
+  checkForUpdates,
+  applyUpdate as applyDesktopUpdate,
+  restartApp,
+  shutdownApp,
+} from "./desktop";
+import { appControlNeedsApproval, APP_RESTART_TOOL, APP_SHUTDOWN_TOOL } from "./app-control";
 import { kernelApi } from "./kernel-api";
 import { composer } from "./composer";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -257,6 +264,7 @@ export type Approval = {
   tool: string;
   risk: "write" | "exec";
   reason: string;
+  at?: number;
 };
 
 export type Run = {
@@ -2189,6 +2197,14 @@ class BrainStore {
           } else {
             result = local as Record<string, unknown>;
           }
+        } else if (tool === APP_SHUTDOWN_TOOL || tool === APP_RESTART_TOOL) {
+          const ran =
+            tool === APP_SHUTDOWN_TOOL
+              ? await shutdownApp("approved in chat")
+              : await restartApp("approved in chat");
+          result = ran
+            ? { ok: true, accepted: true }
+            : { ok: false, error: "The desktop bridge did not accept that." };
         } else {
           result = (await kernelCall<Record<string, unknown>>("tool.exec", {
             name: tool,
@@ -2229,6 +2245,7 @@ class BrainStore {
   private gateAction(run: Run, tool: string, risk: ActionRisk, label: string): Promise<boolean> {
     const mode = actionMode();
     if (
+      !appControlNeedsApproval(tool) &&
       !brainActionNeedsApproval(risk, mode, {
         confirmImportant: this.state.settings.confirmImportant,
         prompt: run.prompt,
@@ -2243,6 +2260,7 @@ class BrainStore {
       tool,
       risk: risk === "safe" ? "write" : (risk as "write" | "exec"),
       reason: `${label} — ${approvalReason(risk, mode)}`,
+      at: Date.now(),
     };
     run.state = "awaiting-approval";
     this.push("warn", `waiting for your approval: ${label} (${risk})`);

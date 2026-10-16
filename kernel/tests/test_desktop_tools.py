@@ -34,6 +34,15 @@ def test_new_desktop_tools_are_exec():
         assert RISK[name] == "exec"
 
 
+def test_app_control_is_exec_and_not_a_model_tool():
+    assert RISK["app_restart"] == "exec"
+    assert RISK["app_shutdown"] == "exec"
+    source = Path(__file__).resolve().parents[1].joinpath("tools.py").read_text(encoding="utf-8")
+    params = source.split("MODEL_TOOL_PARAMS", 1)[1].split("def wire_name", 1)[0]
+    assert "app_restart" not in params
+    assert "app_shutdown" not in params
+
+
 def test_perceive_is_denied_without_authorization(tmp_path):
     tools = ToolRegistry(_Storage(), workspace=tmp_path, authority=Authority("s3cret"))
     result = asyncio.run(tools.execute("screen.perceive", {}))

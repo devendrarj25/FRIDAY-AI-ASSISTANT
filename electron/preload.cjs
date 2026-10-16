@@ -280,6 +280,8 @@ contextBridge.exposeInMainWorld("friday", {
   onUpdateProgress: on("updates:progress"),
   confirmRestart: (reason) => ipcRenderer.invoke("app:confirm-restart", reason),
   restartApp: (reason) => ipcRenderer.invoke("app:restart", reason),
+  shutdownApp: (reason) => ipcRenderer.invoke("app:shutdown", reason),
+  lifecyclePreview: () => ipcRenderer.invoke("app:lifecycle-preview"),
   restartState: () => ipcRenderer.invoke("app:restart-state"),
   onRestartRequired: on("app:restart-required"),
 

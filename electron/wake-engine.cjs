@@ -323,13 +323,26 @@ function tmpFile(mime) {
  * Score one captured utterance. `detected` is only ever true when the real
  * model said so — an unavailable engine returns `ok:false` with the reason.
  */
-async function detect({ audioBase64, mime, wakeWord = "friday", threshold = 0.5 } = {}) {
+async function detect({
+  audioBase64,
+  audioBytes,
+  mime,
+  wakeWord = "friday",
+  threshold = 0.5,
+} = {}) {
   const state = await status(wakeWord);
   if (!state.ready) return { ok: false, engine: "transcript", reason: state.reason };
-  if (!audioBase64) return { ok: false, engine: "transcript", reason: "no audio supplied" };
+  const bytes =
+    audioBytes && (audioBytes.length || audioBytes.byteLength)
+      ? Buffer.from(audioBytes)
+      : audioBase64
+        ? Buffer.from(String(audioBase64), "base64")
+        : null;
+  if (!bytes || !bytes.length)
+    return { ok: false, engine: "transcript", reason: "no audio supplied" };
   const file = tmpFile(mime);
   try {
-    fs.writeFileSync(file, Buffer.from(audioBase64, "base64"));
+    fs.writeFileSync(file, bytes);
     let parsed;
     try {
       const session = await ensureWorker();
