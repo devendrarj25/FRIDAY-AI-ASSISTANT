@@ -412,18 +412,25 @@ function headerMap(res) {
 const gb = (bytes) => Number(((bytes || 0) / 1024 ** 3).toFixed(2));
 
 // ------------------------------------------------------------- key storage
-let safeStorage = null;
-let electronApp = null;
-try {
-  ({ safeStorage, app: electronApp } = require("electron"));
-} catch {
-  safeStorage = null;
-  electronApp = null;
+// Same rule as credentials.cjs: the safeStorage export is read only after
+// ready. Reading it during module load deadlocks a headless Windows start.
+const lazyElectron = require("./lazy-electron.cjs");
+
+function safeStorage() {
+  return lazyElectron.afterReady("safeStorage");
+}
+
+function electronApp() {
+  try {
+    return lazyElectron.electron()?.app || null;
+  } catch {
+    return null;
+  }
 }
 
 const productionMode = () => {
   try {
-    return Boolean(electronApp?.isPackaged);
+    return Boolean(electronApp()?.isPackaged);
   } catch {
     return false;
   }
@@ -431,7 +438,7 @@ const productionMode = () => {
 
 const encryptionAvailable = () => {
   try {
-    return Boolean(safeStorage?.isEncryptionAvailable());
+    return Boolean(safeStorage()?.isEncryptionAvailable());
   } catch {
     return false;
   }
@@ -512,7 +519,7 @@ function readKeys(userData) {
   for (const [id, value] of Object.entries(raw)) {
     if (value && typeof value === "object" && value.enc && encryptionAvailable()) {
       try {
-        out[id] = safeStorage.decryptString(Buffer.from(value.enc, "base64"));
+        out[id] = safeStorage().decryptString(Buffer.from(value.enc, "base64"));
       } catch {
         /* key was written on another machine — ignore it */
       }
@@ -552,7 +559,7 @@ function writeKey(userData, id, apiKey) {
 
   if (!apiKey) delete raw[id];
   else if (encryptionAvailable())
-    raw[id] = { enc: safeStorage.encryptString(apiKey).toString("base64") };
+    raw[id] = { enc: safeStorage().encryptString(apiKey).toString("base64") };
   else raw[id] = apiKey;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(raw, null, 2));

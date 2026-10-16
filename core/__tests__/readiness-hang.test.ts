@@ -143,6 +143,21 @@ describe("readiness progress trace", () => {
     expect(main.indexOf('trace("load:voice")')).toBeLessThan(
       main.indexOf('trace("after-requires")'),
     );
+    const bootstrap = main.slice(
+      main.indexOf("const bootstrapSettingsFile"),
+      main.indexOf("const workspaceSettingsFile"),
+    );
+    expect(bootstrap.indexOf("!app.isReady()")).toBeGreaterThan(-1);
+    expect(bootstrap.indexOf("!app.isReady()")).toBeLessThan(bootstrap.indexOf("getPath"));
+    expect(main.indexOf('traceLoad("connectors")')).toBeGreaterThan(
+      main.indexOf('trace("before-subsystems")'),
+    );
+    expect(main.indexOf('traceLoad("connectors")')).toBeLessThan(
+      main.indexOf('require("./connectors.cjs")'),
+    );
+    expect(main.indexOf('trace("load:voice")')).toBeLessThan(
+      main.indexOf('traceLoad("voiceprint")'),
+    );
     const voice = read("electron/voiceprint.cjs");
     expect(voice.slice(0, voice.indexOf("function userDataDir"))).not.toContain("getPath");
     expect(voice).toContain("!app.isReady()");
@@ -150,6 +165,126 @@ describe("readiness progress trace", () => {
     expect(engines).toContain("!app.isReady()");
     expect(engines).not.toMatch(/^loadRestartPending\(\);/m);
     expect(trace.BUDGETS["before-subsystems"]).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it("does not read desktop exports that wait for ready while the subsystem modules load", () => {
+    const Module = require_("module") as {
+      prototype: { require: (id: string) => unknown };
+    };
+    const touched: string[] = [];
+    const forbidden = new Set(["safeStorage", "desktopCapturer", "Tray", "nativeImage"]);
+    const electron = new Proxy(
+      {
+        app: {
+          isReady: () => false,
+          isPackaged: false,
+          getAppPath: () => root,
+          getPath: () => {
+            throw new Error("getPath before ready");
+          },
+        },
+      },
+      {
+        get(target, prop, receiver) {
+          if (typeof prop === "string" && forbidden.has(prop)) touched.push(prop);
+          return Reflect.get(target, prop, receiver);
+        },
+      },
+    );
+    const original = Module.prototype.require;
+    Module.prototype.require = function (id: string) {
+      if (id === "electron") return electron;
+      return original.apply(this, [id]);
+    };
+    const names = [
+      "electron/lazy-electron.cjs",
+      "electron/watcher.cjs",
+      "electron/updater.cjs",
+      "electron/providers.cjs",
+      "electron/provider-registry.cjs",
+      "electron/hardware.cjs",
+      "electron/system-monitor.cjs",
+      "electron/service-health.cjs",
+      "electron/importer.cjs",
+      "electron/builder-run.cjs",
+      "electron/import-factory.cjs",
+      "electron/sandbox.cjs",
+      "electron/capabilities.cjs",
+      "electron/capability-verify.cjs",
+      "electron/skill-pack.cjs",
+      "electron/tool-pack.cjs",
+      "electron/agent-pack.cjs",
+      "electron/module-pack.cjs",
+      "electron/workflow-pack.cjs",
+      "electron/tools.cjs",
+      "electron/modules.cjs",
+      "electron/connectors.cjs",
+      "electron/mcp-server.cjs",
+      "electron/mcp-launch.cjs",
+      "electron/mcp-paths.cjs",
+      "electron/startup.cjs",
+      "electron/browser.cjs",
+      "electron/browser-live.cjs",
+      "electron/screen-vision.cjs",
+      "electron/diagram-ocr.cjs",
+      "electron/camera.cjs",
+      "electron/skills.cjs",
+      "electron/agents.cjs",
+      "electron/character/runtime.cjs",
+      "electron/character/index.cjs",
+      "electron/renderer.cjs",
+      "electron/self-maintenance.cjs",
+      "electron/finetune.cjs",
+      "electron/source-access.cjs",
+      "electron/plugins.cjs",
+      "electron/telemetry.cjs",
+      "electron/credentials.cjs",
+      "electron/models.cjs",
+      "electron/model-download.cjs",
+      "electron/python.cjs",
+      "electron/tray.cjs",
+      "electron/startup-tasks.cjs",
+      "electron/startup-trace.cjs",
+      "electron/neural-voice.cjs",
+      "electron/audio-duck.cjs",
+      "electron/meeting-watch.cjs",
+      "electron/voiceprint.cjs",
+      "electron/stt.cjs",
+      "electron/wake-engine.cjs",
+      "electron/voice-verify.cjs",
+      "electron/remote-access.cjs",
+      "electron/library.cjs",
+      "electron/project-workspaces.cjs",
+      "electron/readiness.cjs",
+      "electron/storage-manager.cjs",
+      "electron/build-channel.cjs",
+    ];
+    const previous = process.env["FRIDAY_READINESS"];
+    process.env["FRIDAY_READINESS"] = "1";
+    try {
+      for (const name of names) delete require_.cache[path.join(root, name)];
+      for (const name of names) require_(path.join(root, name));
+      expect(touched).toEqual([]);
+      const rows: Array<{ milestone: string }> = [];
+      const seen: number[] = [];
+      const writer = trace.createReadinessTrace({
+        schedule: (_fn, ms) => {
+          seen.push(ms);
+          return 1;
+        },
+        clear: () => {},
+        append: (row) => rows.push(row),
+      });
+      writer.trace("load:connectors");
+      expect(rows[0]?.milestone).toBe("load:connectors");
+      expect(seen[0]).toBe(180_000);
+      writer.stop();
+    } finally {
+      Module.prototype.require = original;
+      for (const name of names) delete require_.cache[path.join(root, name)];
+      if (previous === undefined) delete process.env["FRIDAY_READINESS"];
+      else process.env["FRIDAY_READINESS"] = previous;
+    }
   });
 });
 

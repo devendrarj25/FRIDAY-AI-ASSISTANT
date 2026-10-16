@@ -9,18 +9,25 @@
 // never leave the selected FRIDAY root — no AppData, no temp, no localStorage.
 const fs = require("node:fs");
 const path = require("node:path");
+const lazy = require("./lazy-electron.cjs");
 
-let safeStorage = null;
-let electronApp = null;
-try {
-  ({ safeStorage, app: electronApp } = require("electron"));
-} catch {
-  safeStorage = null;
+// Do not read safeStorage while main.cjs is still loading. On Windows that
+// export waits for ready, and ready waits for the load to finish.
+function safeStorage() {
+  return lazy.afterReady("safeStorage");
+}
+
+function electronApp() {
+  try {
+    return lazy.electron()?.app || null;
+  } catch {
+    return null;
+  }
 }
 
 const encryptionAvailable = () => {
   try {
-    return Boolean(safeStorage?.isEncryptionAvailable());
+    return Boolean(safeStorage()?.isEncryptionAvailable());
   } catch {
     return false;
   }
@@ -33,7 +40,7 @@ const encryptionAvailable = () => {
  */
 const productionMode = () => {
   try {
-    return Boolean(electronApp?.isPackaged);
+    return Boolean(electronApp()?.isPackaged);
   } catch {
     return false;
   }
@@ -96,7 +103,7 @@ function getSecret(root, id) {
   if (typeof value === "string") return value; // written before encryption existed
   if (value.enc && encryptionAvailable()) {
     try {
-      return safeStorage.decryptString(Buffer.from(value.enc, "base64"));
+      return safeStorage().decryptString(Buffer.from(value.enc, "base64"));
     } catch {
       return ""; // encrypted on another machine
     }
@@ -138,7 +145,7 @@ function setSecret(root, id, value) {
   const raw = readAll(root);
   if (!value) delete raw[id];
   else if (encryptionAvailable())
-    raw[id] = { enc: safeStorage.encryptString(String(value)).toString("base64") };
+    raw[id] = { enc: safeStorage().encryptString(String(value)).toString("base64") };
   else raw[id] = String(value);
   if (!writeAll(root, raw))
     return { ok: false, error: "The credential store could not be written." };

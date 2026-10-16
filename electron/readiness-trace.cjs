@@ -74,9 +74,17 @@ function createReadinessTrace(deps = {}) {
   // a kernel start that still had time left).
   const overlap = new Set(["did-finish-load", "renderer-mounted"]);
 
+  function budgetFor(milestone) {
+    const name = String(milestone || "");
+    // One require can be large. The parent still reports the module name if
+    // that require never returns. The budget only matters after the thread yields.
+    if (name.startsWith("load:")) return 180000;
+    return BUDGETS[name] ?? 20000;
+  }
+
   function arm(milestone) {
     if (stopped || process.env.FRIDAY_READINESS !== "1") return;
-    const budget = BUDGETS[milestone] ?? 20000;
+    const budget = budgetFor(milestone);
     if (overlap.has(milestone) && timer && armedBudget > budget) return;
     if (timer) clear(timer);
     armedBudget = budget;

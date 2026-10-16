@@ -11,8 +11,21 @@
 
 const fs = require("fs");
 const path = require("path");
-const { desktopCapturer, screen } = require("electron");
+const lazy = require("./lazy-electron.cjs");
 const paths = require("./friday-paths.cjs");
+
+function desktopCapturer() {
+  return lazy.afterReady("desktopCapturer");
+}
+
+function screenApi() {
+  if (!lazy.appReady()) return null;
+  try {
+    return lazy.electron()?.screen || null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Called by the main process whenever the chosen folder is known or changes.
@@ -73,8 +86,10 @@ function setState(patch) {
 async function sources() {
   const current = load();
   if (!current.enabled) return { ok: false, error: "screen vision is disabled" };
+  const capturer = desktopCapturer();
+  if (!capturer) return { ok: false, error: "screen capture is not ready" };
   try {
-    const found = await desktopCapturer.getSources({
+    const found = await capturer.getSources({
       types: ["screen", "window"],
       thumbnailSize: { width: 0, height: 0 },
       fetchWindowIcons: false,
@@ -101,6 +116,9 @@ async function capture(options = {}) {
   const current = load();
   if (!current.enabled) return { ok: false, error: "screen vision is disabled" };
 
+  const capturer = desktopCapturer();
+  const screen = screenApi();
+  if (!capturer || !screen) return { ok: false, error: "screen capture is not ready" };
   try {
     const primary = screen.getPrimaryDisplay();
     const scale = Math.min(1, Number(options.scale) > 0 ? Number(options.scale) : 1);
@@ -108,7 +126,7 @@ async function capture(options = {}) {
     const height = Math.round(primary.size.height * scale);
 
     const wanted = options.sourceId ? null : current.scope === "window" ? "window" : "screen";
-    const found = await desktopCapturer.getSources({
+    const found = await capturer.getSources({
       types: wanted ? [wanted] : ["screen", "window"],
       thumbnailSize: { width, height },
     });

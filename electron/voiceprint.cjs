@@ -8,14 +8,12 @@
  */
 const fs = require("fs");
 const path = require("path");
+const lazy = require("./lazy-electron.cjs");
 
-let safeStorage = null;
 let userData = "";
-try {
-  const electron = require("electron");
-  safeStorage = electron.safeStorage;
-} catch {
-  safeStorage = null;
+
+function safeStorage() {
+  return lazy.afterReady("safeStorage");
 }
 
 function userDataDir() {
@@ -39,7 +37,7 @@ function storePath() {
 
 function encryptionReady() {
   try {
-    return Boolean(safeStorage?.isEncryptionAvailable());
+    return Boolean(safeStorage()?.isEncryptionAvailable());
   } catch {
     return false;
   }
@@ -67,7 +65,7 @@ function save(vector) {
   }
   const file = storePath();
   if (!file) return { ok: false, reason: "no FRIDAY folder" };
-  const enc = safeStorage.encryptString(JSON.stringify(vector)).toString("base64");
+  const enc = safeStorage().encryptString(JSON.stringify(vector)).toString("base64");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ enc }));
   return { ok: true, enrolled: true };
