@@ -18,7 +18,7 @@
  *     the working layer physically absent.
  *  3. Isolated real install - copy the *entire* product tree (working layer
  *     physically excluded) into a temp directory and run a real
- *     `npm install` + `npm run typecheck` there, plus a kernel `py_compile`
+ *     `npm ci` + `npm run typecheck` there, plus a kernel `py_compile`
  *     pass. This is the SOURCE_READY state from
  *     `docs/FRIDAY_CHANGE_CONTROL.md` (Validation states).
  *     A full Electron/NSIS build and an actual GUI boot (BUILD_READY) need
@@ -36,7 +36,7 @@ const ROOT = path.resolve(__dirname, "../..");
 const winSpawn = require_(path.join(ROOT, "scripts/win-spawn.cjs")) as {
   spawnNpm: (
     args: string[],
-    extra: { cwd: string; stdio: "pipe"; timeout: number },
+    extra: { cwd: string; stdio: "pipe"; timeout: number; env?: NodeJS.ProcessEnv },
   ) => { status: number | null; stdout?: string; stderr?: string; error?: Error };
   spawnDirect: (
     cmd: string,
@@ -193,7 +193,7 @@ describe("development/vision layer independence", () => {
     }
   });
 
-  // Heavier check: an actual isolated copy, a real `npm install`, and a real
+  // Heavier check: an actual isolated copy, a real `npm ci`, and a real
   // typecheck -- not just static analysis. This is the SOURCE_READY claim
   // from VALIDATION_STATES.md, proven with the working layer physically
   // absent from disk, not simulated by string matching.
@@ -217,6 +217,11 @@ describe("development/vision layer independence", () => {
       "dist",
       "dist-desktop",
       "release",
+      ".cache",
+      "coverage",
+      "test-results",
+      "playwright-report",
+      ".turbo",
     ]);
 
     function copyTree(src: string, dst: string) {
@@ -247,7 +252,12 @@ describe("development/vision layer independence", () => {
       let installSkippedReason = "";
       const pythonBin = process.platform === "win32" ? "python" : "python3";
       const runNpm = (args: string[], timeout: number) => {
-        const result = winSpawn.spawnNpm(args, { cwd: tmpRoot, stdio: "pipe", timeout });
+        const result = winSpawn.spawnNpm(args, {
+          cwd: tmpRoot,
+          stdio: "pipe",
+          timeout,
+          env: { ...process.env, ELECTRON_SKIP_BINARY_DOWNLOAD: "1" },
+        });
         if (result.status !== 0) {
           throw new Error(
             `${result.stdout || ""}\n${result.stderr || ""}\n${result.error?.message || ""}`,
@@ -255,7 +265,7 @@ describe("development/vision layer independence", () => {
         }
       };
       try {
-        runNpm(["install", "--no-audit", "--no-fund"], 240_000);
+        runNpm(["ci", "--no-audit", "--no-fund", "--prefer-offline"], 240_000);
         installOk = true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -265,7 +275,7 @@ describe("development/vision layer independence", () => {
         const looksLikeEnvLimit =
           /ENOTFOUND|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|network|registry/i.test(msg);
         if (looksLikeEnvLimit) {
-          installSkippedReason = `npm install could not reach the registry in this environment (${msg.slice(0, 200)}) -- SOURCE_READY not verified this run, environment limitation, not a contract failure.`;
+          installSkippedReason = `npm ci could not reach the registry in this environment (${msg.slice(0, 200)}) -- SOURCE_READY not verified this run, environment limitation, not a contract failure.`;
         } else {
           throw err; // a real install failure (e.g. a genuine missing/broken dependency) should fail the test
         }

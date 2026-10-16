@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -166,16 +167,19 @@ describe("readiness hang report", () => {
   });
 
   it("reads the jsonl the child appends", () => {
-    const dir = fs.mkdtempSync(path.join("/tmp", "friday-readiness-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-readiness-"));
     const file = path.join(dir, "readiness-progress.jsonl");
-    fs.writeFileSync(
-      file,
-      `${JSON.stringify({ milestone: "process-start", ms: 0 })}\n${JSON.stringify({ milestone: "app-ready", ms: 10 })}\n`,
-    );
-    expect(hang.readProgress(file).map((row) => row.milestone)).toEqual([
-      "process-start",
-      "app-ready",
-    ]);
-    fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      fs.writeFileSync(
+        file,
+        `${JSON.stringify({ milestone: "process-start", ms: 0 })}\n${JSON.stringify({ milestone: "app-ready", ms: 10 })}\n`,
+      );
+      expect(hang.readProgress(file).map((row) => row.milestone)).toEqual([
+        "process-start",
+        "app-ready",
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

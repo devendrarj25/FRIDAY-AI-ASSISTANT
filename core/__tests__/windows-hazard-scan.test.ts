@@ -119,6 +119,7 @@ function scanSource(file: string, findings: string[]) {
   if (file.startsWith("core/__tests__/") && /#!\/bin\/(?:sh|bash)/.test(raw)) {
     push(findings, file, "shebang-stub", 1, "#!/bin/sh");
   }
+  scanPosixRoots(file, raw, findings);
   raw.split("\n").forEach((line, index) => {
     const code = line.replace(/(^|[^:])\/\/.*$/, "$1");
     const trimmed = code.trim();
@@ -140,6 +141,173 @@ function scanSource(file: string, findings: string[]) {
       }
     }
   });
+}
+
+const POSIX_ROOT = /^\/(?:tmp|var|home|usr|etc|opt|mnt)(?:\/|$)/;
+const FS_NAME =
+  /^(?:mkdir|mkdtemp|writeFile|readFile|copyFile|rename|createWriteStream|createReadStream|rm|cp|exists|stat|lstat|open)/;
+
+/** Comments and string contents become spaces so a fixture string is not a call. */
+function maskNonCode(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith("//", i)) {
+      while (i < text.length && text[i] !== "\n") {
+        out += " ";
+        i += 1;
+      }
+      continue;
+    }
+    if (text.startsWith("/*", i)) {
+      out += "  ";
+      i += 2;
+      while (i < text.length && !text.startsWith("*/", i)) {
+        out += text[i] === "\n" ? "\n" : " ";
+        i += 1;
+      }
+      if (i < text.length) {
+        out += "  ";
+        i += 2;
+      }
+      continue;
+    }
+    const quote = text[i];
+    if (quote === '"' || quote === "'" || quote === "`") {
+      out += " ";
+      i += 1;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) {
+          out += " ";
+          i += 1;
+          break;
+        }
+        out += text[i] === "\n" ? "\n" : " ";
+        i += 1;
+      }
+      continue;
+    }
+    out += text[i];
+    i += 1;
+  }
+  return out;
+}
+
+function stringLiterals(expr: string): string[] {
+  const found: string[] = [];
+  const re = /(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(expr))) found.push(match[2] || "");
+  return found;
+}
+
+function hasPosixRoot(expr: string): boolean {
+  return stringLiterals(expr).some((value) => POSIX_ROOT.test(value));
+}
+
+function assignments(text: string): Array<{ name: string; init: string }> {
+  const out: Array<{ name: string; init: string }> = [];
+  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const start = match.index + match[0].length;
+    let i = start;
+    let depth = 0;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+      else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
+      else if ((ch === ";" || ch === "\n") && depth === 0) break;
+      i += 1;
+    }
+    out.push({ name: match[1] || "", init: text.slice(start, i) });
+  }
+  return out;
+}
+
+function taintedNames(text: string): Set<string> {
+  const mask = maskNonCode(text);
+  const tainted = new Set<string>();
+  const found = [...mask.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)];
+  const rows = assignments(mask).map((row, index) => {
+    const start = (found[index]?.index || 0) + (found[index]?.[0].length || 0);
+    return { name: row.name, init: text.slice(start, start + row.init.length) };
+  });
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const row of rows) {
+      if (!row.name || tainted.has(row.name) || row.init.includes("?")) continue;
+      const usesTainted = [...tainted].some((name) => new RegExp(`\\b${name}\\b`).test(row.init));
+      if (hasPosixRoot(row.init) || usesTainted) {
+        tainted.add(row.name);
+        grew = true;
+      }
+    }
+  }
+  return tainted;
+}
+
+function balancedArgs(text: string, openAt: number): string {
+  let depth = 0;
+  for (let i = openAt; i < text.length; i += 1) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") {
+      depth -= 1;
+      if (depth === 0) return text.slice(openAt + 1, i);
+    }
+  }
+  return text.slice(openAt + 1);
+}
+
+function statementGuarded(text: string, index: number): boolean {
+  let start = index;
+  let depth = 0;
+  while (start > 0) {
+    const ch = text[start - 1];
+    if (ch === ")" || ch === "]" || ch === "}") depth += 1;
+    else if (ch === "(" || ch === "[" || ch === "{") {
+      if (depth === 0) break;
+      depth -= 1;
+    } else if ((ch === ";" || ch === "\n") && depth === 0) break;
+    start -= 1;
+  }
+  return /process\.platform[^;\n]{0,80}win32/.test(text.slice(start, index));
+}
+
+/**
+ * A POSIX absolute root fed to a filesystem call fails on Windows when that
+ * directory does not exist. path.join("/tmp", ...) and a const built from it
+ * count. Assertion strings such as expect(x).toBe("/tmp/x") are not calls.
+ */
+function scanPosixRoots(file: string, raw: string, findings: string[]) {
+  const text = stripComments(raw);
+  const mask = maskNonCode(text);
+  const tainted = taintedNames(text);
+  const call =
+    /(?:^|[^.\w])(?:fs\s*\.\s*)?(mkdir(?:Sync)?|mkdtemp(?:Sync)?|writeFile(?:Sync)?|readFile(?:Sync)?|copyFile(?:Sync)?|rename(?:Sync)?|createWriteStream|createReadStream|rm(?:Sync)?|cp(?:Sync)?|exists(?:Sync)?|stat(?:Sync)?|lstat(?:Sync)?|open(?:Sync)?)\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = call.exec(mask))) {
+    const name = match[1] || "";
+    const hasFs = /fs\s*\./.test(match[0]);
+    if (!hasFs && /^(?:open|stat|lstat|exists|rm|cp)/.test(name) && !file.endsWith(".py")) {
+      continue;
+    }
+    if (!FS_NAME.test(name)) continue;
+    const openAt = match.index + match[0].length - 1;
+    const nameAt = match.index + match[0].lastIndexOf(name);
+    if (statementGuarded(text, nameAt)) continue;
+    const args = balancedArgs(text, openAt);
+    const ident = [...tainted].some((id) => new RegExp(`\\b${id}\\b`).test(args));
+    if (!hasPosixRoot(args) && !ident) continue;
+    const line = text.slice(0, nameAt).split("\n").length;
+    push(findings, file, "posix-root", line, text.split("\n")[line - 1] || match[0]);
+  }
 }
 
 function workflowSteps(file: string): { shell: boolean; run: boolean; at: number }[] {
@@ -183,10 +351,33 @@ describe("Windows hazard scan", () => {
       ...walk(path.join(ROOT, "core/__tests__")).filter((file) => file.endsWith(".ts")),
       ...walk(path.join(ROOT, "kernel")).filter((file) => file.endsWith(".py")),
       ...walk(path.join(ROOT, "tools")).filter((file) => file.endsWith(".cjs")),
+      ...walk(path.join(ROOT, "agents")).filter((file) => /\.(cjs|js|mjs|ts|py)$/.test(file)),
+      ...walk(path.join(ROOT, "src")).filter((file) => /\.(ts|tsx|js|cjs|mjs)$/.test(file)),
+      ...walk(path.join(ROOT, "installer")).filter((file) => /\.(cjs|js|ps1)$/.test(file)),
     ].map(rel);
     const findings: string[] = [];
     for (const file of files) scanSource(file, findings);
     expect(findings).toEqual([]);
+  });
+
+  it("flags path.join of a POSIX root passed to mkdtemp, including the readiness temp dir", () => {
+    const mkdtemp = "fs.mkdtemp" + "Sync";
+    const sample = [
+      `${mkdtemp}(path.join("/tmp", "friday-readiness-"));`,
+      'const dir = path.join("/var", "friday");',
+      "fs.writeFileSync(dir, 'x');",
+      'expect(value).toBe("/tmp/x");',
+      'const hosts = process.platform === "win32" ? "C:\\\\Windows\\\\System32\\\\drivers\\\\etc\\\\hosts" : "/etc/hosts";',
+      "fs.existsSync(hosts);",
+    ].join("\n");
+    const findings: string[] = [];
+    scanPosixRoots("fixture.ts", sample, findings);
+    expect(findings.some((line) => line.includes("posix-root") && line.includes("mkdtemp"))).toBe(
+      true,
+    );
+    expect(findings.some((line) => line.includes("writeFileSync"))).toBe(true);
+    expect(findings.some((line) => line.includes("toBe"))).toBe(false);
+    expect(findings.some((line) => line.includes("existsSync"))).toBe(false);
   });
 
   it("requires an explicit shell on every workflow run step and LF line endings", () => {

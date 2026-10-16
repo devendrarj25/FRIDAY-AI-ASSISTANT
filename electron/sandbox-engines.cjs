@@ -1671,7 +1671,9 @@ function wrap(engineId, { command, dir, image, network = false, extraBinds = [] 
     case "bwrap": {
       const target = path.resolve(dir);
       const binds = ["--ro-bind /usr /usr", "--ro-bind /etc /etc", "--dev /dev", "--proc /proc"];
-      if (fs.existsSync("/usr/local")) binds.push("--ro-bind /usr/local /usr/local");
+      if (process.platform !== "win32" && fs.existsSync("/usr/local")) {
+        binds.push("--ro-bind /usr/local /usr/local");
+      }
       // nvm Node and other host runtimes live outside /usr; hide the rest of $HOME.
       const seen = new Set(["/usr", "/etc", "/usr/local", "/bin", "/lib", "/lib64", target]);
       const hostBinds = [];
