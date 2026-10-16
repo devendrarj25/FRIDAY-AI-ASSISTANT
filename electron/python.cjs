@@ -6,7 +6,8 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { execFile, spawn } = require("child_process");
+const { execFile } = require("child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
 
 const WIN = process.platform === "win32";
@@ -297,7 +298,6 @@ function candidates(projectRoot = null) {
     ...(WIN
       ? ["3.16", "3.15", "3.14", "3.13", "3.12"].map((v) => ({ exe: "py", prefix: [`-${v}`] }))
       : []),
-    ...windowsInstalledPythons().map((exe) => ({ exe, prefix: [] })),
   ].filter(Boolean);
 }
 
@@ -373,15 +373,7 @@ function probe(candidate) {
     );
     timer = setTimeout(() => {
       try {
-        if (WIN && child.pid) {
-          const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-            windowsHide: true,
-            stdio: "ignore",
-          });
-          killer.unref?.();
-        } else {
-          child.kill("SIGKILL");
-        }
+        if (child.pid) killProcessTree(child.pid);
       } catch {
         /* already gone */
       }
@@ -453,6 +445,17 @@ async function resolvePython(projectRoot = null, force = false) {
     if (found) {
       cached = found;
       return found;
+    }
+  }
+  // Registry interpreters are last. Scanning them is synchronous, so a working
+  // venv must not wait on reg.exe during startup.
+  if (WIN) {
+    for (const exe of windowsInstalledPythons()) {
+      const found = await probe({ exe, prefix: [] });
+      if (found) {
+        cached = found;
+        return found;
+      }
     }
   }
   return null;

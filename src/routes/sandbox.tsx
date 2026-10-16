@@ -104,6 +104,7 @@ function SandboxPage() {
   const [runtimeLine, setRuntimeLine] = useState("");
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [rowBusy, setRowBusy] = useState("");
   const [files, setFiles] = useState<SandboxFile[]>([]);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -735,12 +736,19 @@ function SandboxPage() {
                 <Button
                   size="sm"
                   variant="ghost"
+                  disabled={rowBusy === p.id}
+                  aria-label={`Delete ${p.name}`}
                   onClick={async () => {
                     if (!window.confirm(`Delete the sandbox project "${p.name}" and its files?`))
                       return;
-                    await removeProject(p.id);
-                    setActiveId(null);
-                    void refresh();
+                    setRowBusy(p.id);
+                    try {
+                      await removeProject(p.id);
+                      setActiveId(null);
+                      void refresh();
+                    } finally {
+                      setRowBusy("");
+                    }
                   }}
                 >
                   <Trash2 className="size-3.5 text-destructive" />
@@ -770,12 +778,20 @@ function SandboxPage() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      disabled={rowBusy === "import"}
+                      aria-label="Import folder"
                       onClick={async () => {
-                        const result = await importFolder(project.id);
-                        if (result.ok) {
-                          toast.success(`Imported ${result.files ?? 0} file(s).`);
-                          void loadTree(project.id);
-                        } else if (!result.cancelled) toast.error(result.error ?? "Import failed.");
+                        setRowBusy("import");
+                        try {
+                          const result = await importFolder(project.id);
+                          if (result.ok) {
+                            toast.success(`Imported ${result.files ?? 0} file(s).`);
+                            void loadTree(project.id);
+                          } else if (!result.cancelled)
+                            toast.error(result.error ?? "Import failed.");
+                        } finally {
+                          setRowBusy("");
+                        }
                       }}
                     >
                       <FolderInput className="size-3.5" />

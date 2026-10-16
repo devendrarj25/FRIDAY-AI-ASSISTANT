@@ -69,6 +69,8 @@ node scripts\readiness-test.cjs --pack --no-repair --root %TEMP%\friday-readines
 
 The script sets `FRIDAY_READINESS=1` and passes `--friday-readiness`, `--friday-workspace` on the first launch, `--friday-python` when the checkout interpreter exists, and `--friday-progress` for `logs\readiness-progress.jsonl`. The app disables the GPU only for that process. A normal double-click does not. If it hangs, the log prints `hung after <milestone>` and the report is `debug\reports\readiness-*.json` plus `%TEMP%\friday-readiness-clean\logs\readiness-progress.jsonl`. Shutdown from the sidebar does not change start-at-login. If that setting is on, FRIDAY opens again at the next sign-in.
 
+2026-10-16. [app.exit](https://www.electronjs.org/docs/latest/api/app#appexitexitcode) closes windows immediately and does not emit before-quit or will-quit. [app.quit](https://www.electronjs.org/docs/latest/api/app#appquit) emits before-quit, and `preventDefault` aborts that quit. ADOPT: one module, `electron/app-lifecycle.cjs`, awaits the cleanup and then calls `app.exit` once. It does not call quit and then exit in the same turn. A fake Electron test shows the old order leaves before-quit unfinished. Sidebar, tray, window close, the approved `app_restart` and `app_shutdown` tools, the installer handoff, window-all-closed, and session end use that module. Readiness and the boot self-test finish through `exitNow`. The boot self-test file may still call `app.exit` on its own timer. `scripts/packaged-launch.cjs` is the one harness that kills the process the readiness or boot parent spawned and checks that pid afterwards. The phase list above is unchanged. Workflow files were not edited. A Windows EXE, sleep, logoff, update apply, and a real publish were not run.
+
 `auditPackageIdentity` checks that stamp for all six kinds. The identity test runs it on every machine. On Windows, `scripts\build-windows.cmd` reaches the same publisher through `scripts/verify-build.cjs` when it reads the EXE resources (product name, company name, file version). A check on Linux does not replace that Windows resource read. The unpacked EXE is still unverified until that Windows step runs.
 
 ## 2. Rebuild, update, and auto
@@ -156,7 +158,7 @@ Checked on 2026-10-10. The Windows runner image readme that day is [Windows Serv
 
 ## One pipeline (2026-10-11)
 
-The CMD pack, `npm run build:all`, `npm run release:package`, `npm run build:portable`, FRIDAY Release, and FRIDAY Test Build call `scripts/build-pipeline.cjs`. Change a phase there and every entry point follows. Named differences are the channel file, the version stamp, the tag namespace, retention, the signing source, and whether a later job publishes.
+The CMD pack, `npm run build:all`, `npm run release:package`, `npm run build:portable`, FRIDAY Release, and FRIDAY Test Build call `scripts/build-pipeline.cjs`. Change a phase there and every entry point follows. Named differences are the channel file, the version stamp, the tag namespace, retention, the signing source, and whether a later job publishes. `scripts/build-windows.cmd` is `node scripts\build-pipeline.cjs --channel production --caller cmd` and returns that process's exit code. FRIDAY Release and FRIDAY Test Build pass `--channel` and `--caller`, then `--through verify-versions` and `--from stage-toolchain`. They do not list the phases themselves.
 
 Phases, in order: prepare-environment, verify-versions, stage-toolchain, build-renderer, package, sign-hook, manifest, verify-artifacts, verify-boot, readiness, packaged-self-check, installer-smoke.
 

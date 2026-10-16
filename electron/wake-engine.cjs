@@ -21,6 +21,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
+const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
 
@@ -107,10 +108,7 @@ function killTree(child) {
   if (!child || !child.pid) return;
   try {
     if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
+      killProcessTree(child.pid);
     } else {
       child.kill("SIGTERM");
     }
@@ -223,6 +221,7 @@ async function ensureWorker() {
       FRIDAY_ROOT: paths.root() || process.env.FRIDAY_ROOT || "",
     },
   });
+  trackOwned("wake", child, py[0]);
   const session = attachWorker(child, generation);
   worker = session;
   return session;

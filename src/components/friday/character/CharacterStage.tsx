@@ -301,12 +301,18 @@ export function CharacterStage() {
                 placeholder="Ask FRIDAY…"
                 className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
               />
-              <button type="button" className="rounded-sm p-1 text-primary" onClick={ask}>
+              <button
+                type="button"
+                className="rounded-sm p-1 text-primary"
+                aria-label="Send"
+                onClick={ask}
+              >
                 <Send className="size-3.5" />
               </button>
               <button
                 type="button"
                 className="rounded-sm p-1 text-muted-foreground"
+                aria-label="Close"
                 onClick={() => setChatOpen(false)}
               >
                 <X className="size-3.5" />

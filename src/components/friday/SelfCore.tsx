@@ -263,9 +263,16 @@ export function SkillForgePanel() {
                     size="sm"
                     variant="ghost"
                     className="h-6 px-2"
+                    disabled={busy}
+                    aria-label={`Run ${skill.name}`}
                     onClick={async () => {
-                      await invokeSkill(skill.id, {});
-                      await refresh();
+                      setBusy(true);
+                      try {
+                        await invokeSkill(skill.id, {});
+                        await refresh();
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
                   >
                     <Play className="size-3" />
@@ -276,15 +283,20 @@ export function SkillForgePanel() {
                         size="sm"
                         variant="ghost"
                         className="h-6 px-2"
+                        disabled={busy}
+                        aria-label={`Improve ${skill.name}`}
                         onClick={async () => {
                           setBusy(true);
-                          setRun(
-                            await improveSkill(skill.id, "reduce failures and handle bad input", {
-                              onProgress: setRun,
-                            }),
-                          );
-                          setBusy(false);
-                          await refresh();
+                          try {
+                            setRun(
+                              await improveSkill(skill.id, "reduce failures and handle bad input", {
+                                onProgress: setRun,
+                              }),
+                            );
+                            await refresh();
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                       >
                         <Wrench className="size-3" />
@@ -293,9 +305,16 @@ export function SkillForgePanel() {
                         size="sm"
                         variant="ghost"
                         className="h-6 px-2"
+                        disabled={busy}
+                        aria-label={`Roll back ${skill.name}`}
                         onClick={async () => {
-                          await rollbackSkill(skill.id);
-                          await refresh();
+                          setBusy(true);
+                          try {
+                            await rollbackSkill(skill.id);
+                            await refresh();
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                       >
                         <RotateCcw className="size-3" />
@@ -304,9 +323,16 @@ export function SkillForgePanel() {
                         size="sm"
                         variant="ghost"
                         className="h-6 px-2 text-destructive"
+                        disabled={busy}
+                        aria-label={`Remove ${skill.name}`}
                         onClick={async () => {
-                          await removeSkill(skill.id);
-                          await refresh();
+                          setBusy(true);
+                          try {
+                            await removeSkill(skill.id);
+                            await refresh();
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                       >
                         <Trash2 className="size-3" />

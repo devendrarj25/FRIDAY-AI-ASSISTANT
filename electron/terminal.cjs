@@ -20,6 +20,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 
 const WIN = process.platform === "win32";
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -326,6 +327,7 @@ function runCommand(root, options = {}, emit = () => {}) {
       return resolve({ ok: false, error: String(error.message || error), runId });
     }
 
+    trackOwned("terminal", child, shell);
     running.set(runId, { child, command: line, cwd: workdir, shell: profile.id, started });
     emit({ runId, phase: "start", command: line, cwd: workdir, shell: profile.id });
 
@@ -378,7 +380,7 @@ function cancelRun(runId) {
   const child = entry.child || entry;
   try {
     if (WIN && child.pid) {
-      spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true });
+      killProcessTree(child.pid);
     } else {
       child.kill("SIGTERM");
       setTimeout(() => {

@@ -22,6 +22,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
+const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
 const { fetchCompat } = require("./net-fetch.cjs");
@@ -197,10 +198,7 @@ function killTree(child) {
   if (!child || !child.pid) return;
   try {
     if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
+      killProcessTree(child.pid);
     } else {
       child.kill("SIGTERM");
     }
@@ -369,6 +367,7 @@ async function ensureWorker(model, onEvent) {
       FRIDAY_RAM_GB: String(Math.round((os.totalmem() / 1024 ** 3) * 10) / 10),
     },
   });
+  trackOwned("stt", child, py[0]);
   const session = attachWorker(child, generation);
   worker = session;
   lastLocalLayers.worker = "ready";
