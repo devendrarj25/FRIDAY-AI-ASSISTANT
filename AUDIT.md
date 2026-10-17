@@ -1,7 +1,7 @@
-# FRIDAY — Project Audit (v1.1.2.3)
+# FRIDAY — Project Audit (v1.1.2.4)
 
 Owner: **Devendra Singh Meena (`devendrarj25`)**
-Scope: state of the codebase at version **1.1.2.3**.
+Scope: state of the codebase at version **1.1.2.4**.
 
 📋 What is verified versus not, with the command that is the evidence. Live briefing: [FRIDAY_STATE.md](FRIDAY_STATE.md). Feature map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md).
 
@@ -12,11 +12,11 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is th
 | Check | `command` | result |
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. Inside `npm run preflight`, ESLint was silent and ruff reported `All checks passed!` plus `63 files already formatted`. |
-| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.3`. |
+| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.4`. |
 | Tests | `npm test` | 348 files passed, 2892 passed, 2 skipped, 92.68s |
 | Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning; 21.34s |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
-| Version heal | `npm run verify:version` | in sync at **1.1.2.3** (npm encoding **1.1.2**) |
+| Version heal | `npm run verify:version` | in sync at **1.1.2.4** (npm encoding **1.1.2**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
 | Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
 | Local CI substitute | `npm run preflight` | exit 0 on Linux. Fourteen gates passed. This run was not `--full`, so NSIS, packaged verify, installer smoke, Electron, and the renderer bundle were not run. `npm run validate:local` calls the same script |
@@ -24,9 +24,9 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is th
 | Hosted Actions | PR Validation / FRIDAY Release | Release `v1.1.2.2` is run 38348306084. Docs-only run 38372554640 on this branch stopped in `npm test` with 18 EACCES errors from root-owned sandbox files. Docker wraps now pass `--user` for a non-root caller. A re-run of that job is unverified. Eleven workflow files stay locked |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
 
-## 2. Published 1.1.2.3
+## 2. Published 1.1.2.4
 
-GitHub release **v1.1.2.3** (published 2026-10-13, run 38348306084): Setup (325604495 bytes), Portable (325226416 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. The earlier release `v1.1.1.2` is run 38288784028. The Setup and Portable hashes in `SHA256SUMS.txt` were not recomputed on this Linux tree. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release **v1.1.2.4** (published 2026-10-13, run 38348306084): Setup (325604495 bytes), Portable (325226416 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. The earlier release `v1.1.1.2` is run 38288784028. The Setup and Portable hashes in `SHA256SUMS.txt` were not recomputed on this Linux tree. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 

@@ -1,6 +1,6 @@
 # FRIDAY — Capability Import Format
 
-**Current shipping version: 1.1.2.3**
+**Current shipping version: 1.1.2.4**
 
 📥 JSON packs accepted by **Add from file** / **From GitHub** on Skills, Tools, Modules, Plugins, Workflows, and Agents (`src/components/friday/CapabilityImport.tsx`). Using those pages: [FRIDAY_USER_GUIDE.md](FRIDAY_USER_GUIDE.md). Catalog of what already ships: [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md).
 
