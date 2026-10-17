@@ -1,6 +1,6 @@
 # FRIDAY — Versioning Policy
 
-**Current shipping version: 1.1.2.3**
+**Current shipping version: 1.1.2.4**
 
 📦 The public version lives in one file: `config/friday-version.json`. Everything else that must show it is rewritten from that file. Click-by-click publish is [RELEASE.md](RELEASE.md). How the pack is built is [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
@@ -13,7 +13,7 @@
 
 🧭 `npm run typecheck` prints `FRIDAY 1.0.1.2` from the version file before the checker runs. npm itself still prints `friday@1.0.1` first, because that field is the three-part encoding (the first three public parts). It is not a second product version, and it is rewritten whenever the public number changes. Never compare it as an update identity.
 
-Artifacts are `FRIDAY-Setup-1.1.2.3.exe` and `FRIDAY-Portable-1.1.2.3.exe`.
+Artifacts are `FRIDAY-Setup-1.1.2.4.exe` and `FRIDAY-Portable-1.1.2.4.exe`.
 
 Ordering example (an example only, not a shipping claim): 1.4.0 < 1.4.1-test.1 < 1.4.1-test.2 < 1.4.1
 

@@ -1,6 +1,6 @@
 # FRIDAY — Release Runbook
 
-**Current shipping version: 1.1.2.3**
+**Current shipping version: 1.1.2.4**
 
 🚀 How to publish. The number rules are [VERSIONING.md](VERSIONING.md). The workflow catalog is [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Pack internals are [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
@@ -17,7 +17,7 @@
 npm run build:win
 ```
 
-Produces `FRIDAY-Setup-1.1.2.3.exe` and `FRIDAY-Portable-1.1.2.3.exe` under `release\`. It does not create a GitHub Release. Steps: [INSTALL.md](INSTALL.md).
+Produces `FRIDAY-Setup-1.1.2.4.exe` and `FRIDAY-Portable-1.1.2.4.exe` under `release\`. It does not create a GitHub Release. Steps: [INSTALL.md](INSTALL.md).
 
 ## TEST EXE
 
