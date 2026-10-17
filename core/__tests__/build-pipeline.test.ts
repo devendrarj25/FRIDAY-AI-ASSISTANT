@@ -63,6 +63,7 @@ describe("build pipeline", () => {
       "stage-toolchain",
       "build-renderer",
       "package",
+      "packaged-requires",
       "sign-hook",
       "manifest",
       "verify-artifacts",
@@ -77,6 +78,12 @@ describe("build pipeline", () => {
     );
     expect(flat.indexOf("scripts/release-engine.cjs heal")).toBeLessThan(
       flat.indexOf("scripts/release-engine.cjs verify"),
+    );
+    expect(flat.indexOf("scripts/packaged-requires.cjs")).toBeGreaterThan(
+      flat.indexOf("scripts/electron-pack.cjs"),
+    );
+    expect(flat.indexOf("scripts/packaged-requires.cjs")).toBeLessThan(
+      flat.indexOf("scripts/readiness-test.cjs --pack"),
     );
     expect(flat.indexOf("scripts/verify-build.cjs")).toBeLessThan(
       flat.indexOf("scripts/readiness-test.cjs --pack"),

@@ -5,8 +5,20 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const resourcePaths = require("./resource-paths.cjs");
 
-const HOSTS = require("../config/download-hosts.json");
+// Fail closed when the allowlist file is missing. Loopback stays so the
+// local daemon can still be reached. Doctor reports the degraded row.
+const FALLBACK_HOSTS = {
+  hosts: [],
+  loopbackHttp: ["127.0.0.1", "localhost", "::1"],
+};
+
+function hostPolicy() {
+  return (
+    resourcePaths.readConfigJson("download-hosts.json", FALLBACK_HOSTS).value || FALLBACK_HOSTS
+  );
+}
 
 const TRANSFER_STATUSES = [
   "not-installed",
@@ -30,7 +42,7 @@ function hostnameOf(value) {
 }
 
 function allowedHostSet(extraHosts = []) {
-  const set = new Set((HOSTS.hosts || []).map((host) => String(host).toLowerCase()));
+  const set = new Set((hostPolicy().hosts || []).map((host) => String(host).toLowerCase()));
   for (const extra of extraHosts) {
     const host = hostnameOf(extra) || String(extra || "").toLowerCase();
     if (host && set.has(host)) set.add(host);
@@ -48,7 +60,7 @@ function assertAllowedUrl(raw, extraHosts = []) {
     throw error;
   }
   const host = parsed.hostname.toLowerCase();
-  const loopback = (HOSTS.loopbackHttp || []).includes(host);
+  const loopback = (hostPolicy().loopbackHttp || []).includes(host);
   if (parsed.protocol === "http:" && loopback) return parsed;
   if (parsed.protocol !== "https:") {
     const error = new Error("only https downloads are allowed");
@@ -184,7 +196,10 @@ function admitJobs(jobs, concurrency = 1) {
 }
 
 module.exports = {
-  HOSTS,
+  get HOSTS() {
+    return hostPolicy();
+  },
+  hostPolicy,
   TRANSFER_STATUSES,
   assertAllowedUrl,
   fetchAllowlisted,

@@ -9,6 +9,7 @@
  */
 const crypto = require("node:crypto");
 const path = require("node:path");
+const resourcePaths = require("./resource-paths.cjs");
 
 const SUPPORTED_VERSIONS = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"];
 const CURRENT_VERSION = "2026-07-28";
@@ -37,12 +38,18 @@ const PAGE_SIZE = 20;
 const OUTPUT_CAP = 8000;
 
 function publicVersion() {
-  try {
-    const file = require("../config/friday-version.json");
+  const loaded = resourcePaths.readConfigJson("friday-version.json", null);
+  const file = loaded && loaded.value;
+  if (
+    file &&
+    file.major != null &&
+    file.minor != null &&
+    file.patch != null &&
+    file.revision != null
+  ) {
     return `${file.major}.${file.minor}.${file.patch}.${file.revision}`;
-  } catch {
-    return "1.0.1.2";
   }
+  return "0.0.0.0";
 }
 
 function clientInfo() {

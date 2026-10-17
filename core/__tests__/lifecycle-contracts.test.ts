@@ -135,6 +135,7 @@ describe("one pack pipeline", () => {
       "stage-toolchain",
       "build-renderer",
       "package",
+      "packaged-requires",
       "sign-hook",
       "manifest",
       "verify-artifacts",

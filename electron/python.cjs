@@ -9,43 +9,33 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { killProcessTree } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
+const resourcePaths = require("./resource-paths.cjs");
 
 const WIN = process.platform === "win32";
 let cached = null;
 let cachedKey = "";
 
-// The policy file ships twice: inside the app bundle (files:) and next to the
-// packaged resources (extraResources:). Both locations are searched. A missing
-// file must NEVER take the whole main process down before the window exists —
-// it degrades to the built-in floor and is reported by Doctor instead.
+// The policy file is an extraResource (resources/config), not inside app.asar.
+// A missing file must NEVER take the whole main process down before the window
+// exists — it degrades to the built-in floor and is reported by Doctor instead.
 const DEFAULT_POLICY = { pythonMinimum: "3.12.10" };
-const versionFileCandidates = [
-  path.join(process.resourcesPath || "", "config", "toolchain-versions.json"),
-  path.join(__dirname, "..", "config", "toolchain-versions.json"),
-  path.join(process.resourcesPath || "", "app.asar", "config", "toolchain-versions.json"),
-  path.join(path.dirname(process.execPath), "resources", "config", "toolchain-versions.json"),
-];
-const versionFile = versionFileCandidates.find((candidate) => {
-  try {
-    return candidate && fs.existsSync(candidate);
-  } catch {
-    return false;
+let policyWarned = false;
+
+function runtimePolicy() {
+  const loaded = resourcePaths.readConfigJson("toolchain-versions.json", DEFAULT_POLICY);
+  if (loaded.degraded && !policyWarned) {
+    policyWarned = true;
+    console.warn(
+      `[friday] runtime version policy ${loaded.error || "unavailable"} (${loaded.file || "not found"}) — using default floor ${DEFAULT_POLICY.pythonMinimum}`,
+    );
   }
-});
-let versions = DEFAULT_POLICY;
-if (versionFile) {
-  try {
-    versions = { ...DEFAULT_POLICY, ...JSON.parse(fs.readFileSync(versionFile, "utf8")) };
-  } catch (error) {
-    console.warn(`[friday] runtime version policy unreadable (${error.message}) — using default`);
-  }
-} else {
-  console.warn(
-    `[friday] runtime version policy not found (${versionFileCandidates.join(", ")}) — using default floor ${DEFAULT_POLICY.pythonMinimum}`,
-  );
+  const value = loaded.value && typeof loaded.value === "object" ? loaded.value : DEFAULT_POLICY;
+  return { ...DEFAULT_POLICY, ...value };
 }
 
-const MINIMUM = versions.pythonMinimum;
+function minimumPython() {
+  return runtimePolicy().pythonMinimum || DEFAULT_POLICY.pythonMinimum;
+}
 
 const parts = (v) =>
   String(v || "")
@@ -59,7 +49,7 @@ function compare(left, right) {
   }
   return 0;
 }
-const isSupported = (version) => !!version && compare(version, MINIMUM) >= 0;
+const isSupported = (version) => !!version && compare(version, minimumPython()) >= 0;
 
 /**
  * Windows CPython installations that are not on PATH: registry-registered
@@ -472,7 +462,10 @@ module.exports = {
   invalidatePython,
   interpreterPhase,
   materialiseBundledRuntime,
-  MINIMUM,
+  get MINIMUM() {
+    return minimumPython();
+  },
+  runtimePolicy,
   isSupported,
   venvPython,
   runtimeVenvPython,

@@ -62,6 +62,7 @@ describe("Windows input-safe packaging", () => {
     expect(builder).toContain("electron/friday-mcp.cjs");
     expect(builder).toContain("electron/mcp-protocol.cjs");
     expect(builder).toContain("electron/mcp-launch.cjs");
+    expect(builder).toContain("electron/resource-paths.cjs");
     const paths = read("electron/mcp-paths.cjs");
     expect(paths).toContain("app.asar.unpacked");
     expect(paths).toContain("ELECTRON_RUN_AS_NODE");

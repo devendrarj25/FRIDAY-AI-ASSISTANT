@@ -2,10 +2,22 @@
  * Local runners and library parsers. Catalog rows are curated where a vendor
  * publishes no machine-readable list. Parsers read official JSON only.
  */
-const RUNNERS = require("../config/local-runners.json");
+const resourcePaths = require("./resource-paths.cjs");
+
+const FALLBACK_CATALOG = { checked: "", runners: [], curated: [] };
+
+function catalog() {
+  const value = resourcePaths.readConfigJson("local-runners.json", FALLBACK_CATALOG).value;
+  const row = value && typeof value === "object" ? value : FALLBACK_CATALOG;
+  return {
+    checked: row.checked || "",
+    runners: Array.isArray(row.runners) ? row.runners : [],
+    curated: Array.isArray(row.curated) ? row.curated : [],
+  };
+}
 
 function runners() {
-  return RUNNERS.runners.map((row) => ({ ...row }));
+  return catalog().runners.map((row) => ({ ...row }));
 }
 
 function runnerById(id) {
@@ -13,7 +25,7 @@ function runnerById(id) {
 }
 
 function curatedLibrary() {
-  return (RUNNERS.curated || []).map((row) => ({
+  return catalog().curated.map((row) => ({
     ...row,
     status: "not-installed",
     source: "curated",
@@ -132,7 +144,7 @@ function newerTag(latest, pinned) {
  */
 function assessOfficialRelease(runner, payload, now = Date.now()) {
   const pinned = runner?.release || null;
-  const ageDays = pinAgeDays(RUNNERS.checked, now);
+  const ageDays = pinAgeDays(catalog().checked, now);
   const parsed = parseGithubRelease(payload, pinned?.asset || "");
   const latestTag = parsed?.tag || String(payload?.tag_name || "");
   const updateAvailable = Boolean(pinned?.tag && latestTag && newerTag(latestTag, pinned.tag));
@@ -181,7 +193,7 @@ async function checkRunnerRelease(id, options = {}) {
       headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
     });
     if (!res.ok) {
-      const ageDays = pinAgeDays(RUNNERS.checked, now);
+      const ageDays = pinAgeDays(catalog().checked, now);
       return {
         ok: false,
         id: runner.id,
@@ -212,7 +224,7 @@ function launcherCard(runner, probe = {}) {
   else if (!probe.api) nextStep = "The process is up and the API is not answering yet.";
   else nextStep = probe.loaded ? `Active model: ${probe.loaded}` : "Running. No model is loaded.";
   const now = probe.now || Date.now();
-  const ageDays = pinAgeDays(RUNNERS.checked, now);
+  const ageDays = pinAgeDays(catalog().checked, now);
   const pinAgeLabel = ageDays == null ? "Pin age: unknown" : `Pin age: ${ageDays} days`;
   return {
     id: runner.id,

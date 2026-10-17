@@ -66,8 +66,8 @@ describe("Friday Hub · development workflow", () => {
   it("loads publisher identity from the resources folder when the archive copy is absent", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "electron/dev-workflow.cjs"), "utf8");
     expect(source).not.toMatch(/require\(\s*["']\.\.\/scripts\/identity\.cjs["']\s*\)/);
-    expect(source).toContain('path.join(__dirname, "..", "scripts", "identity.cjs")');
-    expect(source).toContain('path.join(process.resourcesPath || "", "scripts", "identity.cjs")');
+    expect(source).toContain('resolveResourceFile("scripts/identity.cjs")');
+    expect(source).not.toMatch(/^const IDENTITY = /m);
 
     const missing = path.join(root, "app.asar", "scripts", "identity.cjs");
     expect(() => dev.loadFirstExisting([missing])).toThrow(/identity\.cjs/);

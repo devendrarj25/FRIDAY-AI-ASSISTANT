@@ -13,7 +13,7 @@ const identity = require("./identity.cjs");
 const engine = require("./release-engine.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
-const FILES = ["friday-mcp.cjs", "mcp-protocol.cjs", "mcp-launch.cjs"];
+const FILES = ["friday-mcp.cjs", "mcp-protocol.cjs", "mcp-launch.cjs", "resource-paths.cjs"];
 
 function dosStamp() {
   const date = new Date(Date.UTC(2026, 0, 1, 0, 0, 0));
