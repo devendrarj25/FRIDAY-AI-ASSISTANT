@@ -1267,7 +1267,7 @@ class AssistantModeStore {
 
   private runHealAction(action: string) {
     if (action === "reopen-mic" || action === "reopen-default-mic" || action === "recheck-mic") {
-      this.reopenMicrophone();
+      void this.reopenInput("resume");
       return;
     }
     if (action === "download-stt" || action === "verify-stt") {
@@ -2075,20 +2075,6 @@ class AssistantModeStore {
   resetMicrophone() {
     if (this.state.mode !== "auto") return;
     this.applyVoiceHeal("mic-no-device", true);
-  }
-
-  private reopenMicrophone() {
-    if (this.state.mode !== "auto") return;
-    this.shownMicFault = "";
-    this.stopRecognition();
-    voiceGate.release("auto-mode");
-    voiceGate.stop(true);
-    this.wantRunning = true;
-    const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
-    void voiceGate.acquire("auto-mode", preferred || undefined).then((opened) => {
-      if (!opened || this.state.mode !== "auto") return;
-      this.startRecognition();
-    });
   }
 
   /** Run a command through the existing brain pipeline. */

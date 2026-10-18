@@ -291,7 +291,8 @@ describe("probe funnel", () => {
     const seen: string[] = [];
     const fetchImpl = async (url: string, init?: { headers?: Record<string, string> }) => {
       seen.push(String(url));
-      const auth = String(init?.headers?.Authorization || init?.headers?.authorization || "");
+      const headers = init?.headers;
+      const auth = String(headers?.["Authorization"] || headers?.["authorization"] || "");
       expect(auth.startsWith("Bearer ")).toBe(true);
       expect(auth).not.toMatch(/sk-/);
       if (String(url).includes("/models")) {
