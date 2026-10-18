@@ -17,35 +17,40 @@
         },
         "HealthBody": {
           "properties": {
+            "ok": {
+              "type": "boolean",
+              "title": "Ok"
+            },
+            "version": {
+              "type": "string",
+              "title": "Version"
+            },
             "data_dir": {
-              "title": "Data Dir",
-              "type": "string"
+              "type": "string",
+              "title": "Data Dir"
             },
             "models": {
               "items": {
                 "additionalProperties": true,
                 "type": "object"
               },
-              "title": "Models",
-              "type": "array"
+              "type": "array",
+              "title": "Models"
             },
-            "ok": {
-              "title": "Ok",
-              "type": "boolean"
-            },
-            "version": {
-              "title": "Version",
-              "type": "string"
+            "instance_id": {
+              "type": "string",
+              "title": "Instance Id",
+              "default": ""
             }
           },
+          "type": "object",
           "required": [
             "ok",
             "version",
             "data_dir",
             "models"
           ],
-          "title": "HealthBody",
-          "type": "object"
+          "title": "HealthBody"
         },
         "ValidationError": {
           "properties": {

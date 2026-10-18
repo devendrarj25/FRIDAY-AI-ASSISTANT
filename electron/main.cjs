@@ -551,7 +551,10 @@ function finishReadiness(report) {
   if (!(process.env.FRIDAY_READINESS === "1" && process.platform === "win32")) {
     console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(payload)}`);
   }
-  setTimeout(() => life.exitNow(payload.ok ? 0 : 1, "readiness"), 250);
+  const code = payload.ok ? 0 : 1;
+  void life.requestShutdown("readiness", { code, graceMs: 8000 }).then((started) => {
+    if (!started) life.exitNow(code, "readiness");
+  });
 }
 
 if (process.env.FRIDAY_READINESS === "1") {
@@ -696,6 +699,7 @@ function log(message, level = "info") {
 
 const KERNEL_HOST = "127.0.0.1";
 const KERNEL_PORT = 8765;
+let kernelInstanceId = "";
 // Per-launch token: the kernel rejects any bridge client that does not present it.
 const BRIDGE_TOKEN = crypto.randomBytes(32).toString("hex");
 // Per-launch signing secret for tool authorizations. Only this process and the
@@ -1235,7 +1239,7 @@ async function recoverStaleOwned() {
     registry.forget(row.pid);
   }
   if (recovered) {
-    const deadline = Date.now() + 1500;
+    const deadline = Date.now() + 8000;
     while (Date.now() < deadline && (await portBusy(KERNEL_PORT))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
@@ -1274,6 +1278,7 @@ async function startKernel(root) {
   }
   // Never run two kernels against one SQLite file / port.
   if (kernel) await stopKernel();
+  kernelInstanceId = "";
   await recoverStaleOwned();
 
   // A packaged app must resolve its interpreter from the installed runtime and
@@ -1304,11 +1309,13 @@ async function startKernel(root) {
     return;
   }
 
+  kernelInstanceId = crypto.randomUUID();
   try {
     kernel = spawn(python, [...pythonPrefix, entry], {
       env: {
         ...process.env,
         FRIDAY_BRIDGE_TOKEN: BRIDGE_TOKEN,
+        FRIDAY_INSTANCE_ID: kernelInstanceId,
         FRIDAY_TOOL_AUTHORITY_SECRET: TOOL_AUTHORITY_SECRET,
         FRIDAY_HOST: KERNEL_HOST,
         FRIDAY_PORT: String(KERNEL_PORT),
@@ -1525,6 +1532,9 @@ async function waitForKernel(timeoutMs = 20000) {
         signal: AbortSignal.timeout(800),
       });
       if (response.ok) {
+        const body = await response.json().catch(() => null);
+        const identity = require("./readiness.cjs").kernelIdentityOk(body, kernelInstanceId);
+        if (!identity) continue;
         kernelReady = true;
         kernelFailure = "";
         readinessTrace.trace("kernel-ready");
@@ -1584,11 +1594,7 @@ async function stopKernel({ timeoutMs = 10_000 } = {}) {
     }
     const clean = await exited;
     if (!clean && child.pid) {
-      try {
-        appLifecycle.killProcessTree(child.pid);
-      } catch {
-        // Nothing else we can do; the port poll below decides.
-      }
+      await appLifecycle.waitForProcessGone(child.pid, { timeoutMs });
     }
   }
   const deadline = Date.now() + timeoutMs;
@@ -3562,6 +3568,12 @@ function createWindow() {
         kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
         kernelRequest,
         getWorkspaceRoot,
+        kernelInstanceId: () => kernelInstanceId,
+        kernelFacts: () => ({
+          pid: kernel && kernel.pid ? kernel.pid : null,
+          port: KERNEL_PORT,
+          instanceId: kernelInstanceId || "",
+        }),
         trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
       })
         .then((report) => {
@@ -7918,6 +7930,12 @@ ipcMain.handle("env:readiness", () =>
     kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
     kernelRequest,
     getWorkspaceRoot,
+    kernelInstanceId: () => kernelInstanceId,
+    kernelFacts: () => ({
+      pid: kernel && kernel.pid ? kernel.pid : null,
+      port: KERNEL_PORT,
+      instanceId: kernelInstanceId || "",
+    }),
     trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
   }),
 );

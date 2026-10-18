@@ -77,6 +77,28 @@ function processesToStop(list) {
   return (Array.isArray(list) ? list : []).filter(shouldStop);
 }
 
+/** Signal a pid FRIDAY started and wait until it is gone, or the deadline passes. */
+async function waitForProcessGone(pid, options = {}) {
+  const id = Number(pid);
+  const alive = options.alive || pidAlive;
+  const kill = options.kill || ((target) => killProcessTree(target, options));
+  const timeoutMs = Math.max(0, Number(options.timeoutMs) || 8000);
+  const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  if (!Number.isFinite(id) || id <= 0) return { gone: true, waited: false };
+  const started = Date.now();
+  if (alive(id)) {
+    try {
+      kill(id);
+    } catch {
+      /* the poll below is the result */
+    }
+  }
+  while (alive(id) && Date.now() - started < timeoutMs) {
+    await sleep(100);
+  }
+  return { gone: !alive(id), waited: true };
+}
+
 function shutdownPlan() {
   return {
     order: SHUTDOWN_ORDER.slice(),
@@ -507,6 +529,7 @@ module.exports = {
   restartPlan,
   pidAlive,
   killProcessTree,
+  waitForProcessGone,
   createPidRegistry,
   usePidRegistry,
   trackOwned,

@@ -27,9 +27,16 @@ const stage = (name, ok, detail) => ({ name, ok: Boolean(ok), detail: detail || 
  * The pipeline is wired; Chat is not READY until a model answers.
  */
 function isUnloadedLocalChat(error) {
-  return /All connection attempts failed|No models loaded|does not expose this model id|model ['"][^'"]+['"] not found|Please load a model|lms load|no local \(offline\) model|no model available/i.test(
+  return /All connection attempts failed|No models loaded|does not expose this model id|model ['"][^'"]+['"] not found|Please load a model|lms load|no local \(offline\) model|no model available|no installed local model/i.test(
     String(error || ""),
   );
+}
+
+/** A /health answer is this launch only when the instance id matches the spawn. */
+function kernelIdentityOk(health, expectedId) {
+  const want = String(expectedId || "");
+  const got = String(health && health.instance_id ? health.instance_id : "");
+  return Boolean(want) && want === got;
 }
 
 /** Is `child` inside `parent`? Used to prove nothing escapes the FRIDAY root. */
@@ -173,10 +180,15 @@ async function runReadiness(ctx) {
     try {
       const health = await (await fetch(`${kernelUrl}/health`)).json();
       models = health.models || [];
-      kernelRooted = inside(rootContract.root, health.data_dir || "");
-      kernelDetail = kernelRooted
-        ? `kernel ${health.version || "?"} · data ${health.data_dir || "?"}`
-        : `kernel stores data outside the FRIDAY root: ${health.data_dir || "?"}`;
+      const expectedId =
+        typeof ctx.kernelInstanceId === "function" ? ctx.kernelInstanceId() : ctx.kernelInstanceId;
+      const identityOk = expectedId ? kernelIdentityOk(health, expectedId) : true;
+      kernelRooted = inside(rootContract.root, health.data_dir || "") && identityOk;
+      kernelDetail = !identityOk
+        ? "kernel identity did not match this launch"
+        : kernelRooted
+          ? `kernel ${health.version || "?"} · data ${health.data_dir || "?"}`
+          : `kernel stores data outside the FRIDAY root: ${health.data_dir || "?"}`;
     } catch (error) {
       kernelRooted = false;
       kernelDetail = `health payload unreadable: ${error.message}`;
@@ -303,7 +315,8 @@ async function runReadiness(ctx) {
     ),
   );
 
-  return { ok: stages.every((s) => s.ok), stages, at: Date.now() };
+  const facts = typeof ctx.kernelFacts === "function" ? ctx.kernelFacts() : ctx.kernelFacts || null;
+  return { ok: stages.every((s) => s.ok), stages, at: Date.now(), kernel: facts };
 }
 
-module.exports = { runReadiness, isUnloadedLocalChat };
+module.exports = { runReadiness, isUnloadedLocalChat, kernelIdentityOk };

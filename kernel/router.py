@@ -847,6 +847,33 @@ class ModelRouter:
                 return m
         return None
 
+    @staticmethod
+    def seed_row(raw: dict) -> dict:
+        """A registry row is not an installed model. Local seeds stay unavailable
+        until discovery marks one ready."""
+        row = dict(raw or {})
+        provider = str(row.get("provider") or "").lower()
+        if provider in {
+            "ollama",
+            "lmstudio",
+            "llamacpp",
+            "vllm",
+            "localai",
+            "jan",
+            "mlx",
+            "local",
+        } and not row.get("status"):
+            row["status"] = "unavailable"
+        return row
+
+    def uninstalled_local_detail(self) -> str | None:
+        local = [m for m in self._models.values() if is_local_model(m)]
+        if not local:
+            return None
+        if any(m.status == "ready" and self.can_chat(m) for m in local):
+            return None
+        return "no installed local model"
+
     def best_available(self, role: str = "brain", *, surface: str | None = None) -> Model | None:
         """Auto mode inside the kernel: score ready models, never spend on its own.
 
@@ -1084,6 +1111,10 @@ class ModelRouter:
         )
 
         if not targets:
+            missing = self.uninstalled_local_detail()
+            if missing and not (privacy_mode == "private" and norm_mode == "cloud-only"):
+                yield {"error": missing}
+                return
             if privacy_mode == "private" and norm_mode == "cloud-only":
                 yield {
                     "error": (

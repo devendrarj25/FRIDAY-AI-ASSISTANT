@@ -150,7 +150,7 @@ def load_configured_models() -> None:
                 continue
             api_key_env = raw.pop("api_key_env", None)
             raw["api_key"] = os.environ.get(api_key_env) if api_key_env else None
-            router.register(raw)
+            router.register(router.seed_row(raw))
             existing.add(raw["id"])
     except Exception as exc:
         print(f"[models] configuration could not be loaded: {exc}")
@@ -711,6 +711,7 @@ async def health() -> HealthBody:
         version=app.version,
         data_dir=str(DATA_DIR),
         models=[m.public() for m in router.models()],
+        instance_id=os.environ.get("FRIDAY_INSTANCE_ID", ""),
     )
 
 
