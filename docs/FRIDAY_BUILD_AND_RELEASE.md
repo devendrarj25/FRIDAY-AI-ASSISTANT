@@ -217,9 +217,9 @@ Checked on 2026-10-13. This Linux tree did not run `npm run build:win`, the inst
 | Raise toolchain floors | [Node download](https://nodejs.org/en/download): 24.21.0 Active LTS, 22.23.3 Maintenance LTS, 26.11.1 Current. [Node release schedule](https://github.com/nodejs/release): 22 is supported through 2027-04-30. [Python 3.14.8](https://blog.python.org/2026/10/python-31022-31117/) and 3.12.15. [PowerShell 7.6.6](https://github.com/PowerShell/PowerShell/releases/tag/v7.6.6) (2026-09-08); 7.5.11 is still shipped. | REJECT | Floors stay `>=`. The owner's 26.5.1 / 11.17.0 / 3.14.7 / 7.6.6 are above the floors. Raising them would drop a still-supported 22 / 3.12 / 7.5 machine. | `config/toolchain-versions.json` unchanged |
 | Pin exact versions in a constraints file | Same floor design: newer versions are reused. | REJECT as a change | A pin file would fight that rule. The known-good line below is the comparison record. | this section |
 
-### Known-good versions from the owner's pack (2026-10-13)
+### Known-good versions from the owner's PC (2026-10-18)
 
-Windows 10.0.26300. Node 26.5.1, npm 11.17.0, Python 3.14.7, PowerShell 7.6.6, Git 2.55.0, electron-builder 26.15.3, Electron 43.7.7, vite 8.3.2. Setup and Portable were produced; the log then failed in installer smoke. These are a comparison point, not new floors. `npm run setup` prints the resolved node, npm, Python, Git, and pwsh. `scripts/check-engines.cjs` prints the resolved node and npm before `npm ci`.
+Windows 10.0.26300. Public line 1.1.2.4, build 2026.10.17. The owner verified `npm run setup`, `npm run build:win`, install, uninstall, and reinstall. Node 26.5.1, npm 11.17.0, Python 3.14.7, Git 2.55.0, PowerShell 7.6.7, Electron 43.7.7, electron-builder 26.15.3, vite 8.3.2, FastAPI 0.143.3, uvicorn 0.54.0, pydantic 2.14.1, edge-tts 7.3.1, faster-whisper 1.2.1, Pillow 13.0.0, chromadb 1.5.9, onnxruntime 1.31.0. These are a comparison point, not new floors. The 2026-10-13 research row above still cites the PowerShell 7.6.6 release page. This branch's pack, readiness RESTART, speech download, and in-app update apply were not part of that owner check. `npm run setup` prints the resolved node, npm, Python, Git, and pwsh. `scripts/check-engines.cjs` prints the resolved node and npm before `npm ci`.
 
 ### Waiting on a parent release
 
