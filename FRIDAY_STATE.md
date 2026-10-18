@@ -14,7 +14,25 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 
 ## Checks on this Linux tree
 
-The 2026-10-16 count table is retired. This session's command results replace it after the check run. Until that pass is written here, an older count is not this tree.
+Run on 2026-10-18. Windows pack gates were not run. Hosted Actions were not started.
+
+| Check | Result |
+| --- | --- |
+| `npm run docs:sync` | Passed. 24 documents, all zeros. |
+| `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
+| `npm run verify:version` | Passed. `version 1.1.2.4 - all version sources and governed documents are in sync`. |
+| `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
+| `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `65 files already formatted`. |
+| `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.4`. |
+| `npm run typecheck:py` | Passed. 4 passed. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 201 passed. Exit 0. |
+| `npm test` | 368 files passed, 3054 passed, 2 skipped, 179.55s. Exit 0. |
+| `node scripts/tests-required.cjs origin/main` | Passed. 30 code files, 8 test files. |
+| `npm run check:provenance` | Failed. The commits on this branch carry an assistant identity in the author field. History was not rewritten. |
+| `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
+| `node scripts/audit-architecture.cjs --strict` | Passed. 728 source files. REVIEW lines remain. No file was deleted. |
+| `npm run preflight` | Exit 1. Every gate passed except commit provenance. `test:fast` passed: 132 files, 1107 tests. Windows pack gates were not run. |
+| `npm run build:desktop` | Passed in 4.76s. `AppShell-CI2Qwy2k.js` is 3,674.48 kB (gzip 1,310.48 kB). It was not split. |
 
 ## UNVERIFIED
 
@@ -104,7 +122,7 @@ These look like bugs. They are not. Do not "fix" them.
 - A background zero-spend health prober was not added as its own timer. A removed model id still refreshes the catalogue inside the existing chat loop. A full live re-read of every provider page was not done on 2026-10-18.
 - `src/routeTree.gen.ts` is still written two ways. Detail is under Next priorities.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- `npm audit`, `pip-audit`, and `npm run pricing:status` were not re-run for this briefing.
+- `npm audit`, `pip-audit`, and `npm run pricing:status` were not re-run for this briefing. Commit provenance fails on this branch because the author field is an assistant identity. Those commits were not rewritten.
 
 ## Next priorities
 
@@ -133,7 +151,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 5. Finding, not fixed here. `npm run test:fast` is `vitest run --changed`. On a clean committed tree it can print `No test files found` and exit 0. The tests that read these docs run under `npm test`.
 6. Owner decision. recharts stays on 2.x. A 3.x migration is a UI change and was not done. `core/__tests__/project-governance.test.ts` pins `dependencies.recharts` to `^2.`. The migration notes stay here: `CategoricalChartState` is gone, `Customized` no longer receives internal state, internal props such as `activeIndex` were removed, `ResponsiveContainer` `ref.current.current` is gone, and `accessibilityLayer` is on by default. The only import is `src/components/ui/chart.tsx`.
 7. Waiting on a parent. `tsconfck` 3.1.6 is required by `vite-tsconfig-paths` 6.1.1. `rcedit` 5.0.2 is still imported by `scripts/brand-windows.cjs`. No override. Detail: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
-8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. The desktop bundle size is recorded with the Linux check run.
+8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. This Linux `build:desktop` wrote `AppShell-CI2Qwy2k.js` at 3,674.48 kB (gzip 1,310.48 kB).
 9. Finding, not a change. A constraints file that pins Node, npm, Python, and PowerShell would fight the `>=` floors. The known-good line is in the build doc.
 10. faster-whisper stays on CPU int8 unless the machine can use CUDA. A failed larger load must not look like a dead microphone.
 11. Owner decision. An offline Hindi voice is not bundled. Supertonic 3 F2 speaks Hindi when it is installed.

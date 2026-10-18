@@ -11,16 +11,17 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 
 | Check | `command` | result |
 | --- | --- | --- |
-| Lint | `npm run lint` | re-run pending for this tree. No failing count is recorded. |
-| Types | `npm run typecheck` | re-run pending for this tree. |
-| Tests | `npm test` | re-run pending for this tree. |
-| Kernel tests | `python -m pytest kernel/tests` | re-run pending for this tree. |
-| Docs registry | `npm run docs:check` | re-run pending for this tree. |
-| Version heal | `npm run verify:version` | expected in sync at **1.1.2.4** (npm encoding **1.1.2**). The command result is written when it runs. |
-| Layout | `npm run arrange:check` | re-run pending for this tree. |
+| Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `65 files already formatted`. |
+| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.4`. |
+| Tests | `npm test` | 368 files passed, 3054 passed, 2 skipped, 179.55s |
+| Kernel tests | `python -m pytest kernel/tests` | 201 passed. Exit 0 |
+| Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
+| Version heal | `npm run verify:version` | in sync at **1.1.2.4** (npm encoding **1.1.2**) |
+| Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
 | Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
-| Local CI substitute | `npm run preflight` | re-run pending. `npm run validate:local` calls the same script |
+| Local CI substitute | `npm run preflight` | exit 1 on Linux. Every gate passed except commit provenance. `test:fast` passed: 132 files, 1107 tests. Windows pack gates were not run. `npm run validate:local` calls the same script |
 | Pricing knowledge | `npm run pricing:status` | not re-run this session |
+| Commit provenance | `npm run check:provenance` | failed. The commits on this branch carry an assistant identity in the author field. History was not rewritten |
 | Hosted Actions | PR Validation / FRIDAY Release | The owner reported these green for public line 1.1.2.4 on 2026-10-18. This branch's hosted runs were not started |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this branch (needs a Windows PC). The owner verified that command for public line 1.1.2.4 on 2026-10-18 |
 
