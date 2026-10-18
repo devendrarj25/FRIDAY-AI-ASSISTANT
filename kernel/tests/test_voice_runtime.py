@@ -122,6 +122,23 @@ class VoiceRuntimeTests(unittest.TestCase):
                 self.assertEqual(voice_runtime.speech_lang("open Chrome करो", "hi-IN"), "na")
                 self.assertEqual(voice_runtime.speech_lang("hello", "en-IN"), "en")
                 self.assertEqual(voice_runtime.speech_lang("नमस्ते", "hi-IN"), "hi")
+                self.assertIn("SpeechRecognizer", stt.WINDOWS_SPEECH_PROBE)
+                self.assertIsNone(stt.transcribe_windows(""))
+                self.assertFalse(stt.windows_speech_ready())
+                self.assertEqual(
+                    stt.live_ladder({"whisperReady": True, "weightsReady": True, "size": "base"})["engine"],
+                    "faster-whisper",
+                )
+                blocked = stt.live_ladder(
+                    {
+                        "blocked": True,
+                        "blockReason": "blocked: us.aws.cdn.hf.co",
+                        "english": True,
+                        "moonshineReady": True,
+                    }
+                )
+                self.assertEqual(blocked["engine"], "moonshine")
+                self.assertTrue(blocked["local"])
                 self.assertFalse(stt.wants_english_stream("", "hi-IN"))
                 self.assertTrue(stt.wants_english_stream("", "en-IN"))
                 self.assertIsNone(stt.moonshine_model_dir())

@@ -345,7 +345,23 @@ def _transcribe_prepared(
             "engine": engine,
             "turnProbability": turn_probability,
         }
-    model = get_model(owner_model(owner_size, model_name), model_path or None)
+    try:
+        model = get_model(owner_model(owner_size, model_name), model_path or None)
+    except Exception:
+        windows_text = transcribe_windows(audio)
+        if not windows_text:
+            raise
+        return {
+            "ok": True,
+            "text": windows_text,
+            "language": "",
+            "durationMs": 0,
+            "model": "windows-speech",
+            "noSpeechProb": 0.0,
+            "loadCount": _load_count,
+            "engine": "windows-speech",
+            "turnProbability": turn_probability,
+        }
     lang = resolve_language(language)
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
@@ -389,6 +405,121 @@ def _transcribe_prepared(
     }
 
 
+WINDOWS_SPEECH_PROBE = (
+    "Add-Type -AssemblyName System.Speech; "
+    "$r = New-Object System.Speech.Recognition.SpeechRecognizer; "
+    "if ($r) { 'installed' } else { 'missing' }"
+)
+
+_windows_speech: bool | None = None
+
+
+def windows_speech_ready() -> bool:
+    """True only on Windows when the built-in recogniser assembly answers."""
+    global _windows_speech
+    if _windows_speech is not None:
+        return _windows_speech
+    if sys.platform != "win32":
+        _windows_speech = False
+        return False
+    try:
+        import subprocess
+
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", WINDOWS_SPEECH_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        _windows_speech = "installed" in (done.stdout or "")
+    except Exception:
+        _windows_speech = False
+    return bool(_windows_speech)
+
+
+def transcribe_windows(audio: str) -> str | None:
+    """Dictation from a wav through the installed Windows language pack. No download."""
+    if sys.platform != "win32" or not audio or not os.path.exists(audio):
+        return None
+    if not str(audio).lower().endswith(".wav") or not windows_speech_ready():
+        return None
+    safe = str(audio).replace("'", "''")
+    script = (
+        "$ErrorActionPreference='Stop'; "
+        "Add-Type -AssemblyName System.Speech; "
+        "$e = New-Object System.Speech.Recognition.SpeechRecognitionEngine; "
+        "$e.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar)); "
+        f"$e.SetInputToWaveFile('{safe}'); "
+        "$r = $e.Recognize(); "
+        "if ($r) { $r.Text }"
+    )
+    try:
+        import subprocess
+
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        return None
+    text = (done.stdout or "").strip()
+    return text or None
+
+
+def live_ladder(facts: dict | None) -> dict:
+    """Pick the local engine. Privacy mode never leaves this PC. No download starts here."""
+    row = facts or {}
+    if row.get("whisperReady") and row.get("weightsReady"):
+        size = str(row.get("size") or "base")
+        return {
+            "engine": "faster-whisper",
+            "status": "ready",
+            "reason": str(row.get("sizeReason") or f"faster-whisper {size}"),
+            "local": True,
+        }
+    if row.get("downloading"):
+        return {
+            "engine": "faster-whisper",
+            "status": "downloading",
+            "reason": "downloading",
+            "local": True,
+        }
+    blocked = None
+    if row.get("blocked"):
+        blocked = {
+            "engine": "faster-whisper",
+            "status": "blocked",
+            "reason": str(row.get("blockReason") or "blocked"),
+            "local": True,
+        }
+    if row.get("english") and row.get("moonshineReady"):
+        return {
+            "engine": "moonshine",
+            "status": "ready",
+            "reason": "Moonshine English weights are on disk",
+            "local": True,
+        }
+    if row.get("windowsSpeech"):
+        return {
+            "engine": "windows-speech",
+            "status": "ready",
+            "reason": "Windows speech language pack is installed",
+            "local": True,
+        }
+    if blocked:
+        return blocked
+    return {
+        "engine": "none",
+        "status": "missing",
+        "reason": "Install a local speech model, or add a Windows speech language pack.",
+        "local": True,
+    }
+
+
 def status_payload() -> dict:
     cls = _import_whisper()
     return {
@@ -401,6 +532,16 @@ def status_payload() -> dict:
         "loadCount": _load_count,
         "inference": "verified" if _model is not None else "unverified",
         "error": None if cls is not None else _whisper_error,
+        "ladder": live_ladder(
+            {
+                "whisperReady": cls is not None,
+                "weightsReady": _model is not None,
+                "size": _model_name or DEFAULT_MODEL,
+                "english": False,
+                "moonshineReady": moonshine_model_dir() is not None,
+                "windowsSpeech": windows_speech_ready(),
+            }
+        ),
     }
 
 

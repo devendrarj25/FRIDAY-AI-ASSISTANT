@@ -4212,6 +4212,11 @@ async function authorizeToolCall(name, args) {
 // The renderer may only reach an explicitly allowlisted method, and it can
 // never supply its own approval: the authorization is minted here, by the
 // owner-backed policy, or not at all.
+ipcMain.handle("kernel:restart", async () => {
+  await restartKernel({ reason: "voice-heal" });
+  return { ok: true };
+});
+
 ipcMain.handle("kernel:rpc", async (_e, method, params) => {
   const name = String(method || "");
   if (!kernelMethods.isAllowedKernelMethod(name))
@@ -8078,6 +8083,17 @@ app
         readiness: false,
         run() {
           startModelRegistryRefresh();
+        },
+      });
+      startupTasks.register({
+        id: "voice-heal",
+        phase: "idle",
+        timeoutMs: 1000,
+        readiness: false,
+        run() {
+          // Auto mode ticks the one policy in src/lib/friday/voice-heal.ts.
+          // This task does not start a second timer.
+          return { armed: true, policy: "voice-heal" };
         },
       });
       startupTasks.register({

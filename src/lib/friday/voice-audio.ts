@@ -306,6 +306,9 @@ export interface VadSnapshot {
   running: boolean;
   /** True while TTS is playing — VAD uses a higher bar so echo is not speech. */
   speakingGuard: boolean;
+  /** Software gain applied when the hardware floor stays too low. */
+  softwareGain?: number;
+  quietNotice?: string;
 }
 
 /**
@@ -350,7 +353,14 @@ export function advanceVad(input: {
   voiceFrames: number;
   speakingGuard: boolean;
   ducked: boolean;
-}): { noiseFloor: number; voiceFrames: number; speech: boolean; threshold: number } {
+}): {
+  noiseFloor: number;
+  voiceFrames: number;
+  speech: boolean;
+  threshold: number;
+  suggestGain: number;
+  quietHardware: boolean;
+} {
   const floor =
     input.noiseFloor === 0
       ? input.level
@@ -358,13 +368,38 @@ export function advanceVad(input: {
         ? input.noiseFloor * 0.995 + input.level * 0.005
         : input.noiseFloor * 0.9 + input.level * 0.1;
   const floorMul = input.speakingGuard ? 4.2 : 2.4;
-  const extra = input.speakingGuard ? 0.018 : 0.006;
-  const minAbs = input.speakingGuard ? 0.02 : 0.008;
+  const extra = input.speakingGuard ? 0.018 : floor < 0.01 ? 0 : 0.006;
+  const minAbs = input.speakingGuard ? 0.02 : 0.006;
   const threshold = Math.max(floor * floorMul, floor + extra, minAbs);
   const loud = !input.ducked && input.level > threshold;
   const voiceFrames = loud ? input.voiceFrames + 1 : Math.max(0, input.voiceFrames - 2);
   const needed = input.speakingGuard ? 8 : 3;
-  return { noiseFloor: floor, voiceFrames, speech: voiceFrames >= needed, threshold };
+  const quietHardware = floor > 0 && floor < 0.003 && !loud;
+  return {
+    noiseFloor: floor,
+    voiceFrames,
+    speech: voiceFrames >= needed,
+    threshold,
+    suggestGain: quietHardware ? 2 : 1,
+    quietHardware,
+  };
+}
+
+/** One notice when the input stays under a usable floor and no speech arrives. */
+export function quietInputPlan(input: {
+  floor: number;
+  segments: number;
+  quietMs: number;
+  told: boolean;
+}): { gain: number; tellOwner: boolean; line: string } {
+  const quiet =
+    input.floor > 0 && input.floor < 0.003 && input.segments === 0 && input.quietMs >= 8000;
+  if (!quiet || input.told) return { gain: 1, tellOwner: false, line: "" };
+  return {
+    gain: 2,
+    tellOwner: true,
+    line: "The microphone level is very low. Raise the Windows input level.",
+  };
 }
 
 const SILENT: VadSnapshot = {
@@ -412,6 +447,10 @@ export class VoiceGate {
   /** Last five capture failures. No audio and no transcript. */
   private captureErrors: string[] = [];
   private worklet: AudioWorkletNode | null = null;
+  private softwareGain = 1;
+  private quietSince = 0;
+  private quietTold = false;
+  private quietLine = "";
 
   /**
    * The single live microphone stream. Dictation and any other consumer share
@@ -420,6 +459,25 @@ export class VoiceGate {
    */
   contextState(): string {
     return this.ctx?.state || "missing";
+  }
+
+  quietNotice(): string {
+    return this.quietLine;
+  }
+
+  setSoftwareGain(value: number): void {
+    this.softwareGain = value > 1 ? 2 : 1;
+  }
+
+  recalibrate(): void {
+    this.voiceFrames = 0;
+    this.quietSince = 0;
+    this.snapshot = { ...this.snapshot, noiseFloor: 0, speech: false };
+    this.emit();
+  }
+
+  async resumeAudio(): Promise<void> {
+    await this.resumeContext();
   }
 
   recentErrors(): string[] {
@@ -725,6 +783,11 @@ export class VoiceGate {
         return;
       }
     }
+    if (this.softwareGain > 1) {
+      for (let i = 0; i < this.buffer.length; i += 1) {
+        this.buffer[i] = (this.buffer[i] ?? 0) * this.softwareGain;
+      }
+    }
     let sum = 0;
     for (let i = 0; i < this.buffer.length; i += 1) {
       const v = this.buffer[i] ?? 0;
@@ -744,7 +807,27 @@ export class VoiceGate {
     });
     this.voiceFrames = step.voiceFrames;
     const speech = step.speech;
-    if (speech) this.lastSpeechAt = Date.now();
+    if (speech) {
+      this.lastSpeechAt = Date.now();
+      this.quietSince = 0;
+    }
+    const now = Date.now();
+    if (!speech && step.noiseFloor > 0 && step.noiseFloor < 0.003) {
+      if (!this.quietSince) this.quietSince = now;
+    } else if (speech) {
+      this.quietSince = 0;
+    }
+    const quiet = quietInputPlan({
+      floor: step.noiseFloor,
+      segments: this.lastSpeechAt ? 1 : 0,
+      quietMs: this.quietSince ? now - this.quietSince : 0,
+      told: this.quietTold,
+    });
+    if (quiet.gain > 1) this.softwareGain = quiet.gain;
+    if (quiet.tellOwner && quiet.line) {
+      this.quietTold = true;
+      this.quietLine = quiet.line;
+    }
     this.snapshot = {
       level,
       noiseFloor: step.noiseFloor,
@@ -752,8 +835,9 @@ export class VoiceGate {
       sinceSpeech: this.lastSpeechAt ? Date.now() - this.lastSpeechAt : null,
       running: true,
       speakingGuard: this.speakingGuard,
+      softwareGain: this.softwareGain,
+      quietNotice: this.quietLine,
     };
-    const now = Date.now();
     const speechChanged = speech !== prev.speech;
     const hidden = typeof document !== "undefined" && document.hidden;
     if (
