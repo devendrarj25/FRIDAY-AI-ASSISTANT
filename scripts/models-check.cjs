@@ -136,6 +136,11 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
       lines.push({
         id: row.id,
         result: "SKIP",
+        keyValid: false,
+        modelsFound: 0,
+        freeProof: "",
+        statusClass: null,
+        category: "missing_key",
         detail: federation.formatProviderReport({
           id: row.id,
           list: "SKIP",
@@ -198,6 +203,12 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
       lines.push({
         id: row.id,
         result: mark,
+        keyValid: res.status !== 401 && res.status !== 403,
+        modelsFound: listed.ok ? listed.ids.length : 0,
+        freeProof: access,
+        statusClass: `${Math.floor(res.status / 100)}xx`,
+        category: res.ok ? "ok" : `http_${res.status}`,
+        latencyMs: null,
         detail: federation.redactSecrets(detail),
       });
     } catch (err) {
@@ -212,13 +223,18 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
 }
 
 function writeLiveReport(rows, file) {
-  const providers = (Array.isArray(rows) ? rows : []).map((row) => ({
+  const enriched = (Array.isArray(rows) ? rows : []).map((row) => ({
     id: String(row.id || ""),
     result: String(row.result || ""),
-    detail: federation.redactSecrets(String(row.detail || "")),
+    keyValid: row.keyValid === true ? true : row.keyValid === false ? false : null,
+    modelsFound: Number.isFinite(row.modelsFound) ? row.modelsFound : null,
+    freeProof: String(row.freeProof || ""),
+    statusClass: row.statusClass == null ? null : String(row.statusClass),
+    category: String(row.category || ""),
     latencyMs: Number.isFinite(row.latencyMs) ? row.latencyMs : null,
+    detail: federation.redactSecrets(String(row.detail || "")),
   }));
-  const body = JSON.stringify({ providers }, null, 2);
+  const body = JSON.stringify({ providers: enriched }, null, 2);
   if (/sk-(?!redacted\b)[a-z0-9_-]{8,}/i.test(body)) {
     throw new Error("live report contained a key");
   }

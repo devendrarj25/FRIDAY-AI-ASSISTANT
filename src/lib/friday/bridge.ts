@@ -103,7 +103,12 @@ declare global {
       }>;
 
       onChatDelta?: (
-        cb: (event: { requestId: string; modelId?: string; text: string }) => void,
+        cb: (event: {
+          requestId: string;
+          modelId?: string;
+          text: string;
+          replace?: boolean;
+        }) => void,
       ) => () => void;
       onChatTool?: (
         cb: (event: { requestId: string; modelId?: string; name: string }) => void,

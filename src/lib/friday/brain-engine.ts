@@ -912,8 +912,9 @@ class BrainStore {
         (message) => message.runId === run.id && message.role === "friday",
       );
       if (current) {
+        const nextText = event.replace ? String(event.text || "") : current.text + event.text;
         this.state.messages = this.state.messages.map((message) =>
-          message.id === current.id ? { ...message, text: message.text + event.text } : message,
+          message.id === current.id ? { ...message, text: nextText } : message,
         );
       } else {
         this.state.messages = [
@@ -921,7 +922,7 @@ class BrainStore {
           { id: nextId("msg"), role: "friday", text: event.text, at: Date.now(), runId: run.id },
         ];
       }
-      run.answer += event.text;
+      run.answer = event.replace ? String(event.text || "") : run.answer + event.text;
       if (event.modelId) {
         const buffer = this.streamBuffers.get(event.modelId) ?? { text: "", at: Date.now() };
         buffer.text += event.text;

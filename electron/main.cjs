@@ -2706,6 +2706,7 @@ async function startChat(request) {
   const ownerPicked = (model) =>
     wanted.includes(model?.id) || wanted.includes(model?.meta?.modelName);
   let failures = [];
+  let kernelHealTried = false;
 
   // Two passes at most: free-tier catalogues (OpenRouter especially) rotate
   // their available models often, so a stale list is re-fetched live once
@@ -2778,7 +2779,14 @@ async function startChat(request) {
         send("chat:done", { requestId, modelId: model.id, answeredBy });
         return;
       }
-      const noted = providerHealth.noteFailure(model.id, result.error);
+      const noted = providerHealth.noteFailure(model.id, {
+        message: result.error,
+        modelId: model.id,
+        provider: model.providerId || model.meta?.providerId || "",
+        kind: model.type === "local" ? "local" : "cloud",
+        elapsedMs: result.latencyMs,
+        path: "/chat",
+      });
       providerHealth.noteDecision({
         modelId: model.id,
         why: noted.nextStep || noted.category,
@@ -2813,6 +2821,7 @@ async function startChat(request) {
         display: model.displayName || model.label,
         category: noted.category,
         nextStep: noted.nextStep,
+        facts: noted.facts || null,
       });
       log(
         `chat ${requestId}: ${model.id} failed (${noted.category}) — cooldown ${Math.round(
@@ -2825,10 +2834,29 @@ async function startChat(request) {
         cooldownUntil: noted.cooldownUntil,
         kind: modelRouter.lifecycleKindFromHealth(noted.category),
       });
-      // Tokens already reached the owner: restarting would duplicate the answer.
       if (result.received) {
-        send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
-        return;
+        const streamPlan = modelRouter.midStreamFallback(noted.category);
+        if (!streamPlan.resume) {
+          send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
+          return;
+        }
+        send("chat:delta", { requestId, modelId: model.id, text: "", replace: true });
+      }
+      if (noted.category === "timeout" && !model.timeoutRetried) {
+        model.timeoutRetried = true;
+        const current = Number(request.maxTokens || 1024);
+        request.maxTokens = Math.max(128, Math.floor(current / 2));
+        continue;
+      }
+      if (noted.category === "kernel_down" && !kernelHealTried) {
+        kernelHealTried = true;
+        log(`chat ${requestId}: restarting the local AI service once`);
+        try {
+          await restartKernel({ reason: "chat" });
+        } catch (error) {
+          log(`chat ${requestId}: kernel restart failed — ${error && error.message}`);
+        }
+        continue;
       }
       const compacted = request.compacted === true;
       if (!modelRouter.fallbackAdvances(noted.category, { compacted })) {

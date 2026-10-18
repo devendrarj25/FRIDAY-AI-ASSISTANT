@@ -15,6 +15,7 @@ const METHODS = [
   "mapError",
   "quota",
   "health",
+  "gate",
 ];
 
 const SECRET = /\b(?:sk-[a-z0-9]{8,}|api[_-]?key|authorization|bearer)\b/i;
@@ -103,6 +104,19 @@ function createHandler(spec) {
     },
     health(snapshot) {
       return spec.health ? spec.health(snapshot) : { status: "unknown" };
+    },
+    gate() {
+      if (typeof spec.gate === "function") return spec.gate();
+      return {
+        id: String(spec.id),
+        kind,
+        listUrl: "",
+        chatUrl: "",
+        verify: null,
+        mayTrain: false,
+        privacyUrl: "",
+        healthProbe: "zero-spend",
+      };
     },
     launcher:
       kind === "local" ? { id: String(spec.id), autoStart: false, ...(spec.launcher || {}) } : null,

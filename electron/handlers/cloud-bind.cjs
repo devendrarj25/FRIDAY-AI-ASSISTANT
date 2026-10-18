@@ -82,6 +82,19 @@ function cloudHandler(id) {
     quota(headers) {
       return modelAccess.quotaMeter(headers);
     },
+    gate() {
+      const spec = catalogue()[id] || {};
+      return {
+        id,
+        kind: "cloud",
+        listUrl: String(spec.url || ""),
+        chatUrl: String(spec.chat || ""),
+        verify: spec.verify || null,
+        mayTrain: id === "openrouter",
+        privacyUrl: id === "openrouter" ? "https://openrouter.ai/settings/privacy" : "",
+        healthProbe: "zero-spend",
+      };
+    },
     health(snapshot) {
       const entries = Array.isArray(snapshot) ? snapshot : snapshot?.models || [];
       const mine = entries.filter((entry) => String(entry?.modelId || "").split(":")[0] === id);
