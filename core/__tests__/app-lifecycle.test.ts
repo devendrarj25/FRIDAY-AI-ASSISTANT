@@ -104,6 +104,7 @@ describe("lifecycle owner", () => {
       requestRestart: (reason: string) => Promise<boolean>;
       exitNow: (code: number, reason?: string) => boolean;
       hideToBackground: () => boolean;
+      reloadRenderer: () => { ok: boolean; action: string; killsProcesses: boolean };
       getState: () => string;
       onSessionEnd: (reason: string) => Promise<boolean>;
     };
@@ -329,5 +330,32 @@ describe("lifecycle owner", () => {
       },
     });
     expect(missing.released).toBe(true);
+  });
+
+  it("reloads the renderer through the lifecycle owner and does not kill a process", () => {
+    let reloaded = 0;
+    const life = owner.createLifecycle({
+      app: { exit() {}, relaunch() {} },
+      steps: {
+        reload() {
+          reloaded += 1;
+        },
+      },
+      log() {},
+    });
+    expect(life.reloadRenderer()).toEqual({
+      ok: true,
+      action: "reload-renderer",
+      killsProcesses: false,
+    });
+    expect(reloaded).toBe(1);
+    const source = read("electron/app-lifecycle.cjs");
+    const body = source.slice(
+      source.indexOf("function reloadRenderer"),
+      source.indexOf("return {", source.indexOf("function reloadRenderer")),
+    );
+    expect(body).not.toContain("killProcessTree");
+    expect(read("electron/main.cjs")).toContain("win.webContents.reload()");
+    expect(read("electron/main.cjs")).not.toContain("forcefullyCrashRenderer");
   });
 });

@@ -160,7 +160,7 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 | Topic | Decision | Why, for FRIDAY |
 | --- | --- | --- |
 | Groq supported models | ADOPT | [Models](https://console.groq.com/docs/models), re-read 2026-10-20. The limits column is still the Developer plan. `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` are Contact Sales. The priced ids already stored still match. The page does not list a free id. Models can mark one Groq model free for this account. |
-| Background health probe | ADAPT | `planHealthProbe` is a cached models list with jitter. It spends no tokens and does not run in Privacy mode. It feeds the existing router. |
+| Background health probe | ADAPT | `planHealthProbe` still refreshes the catalogue with jitter and spends nothing. `planModelProbes` adds a cached GET per model (`/api/tags` or the models list). Privacy mode skips network probes. A failed probe cools that model before a turn. No prompt is sent. |
 | A second router or a new vendor client | REJECT | Official list URLs stay inside the current handlers. No new dependency. |
 
 ### Completeness matrix (2026-10-14)

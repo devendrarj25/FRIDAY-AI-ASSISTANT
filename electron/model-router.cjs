@@ -331,6 +331,8 @@ const NEXT_STEP = Object.freeze({
   account_setting_required:
     "OpenRouter is hiding free models that may train on prompts. Open Privacy at https://openrouter.ai/settings/privacy and allow those models, then try again.",
   kernel_down: "The local AI service did not answer. FRIDAY will try to bring it back.",
+  ipc_budget:
+    "The wait limit expired. The work was not cancelled and another model is not tried for that alone.",
   timeout: "The provider timed out. FRIDAY will try a smaller reply, then another model.",
   provider_error: "The provider failed. FRIDAY will try a different provider.",
 });
@@ -432,6 +434,9 @@ function classifyError(input) {
       path: input.path,
       elapsedMs: input.elapsedMs,
     });
+  }
+  if (code === "ipc_budget" || has("ipc budget expired")) {
+    return withStep({ category: "ipc_budget", retryable: false, cooldownMs: 0 });
   }
   if (code === "data_policy" || has("no endpoints found matching your data policy")) {
     return withStep({
@@ -707,6 +712,14 @@ class ProviderHealthManager {
       breaker: "CLOSED",
     });
     return this.state.get(modelId);
+  }
+
+  /** Stamp a zero-spend probe without changing a cooldown the probe did not open. */
+  noteProbe(modelId, now = Date.now()) {
+    const entry = this.get(modelId);
+    const next = { ...entry, modelId, lastProbeAt: now };
+    this.state.set(modelId, next);
+    return next;
   }
 
   /** Records a failure and starts the cooldown that keeps us off that endpoint. */
@@ -1777,6 +1790,130 @@ function planHealthProbe(state = {}) {
   };
 }
 
+function providerOf(model) {
+  return String(
+    model?.provider || model?.providerId || model?.meta?.providerId || model?.meta?.provider || "",
+  ).toLowerCase();
+}
+
+/** One GET that lists models or tags. No prompt and no request body. */
+function zeroSpendTarget(model) {
+  if (!model || !model.id) return null;
+  const provider = providerOf(model);
+  const kind = String(model.type || model.kind || model.meta?.kind || "");
+  const local = kind === "local" || provider === "ollama" || model.local === true;
+  if (provider === "ollama") {
+    const base = String(model.endpoint || "http://127.0.0.1:11434").replace(/\/$/, "");
+    return {
+      id: model.id,
+      provider,
+      url: `${base}/api/tags`,
+      method: "GET",
+      body: null,
+      network: false,
+      spend: "zero",
+      prompt: false,
+    };
+  }
+  if (local) {
+    const base = String(model.endpoint || model.baseUrl || "").replace(/\/$/, "");
+    if (!base) return null;
+    const url = /\/v1\/models$/.test(base) ? base : `${base.replace(/\/v1$/, "")}/v1/models`;
+    return {
+      id: model.id,
+      provider,
+      url,
+      method: "GET",
+      body: null,
+      network: false,
+      spend: "zero",
+      prompt: false,
+    };
+  }
+  const listUrl = String(model.listUrl || "");
+  if (!/^https:\/\//i.test(listUrl)) return null;
+  return {
+    id: model.id,
+    provider,
+    url: listUrl,
+    method: "GET",
+    body: null,
+    network: true,
+    spend: "zero",
+    prompt: false,
+    hasKey: Boolean(model.hasKey),
+  };
+}
+
+/**
+ * Per-model probes. Privacy mode keeps local daemons and skips the network.
+ * A fresh lastProbeAt is left alone. The plan never contains a key or a prompt.
+ */
+function planModelProbes(state = {}) {
+  const models = Array.isArray(state.models) ? state.models : [];
+  const privacy = state.privacy === true;
+  const ttl = Number(state.ttlMs) > 0 ? Number(state.ttlMs) : 10 * 60 * 1000;
+  const now = Number(state.now) || 0;
+  const concurrency = Math.max(1, Math.min(3, Number(state.concurrency) || 3));
+  const jitter = Math.abs(Number(state.jitterMs) || 0) % 60_000;
+  const probes = [];
+  for (const model of models) {
+    const target = zeroSpendTarget(model);
+    if (!target) continue;
+    if (privacy && target.network) continue;
+    if (target.network && !model.hasKey) continue;
+    const last = Number(model.lastProbeAt || 0);
+    if (last > 0 && now > 0 && now - last < ttl) continue;
+    probes.push(target);
+  }
+  return { probes, concurrency, delayMs: jitter, spend: "zero", prompt: false };
+}
+
+async function runZeroSpendProbes(plan, options = {}) {
+  const probes = Array.isArray(plan?.probes) ? plan.probes : [];
+  const fetchImpl = options.fetchImpl;
+  const health = options.health;
+  const now = Number(options.now) || Date.now();
+  if (!fetchImpl || !health || !probes.length) return { ran: 0 };
+  const limit = Math.max(1, Math.min(3, Number(plan.concurrency) || 3));
+  let cursor = 0;
+  let ran = 0;
+  async function worker() {
+    while (cursor < probes.length) {
+      const probe = probes[cursor];
+      cursor += 1;
+      const started = Date.now();
+      try {
+        const headers =
+          typeof options.headersFor === "function" ? options.headersFor(probe) || {} : {};
+        const res = await fetchImpl(probe.url, { method: "GET", headers, body: null });
+        if (res && res.ok) health.noteSuccess(probe.id, Date.now() - started);
+        else {
+          health.noteFailure(
+            probe.id,
+            {
+              message: `probe HTTP ${Number(res && res.status) || 0}`,
+              status: Number(res && res.status) || 502,
+              modelId: probe.id,
+            },
+            now,
+          );
+        }
+      } catch (error) {
+        health.noteFailure(
+          probe.id,
+          { message: String((error && error.message) || error), modelId: probe.id },
+          now,
+        );
+      }
+      if (typeof health.noteProbe === "function") health.noteProbe(probe.id, now);
+      ran += 1;
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, probes.length) }, () => worker()));
+  return { ran };
+}
+
 const BLOCKED_REPAIRS = new Set([
   "rotate-credentials",
   "privacy-mode",
@@ -1809,7 +1946,13 @@ function midStreamFallback(category) {
 function fallbackAdvances(category, options = {}) {
   const name = String(category || "");
   if (name === "context_overflow" && options.compacted === true) return true;
-  return !["invalid_request", "context_overflow", "content_filter", "region_block"].includes(name);
+  return ![
+    "invalid_request",
+    "context_overflow",
+    "content_filter",
+    "region_block",
+    "ipc_budget",
+  ].includes(name);
 }
 
 function fallbackTier(candidate, failed) {
@@ -3023,6 +3166,9 @@ module.exports = {
   spendCapAllows,
   planRefresh,
   planHealthProbe,
+  planModelProbes,
+  zeroSpendTarget,
+  runZeroSpendProbes,
   repairModelIssue,
   fallbackAdvances,
   orderFallbacks,

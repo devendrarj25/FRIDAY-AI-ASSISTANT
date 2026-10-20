@@ -708,3 +708,7 @@ contextBridge.exposeInMainWorld("friday", {
   onModelPullProgress: on("models:pull-progress"),
   onModelPullDone: on("models:pull-done"),
 });
+
+setInterval(() => {
+  ipcRenderer.invoke("watchdog:beat").catch(() => {});
+}, 5000);

@@ -40,6 +40,8 @@ export interface SttStatus {
   worker?: "ready" | "stopped" | "crashed";
   inference?: "verified" | "unverified" | "failed";
   loadCount?: number;
+  moonshineReady?: boolean;
+  windowsSpeech?: boolean;
 }
 
 const OFFLINE: SttStatus = {
@@ -132,6 +134,8 @@ export async function sttStatus(
       value.inference = raw.inference;
     }
     if (typeof raw?.loadCount === "number") value.loadCount = raw.loadCount;
+    if (typeof raw?.moonshineReady === "boolean") value.moonshineReady = raw.moonshineReady;
+    if (typeof raw?.windowsSpeech === "boolean") value.windowsSpeech = raw.windowsSpeech;
     if (localOnly) cachedLocal = { at: Date.now(), value };
     else cached = { at: Date.now(), value };
     return value;
@@ -141,6 +145,10 @@ export async function sttStatus(
     else cached = { at: Date.now(), value };
     return value;
   }
+}
+
+export function cachedSttStatus(): SttStatus | null {
+  return cachedLocal?.value || cached?.value || null;
 }
 
 /** Install the on-device transcriber (pip install faster-whisper). */

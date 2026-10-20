@@ -170,7 +170,27 @@ function progressReporter(total, onEvent, label) {
 }
 
 function abortError(signal) {
-  const paused = signal?.reason === "pause";
+  return normaliseDownloadAbort(signal?.reason, signal);
+}
+
+/**
+ * Pause and cancel always reject with the same Error.
+ * A string reason, a DOMException, or an Error are all accepted.
+ * Anything that is not an abort is returned unchanged.
+ */
+function normaliseDownloadAbort(err, signal) {
+  const reason = signal?.reason;
+  const message = typeof err === "string" ? err : String(err?.message || "");
+  const abortName = err?.name === "AbortError" || err?.code === "ABORT_ERR";
+  const aborted =
+    Boolean(signal?.aborted) || abortName || err?.code === "PAUSE" || err?.code === "CANCEL";
+  const reasonText = typeof reason === "string" ? reason : typeof err === "string" ? err : "";
+  const paused =
+    err?.code === "PAUSE" ||
+    reasonText === "pause" ||
+    reasonText === "paused" ||
+    message === "paused";
+  if (!aborted && !paused) return err instanceof Error ? err : err;
   const error = new Error(paused ? "paused" : "cancelled");
   error.code = paused ? "PAUSE" : "CANCEL";
   return error;
@@ -290,14 +310,11 @@ async function downloadUrl(
       }
     }
   } catch (err) {
-    const paused = err?.code === "PAUSE" || signal?.reason === "pause";
+    const normalised = normaliseDownloadAbort(err, signal);
+    const paused = normalised?.code === "PAUSE";
     if (!paused) await fsp.rm(part, { force: true }).catch(() => {});
-    if (signal?.aborted && !paused) {
-      const error = new Error("cancelled");
-      error.code = "CANCEL";
-      throw error;
-    }
-    throw err;
+    if (normalised?.code === "PAUSE" || normalised?.code === "CANCEL") throw normalised;
+    throw err instanceof Error ? err : new Error(String(err?.message || err));
   } finally {
     await handle.close();
   }
@@ -654,6 +671,7 @@ module.exports = {
   assertDiskRoom,
   assertSha256,
   downloadUrl,
+  normaliseDownloadAbort,
   registerGguf,
   downloadModel,
   listLocalWeights,

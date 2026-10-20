@@ -169,6 +169,65 @@ export function planLiveStt(input: {
   };
 }
 
+export type LiveSttFacts = {
+  available?: boolean;
+  ready?: boolean;
+  engine?: string;
+  reason?: string | null | undefined;
+  dependency?: string;
+  moonshineReady?: boolean;
+  windowsSpeech?: boolean;
+  downloading?: boolean;
+};
+
+/** The same ladder Auto mode uses, fed by a kernel status payload. */
+export function liveSttFromStatus(
+  state: LiveSttFacts,
+  lang: string,
+  privacy = false,
+): ReturnType<typeof planLiveStt> {
+  const reason = state.reason || "";
+  return planLiveStt({
+    whisperReady: state.engine === "faster-whisper" && Boolean(state.available),
+    weightsReady: Boolean(state.ready),
+    downloading: Boolean(state.downloading) || /download/i.test(reason),
+    blocked: /blocked:|not allowlisted/i.test(reason),
+    blockReason: reason,
+    english: /^en/i.test(lang),
+    moonshineReady: Boolean(state.moonshineReady),
+    windowsSpeech: Boolean(state.windowsSpeech),
+    privacy,
+  });
+}
+
+let remembered: ReturnType<typeof planLiveStt> | null = null;
+
+export function rememberLiveStt(plan: ReturnType<typeof planLiveStt> | null): void {
+  remembered = plan;
+}
+
+export function rememberedLiveStt(): ReturnType<typeof planLiveStt> | null {
+  return remembered;
+}
+
+export function sttLadderDoctor(plan: ReturnType<typeof planLiveStt>): {
+  id: string;
+  label: string;
+  group: string;
+  status: "Ready" | "Warning";
+  detail: string;
+  fixable: false;
+} {
+  return {
+    id: "stt:ladder",
+    label: "Speech engine",
+    group: "Voice",
+    status: plan.status === "ready" ? "Ready" : "Warning",
+    detail: `${plan.engine}: ${plan.reason}`,
+    fixable: false,
+  };
+}
+
 export function sttQualityLabel(engine: SttEngine): string {
   if (engine === "command") return "keyword fallback, not a full transcriber";
   if (engine === "whisper.cpp") return "pretrained base model, not a from-scratch model";

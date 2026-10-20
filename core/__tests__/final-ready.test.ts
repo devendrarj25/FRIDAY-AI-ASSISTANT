@@ -77,9 +77,12 @@ describe("ipc timeout and watchdog", () => {
     };
     expect(ipc.timeoutMs("doctor:run")).toBe(0);
     expect(ipc.timeoutMs("window:state")).toBeGreaterThan(0);
-    await expect(ipc.withIpcTimeout("window:state", new Promise(() => {}), 30)).rejects.toThrow(
-      /ipc timed out: window:state/,
-    );
+    await expect(
+      ipc.withIpcTimeout("window:state", new Promise(() => {}), 30),
+    ).rejects.toMatchObject({
+      code: "IPC_BUDGET",
+      message: expect.stringMatching(/ipc budget expired: quick \(window:state\)/),
+    });
   });
 
   it("records a kernel stall for the lifecycle owner", () => {
