@@ -41,8 +41,9 @@ sets `sandbox`. `no-sandbox` is only the boot self-test switch. The window
 may navigate to `friday://app` or the dev-server origin
 (`electron/navigation-policy.cjs`). A new window is denied and opened
 outside the app. The session grants `media` and denies every other
-permission. A Content-Security-Policy header is not set on the packaged
-page yet.
+permission. The packaged page sends a report-only Content-Security-Policy
+(`electron/csp.cjs`). Enforcing mode stays off unless `FRIDAY_CSP_ENFORCE=1`.
+Violations show in the Doctor.
 
 The privacy firewall (`electron/privacy-firewall.cjs`) hard-stops SENSITIVE
 data: secrets, keys, and identity or financial numbers. Other content may use
