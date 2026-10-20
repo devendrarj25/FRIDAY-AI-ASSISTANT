@@ -504,6 +504,7 @@ type DesktopApi = {
     cb: (payload: { status?: string; progress?: number | null }) => void,
   ) => () => void;
   installStt?: () => Promise<{ ok: boolean; error?: string }>;
+  restartKernel?: () => Promise<{ ok: boolean }>;
   transcribe?: (payload: {
     audioBase64?: string;
     audioBytes?: Uint8Array;

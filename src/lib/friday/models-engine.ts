@@ -967,6 +967,49 @@ class ModelsStore {
     this.emit();
   }
 
+  /** Zero-spend chat probes for the models the owner selected. */
+  testSelectedModels(ids: string[]) {
+    const list = (Array.isArray(ids) ? ids : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
+    const api = desktopApi();
+    if (!list.length) {
+      this.push("warn", "Test selected models needs a selection. No model was called.");
+      this.emit();
+      return;
+    }
+    if (this.state.bridge !== "desktop" || !api?.testModelProvider) {
+      this.push("warn", "Test selected models runs in the desktop app. No model was called.");
+      this.emit();
+      return;
+    }
+    this.push("info", `Testing ${Math.min(list.length, 8)} selected model(s)`);
+    this.emit();
+    for (const full of list.slice(0, 8)) {
+      const split = full.indexOf(":");
+      const provider = (split > 0 ? full.slice(0, split) : full) as ProviderId;
+      const modelId = split > 0 ? full.slice(split + 1) : full;
+      const ps = this.state.providerState[provider];
+      void api
+        .testModelProvider(provider, ps?.apiKey === "stored" ? null : ps?.apiKey, {
+          chat: true,
+          modelId,
+        })
+        .then((probe) => {
+          if (!probe || !("category" in probe)) return;
+          this.push(
+            probe.ok ? "ok" : "error",
+            `${full} — ${probe.category} · ${probe.detail} · ${probe.latencyMs ?? "?"} ms`,
+          );
+          this.emit();
+        })
+        .catch((err: Error) => {
+          this.push("error", `${full} — ${err.message}`);
+          this.emit();
+        });
+    }
+  }
+
   /* ------------------------------------------------------------------ jobs */
 
   private queue(model: ModelSpec, kind: JobKind, gb: number, detail: string) {

@@ -51,10 +51,13 @@ describe("Auto Mode never fails silently at any stage", () => {
   it("speaks and shows a dropped turn instead of ignoring it", () => {
     expect(assistant).toContain("let result = brain.send(command, payload);");
     expect(assistant).toContain("if (!result.accepted) {");
-    // The real cause stays on screen. The first time, a short line is spoken.
+    // The real cause stays on the status line. The caption and the voice get
+    // the friendly line, never the raw host or fetch error.
     expect(assistant).toMatch(
-      /private reportFailure\([\s\S]*this\.caption\("friday", message\);[\s\S]*this\.speak\(spoken\);/,
+      /private reportFailure\([\s\S]*this\.caption\("friday", spokenLine\);[\s\S]*this\.speak\(spokenLine\);/,
     );
+    expect(assistant).toContain("spokenRepairLine");
+    expect(assistant).not.toMatch(/this\.caption\("friday", message\)/);
     expect(assistant).toContain("mayAnnounce");
   });
 

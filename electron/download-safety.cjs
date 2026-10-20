@@ -35,22 +35,69 @@ const TRANSFER_STATUSES = [
 
 function hostnameOf(value) {
   try {
-    return new URL(String(value)).hostname.toLowerCase();
+    return new URL(String(value)).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return "";
   }
+}
+
+function mirrorEnabled() {
+  return String(process.env.FRIDAY_HF_MIRROR || "") === "1";
+}
+
+function hostMatches(host, rule) {
+  const name = String(host || "")
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!name || !rule) return false;
+  for (const exact of rule.hosts || []) {
+    if (name === String(exact).toLowerCase()) return true;
+  }
+  for (const suffix of rule.suffixes || []) {
+    const needle = String(suffix || "")
+      .toLowerCase()
+      .replace(/^\*\./, "");
+    if (!needle) continue;
+    if (name === needle || name.endsWith(`.${needle}`)) return true;
+  }
+  return false;
+}
+
+function familyFor(host, extraHosts = []) {
+  const name = String(host || "")
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!name) return "";
+  const policy = hostPolicy();
+  if ((policy.loopbackHttp || []).includes(name)) return "loopback";
+  if (
+    mirrorEnabled() &&
+    (policy.optInHosts || []).map((item) => String(item).toLowerCase()).includes(name)
+  ) {
+    return "opt-in";
+  }
+  for (const family of policy.families || []) {
+    if (hostMatches(name, family)) return String(family.id || "");
+  }
+  const listed = new Set((policy.hosts || []).map((item) => String(item).toLowerCase()));
+  for (const extra of extraHosts) {
+    const extraHost = hostnameOf(extra) || String(extra || "").toLowerCase();
+    if (extraHost) listed.add(extraHost);
+  }
+  if (listed.has(name)) return "listed";
+  return "";
 }
 
 function allowedHostSet(extraHosts = []) {
   const set = new Set((hostPolicy().hosts || []).map((host) => String(host).toLowerCase()));
   for (const extra of extraHosts) {
     const host = hostnameOf(extra) || String(extra || "").toLowerCase();
-    if (host && set.has(host)) set.add(host);
+    if (host) set.add(host);
   }
   return set;
 }
 
-function assertAllowedUrl(raw, extraHosts = []) {
+function assertAllowedUrl(raw, extraHosts = [], originFamily = "") {
   let parsed;
   try {
     parsed = new URL(String(raw));
@@ -59,26 +106,43 @@ function assertAllowedUrl(raw, extraHosts = []) {
     error.code = "BAD_URL";
     throw error;
   }
-  const host = parsed.hostname.toLowerCase();
+  if (parsed.username || parsed.password) {
+    const error = new Error("invalid download url");
+    error.code = "BAD_URL";
+    throw error;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
   const loopback = (hostPolicy().loopbackHttp || []).includes(host);
-  if (parsed.protocol === "http:" && loopback) return parsed;
+  if (parsed.protocol === "http:" && loopback) {
+    parsed.fridayFamily = "loopback";
+    return parsed;
+  }
   if (parsed.protocol !== "https:") {
     const error = new Error("only https downloads are allowed");
     error.code = "UNSAFE_URL";
     throw error;
   }
-  if (!allowedHostSet(extraHosts).has(host)) {
+  const family = familyFor(host, extraHosts);
+  if (!family) {
     const error = new Error(`host is not allowlisted: ${host}`);
     error.code = "OFF_ALLOWLIST";
     throw error;
   }
+  if (originFamily && family !== originFamily) {
+    const error = new Error(`redirect left the ${originFamily} source family for ${host}`);
+    error.code = "OFF_ALLOWLIST";
+    throw error;
+  }
+  parsed.fridayFamily = family;
   return parsed;
 }
 
 async function fetchAllowlisted(raw, options = {}, extraHosts = []) {
   let current = String(raw);
+  let originFamily = "";
   for (let hop = 0; hop < 5; hop += 1) {
-    assertAllowedUrl(current, extraHosts);
+    const checked = assertAllowedUrl(current, extraHosts, originFamily);
+    if (!originFamily) originFamily = checked.fridayFamily || "";
     const res = await fetch(current, { ...options, redirect: "manual" });
     const status = res.status;
     if (status >= 300 && status < 400) {
@@ -200,6 +264,7 @@ module.exports = {
     return hostPolicy();
   },
   hostPolicy,
+  familyFor,
   TRANSFER_STATUSES,
   assertAllowedUrl,
   fetchAllowlisted,

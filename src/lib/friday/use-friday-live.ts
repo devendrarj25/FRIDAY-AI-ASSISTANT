@@ -214,8 +214,14 @@ export function voiceCueKey(state: {
   voiceState: string;
   paused: boolean;
   interim?: string;
+  mic?: { available?: boolean };
+  stt?: { lastError?: string | null };
 }): string {
-  return `${state.mode}\u001f${state.voiceState}\u001f${state.paused ? "1" : "0"}`;
+  const mic = state.mic?.available === false ? "0" : "1";
+  const reason = String(state.stt?.lastError || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
+  return `${state.mode}\u001f${state.voiceState}\u001f${state.paused ? "1" : "0"}\u001f${mic}\u001f${reason}`;
 }
 
 /** Identity of the drawing. An age label is not part of it. */
@@ -245,15 +251,46 @@ function readVoiceCue(key: string): {
   voiceState: string;
   paused: boolean;
   interim: string;
+  micAvailable: boolean;
+  sttReason: string;
 } {
-  const [mode = "manual", voiceState = "OFF", paused = "0", interim = ""] = key.split("\u001f");
-  return { mode, voiceState, paused: paused === "1", interim };
+  const [mode = "manual", voiceState = "OFF", paused = "0", mic = "1", reason = ""] =
+    key.split("\u001f");
+  return {
+    mode,
+    voiceState,
+    paused: paused === "1",
+    interim: "",
+    micAvailable: mic !== "0",
+    sttReason: reason,
+  };
 }
 
 /**
  * How many readout lines fit. A one-pixel resize keeps the previous count so
  * the boxes do not grow and shrink on a measurement jitter.
  */
+/** Pipeline card. A live microphone with a dead recogniser is not "microphone unavailable". */
+export function intentStatusLine(input: {
+  voice: string;
+  paused: boolean;
+  micAvailable: boolean;
+  sttReason?: string;
+}): string {
+  if (input.voice === "unavailable") {
+    if (input.paused) return "microphone paused";
+    if (input.micAvailable) {
+      const reason = String(input.sttReason || "not verified")
+        .replace(/\s+/g, " ")
+        .slice(0, 80);
+      return `speech recognition not ready (${reason})`;
+    }
+    return "microphone unavailable";
+  }
+  if (input.voice === "listening" || input.voice === "hearing") return "wake word armed";
+  return "awaiting input";
+}
+
 export function circuitReadoutLines(heightPx: number, large: boolean, previous = 3): number {
   if (!large) return 3;
   const linesAt = (height: number) => {
@@ -372,14 +409,12 @@ export function useFridayLive(): FridayLive {
 
     const idleStatus: Record<ComponentId, string> = {
       brain: `${enabledAgents}/${agentSpecs.length} agents ready`,
-      intent:
-        voice === "unavailable"
-          ? heard.paused
-            ? "microphone paused"
-            : "microphone unavailable"
-          : voice === "listening" || voice === "hearing"
-            ? "wake word armed"
-            : "awaiting input",
+      intent: intentStatusLine({
+        voice,
+        paused: heard.paused,
+        micAvailable: heard.micAvailable,
+        sttReason: heard.sttReason || "not verified",
+      }),
       planner: `${brainState.stats.requests} runs planned`,
       agent: `${enabledAgents} enabled`,
       skill: `${activeSkills}/${skillItems.length} enabled`,

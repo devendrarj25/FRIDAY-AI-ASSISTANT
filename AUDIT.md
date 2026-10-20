@@ -7,26 +7,27 @@ Scope: state of the codebase at version **1.1.2.4**.
 
 ## 1. Verification table (Linux check)
 
-First Lint / Types / Tests rows are what Self-Management reads. This table is the 2026-10-13 Linux session. A later row must not put a positive error count in front of these three.
+First Lint / Types / Tests rows are what Self-Management reads. This table is filled from the command run on this tree. A later row must not put a positive error count in front of these three.
 
 | Check | `command` | result |
 | --- | --- | --- |
-| Lint | `npm run lint` | **0 errors**. Inside `npm run preflight`, ESLint was silent and ruff reported `All checks passed!` plus `63 files already formatted`. |
+| Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `65 files already formatted`. |
 | Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.4`. |
-| Tests | `npm test` | 348 files passed, 2892 passed, 2 skipped, 92.68s |
-| Kernel tests | `python -m pytest kernel/tests` | 196 passed; 1 third-party Starlette/FastAPI `TestClient` deprecation warning; 21.34s |
+| Tests | `npm test` | 368 files passed, 3054 passed, 2 skipped, 179.55s |
+| Kernel tests | `python -m pytest kernel/tests` | 201 passed. Exit 0 |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.2.4** (npm encoding **1.1.2**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
 | Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
-| Local CI substitute | `npm run preflight` | exit 0 on Linux. Fourteen gates passed. This run was not `--full`, so NSIS, packaged verify, installer smoke, Electron, and the renderer bundle were not run. `npm run validate:local` calls the same script |
-| Pricing knowledge | `npm run pricing:status` | FRESH. Oldest source perplexity, checked 2026-10-07, expires 2026-10-21 |
-| Hosted Actions | PR Validation / FRIDAY Release | Release `v1.1.2.2` is run 38348306084. Docs-only run 38372554640 on this branch stopped in `npm test` with 18 EACCES errors from root-owned sandbox files. Docker wraps now pass `--user` for a non-root caller. A re-run of that job is unverified. Eleven workflow files stay locked |
-| Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this tree (needs a Windows PC; this Linux host has no `cmd.exe`) |
+| Local CI substitute | `npm run preflight` | exit 1 on Linux. Every gate passed except commit provenance. `test:fast` passed: 132 files, 1107 tests. Windows pack gates were not run. `npm run validate:local` calls the same script |
+| Pricing knowledge | `npm run pricing:status` | not re-run this session |
+| Commit provenance | `npm run check:provenance` | failed. The commits on this branch carry an assistant identity in the author field. History was not rewritten |
+| Hosted Actions | PR Validation / FRIDAY Release | The owner reported these green for public line 1.1.2.4 on 2026-10-18. This branch's hosted runs were not started |
+| Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this branch (needs a Windows PC). The owner verified that command for public line 1.1.2.4 on 2026-10-18 |
 
 ## 2. Published 1.1.2.4
 
-GitHub release **v1.1.2.4** (published 2026-10-13, run 38348306084): Setup (325604495 bytes), Portable (325226416 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, CHANGELOG. The earlier release `v1.1.1.2` is run 38288784028. The Setup and Portable hashes in `SHA256SUMS.txt` were not recomputed on this Linux tree. Version history starts at 1.0.0.0 and runs through the current public line in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release v1.1.2.4 was published 2026-10-17T04:20:37Z. The asset list read here on 2026-10-18 names Setup (321311216 bytes), Portable (320933137 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, and `CHANGELOG.md`. The EXEs were not downloaded here, so the sums file was not recomputed. The owner verified Release build and publish for this line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 
@@ -45,6 +46,8 @@ GitHub release **v1.1.2.4** (published 2026-10-13, run 38348306084): Setup (3256
 - Hands-free Auto defaults off.
 - numpy / chromadb / device extras are optional at kernel boot; missing extras must not abort FastAPI startup.
 - Physical microphone / wake word / barge-in: **NOT VERIFIED** (needs a Windows desktop with capture hardware).
+- Live keyed provider calls and a live speech-model download: **NOT VERIFIED**.
+- Shutdown and Restart on the packaged EXE: **NOT VERIFIED**.
 - Dependency updates change the lockfile: let PR Validation rebuild the Windows package before merging them.
 - Five React Compiler rules and `react-hooks/exhaustive-deps` are `"error"` in `eslint.config.js`. `react-refresh/only-export-components` stays `"warn"`. FRIDAY does not ship the React Compiler.
 

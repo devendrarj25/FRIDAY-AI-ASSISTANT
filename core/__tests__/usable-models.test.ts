@@ -150,9 +150,8 @@ describe("router and selector share usableModels", () => {
           "gemini:gemini-2.5-flash",
           "groq:openai/gpt-oss-20b",
           "openai:gpt-4o",
-          "cerebras:llama3.1-8b",
         ],
-        skip: [],
+        skip: ["cerebras:llama3.1-8b"],
       },
       {
         mode: "local-only",
@@ -197,6 +196,12 @@ describe("router and selector share usableModels", () => {
       limit: 5,
     });
     expect(idsOf(allowed)).toEqual(["openai:gpt-4o"]);
+    const capped = router.planRoute([{ ...unknown, spendCapUsd: 0.5 }], {
+      mode: "auto",
+      policy: "allow-paid",
+      limit: 5,
+    });
+    expect(idsOf(capped)).toContain("cerebras:llama3.1-8b");
   });
 
   it("does not put OpenRouter ahead of another free provider", () => {

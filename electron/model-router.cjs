@@ -160,6 +160,7 @@ function normalizeRoutingRequirements(reqs) {
   if (reqs.privacy === "private" || reqs.privacy === "standard") out.privacy = reqs.privacy;
   if (typeof reqs.strictEvidence === "boolean") out.strictEvidence = reqs.strictEvidence;
   if (typeof reqs.allowInferred === "boolean") out.allowInferred = reqs.allowInferred;
+  if (reqs.strictPrivacy === true) out.strictPrivacy = true;
   return out;
 }
 
@@ -326,15 +327,119 @@ const NEXT_STEP = Object.freeze({
   region_block: "This model is blocked in this region. Pick a model that is available here.",
   model_unavailable: "This model id is gone. FRIDAY will try the next candidate.",
   offline: "The engine is not running. Start it, then try again.",
+  network: "The network could not reach this provider. Check the connection, then try again.",
+  account_setting_required:
+    "OpenRouter is hiding free models that may train on prompts. Open Privacy at https://openrouter.ai/settings/privacy and allow those models, then try again.",
+  kernel_down: "The local AI service did not answer. FRIDAY will try to bring it back.",
+  timeout: "The provider timed out. FRIDAY will try a smaller reply, then another model.",
   provider_error: "The provider failed. FRIDAY will try a different provider.",
 });
+
+const LOCAL_PROVIDERS = new Set([
+  "ollama",
+  "lmstudio",
+  "llamacpp",
+  "vllm",
+  "localai",
+  "jan",
+  "mlx",
+  "local",
+]);
+
+function spendCapAllows(model) {
+  const cap = Number(model?.spendCapUsd ?? model?.meta?.spendCapUsd);
+  return Number.isFinite(cap) && cap > 0;
+}
+
+function preferredHit(model, preferred) {
+  return (preferred || []).some((id) => matchPreferred([model], id) === model);
+}
+
+function strictPrivacyBlocks(model, requirements) {
+  if (!requirements || requirements.strictPrivacy !== true) return false;
+  const pid = String(model?.providerId || model?.meta?.providerId || "");
+  const name = String(model?.providerModelId || model?.id || "");
+  return pid === "openrouter" && (name.endsWith(":free") || name.includes("openrouter/free"));
+}
+
+function kindFromModel(modelId) {
+  const head = String(modelId || "").split(":")[0];
+  if (LOCAL_PROVIDERS.has(head)) return "local";
+  if (head && head !== String(modelId || "")) return "cloud";
+  return "";
+}
+
+/** Redacted facts for one failed attempt. Prompts and secrets stay out. */
+function attemptFacts(input) {
+  const source = input && typeof input === "object" ? input : { message: input };
+  const body = source.body && typeof source.body === "object" ? source.body : null;
+  const inner = body && body.error && typeof body.error === "object" ? body.error : null;
+  const snippet = redactRouterText(
+    inner
+      ? `${inner.code || inner.type || ""} ${inner.message || ""}`
+      : String(source.body || source.message || ""),
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  const status = Number(source.status || 0);
+  return {
+    provider: String(source.provider || source.providerId || "").slice(0, 40),
+    modelId: String(source.modelId || "").slice(0, 120),
+    path: String(source.path || source.urlPath || "")
+      .replace(/^https?:\/\/[^/]+/i, "")
+      .slice(0, 160),
+    status: status > 0 ? status : null,
+    code: String(source.code || source.errorCode || inner?.code || "").slice(0, 80),
+    body: snippet,
+    elapsedMs: Number(source.elapsedMs || source.latencyMs || 0) || null,
+    retryAfter: cooldownFromRetryAfter(source) || null,
+  };
+}
 
 function classifyError(input) {
   const text = String(input?.message || input || "").toLowerCase();
   const status = Number(input?.status || /http (\d{3})/.exec(text)?.[1] || 0);
+  const code = String(input?.code || input?.errorCode || "").toLowerCase();
+  const kind =
+    input?.kind === "local" || input?.kind === "cloud" ? input.kind : kindFromModel(input?.modelId);
 
   const has = (...needles) => needles.some((n) => text.includes(n));
-  const withStep = (row) => ({ ...row, nextStep: NEXT_STEP[row.category] || "" });
+  const withStep = (row) => {
+    let category = row.category;
+    if (kind === "cloud" && category === "offline") category = "network";
+    return {
+      ...row,
+      category,
+      nextStep: NEXT_STEP[category] || "",
+      facts: attemptFacts(input),
+    };
+  };
+  if (
+    status === 200 &&
+    input &&
+    typeof input === "object" &&
+    (input.streamError || (input.body && input.body.error))
+  ) {
+    const inner = input.streamError || input.body.error || {};
+    return classifyError({
+      message: inner.message || input.message,
+      status: Number(inner.status || 502),
+      code: inner.code || inner.type || "",
+      provider: input.provider,
+      modelId: input.modelId,
+      kind,
+      path: input.path,
+      elapsedMs: input.elapsedMs,
+    });
+  }
+  if (code === "data_policy" || has("no endpoints found matching your data policy")) {
+    return withStep({
+      category: "account_setting_required",
+      retryable: false,
+      cooldownMs: 30 * 60_000,
+    });
+  }
 
   if (status === 429 || has("rate limit", "rate-limit", "rate_limit", "too many requests")) {
     const retryAfter = cooldownFromRetryAfter(input);
@@ -372,6 +477,13 @@ function classifyError(input) {
       cooldownMs: cooldownJitter(60 * 60_000, 2),
     });
   }
+  if (has("content_filter", "content filter", "content policy")) {
+    return withStep({
+      category: "content_filter",
+      retryable: false,
+      cooldownMs: cooldownJitter(60_000, 1),
+    });
+  }
   if (
     status === 402 ||
     has("payment required", "insufficient credit", "billing_required", "billing required")
@@ -401,13 +513,6 @@ function classifyError(input) {
       cooldownMs: 15 * 60_000,
     });
   }
-  if (has("content_filter", "content filter", "content policy")) {
-    return withStep({
-      category: "content_filter",
-      retryable: false,
-      cooldownMs: cooldownJitter(60_000, 1),
-    });
-  }
   if (has("has been deprecated", "was renamed", "model was removed")) {
     return withStep({
       category: "model_unavailable",
@@ -434,7 +539,7 @@ function classifyError(input) {
     });
   }
   if (status === 408 || has("timeout", "timed out", "deadline")) {
-    return { category: "timeout", retryable: true, cooldownMs: 30_000 };
+    return withStep({ category: "timeout", retryable: true, cooldownMs: 30_000 });
   }
   if (has("context length", "context window", "context overflow", "too many tokens")) {
     return { category: "context_overflow", retryable: false, cooldownMs: 5 * 60_000 };
@@ -460,10 +565,30 @@ function classifyError(input) {
     return { category: "model_refusal", retryable: true, cooldownMs: 0 };
   }
   if (has("stream failed", "stream failure", "stream closed", "invalid stream")) {
-    return { category: "stream_failure", retryable: true, cooldownMs: 30_000 };
+    return withStep({ category: "stream_failure", retryable: true, cooldownMs: 30_000 });
   }
-  if (has("econnrefused", "enotfound", "network", "connect", "offline", "socket")) {
+  if (
+    has("connection failed to the local ai service") ||
+    has("the local ai service disconnected")
+  ) {
+    return withStep({ category: "kernel_down", retryable: true, cooldownMs: 15_000 });
+  }
+  const transport =
+    /econnrefused|enotfound|econnreset|enetunreach|eai_again|getaddrinfo|fetch failed|all connection attempts failed|connecterror/.test(
+      text,
+    );
+  const loopback = /127\.0\.0\.1|localhost|\[::1\]/.test(text);
+  if (transport && (kind === "local" || loopback)) {
     return withStep({ category: "offline", retryable: true, cooldownMs: 60_000 });
+  }
+  if (
+    transport ||
+    has("connection failed") ||
+    has("could not connect") ||
+    has("couldn't connect") ||
+    has("cannot connect")
+  ) {
+    return withStep({ category: "network", retryable: true, cooldownMs: 30_000 });
   }
   if (status >= 500)
     return withStep({ category: "provider_error", retryable: true, cooldownMs: 30_000 });
@@ -509,6 +634,9 @@ const HEALTH_REASON = {
   low_confidence: "verification confidence was too low",
   stream_failure: "stream failed",
   offline: "not reachable",
+  network: "network error",
+  account_setting_required: "account setting required",
+  kernel_down: "local AI service did not answer",
   provider_error: "provider error",
   invalid_request: "request was rejected",
   unknown: "failed",
@@ -583,7 +711,11 @@ class ProviderHealthManager {
 
   /** Records a failure and starts the cooldown that keeps us off that endpoint. */
   noteFailure(modelId, error, now = Date.now()) {
-    const classified = classifyError(error);
+    const payload =
+      error && typeof error === "object"
+        ? { ...error, modelId: error.modelId || modelId }
+        : { message: error, modelId };
+    const classified = classifyError(payload);
     const entry = this.get(modelId);
     const failures = entry.failures + 1;
     // Exponential backoff, capped, so a flaky provider is retried sensibly.
@@ -606,7 +738,8 @@ class ProviderHealthManager {
       quarantined,
       failureClass: classified.category,
       lastFailureAt: now,
-      lastError: redactRouterText(String(error?.message || error || "")).slice(0, 400),
+      lastError: redactRouterText(String(payload.message || error || "")).slice(0, 400),
+      facts: classified.facts || null,
       nextStep: classified.nextStep || NEXT_STEP[classified.category] || "",
       breaker: backoff > 0 ? "OPEN" : entry.breaker || "CLOSED",
       recoveryProbe: backoff > 0 ? "pending" : entry.recoveryProbe,
@@ -801,6 +934,7 @@ function describe(model, health, now = Date.now()) {
     lastFailureAt: state?.lastFailureAt || 0,
     latencyMs: state?.latencyMs ?? model.latencyMs ?? null,
     available: !(state && state.cooldownUntil > now),
+    spendCapUsd: Number(model.spendCapUsd ?? model.meta?.spendCapUsd) || 0,
   };
 }
 
@@ -1278,8 +1412,9 @@ function hardReject(model, ctx) {
     return String(avail.reason || "").startsWith("limit reached") ? "cooldown" : "quota";
   }
   if (!ctx.cloudOptIn(m)) return "cloud-opt-in";
+  if (strictPrivacyBlocks(m, ctx.requirements)) return "privacy";
   if (ctx.usage === "paid-only") {
-    if (m.access !== "paid") return "cost";
+    if (m.access !== "paid" && !(m.access === "unknown" && spendCapAllows(m))) return "cost";
   } else if (ctx.usage === "free-only") {
     const retryableLimit =
       m.accessStatus === "FREE_RATE_LIMITED" &&
@@ -1288,7 +1423,9 @@ function hardReject(model, ctx) {
     if (!modelAccess.isFreeOnlyEligible(m.accessRecord, { retryableLimit })) return "cost";
   } else {
     if (m.access === "paid" && ctx.usage !== "allow-paid") return "cost";
-    if (m.access === "unknown" && ctx.usage !== "allow-paid") return "cost";
+    if (m.access === "unknown" && !spendCapAllows(m)) {
+      if (!preferredHit(m, ctx.preferred)) return "cost";
+    }
   }
   if (m.meta?.loaded === false || m.status === "unavailable") return "unavailable";
   if (m.coolingDown) return "cooldown";
@@ -1385,7 +1522,8 @@ function prepareRoute(models, options = {}) {
     m.type === "local" ||
     m.access === "free" ||
     cloudChosenByMode ||
-    (usage === "allow-paid" && (m.access === "paid" || m.access === "unknown")) ||
+    (usage === "allow-paid" && m.access === "paid") ||
+    (usage === "allow-paid" && m.access === "unknown" && spendCapAllows(m)) ||
     preferred.some((id) => matchPreferred([m], id) === m);
 
   const ctx = {
@@ -1398,6 +1536,7 @@ function prepareRoute(models, options = {}) {
     neededCap,
     privateRoute,
     now,
+    preferred,
   };
   const rejected = [];
   const eligible = [];
@@ -1627,6 +1766,16 @@ function repairModelIssue(kind) {
 }
 
 /** A bad request is the same on every model. Outages and a bad answer may move. */
+function midStreamFallback(category) {
+  const resume = ["stream_failure", "timeout", "provider_error", "network"].includes(
+    String(category || ""),
+  );
+  return {
+    resume,
+    mark: resume ? "Switching to another model." : "",
+  };
+}
+
 function fallbackAdvances(category, options = {}) {
   const name = String(category || "");
   if (name === "context_overflow" && options.compacted === true) return true;
@@ -1655,7 +1804,12 @@ function fallbackTier(candidate, failed) {
 function orderFallbacks(candidates, failed, category, options = {}) {
   if (!failed || !fallbackAdvances(category, options)) return [];
   const providerWide =
-    category === "offline" || category === "provider_error" || category === "invalid_key";
+    category === "offline" ||
+    category === "provider_error" ||
+    category === "invalid_key" ||
+    category === "network" ||
+    category === "kernel_down" ||
+    category === "account_setting_required";
   const failedBackend = backendOf(failed);
   const rest = (candidates || []).filter((model) => model && model.id && model.id !== failed.id);
   const pool =
@@ -2206,7 +2360,11 @@ function explainFailure({
       const category = failure.category || classifyError(failure.error).category;
       const reason = HEALTH_REASON[category] || "failed";
       const step = failure.nextStep || NEXT_STEP[category] || "";
-      lines.push(`• ${failure.label || failure.modelId} — ${reason}${step ? `. ${step}` : ""}`);
+      const http = failure.facts?.status ? ` HTTP ${failure.facts.status}` : "";
+      const code = failure.facts?.code ? ` ${failure.facts.code}` : "";
+      lines.push(
+        `• ${failure.label || failure.modelId} — ${reason}${http}${code}${step ? `. ${step}` : ""}`,
+      );
     }
   }
   lines.push(
@@ -2831,6 +2989,8 @@ module.exports = {
   accessRecordOf,
   capabilitiesOf,
   classifyError,
+  midStreamFallback,
+  spendCapAllows,
   planRefresh,
   repairModelIssue,
   fallbackAdvances,

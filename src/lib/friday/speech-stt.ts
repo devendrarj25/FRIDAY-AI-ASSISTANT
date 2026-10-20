@@ -88,6 +88,87 @@ export function holdUnstable(partial: string, priorHeld = ""): { stable: string;
   return { stable: words.slice(0, -1).join(" "), held };
 }
 
+export type LiveSttEngine = "faster-whisper" | "moonshine" | "windows-speech" | "none";
+
+export type LiveSttStatus = "ready" | "downloading" | "blocked" | "missing";
+
+/**
+ * The live ladder. faster-whisper, then Moonshine when English weights are
+ * already on disk, then Windows speech when that language pack is installed.
+ * Privacy mode stays on this list. Nothing here is a cloud engine.
+ */
+export function planLiveStt(input: {
+  whisperReady: boolean;
+  weightsReady: boolean;
+  downloading?: boolean;
+  percent?: number;
+  blocked?: boolean;
+  blockReason?: string;
+  size?: string;
+  sizeReason?: string;
+  english: boolean;
+  moonshineReady: boolean;
+  windowsSpeech: boolean;
+  privacy?: boolean;
+}): {
+  engine: LiveSttEngine;
+  status: LiveSttStatus;
+  reason: string;
+  local: true;
+} {
+  void input.privacy;
+  if (input.whisperReady && input.weightsReady) {
+    const size = input.size || "base";
+    return {
+      engine: "faster-whisper",
+      status: "ready",
+      reason: input.sizeReason || `faster-whisper ${size}`,
+      local: true,
+    };
+  }
+  if (input.downloading) {
+    const pct = Number(input.percent);
+    const mark = Number.isFinite(pct) && pct > 0 ? ` ${Math.round(pct)}%` : "";
+    return {
+      engine: "faster-whisper",
+      status: "downloading",
+      reason: `downloading${mark}`,
+      local: true,
+    };
+  }
+  const blocked = input.blocked
+    ? {
+        engine: "faster-whisper" as const,
+        status: "blocked" as const,
+        reason: input.blockReason || "blocked",
+        local: true as const,
+      }
+    : null;
+  if (input.english && input.moonshineReady) {
+    return {
+      engine: "moonshine",
+      status: "ready",
+      reason: "Moonshine English weights are on disk",
+      local: true,
+    };
+  }
+  if (input.windowsSpeech) {
+    return {
+      engine: "windows-speech",
+      status: "ready",
+      reason: "Windows speech language pack is installed",
+      local: true,
+    };
+  }
+  if (blocked) return blocked;
+  return {
+    engine: "none",
+    status: "missing",
+    reason: "Install a local speech model, or add a Windows speech language pack.",
+    local: true,
+  };
+}
+
 export function sttQualityLabel(engine: SttEngine): string {
   if (engine === "command") return "keyword fallback, not a full transcriber";
   if (engine === "whisper.cpp") return "pretrained base model, not a from-scratch model";

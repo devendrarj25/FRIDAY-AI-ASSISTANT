@@ -8,10 +8,10 @@
 
 | Surface | Value today | Used for |
 | --- | --- | --- |
-| Public FRIDAY (`releaseVersion`) | `1.0.1.2` | The version you see, the GitHub tag, EXE names, and in-app update compare |
+| Public FRIDAY (`releaseVersion`) | `1.1.2.4` | The version you see, the GitHub tag, EXE names, and in-app update compare |
 | npm / electron-builder (`package.json` `version`) | `1.1.2` | Tools that only accept three-part SemVer |
 
-🧭 `npm run typecheck` prints `FRIDAY 1.0.1.2` from the version file before the checker runs. npm itself still prints `friday@1.0.1` first, because that field is the three-part encoding (the first three public parts). It is not a second product version, and it is rewritten whenever the public number changes. Never compare it as an update identity.
+🧭 `npm run typecheck` prints `FRIDAY 1.1.2.4` from the version file before the checker runs. npm itself still prints `friday@1.1.2` first, because that field is the three-part encoding (the first three public parts). It is not a second product version, and it is rewritten whenever the public number changes. Never compare it as an update identity.
 
 Artifacts are `FRIDAY-Setup-1.1.2.4.exe` and `FRIDAY-Portable-1.1.2.4.exe`.
 
@@ -27,7 +27,7 @@ A number is used only after a **successful** publish: a stable git tag or a GitH
 
 The four counters keep counting. A chosen level moves only its own place. The others stay, so the number still shows how many patches, minors, majors, and extremes have happened.
 
-From the current line `1.0.1.2`:
+Worked example, starting from `1.0.1.2` (the counters in `scripts/release-engine.cjs`, not the shipping line):
 
 | Level | Next number |
 | --- | --- |
@@ -37,7 +37,7 @@ From the current line `1.0.1.2`:
 | extreme | `2.0.1.2` |
 | revision or rebuild | `1.0.1.2` (same number) |
 
-The written product line, oldest first, is `1.0.0.0` (base) → `1.0.0.1` → `1.0.0.2` → `1.0.1.2` (latest). The last step is a minor: the third place moved from 0 to 1 and the fourth place stayed 2. New publishes do not reset the lower places.
+In that example the written steps are `1.0.0.0` (base) → `1.0.0.1` → `1.0.0.2` → `1.0.1.2`. The last step is a minor: the third place moved from 0 to 1 and the fourth place stayed 2. New publishes do not reset the lower places. The shipping line is the current shipping version at the top of this file. Notes after the example are [CHANGELOG.md](CHANGELOG.md).
 
 | What you run next | What the version does |
 | --- | --- |

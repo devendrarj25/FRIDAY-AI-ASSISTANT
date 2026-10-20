@@ -546,7 +546,10 @@ async function status(force = false, options = {}) {
         });
       });
     } catch (error) {
-      lastLocalLayers.reason = String(error?.message || error);
+      const voiceInstall = require("./voice-install.cjs");
+      lastLocalLayers.reason = voiceInstall.classifyDownloadError(
+        String(error?.message || error),
+      ).line;
       if (lastLocalLayers.dependency !== "ready") lastLocalLayers.dependency = "missing";
       if (lastLocalLayers.inference !== "verified") lastLocalLayers.inference = "failed";
     }

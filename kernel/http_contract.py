@@ -22,6 +22,7 @@ class HealthBody(BaseModel):
     version: str
     data_dir: str
     models: list[dict[str, Any]]
+    instance_id: str = ""
 
 
 class VersionBody(BaseModel):

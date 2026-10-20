@@ -190,8 +190,18 @@ function classifyDownloadError(text) {
       line: "The model host refused the download. A gated file needs a token already on this PC.",
     };
   }
+  if (/not allowlisted|source family/i.test(s)) {
+    const host = (s.match(/(?:allowlisted:\s*|for\s+)([a-z0-9.-]+)/i) || [])[1] || "host";
+    return { cause: "blocked", line: `blocked: ${host}` };
+  }
+  if (/checksum mismatch/i.test(s)) {
+    return { cause: "checksum", line: "checksum mismatch" };
+  }
   if (/ENOSPC|disk full|No space/i.test(s)) {
-    return { cause: "disk", line: "The disk filled up. Free space, then resume." };
+    return { cause: "disk", line: "disk full" };
+  }
+  if (/fetch failed|offline:|ECONNREFUSED|ENETUNREACH/i.test(s)) {
+    return { cause: "offline", line: "offline" };
   }
   if (/CERT_|certificate|TLS|SSL/i.test(s)) {
     return { cause: "tls", line: "TLS failed. Retry uses the system certificate store." };
@@ -226,7 +236,8 @@ function downloadSelfCheck(input) {
 function hfHostList(env) {
   const source = env || {};
   const custom = String(source.HF_ENDPOINT || source.HF_HUB_ENDPOINT || "").replace(/\/$/, "");
-  const hosts = ["https://huggingface.co", "https://hf-mirror.com"];
+  const hosts = ["https://huggingface.co"];
+  if (String(source.FRIDAY_HF_MIRROR || "") === "1") hosts.push("https://hf-mirror.com");
   if (/^https:\/\//i.test(custom)) hosts.unshift(custom);
   return hosts;
 }

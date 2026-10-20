@@ -551,7 +551,10 @@ function finishReadiness(report) {
   if (!(process.env.FRIDAY_READINESS === "1" && process.platform === "win32")) {
     console.log(`FRIDAY_READINESS_RESULT ${JSON.stringify(payload)}`);
   }
-  setTimeout(() => life.exitNow(payload.ok ? 0 : 1, "readiness"), 250);
+  const code = payload.ok ? 0 : 1;
+  void life.requestShutdown("readiness", { code, graceMs: 8000 }).then((started) => {
+    if (!started) life.exitNow(code, "readiness");
+  });
 }
 
 if (process.env.FRIDAY_READINESS === "1") {
@@ -696,6 +699,7 @@ function log(message, level = "info") {
 
 const KERNEL_HOST = "127.0.0.1";
 const KERNEL_PORT = 8765;
+let kernelInstanceId = "";
 // Per-launch token: the kernel rejects any bridge client that does not present it.
 const BRIDGE_TOKEN = crypto.randomBytes(32).toString("hex");
 // Per-launch signing secret for tool authorizations. Only this process and the
@@ -1235,7 +1239,7 @@ async function recoverStaleOwned() {
     registry.forget(row.pid);
   }
   if (recovered) {
-    const deadline = Date.now() + 1500;
+    const deadline = Date.now() + 8000;
     while (Date.now() < deadline && (await portBusy(KERNEL_PORT))) {
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
@@ -1274,6 +1278,7 @@ async function startKernel(root) {
   }
   // Never run two kernels against one SQLite file / port.
   if (kernel) await stopKernel();
+  kernelInstanceId = "";
   await recoverStaleOwned();
 
   // A packaged app must resolve its interpreter from the installed runtime and
@@ -1304,11 +1309,13 @@ async function startKernel(root) {
     return;
   }
 
+  kernelInstanceId = crypto.randomUUID();
   try {
     kernel = spawn(python, [...pythonPrefix, entry], {
       env: {
         ...process.env,
         FRIDAY_BRIDGE_TOKEN: BRIDGE_TOKEN,
+        FRIDAY_INSTANCE_ID: kernelInstanceId,
         FRIDAY_TOOL_AUTHORITY_SECRET: TOOL_AUTHORITY_SECRET,
         FRIDAY_HOST: KERNEL_HOST,
         FRIDAY_PORT: String(KERNEL_PORT),
@@ -1525,6 +1532,9 @@ async function waitForKernel(timeoutMs = 20000) {
         signal: AbortSignal.timeout(800),
       });
       if (response.ok) {
+        const body = await response.json().catch(() => null);
+        const identity = require("./readiness.cjs").kernelIdentityOk(body, kernelInstanceId);
+        if (!identity) continue;
         kernelReady = true;
         kernelFailure = "";
         readinessTrace.trace("kernel-ready");
@@ -1584,11 +1594,7 @@ async function stopKernel({ timeoutMs = 10_000 } = {}) {
     }
     const clean = await exited;
     if (!clean && child.pid) {
-      try {
-        appLifecycle.killProcessTree(child.pid);
-      } catch {
-        // Nothing else we can do; the port poll below decides.
-      }
+      await appLifecycle.waitForProcessGone(child.pid, { timeoutMs });
     }
   }
   const deadline = Date.now() + timeoutMs;
@@ -2706,6 +2712,7 @@ async function startChat(request) {
   const ownerPicked = (model) =>
     wanted.includes(model?.id) || wanted.includes(model?.meta?.modelName);
   let failures = [];
+  let kernelHealTried = false;
 
   // Two passes at most: free-tier catalogues (OpenRouter especially) rotate
   // their available models often, so a stale list is re-fetched live once
@@ -2778,7 +2785,14 @@ async function startChat(request) {
         send("chat:done", { requestId, modelId: model.id, answeredBy });
         return;
       }
-      const noted = providerHealth.noteFailure(model.id, result.error);
+      const noted = providerHealth.noteFailure(model.id, {
+        message: result.error,
+        modelId: model.id,
+        provider: model.providerId || model.meta?.providerId || "",
+        kind: model.type === "local" ? "local" : "cloud",
+        elapsedMs: result.latencyMs,
+        path: "/chat",
+      });
       providerHealth.noteDecision({
         modelId: model.id,
         why: noted.nextStep || noted.category,
@@ -2813,6 +2827,7 @@ async function startChat(request) {
         display: model.displayName || model.label,
         category: noted.category,
         nextStep: noted.nextStep,
+        facts: noted.facts || null,
       });
       log(
         `chat ${requestId}: ${model.id} failed (${noted.category}) — cooldown ${Math.round(
@@ -2825,10 +2840,29 @@ async function startChat(request) {
         cooldownUntil: noted.cooldownUntil,
         kind: modelRouter.lifecycleKindFromHealth(noted.category),
       });
-      // Tokens already reached the owner: restarting would duplicate the answer.
       if (result.received) {
-        send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
-        return;
+        const streamPlan = modelRouter.midStreamFallback(noted.category);
+        if (!streamPlan.resume) {
+          send("chat:error", { requestId, error: `${model.label} stopped mid-answer.` });
+          return;
+        }
+        send("chat:delta", { requestId, modelId: model.id, text: "", replace: true });
+      }
+      if (noted.category === "timeout" && !model.timeoutRetried) {
+        model.timeoutRetried = true;
+        const current = Number(request.maxTokens || 1024);
+        request.maxTokens = Math.max(128, Math.floor(current / 2));
+        continue;
+      }
+      if (noted.category === "kernel_down" && !kernelHealTried) {
+        kernelHealTried = true;
+        log(`chat ${requestId}: restarting the local AI service once`);
+        try {
+          await restartKernel({ reason: "chat" });
+        } catch (error) {
+          log(`chat ${requestId}: kernel restart failed — ${error && error.message}`);
+        }
+        continue;
       }
       const compacted = request.compacted === true;
       if (!modelRouter.fallbackAdvances(noted.category, { compacted })) {
@@ -3534,6 +3568,12 @@ function createWindow() {
         kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
         kernelRequest,
         getWorkspaceRoot,
+        kernelInstanceId: () => kernelInstanceId,
+        kernelFacts: () => ({
+          pid: kernel && kernel.pid ? kernel.pid : null,
+          port: KERNEL_PORT,
+          instanceId: kernelInstanceId || "",
+        }),
         trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
       })
         .then((report) => {
@@ -4212,6 +4252,11 @@ async function authorizeToolCall(name, args) {
 // The renderer may only reach an explicitly allowlisted method, and it can
 // never supply its own approval: the authorization is minted here, by the
 // owner-backed policy, or not at all.
+ipcMain.handle("kernel:restart", async () => {
+  await restartKernel({ reason: "voice-heal" });
+  return { ok: true };
+});
+
 ipcMain.handle("kernel:rpc", async (_e, method, params) => {
   const name = String(method || "");
   if (!kernelMethods.isAllowedKernelMethod(name))
@@ -7885,6 +7930,12 @@ ipcMain.handle("env:readiness", () =>
     kernelUrl: `http://${KERNEL_HOST}:${KERNEL_PORT}`,
     kernelRequest,
     getWorkspaceRoot,
+    kernelInstanceId: () => kernelInstanceId,
+    kernelFacts: () => ({
+      pid: kernel && kernel.pid ? kernel.pid : null,
+      port: KERNEL_PORT,
+      instanceId: kernelInstanceId || "",
+    }),
     trace: (milestone, extra) => readinessTrace.trace(milestone, extra),
   }),
 );
@@ -8078,6 +8129,17 @@ app
         readiness: false,
         run() {
           startModelRegistryRefresh();
+        },
+      });
+      startupTasks.register({
+        id: "voice-heal",
+        phase: "idle",
+        timeoutMs: 1000,
+        readiness: false,
+        run() {
+          // Auto mode ticks the one policy in src/lib/friday/voice-heal.ts.
+          // This task does not start a second timer.
+          return { armed: true, policy: "voice-heal" };
         },
       });
       startupTasks.register({

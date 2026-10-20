@@ -27,8 +27,14 @@ import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { composer } from "./composer";
 import { armChartOffer, voiceAutoGraph } from "./flow-modes";
 import { decideAddressing, normalizeAddressMode, type AddressDecision } from "./addressing";
-import { ambientContextForRoute, clearHeard, heardSummary, noteHeard } from "./heard-log";
-import { allowRestart } from "./pcm-capture";
+import {
+  ambientContextForRoute,
+  clearHeard,
+  dropHeardOverflow,
+  heardSummary,
+  noteHeard,
+} from "./heard-log";
+import { allowRestart, encodeWav, preRollFrom } from "./pcm-capture";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
@@ -112,7 +118,7 @@ import {
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
 import { speechTurnPlan } from "./speech-core";
-import { chooseStt, whisperMutePlan } from "./speech-stt";
+import { chooseStt, planLiveStt, whisperMutePlan } from "./speech-stt";
 import {
   failureCause,
   mayAnnounce,
@@ -122,6 +128,15 @@ import {
   shouldRetryNow,
   voiceFailureLine,
 } from "./voice-recovery";
+import {
+  emptyHealMemory,
+  healFault,
+  noteHealFixed,
+  planVoiceHeal,
+  spokenRepairLine,
+  type HealClass,
+  type HealMemory,
+} from "./voice-heal";
 import {
   TRANSCRIPT_ONLY,
   detectWake,
@@ -183,7 +198,8 @@ export type PanelDisplay =
  */
 export type VoiceTrace = {
   at: number;
-  stage: "speech" | "segment" | "dropped" | "transcribing" | "transcript" | "wake" | "error";
+  stage:
+    "speech" | "segment" | "dropped" | "transcribing" | "transcript" | "wake" | "error" | "heal";
   detail: string;
   repeat?: number;
 };
@@ -309,6 +325,9 @@ type VoiceDesktop = {
   onSttProgress?: (
     cb: (payload: { status?: string; progress?: number | null }) => void,
   ) => () => void;
+  installStt?: () => Promise<{ ok: boolean; error?: string }>;
+  installWakeEngine?: () => Promise<{ ok: boolean; ready?: boolean; error?: string }>;
+  restartKernel?: () => Promise<{ ok: boolean }>;
 };
 const desktop = (): VoiceDesktop | null =>
   typeof window === "undefined"
@@ -335,6 +354,12 @@ class AssistantModeStore {
    */
   private sttBlockedUntil = 0;
   private sttRecoveryAttempt = 0;
+  private healMemory: HealMemory = emptyHealMemory();
+  private lastHealFault: HealClass | "none" = "none";
+  private ttsPrefer: "auto" | "supertonic" | "sapi" = "auto";
+  private wakeOnlyUnsub: (() => void) | null = null;
+  private wakeOnlySpeechAt = 0;
+  private quietHealSent = false;
   private sttRecoveryTimer: number | null = null;
   private sttGaveUp = false;
   /** Causes already spoken this session. */
@@ -549,8 +574,12 @@ class AssistantModeStore {
       const dead = !track || track.readyState === "ended";
       const ctx = voiceGate.contextState();
       const suspended = ctx === "suspended" || ctx === "closed" || ctx === "missing";
-      if (dead || suspended) {
-        void this.reopenInput("resume");
+      if (suspended && !dead) {
+        this.applyVoiceHeal("audio-context-suspended", false);
+        return;
+      }
+      if (dead) {
+        this.applyVoiceHeal("mic-no-device", false);
         return;
       }
       if (!this.dictation?.active) this.noteVoiceTrigger("focus");
@@ -558,7 +587,13 @@ class AssistantModeStore {
     desktop()?.onSystemResume?.(() => {
       if (this.state.mode !== "auto" || this.state.paused) return;
       this.trace("segment", "sleep-resume — reopening the microphone");
-      void this.reopenInput("resume");
+      this.applyVoiceHeal("mic-no-device", false);
+    });
+    voiceGate.subscribe(() => {
+      if (this.state.mode !== "auto" || this.quietHealSent) return;
+      if (!voiceGate.quietNotice()) return;
+      this.quietHealSent = true;
+      this.applyVoiceHeal("vad-too-quiet", false);
     });
     desktop()?.onVoicePartial?.((payload) => {
       const text = String(payload?.text || "").trim();
@@ -1096,34 +1131,48 @@ class AssistantModeStore {
       model: "ggml-base.bin",
       wav: "turn.wav",
     });
-    this.state.stt = { ...this.state.stt, engine: ladder.engine };
+    this.state.stt = {
+      ...this.state.stt,
+      engine: this.state.stt.engine || ladder.engine,
+    };
     void sttStatus(false, true, true)
       .then((state) => {
         if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
+        const lang = preferences.getSnapshot().voice.recognitionLang || "";
+        const reason = state.reason || "";
+        const live = planLiveStt({
+          whisperReady: state.engine === "faster-whisper" && Boolean(state.available),
+          weightsReady: Boolean(state.ready),
+          blocked: /blocked:|not allowlisted/i.test(reason),
+          blockReason: reason,
+          english: /^en/i.test(lang),
+          moonshineReady: false,
+          windowsSpeech: false,
+          privacy: preferences.getSnapshot().voice.privacyMode === true,
+        });
+        const ready = Boolean(state.ready && state.engine === "faster-whisper");
         this.state.stt = {
           ...this.state.stt,
-          engine: state.engine,
+          engine: ready ? state.engine : live.engine,
           model: state.model ?? this.state.stt.model,
-          ready: Boolean(state.ready && state.engine === "faster-whisper"),
-          lastError: state.ready
-            ? this.state.stt.lastError
-            : state.reason || this.state.stt.lastError,
+          ready,
+          lastError: ready ? null : live.reason || reason || this.state.stt.lastError,
         };
-        if (!state.available || state.engine !== "faster-whisper" || state.ready === false) {
+        if (!ready) {
           this.state.listening = false;
           this.state.supported = false;
-          this.reportFailure(
-            state.reason ||
-              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-            "Local speech recognition not installed",
-          );
-          this.scheduleSttRecovery(
-            state.reason ||
-              "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.",
-          );
+          const missing =
+            reason ||
+            live.reason ||
+            "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.";
+          this.reportFailure(missing, "Local speech recognition not installed");
+          this.scheduleSttRecovery(missing);
+          this.armWakeOnly();
           return;
         }
+        this.stopWakeOnly();
         this.resetVoiceRecovery();
+        this.markHealFixed();
         this.state.supported = true;
         this.startDesktopDictation();
       })
@@ -1177,12 +1226,110 @@ class AssistantModeStore {
 
   fixVoice() {
     speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
+    this.applyVoiceHeal(this.state.error || "stt-model-missing", true);
     this.noteVoiceTrigger("fix-voice");
+  }
+
+  private markHealFixed() {
+    if (this.lastHealFault === "none") return;
+    const line = noteHealFixed(this.lastHealFault);
+    this.state.status = line;
+    this.caption("friday", line);
+    this.healMemory.attempts[this.lastHealFault] = [];
+    this.healMemory.reported[this.lastHealFault] = false;
+    this.lastHealFault = "none";
+  }
+
+  private applyVoiceHeal(fault: string, manual = false, execute = true) {
+    const named = healFault(fault);
+    const plan = planVoiceHeal({
+      fault: named,
+      now: Date.now(),
+      memory: this.healMemory,
+      auto: this.state.mode === "auto",
+      manual,
+    });
+    this.healMemory = plan.memory;
+    this.lastHealFault = plan.fault;
+    this.trace("heal", plan.report || plan.action);
+    if (plan.report) {
+      this.state.status = plan.report;
+      this.caption("friday", plan.report);
+    }
+    if (!execute || plan.action === "idle" || plan.action === "needs-you") {
+      this.emit();
+      return plan;
+    }
+    this.runHealAction(plan.action);
+    this.emit();
+    return plan;
+  }
+
+  private runHealAction(action: string) {
+    if (action === "reopen-mic" || action === "reopen-default-mic" || action === "recheck-mic") {
+      void this.reopenInput("resume");
+      return;
+    }
+    if (action === "download-stt" || action === "verify-stt") {
+      void desktop()?.installStt?.();
+      return;
+    }
+    if (
+      action === "restart-stt-worker" ||
+      action === "retry-segment" ||
+      action === "next-stt-engine"
+    ) {
+      this.stopRecognition();
+      this.wantRunning = true;
+      this.startRecognition();
+      return;
+    }
+    if (action === "restore-wake" || action === "redownload-wake") {
+      void desktop()?.installWakeEngine?.();
+      return;
+    }
+    if (action === "show-mic-privacy") {
+      this.state.status = "Settings > Privacy > Microphone, allow desktop apps.";
+      return;
+    }
+    if (action === "resume-audio-context") {
+      void voiceGate.resumeAudio();
+      return;
+    }
+    if (action === "recalibrate-vad") {
+      voiceGate.recalibrate();
+      return;
+    }
+    if (action === "raise-gain") {
+      voiceGate.setSoftwareGain(2);
+      return;
+    }
+    if (action === "tell-owner-level") {
+      this.state.status =
+        voiceGate.quietNotice() ||
+        "The microphone level is very low. Raise the Windows input level.";
+      return;
+    }
+    if (action === "next-tts-engine" || action === "reprobe-tts") {
+      this.ttsPrefer = this.ttsPrefer === "auto" ? "supertonic" : "sapi";
+      this.state.tts = { ...this.state.tts, engine: this.ttsPrefer };
+      return;
+    }
+    if (action === "restart-kernel") {
+      void desktop()?.restartKernel?.();
+      return;
+    }
+    if (action === "drop-heard") {
+      const dropped = dropHeardOverflow();
+      this.trace("heal", `heard queue dropped ${dropped}`);
+    }
   }
 
   private scheduleSttRecovery(reason: string) {
     if (!this.wantRunning) return;
-    const delay = recoveryDelayMs(this.sttRecoveryAttempt);
+    const plan = this.applyVoiceHeal(healFault(reason || "stt-engine-crash"), false, false);
+    if (!plan.retry) return;
+    const delay = plan.delayMs === 0 ? recoveryDelayMs(0) : plan.delayMs;
     this.sttRecoveryAttempt += 1;
     this.cancelVoiceRecoveryTimer();
     this.sttRecoveryTimer = window.setTimeout(() => {
@@ -1193,7 +1340,52 @@ class AssistantModeStore {
     }, delay);
   }
 
+  private stopWakeOnly() {
+    this.wakeOnlyUnsub?.();
+    this.wakeOnlyUnsub = null;
+  }
+
+  /** Wake still scores while the speech model is not ready. It does not invent a transcript. */
+  private armWakeOnly() {
+    if (this.wakeOnlyUnsub || this.dictation) return;
+    let wasSpeech = false;
+    this.wakeOnlyUnsub = voiceGate.subscribe((snapshot) => {
+      if (this.dictation || this.state.mode !== "auto" || this.state.paused) return;
+      if (snapshot.speech && !wasSpeech) {
+        this.wakeOnlySpeechAt = performance.now();
+        wasSpeech = true;
+        return;
+      }
+      if (!snapshot.speech && wasSpeech) {
+        wasSpeech = false;
+        const from = this.wakeOnlySpeechAt;
+        void this.scoreWakeOnly(from);
+      }
+    });
+  }
+
+  private async scoreWakeOnly(from: number) {
+    if (this.state.stt.ready || !this.state.wakeEngine.ready) return;
+    const samples = preRollFrom(from);
+    if (samples.length < 1600) return;
+    const probe = await detectWake({
+      audioBytes: encodeWav(samples),
+      mime: "audio/wav",
+      wakeWord: wakeWord(),
+    });
+    if (!probe?.detected) return;
+    const line = "My speech recognition is still starting, one moment";
+    this.state.lastWake = { engine: probe.engine, detail: probe.detail, at: Date.now() };
+    this.to("wake-matched");
+    this.state.status = `speech recognition not ready (${this.state.stt.lastError || "not verified"})`;
+    this.state.error = this.state.status;
+    this.caption("friday", line);
+    this.speak(line);
+    this.emit();
+  }
+
   private startDesktopDictation() {
+    this.stopWakeOnly();
     if (!microphoneAllowed(this.state.mode, this.state.paused)) return;
     if (this.dictation?.active) return;
     reclaimUnowned(this.dictation);
@@ -1244,6 +1436,13 @@ class AssistantModeStore {
           at: Date.now(),
         };
         this.to("wake-matched");
+        if (!this.state.stt.ready) {
+          const line = "My speech recognition is still starting, one moment";
+          this.state.status = `speech recognition not ready (${this.state.stt.lastError || "not verified"})`;
+          this.state.error = this.state.status;
+          this.caption("friday", line);
+          this.speak(line);
+        }
         this.emit();
       },
       onDiagnostic: (event) => {
@@ -1350,6 +1549,7 @@ class AssistantModeStore {
   }
 
   private stopRecognition() {
+    this.stopWakeOnly();
     this.wantRunning = false;
     const dictation = this.dictation;
     this.dictation = null;
@@ -1367,6 +1567,7 @@ class AssistantModeStore {
    * it, so the HUD and diagnostics show the truth rather than an assumption.
    */
   async refreshWakeEngine(force = false): Promise<WakeEngineStatus> {
+    if (force) this.applyVoiceHeal("wake-model-missing", true);
     const status = await wakeEngineStatus(wakeWord(), force);
     this.state.wakeEngine = status;
     this.trace(
@@ -1403,6 +1604,10 @@ class AssistantModeStore {
     }
     const result = await api.verifyVoiceRuntime({ loadModel: true });
     const report = formatVoiceProbeReport(result?.checks ?? []);
+    if (!result?.ok) {
+      const failed = report.checks.find((check) => !check.ok);
+      this.applyVoiceHeal(failed?.detail || "stt-model-missing", true);
+    }
     this.state.stt = { ...this.state.stt, ready: Boolean(result?.ok) };
     if (result?.ok) this.noteVoiceTrigger("model-ready");
     for (const check of report.checks)
@@ -1799,19 +2004,20 @@ class AssistantModeStore {
     this.state.status = status;
     const cause = failureCause(message);
     this.lastFailure = cause;
-    this.caption("friday", message);
+    const spoken = voiceFailureLine(
+      cause,
+      this.spokenCauses.size + 1,
+      ownerVoiceLang(preferences.getSnapshot().voice.recognitionLang),
+    );
+    const spokenLine = spokenRepairLine(message, spoken);
+    this.caption("friday", spokenLine);
     if (!mayAnnounce(cause, this.spokenCauses)) {
       this.emit();
       return;
     }
     this.spokenCauses.add(cause);
-    const spoken = voiceFailureLine(
-      cause,
-      this.spokenCauses.size,
-      ownerVoiceLang(preferences.getSnapshot().voice.recognitionLang),
-    );
     this.emit();
-    this.speak(spoken);
+    this.speak(spokenLine);
   }
 
   private followMs(): number {
@@ -1862,23 +2068,13 @@ class AssistantModeStore {
       return;
     }
     this.micRestarts.push(now);
-    this.emit();
-    this.resetMicrophone();
+    this.applyVoiceHeal(message, true);
   }
 
   /** Tear the one microphone pipeline down and open it again. */
   resetMicrophone() {
     if (this.state.mode !== "auto") return;
-    this.shownMicFault = "";
-    this.stopRecognition();
-    voiceGate.release("auto-mode");
-    voiceGate.stop(true);
-    this.wantRunning = true;
-    const preferred = preferences.getSnapshot().voice.inputDeviceId || null;
-    void voiceGate.acquire("auto-mode", preferred || undefined).then((opened) => {
-      if (!opened || this.state.mode !== "auto") return;
-      this.startRecognition();
-    });
+    this.applyVoiceHeal("mic-no-device", true);
   }
 
   /** Run a command through the existing brain pipeline. */
@@ -2042,7 +2238,7 @@ class AssistantModeStore {
       network: online,
       supertonicReady: this.offlineVoiceReady,
       privacy: preferences.getSnapshot().voice.privacyMode === true,
-      prefer: "auto",
+      prefer: this.ttsPrefer,
     });
     const fallen = switchMidSentence({
       networkDropped: !online,

@@ -48,6 +48,9 @@ def test_health_happy_path_keeps_the_readiness_fields():
     assert body["version"] == main.app.version
     assert body["data_dir"]
     assert isinstance(body["models"], list)
+    os.environ["FRIDAY_INSTANCE_ID"] = "launch-a"
+    again = _client().get("/health").json()
+    assert again["instance_id"] == "launch-a"
 
 
 def test_version_reports_the_product_line_without_a_token():

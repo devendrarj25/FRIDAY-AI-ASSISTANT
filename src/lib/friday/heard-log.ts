@@ -51,6 +51,19 @@ export function clearHeard(): void {
   rows = [];
 }
 
+let droppedHeard = 0;
+
+/** Drop the oldest half. The counter is what the voice log reports. */
+export function dropHeardOverflow(): number {
+  if (rows.length > 1) rows = rows.slice(Math.ceil(rows.length / 2));
+  droppedHeard += 1;
+  return droppedHeard;
+}
+
+export function heardDropCount(): number {
+  return droppedHeard;
+}
+
 /**
  * Text that may be added to a cloud prompt. Empty unless the owner allowed
  * it and Privacy mode is off.

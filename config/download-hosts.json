@@ -1,21 +1,32 @@
 {
-  "checked": "2026-10-14",
+  "checked": "2026-10-18",
   "hosts": [
     "ollama.com",
     "registry.ollama.ai",
     "github.com",
     "api.github.com",
-    "objects.githubusercontent.com",
-    "release-assets.githubusercontent.com",
     "lmstudio.ai",
-    "installers.lmstudio.ai",
-    "huggingface.co",
-    "hf-mirror.com",
-    "cdn-lfs.huggingface.co",
-    "cdn-lfs-us-1.huggingface.co",
-    "cdn-lfs-eu-1.huggingface.co",
-    "cas-bridge.xethub.hf.co",
-    "transfer.xethub.hf.co"
+    "huggingface.co"
   ],
+  "families": [
+    {
+      "id": "huggingface",
+      "suffixes": ["huggingface.co", "hf.co"]
+    },
+    {
+      "id": "github",
+      "hosts": ["github.com", "api.github.com"],
+      "suffixes": ["githubusercontent.com"]
+    },
+    {
+      "id": "ollama",
+      "hosts": ["ollama.com", "registry.ollama.ai"]
+    },
+    {
+      "id": "lmstudio",
+      "suffixes": ["lmstudio.ai"]
+    }
+  ],
+  "optInHosts": ["hf-mirror.com"],
   "loopbackHttp": ["127.0.0.1", "localhost", "::1"]
 }

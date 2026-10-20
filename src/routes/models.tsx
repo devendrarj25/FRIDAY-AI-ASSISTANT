@@ -1560,6 +1560,22 @@ function ProviderUse({
           >
             Test chat
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const selected = modelRegistry
+                .selectedIds()
+                .filter((id) => id.startsWith(`${providerId}:`));
+              if (!selected.length) {
+                toast("Select models in the allowlist, then test them.");
+                return;
+              }
+              engine.testSelectedModels(selected);
+            }}
+          >
+            Test selected models
+          </Button>
         </div>
       ) : null}
     </div>

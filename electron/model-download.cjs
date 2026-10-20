@@ -92,8 +92,18 @@ async function hfFiles(repo, signal) {
         continue;
       }
       const json = await res.json();
-      const files = (json.siblings || []).map((s) => s.rfilename).filter(Boolean);
-      if (files.length) return { ok: true, host, files };
+      const siblings = Array.isArray(json.siblings) ? json.siblings : [];
+      const files = siblings.map((s) => s.rfilename).filter(Boolean);
+      const meta = {};
+      for (const sibling of siblings) {
+        if (!sibling || !sibling.rfilename) continue;
+        const lfs = sibling.lfs || {};
+        meta[sibling.rfilename] = {
+          sha256: lfs.sha256 ? String(lfs.sha256).toLowerCase() : "",
+          size: Number(lfs.size) || 0,
+        };
+      }
+      if (files.length) return { ok: true, host, files, meta };
       lastError = "repo lists no files";
     } catch (err) {
       lastError = String(err.message || err);
@@ -150,6 +160,7 @@ function progressReporter(total, onEvent, label) {
         progress: total > 0 ? Math.min(100, (done / total) * 100) : null,
         speedMbps: Number((rate / 1024 ** 2).toFixed(1)),
         etaSeconds: total > done && rate > 0 ? Math.round((total - done) / rate) : 0,
+        percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null,
       });
     },
     get bytes() {
@@ -303,6 +314,7 @@ async function downloadUrl(
     gbTotal: gb(stat.size),
     gbDone: gb(stat.size),
     progress: 100,
+    percent: 100,
     speedMbps: 0,
     etaSeconds: 0,
   });
@@ -516,10 +528,18 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
         for (const file of wanted) {
           const target = path.join(dest, file);
           if (fs.existsSync(target)) continue;
+          const row = listing.meta && listing.meta[file] ? listing.meta[file] : {};
           bytes += await downloadUrl(
             `${listing.host}/${source.repo}/resolve/main/${encodeURI(file)}?download=true`,
             target,
-            { onEvent, signal, label: `downloading ${path.basename(file)}`, control: job.control },
+            {
+              onEvent,
+              signal,
+              label: `downloading ${path.basename(file)}`,
+              control: job.control,
+              sha256: row.sha256 || "",
+              needBytes: row.size || 0,
+            },
           );
         }
         remember(root, job, {

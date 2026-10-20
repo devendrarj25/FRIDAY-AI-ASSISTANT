@@ -162,6 +162,7 @@ contextBridge.exposeInMainWorld("friday", {
     }),
   onSttProgress: on("voice:stt-progress"),
   installStt: () => ipcRenderer.invoke("voice:stt-install"),
+  restartKernel: () => ipcRenderer.invoke("kernel:restart"),
   transcribe: (payload) => ipcRenderer.invoke("voice:transcribe", payload),
   scoreTurn: (payload) => ipcRenderer.invoke("voice:score-turn", payload || {}),
   wakeEngineStatus: (payload) => ipcRenderer.invoke("voice:wake-status", payload || {}),

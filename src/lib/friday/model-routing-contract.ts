@@ -88,6 +88,8 @@ export interface RoutingRequirements {
   strictEvidence?: boolean;
   /** Permit name-only evidence for vision and tools. */
   allowInferred?: boolean;
+  /** Drop free models whose provider may train on prompts. Default off. */
+  strictPrivacy?: boolean;
 }
 
 export interface ModelRoutingContract {
@@ -169,6 +171,7 @@ export function normaliseRoutingRequirements(reqs: unknown): RoutingRequirements
   if (r["privacy"] === "private" || r["privacy"] === "standard") out.privacy = r["privacy"];
   if (typeof r["strictEvidence"] === "boolean") out.strictEvidence = r["strictEvidence"];
   if (typeof r["allowInferred"] === "boolean") out.allowInferred = r["allowInferred"];
+  if (r["strictPrivacy"] === true) out.strictPrivacy = true;
   return out;
 }
 

@@ -18,6 +18,7 @@
  * refreshed so FRIDAY knows what the machine looked like at test time.
  */
 const fs = require("node:fs");
+const net = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const launchHarness = require("./packaged-launch.cjs");
@@ -329,6 +330,60 @@ function launch(app, label, { select = true } = {}) {
   });
 }
 
+function restartReportLine(second, first) {
+  const failed = ((second && second.stages) || []).filter((stage) => !stage.ok);
+  const details = failed.length
+    ? failed.map((stage) => `${stage.name}: ${stage.detail || "no detail"}`).join("; ")
+    : (second && second.error) || "restart failed";
+  const launches = [first, second]
+    .map((row, index) => {
+      const kernel = (row && row.kernel) || {};
+      const pid = kernel.pid == null ? "none" : String(kernel.pid);
+      const port = kernel.port == null ? "none" : String(kernel.port);
+      return `launch ${index + 1} pid ${pid} port ${port}`;
+    })
+    .join("; ");
+  const leak =
+    second && second.leak && second.leak.ok === false
+      ? `leak ${(second.leak.alive || []).join(",")}`
+      : "leak none";
+  return `${details}; ${launches}; ${leak}`;
+}
+
+function portBusy(port) {
+  return new Promise((resolve) => {
+    const probe = net.createConnection({ host: "127.0.0.1", port }, () => {
+      probe.destroy();
+      resolve(true);
+    });
+    probe.on("error", () => resolve(false));
+    probe.setTimeout(200, () => {
+      probe.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForRelease(port = 8765, budgetMs = 8000) {
+  const started = Date.now();
+  while (Date.now() - started < budgetMs) {
+    if (!(await portBusy(port))) return { released: true, port };
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return { released: false, port };
+}
+
+function clearDatabaseSidecars(rootDir) {
+  const dir = path.join(rootDir, "database");
+  for (const name of ["friday.db-wal", "friday.db-shm"]) {
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      /* the next launch reports the file if it is still held */
+    }
+  }
+}
+
 function report(payload) {
   const dir = path.join(root, "debug", "reports");
   fs.mkdirSync(dir, { recursive: true });
@@ -448,8 +503,13 @@ async function runReadinessHarness() {
 
   // Restart must be clean: no stale lock, no orphaned kernel, same result.
   // A first launch with no report does not start a second 5 minute wait.
+  let second = null;
+  let release = { released: true, port: 8765 };
   if (!first.skipped && !firstHung) {
-    const second = await launch(app, "FRIDAY (restart)", { select: false });
+    release = await waitForRelease(8765, 8000);
+    if (release.released) clearDatabaseSidecars(FRIDAY_ROOT);
+    else log("kernel port 8765 still held before restart");
+    second = await launch(app, "FRIDAY (restart)", { select: false });
     // Restart is only clean when the app found the SAME folder on its own.
     const boot = (second.stages || []).find((s) => s.name === "BOOT");
     const rootStage = (second.stages || []).find((s) => s.name === "ROOT");
@@ -458,7 +518,6 @@ async function runReadinessHarness() {
       rooted.length > 0 &&
       rooted.every((s) => s.ok) &&
       rooted.some((s) => String(s.detail).includes(FRIDAY_ROOT));
-    const failed = (second.stages || []).filter((s) => !s.ok).map((s) => s.name);
     const restartOk = (second.ok || packChatOnlyUnloaded(second)) && sameRoot;
     add(
       "RESTART",
@@ -469,8 +528,7 @@ async function runReadinessHarness() {
           : `restarted but did not rediscover ${FRIDAY_ROOT} (${rootStage ? rootStage.detail : boot ? boot.detail : "no ROOT stage"})`
         : packChatOnlyUnloaded(second) && sameRoot
           ? `rediscovered ${FRIDAY_ROOT}; Chat still has no loaded answering model (pack continues)`
-          : second.error ||
-            (failed.length ? `failing stage(s): ${failed.join(", ")}` : "restart failed"),
+          : restartReportLine(second, first),
     );
   }
 
@@ -485,6 +543,12 @@ async function runReadinessHarness() {
     output: (first.output || "").slice(-8000),
     hang: first.hang || null,
     rootCause: firstHung ? (first.hang && first.hang.line) || first.error : "",
+    restart: {
+      release,
+      firstKernel: first.kernel || null,
+      secondKernel: second && second.kernel ? second.kernel : null,
+      leak: (second && second.leak) || first.leak || null,
+    },
   });
   log(`report: ${file}`);
   if (!ok) {
@@ -508,4 +572,7 @@ module.exports = {
   stallLimit,
   stallVerdict,
   stallMessage,
+  restartReportLine,
+  waitForRelease,
+  clearDatabaseSidecars,
 };
