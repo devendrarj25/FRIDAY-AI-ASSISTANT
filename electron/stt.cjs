@@ -139,7 +139,17 @@ let lastLocalLayers = {
   loadCount: 0,
   model: DEFAULT_MODEL,
   reason: null,
+  moonshineReady: false,
+  windowsSpeech: false,
 };
+
+function copyLadder(parsed) {
+  if (!parsed || typeof parsed !== "object") return;
+  if (typeof parsed.moonshineReady === "boolean")
+    lastLocalLayers.moonshineReady = parsed.moonshineReady;
+  if (typeof parsed.windowsSpeech === "boolean")
+    lastLocalLayers.windowsSpeech = parsed.windowsSpeech;
+}
 
 function scriptPath() {
   if (fs.existsSync(SCRIPT)) return SCRIPT;
@@ -324,12 +334,17 @@ async function prepareWeights(model, onEvent) {
   });
 }
 
-async function ensureWorker(model, onEvent) {
+async function ensureWorker(model, onEvent, options = {}) {
   const wanted = MODELS.includes(model) ? model : DEFAULT_MODEL;
-  const prepared = await prepareWeights(wanted, onEvent);
-  if (!prepared.ok) throw new Error(prepared.error || "speech weights are not on disk");
-  const modelPath = prepared.dir;
+  const loadModel = options.load !== false;
+  let modelPath = "";
+  if (loadModel) {
+    const prepared = await prepareWeights(wanted, onEvent);
+    if (!prepared.ok) throw new Error(prepared.error || "speech weights are not on disk");
+    modelPath = prepared.dir;
+  }
   if (worker?.alive) {
+    if (!loadModel) return worker;
     if (worker.modelName && worker.modelName !== wanted) {
       const loaded = await workerRequest(
         worker,
@@ -348,6 +363,8 @@ async function ensureWorker(model, onEvent) {
         loadCount: worker.loadCount,
         model: wanted,
         reason: null,
+        moonshineReady: Boolean(lastLocalLayers.moonshineReady),
+        windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
       };
     }
     return worker;
@@ -372,11 +389,17 @@ async function ensureWorker(model, onEvent) {
   worker = session;
   lastLocalLayers.worker = "ready";
   const ping = await workerRequest(session, { op: "status" }, 30000);
+  copyLadder(ping);
   if (ping?.dependency === "missing" || ping?.available === false) {
     lastLocalLayers.dependency = "missing";
     lastLocalLayers.reason = ping?.error || "faster-whisper is not installed yet.";
-    throw new Error(lastLocalLayers.reason);
+    if (!(lastLocalLayers.moonshineReady || lastLocalLayers.windowsSpeech) || loadModel) {
+      throw new Error(lastLocalLayers.reason);
+    }
+    session.loaded = false;
+    return session;
   }
+  if (!loadModel) return session;
   lastLocalLayers.dependency = "ready";
   const loaded = await workerRequest(
     session,
@@ -399,6 +422,8 @@ async function ensureWorker(model, onEvent) {
     loadCount: session.loadCount,
     model: wanted,
     reason: null,
+    moonshineReady: Boolean(lastLocalLayers.moonshineReady),
+    windowsSpeech: Boolean(lastLocalLayers.windowsSpeech),
   };
   return session;
 }
@@ -446,6 +471,13 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
       reason: layers.reason || probeReason || "faster-whisper is not installed yet.",
     };
   }
+  value.moonshineReady = Boolean(layers.moonshineReady);
+  value.windowsSpeech = Boolean(layers.windowsSpeech);
+  if (!value.available && (value.moonshineReady || value.windowsSpeech)) {
+    value.available = true;
+    value.ready = false;
+    value.engine = value.moonshineReady ? "moonshine" : "windows-speech";
+  }
   if (!value.available && !localOnly) {
     const engine = cloudEngine();
     if (engine) {
@@ -456,6 +488,8 @@ function snapshotStatus({ localOnly, py, probeReason, pythonPath }) {
         engine: `cloud:${engine.id}`,
         model: engine.model,
         reason: value.reason,
+        moonshineReady: Boolean(layers.moonshineReady),
+        windowsSpeech: Boolean(layers.windowsSpeech),
       };
     }
   }
@@ -526,6 +560,8 @@ async function status(force = false, options = {}) {
       loadCount: lastLocalLayers.loadCount || 0,
       model: DEFAULT_MODEL,
       reason: require("./voice-install.cjs").explain("no-python"),
+      moonshineReady: false,
+      windowsSpeech: false,
     };
     const value = snapshotStatus({ localOnly, py: null, pythonPath: null });
     if (!localOnly) cachedStatus = { at: Date.now(), value };
@@ -556,6 +592,7 @@ async function status(force = false, options = {}) {
   } else if (worker?.alive) {
     try {
       const ping = await workerRequest(worker, { op: "status" }, 15000);
+      copyLadder(ping);
       lastLocalLayers.dependency =
         ping?.dependency === "ready" || ping?.available ? "ready" : "missing";
       lastLocalLayers.worker = "ready";
@@ -570,6 +607,7 @@ async function status(force = false, options = {}) {
   } else {
     const probe = await run(py[0], [...py[1], scriptPath(), "--probe"], 30000);
     const parsed = parse(probe.stdout);
+    copyLadder(parsed);
     if (parsed?.ok && parsed.dependency !== "missing" && parsed.available !== false) {
       lastLocalLayers.dependency = "ready";
       lastLocalLayers.reason = null;
@@ -649,7 +687,9 @@ async function install() {
  */
 async function transcribe(req = {}, onPartial) {
   const state = await status(false, { localOnly: Boolean(req.localOnly) });
-  if (!state.available) return { ok: false, reason: "unavailable", error: state.reason };
+  const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
+  if (!state.available && !ladderReady)
+    return { ok: false, reason: "unavailable", error: state.reason };
 
   if (inFlight >= 1)
     return { ok: false, reason: "busy", error: "A transcription is already running." };
@@ -744,8 +784,9 @@ async function transcribe(req = {}, onPartial) {
     const locked = whisperLanguage(req.language);
     const prompt = String(req.initialPrompt || req.initial_prompt || "").trim();
     let parsed;
+    const ladderEngine = state.engine === "moonshine" || state.engine === "windows-speech";
     try {
-      const session = await ensureWorker(model);
+      const session = await ensureWorker(model, undefined, { load: !ladderEngine });
       parsed = await workerRequest(
         session,
         {
@@ -774,28 +815,49 @@ async function transcribe(req = {}, onPartial) {
         };
       }
       try {
-        const fallback = voiceInstall.bootModel({
-          requested: model,
-          failed: true,
-          elapsedMs: loadBudget + 1,
-          budgetMs: loadBudget,
-        }).model;
-        const session = await ensureWorker(fallback);
-        parsed = await workerRequest(
-          session,
-          {
-            op: "transcribe",
-            audio: file,
-            model: fallback,
-            model_path: session.modelPath || "",
-            language: locked || req.language || "",
-            initial_prompt: prompt.slice(0, 800),
-            speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
-            sttSize: String(req.sttSize || req.stt_size || ""),
-          },
-          voiceInstall.loadBudgetMs(fallback),
-          onPartial,
-        );
+        if (!ladderEngine && ladderReady) {
+          const session = await ensureWorker(model, undefined, { load: false });
+          parsed = await workerRequest(
+            session,
+            {
+              op: "transcribe",
+              audio: file,
+              model,
+              model_path: session.modelPath || "",
+              language: locked || req.language || "",
+              initial_prompt: prompt.slice(0, 800),
+              speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
+              sttSize: String(req.sttSize || req.stt_size || ""),
+            },
+            loadBudget,
+            onPartial,
+          );
+        } else if (!ladderEngine) {
+          const fallback = voiceInstall.bootModel({
+            requested: model,
+            failed: true,
+            elapsedMs: loadBudget + 1,
+            budgetMs: loadBudget,
+          }).model;
+          const session = await ensureWorker(fallback);
+          parsed = await workerRequest(
+            session,
+            {
+              op: "transcribe",
+              audio: file,
+              model: fallback,
+              model_path: session.modelPath || "",
+              language: locked || req.language || "",
+              initial_prompt: prompt.slice(0, 800),
+              speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
+              sttSize: String(req.sttSize || req.stt_size || ""),
+            },
+            voiceInstall.loadBudgetMs(fallback),
+            onPartial,
+          );
+        } else {
+          throw error;
+        }
       } catch (retryError) {
         return {
           ok: false,

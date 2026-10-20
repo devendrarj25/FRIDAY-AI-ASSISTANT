@@ -495,6 +495,8 @@ type DesktopApi = {
     engine: string;
     model?: string;
     reason?: string | null;
+    moonshineReady?: boolean;
+    windowsSpeech?: boolean;
     dependency?: string;
     worker?: string;
     inference?: string;
@@ -943,12 +945,43 @@ export const desktopApi = api;
  */
 const inFlight = new Map<string, Promise<unknown>>();
 
+/** Long IPC work waits on the main-process budget, not this 20s guard. */
+function bridgeDeadline(key: string, requested?: number): number {
+  if (typeof requested === "number") return requested;
+  if (
+    key.startsWith("capabilities:install") ||
+    key.startsWith("tools:") ||
+    key.startsWith("import:") ||
+    key.startsWith("doctor:") ||
+    key.startsWith("finetune:") ||
+    key.startsWith("build:") ||
+    key.startsWith("updater:") ||
+    key === "voice:stt-install" ||
+    key === "voice:transcribe" ||
+    key === "chat:parallel" ||
+    key === "agents:run" ||
+    key === "toolpacks:invoke" ||
+    key === "models:pull" ||
+    key === "models:download" ||
+    key === "models:test-provider" ||
+    key === "updates:apply" ||
+    key === "updates:rollback" ||
+    key === "sandbox-lab:exec" ||
+    key === "sandbox-lab:install-runtime" ||
+    key === "github:pull" ||
+    key.startsWith("github:download")
+  ) {
+    return 0;
+  }
+  return 20000;
+}
+
 export function safeCall<T>(
   key: string,
   run: () => Promise<T> | T | undefined,
   options: { timeoutMs?: number; fallback?: T } = {},
 ): Promise<T | null> {
-  const timeoutMs = options.timeoutMs ?? 20000;
+  const timeoutMs = bridgeDeadline(key, options.timeoutMs);
   const existing = inFlight.get(key);
   if (existing) return existing as Promise<T | null>;
 
@@ -956,6 +989,8 @@ export function safeCall<T>(
     try {
       const started = run();
       if (started === undefined) return (options.fallback ?? null) as T | null;
+      if (timeoutMs === 0)
+        return ((await Promise.resolve(started)) ?? options.fallback ?? null) as T | null;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const guarded = await Promise.race([
         Promise.resolve(started),
@@ -1013,6 +1048,17 @@ export async function lifecyclePreview(): Promise<{
 }
 
 /** Non-streaming call into the Python kernel; resolves null off the desktop. */
+const KERNEL_OPEN_WAIT = new Set([
+  "chat.complete",
+  "chat.stream",
+  "task.run",
+  "task.resume",
+  "task.approve",
+  "runtime.install",
+  "project.run",
+  "code.run",
+]);
+
 export async function kernelCall<T = unknown>(
   method: string,
   params?: Record<string, unknown>,
@@ -1021,8 +1067,11 @@ export async function kernelCall<T = unknown>(
   if (!call) return null;
   // Kernel unavailable or stalled: callers fall back to their local state
   // instead of leaving the section stuck on a loading placeholder.
-  return safeCall<T>(`kernel:${method}:${JSON.stringify(params ?? {})}`, () =>
-    call<T>(method, params),
+  // Model and install methods wait on the main-process budget.
+  return safeCall<T>(
+    `kernel:${method}:${JSON.stringify(params ?? {})}`,
+    () => call<T>(method, params),
+    KERNEL_OPEN_WAIT.has(method) ? { timeoutMs: 0 } : {},
   );
 }
 

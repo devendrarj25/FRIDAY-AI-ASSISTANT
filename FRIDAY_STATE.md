@@ -24,22 +24,22 @@ Run on 2026-10-20. Windows pack gates were not run. Hosted Actions were not star
 | `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `65 files already formatted`. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.4`. |
-| `npm run typecheck:py` | Passed. 4 passed. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
-| `npm run test:kernel` | 203 passed in 88.89s. Exit 0. |
-| `npm test` | 369 files passed, 3067 passed, 2 skipped, 93.09s. Exit 0. |
-| `node scripts/tests-required.cjs origin/main` | Passed. 42 code files, 10 test files. |
-| `npm run check:provenance` | Failed. The commits on this branch carry an assistant identity in the author field. History was not rewritten. |
+| `npm run typecheck:py` | Passed. 4 passed in 10.19s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 204 passed in 21.78s. Exit 0. |
+| `npm test` | 373 files passed, 3080 passed, 2 skipped, 96.79s. Exit 0. The pause and cancel download case also passed in 20 separate process runs. |
+| `node scripts/tests-required.cjs origin/main` | 17 code files, 8 test files. |
+| `npm run check:provenance` | Passed for this branch. New commits use the repository owner as author. Assistant-authored commits already on `main` are outside `origin/main..HEAD` and were not rewritten. |
 | `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
-| `node scripts/audit-architecture.cjs --strict` | Passed. 733 source files. REVIEW lines remain. No file was deleted. |
-| `npm run preflight` | Exit 1. Every gate passed except commit provenance. `test:fast` passed: 151 files, 1262 tests. Windows pack gates were not run. |
-| `npm run build:desktop` | Passed in 5.04s. `AppShell-DQyikdLw.js` is 3,674.58 kB (gzip 1,310.48 kB). It was not split. `src/routeTree.gen.ts` was unchanged. |
-| `npm audit` | 0 vulnerabilities. |
-| `pip-audit` | chromadb 1.5.9: PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815. No published fix version, so the pin was not moved. |
-| `npm run pricing:status` | EXPIRING. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21. Those pages were not re-read, so `checkedAt` was not moved. |
+| `node scripts/audit-architecture.cjs --strict` | Passed. 734 source files. REVIEW lines remain. No file was deleted. |
+| `npm run preflight` | Passed. Exit 0. `test:fast` passed: 139 files, 1146 tests. Windows pack gates were not run. |
+| `npm run build:desktop` | Not re-run on this branch. |
+| `npm audit` | Not re-run on this branch. The earlier 2026-10-20 reading was 0 vulnerabilities. |
+| `pip-audit` | Not re-run. chromadb 1.5.9: PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815. No published fix version, so the pin was not moved. |
+| `npm run pricing:status` | Not re-run. The earlier 2026-10-20 reading was EXPIRING. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21. Those pages were not re-read, so `checkedAt` was not moved. |
 
 ## UNVERIFIED
 
-Live microphone and speech recognition on Windows. A live speech-model download. Live provider calls, including OpenRouter. Shutdown and Restart on the packaged EXE, and process cleanup after them. In-app update apply. This branch's Windows CMD pack (`scripts\build-windows.cmd`), readiness RESTART, installer, and SmartScreen. Hosted Actions for this branch. This session did not start a workflow. Linux output is not those checks.
+Live microphone and speech recognition on Windows. A live speech-model download. A long answer past 30 seconds on a slow free model and on a big local model. A frozen-window recovery message. Moonshine or Windows speech chosen on that PC after the faster-whisper weights are removed. A dead model marked on the Models page before use. Live provider calls, including OpenRouter. Shutdown and Restart on the packaged EXE, and process cleanup after them. In-app update apply. This branch's Windows CMD pack (`scripts\build-windows.cmd`), readiness RESTART, installer, and SmartScreen. Hosted Actions for this branch. This session did not start a workflow. Linux output is not those checks.
 
 ## Snapshot
 
@@ -61,7 +61,7 @@ Stack floors stay in `package.json` and `config/toolchain-versions.json`: Electr
 
 Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py`. Chat and Voice call `electron/model-router.cjs` `routeRequest`. `kernel/router.py` executes the ids that funnel already chose. Desktop start, hide, restart, and exit go through `electron/app-lifecycle.cjs`. `electron/main.cjs` wires the steps and does not call quit, exit, or relaunch itself. Readiness asks that lifecycle to shut down so the kernel process tree is gone before exit, and `/health` must carry this launch's `instance_id`. `core/` is Vitest and contracts only. Navigation in `src/lib/friday/navigation.ts`: 28 sidebar paths, Settings in the footer, `/character` and `/workflow-visual` are not sidebar rows. Layer map: [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Speech downloads use source families in `config/download-hosts.json`. The live STT ladder, the voice self-heal policy, and the choice not to bundle a speech model are in [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Provider gates, error class, and the OpenRouter privacy setting are in [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md). A local model listed in `config/models.yaml` stays unavailable until discovery marks it installed. Chat then says `no installed local model`, and the pack still continues.
+Speech downloads use source families in `config/download-hosts.json`. The live STT ladder, the voice self-heal policy, and the choice not to bundle a speech model are in [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Provider gates, error class, and the OpenRouter privacy setting are in [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md). IPC calls use one budget table: a quick call waits 30 seconds, a long job has no total deadline, and a stream ends only after 120 seconds without output. The error names that budget. The work keeps running, and that error alone does not start a voice-heal retry or a model fallback. A stalled main window is written into the Doctor, then the lifecycle reloads the renderer and leaves the kernel process alone. A local model listed in `config/models.yaml` stays unavailable until discovery marks it installed. Chat then says `no installed local model`, and the pack still continues.
 
 Product code does not require `.cursor/`. `scripts/cloud-agent-install.sh` and `scripts/cloud-agent-start.sh` stay required. `.cursor/environment.json` is the cloud install and start when that file is present. Build outputs and run state (`release/`, `dist-desktop/`, `debug/`, `.venv/`, `.friday-dev/`, `.friday-readiness-root/`, `node_modules/`) stay ignored and are not packed.
 
@@ -122,26 +122,24 @@ These look like bugs. They are not. Do not "fix" them.
 - A live Windows speech download, microphone, Windows speech pack, and Shutdown or Restart on the packaged EXE are unverified. `hf-mirror.com` is off unless `FRIDAY_HF_MIRROR=1`.
 - This branch's Windows CMD pack, readiness RESTART, installer, and in-app update apply are unverified. The owner's 1.1.2.4 pack is the verified line. Silent uninstall keeps the data folder.
 - Voice smoothness, addressing quality, and flicker on a real GPU are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
-- A background health probe is `planHealthProbe`: cached, jittered, zero-spend, and off in Privacy mode. A removed model id logs a catalogue refresh. Groq's models page was re-read on 2026-10-20. The other provider pages in the unverified row were not opened on this run.
+- Catalogue refresh stays `planHealthProbe`. Per-model probes are separate zero-spend GETs (a models list, a key or account endpoint, or a local `/api/tags`). They are cached, jittered, and capped at three at a time. Privacy mode skips the network probes and still allows a local probe. A failed probe cools that model before a turn. No prompt is sent. A live provider probe was not run. Groq's models page was re-read on 2026-10-20. The other provider pages were not opened on this run.
 - `src/routeTree.gen.ts` uses one footer (`scripts/route-tree-footer.cjs`). The 2026-10-20 `build:desktop` left that file unchanged.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- Commit provenance fails on this branch because earlier commits carry an assistant identity in the author field. Those commits were not rewritten. chromadb 1.5.9 has four advisories and no published fix, so it stays. Pricing pages other than Groq were not re-read on 2026-10-20.
+- chromadb 1.5.9 has four advisories and no published fix, so it stays. Pricing pages other than Groq were not re-read on 2026-10-20. Assistant-authored commits that are already on `main` were not rewritten.
 
 ## Next priorities
 
 Owner checks stay in order. A failed step should be reported with the step number and the on-screen text.
 
-1. On the Windows PC in `D:\FRIDAY-AI-ASSISTANT` after pulling the branch:
-   1. If provenance fails: `git rebase origin/main --exec "git commit --amend --no-edit --reset-author"` then `git push --force-with-lease`.
-   2. `npm run setup`, `npm run build:win` (ends all PASS incl. RESTART, `echo %ERRORLEVEL%` is 0); then `git status` is clean.
-   3. Run the app: Auto mode on; speech model installs with progress (GPU path used if available); speak 5 sentences, a short word and a long paragraph: each appears in Live Captions; say "FRIDAY, kal ka schedule batao": she answers fast. Interrupt her mid-sentence: she stops at once.
-   4. Break things on purpose (unplug mic, switch default input, sleep/wake, delete the speech model folder): she recovers by herself with one short message.
-   5. Models: reconnect OpenRouter, Test connection, Refresh, Test selected models, set the OpenRouter privacy setting if shown; run the live check once and send the redacted report from `debug\reports`.
-   6. Ask the same request in Chat and in Voice: same plan, same tools, same model lane in the Doctor; kill a model and see her fall back by herself.
-   7. Click through every sidebar section and main buttons for a few minutes: no freeze, no stutter.
-   8. Restart and Shutdown (sidebar and by asking, approve the card): Task Manager shows no FRIDAY/python/helper left.
-   9. After merge, run PR Validation, Test Build and Release once and send any failing log.
-   Any failing step: send the step number, on-screen text and newest `debug\reports\*` file.
+1. On the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Ask a long question to a slow free model and to a big local model. The answer arrives, and the screen does not say `ipc timed out` at 30 seconds.
+   2. First-run speech model install shows progress for several minutes without an error.
+   3. Make the UI busy or freeze it (open a huge page in Browser) and see the recovery message.
+   4. Turn the speech model off or delete it. She falls back to Moonshine or Windows speech by herself.
+   5. Models: a dead model is marked before use.
+   6. PR Validation, Test Build and Release once more.
+   Any failing step: send the step number, the on-screen text and the newest `debug\reports\*` file.
+   These stay unverified until that PC runs them: live microphone hearing, Shutdown and Restart leaving no FRIDAY, python, or helper process, and an OpenRouter reconnect with the privacy setting.
 2. MCP, on that PC, in order. If a step fails, send the on-screen error and the step number.
    1. Open FRIDAY, open Connectors, and turn the MCP server on. Copy the install secret when it is shown.
    2. Pick Cursor or Claude Desktop. Copy the snippet, or use Write it for me. Quit that app fully and open it again.

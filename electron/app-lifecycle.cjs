@@ -498,11 +498,31 @@ function createLifecycle(options = {}) {
     return () => listeners.delete(fn);
   }
 
+  /** Reload the page. Does not signal an owned process. */
+  function reloadRenderer() {
+    if (typeof steps.reload !== "function") {
+      return { ok: false, action: "reload-renderer", killsProcesses: false };
+    }
+    try {
+      steps.reload();
+      note("reloaded the renderer");
+      return { ok: true, action: "reload-renderer", killsProcesses: false };
+    } catch (error) {
+      return {
+        ok: false,
+        action: "reload-renderer",
+        killsProcesses: false,
+        error: String((error && error.message) || error),
+      };
+    }
+  }
+
   return {
     requestShutdown,
     requestRestart,
     hideToBackground,
     exitNow,
+    reloadRenderer,
     onSessionEnd,
     getState,
     markReady,

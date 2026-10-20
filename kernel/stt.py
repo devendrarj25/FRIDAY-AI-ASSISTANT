@@ -601,6 +601,8 @@ def status_payload() -> dict:
         "deviceReason": device["reason"],
         "inference": "verified" if _model is not None else "unverified",
         "error": None if cls is not None else _whisper_error,
+        "moonshineReady": moonshine_model_dir() is not None,
+        "windowsSpeech": windows_speech_ready(),
         "ladder": live_ladder(
             {
                 "whisperReady": cls is not None,
@@ -713,14 +715,12 @@ def main() -> int:
     if args.serve:
         return serve()
 
-    if _import_whisper() is None:
-        emit({"ok": False, "reason": "missing-dependency", "error": _whisper_error})
+    if args.probe:
+        emit(status_payload())
         return 0
 
-    if args.probe:
-        payload = status_payload()
-        payload["available"] = True
-        emit(payload)
+    if _import_whisper() is None:
+        emit({"ok": False, "reason": "missing-dependency", "error": _whisper_error})
         return 0
 
     if args.load_probe:

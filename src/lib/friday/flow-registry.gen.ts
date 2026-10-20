@@ -2041,6 +2041,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "watchdog:beat",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "window:busy",
       file: "electron/main.cjs",
     },
@@ -8485,8 +8489,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 451,
-      total: 451,
+      mapped: 452,
+      total: 452,
     },
     kernel: {
       mapped: 14,

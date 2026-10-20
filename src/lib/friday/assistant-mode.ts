@@ -118,7 +118,7 @@ import {
 import { searchExpertise } from "./brain/expertise";
 import { formatGuidance, type OwnerGuidance } from "./doctor-engine";
 import { speechTurnPlan } from "./speech-core";
-import { chooseStt, planLiveStt, whisperMutePlan } from "./speech-stt";
+import { chooseStt, liveSttFromStatus, rememberLiveStt, whisperMutePlan } from "./speech-stt";
 import {
   failureCause,
   mayAnnounce,
@@ -1138,32 +1138,27 @@ class AssistantModeStore {
     void sttStatus(false, true, true)
       .then((state) => {
         if (!this.wantRunning || !microphoneAllowed(this.state.mode, this.state.paused)) return;
-        const lang = preferences.getSnapshot().voice.recognitionLang || "";
-        const reason = state.reason || "";
-        const live = planLiveStt({
-          whisperReady: state.engine === "faster-whisper" && Boolean(state.available),
-          weightsReady: Boolean(state.ready),
-          blocked: /blocked:|not allowlisted/i.test(reason),
-          blockReason: reason,
-          english: /^en/i.test(lang),
-          moonshineReady: false,
-          windowsSpeech: false,
-          privacy: preferences.getSnapshot().voice.privacyMode === true,
-        });
-        const ready = Boolean(state.ready && state.engine === "faster-whisper");
+        const lang = preferences.getSnapshot().voice.recognitionLang || "hi-IN";
+        const live = liveSttFromStatus(
+          state,
+          lang,
+          preferences.getSnapshot().voice.privacyMode === true,
+        );
+        rememberLiveStt(live);
+        const ready = live.status === "ready";
         this.state.stt = {
           ...this.state.stt,
-          engine: ready ? state.engine : live.engine,
+          engine: live.engine,
           model: state.model ?? this.state.stt.model,
           ready,
-          lastError: ready ? null : live.reason || reason || this.state.stt.lastError,
+          lastError: ready ? null : live.reason || state.reason || this.state.stt.lastError,
         };
         if (!ready) {
           this.state.listening = false;
           this.state.supported = false;
           const missing =
-            reason ||
             live.reason ||
+            state.reason ||
             "I can't hear you — local speech recognition is not installed. Install faster-whisper in Install Manager.";
           this.reportFailure(missing, "Local speech recognition not installed");
           this.scheduleSttRecovery(missing);

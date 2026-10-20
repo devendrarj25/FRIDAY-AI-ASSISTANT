@@ -97,6 +97,7 @@ export function emptyHealMemory(): HealMemory {
 export function classifyVoiceFault(text: string): HealClass | "none" {
   const raw = String(text || "").toLowerCase();
   if (!raw) return "none";
+  if (raw.includes("ipc budget expired")) return "none";
   if (raw.includes("checksum")) return "stt-checksum";
   if (raw.includes("not allowlisted") || raw.includes("blocked:")) return "stt-blocked";
   if (raw.includes("permission") && raw.includes("microphone")) return "mic-permission-denied";
@@ -178,7 +179,13 @@ export function planVoiceHeal(input: {
 }
 
 /** A voice fault always lands on one class so recovery does not stop on unknown text. */
-export function healFault(text: string): HealClass {
+export function healFault(text: string): HealClass | "none" {
+  if (
+    String(text || "")
+      .toLowerCase()
+      .includes("ipc budget expired")
+  )
+    return "none";
   if (HEAL_CLASSES.includes(text as HealClass)) return text as HealClass;
   const named = classifyVoiceFault(text);
   if (named !== "none") return named;

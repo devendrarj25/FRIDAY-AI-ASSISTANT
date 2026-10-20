@@ -29,6 +29,8 @@ class SttServeTests(unittest.TestCase):
             first = json.loads(proc.stdout.readline())
             self.assertEqual(first.get("id"), 1)
             self.assertEqual(first.get("loadCount"), 0)
+            self.assertIn("moonshineReady", first)
+            self.assertIs(first.get("windowsSpeech"), False)
             proc.stdin.write(json.dumps({"id": 2, "op": "status"}) + "\n")
             proc.stdin.flush()
             second = json.loads(proc.stdout.readline())
@@ -41,6 +43,22 @@ class SttServeTests(unittest.TestCase):
         finally:
             if proc.poll() is None:
                 proc.kill()
+
+    def test_probe_reports_ladder_facts_before_a_missing_whisper_exit(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertLess(text.index("if args.probe:"), text.index("if _import_whisper() is None:"))
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--probe"],
+            cwd=str(KERNEL),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        payload = json.loads(proc.stdout)
+        self.assertIn("moonshineReady", payload)
+        self.assertIs(payload.get("windowsSpeech"), False)
+        self.assertTrue(payload["ladder"]["local"])
 
 
 if __name__ == "__main__":

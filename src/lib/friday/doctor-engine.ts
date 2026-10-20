@@ -11,6 +11,8 @@ import { recentFailedStages } from "./brain/turn-timing";
 import { recentSkillGapDrafts } from "./brain/skill-forge";
 import { repairWaveCapability, waveCapabilityChecks } from "./failure-guard";
 import { speechDoctorRows } from "./speech-core";
+import { liveSttFromStatus, rememberedLiveStt, sttLadderDoctor } from "./speech-stt";
+import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
 import { voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
@@ -337,6 +339,7 @@ class DoctorStore {
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
         ...voiceLayerChecks(),
+        ...sttLadderChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
         if (enriched.repairKind === "none-needed") this.triedIds.delete(check.id);
@@ -706,8 +709,22 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
   checks.push(...voiceLayerChecks());
   checks.push(...speechDoctorRows());
+  checks.push(...sttLadderChecks());
   checks.push(...toolchainDoctorRows());
   return checks;
+}
+
+function sttLadderChecks(): DoctorCheck[] {
+  const remembered = rememberedLiveStt();
+  if (remembered) return [sttLadderDoctor(remembered)];
+  const state = cachedSttStatus();
+  if (!state || state.engine === "browser") return [];
+  const lang = preferences.getSnapshot().voice.recognitionLang || "hi-IN";
+  return [
+    sttLadderDoctor(
+      liveSttFromStatus(state, lang, preferences.getSnapshot().voice.privacyMode === true),
+    ),
+  ];
 }
 
 /** Windows CPU pack for the local engine. The pin is in Install Manager. */

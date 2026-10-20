@@ -74,48 +74,57 @@ describe("download allowlist", () => {
   });
 
   it("keeps the partial file on pause and removes it on cancel", async () => {
-    let release: () => void = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const server = createServer((req, res) => {
-      if (req.method === "HEAD") {
-        res.writeHead(200, { "content-length": "5" });
-        res.end();
-        return;
-      }
-      res.writeHead(200, { "content-length": "5" });
-      res.write("hi");
-      void held.then(() => {
-        res.end("yo!");
-      });
-    });
-    const port = await listen(server);
-    const dir = mkdtempSync(path.join(tmpdir(), "fr-pause-"));
-    const pausedDest = path.join(dir, "pause.bin");
-    const control = { paused: false, maxBytesPerSecond: 0 };
-    const controller = new AbortController();
-    const pending = download.downloadUrl(`http://127.0.0.1:${port}/slow`, pausedDest, {
-      control,
-      signal: controller.signal,
-    });
-    control.paused = true;
-    await new Promise((r) => setTimeout(r, 40));
-    controller.abort("pause");
-    await expect(pending).rejects.toThrow(/paused/);
-    expect(existsSync(`${pausedDest}.part`)).toBe(true);
+    const pauseSignal = new AbortController();
+    pauseSignal.abort("pause");
+    const pausedErr = download.normaliseDownloadAbort("pause", pauseSignal.signal);
+    expect(pausedErr).toMatchObject({ message: "paused", code: "PAUSE" });
+    const cancelSignal = new AbortController();
+    cancelSignal.abort();
+    const cancelErr = download.normaliseDownloadAbort(
+      cancelSignal.signal.reason,
+      cancelSignal.signal,
+    );
+    expect(cancelErr).toMatchObject({ message: "cancelled", code: "CANCEL" });
 
-    const cancelDest = path.join(dir, "cancel.bin");
-    const cancel = new AbortController();
-    const pendingCancel = download.downloadUrl(`http://127.0.0.1:${port}/slow`, cancelDest, {
-      signal: cancel.signal,
-    });
-    await new Promise((r) => setTimeout(r, 40));
-    cancel.abort();
-    await expect(pendingCancel).rejects.toThrow(/cancelled/);
-    expect(existsSync(`${cancelDest}.part`)).toBe(false);
-    release();
-    server.close();
+    for (let pass = 0; pass < 20; pass += 1) {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const server = createServer((req, res) => {
+        if (req.method === "HEAD") {
+          res.writeHead(200, { "content-length": "8" });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { "content-length": "8" });
+        res.write("hi");
+        void held.then(() => {
+          res.end("yo!!!!");
+        });
+      });
+      const port = await listen(server);
+      const dir = mkdtempSync(path.join(tmpdir(), "fr-pause-"));
+      const pausedDest = path.join(dir, "pause.bin");
+      const controller = new AbortController();
+      const pending = download.downloadUrl(`http://127.0.0.1:${port}/slow`, pausedDest, {
+        signal: controller.signal,
+        onEvent: () => controller.abort("pause"),
+      });
+      await expect(pending).rejects.toMatchObject({ message: "paused", code: "PAUSE" });
+      expect(existsSync(`${pausedDest}.part`)).toBe(true);
+
+      const cancelDest = path.join(dir, "cancel.bin");
+      const cancel = new AbortController();
+      const pendingCancel = download.downloadUrl(`http://127.0.0.1:${port}/slow`, cancelDest, {
+        signal: cancel.signal,
+        onEvent: () => cancel.abort(),
+      });
+      await expect(pendingCancel).rejects.toMatchObject({ message: "cancelled", code: "CANCEL" });
+      expect(existsSync(`${cancelDest}.part`)).toBe(false);
+      release();
+      server.close();
+    }
   });
 
   it("resumes a partial file with a range request", async () => {

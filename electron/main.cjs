@@ -491,7 +491,9 @@ ipcMain.handle = (channel, handler) =>
   rawHandle(channel, async (event, ...args) => {
     const started = Date.now();
     try {
-      const result = await ipcTimeout.withIpcTimeout(channel, handler(event, ...args));
+      const result = await ipcTimeout.withIpcTimeout(channel, () => handler(event, ...args), {
+        args,
+      });
       telemetry.recordIpc({
         channel,
         ok: true,
@@ -1824,7 +1826,12 @@ function startModelRegistryRefresh() {
     modelRefreshWait = setTimeout(
       () => {
         modelRefreshWait = null;
-        void refreshRoutable(false, "background").then((result) => {
+        const refresh = plan.run
+          ? refreshRoutable(false, "background")
+          : Promise.resolve(routableCache);
+        void refresh.then(async (result) => {
+          await probeRoutableModels(result?.models || routableCache.models || []);
+          if (!plan.run) return;
           void syncKernelModels();
           emitModelLifecycle("MODEL_UPDATED", {
             reason: "ttl-refresh",
@@ -1837,6 +1844,50 @@ function startModelRegistryRefresh() {
     if (modelRefreshWait.unref) modelRefreshWait.unref();
   }, MODEL_REFRESH_MS);
   if (modelRefreshTimer.unref) modelRefreshTimer.unref();
+}
+
+/** Zero-spend GET probes. The plan carries no key. Headers are not logged. */
+async function probeRoutableModels(models) {
+  const list = Array.isArray(models) ? models : [];
+  let keys = {};
+  try {
+    keys = modelsApi.readKeys(keyStoreRoot()) || {};
+  } catch {
+    keys = {};
+  }
+  const privacy = voicePrivacyOn();
+  const annotated = list.map((model) => {
+    const provider = String(
+      model.provider || model.providerId || model.meta?.providerId || "",
+    ).toLowerCase();
+    const cloud = modelsApi.CLOUD ? modelsApi.CLOUD[provider] : null;
+    const row = providerHealth.get(model.id);
+    return {
+      ...model,
+      provider,
+      listUrl: model.listUrl || (cloud && cloud.url) || "",
+      hasKey: Boolean(keys[provider]),
+      lastProbeAt: (row && row.lastProbeAt) || model.lastProbeAt || 0,
+    };
+  });
+  const plan = modelRouter.planModelProbes({
+    models: annotated,
+    privacy,
+    now: Date.now(),
+    jitterMs: Math.floor(Math.random() * 60_000),
+  });
+  await modelRouter.runZeroSpendProbes(plan, {
+    health: providerHealth,
+    now: Date.now(),
+    headersFor(probe) {
+      if (!probe.network) return {};
+      const cloud = modelsApi.CLOUD ? modelsApi.CLOUD[probe.provider] : null;
+      const key = keys[probe.provider];
+      if (!cloud || !key || typeof cloud.headers !== "function") return {};
+      return cloud.headers(key);
+    },
+    fetchImpl: (url, init) => fetch(url, { method: "GET", headers: init && init.headers }),
+  });
 }
 
 function stopModelRegistryRefresh() {
@@ -2172,14 +2223,23 @@ async function kernelRequest(method, params = {}, timeoutMs = 30000) {
     const ready = await (kernelStartPromise || waitForKernel(8000));
     if (!ready) throw new Error(kernelFailure || "FRIDAY's local AI service is unavailable.");
   }
+  const budget = ipcTimeout.budgetFor("kernel:rpc", [method]);
+  const quickMs = Number(timeoutMs) > 0 ? Number(timeoutMs) : ipcTimeout.QUICK_MS;
+  const idleMs =
+    budget.class === "stream"
+      ? ipcTimeout.STREAM_IDLE_MS
+      : budget.class === "long-job"
+        ? 0
+        : quickMs;
   return new Promise((resolve, reject) => {
     const socket = new WebSocketImpl(`ws://${KERNEL_HOST}:${KERNEL_PORT}/bridge`);
     const id = `rpc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     let settled = false;
+    let timer = null;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       try {
         socket.close();
       } catch {
@@ -2188,12 +2248,22 @@ async function kernelRequest(method, params = {}, timeoutMs = 30000) {
       if (error) reject(error);
       else resolve(result);
     };
-    const timer = setTimeout(() => finish(new Error(`${method} timed out`)), timeoutMs);
+    const arm = () => {
+      if (!idleMs) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => finish(ipcTimeout.budgetError(budget)), idleMs);
+      if (timer.unref) timer.unref();
+    };
+    arm();
     socket.addEventListener("open", () => {
       socket.send(JSON.stringify({ token: BRIDGE_TOKEN }));
       socket.send(JSON.stringify({ id, method, params }));
     });
     socket.addEventListener("message", (event) => {
+      if (budget.class === "stream") {
+        arm();
+        ipcTimeout.noteActivity();
+      }
       let message;
       try {
         message = JSON.parse(String(event.data));
@@ -2816,6 +2886,13 @@ async function startChat(request) {
         send("chat:done", { requestId, modelId: model.id, answeredBy });
         return;
       }
+      if (result.code === "IPC_BUDGET" || /ipc budget expired/i.test(String(result.error || ""))) {
+        send("chat:error", {
+          requestId,
+          error: String(result.error || "ipc budget expired"),
+        });
+        return;
+      }
       const noted = providerHealth.noteFailure(model.id, {
         message: result.error,
         modelId: model.id,
@@ -3402,6 +3479,37 @@ function createWindow() {
   });
 
   win.__fridayStartMaximized = state.maximized;
+  const windowWatch = require("./watchdog.cjs");
+  windowWatch.watchWindow(win, {
+    longWork: () => ipcTimeout.longWorkActive(),
+    recover: (plan) => {
+      windowWatch.note({
+        kind: "window",
+        detail: "FRIDAY's window stopped responding. Reloading the window.",
+      });
+      try {
+        if (win && !win.isDestroyed()) {
+          void dialog.showMessageBox(win, {
+            type: "warning",
+            message: "FRIDAY's window stopped responding.",
+            detail: "Reloading the window. The local AI service and downloads keep running.",
+            buttons: ["OK"],
+          });
+        }
+      } catch {
+        /* a missing dialog still leaves the Doctor row */
+      }
+      life.reloadRenderer();
+      log(`window recovery ${plan.action}`);
+    },
+  });
+  windowWatch.start({
+    longWork: () => ipcTimeout.longWorkActive(),
+    recover: (plan) => {
+      life.reloadRenderer();
+      log(`heartbeat recovery ${plan.action}`);
+    },
+  });
   stayHiddenOnLaunch = false;
   if (loginLaunchHidden()) {
     stayHiddenOnLaunch = true;
@@ -3920,6 +4028,11 @@ lifeSteps.tray = () => {
   }
 };
 lifeSteps.windows = () => destroyOwnedWindows();
+lifeSteps.reload = () => {
+  if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return false;
+  win.webContents.reload();
+  return true;
+};
 lifeSteps.lock = () => {
   try {
     ownerPidRegistry().stopAll();
@@ -4071,6 +4184,7 @@ ipcMain.handle("voice:stt-status", (e, request) => {
 ipcMain.handle("voice:stt-install", () => stt.install());
 ipcMain.handle("voice:transcribe", (e, payload) =>
   stt.transcribe(payload || {}, (partial) => {
+    ipcTimeout.noteActivity();
     try {
       e.sender.send("voice:partial", partial);
     } catch {
@@ -5708,6 +5822,11 @@ const diagnosticsContext = () => ({
 });
 
 let diagnosticsInflight = null;
+
+ipcMain.handle("watchdog:beat", () => {
+  require("./watchdog.cjs").beat();
+  return { ok: true };
+});
 
 ipcMain.handle("doctor:run", async (_e, options) => {
   const deep = Boolean(options && options.deep);
