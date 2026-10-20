@@ -19,6 +19,16 @@ try {
   electron = null;
 }
 
+let dispatcher = null;
+
+function nodeDispatcher() {
+  if (!dispatcher) {
+    const { Agent } = require("undici");
+    dispatcher = new Agent({ keepAliveTimeout: 30_000, connections: 8 });
+  }
+  return dispatcher;
+}
+
 const chromiumReady = () => {
   try {
     return Boolean(electron?.net?.fetch && electron.app?.isReady?.());
@@ -42,7 +52,11 @@ async function fetchCompat(url, init = {}) {
       // back to Node's stack rather than reporting the provider as offline.
     }
   }
-  return fetch(String(url), init);
+  const { fetch: undiciFetch } = require("undici");
+  return undiciFetch(String(url), {
+    ...init,
+    dispatcher: init.dispatcher || nodeDispatcher(),
+  });
 }
 
-module.exports = { fetchCompat, chromiumReady };
+module.exports = { fetchCompat, chromiumReady, nodeDispatcher };

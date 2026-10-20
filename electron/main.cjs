@@ -485,12 +485,13 @@ if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("after-requires")
 // Every IPC handler is instrumented once, here, so the Diagnostics page can
 // show real call counts, durations and failures without each handler
 // repeating the same bookkeeping.
+const ipcTimeout = require("./ipc-timeout.cjs");
 const rawHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) =>
   rawHandle(channel, async (event, ...args) => {
     const started = Date.now();
     try {
-      const result = await handler(event, ...args);
+      const result = await ipcTimeout.withIpcTimeout(channel, handler(event, ...args));
       telemetry.recordIpc({
         channel,
         ok: true,
@@ -1393,6 +1394,9 @@ async function startKernel(root) {
       const tail = kernelStderr.trim().split("\n").slice(-2).join(" ").slice(0, 300);
       kernelFailure = `The local AI service stopped (exit ${code}).${tail ? ` ${tail}` : ""}`;
     }
+    if (code !== 0 && code !== null && !shutdownStarted) {
+      require("./watchdog.cjs").note({ kind: "kernel", detail: `exit ${code}` });
+    }
     send("kernel:exit", { code });
     // Drop the last health snapshot so the UI cannot keep showing kernel
     // "online" for the rest of the 5s probe window after a real crash.
@@ -1791,6 +1795,17 @@ function persistRouterHealth() {
   }
 }
 
+function voicePrivacyOn() {
+  try {
+    const prefs = JSON.parse(fs.readFileSync(paths.preferencesFile(), "utf8"));
+    return prefs?.voice?.privacyMode === true;
+  } catch {
+    return false;
+  }
+}
+
+let modelRefreshWait = null;
+
 function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
   try {
@@ -1799,20 +1814,36 @@ function startModelRegistryRefresh() {
     /* a missing settings file is a fresh install */
   }
   modelRefreshTimer = setInterval(() => {
-    void refreshRoutable(true, "background").then((result) => {
-      void syncKernelModels();
-      emitModelLifecycle("MODEL_UPDATED", {
-        reason: "ttl-refresh",
-        count: Array.isArray(result?.models) ? result.models.length : 0,
-      });
+    const plan = modelRouter.planHealthProbe({
+      privacy: voicePrivacyOn(),
+      ageMs: routableCache.at ? Date.now() - routableCache.at : Number.POSITIVE_INFINITY,
+      jitterMs: Math.floor(Math.random() * 60_000),
     });
+    if (!plan.run) return;
+    if (modelRefreshWait) clearTimeout(modelRefreshWait);
+    modelRefreshWait = setTimeout(
+      () => {
+        modelRefreshWait = null;
+        void refreshRoutable(false, "background").then((result) => {
+          void syncKernelModels();
+          emitModelLifecycle("MODEL_UPDATED", {
+            reason: "ttl-refresh",
+            count: Array.isArray(result?.models) ? result.models.length : 0,
+          });
+        });
+      },
+      Number(plan.delayMs) || 0,
+    );
+    if (modelRefreshWait.unref) modelRefreshWait.unref();
   }, MODEL_REFRESH_MS);
+  if (modelRefreshTimer.unref) modelRefreshTimer.unref();
 }
 
 function stopModelRegistryRefresh() {
-  if (!modelRefreshTimer) return;
-  clearInterval(modelRefreshTimer);
+  if (modelRefreshTimer) clearInterval(modelRefreshTimer);
   modelRefreshTimer = null;
+  if (modelRefreshWait) clearTimeout(modelRefreshWait);
+  modelRefreshWait = null;
 }
 
 /** Register everything reachable with the kernel router — idempotent. */
@@ -2829,6 +2860,11 @@ async function startChat(request) {
         nextStep: noted.nextStep,
         facts: noted.facts || null,
       });
+      const removed = require("./provider-federation.cjs").noteRemovedId(
+        noted.category,
+        model.meta?.modelName || model.id,
+      );
+      if (removed.line) log(`chat ${requestId}: ${removed.line}`);
       log(
         `chat ${requestId}: ${model.id} failed (${noted.category}) — cooldown ${Math.round(
           noted.cooldownMs / 1000,
@@ -5677,11 +5713,26 @@ ipcMain.handle("doctor:run", async (_e, options) => {
   const deep = Boolean(options && options.deep);
   // De-duplicate concurrent scans triggered by impatient clicking.
   if (diagnosticsInflight) return diagnosticsInflight;
-  diagnosticsInflight = diagnostics.runDiagnostics(diagnosticsContext(), { deep }).finally(() => {
-    diagnosticsInflight = null;
-  });
+  diagnosticsInflight = diagnostics
+    .runDiagnostics(diagnosticsContext(), { deep })
+    .then((result) => {
+      const checks = Array.isArray(result?.checks) ? result.checks.slice() : [];
+      checks.push(require("./csp.cjs").doctorCheck());
+      checks.push(require("./watchdog.cjs").doctorCheck());
+      return { ...(result || {}), checks };
+    })
+    .finally(() => {
+      diagnosticsInflight = null;
+    });
   return diagnosticsInflight;
 });
+
+ipcMain.handle("doctor:csp-report", (_e, entry) => require("./csp.cjs").noteViolation(entry || {}));
+ipcMain.handle("doctor:csp", () => ({
+  mode: require("./csp.cjs").enforcing() ? "enforce" : "report-only",
+  policy: require("./csp.cjs").reportOnlyHeader(),
+  violations: require("./csp.cjs").listViolations(),
+}));
 
 ipcMain.handle("doctor:fix", async (_e, id) => {
   send("doctor:fix-progress", { id, phase: "Repairing" });
@@ -8140,6 +8191,20 @@ app
           // Auto mode ticks the one policy in src/lib/friday/voice-heal.ts.
           // This task does not start a second timer.
           return { armed: true, policy: "voice-heal" };
+        },
+      });
+      startupTasks.register({
+        id: "voice-health",
+        phase: "idle",
+        timeoutMs: 1000,
+        readiness: false,
+        run() {
+          const health = require("./voice-health.cjs");
+          health.startVoiceHealthProbe((plan) => {
+            if (!plan.local) return;
+            void stt.status(false, { localOnly: !plan.network });
+          }, voicePrivacyOn);
+          return { armed: true, policy: "voice-heal", probe: "voice-health" };
         },
       });
       startupTasks.register({

@@ -13,14 +13,14 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `65 files already formatted`. |
 | Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.4`. |
-| Tests | `npm test` | 368 files passed, 3054 passed, 2 skipped, 179.55s |
-| Kernel tests | `python -m pytest kernel/tests` | 201 passed. Exit 0 |
+| Tests | `npm test` | 369 files passed, 3067 passed, 2 skipped, 93.09s |
+| Kernel tests | `python -m pytest kernel/tests` | 203 passed in 88.89s. Exit 0 |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk) |
 | Version heal | `npm run verify:version` | in sync at **1.1.2.4** (npm encoding **1.1.2**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
-| Dependencies | `npm audit` | not re-run this session. The advisory database changes daily, so a previous zero is not this row |
-| Local CI substitute | `npm run preflight` | exit 1 on Linux. Every gate passed except commit provenance. `test:fast` passed: 132 files, 1107 tests. Windows pack gates were not run. `npm run validate:local` calls the same script |
-| Pricing knowledge | `npm run pricing:status` | not re-run this session |
+| Dependencies | `npm audit` | **0** vulnerabilities on 2026-10-20. `pip-audit` reports chromadb 1.5.9 (PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815) with no published fix version. The pin was not moved. |
+| Local CI substitute | `npm run preflight` | exit 1 on Linux. Every gate passed except commit provenance. `test:fast` passed: 151 files, 1262 tests. Windows pack gates were not run. `npm run validate:local` calls the same script |
+| Pricing knowledge | `npm run pricing:status` | EXPIRING. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21. Those pages were not re-read, so `checkedAt` was not moved. |
 | Commit provenance | `npm run check:provenance` | failed. The commits on this branch carry an assistant identity in the author field. History was not rewritten |
 | Hosted Actions | PR Validation / FRIDAY Release | The owner reported these green for public line 1.1.2.4 on 2026-10-18. This branch's hosted runs were not started |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this branch (needs a Windows PC). The owner verified that command for public line 1.1.2.4 on 2026-10-18 |

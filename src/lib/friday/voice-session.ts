@@ -463,6 +463,9 @@ export function spokenRouteError(text: string): string {
   if (/connect a model|start a local/i.test(flat)) {
     return "No model is reachable. Connect one in Models, or start a local engine.";
   }
+  if (/https?:\/\/|traceback|sha256|econn|fetch failed|status \d{3}/i.test(flat)) {
+    return "Something went wrong. The details are on screen.";
+  }
   if (flat.length <= 180) return flat;
   const sentence = flat.split(/(?<=[.!?])\s/)[0] || flat;
   if (sentence.length <= 180) return sentence;

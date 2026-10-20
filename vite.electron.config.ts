@@ -9,6 +9,9 @@ const require = createRequire(import.meta.url);
 const { readCanonicalIdentity } = require("./scripts/release-engine.cjs") as {
   readCanonicalIdentity: (opts?: { version?: string }) => { releaseVersion: string } | null;
 };
+const { ROUTE_TREE_START_FOOTER } = require("./scripts/route-tree-footer.cjs") as {
+  ROUTE_TREE_START_FOOTER: string;
+};
 const identity = readCanonicalIdentity();
 if (!identity?.releaseVersion) {
   throw new Error("config/friday-version.json is the canonical version source and is missing.");
@@ -30,6 +33,7 @@ export default defineConfig({
       autoCodeSplitting: true,
       routesDirectory: resolve(import.meta.dirname, "src/routes"),
       generatedRouteTree: resolve(import.meta.dirname, "src/routeTree.gen.ts"),
+      routeTreeFileFooter: [ROUTE_TREE_START_FOOTER],
     }),
     react(),
     tailwindcss(),

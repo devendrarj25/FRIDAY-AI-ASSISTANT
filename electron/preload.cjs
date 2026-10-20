@@ -484,6 +484,8 @@ contextBridge.exposeInMainWorld("friday", {
 
   // Setup & Doctor — real diagnostics and guarded repairs.
   runDiagnostics: (options) => ipcRenderer.invoke("doctor:run", options || {}),
+  reportCspViolation: (entry) => ipcRenderer.invoke("doctor:csp-report", entry || {}),
+  cspReport: () => ipcRenderer.invoke("doctor:csp"),
   applyDiagnosticFix: (id) => ipcRenderer.invoke("doctor:fix", id),
   rollbackDiagnosticFix: (entries) => ipcRenderer.invoke("doctor:rollback", entries),
   exportDiagnostics: (report) => ipcRenderer.invoke("doctor:export", report),

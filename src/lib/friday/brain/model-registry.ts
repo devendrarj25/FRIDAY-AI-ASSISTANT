@@ -20,6 +20,7 @@ import {
   type ModelSpec,
   type ProviderId,
 } from "../model-catalog";
+import { isDesktop } from "../bridge";
 import { modelRegistry as usageRegistry } from "../model-registry";
 import { models } from "../models-engine";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
@@ -131,6 +132,33 @@ export function withLiveHealth(
         : record.availability,
     };
   });
+}
+
+/**
+ * A local model is reachable after a scan or an import. In the browser preview
+ * there is no machine to scan, so a catalog version stays reachable for the
+ * simulated pipeline. The Models page still reads the scan map, not this flag.
+ */
+export function localRowReachable(input: {
+  installed: string | null;
+  imported: boolean;
+  catalogInstalled: string | null | undefined;
+  desktop: boolean;
+}): boolean {
+  if (input.installed || input.imported) return true;
+  return !input.desktop && Boolean(input.catalogInstalled);
+}
+
+/** Label for a local row. A preview reachability is not an install. */
+export function localAvailability(input: {
+  installed: string | null;
+  imported: boolean;
+  reachable: boolean;
+}): string {
+  if (!input.reachable) return "not installed";
+  if (input.installed) return `installed ${input.installed}`;
+  if (input.imported) return "installed (imported)";
+  return "browser preview";
 }
 
 /** Installed/configured AND not in provider cooldown — the orchestrator's pool. */
@@ -307,15 +335,18 @@ class ModelRegistry {
         const perf = this.perf.get(spec.id) ?? null;
 
         const local = spec.kind === "local";
-        const available = local
-          ? Boolean(installed) || imported.includes(spec.id)
-          : Boolean(provider?.online && provider?.apiKey);
-        const availability = available
-          ? local
-            ? `installed ${installed ?? "(imported)"}`
-            : "provider online"
-          : local
-            ? "not installed"
+        const importedHere = imported.includes(spec.id);
+        const reachable = localRowReachable({
+          installed,
+          imported: importedHere,
+          catalogInstalled: spec.installed,
+          desktop: isDesktop(),
+        });
+        const available = local ? reachable : Boolean(provider?.online && provider?.apiKey);
+        const availability = local
+          ? localAvailability({ installed, imported: importedHere, reachable })
+          : available
+            ? "provider online"
             : provider?.apiKey
               ? (provider.error ?? "provider offline")
               : "no API key configured";

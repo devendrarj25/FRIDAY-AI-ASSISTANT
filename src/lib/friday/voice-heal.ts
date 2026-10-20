@@ -13,6 +13,8 @@ export const HEAL_CLASSES = [
   "stt-engine-crash",
   "mic-permission-denied",
   "mic-no-device",
+  "mic-no-frames",
+  "sleep-resume",
   "audio-context-suspended",
   "vad-too-quiet",
   "vad-too-noisy",
@@ -31,6 +33,8 @@ const ACTIONS: Record<HealClass, readonly string[]> = {
   "stt-engine-crash": ["restart-stt-worker", "retry-segment", "next-stt-engine"],
   "mic-permission-denied": ["show-mic-privacy", "recheck-mic", "recheck-mic"],
   "mic-no-device": ["reopen-mic", "reopen-default-mic", "reopen-default-mic"],
+  "mic-no-frames": ["reopen-mic", "reopen-default-mic", "reopen-default-mic"],
+  "sleep-resume": ["reopen-mic", "reopen-default-mic", "reopen-default-mic"],
   "audio-context-suspended": [
     "resume-audio-context",
     "resume-audio-context",
@@ -52,6 +56,8 @@ const NEEDS: Record<HealClass, string> = {
   "mic-permission-denied":
     "Needs you: Settings > Privacy > Microphone, allow desktop apps. [Reset microphone]",
   "mic-no-device": "Needs you: plug in a microphone or pick another input. [Reset microphone]",
+  "mic-no-frames": "Needs you: the microphone opened but sent no audio. [Reset microphone]",
+  "sleep-resume": "Needs you: listening did not return after sleep. [Reset microphone]",
   "audio-context-suspended": "Needs you: click FRIDAY once so audio can resume.",
   "vad-too-quiet": "Needs you: raise the Windows input level. [Reset microphone]",
   "vad-too-noisy": "Needs you: the room is too loud for a steady floor. [Reset microphone]",
@@ -68,6 +74,8 @@ const FIXED: Record<HealClass, string> = {
   "stt-engine-crash": "Fixed: speech recognition",
   "mic-permission-denied": "Fixed: microphone permission",
   "mic-no-device": "Fixed: microphone",
+  "mic-no-frames": "Fixed: microphone frames",
+  "sleep-resume": "Fixed: listening after sleep",
   "audio-context-suspended": "Fixed: audio",
   "vad-too-quiet": "Fixed: microphone level",
   "vad-too-noisy": "Fixed: noise floor",
@@ -92,14 +100,15 @@ export function classifyVoiceFault(text: string): HealClass | "none" {
   if (raw.includes("checksum")) return "stt-checksum";
   if (raw.includes("not allowlisted") || raw.includes("blocked:")) return "stt-blocked";
   if (raw.includes("permission") && raw.includes("microphone")) return "mic-permission-denied";
+  if (raw.includes("no audio frames") || raw.includes("zero frames")) return "mic-no-frames";
+  if (raw.includes("sleep") || raw.includes("system resume")) return "sleep-resume";
   if (
     raw.includes("no microphone") ||
     raw.includes("no working microphone") ||
     raw.includes("no device") ||
     raw.includes("unplugged") ||
     raw.includes("reopening the microphone") ||
-    raw.includes("microphone track") ||
-    raw.includes("no audio frames")
+    raw.includes("microphone track")
   ) {
     return "mic-no-device";
   }

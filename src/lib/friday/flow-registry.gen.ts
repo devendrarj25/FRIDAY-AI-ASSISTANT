@@ -901,6 +901,14 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "doctor:csp",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "doctor:csp-report",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "doctor:export",
       file: "electron/main.cjs",
     },
@@ -8477,8 +8485,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 449,
-      total: 449,
+      mapped: 451,
+      total: 451,
     },
     kernel: {
       mapped: 14,

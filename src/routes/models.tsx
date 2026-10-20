@@ -1514,6 +1514,13 @@ function ProviderUse({
         {cooling.length ? ` · limited ${cooling.length}` : ""}
         {reasonLine ? ` · ${reasonLine}` : ""}
       </p>
+      {providerId === "groq" ? (
+        <p className="font-mono text-[10px] text-muted-foreground">
+          Groq publishes Developer prices, not a free-model list. Treat this key as the free tier
+          only when the account is the free plan. A priced id stays paid until you mark that model
+          free.
+        </p>
+      ) : null}
       {cloud ? (
         <div className="flex flex-wrap gap-1">
           <Button
@@ -1528,6 +1535,25 @@ function ProviderUse({
           >
             Treat key as free tier
           </Button>
+          {providerId === "groq" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!pick}
+              onClick={() => {
+                if (!pick) return;
+                const modelId = pick.id.includes(":")
+                  ? pick.id.split(":").slice(1).join(":")
+                  : pick.id;
+                void billing.setOwnerDeclaration(providerId, { modelId, mark: "free" }).then(() => {
+                  void modelRegistry.refresh(true);
+                  toast.success(`${name} — ${modelId} is marked free for this account`);
+                });
+              }}
+            >
+              Mark this Groq model free
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"

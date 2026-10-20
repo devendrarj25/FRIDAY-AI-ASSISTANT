@@ -1747,6 +1747,36 @@ function planRefresh(trigger, state = {}) {
   };
 }
 
+/**
+ * Background health is a cached models list. It spends no tokens.
+ * Privacy mode skips the cloud half. A fresh cache is left alone.
+ */
+function planHealthProbe(state = {}) {
+  const jitter = Math.abs(Number(state.jitterMs) || 0) % 60_000;
+  if (state.privacy === true) {
+    return {
+      run: false,
+      spend: "zero",
+      reason: "privacy mode — cloud probe paused",
+      delayMs: 0,
+    };
+  }
+  const ttl = Number(state.ttlMs) > 0 ? Number(state.ttlMs) : 10 * 60 * 1000;
+  const age = Number(state.ageMs);
+  const fresh = Number.isFinite(age) && age >= 0 && age < ttl;
+  if (fresh) {
+    return { run: false, spend: "zero", reason: "health cache is fresh", delayMs: jitter };
+  }
+  return {
+    run: true,
+    spend: "zero",
+    method: "models-list",
+    bounded: true,
+    delayMs: jitter,
+    reason: "zero-spend models list",
+  };
+}
+
 const BLOCKED_REPAIRS = new Set([
   "rotate-credentials",
   "privacy-mode",
@@ -2992,6 +3022,7 @@ module.exports = {
   midStreamFallback,
   spendCapAllows,
   planRefresh,
+  planHealthProbe,
   repairModelIssue,
   fallbackAdvances,
   orderFallbacks,

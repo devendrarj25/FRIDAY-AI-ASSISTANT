@@ -153,7 +153,15 @@ Free proof, error class, and local loaded-state stay in `electron/model-access.c
 | LM Studio `loaded_instances` | ADOPT | [Native list](https://lmstudio.ai/docs/developer/rest/list) and [v0 state](https://lmstudio.ai/docs/developer/rest/endpoints). [OpenAI list](https://lmstudio.ai/docs/developer/openai-compat/models) can include downloads that are not loaded. Only a loaded row is routed. Auto-load is not called. |
 | Ollama down versus a missing tag | ADOPT | A connection failure is "Ollama not running". A 404 model id is removed from the next route. Installed tags stay routable because Ollama can load them. |
 | An LLM that chooses the provider | REJECT | The supplied architecture note asked for a master prompt that picks providers. That adds latency, cost, an injection surface, and a non-deterministic route. The router stays ordinary code. |
-| Mistral Experiment, Cohere trial keys, Hugging Face `:cheapest`, NVIDIA, Cerebras, Fireworks, Together, SambaNova, Moonshot, DeepInfra, Nebius | unverified | Those pages were not re-read on 2026-10-13. Their previous rules stay. |
+| Mistral Experiment, Cohere trial keys, Hugging Face `:cheapest`, NVIDIA, Cerebras, Fireworks, Together, SambaNova, Moonshot, DeepInfra, Nebius | unverified | Those pages were not re-read on 2026-10-20. Their previous rules stay. |
+
+### Re-read (2026-10-20)
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| Groq supported models | ADOPT | [Models](https://console.groq.com/docs/models), re-read 2026-10-20. The limits column is still the Developer plan. `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` are Contact Sales. The priced ids already stored still match. The page does not list a free id. Models can mark one Groq model free for this account. |
+| Background health probe | ADAPT | `planHealthProbe` is a cached models list with jitter. It spends no tokens and does not run in Privacy mode. It feeds the existing router. |
+| A second router or a new vendor client | REJECT | Official list URLs stay inside the current handlers. No new dependency. |
 
 ### Completeness matrix (2026-10-14)
 
