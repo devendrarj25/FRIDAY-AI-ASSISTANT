@@ -206,6 +206,33 @@ export function hedgeAllowed(surface: "voice" | "chat" | string): boolean {
   return surface !== "voice";
 }
 
+const RESTART_OR_SHUTDOWN = /\b(restart|shut\s*down|shutdown)\b/i;
+
+/**
+ * Chat and Voice share tools, approval, and route. The surface only changes
+ * how the answer is delivered. Restart and shutdown always need approval.
+ */
+export function sharedTurnPlan(input: {
+  surface: "chat" | "voice";
+  tools: readonly string[];
+  approval: boolean;
+  routeMode: string;
+  prompt?: string;
+}): {
+  tools: string[];
+  approval: boolean;
+  routeMode: string;
+  style: "spoken" | "screen";
+} {
+  const restart = RESTART_OR_SHUTDOWN.test(input.prompt || "");
+  return {
+    tools: [...input.tools].map((tool) => String(tool)).sort(),
+    approval: Boolean(input.approval) || restart,
+    routeMode: input.routeMode,
+    style: input.surface === "voice" ? "spoken" : "screen",
+  };
+}
+
 export interface RankedModel {
   id?: string;
   available?: boolean;

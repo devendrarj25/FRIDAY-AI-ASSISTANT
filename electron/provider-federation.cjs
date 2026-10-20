@@ -146,6 +146,16 @@ function remapDeprecated(id, table = {}) {
   return { from: id, to: next, remapped: true };
 }
 
+function noteRemovedId(category, modelId, table = {}) {
+  if (category !== "model_unavailable")
+    return { refresh: false, line: "", next: String(modelId || "") };
+  const mapped = remapDeprecated(String(modelId || ""), table);
+  const line = mapped.remapped
+    ? `${mapped.from} was replaced by ${mapped.to}. Refreshing the catalogue.`
+    : `${modelId} is no longer listed. Refreshing the catalogue.`;
+  return { refresh: true, line, next: mapped.to };
+}
+
 function normalizeSse(chunk) {
   const events = [];
   const text = String(chunk || "");
@@ -388,6 +398,7 @@ module.exports = {
   syncProvider,
   healSnapshot,
   remapDeprecated,
+  noteRemovedId,
   normalizeSse,
   redactSecrets,
   connectionTestResult,

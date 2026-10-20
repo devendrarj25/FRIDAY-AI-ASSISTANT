@@ -176,8 +176,16 @@ const defaultSystem: SystemProfile = {
   probedAt: null,
 };
 
-const baseInstalled = (): Record<string, string | null> =>
-  Object.fromEntries(modelCatalog.map((m) => [m.id, m.installed ?? null]));
+/** A local row is installed only after a real scan or a finished install job. */
+export function installedSeed(
+  rows: readonly { id: string; kind: string; installed?: string | null }[],
+): Record<string, string | null> {
+  return Object.fromEntries(
+    rows.map((row) => [row.id, row.kind === "local" ? null : (row.installed ?? null)]),
+  );
+}
+
+const baseInstalled = (): Record<string, string | null> => installedSeed(modelCatalog);
 
 const baseProviders = (): Record<string, ProviderState> =>
   Object.fromEntries(
@@ -286,7 +294,14 @@ class ModelsStore {
   /* -------------------------------------------------------------- lifecycle */
 
   private applySaved(saved: Partial<ModelsState>) {
-    this.state.installed = { ...baseInstalled(), ...(saved.installed ?? {}) };
+    const installed = baseInstalled();
+    const scanned = Boolean(saved.lastScanAt);
+    for (const [id, version] of Object.entries(saved.installed ?? {})) {
+      const spec = modelById.get(id);
+      if (spec?.kind === "local" && !scanned) continue;
+      installed[id] = version ?? null;
+    }
+    this.state.installed = installed;
     this.state.routing = { ...baseRouting(), ...(saved.routing ?? {}) };
     this.state.benchmarks = saved.benchmarks ?? {};
     this.state.imported = saved.imported ?? [];
@@ -423,13 +438,18 @@ class ModelsStore {
       }
     }
 
-    // Catalog entries the daemon no longer has are genuinely not installed.
+    // Catalog entries a scanned local provider no longer has are not installed.
+    const scannedProviders = new Set(
+      inventory.providers
+        .filter((provider) => provider.kind === "local")
+        .map((provider) => provider.id),
+    );
     for (const spec of modelCatalog) {
-      if (spec.kind !== "local" || spec.provider !== "ollama") continue;
+      if (spec.kind !== "local" || !scannedProviders.has(spec.provider)) continue;
       const tag = registryTag(spec);
-      if (!tag) continue;
       const present = [...installedTags].some(
-        (t) => t === tag || t.replace(/:latest$/, "") === tag.split(":")[0],
+        (t) =>
+          t === spec.id || (tag && (t === tag || t.replace(/:latest$/, "") === tag.split(":")[0])),
       );
       if (!present && this.state.installed[spec.id]) this.state.installed[spec.id] = null;
     }

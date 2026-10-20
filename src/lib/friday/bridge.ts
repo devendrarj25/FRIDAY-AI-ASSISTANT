@@ -15,6 +15,12 @@ declare global {
     friday?: {
       isDesktop: true;
       getBridgeConfig: () => Promise<{ url: string; token: string }>;
+      reportCspViolation?: (entry: {
+        directive?: string;
+        blocked?: string;
+        source?: string;
+      }) => Promise<unknown>;
+      cspReport?: () => Promise<{ mode: string; policy: string; violations: unknown[] }>;
       onKernelLog: (cb: (p: { level: string; text: string }) => void) => () => void;
       onKernelExit: (cb: (p: { code: number }) => void) => () => void;
       pickFolder?: () => Promise<string | null>;

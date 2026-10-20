@@ -20,6 +20,7 @@ const { app, protocol, net } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { navigationAllowed } = require("./navigation-policy.cjs");
+const csp = require("./csp.cjs");
 
 const SCHEME = "friday";
 const ORIGIN = `${SCHEME}://app`;
@@ -121,12 +122,17 @@ function registerHandler(log = () => {}) {
 
     try {
       const body = await fs.promises.readFile(file);
+      const contentType = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
+      const headers = {
+        "content-type": contentType,
+        "cache-control": "no-cache",
+      };
+      if (contentType.startsWith("text/html")) {
+        headers[csp.headerName()] = csp.reportOnlyHeader();
+      }
       return new Response(body, {
         status: 200,
-        headers: {
-          "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
-          "cache-control": "no-cache",
-        },
+        headers,
       });
     } catch (error) {
       log(`renderer read failed for ${pathname}: ${String(error && error.message)}`);
@@ -141,8 +147,23 @@ function registerHandler(log = () => {}) {
  * @param {string|null} [options.route] client route to open (defaults to "/").
  * @returns {{mode:string, target:string}} what was loaded, for diagnostics.
  */
+function attachReportOnly(contents) {
+  const ses = contents && contents.session;
+  if (!ses || ses.__fridayCsp || !ses.webRequest || !ses.webRequest.onHeadersReceived) return;
+  ses.__fridayCsp = true;
+  ses.webRequest.onHeadersReceived((details, callback) => {
+    const headers = { ...(details.responseHeaders || {}) };
+    const type = String(headers["content-type"] || headers["Content-Type"] || "");
+    if (details.resourceType === "mainFrame" || type.includes("text/html")) {
+      headers[csp.headerName()] = [csp.reportOnlyHeader()];
+    }
+    callback({ responseHeaders: headers });
+  });
+}
+
 function load(win, { devUrl = null, log = () => {}, onFailure = () => {}, route = null } = {}) {
   const contents = win && win.webContents;
+  if (contents) attachReportOnly(contents);
   if (contents && !contents.__fridayNavGuard) {
     contents.__fridayNavGuard = true;
     contents.on("will-navigate", (event, url) => {

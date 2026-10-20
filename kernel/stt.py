@@ -91,16 +91,85 @@ def owner_model(size: str, requested: str) -> str:
     return resolve_model_name(requested)
 
 
+def cuda_runtime_ready() -> bool:
+    """CUDA only when the owner GPU flag is set and both CUDA 12 libraries are visible.
+
+    faster-whisper's GPU path needs cuBLAS for CUDA 12 and cuDNN 9 on PATH.
+    A missing library stays on CPU int8. That is not a dead microphone.
+    """
+    gpu = os.environ.get("FRIDAY_GPU", "").strip().lower() in {"1", "true", "yes", "on"}
+    asked = os.environ.get("FRIDAY_STT_CUDA", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not gpu and not asked:
+        return False
+    names = ("cublas64_12.dll", "cudnn64_9.dll") if os.name == "nt" else ("libcublas.so.12", "libcudnn.so.9")
+    roots: list[Path] = []
+    for key in ("PATH", "LD_LIBRARY_PATH"):
+        for part in os.environ.get(key, "").split(os.pathsep):
+            if part:
+                roots.append(Path(part))
+    cuda = os.environ.get("CUDA_PATH", "").strip()
+    if cuda:
+        roots.append(Path(cuda) / "bin")
+        roots.append(Path(cuda) / "lib64")
+    found: set[str] = set()
+    for root in roots:
+        for name in names:
+            try:
+                if (root / name).is_file():
+                    found.add(name)
+            except OSError:
+                continue
+    return len(found) == len(names)
+
+
+def choose_stt_device(cuda_ready: bool) -> dict:
+    if cuda_ready:
+        return {
+            "device": "cuda",
+            "compute_type": "float16",
+            "reason": "CUDA 12 libraries are on PATH",
+        }
+    return {
+        "device": "cpu",
+        "compute_type": "int8",
+        "reason": "CPU int8 — CUDA libraries were not both present",
+    }
+
+
 def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
     """The worker opens a local folder. It does not download weights."""
     target = (model_path or "").strip() or (name or DEFAULT_MODEL)
+    device = choose_stt_device(cuda_runtime_ready())
     return {
         "target": target,
-        "device": "auto",
-        "compute_type": "int8",
+        "device": device["device"],
+        "compute_type": device["compute_type"],
+        "reason": device["reason"],
         "download_root": cache_dir(),
         "local_files_only": True,
     }
+
+
+def open_whisper(cls, wanted: str, spec: dict):
+    """Load CUDA when the plan says so. A failed CUDA load retries on CPU int8."""
+    try:
+        return cls(
+            wanted,
+            device=spec["device"],
+            compute_type=spec["compute_type"],
+            download_root=spec["download_root"],
+            local_files_only=spec["local_files_only"],
+        ), spec["device"]
+    except Exception:  # noqa: BLE001 — a failed CUDA load must fall back to CPU
+        if spec["device"] == "cpu":
+            raise
+        return cls(
+            wanted,
+            device="cpu",
+            compute_type="int8",
+            download_root=spec["download_root"],
+            local_files_only=spec["local_files_only"],
+        ), "cpu"
 
 
 def resolve_model_name(requested: str) -> str:
@@ -169,13 +238,9 @@ def get_model(name: str, model_path: str | None = None):
     wanted = spec["target"]
     if _model is not None and _model_name == wanted:
         return _model
-    _model = cls(
-        wanted,
-        device=spec["device"],
-        compute_type=spec["compute_type"],
-        download_root=spec["download_root"],
-        local_files_only=spec["local_files_only"],
-    )
+    _model, _used = open_whisper(cls, wanted, spec)
+    if _used != spec["device"]:
+        spec["reason"] = "CPU int8 — CUDA load failed"
     _model_name = wanted
     _load_count += 1
     return _model
@@ -522,6 +587,7 @@ def live_ladder(facts: dict | None) -> dict:
 
 def status_payload() -> dict:
     cls = _import_whisper()
+    device = choose_stt_device(cuda_runtime_ready())
     return {
         "ok": True,
         "available": cls is not None,
@@ -530,6 +596,9 @@ def status_payload() -> dict:
         "model": _model_name or DEFAULT_MODEL,
         "cache": cache_dir(),
         "loadCount": _load_count,
+        "device": device["device"],
+        "compute": device["compute_type"],
+        "deviceReason": device["reason"],
         "inference": "verified" if _model is not None else "unverified",
         "error": None if cls is not None else _whisper_error,
         "ladder": live_ladder(
