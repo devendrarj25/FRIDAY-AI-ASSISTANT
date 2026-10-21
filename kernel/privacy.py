@@ -24,6 +24,96 @@ from typing import Any
 
 LEVELS = ("sensitive", "private", "internal", "public")
 SENSITIVE = "sensitive"
+WAY_FORWARD = "Remove it from the message, or run this turn on a local model."
+
+
+def luhn_ok(digits: str) -> bool:
+    value = str(digits or "")
+    if not re.fullmatch(r"\d{13,19}", value):
+        return False
+    total = 0
+    alt = False
+    for ch in reversed(value):
+        n = ord(ch) - 48
+        if alt:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+        alt = not alt
+    return total % 10 == 0
+
+
+def _looks_like_phone(raw: str) -> bool:
+    token = str(raw or "").strip()
+    if token.startswith("+"):
+        return True
+    if re.fullmatch(r"\d{1,3}[ -]\d{5}[ -]\d{5}", token):
+        return True
+    if re.fullmatch(r"\d{3}[ -]\d{3}[ -]\d{4}", token):
+        return True
+    if re.fullmatch(r"\(\d{3}\)\s*\d{3}[ -]\d{4}", token):
+        return True
+    return False
+
+
+def _looks_like_epoch(digits: str) -> bool:
+    if len(digits) != 13:
+        return False
+    try:
+        n = int(digits)
+    except ValueError:
+        return False
+    return 1_000_000_000_000 <= n <= 4_102_444_800_000
+
+
+def financial_identity_hit(text: str) -> bool:
+    """Same rule as electron/privacy-firewall.cjs financialIdentityHit."""
+    value = str(text or "")
+    if re.search(r"\b[A-Z]{5}\d{4}[A-Z]\b", value, re.I):
+        return True
+    if re.search(r"\b\d{4}[ -]\d{4}[ -]\d{4}\b", value):
+        return True
+    if re.search(r"\b\d{3}-\d{2}-\d{4}\b", value):
+        return True
+    if re.search(
+        r"\b(?:aadhaar|aadhar)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d(?:[ -]?\d){11}\b",
+        value,
+        re.I,
+    ):
+        return True
+    if re.search(
+        r"\b(?:ssn|social security)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d{3}[-\s]?\d{2}[-\s]?\d{4}\b",
+        value,
+        re.I,
+    ):
+        return True
+    passport = re.search(
+        r"\bpassport\b[\s:#-]*(?:number|no\.?)?[\s:#-]*([A-Z0-9][A-Z0-9-]{5,14})",
+        value,
+        re.I,
+    )
+    if passport and re.search(r"\d", passport.group(1)):
+        return True
+    cleaned = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        " ",
+        value,
+        flags=re.I,
+    )
+    for match in re.finditer(r"(?<![A-Za-z0-9+])\d(?:[ -]?\d){12,18}(?![A-Za-z0-9])", cleaned):
+        raw = match.group(0)
+        if _looks_like_phone(raw):
+            continue
+        digits = re.sub(r"\D", "", raw)
+        if len(digits) < 13 or len(digits) > 19:
+            continue
+        if _looks_like_epoch(digits):
+            continue
+        if luhn_ok(digits):
+            return True
+    return False
+
 
 # Same signals, same order, as electron/privacy-firewall.cjs.
 SIGNALS: tuple[dict[str, Any], ...] = (
@@ -56,10 +146,7 @@ SIGNALS: tuple[dict[str, Any], ...] = (
     {
         "level": "sensitive",
         "label": "financial or identity number",
-        "re": re.compile(
-            r"\b(?:\d[ -]?){13,19}\b|\b(aadhaar|pan card|passport|ssn|social security)\b",
-            re.I,
-        ),
+        "test": financial_identity_hit,
     },
     {
         "level": "sensitive",
@@ -131,7 +218,9 @@ def classify(content: Any) -> dict[str, Any]:
     reasons: list[str] = []
     rank = LEVELS.index("public")
     for signal in SIGNALS:
-        if not signal["re"].search(text):
+        tester = signal.get("test")
+        hit = tester(text) if callable(tester) else bool(signal["re"].search(text))
+        if not hit:
             continue
         reasons.append(signal["label"])
         rank = min(rank, LEVELS.index(signal["level"]))
@@ -194,18 +283,21 @@ def guard_egress(
         where = model.get("label") or model.get("id")
     where = where or "an external service"
     reasons = classification["reasons"]
+    hard_stop = classification["level"] == SENSITIVE
+    triggered = "; ".join(reasons) or "credential-like"
     return {
         "external": True,
         "requiresConfirmation": not auto,
         "autoAllowed": auto,
+        "hardStop": hard_stop,
         "classification": classification,
         "reason": (
             f"{classification['level'].upper()} content to {where}, "
             "a provider you already connected — sent automatically"
             if auto
             else (
-                f"SENSITIVE content ({'; '.join(reasons) or 'credential-like'}) would be sent to {where}"
-                if classification["level"] == SENSITIVE
+                f"Blocked: SENSITIVE — {triggered}. {WAY_FORWARD} Nothing was sent to {where}."
+                if hard_stop
                 else f"data would be sent to {where}, which is not a provider you have connected"
             )
         ),

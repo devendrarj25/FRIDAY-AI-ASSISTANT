@@ -22,14 +22,69 @@ const SENSITIVE_MARKERS = [
   /\b(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
   /\b(password|passwd|secret|api[ _-]?key|access[ _-]?token|private key|seed phrase)\b(?:\s*[:=]\s*|\s+is\s+|\s+(?=\S*\d))\S+/i,
   /\b(?:(?:my|the)\s+)?(pin|passcode|otp|one[ -]?time(?:\s+(?:code|password|passcode))?|cvv|cvc)\b(?:\s*(?:is|:|=)\s*|\s+(?=\d{4,}))\S+/i,
-  /\b(?:\d[ -]?){13,19}\b|\b(aadhaar|pan card|passport|ssn|social security)\b/i,
   /\bFRIDAY_LEDGER\b|\b(IFSC|IBAN)\b[-\s:]*[A-Z0-9]{6,}|\b(account (number|no\.?)|a\/c)\s*[:#]?\s*\d{8,}/i,
 ];
+
+/** Same financial rule as electron/privacy-firewall.cjs. Bare words do not match. */
+export function financialIdentityHit(text: string): boolean {
+  const value = String(text || "");
+  if (/\b[A-Z]{5}\d{4}[A-Z]\b/i.test(value)) return true;
+  if (/\b\d{4}[ -]\d{4}[ -]\d{4}\b/.test(value)) return true;
+  if (/\b\d{3}-\d{2}-\d{4}\b/.test(value)) return true;
+  if (/\b(?:aadhaar|aadhar)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d(?:[ -]?\d){11}\b/i.test(value))
+    return true;
+  if (
+    /\b(?:ssn|social security)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d{3}[-\s]?\d{2}[-\s]?\d{4}\b/i.test(
+      value,
+    )
+  )
+    return true;
+  const passport = /\bpassport\b[\s:#-]*(?:number|no\.?)?[\s:#-]*([A-Z0-9][A-Z0-9-]{5,14})/i.exec(
+    value,
+  );
+  if (passport && /\d/.test(passport[1] || "")) return true;
+  const cleaned = value.replace(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+    " ",
+  );
+  const cards = /(?<![A-Za-z0-9+])\d(?:[ -]?\d){12,18}(?![A-Za-z0-9])/g;
+  let match: RegExpExecArray | null;
+  while ((match = cards.exec(cleaned))) {
+    const raw = match[0];
+    if (raw.startsWith("+")) continue;
+    if (/^\d{1,3}[ -]\d{5}[ -]\d{5}$/.test(raw)) continue;
+    if (/^\d{3}[ -]\d{3}[ -]\d{4}$/.test(raw)) continue;
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 13 || digits.length > 19) continue;
+    if (digits.length === 13) {
+      const n = Number(digits);
+      if (n >= 1_000_000_000_000 && n <= 4_102_444_800_000) continue;
+    }
+    if (luhnOk(digits)) return true;
+  }
+  return false;
+}
+
+function luhnOk(digits: string): boolean {
+  if (!/^\d{13,19}$/.test(digits)) return false;
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    let n = digits.charCodeAt(i) - 48;
+    if (alt) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
 
 /** True when the text would be classified SENSITIVE by the privacy firewall. */
 export function looksSensitive(text: string): boolean {
   const value = String(text || "");
-  return SENSITIVE_MARKERS.some((re) => re.test(value));
+  return financialIdentityHit(value) || SENSITIVE_MARKERS.some((re) => re.test(value));
 }
 
 export type MemoryVerdict = {

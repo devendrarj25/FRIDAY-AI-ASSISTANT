@@ -13,14 +13,14 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `65 files already formatted`. |
 | Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.2.4`. |
-| Tests | `npm test` | 375 files passed, 3096 passed, 2 skipped, 92.96s. Exit 0 |
-| Kernel tests | `python -m pytest kernel/tests` | 204 passed in 19.12s. Exit 0 |
+| Tests | `npm test` | 375 files passed, 3100 passed, 2 skipped, 70.99s. Exit 0 |
+| Kernel tests | `python -m pytest kernel/tests` | 207 passed in 19.36s. Exit 0 |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk, provider status stale false) |
 | Version heal | `npm run verify:version` | in sync at **1.1.2.4** (npm encoding **1.1.2**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
-| Dependencies | `npm audit` | **1 high** on 2026-10-21: vite 8.3.2 (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm). The published fix is 8.3.5. The Vite 8.3.2 floor was not moved. `pip-audit` was not re-run. chromadb 1.5.9 (PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815) had no published fix version, so that pin was not moved. |
-| Local CI substitute | `npm run preflight` | exit 0 on Linux. `test:fast` passed: 137 files, 1135 tests, 26.91s. Windows pack gates were not run. `npm run validate:local` calls the same script. `npm run build:desktop` passed in 5.96s (2980 modules). |
-| Pricing knowledge | `npm run pricing:status` | Exit 1. EXPIRED. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21 (−1 day). groq and gemini are still fresh. `checkedAt` was not moved. |
+| Dependencies | `npm audit` | **0 vulnerabilities** on 2026-10-21. Vite is already pinned at 8.3.5. This change did not bump it. `pip-audit` was not re-run. chromadb 1.5.9 (PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815) had no published fix version, so that pin was not moved. |
+| Local CI substitute | `npm run preflight -- --full` | exit 0 on Linux. `npm test` passed: 375 files, 3100 tests, 2 skipped, 70.99s. Windows pack gates were skipped on Linux. `npm run validate:local` calls the same script. `npm run build:desktop` passed in 5.50s (2980 modules). |
+| Pricing knowledge | `npm run pricing:status` | Exit 1. EXPIRED. Oldest is deepseek, checked 2026-10-07, expires 2026-10-21 (−1 day). groq, gemini, mistral, nvidia, zhipu, openai, anthropic, and perplexity are fresh (checked 2026-10-21). DeepSeek's pricing URL had no price table, so that date was not moved. |
 | Commit provenance | `npm run check:provenance` | passed for this branch. New commits use the repository owner as author. Assistant-authored commits already on `main` were not rewritten |
 | Hosted Actions | PR Validation / FRIDAY Release | The owner reported these green for public line 1.1.2.4 on 2026-10-18. This branch's hosted runs were not started |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this branch (needs a Windows PC). The owner verified that command for public line 1.1.2.4 on 2026-10-18 |

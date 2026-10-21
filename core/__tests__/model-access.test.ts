@@ -463,7 +463,7 @@ describe("model access classification", () => {
     expect(listed.billingMode).toBe("PAID");
     expect(listed.evidence.source).toBe("provider_pricing");
     const dropped = access.classifyModel({ providerId: "zhipu", modelId: "glm-4.6v-flash" });
-    expect(dropped.billingMode).toBe("UNKNOWN");
+    expect(dropped.billingMode).toBe("FREE_QUOTA");
     const oldGemini = access.classifyModel({ providerId: "gemini", modelId: "gemini-3.7-flash" });
     expect(oldGemini.billingMode).toBe("UNKNOWN");
     for (const modelId of [
@@ -668,9 +668,9 @@ describe("model access classification", () => {
       due: boolean;
       expired: boolean;
     }>;
-    expect(due.some((row) => row.id === "mistral" && row.due && !row.expired)).toBe(true);
+    expect(due.some((row) => row.id === "deepseek" && row.due && !row.expired)).toBe(true);
     expect(due.some((row) => row.id === "groq")).toBe(false);
-    const later = Date.parse("2026-10-26T00:00:00Z");
+    const later = Date.parse("2026-11-03T00:00:00Z");
     const laterDue = access.planKnowledgeRefresh(later) as Array<{
       id: string;
       due: boolean;
@@ -679,8 +679,16 @@ describe("model access classification", () => {
     expect(laterDue.some((row) => row.id === "groq" && row.due && !row.expired)).toBe(true);
   });
 
+  it("keeps a stale pricing snapshot unknown and names it", () => {
+    const later = Date.parse("2026-12-01T00:00:00Z");
+    const record = access.classifyModel({ providerId: "openai", modelId: "gpt-4o" }, later);
+    expect(record.billingMode).toBe("UNKNOWN");
+    expect(record.failureReason).toBe("pricing_stale");
+    expect(record.evidence.stale).toBe(true);
+  });
+
   it("changes a price only when the page parses", () => {
-    const now = Date.parse("2026-10-14T00:00:00Z");
+    const now = Date.parse("2026-10-22T00:00:00Z");
     const before = (
       access.knowledgeCatalogue(now) as Array<{ id: string; checkedAt: number }>
     ).find((row) => row.id === "groq");

@@ -143,7 +143,7 @@ export const catalog: CatalogEntry[] = [
     "https://bootstrap.pypa.io/get-pip.py",
     "vendor",
     null,
-    "2026-10-08",
+    "2026-10-21",
     "2 MB",
     "required",
     "Pinned get-pip script. MIT.",

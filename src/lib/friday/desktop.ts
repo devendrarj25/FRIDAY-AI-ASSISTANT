@@ -366,6 +366,11 @@ type DesktopApi = {
   ) => Promise<ProviderProbe | ProviderChatProbe>;
   syncModelKnowledge?: () => Promise<{
     due: Array<{ id: string; source: string; expired: boolean }>;
+    refresh?: {
+      skipped?: string | null;
+      applied?: string[];
+      kept?: Array<{ id: string; reason: string }>;
+    };
   }>;
   healModelProviders?: () => Promise<{ ok: boolean; disabled: string[]; note: string }>;
   previewModelRoute?: (prompt: string) => Promise<{

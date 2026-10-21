@@ -28,7 +28,7 @@ describe("wave 7 bundled stage", () => {
     );
     const plan = stage.stagePlan(manifest);
     expect(plan.errors).toEqual([]);
-    expect(plan.sum).toBe(205084080);
+    expect(plan.sum).toBe(205088081);
     expect(plan.sum).toBeLessThanOrEqual(plan.budget);
     expect(plan.packs.map((row: { id: string }) => row.id)).toEqual([
       "python-embed",

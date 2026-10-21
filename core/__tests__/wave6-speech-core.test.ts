@@ -71,7 +71,7 @@ describe("wave 6 speech core and toolchain", () => {
   it("accepts the pinned manifest and keeps copyleft out of the installer", () => {
     const manifest = toolchainManifest();
     expect(validateManifest(manifest)).toEqual([]);
-    expect(bundledBytes(manifest)).toBe(205084080);
+    expect(bundledBytes(manifest)).toBe(205088081);
     expect(bundledBytes(manifest)).toBeLessThanOrEqual(manifest.budgetBytes);
     const notices = licenseNotices(manifest);
     expect(notices).toContain("PSF-2.0");

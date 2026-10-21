@@ -838,8 +838,23 @@ class ModelsStore {
       void api
         .syncModelKnowledge()
         .then((plan) => {
-          const due = Array.isArray(plan?.due) ? plan.due.length : 0;
-          this.push("ok", `Knowledge sync: ${due} source(s) due`);
+          const applied = Array.isArray(plan?.refresh?.applied) ? plan.refresh.applied.length : 0;
+          const skipped = plan?.refresh?.skipped;
+          if (skipped === "privacy") {
+            this.push("ok", "Privacy mode is on, so pricing was not refreshed.");
+          } else if (skipped === "offline") {
+            this.push("warn", "pricing info is stale, refresh now. This PC is offline.");
+          } else if (applied > 0) {
+            this.push("ok", `Pricing refreshed for ${applied} source(s).`);
+          } else {
+            const due = Array.isArray(plan?.due) ? plan.due.length : 0;
+            this.push(
+              due ? "warn" : "ok",
+              due
+                ? "pricing info is stale, refresh now. The last table was kept."
+                : "Pricing knowledge is inside its window.",
+            );
+          }
           this.emit();
         })
         .catch((err: Error) => {

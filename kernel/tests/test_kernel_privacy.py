@@ -27,6 +27,23 @@ class ClassifyTests(unittest.TestCase):
     def test_public_chat_is_public(self):
         self.assertEqual(privacy.classify("what is 2+2")["level"], "public")
 
+    def test_ordinary_words_are_not_financial(self):
+        for text in (
+            "how do I renew my passport",
+            "what is an ssn",
+            "the secret recipe uses cinnamon",
+            "order 1000000000000001",
+            "seen at 1729468800000",
+        ):
+            self.assertNotEqual(privacy.classify(text)["level"], "sensitive", text)
+
+    def test_real_identifiers_are_a_hard_stop(self):
+        decision = privacy.guard_egress(CLOUD, "card 4111 1111 1111 1111", connected=True)
+        self.assertTrue(decision["hardStop"])
+        self.assertIn("financial or identity number", decision["reason"])
+        self.assertIn("local model", decision["reason"])
+        self.assertFalse(decision["autoAllowed"])
+
     def test_password_without_colon_is_sensitive(self):
         self.assertEqual(privacy.classify("password hunter2")["level"], "sensitive")
 

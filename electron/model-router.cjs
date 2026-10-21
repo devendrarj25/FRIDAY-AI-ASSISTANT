@@ -317,9 +317,9 @@ function dailyRemaining(input) {
 }
 
 const NEXT_STEP = Object.freeze({
-  rate_limited: "Wait for the per-minute limit, then try this model again.",
-  daily_limit: "The daily limit is used. Wait until it resets, or use another free model.",
-  quota_exceeded: "This account's quota is used. Wait, or use a different provider.",
+  rate_limited: "Wait, or switch to another free model.",
+  daily_limit: "Daily limit reached. Wait, or switch to another free model.",
+  quota_exceeded: "Free quota ended. Wait, or switch to another free model.",
   billing_required:
     "This model needs paid access. Other free models can still be tried. Turn paid access on only if you mean to spend.",
   invalid_key: "Check this provider's API key in Models.",
@@ -448,7 +448,7 @@ function classifyError(input) {
 
   if (status === 429 || has("rate limit", "rate-limit", "rate_limit", "too many requests")) {
     const retryAfter = cooldownFromRetryAfter(input);
-    if (has("quota", "insufficient_quota", "billing", "exceeded your current quota")) {
+    if (has("quota", "insufficient_quota", "exceeded your current quota")) {
       return withStep({
         category: "quota_exceeded",
         retryable: true,
@@ -1226,7 +1226,12 @@ function modelAvailability(model, policy, now, task = "chat") {
       return { visibility: "hide", reason: "paid-only" };
     }
     if (!paidOn && model.access === "paid") return { visibility: "hide", reason: "paid-off" };
-    if (!paidOn && model.access !== "free") return { visibility: "hide", reason: "cost-unknown" };
+    if (!paidOn && model.access !== "free") {
+      const stale =
+        model?.accessRecord?.failureReason === "pricing_stale" ||
+        model?.accessRecord?.evidence?.stale === true;
+      return { visibility: "hide", reason: stale ? "pricing-stale" : "cost-unknown" };
+    }
   }
   if (
     (task === "chat" || task === "fast") &&
@@ -1242,8 +1247,9 @@ function modelAvailability(model, policy, now, task = "chat") {
   };
 }
 
-function selectorHint(hiddenPaid, hiddenUnknown, providersWithoutFree) {
+function selectorHint(hiddenPaid, hiddenUnknown, providersWithoutFree, hiddenStale = 0) {
   const parts = [];
+  if (hiddenStale > 0) parts.push("pricing info is stale, refresh now");
   const hidden = hiddenPaid + hiddenUnknown;
   if (hidden > 0) {
     parts.push(
@@ -1266,7 +1272,12 @@ function countProvidersWithoutFree(rows) {
     if (!by.has(id)) by.set(id, { free: false, blocked: false });
     const bucket = by.get(id);
     if (row.model?.access === "free") bucket.free = true;
-    if (row.reason === "paid-off" || row.reason === "cost-unknown") bucket.blocked = true;
+    if (
+      row.reason === "paid-off" ||
+      row.reason === "cost-unknown" ||
+      row.reason === "pricing-stale"
+    )
+      bucket.blocked = true;
   }
   let count = 0;
   for (const bucket of by.values()) {
@@ -1357,12 +1368,14 @@ function usableModels(models, options = {}) {
   });
   const hiddenPaid = rows.filter((row) => row.reason === "paid-off").length;
   const hiddenUnknown = rows.filter((row) => row.reason === "cost-unknown").length;
+  const hiddenStale = rows.filter((row) => row.reason === "pricing-stale").length;
   const providersWithoutFree = countProvidersWithoutFree(rows);
   return {
     rows,
-    hint: selectorHint(hiddenPaid, hiddenUnknown, providersWithoutFree),
+    hint: selectorHint(hiddenPaid, hiddenUnknown, providersWithoutFree, hiddenStale),
     hiddenPaid,
     hiddenUnknown,
+    hiddenStale,
     providersWithoutFree,
   };
 }
@@ -1953,6 +1966,13 @@ function midStreamFallback(category) {
   };
 }
 
+function freeLaneModel(model) {
+  if (!model) return false;
+  if (model.access === "free") return true;
+  const type = String(model.type || model.kind || model.meta?.kind || "").toLowerCase();
+  return LOCAL_PROVIDERS.has(type) || type === "llama.cpp";
+}
+
 function fallbackAdvances(category, options = {}) {
   const name = String(category || "");
   if (name === "context_overflow" && options.compacted === true) return true;
@@ -1986,6 +2006,7 @@ function fallbackTier(candidate, failed) {
  */
 function orderFallbacks(candidates, failed, category, options = {}) {
   if (!failed || !fallbackAdvances(category, options)) return [];
+  const freeOnlyMove = ["rate_limited", "daily_limit", "quota_exceeded"].includes(category);
   const providerWide =
     category === "offline" ||
     category === "provider_error" ||
@@ -1995,8 +2016,9 @@ function orderFallbacks(candidates, failed, category, options = {}) {
     category === "account_setting_required";
   const failedBackend = backendOf(failed);
   const rest = (candidates || []).filter((model) => model && model.id && model.id !== failed.id);
+  const lane = freeOnlyMove ? rest.filter((model) => freeLaneModel(model)) : rest;
   const pool =
-    category === "invalid_key" ? rest.filter((model) => backendOf(model) !== failedBackend) : rest;
+    category === "invalid_key" ? lane.filter((model) => backendOf(model) !== failedBackend) : lane;
   return pool
     .map((model, index) => ({
       model,

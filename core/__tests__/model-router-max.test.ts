@@ -116,6 +116,24 @@ describe("provider errors stay on the model that failed", () => {
     expect(text).toContain("Other models on this provider are still eligible");
     expect(text).not.toMatch(/sk-[a-z0-9]/i);
   });
+
+  it("moves a free quota end only onto another free model", () => {
+    const paid = { ...sibling, access: "paid" };
+    const free = { ...other, access: "free" };
+    const next = router.orderFallbacks(
+      [paid, free, resident],
+      { ...failed, access: "free" },
+      "quota_exceeded",
+    );
+    const ids = next.map((model: { id: string }) => model.id);
+    expect(ids).toContain(free.id);
+    expect(ids).toContain(resident.id);
+    expect(ids).not.toContain(paid.id);
+    const limited = router.classifyError({ status: 429, message: "rate limit" });
+    expect(limited.category).toBe("rate_limited");
+    expect(limited.nextStep).toMatch(/another free model/i);
+    expect(limited.nextStep).not.toMatch(/billing/i);
+  });
 });
 
 describe("free proof and the firewall", () => {

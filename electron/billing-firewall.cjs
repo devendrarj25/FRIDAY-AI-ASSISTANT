@@ -120,16 +120,16 @@ function guardProviderRequest(options = {}) {
   // Unknown-cost, exhausted credits, and paid models all need owner
   // authorisation. An API key alone is not consent, and free-only never
   // falls through to a paid call.
+  const record = accessRecordOf(model);
   const unlocked = billingPolicy.paidUnlocked(billing, now);
   if (!unlocked.allowed) {
+    const copy = blockCopy(klass, record, unlocked.reason);
     return {
       allowed: false,
       billingClass: klass,
       requiresApproval: true,
-      reason:
-        klass === "unknown"
-          ? "billing status for this model is unverified, so FRIDAY treats it as paid — paid AI access is off"
-          : unlocked.reason,
+      blockKind: copy.blockKind,
+      reason: copy.reason,
     };
   }
 
@@ -162,6 +162,57 @@ function guardProviderRequest(options = {}) {
   };
 }
 
+function accessRecordOf(model) {
+  const direct = model?.accessRecord || model?.meta?.accessRecord;
+  if (direct && typeof direct === "object" && direct.billingMode) return direct;
+  try {
+    return modelAccess.accessOf(model);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Four owner-facing blocks. A stale snapshot is not a paid bill.
+ * A free quota end is not a paid bill. Unknown stays unverified.
+ */
+function blockCopy(klass, record, paidReason) {
+  const stale = record?.failureReason === "pricing_stale" || record?.evidence?.stale === true;
+  const freeMode =
+    record &&
+    modelAccess &&
+    ["ZERO_COST", "FREE_QUOTA", "FREE_CREDIT"].includes(record.billingMode);
+  if (stale) {
+    return {
+      blockKind: "unverified",
+      reason:
+        "pricing info is stale, refresh now. Blocked: unverified, tap to mark free or refresh.",
+    };
+  }
+  if (record?.eligibility === "EXHAUSTED" && record?.billingMode !== "PAID") {
+    return {
+      blockKind: "quota",
+      reason: "free quota ended. Wait, or switch to another free model.",
+    };
+  }
+  if (
+    (record?.eligibility === "RATE_LIMITED" || record?.failureReason === "rate_limited") &&
+    freeMode
+  ) {
+    return {
+      blockKind: "quota",
+      reason: "Wait, or switch to another free model. This is a rate limit, not a billing error.",
+    };
+  }
+  if (klass === "unknown") {
+    return {
+      blockKind: "unverified",
+      reason: "blocked: unverified, tap to mark free or refresh",
+    };
+  }
+  return { blockKind: "paid", reason: `blocked: paid. ${paidReason}` };
+}
+
 /** Short line for logs and for the message the owner sees when blocked. */
 function describeBlock(decision, model) {
   const label = model?.label || model?.id || "this model";
@@ -172,6 +223,7 @@ module.exports = {
   LOCAL_KINDS,
   billingClass,
   isBillable,
+  blockCopy,
   guardProviderRequest,
   describeBlock,
 };

@@ -1251,6 +1251,8 @@ class ModelRouter:
         # fresh owner yes. Local inference is not gated.
         content = privacy.user_content(messages)
         privacy_decision = privacy.guard_egress(model, content, connected=True)
+        if privacy_decision.get("hardStop"):
+            raise privacy.PrivacyBlocked(privacy.describe_block(privacy_decision, model))
         if privacy_decision.get("requiresConfirmation") and not privacy_confirmed:
             ask = self.on_privacy_ask
             allowed = False

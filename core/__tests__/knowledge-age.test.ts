@@ -33,6 +33,6 @@ describe("model knowledge age", () => {
     expect(providerKnowledgeLine(PROVIDER_KNOWLEDGE_VIEW["groq"], now)).toContain(
       "console.groq.com/docs/models",
     );
-    expect(providerKnowledgeLine(PROVIDER_KNOWLEDGE_VIEW["groq"], now)).toContain("2026-10-13");
+    expect(providerKnowledgeLine(PROVIDER_KNOWLEDGE_VIEW["groq"], now)).toContain("2026-10-21");
   });
 });
