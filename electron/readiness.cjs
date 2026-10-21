@@ -296,7 +296,15 @@ async function runReadiness(ctx) {
       voice = { ok: false, detail: String(error.message || error) };
     }
   }
-  stages.push(stage("VOICE", voice.ok, voice.detail));
+  let speech = { ok: true, detail: "speech self-test skipped" };
+  try {
+    speech = await require("./voice-verify.cjs").speechSelfTest();
+  } catch (error) {
+    speech = { ok: false, detail: String(error.message || error) };
+  }
+  const voiceOk = Boolean(voice.ok) && speech.ok !== false;
+  const voiceDetail = `${voice.detail || "renderer unavailable"}. ${speech.detail || ""}`.trim();
+  stages.push(stage("VOICE", voiceOk, voiceDetail));
 
   // ----------------------------------------------------------- BASIC TASK
   // The smallest real end-to-end unit of work: list the kernel's tools and run

@@ -22,8 +22,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import struct
 import sys
+import tempfile
+import wave
 from pathlib import Path
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
@@ -280,31 +284,205 @@ def moonshine_model_dir() -> str | None:
     return str(max(parents, key=parents.get))
 
 
-def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None]:
-    """Denoise when pyrnnoise imports. The original file is used otherwise."""
+AV_REQUIREMENT = "av>=17.0.0,<19"
+AV_FIX = 'python -m pip install "av>=17.0.0,<19"'
+STT_CLASSES = (
+    "dependency-incompatible",
+    "model-missing",
+    "oom",
+    "timeout",
+    "audio-invalid",
+)
+PROBE_SECONDS = 1.5
+PROBE_RATE = 16000
+
+
+class SttFault(RuntimeError):
+    """One classified transcription failure. The text is the status line."""
+
+    def __init__(self, kind: str, message: str, fix: str = ""):
+        self.kind = kind if kind in STT_CLASSES else "audio-invalid"
+        self.fix = fix
+        super().__init__(message)
+
+
+def version_tuple(text: str) -> tuple[int, int, int]:
+    parts: list[int] = []
+    for piece in str(text or "").replace("-", ".").split("."):
+        digits = ""
+        for char in piece:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        if digits:
+            parts.append(int(digits))
+        if len(parts) == 3:
+            break
+    while len(parts) < 3:
+        parts.append(0)
+    return parts[0], parts[1], parts[2]
+
+
+def av_in_range(version: str) -> bool:
+    """True for av 17 and 18. PyAV 19 removed metadata_errors."""
+    major, minor, patch = version_tuple(version)
+    return (major, minor, patch) >= (17, 0, 0) and major < 19
+
+
+def installed_av_version() -> str | None:
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except Exception:
+        return None
+    try:
+        return version("av")
+    except PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+def av_guard() -> dict:
+    """Missing av is a visible skip. An installed av outside the range fails."""
+    found = installed_av_version()
+    if not found:
+        return {
+            "installed": False,
+            "ok": True,
+            "skipped": True,
+            "version": None,
+            "requirement": AV_REQUIREMENT,
+            "fix": AV_FIX,
+            "reason": "av is not installed; skipped",
+        }
+    ok = av_in_range(found)
+    reason = "" if ok else f"dependency-incompatible: av {found} with faster-whisper"
+    return {
+        "installed": True,
+        "ok": ok,
+        "skipped": False,
+        "version": found,
+        "requirement": AV_REQUIREMENT,
+        "fix": "" if ok else AV_FIX,
+        "reason": reason,
+    }
+
+
+def classify_stt_exception(exc: BaseException) -> SttFault:
+    if isinstance(exc, SttFault):
+        return exc
+    text = str(exc)
+    low = text.lower()
+    if isinstance(exc, (TypeError, ImportError)) and ("metadata_errors" in low or "unexpected keyword argument" in low):
+        guard = av_guard()
+        ver = guard.get("version") or "unknown"
+        return SttFault(
+            "dependency-incompatible",
+            f"dependency-incompatible: av {ver} with faster-whisper",
+            AV_FIX,
+        )
+    if (
+        isinstance(exc, ImportError)
+        or "faster-whisper is not installed" in low
+        or "no module named" in low
+        or ("not found" in low and "model" in low)
+        or "local_files_only" in low
+    ):
+        return SttFault(
+            "model-missing",
+            f"model-missing: {text[-400:]}",
+            'python -m pip install "faster-whisper>=1.2.1"',
+        )
+    if "out of memory" in low or "outofmemory" in low or ("cuda" in low and "memory" in low):
+        return SttFault("oom", f"oom: {text[-400:]}")
+    if isinstance(exc, TimeoutError) or "timed out" in low or "timeout" in low:
+        return SttFault("timeout", f"timeout: {text[-400:]}")
+    return SttFault("audio-invalid", f"audio-invalid: {text[-400:]}")
+
+
+def read_pcm16_wav(path: str):
+    """16 kHz mono PCM16 WAV to a float32 array. None for any other file.
+
+    This is the hot path for segments FRIDAY recorded. It does not import PyAV.
+    """
+    try:
+        with wave.open(path, "rb") as handle:
+            channels = handle.getnchannels()
+            rate = handle.getframerate()
+            width = handle.getsampwidth()
+            frames = handle.readframes(handle.getnframes())
+    except (wave.Error, EOFError, OSError):
+        return None
+    if channels != 1 or rate != PROBE_RATE or width != 2 or not frames:
+        return None
     try:
         import numpy as np  # type: ignore
-        import soundfile as sf  # type: ignore
-        import voice_runtime
-        from faster_whisper.audio import decode_audio  # type: ignore
     except Exception:
-        return audio_path, None, None
+        return None
+    audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    return np.ascontiguousarray(audio)
+
+
+def write_probe_wav(path: str, seconds: float = PROBE_SECONDS) -> str:
+    """1.5 s of 440 Hz then silence. Tone plus silence, no speech claim."""
+    count = int(PROBE_RATE * seconds)
+    tone = int(PROBE_RATE * 0.4)
+    frames = bytearray()
+    for index in range(count):
+        sample = 0
+        if index < tone:
+            sample = int(0.2 * 32767 * math.sin(2 * math.pi * 440 * index / PROBE_RATE))
+        frames += struct.pack("<h", sample)
+    with wave.open(path, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(PROBE_RATE)
+        handle.writeframes(frames)
+    return path
+
+
+def decode_foreign(path: str):
+    """PyAV only for files that are not FRIDAY's own 16 kHz mono PCM WAV."""
+    guard = av_guard()
+    if guard["installed"] and not guard["ok"]:
+        raise SttFault("dependency-incompatible", str(guard["reason"]), AV_FIX)
     try:
-        decoded = decode_audio(audio_path, sampling_rate=16000)
+        from faster_whisper.audio import decode_audio  # type: ignore
+    except ImportError as exc:
+        raise SttFault(
+            "model-missing",
+            "model-missing: faster-whisper is not installed",
+            'python -m pip install "faster-whisper>=1.2.1"',
+        ) from exc
+    try:
+        return decode_audio(path, sampling_rate=PROBE_RATE)
+    except Exception as exc:  # noqa: BLE001 — typed for the voice status line
+        raise classify_stt_exception(exc) from exc
+
+
+def load_audio_array(path: str):
+    """One audio-to-array path. Native WAV first, foreign formats second."""
+    native = read_pcm16_wav(path)
+    if native is not None:
+        return native
+    return decode_foreign(path)
+
+
+def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None]:
+    """Denoise the array. The whisper call receives the array, not a PyAV path."""
+    samples = load_audio_array(audio_path)
+    try:
+        import numpy as np  # type: ignore
+        import voice_runtime
+
+        original = np.asarray(samples, dtype=np.float32).reshape(-1)
+        cleaned = np.asarray(voice_runtime.denoise_pcm(original, PROBE_RATE), dtype=np.float32).reshape(-1)
     except Exception:
-        return audio_path, None, None
-    original = np.asarray(decoded, dtype=np.float32).reshape(-1)
-    cleaned = np.asarray(voice_runtime.denoise_pcm(original, 16000), dtype=np.float32).reshape(-1)
+        return audio_path, samples, None
     if cleaned.size == 0:
         return audio_path, original, None
-    if cleaned.shape == original.shape and np.allclose(cleaned, original):
-        return audio_path, original, None
-    dest = str(Path(audio_path).with_suffix(".denoise.wav"))
-    try:
-        sf.write(dest, cleaned, 16000)
-    except Exception:
-        return audio_path, original, None
-    return dest, cleaned, dest
+    return audio_path, cleaned, None
 
 
 def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
@@ -439,7 +617,30 @@ def _transcribe_prepared(
     }
     if hint:
         kwargs["initial_prompt"] = hint[:800]
-    segments, info = model.transcribe(audio, **kwargs)
+    payload = samples if samples is not None else audio
+    try:
+        segments, info = model.transcribe(payload, **kwargs)
+    except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
+        fault = classify_stt_exception(exc)
+        windows_text = None
+        if fault.kind in {"oom", "timeout", "dependency-incompatible"} and isinstance(audio, str):
+            windows_text = transcribe_windows(audio)
+        if not windows_text:
+            raise fault from exc
+        return {
+            "ok": True,
+            "text": windows_text,
+            "language": "",
+            "durationMs": 0,
+            "model": "windows-speech",
+            "noSpeechProb": 0.0,
+            "loadCount": _load_count,
+            "engine": "windows-speech",
+            "turnProbability": turn_probability,
+            "notice": str(fault),
+            "sttClass": fault.kind,
+            "fix": fault.fix,
+        }
     parts: list[str] = []
     no_speech: list[float] = []
     partials = 0
@@ -603,6 +804,8 @@ def status_payload() -> dict:
         "error": None if cls is not None else _whisper_error,
         "moonshineReady": moonshine_model_dir() is not None,
         "windowsSpeech": windows_speech_ready(),
+        "av": av_guard(),
+        "local": True,
         "ladder": live_ladder(
             {
                 "whisperReady": cls is not None,
@@ -616,10 +819,163 @@ def status_payload() -> dict:
     }
 
 
+def run_speech_self_test(transcribe=None) -> dict:
+    """Same path as live speech: 1.5 s PCM WAV, then the array, never a raw path.
+
+    Empty text is success. A raised transcription fails. A missing wheel or a
+    missing weight file is a visible skip. Nothing here leaves the machine.
+    """
+    import time
+
+    folder = tempfile.mkdtemp(prefix="friday-stt-")
+    wav = write_probe_wav(str(Path(folder) / "probe.wav"))
+    started = time.perf_counter()
+    try:
+        samples = read_pcm16_wav(wav)
+    except Exception as exc:  # noqa: BLE001
+        fault = classify_stt_exception(exc)
+        return {
+            "ok": False,
+            "skipped": False,
+            "local": True,
+            "sttClass": fault.kind,
+            "error": str(fault),
+            "fix": fault.fix,
+            "engine": "faster-whisper",
+            "model": DEFAULT_MODEL,
+            "loadMs": 0,
+            "transcribeMs": 0,
+        }
+    if samples is None:
+        return {
+            "ok": False,
+            "skipped": False,
+            "local": True,
+            "sttClass": "audio-invalid",
+            "error": "audio-invalid: the probe clip was not 16 kHz mono PCM",
+            "fix": "",
+            "engine": "faster-whisper",
+            "model": DEFAULT_MODEL,
+            "loadMs": 0,
+            "transcribeMs": 0,
+        }
+    audio_ms = int((time.perf_counter() - started) * 1000)
+    guard = av_guard()
+    if transcribe is not None:
+        t0 = time.perf_counter()
+        try:
+            text = transcribe(samples)
+        except Exception as exc:  # noqa: BLE001
+            fault = classify_stt_exception(exc)
+            return {
+                "ok": False,
+                "skipped": False,
+                "local": True,
+                "sttClass": fault.kind,
+                "error": str(fault),
+                "fix": fault.fix,
+                "engine": "faster-whisper",
+                "model": DEFAULT_MODEL,
+                "loadMs": audio_ms,
+                "transcribeMs": int((time.perf_counter() - t0) * 1000),
+                "av": guard,
+            }
+        return {
+            "ok": True,
+            "skipped": False,
+            "local": True,
+            "text": str(text or ""),
+            "engine": "faster-whisper",
+            "model": DEFAULT_MODEL,
+            "loadMs": audio_ms,
+            "transcribeMs": int((time.perf_counter() - t0) * 1000),
+            "av": guard,
+        }
+    whisper = _import_whisper()
+    if whisper is None:
+        return {
+            "ok": True,
+            "skipped": True,
+            "local": True,
+            "reason": _whisper_error or "faster-whisper is not installed",
+            "engine": "none",
+            "model": DEFAULT_MODEL,
+            "loadMs": 0,
+            "transcribeMs": 0,
+            "audioVerified": True,
+            "av": guard,
+        }
+    load_started = time.perf_counter()
+    try:
+        get_model(DEFAULT_MODEL)
+    except Exception as exc:  # noqa: BLE001
+        fault = classify_stt_exception(exc)
+        if fault.kind != "model-missing":
+            return {
+                "ok": False,
+                "skipped": False,
+                "local": True,
+                "sttClass": fault.kind,
+                "error": str(fault),
+                "fix": fault.fix,
+                "engine": "faster-whisper",
+                "model": DEFAULT_MODEL,
+                "loadMs": int((time.perf_counter() - load_started) * 1000),
+                "transcribeMs": 0,
+                "av": guard,
+            }
+        return {
+            "ok": True,
+            "skipped": True,
+            "local": True,
+            "reason": str(fault),
+            "sttClass": fault.kind,
+            "engine": "faster-whisper",
+            "model": DEFAULT_MODEL,
+            "loadMs": int((time.perf_counter() - load_started) * 1000),
+            "transcribeMs": 0,
+            "audioVerified": True,
+            "av": guard,
+        }
+    load_ms = int((time.perf_counter() - load_started) * 1000)
+    t0 = time.perf_counter()
+    try:
+        result = _transcribe_prepared(wav, samples, DEFAULT_MODEL, "", "", None, "", "", "")
+    except Exception as exc:  # noqa: BLE001
+        fault = classify_stt_exception(exc)
+        return {
+            "ok": False,
+            "skipped": False,
+            "local": True,
+            "sttClass": fault.kind,
+            "error": str(fault),
+            "fix": fault.fix,
+            "engine": "faster-whisper",
+            "model": _model_name or DEFAULT_MODEL,
+            "loadMs": load_ms,
+            "transcribeMs": int((time.perf_counter() - t0) * 1000),
+            "av": guard,
+        }
+    return {
+        "ok": True,
+        "skipped": False,
+        "local": True,
+        "text": result.get("text") or "",
+        "engine": result.get("engine") or "faster-whisper",
+        "model": result.get("model") or (_model_name or DEFAULT_MODEL),
+        "loadMs": load_ms,
+        "transcribeMs": int((time.perf_counter() - t0) * 1000),
+        "audioVerified": True,
+        "av": guard,
+    }
+
+
 def handle_request(req: dict) -> dict:
     op = str(req.get("op") or "")
     if op in {"status", "probe"}:
         return status_payload()
+    if op == "self-test":
+        return run_speech_self_test()
     if op == "load":
         import time
 
@@ -665,8 +1021,17 @@ def handle_request(req: dict) -> dict:
                 str(req.get("model_path") or ""),
             )
         except Exception as exc:  # noqa: BLE001
-            reason = "missing-dependency" if _whisper_cls is None else "transcribe-failed"
-            return {"ok": False, "reason": reason, "error": str(exc)[-600:], "loadCount": _load_count}
+            fault = classify_stt_exception(exc)
+            if _whisper_cls is None and fault.kind != "dependency-incompatible":
+                fault = SttFault("model-missing", str(fault), fault.fix)
+            return {
+                "ok": False,
+                "reason": fault.kind,
+                "sttClass": fault.kind,
+                "error": str(fault)[-600:],
+                "fix": fault.fix,
+                "loadCount": _load_count,
+            }
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}
@@ -710,10 +1075,16 @@ def main() -> int:
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--load-probe", dest="load_probe", action="store_true")
     ap.add_argument("--serve", action="store_true")
+    ap.add_argument("--self-test", dest="self_test", action="store_true")
     args = ap.parse_args()
 
     if args.serve:
         return serve()
+
+    if args.self_test:
+        payload = run_speech_self_test()
+        emit(payload)
+        return 0 if payload.get("ok") else 1
 
     if args.probe:
         emit(status_payload())
@@ -749,7 +1120,16 @@ def main() -> int:
     try:
         emit(transcribe_file(args.audio, args.model, args.language, args.initial_prompt))
     except Exception as exc:  # noqa: BLE001
-        emit({"ok": False, "reason": "transcribe-failed", "error": str(exc)[-600:]})
+        fault = classify_stt_exception(exc)
+        emit(
+            {
+                "ok": False,
+                "reason": fault.kind,
+                "sttClass": fault.kind,
+                "error": str(fault)[-600:],
+                "fix": fault.fix,
+            }
+        )
     return 0
 
 

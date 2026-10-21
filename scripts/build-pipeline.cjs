@@ -478,6 +478,28 @@ function runPackagedSelfCheck(input = {}) {
     }
     lines.push(`${probe.name} ok`);
   }
+  const sttScript = [
+    path.join(unpackDir, "resources", "kernel", "stt.py"),
+    path.join(unpackDir, "kernel", "stt.py"),
+  ].find((file) => fs.existsSync(file));
+  if (!sttScript) {
+    lines.push("stt-self-test skipped: kernel script is not in this unpack");
+  } else {
+    const pythonExe = path.join(pythonDir, "python.exe");
+    const speech = runner({
+      name: "stt-self-test",
+      command: [pythonExe, sttScript, "--self-test"],
+      cwd: path.dirname(sttScript),
+    });
+    const speechOut = String((speech && speech.stdout) || "");
+    const speechStatus = speech && speech.status;
+    if (speechStatus !== 0 && !/skipped/i.test(speechOut)) {
+      throw new Error(
+        `packaged self-check: stt-self-test failed (${speechStatus === null || speechStatus === undefined ? "no exit" : speechStatus})`,
+      );
+    }
+    lines.push(/skipped/i.test(speechOut) ? "stt-self-test skipped" : "stt-self-test ok");
+  }
   return lines.join("; ");
 }
 

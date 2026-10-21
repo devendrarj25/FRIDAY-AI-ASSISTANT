@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
+import { models } from "@/lib/friday/models-engine";
 import {
   formatVoiceProbeReport,
   liveVoiceRuntimeLine,
@@ -17,7 +18,14 @@ import { gateSpeechKey, voiceGate } from "@/lib/friday/voice-audio";
  */
 export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
   const [checks, setChecks] = useState<
-    Array<{ id: string; label: string; ok: boolean; detail: string }>
+    Array<{
+      id: string;
+      label: string;
+      ok: boolean;
+      detail: string;
+      optional?: boolean;
+      installId?: string;
+    }>
   >([]);
   const [busy, setBusy] = useState(false);
   const levelRef = useRef<HTMLSpanElement>(null);
@@ -192,14 +200,23 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               <span
                 className={cn(
                   "w-24 shrink-0 font-mono text-[10px] uppercase",
-                  check.ok ? "text-accent" : "text-destructive",
+                  check.optional || check.ok ? "text-accent" : "text-destructive",
                 )}
               >
-                {check.ok ? "pass" : "fail"}
+                {check.optional ? "optional" : check.ok ? "pass" : "fail"}
               </span>
               <span className="min-w-0 font-mono text-[10px] text-muted-foreground">
                 {check.label} — {check.detail}
               </span>
+              {check.optional && check.installId ? (
+                <button
+                  type="button"
+                  onClick={() => models.install(check.installId || "")}
+                  className="font-mono text-[10px] uppercase text-accent"
+                >
+                  Install
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

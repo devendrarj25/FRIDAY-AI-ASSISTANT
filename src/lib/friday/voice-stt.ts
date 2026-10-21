@@ -30,6 +30,25 @@ import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
 
+/** The same fault line is logged once. A new class replaces it. */
+export function collapseRepeat(previous: string, next: string): string | null {
+  const text = String(next || "").trim();
+  if (!text || text === previous) return null;
+  return text;
+}
+
+export function transcriptionFaultLine(result: {
+  error?: string;
+  sttClass?: string;
+  fix?: string;
+}): string {
+  const error = String(result.error || "").trim();
+  const kind = String(result.sttClass || "").trim();
+  const fix = String(result.fix || "").trim();
+  const head = kind && !error.includes(kind) ? `${kind}: ${error}` : error;
+  return fix && !head.includes(fix) ? `${head} ${fix}`.trim() : head;
+}
+
 export interface SttStatus {
   available: boolean;
   ready?: boolean;
@@ -362,6 +381,7 @@ export class DesktopDictation {
   private speaking = false;
   private running = false;
   private busy = false;
+  private lastErrorDetail = "";
   /** Utterances captured while whisper was busy, transcribed in order. */
   private queue: Array<{ blob: Blob; wake: WakeProbe | null }> = [];
   /** In-utterance wake score (once); reused at send if it already matched. */
@@ -494,6 +514,14 @@ export class DesktopDictation {
     });
 
     return true;
+  }
+
+  private reportOnce(detail: string) {
+    const next = collapseRepeat(this.lastErrorDetail, detail);
+    if (!next) return;
+    this.lastErrorDetail = next;
+    this.options.onError?.(next);
+    this.options.onDiagnostic?.({ stage: "error", detail: next });
   }
 
   stop() {
@@ -1013,8 +1041,13 @@ export class DesktopDictation {
         error?: string;
         language?: string;
         noSpeechProb?: number;
+        sttClass?: string;
+        fix?: string;
+        notice?: string;
       };
       if (result?.ok) {
+        this.lastErrorDetail = "";
+        if (result.notice) this.reportOnce(result.notice);
         const text = (result.text || "").trim();
         const noSpeech = result.noSpeechProb;
         this.options.onDiagnostic?.({
@@ -1038,13 +1071,12 @@ export class DesktopDictation {
           });
         }
       } else if (result?.error) {
-        this.options.onError?.(result.error);
-        this.options.onDiagnostic?.({ stage: "error", detail: result.error });
+        const detail = transcriptionFaultLine(result);
+        this.reportOnce(detail);
       }
     } catch (error) {
       const message = String((error as Error)?.message || error);
-      this.options.onError?.(message);
-      this.options.onDiagnostic?.({ stage: "error", detail: message });
+      this.reportOnce(message);
     } finally {
       this.busy = false;
       // The segment is over — never leave capture latched. A recorder that is

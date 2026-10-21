@@ -650,7 +650,15 @@ async function install() {
     }
     const result = await run(
       py[0],
-      [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper"],
+      [
+        ...py[1],
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "faster-whisper>=1.2.1",
+        "av>=17.0.0,<19",
+      ],
       600000,
     );
     if (!result.ok) {
@@ -869,7 +877,14 @@ async function transcribe(req = {}, onPartial) {
     if (!parsed) {
       return { ok: false, reason: "engine-failed", error: "the transcriber returned nothing" };
     }
-    if (!parsed.ok) return { ok: false, reason: parsed.reason || "failed", error: parsed.error };
+    if (!parsed.ok)
+      return {
+        ok: false,
+        reason: parsed.reason || "failed",
+        error: parsed.error,
+        sttClass: parsed.sttClass || parsed.reason || "",
+        fix: parsed.fix || "",
+      };
     lastLocalLayers.inference = "verified";
     lastLocalLayers.loadCount = parsed.loadCount || lastLocalLayers.loadCount;
     lastLocalLayers.model = model;

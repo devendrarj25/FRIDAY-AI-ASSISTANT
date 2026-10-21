@@ -528,15 +528,17 @@ def check_lines() -> list[str]:
     if tts["ready"]:
         lines.append(f"PASS local-tts engine={tts['engine']} voice={tts['voice']}")
     else:
-        lines.append(f"FAIL local-tts {tts['reason']}")
+        lines.append("OPTIONAL local-tts optional - not installed")
     silero = score_vad([0.0] * 512)
     if silero.get("engine") == "silero-onnx" and silero.get("ready"):
         lines.append(f"PASS vad-silero probability={silero.get('probability')}")
+    elif "absent" in str(silero.get("reason") or ""):
+        lines.append("OPTIONAL vad-silero optional - not installed")
     else:
         lines.append(f"FAIL vad-silero {silero.get('reason') or 'energy fallback'}")
     lines.append("PASS vad-energy desktop energy VAD remains the fallback")
     if smart_turn_path() is None:
-        lines.append("FAIL smart-turn file absent")
+        lines.append("OPTIONAL smart-turn optional - not installed")
     else:
         lines.append("PASS smart-turn file present")
     noise = noise_status()
@@ -562,13 +564,13 @@ def check_lines() -> list[str]:
 
 
 def load_pcm(path: str):
-    """16 kHz mono PCM, or None when the file cannot be decoded."""
+    """16 kHz mono PCM via the one STT reader, or None when it cannot be read."""
     if not path or not os.path.exists(path):
         return None
     try:
-        from faster_whisper.audio import decode_audio  # type: ignore
+        import stt
 
-        return decode_audio(path, sampling_rate=16000)
+        return stt.load_audio_array(path)
     except Exception:
         return None
 

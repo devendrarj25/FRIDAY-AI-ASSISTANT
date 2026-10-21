@@ -10,6 +10,7 @@ export const HEAL_CLASSES = [
   "stt-model-missing",
   "stt-blocked",
   "stt-checksum",
+  "stt-dependency-incompatible",
   "stt-engine-crash",
   "mic-permission-denied",
   "mic-no-device",
@@ -30,6 +31,7 @@ const ACTIONS: Record<HealClass, readonly string[]> = {
   "stt-model-missing": ["download-stt", "verify-stt", "next-stt-engine"],
   "stt-blocked": ["download-stt", "verify-stt", "next-stt-engine"],
   "stt-checksum": ["download-stt", "verify-stt", "next-stt-engine"],
+  "stt-dependency-incompatible": ["reinstall-pinned-av", "restart-stt-worker", "next-stt-engine"],
   "stt-engine-crash": ["restart-stt-worker", "retry-segment", "next-stt-engine"],
   "mic-permission-denied": ["show-mic-privacy", "recheck-mic", "recheck-mic"],
   "mic-no-device": ["reopen-mic", "reopen-default-mic", "reopen-default-mic"],
@@ -52,6 +54,8 @@ const NEEDS: Record<HealClass, string> = {
   "stt-model-missing": "Needs you: the speech model did not install. [Fix voice]",
   "stt-blocked": "Needs you: the speech download is blocked. [Fix voice]",
   "stt-checksum": "Needs you: the speech model checksum did not match. [Fix voice]",
+  "stt-dependency-incompatible":
+    "Needs you: PyAV does not match faster-whisper. Press Fix voice to install av>=17.0.0,<19.",
   "stt-engine-crash": "Needs you: speech recognition stopped. [Fix voice]",
   "mic-permission-denied":
     "Needs you: Settings > Privacy > Microphone, allow desktop apps. [Reset microphone]",
@@ -71,6 +75,7 @@ const FIXED: Record<HealClass, string> = {
   "stt-model-missing": "Fixed: speech model",
   "stt-blocked": "Fixed: speech download",
   "stt-checksum": "Fixed: speech model checksum",
+  "stt-dependency-incompatible": "Fixed: speech decoder",
   "stt-engine-crash": "Fixed: speech recognition",
   "mic-permission-denied": "Fixed: microphone permission",
   "mic-no-device": "Fixed: microphone",
@@ -99,6 +104,8 @@ export function classifyVoiceFault(text: string): HealClass | "none" {
   if (!raw) return "none";
   if (raw.includes("ipc budget expired")) return "none";
   if (raw.includes("checksum")) return "stt-checksum";
+  if (raw.includes("dependency-incompatible") || raw.includes("metadata_errors"))
+    return "stt-dependency-incompatible";
   if (raw.includes("not allowlisted") || raw.includes("blocked:")) return "stt-blocked";
   if (raw.includes("permission") && raw.includes("microphone")) return "mic-permission-denied";
   if (raw.includes("no audio frames") || raw.includes("zero frames")) return "mic-no-frames";

@@ -356,6 +356,8 @@ class AssistantModeStore {
   private sttRecoveryAttempt = 0;
   private healMemory: HealMemory = emptyHealMemory();
   private lastHealFault: HealClass | "none" = "none";
+  /** Fix voice is the one confirm before a pinned PyAV reinstall. */
+  private sttRepairConfirmed = false;
   private ttsPrefer: "auto" | "supertonic" | "sapi" = "auto";
   private wakeOnlyUnsub: (() => void) | null = null;
   private wakeOnlySpeechAt = 0;
@@ -1221,7 +1223,9 @@ class AssistantModeStore {
 
   fixVoice() {
     speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
-    this.applyVoiceHeal(this.state.error || "stt-model-missing", true);
+    const fault = this.state.error || "";
+    if (/dependency-incompatible|metadata_errors/i.test(fault)) this.sttRepairConfirmed = true;
+    this.applyVoiceHeal(fault || "stt-model-missing", true);
     this.noteVoiceTrigger("fix-voice");
   }
 
@@ -1266,6 +1270,16 @@ class AssistantModeStore {
       return;
     }
     if (action === "download-stt" || action === "verify-stt") {
+      void desktop()?.installStt?.();
+      return;
+    }
+    if (action === "reinstall-pinned-av") {
+      if (!this.sttRepairConfirmed) {
+        this.state.status =
+          "dependency-incompatible: av with faster-whisper. Press Fix voice to install av>=17.0.0,<19 from PyPI.";
+        return;
+      }
+      this.sttRepairConfirmed = false;
       void desktop()?.installStt?.();
       return;
     }
