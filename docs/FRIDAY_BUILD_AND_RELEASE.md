@@ -171,7 +171,7 @@ The CMD pack, `npm run build:all`, `npm run release:package`, `npm run build:por
 
 Phases, in order: prepare-environment, verify-versions, stage-toolchain, build-renderer, package, packaged-requires, sign-hook, manifest, verify-artifacts, verify-boot, readiness, packaged-self-check, installer-smoke.
 
-The installer floor is 70 percent of the bundled pin sum (205084080 bytes), which is 143558856 bytes. The ceiling is under 2147483648. A missing pack or a file under that floor fails the build.
+The installer floor is 70 percent of the bundled pin sum (205088081 bytes), which is 143561656 bytes. The ceiling is under 2147483648. A missing pack or a file under that floor fails the build. get-pip was re-read from https://bootstrap.pypa.io/get-pip.py on 2026-10-21 (2234489 bytes, SHA-256 `f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424`) because the previous pin no longer matched that file.
 
 The first toolchain stage needs network. After that, the cache is `.cache/toolchain/<sha256>.bin`. `--offline` and `FRIDAY_OFFLINE=1` reuse that cache. A miss fails with `offline build: <id> is not in the staging cache` and does not fetch. The CMD wrapper forwards extra arguments, so `build-windows.cmd --offline` is the same flag.
 

@@ -59,7 +59,7 @@ Run this on the Windows PC after the draft is merged, or run step 1 on the pull 
 
 1. Actions → **FRIDAY Test Build** on the pull request ref. Download the artifact and install the test EXE.
 2. After that pull request is on `main`, Actions → **FRIDAY Release** with `stage` left at `all`. `stage=prepare` only opens the release pull request. `stage=publish` packs the version already on `main`.
-3. Confirm Setup and Portable are each at least 70 percent of the bundled pin sum (143558856 bytes on this manifest) and strictly under 2 GiB.
+3. Confirm Setup and Portable are each at least 70 percent of the bundled pin sum (143561656 bytes on this manifest) and strictly under 2 GiB.
 4. First launch, then Doctor. Voice rows may stay Warning until a live check.
 5. One Chat turn and one Auto turn. Both must offer the same free pool. Chat stays quiet. Auto is the only microphone and speech session.
 6. One web search. The result names the provider. Keyless HTML may say it can be blocked.
