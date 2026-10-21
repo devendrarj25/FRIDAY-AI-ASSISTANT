@@ -296,7 +296,7 @@ def guard_egress(
             "a provider you already connected — sent automatically"
             if auto
             else (
-                f"Blocked: {triggered}. {WAY_FORWARD} Nothing was sent to {where}."
+                f"Blocked: SENSITIVE — {triggered}. {WAY_FORWARD} Nothing was sent to {where}."
                 if hard_stop
                 else f"data would be sent to {where}, which is not a provider you have connected"
             )

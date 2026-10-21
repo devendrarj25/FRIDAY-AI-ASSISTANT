@@ -318,7 +318,7 @@ function dailyRemaining(input) {
 
 const NEXT_STEP = Object.freeze({
   rate_limited: "Wait, or switch to another free model.",
-  daily_limit: "Wait, or switch to another free model.",
+  daily_limit: "Daily limit reached. Wait, or switch to another free model.",
   quota_exceeded: "Free quota ended. Wait, or switch to another free model.",
   billing_required:
     "This model needs paid access. Other free models can still be tried. Turn paid access on only if you mean to spend.",

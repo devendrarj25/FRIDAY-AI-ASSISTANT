@@ -246,7 +246,7 @@ function guardEgress({ model = null, content = "", destination = null, connected
     reason: auto
       ? `${classification.level.toUpperCase()} content to ${where}, a provider you already connected — sent automatically`
       : hardStop
-        ? `Blocked: ${triggered}. ${WAY_FORWARD} Nothing was sent to ${where}.`
+        ? `Blocked: SENSITIVE — ${triggered}. ${WAY_FORWARD} Nothing was sent to ${where}.`
         : `data would be sent to ${where}, which is not a provider you have connected`,
   };
 }
