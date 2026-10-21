@@ -14,7 +14,7 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 
 ## Checks on this Linux tree
 
-`npm audit` and `npm run pricing:status` below were run on this branch on 2026-10-21. The other rows are the same day's run on `origin/main` at `ecbf422` and are replaced when this branch's preflight finishes. Windows pack gates were not run. Hosted Actions were not started.
+Run on 2026-10-21 on this branch, after `npm ci` (exit 0) and `npm run setup:python` (exit 0). Windows pack gates were skipped on Linux. Hosted Actions were not started. `git status` was clean after `build:desktop`.
 
 | Check | Result |
 | --- | --- |
@@ -24,17 +24,16 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 | `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `65 files already formatted`. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.4`. |
-| `npm run typecheck:py` | Passed. 4 passed in 5.67s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
-| `npm run test:kernel` | 204 passed in 19.12s. Exit 0. |
-| `npm test` | 375 files passed, 3096 passed, 2 skipped, 92.96s. Exit 0. |
-| `npm run test:fast` | 137 files passed, 1135 passed, 26.91s. Exit 0. This ran inside preflight on the dirty tree. |
-| `node scripts/tests-required.cjs origin/main` | 59 code files, 5 test files, on the commits in this branch. |
-| `npm run check:provenance` | Passed. `provenance ok (origin/main)`. New commits use the repository owner as author. Eight assistant-authored commits already on `main` are outside this range and were not rewritten. |
+| `npm run typecheck:py` | Passed. 4 passed in 5.72s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 207 passed in 19.36s. Exit 0. |
+| `npm test` | 375 files passed, 3100 passed, 2 skipped, 70.99s. Exit 0. |
+| `node scripts/tests-required.cjs origin/main` | 13 code files, 7 test files. |
+| `npm run check:provenance` | Passed. `provenance ok (origin/main)`. New commits use the repository owner as author. Assistant-authored commits already on `main` were not rewritten. |
 | `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
 | `node scripts/audit-architecture.cjs --strict` | Passed. 751 source files. REVIEW lines remain. No file was deleted. |
-| `npm run preflight` | Passed. Exit 0. Every default gate passed. `node scripts/verify-deps.cjs` checked 155 files. Windows pack gates were not run. |
-| `npm run build:desktop` | Passed. Exit 0. 2980 modules, built in 5.96s. `AppShell-CiodLDvP.js` is 3,674.82 kB (gzip 1,310.51 kB). `src/routeTree.gen.ts` was unchanged. |
-| `npm audit` | 0 vulnerabilities on 2026-10-21 (info 0, low 0, moderate 0, high 0, critical 0). Vite is already pinned at 8.3.5 in `package.json` and the lock. This change did not bump it. `pip-audit` was not re-run. |
+| `npm run preflight -- --full` | Exit 0. Every Linux gate passed. `node scripts/verify-deps.cjs` checked 155 files. NSIS, verify-build, and installer smoke were skipped on Linux. |
+| `npm run build:desktop` | Passed inside that preflight. 2980 modules, built in 5.50s. `AppShell-DM14ks4s.js` is 3,673.94 kB (gzip 1,310.31 kB). `src/routeTree.gen.ts` was unchanged. |
+| `npm audit` | 0 vulnerabilities on 2026-10-21 (info 0, low 0, moderate 0, high 0, critical 0). Vite is already pinned at 8.3.5 in `package.json` and the lock. This change did not bump it. |
 | `pip-audit` | Not re-run. chromadb 1.5.9: PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815. No published fix version, so the pin was not moved. |
 | `npm run pricing:status` | Exit 1. EXPIRED. Oldest is deepseek, checked 2026-10-07, expires 2026-10-21 (−1 day). groq, gemini, mistral, nvidia, zhipu, openai, anthropic, and perplexity are fresh (checked 2026-10-21, 13 days). DeepSeek's pricing URL did not contain a price table, so that date was not moved. |
 
@@ -158,7 +157,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 5. The desktop route tree writes the same Start footer as the web plugin. After `npm run build:desktop` or `npm run build:win`, `git status` must be clean.
 6. Owner decision. recharts stays on 2.x. A 3.x migration is a UI change and was not done. `core/__tests__/project-governance.test.ts` pins `dependencies.recharts` to `^2.`. The migration notes stay here: `CategoricalChartState` is gone, `Customized` no longer receives internal state, internal props such as `activeIndex` were removed, `ResponsiveContainer` `ref.current.current` is gone, and `accessibilityLayer` is on by default. The only import is `src/components/ui/chart.tsx`.
 7. Waiting on a parent. `tsconfck` 3.1.6 is required by `vite-tsconfig-paths` 6.1.1. `rcedit` 5.0.2 is still imported by `scripts/brand-windows.cjs`. No override. Detail: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
-8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. This Linux `build:desktop` on 2026-10-21 wrote `AppShell-CiodLDvP.js` at 3,674.82 kB (gzip 1,310.51 kB). In-process `/health` was not re-measured on this run. Click latency and idle CPU on the Windows EXE were not measured.
+8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. This Linux `build:desktop` on 2026-10-21 wrote `AppShell-DM14ks4s.js` at 3,673.94 kB (gzip 1,310.31 kB). In-process `/health` was not re-measured on this run. Click latency and idle CPU on the Windows EXE were not measured.
 9. Finding, not a change. A constraints file that pins Node, npm, Python, and PowerShell would fight the `>=` floors. The known-good line is in the build doc.
 10. faster-whisper uses CUDA float16 only when the GPU flag is set and cuBLAS plus cuDNN 9 are on PATH. Otherwise it stays on CPU int8. A failed CUDA load falls back the same way. A Windows GPU run is unverified.
 11. Owner decision. An offline Hindi voice is not bundled. Supertonic 3 F2 speaks Hindi when it is installed.
