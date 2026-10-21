@@ -13,27 +13,27 @@ export const PROVIDER_KNOWLEDGE_VIEW: Record<string, KnowledgeView> = {
   groq: {
     source: "https://console.groq.com/docs/models",
     sourceName: "Groq supported models",
-    checkedAt: "2026-10-13T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
   gemini: {
     source: "https://ai.google.dev/gemini-api/docs/pricing",
     sourceName: "Gemini API pricing",
-    checkedAt: "2026-10-13T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
   openai: {
     source: "https://platform.openai.com/docs/pricing",
     sourceName: "OpenAI API pricing",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
   anthropic: {
     source: "https://www.anthropic.com/pricing",
     sourceName: "Anthropic API pricing",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
   mistral: {
     source: "https://mistral.ai/pricing/api",
     sourceName: "Mistral API pricing",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
   deepseek: {
     source: "https://api-docs.deepseek.com/quick_start/pricing",
@@ -43,7 +43,17 @@ export const PROVIDER_KNOWLEDGE_VIEW: Record<string, KnowledgeView> = {
   perplexity: {
     source: "https://docs.perplexity.ai/guides/pricing",
     sourceName: "Perplexity API pricing",
-    checkedAt: "2026-10-07T00:00:00.000Z",
+    checkedAt: "2026-10-21T00:00:00.000Z",
+  },
+  nvidia: {
+    source: "https://build.nvidia.com/llms.txt",
+    sourceName: "NVIDIA API catalog",
+    checkedAt: "2026-10-21T00:00:00.000Z",
+  },
+  zhipu: {
+    source: "https://docs.z.ai/guides/overview/pricing",
+    sourceName: "Z.ai pricing",
+    checkedAt: "2026-10-21T00:00:00.000Z",
   },
 };
 

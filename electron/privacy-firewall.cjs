@@ -35,6 +35,80 @@ const billingFirewall = require("./billing-firewall.cjs");
 /** Classification tiers, most to least sensitive. */
 const LEVELS = ["sensitive", "private", "internal", "public"];
 
+const WAY_FORWARD = "Remove it from the message, or run this turn on a local model.";
+
+/** Luhn check for a digit string. A card is 13–19 digits that pass. */
+function luhnOk(digits) {
+  const value = String(digits || "");
+  if (!/^\d{13,19}$/.test(value)) return false;
+  let sum = 0;
+  let alt = false;
+  for (let i = value.length - 1; i >= 0; i -= 1) {
+    let n = value.charCodeAt(i) - 48;
+    if (alt) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+function looksLikePhone(raw) {
+  const token = String(raw || "").trim();
+  if (token.startsWith("+")) return true;
+  if (/^\d{1,3}[ -]\d{5}[ -]\d{5}$/.test(token)) return true;
+  if (/^\d{3}[ -]\d{3}[ -]\d{4}$/.test(token)) return true;
+  if (/^\(\d{3}\)\s*\d{3}[ -]\d{4}$/.test(token)) return true;
+  return false;
+}
+
+function looksLikeEpoch(digits) {
+  if (digits.length !== 13) return false;
+  const n = Number(digits);
+  return n >= 1_000_000_000_000 && n <= 4_102_444_800_000;
+}
+
+/**
+ * A real card, Aadhaar, PAN, or a passport/SSN/Aadhaar/PAN word followed by
+ * an identifier. The bare words, timestamps, UUIDs, order ids, and phones
+ * do not match. Keep this in step with kernel/privacy.py.
+ */
+function financialIdentityHit(text) {
+  const value = String(text || "");
+  if (/\b[A-Z]{5}\d{4}[A-Z]\b/i.test(value)) return true;
+  if (/\b\d{4}[ -]\d{4}[ -]\d{4}\b/.test(value)) return true;
+  if (/\b\d{3}-\d{2}-\d{4}\b/.test(value)) return true;
+  if (/\b(?:aadhaar|aadhar)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d(?:[ -]?\d){11}\b/i.test(value))
+    return true;
+  if (
+    /\b(?:ssn|social security)\b[\s:#-]*(?:number|no\.?)?[\s:#-]*\d{3}[-\s]?\d{2}[-\s]?\d{4}\b/i.test(
+      value,
+    )
+  )
+    return true;
+  const passport = /\bpassport\b[\s:#-]*(?:number|no\.?)?[\s:#-]*([A-Z0-9][A-Z0-9-]{5,14})/i.exec(
+    value,
+  );
+  if (passport && /\d/.test(passport[1])) return true;
+  const cleaned = value.replace(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+    " ",
+  );
+  const cards = /(?<![A-Za-z0-9+])\d(?:[ -]?\d){12,18}(?![A-Za-z0-9])/g;
+  let match;
+  while ((match = cards.exec(cleaned))) {
+    const raw = match[0];
+    if (looksLikePhone(raw)) continue;
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 13 || digits.length > 19) continue;
+    if (looksLikeEpoch(digits)) continue;
+    if (luhnOk(digits)) return true;
+  }
+  return false;
+}
+
 /**
  * Signals, checked in order. Each entry: what it detects, and the plain words
  * shown to the owner in the confirmation prompt.
@@ -61,7 +135,7 @@ const SIGNALS = [
   {
     level: "sensitive",
     label: "financial or identity number",
-    re: /\b(?:\d[ -]?){13,19}\b|\b(aadhaar|pan card|passport|ssn|social security)\b/i,
+    test: financialIdentityHit,
   },
   {
     level: "sensitive",
@@ -101,7 +175,8 @@ function classify(content) {
   // The most sensitive signal that matched wins — never the average.
   let rank = LEVELS.indexOf("public");
   for (const signal of SIGNALS) {
-    if (!signal.re.test(text)) continue;
+    const hit = typeof signal.test === "function" ? signal.test(text) : signal.re.test(text);
+    if (!hit) continue;
     reasons.push(signal.label);
     rank = Math.min(rank, LEVELS.indexOf(signal.level));
   }
@@ -160,15 +235,18 @@ function guardEgress({ model = null, content = "", destination = null, connected
   }
   const auto = autoSendable({ level: classification.level, connected, external });
   const where = destination || model?.label || model?.id || "an external service";
+  const hardStop = classification.level === SENSITIVE;
+  const triggered = classification.reasons.join("; ") || "credential-like";
   return {
     external: true,
     requiresConfirmation: !auto,
     autoAllowed: auto,
+    hardStop,
     classification,
     reason: auto
       ? `${classification.level.toUpperCase()} content to ${where}, a provider you already connected — sent automatically`
-      : classification.level === SENSITIVE
-        ? `SENSITIVE content (${classification.reasons.join("; ") || "credential-like"}) would be sent to ${where}`
+      : hardStop
+        ? `Blocked: ${triggered}. ${WAY_FORWARD} Nothing was sent to ${where}.`
         : `data would be sent to ${where}, which is not a provider you have connected`,
   };
 }
@@ -184,7 +262,9 @@ function describeEgress(decision, model, destination) {
       ? `What triggered this: ${reasons.join("; ")}.`
       : "This destination is not a provider you have connected, so it still leaves this machine unverified.",
     `About ${sample} characters would be sent.`,
-    "FRIDAY asks every single time for this — the answer is never remembered.",
+    level === SENSITIVE
+      ? `${WAY_FORWARD} FRIDAY asks every single time for this — the answer is never remembered.`
+      : "FRIDAY asks every single time for this — the answer is never remembered.",
   ];
   return lines.join("\n");
 }
@@ -192,6 +272,9 @@ function describeEgress(decision, model, destination) {
 module.exports = {
   LEVELS,
   SIGNALS,
+  WAY_FORWARD,
+  luhnOk,
+  financialIdentityHit,
   classify,
   isExternal,
   isLocalKind,

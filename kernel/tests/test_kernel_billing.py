@@ -81,6 +81,26 @@ class GuardTests(unittest.TestCase):
         self.assertTrue(unknown["requiresApproval"])
         self.assertFalse(billing.guard(UNKNOWN, billing.DEFAULT_BILLING, policy="free-only")["allowed"])
 
+    def test_stale_pricing_is_not_a_paid_bill(self):
+        model = Model(
+            "openai-old",
+            "openai",
+            {
+                "type": "cloud",
+                "accessRecord": {
+                    "billingMode": "UNKNOWN",
+                    "eligibility": "UNKNOWN",
+                    "failureReason": "pricing_stale",
+                    "evidence": {"stale": True},
+                },
+            },
+        )
+        verdict = billing.guard(model, billing.DEFAULT_BILLING)
+        self.assertFalse(verdict["allowed"])
+        self.assertEqual(verdict["blockKind"], "unverified")
+        self.assertIn("pricing info is stale, refresh now", verdict["reason"])
+        self.assertNotIn("paid bill", verdict["reason"])
+
     def test_unknown_allowed_only_when_owner_authorises(self):
         self.assertTrue(
             billing.guard(

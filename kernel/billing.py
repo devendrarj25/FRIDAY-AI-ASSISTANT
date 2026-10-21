@@ -136,6 +136,45 @@ def is_billable(model: Any) -> bool:
     return billing_class(model) != "free"
 
 
+def _record(model: Any) -> dict[str, Any] | None:
+    options = getattr(model, "options", None)
+    if not isinstance(options, dict):
+        options = model if isinstance(model, dict) else {}
+    record = options.get("accessRecord")
+    return record if isinstance(record, dict) else None
+
+
+def block_copy(klass: str, record: dict[str, Any] | None, paid_reason: str) -> dict[str, str]:
+    """Same four labels as electron/billing-firewall.cjs blockCopy."""
+    stale = bool(record) and (
+        record.get("failureReason") == "pricing_stale"
+        or (isinstance(record.get("evidence"), dict) and record["evidence"].get("stale") is True)
+    )
+    mode = str((record or {}).get("billingMode") or "").upper()
+    elig = str((record or {}).get("eligibility") or "").upper()
+    if stale:
+        return {
+            "blockKind": "unverified",
+            "reason": "pricing info is stale, refresh now. Blocked: unverified, tap to mark free or refresh.",
+        }
+    if elig == "EXHAUSTED" and mode != "PAID":
+        return {
+            "blockKind": "quota",
+            "reason": "free quota ended. Wait, or switch to another free model.",
+        }
+    if elig == "RATE_LIMITED" and mode in ("ZERO_COST", "FREE_QUOTA", "FREE_CREDIT"):
+        return {
+            "blockKind": "quota",
+            "reason": "Wait, or switch to another free model. This is a rate limit, not a billing error.",
+        }
+    if klass == "unknown":
+        return {
+            "blockKind": "unverified",
+            "reason": "blocked: unverified, tap to mark free or refresh",
+        }
+    return {"blockKind": "paid", "reason": f"blocked: paid. {paid_reason}"}
+
+
 def guard(
     model: Any,
     billing: Any,
@@ -164,9 +203,17 @@ def guard(
             "reason": "usage policy is free only",
         }
 
+    record = _record(model)
     unlocked, reason = paid_unlocked(billing, now)
     if not unlocked:
-        return {"allowed": False, "billingClass": klass, "requiresApproval": True, "reason": reason}
+        copy = block_copy(klass, record, reason)
+        return {
+            "allowed": False,
+            "billingClass": klass,
+            "requiresApproval": True,
+            "blockKind": copy["blockKind"],
+            "reason": copy["reason"],
+        }
 
     state = normalise(billing)
     if explicit_paid or grant_active(state, now):

@@ -1595,25 +1595,29 @@ function ProviderUse({
           >
             Treat key as free tier
           </Button>
-          {providerId === "groq" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!pick}
-              onClick={() => {
-                if (!pick) return;
-                const modelId = pick.id.includes(":")
-                  ? pick.id.split(":").slice(1).join(":")
-                  : pick.id;
-                void billing.setOwnerDeclaration(providerId, { modelId, mark: "free" }).then(() => {
-                  void modelRegistry.refresh(true);
-                  toast.success(`${name} — ${modelId} is marked free for this account`);
-                });
-              }}
-            >
-              Mark this Groq model free
-            </Button>
+          {rows.some((model) => model.reason === "pricing-stale") ? (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              pricing info is stale, refresh now
+            </p>
           ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!(rows.find((model) => model.access !== "free") || pick)}
+            onClick={() => {
+              const target = rows.find((model) => model.access !== "free") || pick;
+              if (!target) return;
+              const modelId = target.id.includes(":")
+                ? target.id.split(":").slice(1).join(":")
+                : target.id;
+              void billing.setOwnerDeclaration(providerId, { modelId, mark: "free" }).then(() => {
+                void modelRegistry.refresh(true);
+                toast.success(`${name} — ${modelId} is marked free for this account`);
+              });
+            }}
+          >
+            Mark this model free
+          </Button>
           <Button
             size="sm"
             variant="outline"

@@ -81,15 +81,18 @@ const REFRESH_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
  * Sources absent here keep `KNOWLEDGE_CHECKED_AT`.
  */
 const RECHECKED_AT = Object.freeze({
-  groq: Date.parse("2026-10-13T00:00:00Z"),
-  gemini: Date.parse("2026-10-13T00:00:00Z"),
-  openai: Date.parse("2026-10-07T00:00:00Z"),
-  anthropic: Date.parse("2026-10-07T00:00:00Z"),
+  // 2026-10-21: each date below is a real read of that source page on this day.
+  // DeepSeek's pricing URL returned the quick-start article, not a price table,
+  // so that date stays on the last table.
+  groq: Date.parse("2026-10-21T00:00:00Z"),
+  gemini: Date.parse("2026-10-21T00:00:00Z"),
+  openai: Date.parse("2026-10-21T00:00:00Z"),
+  anthropic: Date.parse("2026-10-21T00:00:00Z"),
   deepseek: Date.parse("2026-10-07T00:00:00Z"),
-  perplexity: Date.parse("2026-10-07T00:00:00Z"),
-  mistral: Date.parse("2026-10-07T00:00:00Z"),
-  nvidia: Date.parse("2026-10-07T00:00:00Z"),
-  zhipu: Date.parse("2026-10-13T00:00:00Z"),
+  perplexity: Date.parse("2026-10-21T00:00:00Z"),
+  mistral: Date.parse("2026-10-21T00:00:00Z"),
+  nvidia: Date.parse("2026-10-21T00:00:00Z"),
+  zhipu: Date.parse("2026-10-21T00:00:00Z"),
 });
 
 function checkedAtFor(id) {
@@ -159,14 +162,15 @@ const GROQ_FREE_PLAN = Object.freeze({
 /**
  * Z.ai pricing page marks three chat models Free on every token column.
  * Source: https://docs.z.ai/guides/overview/pricing (re-read 2026-10-13).
- * glm-4.6v-flash is no longer a Free row on that page.
+ * On 2026-10-21 GLM-4.7-Flash, GLM-4.5-Flash, and GLM-4.6V-Flash were Free
+ * on every token column. GLM-4.6V-FlashX stayed priced.
  */
 const ZHIPU_FREE_IDS = Object.freeze({
   source: "https://docs.z.ai/guides/overview/pricing",
   sourceName: "Z.ai pricing",
   checkedAt: checkedAtFor("zhipu"),
   ttlMs: DOC_TTL_MS,
-  ids: Object.freeze(["glm-4.7-flash", "glm-4.5-flash"]),
+  ids: Object.freeze(["glm-4.7-flash", "glm-4.5-flash", "glm-4.6v-flash"]),
 });
 
 /**
@@ -285,6 +289,28 @@ function knowledgeFresh(entry, now) {
   if (!entry || !entry.checkedAt) return false;
   const ttl = Number(entry.ttlMs || DOC_TTL_MS);
   return now - Number(entry.checkedAt) < ttl;
+}
+
+/** Fail closed, and say the snapshot is stale instead of calling it a paid bill. */
+function staleUnknown(table, now, source = "provider_pricing") {
+  const checkedAt = Number(table?.checkedAt || 0);
+  const ttlMs = Number(table?.ttlMs || DOC_TTL_MS);
+  return makeRecord(
+    {
+      billingMode: "UNKNOWN",
+      eligibility: "UNKNOWN",
+      verification: "UNVERIFIED",
+      failureReason: "pricing_stale",
+      evidence: {
+        source,
+        stale: true,
+        checkedAt,
+        expiresAt: checkedAt ? checkedAt + ttlMs : null,
+        confidence: 0,
+      },
+    },
+    now,
+  );
 }
 
 function looksFreeName(value = "") {
@@ -554,17 +580,19 @@ function clearKnowledgeOverlay() {
   for (const key of Object.keys(knowledgeOverlay)) delete knowledgeOverlay[key];
 }
 
+function overlayTable(base, over, now) {
+  if (!over || !(Number(over.checkedAt) > Number(base.checkedAt))) return base;
+  const merged = { ...base, ...over, ttlMs: over.ttlMs || base.ttlMs || DOC_TTL_MS };
+  if (over.priced == null && base.priced) merged.priced = base.priced;
+  if (over.freeTierPrefixes == null && base.freeTierPrefixes)
+    merged.freeTierPrefixes = base.freeTierPrefixes;
+  if (over.ids == null && base.ids) merged.ids = base.ids;
+  if (!knowledgeFresh(merged, now)) return base;
+  return merged;
+}
+
 function groqTable(now) {
-  const over = knowledgeOverlay.groq;
-  if (
-    over &&
-    over.priced &&
-    Number(over.checkedAt) > GROQ_MODEL_PRICING.checkedAt &&
-    knowledgeFresh({ ...over, ttlMs: over.ttlMs || DOC_TTL_MS }, now)
-  ) {
-    return { ...GROQ_MODEL_PRICING, ...over, ttlMs: over.ttlMs || DOC_TTL_MS };
-  }
-  return GROQ_MODEL_PRICING;
+  return overlayTable(GROQ_MODEL_PRICING, knowledgeOverlay.groq, now);
 }
 
 function groqPricedEntry(modelId, now) {
@@ -596,16 +624,11 @@ function geminiFreeTierMatch(modelId, now) {
 }
 
 function geminiTable(now) {
-  const over = knowledgeOverlay.gemini;
-  if (
-    over &&
-    Array.isArray(over.freeTierPrefixes) &&
-    Number(over.checkedAt) > GEMINI_FREE_TIER.checkedAt &&
-    knowledgeFresh({ ...over, ttlMs: over.ttlMs || DOC_TTL_MS }, now)
-  ) {
-    return { ...GEMINI_FREE_TIER, ...over, ttlMs: over.ttlMs || DOC_TTL_MS };
-  }
-  return GEMINI_FREE_TIER;
+  return overlayTable(GEMINI_FREE_TIER, knowledgeOverlay.gemini, now);
+}
+
+function liveMeta(id, base, now) {
+  return overlayTable(base, knowledgeOverlay[id], now);
 }
 
 function pickHfZeroRoute(catalogue) {
@@ -822,22 +845,7 @@ function groqDeveloperAccount(input) {
 function classifyGroq(input, now) {
   const id = String(input.modelId || "");
   const table = groqTable(now);
-  if (!knowledgeFresh(table, now)) {
-    return makeRecord(
-      {
-        billingMode: "UNKNOWN",
-        eligibility: "UNKNOWN",
-        verification: "UNVERIFIED",
-        evidence: {
-          source: "provider_pricing",
-          checkedAt: table.checkedAt,
-          expiresAt: table.checkedAt + table.ttlMs,
-          confidence: 0,
-        },
-      },
-      now,
-    );
-  }
+  if (!knowledgeFresh(table, now)) return staleUnknown(table, now);
   const listed = groqPricedEntry(id, now);
   const developerPrice = listed
     ? {
@@ -908,22 +916,7 @@ function classifyGemini(input, now) {
   const projectFree = input.account?.projectTier === "free";
   const table = geminiTable(now);
   const inTable = geminiFreeTierMatch(input.modelId, now);
-  if (!knowledgeFresh(table, now)) {
-    return makeRecord(
-      {
-        billingMode: "UNKNOWN",
-        eligibility: "UNKNOWN",
-        verification: "UNVERIFIED",
-        evidence: {
-          source: "provider_pricing",
-          checkedAt: table.checkedAt,
-          expiresAt: table.checkedAt + table.ttlMs,
-          confidence: 0,
-        },
-      },
-      now,
-    );
-  }
+  if (!knowledgeFresh(table, now)) return staleUnknown(table, now);
   if (projectPaid) {
     return makeRecord(
       {
@@ -1061,7 +1054,7 @@ function classifyCohere(input, now) {
 }
 
 function classifyMeteredDefault(providerId, input, now) {
-  const meta = METERED_API_DEFAULT[providerId];
+  const meta = liveMeta(providerId, METERED_API_DEFAULT[providerId], now);
   const pricing = cataloguePricing(input.catalogue);
   if (zeroPrice(pricing)) {
     return makeRecord(
@@ -1087,22 +1080,7 @@ function classifyMeteredDefault(providerId, input, now) {
       now,
     );
   }
-  if (!knowledgeFresh(meta, now)) {
-    return makeRecord(
-      {
-        billingMode: "UNKNOWN",
-        eligibility: "UNKNOWN",
-        verification: "UNVERIFIED",
-        evidence: {
-          source: "provider_pricing",
-          checkedAt: meta?.checkedAt || 0,
-          expiresAt: meta?.checkedAt ? meta.checkedAt + meta.ttlMs : null,
-          confidence: 0,
-        },
-      },
-      now,
-    );
-  }
+  if (!knowledgeFresh(meta, now)) return staleUnknown(meta, now);
   return makeRecord(
     {
       billingMode: "PAID",
@@ -1211,7 +1189,9 @@ function classifyNvidia(input, now) {
       now,
     );
   }
-  if (!knowledgeFresh(NVIDIA_FREE_TRIAL, now) || !nvidiaCatalogueRow(input.catalogue)) {
+  const nvidia = liveMeta("nvidia", NVIDIA_FREE_TRIAL, now);
+  if (!knowledgeFresh(nvidia, now)) return staleUnknown(nvidia, now, "provider_free_plan");
+  if (!nvidiaCatalogueRow(input.catalogue)) {
     return makeRecord(
       {
         billingMode: "UNKNOWN",
@@ -1219,7 +1199,7 @@ function classifyNvidia(input, now) {
         verification: "UNVERIFIED",
         evidence: {
           source: "provider_free_plan",
-          checkedAt: NVIDIA_FREE_TRIAL.checkedAt,
+          checkedAt: nvidia.checkedAt,
           confidence: 0,
         },
       },
@@ -1233,8 +1213,8 @@ function classifyNvidia(input, now) {
       verification: "UNVERIFIED",
       evidence: {
         source: "provider_free_plan",
-        checkedAt: NVIDIA_FREE_TRIAL.checkedAt,
-        expiresAt: NVIDIA_FREE_TRIAL.checkedAt + NVIDIA_FREE_TRIAL.ttlMs,
+        checkedAt: nvidia.checkedAt,
+        expiresAt: nvidia.checkedAt + nvidia.ttlMs,
         confidence: 0.7,
       },
     },
@@ -1242,15 +1222,24 @@ function classifyNvidia(input, now) {
   );
 }
 
+function zhipuTable(now) {
+  return liveMeta("zhipu", ZHIPU_FREE_IDS, now);
+}
+
 function zhipuFreeMatch(modelId, now) {
-  if (!knowledgeFresh(ZHIPU_FREE_IDS, now)) return false;
+  const table = zhipuTable(now);
+  if (!knowledgeFresh(table, now)) return false;
   const id = String(modelId || "")
     .toLowerCase()
     .replace(/^models\//, "");
-  return ZHIPU_FREE_IDS.ids.includes(id);
+  return table.ids.includes(id);
 }
 
 function classifyZhipu(input, now) {
+  const table = zhipuTable(now);
+  if (!knowledgeFresh(table, now) && !cataloguePricing(input.catalogue)) {
+    return staleUnknown(table, now, "provider_free_plan");
+  }
   if (zhipuFreeMatch(input.modelId, now) && input.declaredAccess !== "paid") {
     return makeRecord(
       {
@@ -1259,11 +1248,11 @@ function classifyZhipu(input, now) {
         verification: "UNVERIFIED",
         evidence: {
           source: "provider_free_plan",
-          checkedAt: ZHIPU_FREE_IDS.checkedAt,
-          expiresAt: ZHIPU_FREE_IDS.checkedAt + ZHIPU_FREE_IDS.ttlMs,
+          checkedAt: table.checkedAt,
+          expiresAt: table.checkedAt + table.ttlMs,
           confidence: 0.8,
         },
-        pricing: { input: 0, output: 0, currency: "USD", source: ZHIPU_FREE_IDS.source },
+        pricing: { input: 0, output: 0, currency: "USD", source: table.source },
       },
       now,
     );
@@ -1320,24 +1309,10 @@ function classifyMistral(input, now) {
       now,
     );
   }
-  if (!knowledgeFresh(MISTRAL_API_PRICING, now)) {
-    return makeRecord(
-      {
-        billingMode: "UNKNOWN",
-        eligibility: "UNKNOWN",
-        verification: "UNVERIFIED",
-        evidence: {
-          source: "provider_pricing",
-          checkedAt: MISTRAL_API_PRICING.checkedAt,
-          expiresAt: MISTRAL_API_PRICING.checkedAt + MISTRAL_API_PRICING.ttlMs,
-          confidence: 0,
-        },
-      },
-      now,
-    );
-  }
+  const mistral = liveMeta("mistral", MISTRAL_API_PRICING, now);
+  if (!knowledgeFresh(mistral, now)) return staleUnknown(mistral, now);
   const id = String(input.modelId || "").toLowerCase();
-  if ((MISTRAL_API_PRICING.zeroCostIds || []).some((item) => item === id)) {
+  if ((mistral.zeroCostIds || []).some((item) => item === id)) {
     return makeRecord(
       {
         billingMode: "ZERO_COST",
@@ -1345,11 +1320,11 @@ function classifyMistral(input, now) {
         verification: "UNVERIFIED",
         evidence: {
           source: "provider_pricing",
-          checkedAt: MISTRAL_API_PRICING.checkedAt,
-          expiresAt: MISTRAL_API_PRICING.checkedAt + MISTRAL_API_PRICING.ttlMs,
+          checkedAt: mistral.checkedAt,
+          expiresAt: mistral.checkedAt + mistral.ttlMs,
           confidence: 0.7,
         },
-        pricing: { input: 0, output: 0, currency: "USD", source: MISTRAL_API_PRICING.source },
+        pricing: { input: 0, output: 0, currency: "USD", source: mistral.source },
       },
       now,
     );
@@ -1361,11 +1336,11 @@ function classifyMistral(input, now) {
       verification: "UNVERIFIED",
       evidence: {
         source: "provider_pricing",
-        checkedAt: MISTRAL_API_PRICING.checkedAt,
-        expiresAt: MISTRAL_API_PRICING.checkedAt + MISTRAL_API_PRICING.ttlMs,
+        checkedAt: mistral.checkedAt,
+        expiresAt: mistral.checkedAt + mistral.ttlMs,
         confidence: 0.7,
       },
-      pricing: { ...pricing, currency: "USD", source: MISTRAL_API_PRICING.source },
+      pricing: { ...pricing, currency: "USD", source: mistral.source },
     },
     now,
   );
@@ -2002,9 +1977,11 @@ const PAGE_MARKERS = Object.freeze({
   gemini: /free tier/i,
   openai: /per 1m tokens/i,
   anthropic: /pricing/i,
-  deepseek: /pricing/i,
+  deepseek: /(?:\$|usd|¥)\s*\d|\b\d+(?:\.\d+)?\s*(?:\/|per)\s*(?:1m|million)\b/i,
   perplexity: /pricing/i,
   mistral: /pricing/i,
+  nvidia: /free trial|no credit card/i,
+  zhipu: /glm-4[\w.-]*flash/i,
 });
 
 function knowledgeCatalogue(now = Date.now()) {
@@ -2029,17 +2006,32 @@ function knowledgeCatalogue(now = Date.now()) {
       id: "mistral",
       source: MISTRAL_API_PRICING.source,
       sourceName: MISTRAL_API_PRICING.sourceName,
-      checkedAt: MISTRAL_API_PRICING.checkedAt,
+      checkedAt: liveMeta("mistral", MISTRAL_API_PRICING, now).checkedAt,
       ttlMs: MISTRAL_API_PRICING.ttlMs,
+    },
+    {
+      id: "nvidia",
+      source: NVIDIA_FREE_TRIAL.source,
+      sourceName: NVIDIA_FREE_TRIAL.sourceName,
+      checkedAt: liveMeta("nvidia", NVIDIA_FREE_TRIAL, now).checkedAt,
+      ttlMs: NVIDIA_FREE_TRIAL.ttlMs,
+    },
+    {
+      id: "zhipu",
+      source: ZHIPU_FREE_IDS.source,
+      sourceName: ZHIPU_FREE_IDS.sourceName,
+      checkedAt: liveMeta("zhipu", ZHIPU_FREE_IDS, now).checkedAt,
+      ttlMs: ZHIPU_FREE_IDS.ttlMs,
     },
   ];
   for (const [id, meta] of Object.entries(METERED_API_DEFAULT)) {
+    const live = liveMeta(id, meta, now);
     rows.push({
       id,
-      source: meta.source,
+      source: live.source || meta.source,
       sourceName: meta.sourceName,
-      checkedAt: meta.checkedAt,
-      ttlMs: meta.ttlMs,
+      checkedAt: live.checkedAt,
+      ttlMs: live.ttlMs || meta.ttlMs,
     });
   }
   return rows;
@@ -2076,6 +2068,50 @@ function parsedPriceUsable(parsed) {
  * Apply a pricing page only after it parses. A miss leaves the last table,
  * which still fails closed when that table is older than its TTL.
  */
+/**
+ * Re-read one official page. A recognized page bumps checkedAt and keeps the
+ * last price table. An empty or unrecognized page leaves that table alone.
+ */
+async function refreshDueKnowledge({
+  now = Date.now(),
+  privacy = false,
+  online = true,
+  fetchPage,
+} = {}) {
+  if (privacy) return { skipped: "privacy", applied: [], kept: [] };
+  if (!online) return { skipped: "offline", applied: [], kept: [] };
+  if (typeof fetchPage !== "function") return { skipped: "no-fetch", applied: [], kept: [] };
+  const due = planKnowledgeRefresh(now);
+  const applied = [];
+  const kept = [];
+  for (const row of due) {
+    let text = "";
+    try {
+      const result = await fetchPage(row.source);
+      text = typeof result === "string" ? result : String(result?.text || "");
+    } catch {
+      kept.push({ id: row.id, reason: "fetch-failed" });
+      continue;
+    }
+    const decision = acceptPageEvidence({
+      id: row.id,
+      pageText: text,
+      parsed: { acknowledged: true },
+      now,
+      sourceUrl: row.source,
+    });
+    if (!decision.ok) {
+      kept.push({ id: row.id, reason: decision.reason });
+      continue;
+    }
+    applyKnowledgeOverlay({
+      [row.id]: { checkedAt: now, source: row.source, ttlMs: DOC_TTL_MS },
+    });
+    applied.push(row.id);
+  }
+  return { skipped: null, applied, kept };
+}
+
 function commitParsedKnowledge({ id, pageText, parsed, now, sourceUrl } = {}) {
   const decision = acceptPageEvidence({ id, pageText, parsed, now, sourceUrl });
   if (!decision.ok) return { applied: false, reason: decision.reason };
@@ -2142,6 +2178,7 @@ module.exports = {
   METERED_API_DEFAULT,
   knowledgeCatalogue,
   planKnowledgeRefresh,
+  refreshDueKnowledge,
   acceptPageEvidence,
   commitParsedKnowledge,
   applyKnowledgeOverlay,

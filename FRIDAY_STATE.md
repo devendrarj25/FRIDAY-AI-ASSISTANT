@@ -14,7 +14,7 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 
 ## Checks on this Linux tree
 
-Run on 2026-10-21. Windows pack gates were not run. Hosted Actions were not started. `git diff --name-only origin/main -- .github` was empty.
+`npm audit` and `npm run pricing:status` below were run on this branch on 2026-10-21. The other rows are the same day's run on `origin/main` at `ecbf422` and are replaced when this branch's preflight finishes. Windows pack gates were not run. Hosted Actions were not started.
 
 | Check | Result |
 | --- | --- |
@@ -34,9 +34,9 @@ Run on 2026-10-21. Windows pack gates were not run. Hosted Actions were not star
 | `node scripts/audit-architecture.cjs --strict` | Passed. 751 source files. REVIEW lines remain. No file was deleted. |
 | `npm run preflight` | Passed. Exit 0. Every default gate passed. `node scripts/verify-deps.cjs` checked 155 files. Windows pack gates were not run. |
 | `npm run build:desktop` | Passed. Exit 0. 2980 modules, built in 5.96s. `AppShell-CiodLDvP.js` is 3,674.82 kB (gzip 1,310.51 kB). `src/routeTree.gen.ts` was unchanged. |
-| `npm audit` | 1 high on 2026-10-21. vite 8.3.2, advisories GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, and GHSA-587h-7wmj-h5pm. The published fix is 8.3.5. This change leaves the Vite 8.3.2 floor in place. |
+| `npm audit` | 0 vulnerabilities on 2026-10-21 (info 0, low 0, moderate 0, high 0, critical 0). Vite is already pinned at 8.3.5 in `package.json` and the lock. This change did not bump it. `pip-audit` was not re-run. |
 | `pip-audit` | Not re-run. chromadb 1.5.9: PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815. No published fix version, so the pin was not moved. |
-| `npm run pricing:status` | Exit 1. EXPIRED. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21 (−1 day). groq and gemini are still fresh (checked 2026-10-13, 5 days). openai, anthropic, mistral, deepseek, and perplexity are expired. `checkedAt` was not moved. |
+| `npm run pricing:status` | Exit 1. EXPIRED. Oldest is deepseek, checked 2026-10-07, expires 2026-10-21 (−1 day). groq, gemini, mistral, nvidia, zhipu, openai, anthropic, and perplexity are fresh (checked 2026-10-21, 13 days). DeepSeek's pricing URL did not contain a price table, so that date was not moved. |
 
 ## UNVERIFIED
 
@@ -52,7 +52,7 @@ Live microphone and speech recognition on Windows. A live speech-model download.
 | Published line | GitHub release `v1.1.2.4` (2026-10-17). The next patch is `1.1.2.5` and is not bumped here. |
 | Next public revision | Do not bump this file. Assistants do not bump `config/friday-version.json`. |
 
-Stack floors stay in `package.json` and `config/toolchain-versions.json`: Electron ^43.7.7, electron-builder 26.15.3, Vite 8.3.2, Node `>=22.19.0`, Python floor 3.12.10. The owner's known-good line is higher and is not a new floor.
+Stack floors stay in `package.json` and `config/toolchain-versions.json`: Electron ^43.7.7, electron-builder 26.15.3, Node `>=22.19.0`, Python floor 3.12.10. Vite is pinned at 8.3.5 in `package.json`. The owner's known-good comparison still names Vite 8.3.2 from 2026-10-17 and is not a new floor.
 
 ## Coming back after a gap
 
@@ -102,7 +102,7 @@ These look like bugs. They are not. Do not "fix" them.
 - `automation.auto_approve_exec: false` in `config/kernel.yaml`. Full autonomy is the owner's dial in the app (Ask every time, Balanced, Full). A fresh install stays Balanced. Stop everything still halts her.
 - Privacy firewall: SENSITIVE is a hard stop. Other content may use an already-connected provider. Privacy mode keeps speech recognition local and does not send a turn to a cloud model.
 - Billing firewall: no silent paid spend. An unknown-cost model is not an automatic route unless that model has `spendCapUsd`. Strict privacy defaults off.
-- Pricing knowledge in `electron/model-access.cjs` **fails closed** after 14 days: the model becomes "unknown", never silently free. A refresh re-reads the provider pages and bumps `KNOWLEDGE_CHECKED_AT`. Tests do not depend on today's date. A page that does not parse leaves the last table.
+- Pricing knowledge in `electron/model-access.cjs` **fails closed** after 14 days: the model becomes "unknown", never silently free. A stale snapshot is shown as unverified ("pricing info is stale, refresh now"), not as a paid bill. Startup and Refresh now re-read due pages when the PC is online and privacy mode is off. A page that does not parse leaves the last table. The owner can mark any unverified cloud model free. A free-quota end or a rate limit moves only to another free model. Tests do not depend on today's date.
 - Screen text, files, and tool output are data. The desktop plan comes from the owner's words. A credential, payment, captcha, or secure-desktop prompt is handed to the owner. Full autonomy does not click those. Stop everything still halts the loop. Heard speech does not run a tool by itself.
 - Publisher identity is locked (`scripts/identity.cjs` / `lockedIdentityFields`). The public id is the owner name and the GitHub username `devendrarj25`. A package does not carry an email, a phone number, or a street address.
 - `PROTECTED_POLICY_FILES` in `src/lib/friday/self/governance.ts` are off-limits to self-dev auto-apply.
@@ -123,12 +123,12 @@ These look like bugs. They are not. Do not "fix" them.
 - A live Windows speech download, microphone, Windows speech pack, and Shutdown or Restart on the packaged EXE are unverified. `hf-mirror.com` is off unless `FRIDAY_HF_MIRROR=1`.
 - This branch's Windows CMD pack, readiness RESTART, installer, and in-app update apply are unverified. The owner's 1.1.2.4 pack is the verified line. Silent uninstall keeps the data folder.
 - Voice smoothness, addressing quality, and flicker on a real GPU are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
-- Each provider catalogue is a JSON file under the cache `model-catalogue` folder. Startup loads those files before a network refresh. A refresh runs when a file is missing or older than 24 hours, on Refresh now, after a model 404, and after sleep once that age has passed. Privacy mode and a local-only route keep the disk copy and mark it stale. The light tick only notes expired cooldowns and does not call a models endpoint. Zero-spend probes run with the 24 hour refresh. Live catalogue refresh was not run. `npm run models:check --live` was not run. No owner keys are in this environment. Groq, Gemini, OpenRouter, Hugging Face, OpenAI, NVIDIA, Ollama, and LM Studio docs were re-read on 2026-10-21 for list shape and protocol. Their price tables were not moved. The other provider pages were not opened on this run.
+- Each provider catalogue is a JSON file under the cache `model-catalogue` folder. Startup loads those files before a network refresh. A refresh runs when a file is missing or older than 24 hours, on Refresh now, after a model 404, and after sleep once that age has passed. Privacy mode and a local-only route keep the disk copy and mark it stale. The light tick only notes expired cooldowns and does not call a models endpoint. Zero-spend probes run with the 24 hour refresh. Live catalogue refresh was not run. `npm run models:check --live` was not run. No owner keys are in this environment. Groq, Gemini, OpenRouter, Hugging Face, OpenAI, NVIDIA, Ollama, and LM Studio docs were re-read on 2026-10-21 for list shape and protocol. Price pages for Groq, Gemini, Z.ai, OpenAI, Anthropic, Perplexity, Mistral, and NVIDIA were re-read the same day and those `checkedAt` values moved to 2026-10-21. `glm-4.6v-flash` is free on that Z.ai table. DeepSeek's pricing URL returned the quick-start article, so that date stays 2026-10-07.
 - `src/routeTree.gen.ts` uses one footer (`scripts/route-tree-footer.cjs`). The 2026-10-21 `build:desktop` left that file unchanged.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- chromadb 1.5.9 has four advisories and no published fix, so it stays. Price tables were not moved on 2026-10-21. `npm run pricing:status` is EXPIRED. groq and gemini were checked 2026-10-13 and are still inside 14 days. openai, anthropic, mistral, deepseek, and perplexity were checked 2026-10-07 and are one day past that window. Assistant-authored commits that are already on `main` were not rewritten.
+- chromadb 1.5.9 has four advisories and no published fix, so it stays. Eight pricing sources were re-read on 2026-10-21 and their dates moved. DeepSeek stays 2026-10-07 because that URL did not contain a price table, so `npm run pricing:status` can still report EXPIRED on that one source. A stale model is unverified, not billed as paid. Assistant-authored commits that are already on `main` were not rewritten.
 - The Doctor catalogue row reports freshness and does not rewrite `fetchedAt`. `staggerPlan` and conditional request headers are helpers with tests. The live refresh is still one `refreshRoutable` fan-out.
-- `npm audit` on 2026-10-21 reports one high finding on vite 8.3.2. The floor stays 8.3.2. The 8.3.5 fix was not applied here.
+- `package.json` and the lock already pin Vite 8.3.5. This change did not bump it again. The owner-verified comparison in the build doc still records Vite 8.3.2 from 2026-10-17. That comparison is not a new floor.
 - `kernel/router.py` and `electron/model-router.cjs` kept their names. The flow registry, tests, and docs pin those paths. Existing duplicate basenames stay on the allowlist in `core/__tests__/duplicate-stems.test.ts`. A new duplicate basename fails that test.
 
 ## Next priorities
@@ -164,7 +164,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 11. Owner decision. An offline Hindi voice is not bundled. Supertonic 3 F2 speaks Hindi when it is installed.
 12. Embeddings and speech are not a chat route. `baseRouting()` still leaves rerank empty.
 13. A local catalog row is not installed until a scan has run, or an install job finishes. A scanned local provider clears a row that is no longer present. The browser preview has no scan, so the brain still treats a catalog version as reachable there. The Models page does not.
-14. Groq's public models page, re-read 2026-10-20, still has no free-id list. Models shows that, and the owner can mark one Groq model free. Priced ids stay paid until that mark.
+14. Groq's public models page, re-read 2026-10-21, still has no free-id list. Models shows that. The owner can mark any provider's unverified model free. A published paid price stays paid until that mark. A stale snapshot asks for a refresh and does not present itself as a bill.
 15. Owner decision. Shutdown does not change start-at-login. Restart and shutdown from voice still use the approval card. Full autonomy does not skip those two tools.
 16. Owner decision. Do not bundle a speech model in the installer until the owner asks. Published Hub sizes, not measured here: tiny `model.bin` 75.5 MB, base `model.bin` 145 MB, plus about 2.7 MB of tokenizer and vocabulary.
 17. Owner decision. `hf-mirror.com` stays opt-in through `FRIDAY_HF_MIRROR=1`. There is no settings switch for it.
@@ -191,5 +191,5 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 - recharts 3: not started.
 - Coverage-expansion providers were not added. The list is `electron/provider-coverage.cjs`.
 - Pinned router filenames stayed: `kernel/router.py` and `electron/model-router.cjs`.
-- Pricing `checkedAt` dates stayed. The expired snapshot fails closed.
-- Vite stays 8.3.2. The 8.3.5 advisory fix was not applied in this change.
+- Pricing fails closed. Eight sources moved to 2026-10-21 after a real page read. DeepSeek stayed 2026-10-07 because that page had no price table. The date was not typed in by hand.
+- Vite is already 8.3.5 in `package.json` and the lock. This change did not bump it. The 2026-10-17 owner-verified line still names 8.3.2.

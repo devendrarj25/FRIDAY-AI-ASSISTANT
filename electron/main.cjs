@@ -1856,6 +1856,32 @@ function seedCatalogueFromDisk() {
   return loaded;
 }
 
+async function refreshPricingKnowledge() {
+  const privacy = voicePrivacyOn() || modelRouteMode() === "local-only";
+  let online = true;
+  try {
+    const net = await checkNetwork(false);
+    online = net?.online !== false;
+  } catch {
+    online = true;
+  }
+  const { fetchCompat } = require("./net-fetch.cjs");
+  return modelAccess.refreshDueKnowledge({
+    now: Date.now(),
+    privacy,
+    online,
+    async fetchPage(url) {
+      const response = await fetchCompat(url, {
+        method: "GET",
+        headers: { Accept: "text/html,application/json;q=0.9,*/*;q=0.8" },
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = typeof response?.text === "function" ? await response.text() : "";
+      return String(text || "").slice(0, 400000);
+    },
+  });
+}
+
 async function runCatalogueRefresh(trigger) {
   const store = require("./model-catalogue-store.cjs");
   const loaded = seedCatalogueFromDisk();
@@ -1863,6 +1889,11 @@ async function runCatalogueRefresh(trigger) {
     ? Date.now() - Number(loaded.oldestFetchedAt)
     : Number.POSITIVE_INFINITY;
   const privacy = voicePrivacyOn() || modelRouteMode() === "local-only";
+  if (!privacy && (trigger === "startup" || trigger === "manual" || trigger === "foreground")) {
+    void refreshPricingKnowledge().catch((error) => {
+      log(`pricing refresh failed: ${error?.message || error}`);
+    });
+  }
   const plan = store.planCatalogueRefresh({
     trigger,
     ageMs,
@@ -2436,9 +2467,24 @@ async function confirmEgress({
 }) {
   const connected = providerIsConnected(model, destination);
   const decision = privacyFirewall.guardEgress({ model, content, destination, connected });
-  if (forceAsk) {
+  if (forceAsk && !decision.hardStop) {
     decision.requiresConfirmation = true;
     decision.autoAllowed = false;
+  }
+  if (decision.hardStop) {
+    const message = privacyFirewall.describeEgress(decision, model, destination);
+    send("privacy:egress-decided", {
+      label,
+      modelId: model?.id || null,
+      destination: destination || model?.label || model?.id || null,
+      classification: decision.classification.level,
+      reasons: decision.classification.reasons,
+      allowed: false,
+      hardStop: true,
+      at: Date.now(),
+    });
+    log(`privacy firewall: ${label} · sensitive · blocked`);
+    return { allowed: false, decision, message };
   }
   if (decision.requiresConfirmation && !connected && ownerPrefToggle("blockUnknownHosts", false)) {
     const where = destination || model?.label || model?.id || "an external service";
@@ -5196,11 +5242,13 @@ ipcMain.handle("models:test-provider", (_e, id, apiKey, options) => {
   }
   return modelsApi.testProvider(id, { ...modelsContext(), apiKey: apiKey || null });
 });
-ipcMain.handle("models:sync-catalog", () => {
+ipcMain.handle("models:sync-catalog", async () => {
+  const refresh = await refreshPricingKnowledge();
   const due = modelAccess.planKnowledgeRefresh(Date.now());
   const schedule = modelAccess.scheduleFreeRefresh(false);
   return {
     schedule,
+    refresh,
     due: due.map((row) => ({
       id: row.id,
       source: row.source,

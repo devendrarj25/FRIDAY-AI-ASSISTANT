@@ -162,6 +162,24 @@ describe("billing firewall", () => {
     );
   });
 
+  it("names a stale snapshot instead of a paid bill", () => {
+    const stale = {
+      id: "openai:gpt-4o",
+      type: "cloud",
+      accessRecord: {
+        billingMode: "UNKNOWN",
+        eligibility: "UNKNOWN",
+        failureReason: "pricing_stale",
+        evidence: { stale: true, source: "provider_pricing" },
+      },
+    };
+    const verdict = firewall.guardProviderRequest({ model: stale, billing: billing() });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.blockKind).toBe("unverified");
+    expect(verdict.reason).toMatch(/pricing info is stale, refresh now/);
+    expect(verdict.reason).not.toMatch(/treats it as paid/);
+  });
+
   it("allows unknown-cost only when the owner authorises paid usage", () => {
     expect(
       firewall.guardProviderRequest({

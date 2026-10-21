@@ -132,6 +132,48 @@ describe("ISSUE 1 — only SENSITIVE content stops FRIDAY; everything else flows
     expect(privacy.clearSessionGrants).toBeUndefined();
   });
 
+  it("lets ordinary words and long numbers through, and stops real identifiers", () => {
+    const allow = [
+      "how do I renew my passport",
+      "what is an ssn",
+      "aadhaar is an identity card",
+      "where is my pan card",
+      "social security office hours",
+      "which password manager do you recommend",
+      "the secret recipe uses cinnamon",
+      "order 1000000000000001",
+      "seen at 1729468800000",
+      "id 550e8400-e29b-41d4-a716-446655440000",
+      "call +1 41555 52671",
+    ];
+    for (const content of allow) {
+      const decision = privacy.guardEgress({ model: cloud, content, connected: true });
+      expect(decision.classification.level, content).not.toBe("sensitive");
+      expect(decision.autoAllowed, content).toBe(true);
+    }
+    const block = [
+      "card 4111 1111 1111 1111",
+      "aadhaar 1234 5678 9012",
+      "pan ABCDE1234F",
+      "ssn 123-45-6789",
+      "passport number A1234567",
+      "my password: hunter2",
+      "the pin is 1234",
+      "cvv is 123",
+    ];
+    for (const content of block) {
+      const decision = privacy.guardEgress({ model: cloud, content, connected: true });
+      expect(decision.classification.level, content).toBe("sensitive");
+      expect(decision.hardStop, content).toBe(true);
+      expect(decision.autoAllowed, content).toBe(false);
+      expect(decision.reason, content).toMatch(/Blocked:/);
+      expect(decision.reason, content).toMatch(/local model/);
+      const detail = privacy.describeEgress(decision, cloud, null);
+      expect(detail).toMatch(/What triggered this/);
+      expect(detail).toMatch(/Remove it from the message/);
+    }
+  });
+
   it("does not treat ordinary 'password manager' chat as SENSITIVE", () => {
     const decision = privacy.guardEgress({
       model: cloud,
