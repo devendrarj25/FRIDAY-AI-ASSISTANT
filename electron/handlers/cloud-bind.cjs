@@ -1,6 +1,6 @@
 /**
- * Shared cloud handler. Provider files pass an id; endpoint, list, and
- * auth come from the one CLOUD catalogue in electron/models.cjs.
+ * Shared cloud handler. Provider files pass an id and a module spec.
+ * Endpoint, list, and auth come from the one CLOUD catalogue in electron/models.cjs.
  */
 "use strict";
 
@@ -22,20 +22,26 @@ function authFor(id) {
   return { scheme: "header", header: headerName };
 }
 
-function cloudHandler(id) {
+function protocolFor(spec, catalogueSpec) {
+  if (spec && spec.protocol) return spec.protocol;
+  if (catalogueSpec && catalogueSpec.wire === "anthropic") return "anthropic-messages";
+  return "openai-compatible";
+}
+
+function cloudHandler(id, spec = {}) {
   return createHandler({
     id,
     kind: "cloud",
     baseUrl() {
-      const spec = catalogue()[id] || {};
-      return spec.chat || spec.url || "";
+      const row = catalogue()[id] || {};
+      return row.chat || row.url || "";
     },
     auth: () => authFor(id),
     discoverModels(payload) {
-      const spec = catalogue()[id];
-      if (spec && typeof spec.list === "function") {
+      const row = catalogue()[id];
+      if (row && typeof row.list === "function") {
         try {
-          return spec.list(payload || {});
+          return row.list(payload || {});
         } catch {
           return [];
         }
@@ -55,26 +61,30 @@ function cloudHandler(id) {
       });
     },
     buildRequest(input) {
-      const models = require("../models.cjs");
-      const spec = catalogue()[id] || {};
-      const base = String(spec.chat || "").replace(/\/+$/, "");
-      const model = String(input?.model || input?.modelId || "");
-      const messages = Array.isArray(input?.messages) ? input.messages : [];
-      if (spec.wire === "anthropic") {
-        return {
-          url: base ? `${base}/messages` : "",
-          wire: "anthropic",
-          body: { model, messages, stream: input?.stream !== false },
-        };
+      const row = catalogue()[id] || {};
+      const protocols = require("../protocol-registry.cjs");
+      const protocol = protocolFor(spec, row);
+      let next = input || {};
+      if (typeof spec.routeWithinProvider === "function") {
+        const routed = spec.routeWithinProvider(next) || {};
+        if (routed.model) next = { ...next, model: routed.model, modelId: routed.model };
       }
-      return {
-        url: base ? models.openaiChatUrl(base, spec.chatPath) : "",
-        wire: spec.wire || "online",
-        body: { model, messages, stream: input?.stream !== false },
-      };
+      const built = protocols.buildChat(
+        protocol,
+        { chat: row.chat, chatPath: row.chatPath, wire: row.wire },
+        next,
+      );
+      if (typeof spec.routeBody === "function" && built.body && typeof built.body === "object") {
+        const extra = spec.routeBody(next) || {};
+        if (extra && typeof extra === "object" && !Array.isArray(extra)) {
+          built.body = { ...built.body, ...extra };
+        }
+      }
+      return built;
     },
     parseStream(chunk) {
-      return require("../models.cjs").parseOpenAiSse(chunk);
+      const row = catalogue()[id] || {};
+      return require("../protocol-registry.cjs").parseStream(protocolFor(spec, row), chunk);
     },
     mapError(error) {
       return require("../model-router.cjs").classifyError(error);
@@ -83,15 +93,15 @@ function cloudHandler(id) {
       return modelAccess.quotaMeter(headers);
     },
     gate() {
-      const spec = catalogue()[id] || {};
+      const row = catalogue()[id] || {};
       return {
         id,
         kind: "cloud",
-        listUrl: String(spec.url || ""),
-        chatUrl: String(spec.chat || ""),
-        verify: spec.verify || null,
-        mayTrain: id === "openrouter",
-        privacyUrl: id === "openrouter" ? "https://openrouter.ai/settings/privacy" : "",
+        listUrl: String(row.url || ""),
+        chatUrl: String(row.chat || ""),
+        verify: row.verify || null,
+        mayTrain: spec.mayTrain === true,
+        privacyUrl: spec.privacyUrl || "",
         healthProbe: "zero-spend",
       };
     },

@@ -1,7 +1,9 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { pinKnowledgeClock } from "./helpers/knowledge-clock";
 
 const require_ = createRequire(import.meta.url);
+pinKnowledgeClock();
 const router = require_("../../electron/model-router.cjs") as {
   selectEligible: (models: unknown[], options?: Record<string, unknown>) => Array<{ id: string }>;
 };

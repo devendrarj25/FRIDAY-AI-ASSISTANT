@@ -14,28 +14,29 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 
 ## Checks on this Linux tree
 
-Run on 2026-10-20. Windows pack gates were not run. Hosted Actions were not started.
+Run on 2026-10-21. Windows pack gates were not run. Hosted Actions were not started. `git diff --name-only origin/main -- .github` was empty.
 
 | Check | Result |
 | --- | --- |
-| `npm run docs:sync` | Passed. 24 documents, all zeros. |
-| `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0. |
-| `npm run verify:version` | Passed. `version 1.1.2.4 - all version sources and governed documents are in sync`. |
+| `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
+| `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0, provider status stale false. |
+| `npm run verify:version` | Passed. `version 1.1.2.4 - all version sources and governed documents are in sync`. Heal check: `version 1.1.2.4 - release-ready, nothing to heal`. |
 | `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `65 files already formatted`. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.4`. |
-| `npm run typecheck:py` | Passed. 4 passed in 10.19s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
-| `npm run test:kernel` | 204 passed in 21.78s. Exit 0. |
-| `npm test` | 373 files passed, 3080 passed, 2 skipped, 96.79s. Exit 0. The pause and cancel download case also passed in 20 separate process runs. |
-| `node scripts/tests-required.cjs origin/main` | 17 code files, 8 test files. |
-| `npm run check:provenance` | Passed for this branch. New commits use the repository owner as author. Assistant-authored commits already on `main` are outside `origin/main..HEAD` and were not rewritten. |
+| `npm run typecheck:py` | Passed. 4 passed in 5.67s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 204 passed in 19.12s. Exit 0. |
+| `npm test` | 375 files passed, 3096 passed, 2 skipped, 92.96s. Exit 0. |
+| `npm run test:fast` | 137 files passed, 1135 passed, 26.91s. Exit 0. This ran inside preflight on the dirty tree. |
+| `node scripts/tests-required.cjs origin/main` | 59 code files, 5 test files, on the commits in this branch. |
+| `npm run check:provenance` | Passed. `provenance ok (origin/main)`. New commits use the repository owner as author. Eight assistant-authored commits already on `main` are outside this range and were not rewritten. |
 | `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
-| `node scripts/audit-architecture.cjs --strict` | Passed. 734 source files. REVIEW lines remain. No file was deleted. |
-| `npm run preflight` | Passed. Exit 0. `test:fast` passed: 139 files, 1146 tests. Windows pack gates were not run. |
-| `npm run build:desktop` | Not re-run on this branch. |
-| `npm audit` | Not re-run on this branch. The earlier 2026-10-20 reading was 0 vulnerabilities. |
+| `node scripts/audit-architecture.cjs --strict` | Passed. 751 source files. REVIEW lines remain. No file was deleted. |
+| `npm run preflight` | Passed. Exit 0. Every default gate passed. `node scripts/verify-deps.cjs` checked 155 files. Windows pack gates were not run. |
+| `npm run build:desktop` | Passed. Exit 0. 2980 modules, built in 5.96s. `AppShell-CiodLDvP.js` is 3,674.82 kB (gzip 1,310.51 kB). `src/routeTree.gen.ts` was unchanged. |
+| `npm audit` | 1 high on 2026-10-21. vite 8.3.2, advisories GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, and GHSA-587h-7wmj-h5pm. The published fix is 8.3.5. This change leaves the Vite 8.3.2 floor in place. |
 | `pip-audit` | Not re-run. chromadb 1.5.9: PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815. No published fix version, so the pin was not moved. |
-| `npm run pricing:status` | Not re-run. The earlier 2026-10-20 reading was EXPIRING. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21. Those pages were not re-read, so `checkedAt` was not moved. |
+| `npm run pricing:status` | Exit 1. EXPIRED. Oldest is perplexity, checked 2026-10-07, expires 2026-10-21 (−1 day). groq and gemini are still fresh (checked 2026-10-13, 5 days). openai, anthropic, mistral, deepseek, and perplexity are expired. `checkedAt` was not moved. |
 
 ## UNVERIFIED
 
@@ -59,7 +60,7 @@ Stack floors stay in `package.json` and `config/toolchain-versions.json`: Electr
 
 ## Architecture (code, not a second copy of ARCHITECTURE.md)
 
-Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py`. Chat and Voice call `electron/model-router.cjs` `routeRequest`. `kernel/router.py` executes the ids that funnel already chose. Desktop start, hide, restart, and exit go through `electron/app-lifecycle.cjs`. `electron/main.cjs` wires the steps and does not call quit, exit, or relaunch itself. Readiness asks that lifecycle to shut down so the kernel process tree is gone before exit, and `/health` must carry this launch's `instance_id`. `core/` is Vitest and contracts only. Navigation in `src/lib/friday/navigation.ts`: 28 sidebar paths, Settings in the footer, `/character` and `/workflow-visual` are not sidebar rows. Layer map: [ARCHITECTURE.md](ARCHITECTURE.md).
+Renderer `src/` → preload allowlist `electron/preload.cjs` → main `electron/` → kernel `kernel/main.py`. Chat and Voice call `electron/model-router.cjs` `routeRequest`. The persisted catalogue is `electron/model-catalogue-store.cjs`. Side lane lists are pure. `kernel/router.py` executes the ids that funnel already chose. Desktop start, hide, restart, and exit go through `electron/app-lifecycle.cjs`. `electron/main.cjs` wires the steps and does not call quit, exit, or relaunch itself. Readiness asks that lifecycle to shut down so the kernel process tree is gone before exit, and `/health` must carry this launch's `instance_id`. `core/` is Vitest and contracts only. Navigation in `src/lib/friday/navigation.ts`: 28 sidebar paths, Settings in the footer, `/character` and `/workflow-visual` are not sidebar rows. Layer map: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Speech downloads use source families in `config/download-hosts.json`. The live STT ladder, the voice self-heal policy, and the choice not to bundle a speech model are in [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Provider gates, error class, and the OpenRouter privacy setting are in [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md). IPC calls use one budget table: a quick call waits 30 seconds, a long job has no total deadline, and a stream ends only after 120 seconds without output. The error names that budget. The work keeps running, and that error alone does not start a voice-heal retry or a model fallback. A stalled main window is written into the Doctor, then the lifecycle reloads the renderer and leaves the kernel process alone. A local model listed in `config/models.yaml` stays unavailable until discovery marks it installed. Chat then says `no installed local model`, and the pack still continues.
 
@@ -122,10 +123,13 @@ These look like bugs. They are not. Do not "fix" them.
 - A live Windows speech download, microphone, Windows speech pack, and Shutdown or Restart on the packaged EXE are unverified. `hf-mirror.com` is off unless `FRIDAY_HF_MIRROR=1`.
 - This branch's Windows CMD pack, readiness RESTART, installer, and in-app update apply are unverified. The owner's 1.1.2.4 pack is the verified line. Silent uninstall keeps the data folder.
 - Voice smoothness, addressing quality, and flicker on a real GPU are unverified. The checks are in [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) under Voice smoothness and Live listening.
-- Catalogue refresh stays `planHealthProbe`. Per-model probes are separate zero-spend GETs (a models list, a key or account endpoint, or a local `/api/tags`). They are cached, jittered, and capped at three at a time. Privacy mode skips the network probes and still allows a local probe. A failed probe cools that model before a turn. No prompt is sent. A live provider probe was not run. Groq's models page was re-read on 2026-10-20. The other provider pages were not opened on this run.
-- `src/routeTree.gen.ts` uses one footer (`scripts/route-tree-footer.cjs`). The 2026-10-20 `build:desktop` left that file unchanged.
+- Each provider catalogue is a JSON file under the cache `model-catalogue` folder. Startup loads those files before a network refresh. A refresh runs when a file is missing or older than 24 hours, on Refresh now, after a model 404, and after sleep once that age has passed. Privacy mode and a local-only route keep the disk copy and mark it stale. The light tick only notes expired cooldowns and does not call a models endpoint. Zero-spend probes run with the 24 hour refresh. Live catalogue refresh was not run. `npm run models:check --live` was not run. No owner keys are in this environment. Groq, Gemini, OpenRouter, Hugging Face, OpenAI, NVIDIA, Ollama, and LM Studio docs were re-read on 2026-10-21 for list shape and protocol. Their price tables were not moved. The other provider pages were not opened on this run.
+- `src/routeTree.gen.ts` uses one footer (`scripts/route-tree-footer.cjs`). The 2026-10-21 `build:desktop` left that file unchanged.
 - The default pack stays unsigned (`signExecutable: false`). SmartScreen may warn on the owner's PC.
-- chromadb 1.5.9 has four advisories and no published fix, so it stays. Pricing pages other than Groq were not re-read on 2026-10-20. Assistant-authored commits that are already on `main` were not rewritten.
+- chromadb 1.5.9 has four advisories and no published fix, so it stays. Price tables were not moved on 2026-10-21. `npm run pricing:status` is EXPIRED. groq and gemini were checked 2026-10-13 and are still inside 14 days. openai, anthropic, mistral, deepseek, and perplexity were checked 2026-10-07 and are one day past that window. Assistant-authored commits that are already on `main` were not rewritten.
+- The Doctor catalogue row reports freshness and does not rewrite `fetchedAt`. `staggerPlan` and conditional request headers are helpers with tests. The live refresh is still one `refreshRoutable` fan-out.
+- `npm audit` on 2026-10-21 reports one high finding on vite 8.3.2. The floor stays 8.3.2. The 8.3.5 fix was not applied here.
+- `kernel/router.py` and `electron/model-router.cjs` kept their names. The flow registry, tests, and docs pin those paths. Existing duplicate basenames stay on the allowlist in `core/__tests__/duplicate-stems.test.ts`. A new duplicate basename fails that test.
 
 ## Next priorities
 
@@ -154,7 +158,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 5. The desktop route tree writes the same Start footer as the web plugin. After `npm run build:desktop` or `npm run build:win`, `git status` must be clean.
 6. Owner decision. recharts stays on 2.x. A 3.x migration is a UI change and was not done. `core/__tests__/project-governance.test.ts` pins `dependencies.recharts` to `^2.`. The migration notes stay here: `CategoricalChartState` is gone, `Customized` no longer receives internal state, internal props such as `activeIndex` were removed, `ResponsiveContainer` `ref.current.current` is gone, and `accessibilityLayer` is on by default. The only import is `src/components/ui/chart.tsx`.
 7. Waiting on a parent. `tsconfck` 3.1.6 is required by `vite-tsconfig-paths` 6.1.1. `rcedit` 5.0.2 is still imported by `scripts/brand-windows.cjs`. No override. Detail: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
-8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. This Linux `build:desktop` wrote `AppShell-DQyikdLw.js` at 3,674.58 kB (gzip 1,310.48 kB). In-process `/health` on this machine was 1.84 ms at the median. Click latency and idle CPU on the Windows EXE were not measured.
+8. AppShell stays one chunk. Splitting `src/components/friday/AppShell.tsx` was not done. This Linux `build:desktop` on 2026-10-21 wrote `AppShell-CiodLDvP.js` at 3,674.82 kB (gzip 1,310.51 kB). In-process `/health` was not re-measured on this run. Click latency and idle CPU on the Windows EXE were not measured.
 9. Finding, not a change. A constraints file that pins Node, npm, Python, and PowerShell would fight the `>=` floors. The known-good line is in the build doc.
 10. faster-whisper uses CUDA float16 only when the GPU flag is set and cuBLAS plus cuDNN 9 are on PATH. Otherwise it stays on CPU int8. A failed CUDA load falls back the same way. A Windows GPU run is unverified.
 11. Owner decision. An offline Hindi voice is not bundled. Supertonic 3 F2 speaks Hindi when it is installed.
@@ -167,6 +171,14 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 18. Owner decision. An unknown model is not used automatically. `spendCapUsd` on that model is what allows it, under the billing firewall. Strict privacy stays off unless the owner turns it on.
 19. Owner decision. [CHANGELOG.md](CHANGELOG.md) and `releases/notes/` were not trimmed.
 20. No product file was deleted in this pass. `node scripts/audit-architecture.cjs --strict` exits 0 and still prints REVIEW lines for same-name files and for files with no static importer, including `electron/preload.cjs`. Those stay. A file is removed only after grep shows that no test, doc registry, workflow, package script, or runtime path needs it.
+21. Provider catalogue, on the Windows PC after `npm run setup` and `npm run build:win`, with real keys. Live calls from this tree were not run.
+   1. For each provider with a key: Connect, Test connection, Refresh now. Models show context, modalities, pricing, and free, unknown, or paid with evidence. The status matrix says what is verified.
+   2. Close and reopen with Wi-Fi off. The catalogue loads from disk and is labelled stale when it is older than 24 hours. Reopen with Wi-Fi on. A refresh runs only when the file is older than 24 hours. The Doctor row reports that age and does not change it. Refresh now runs immediately. The interval path waits up to 60 seconds, then one catalogue refresh runs. Per-provider stagger is not wired into that fetch.
+   3. Hugging Face cloud: set the token, pick a model with a routing suffix, and chat. Hugging Face local: search a small GGUF, download, pause, resume, restart mid-way, install into Ollama or LM Studio, load it, and chat.
+   4. The same request in Chat and in Voice shows the same lane, model, and reason in the Doctor. The decision trace names the catalogue record and the evidence level.
+   5. A simulated free-quota end moves to another free model and never to a paid one. Paid stays off. Privacy mode makes no cloud call and no catalogue refresh.
+   6. Run `npm run models:check -- --live` once and send the redacted report from `debug\reports`.
+   Any failing step: send the step number, the on-screen text, and the newest `debug\reports\*` file.
 
 ## Owner decisions
 
@@ -177,3 +189,7 @@ Owner checks stay in order. A failed step should be reported with the step numbe
 - Strict privacy: off.
 - Changelog and release notes: left untouched.
 - recharts 3: not started.
+- Coverage-expansion providers were not added. The list is `electron/provider-coverage.cjs`.
+- Pinned router filenames stayed: `kernel/router.py` and `electron/model-router.cjs`.
+- Pricing `checkedAt` dates stayed. The expired snapshot fails closed.
+- Vite stays 8.3.2. The 8.3.5 advisory fix was not applied in this change.

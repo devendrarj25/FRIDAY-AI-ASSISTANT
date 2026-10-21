@@ -197,6 +197,9 @@ contextBridge.exposeInMainWorld("friday", {
   unloadModel: (model) => ipcRenderer.invoke("models:unload", model),
   probeModel: (model, prompt) => ipcRenderer.invoke("models:run-probe", model, prompt || null),
   routableModels: (force) => ipcRenderer.invoke("models:routable", Boolean(force)),
+  catalogueStatus: () => ipcRenderer.invoke("models:catalogue-status"),
+  catalogueRefresh: () => ipcRenderer.invoke("models:catalogue-refresh"),
+  verifyCapabilities: (modelId) => ipcRenderer.invoke("models:verify-capabilities", modelId || ""),
   // Dynamic registry for the chat model selector: free/paid classified, with
   // live health. API keys never cross this bridge — only model metadata does.
   modelRegistry: (force) => ipcRenderer.invoke("models:registry", Boolean(force)),

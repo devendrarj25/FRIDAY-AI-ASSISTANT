@@ -230,12 +230,77 @@ Chat and Voice call `routeRequest` in `electron/model-router.cjs`. The lane is o
 
 The model plan's learned value estimator and a second providers package tree were not added. Bedrock, Foundry, and Vertex stay off the cloud list until the owner connects those accounts. vLLM stays an optional local serve command. The vLLM package is not a dependency. Video demos are not an implementation source, and a video index was not added.
 
-A model refusal, a failed tool call, a schema mismatch, and a low-confidence verification move to the next model that already passed privacy and billing. A content filter still stops. Those answer failures do not open a cooldown or a quarantine. A context overflow still moves only after the caller marks the prompt compacted. Catalogue refresh is by trigger: startup checks health and a stale catalogue, the Models page may read every layer, a background pass uses catalogue, health, and lifecycle with jitter, and a chat turn refreshes only when the catalogue is stale. A repair that would rotate a key, change privacy, upload weights, enable a paid provider, or replace a pinned model stays with the owner. `models:heal` calls that gate.
+A model refusal, a failed tool call, a schema mismatch, and a low-confidence verification move to the next model that already passed privacy and billing. A content filter still stops. Those answer failures do not open a cooldown or a quarantine. A context overflow still moves only after the caller marks the prompt compacted. `planRefresh` still names startup, the Models page, a background layer list, and a chat turn. The timer that used to call that background plan every ten minutes no longer fetches. A repair that would rotate a key, change privacy, upload weights, enable a paid provider, or replace a pinned model stays with the owner. `models:heal` calls that gate.
 
 | Topic | Decision | Why, for FRIDAY |
 | --- | --- | --- |
 | Separate fallback classes for context, policy, and other errors | ADAPT | LiteLLM keeps content-policy, context-window, and general fallbacks as different lists (https://docs.litellm.ai/docs/proxy/reliability, accessed 2026-10-08). FRIDAY moves a refusal, a tool failure, a schema miss, and low confidence. A content filter still stops. |
-| Refresh by trigger, not on every turn | ADAPT | OpenRouter and provider catalogues change, and a full sweep on each chat turn is wasted work. FRIDAY refreshes a stale catalogue before routing and leaves a fresh one alone. |
+| Refresh by trigger, not on every turn | ADAPT | OpenRouter and provider catalogues change. The persisted catalogue refreshes when it is missing or older than 24 hours, on Refresh now, after a model 404, and after sleep once that age has passed. A light cooldown tick does not call a models endpoint. |
 | Owner-only repairs stay manual | ADOPT | Healing a stale endpoint cache is allowed. Rotating a key or turning paid access on is not. |
 
-Catalogue TTL is 10 minutes, pricing 30 minutes, entitlement 10 minutes, successful probes 30 minutes. Background refresh reuses `refreshRoutable` after the catalogue TTL; API key / endpoint / route-mode changes invalidate immediately. Lifecycle kinds (`MODEL_DISCOVERED`, `MODEL_VERIFIED`, `MODEL_FAILED`, `MODEL_RATE_LIMITED`, `MODEL_EXHAUSTED`, `MODEL_RETIRED`, `MODEL_REMOVED`, `PROVIDER_CONNECTED`, `API_KEY_CHANGED`, `ROUTE_CHANGED`) are stamped onto the existing `models:registry-changed` / `models:health-changed` / `models:route-mode` broadcasts — not a second event bus.
+Evidence TTLs stay 10 minutes for a catalogue record, 30 minutes for pricing, 10 minutes for entitlement, and 30 minutes for a successful probe. The background models-list loop is gone. A light cooldown tick never calls a models endpoint. The persisted catalogue refreshes on startup only when it is missing or older than 24 hours, then on that same interval, on Refresh now, after a model 404, and after sleep when 24 hours have passed. Privacy mode and a local-only route keep the disk copy and mark it stale. API key, endpoint, and route-mode changes still invalidate immediately. Lifecycle kinds (`MODEL_DISCOVERED`, `MODEL_VERIFIED`, `MODEL_FAILED`, `MODEL_RATE_LIMITED`, `MODEL_EXHAUSTED`, `MODEL_RETIRED`, `MODEL_REMOVED`, `PROVIDER_CONNECTED`, `API_KEY_CHANGED`, `ROUTE_CHANGED`) stay on the existing `models:registry-changed` / `models:health-changed` / `models:route-mode` broadcasts.
+
+| Topic | Decision | Why, for FRIDAY |
+| --- | --- | --- |
+| One catalogue file per provider, 24 hour refresh | ADOPT | Official list pages change slowly. A 10 minute loop hit every connected provider all day. Disk load comes first. An empty or corrupt response keeps the previous file. |
+| Shared protocol adapters | ADOPT | OpenAI-compatible chat, Anthropic Messages, Gemini page tokens, Cohere rerank and embed, Ollama native chat, and LM Studio native routes are written once. Provider modules name the adapter. |
+| Gemini native generateContent as the chat path | REJECT | The product chat URL stays `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`. Native pagination is normalised only when that payload shape appears. Re-read 2026-10-21: https://ai.google.dev/api/models |
+| OpenRouter provider object inside the firewall | ADAPT | List and routing docs re-read 2026-10-21 (https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties and https://openrouter.ai/docs/guides/routing/provider-selection). A privacy turn can send `data_collection: deny` and `allow_fallbacks: false`. That does not open the paid lane. |
+| Groq list fields as a free-tier table | REJECT | The list shape was re-read 2026-10-21 (https://console.groq.com/docs/api-reference). `context_window` is copied when present. The page did not prove a free id. The existing price table stays. |
+| Hugging Face router suffixes on demand | ADAPT | Router docs re-read 2026-10-21 (https://huggingface.co/docs/inference-providers/main/en/index). `:cheapest`, `:fastest`, and a provider pin are applied when the caller asks. A bare id stays bare. |
+| OpenAI Responses API as the product chat path | REJECT | The models list was re-read 2026-10-21 (https://developers.openai.com/api/reference/resources/models/methods/list/). Chat stays on `/v1/chat/completions`. An id with no access class is not automatic. |
+| NVIDIA cloud catalogue from llms.txt | ADOPT | https://build.nvidia.com/llms.txt re-read 2026-10-21. Base `https://integrate.api.nvidia.com/v1`, Bearer, OpenAI-compatible chat, free trial with no credit card. Capabilities stay empty unless the payload has them. A self-hosted NIM container is not this catalogue. |
+| Ollama cloud as a silent route | REJECT | https://docs.ollama.com/api/chat re-read 2026-10-21. Local chat stays `POST /api/chat`. The hosted API takes a key and was not added. |
+| LM Studio native chat as a second path | REJECT | OpenAI-compatible and native REST docs re-read 2026-10-21 (https://lmstudio.ai/docs/developer/openai-compat and https://lmstudio.ai/docs/developer/rest). Product chat stays `/v1/chat/completions`. Native load routes are recorded only. |
+| Cloudflare Workers AI and GitHub Models | REJECT | Not reversed on 2026-10-21. GitHub Models retired 2026-07-30. Cloudflare's chat base has no OpenAI `GET /v1/models` and puts the account id in the URL. |
+| DashScope, SiliconFlow, Hyperbolic, Novita, AI21, Reka, Inception, Azure OpenAI, Bedrock, Vertex, Replicate | REJECT this run | Those pages were not re-read on 2026-10-21. No endpoint, price, or free tier was added from memory. |
+
+<!-- docs-engine: generated provider status. Edit scripts/docs-engine.cjs, not this. -->
+
+| Provider | Adapter | Discovery | Metadata normalised | Pricing verified | Entitlement verified | Request/response tested | Live verified |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `openai` | implemented | documented | yes | no | no | mocked | no |
+| `anthropic` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `gemini` | implemented | documented | yes | no | no | mocked | no |
+| `groq` | implemented | documented | yes | no | no | mocked | no |
+| `mistral` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `cohere` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `deepseek` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `nvidia` | implemented | documented | yes | no | no | mocked | no |
+| `fireworks` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `deepinfra` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `cerebras` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `sambanova` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `moonshot` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `zhipu` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `huggingface` | implemented | documented | yes | no | no | mocked | no |
+| `together` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `xai` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `perplexity` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `nebius` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `openrouter` | implemented | documented | yes | no | no | mocked | no |
+| `ollama` | implemented | documented | yes | no | no | mocked | no |
+| `lmstudio` | implemented | documented | yes | no | no | mocked | no |
+| `llamacpp` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `vllm` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `localai` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `jan` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `mlx` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `local` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `huggingface-local` | download-manager | documented | yes | no | no | mocked | no |
+| `cloudflare-workers-ai` | not-added | not-read | no | no | no | not-tested | no |
+| `github-models` | not-added | not-read | no | no | no | not-tested | no |
+| `dashscope` | not-added | not-read | no | no | no | not-tested | no |
+| `siliconflow` | not-added | not-read | no | no | no | not-tested | no |
+| `hyperbolic` | not-added | not-read | no | no | no | not-tested | no |
+| `novita` | not-added | not-read | no | no | no | not-tested | no |
+| `ai21` | not-added | not-read | no | no | no | not-tested | no |
+| `reka` | not-added | not-read | no | no | no | not-tested | no |
+| `inception` | not-added | not-read | no | no | no | not-tested | no |
+| `azure-openai` | not-added | not-read | no | no | no | not-tested | no |
+| `amazon-bedrock` | not-added | not-read | no | no | no | not-tested | no |
+| `google-vertex` | not-added | not-read | no | no | no | not-tested | no |
+| `replicate` | not-added | not-read | no | no | no | not-tested | no |
+| `ollama-cloud` | not-added | not-read | no | no | no | not-tested | no |
+
+<!-- docs-engine: end generated provider status -->

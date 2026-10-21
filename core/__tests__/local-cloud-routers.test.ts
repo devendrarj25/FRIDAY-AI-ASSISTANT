@@ -308,6 +308,7 @@ describe("single funnel", () => {
     const allowed = new Set([
       path.join(ROOT, "src/lib/friday/model-catalog.ts"),
       path.join(ROOT, "electron/models.cjs"),
+      path.join(ROOT, "electron/protocol-openai-compatible.cjs"),
     ]);
     const offenders: string[] = [];
     for (const file of [...walk(path.join(ROOT, "src")), ...walk(path.join(ROOT, "electron"))]) {

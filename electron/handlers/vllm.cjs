@@ -1,3 +1,16 @@
 "use strict";
-const { localHandler } = require("./local-bind.cjs");
-module.exports = localHandler("vllm");
+const { defineLocalProvider } = require("../provider-module.cjs");
+
+module.exports = defineLocalProvider({
+  id: "vllm",
+  protocol: "openai-compatible",
+  endpointKinds: ["chat"],
+  discovery: "existing-catalogue",
+  provenance: {
+    sourceUrl: "http://127.0.0.1:8000",
+    method: "existing-catalogue",
+    fetchedAt: null,
+    confidence: "unknown",
+  },
+  replacementMap: {},
+});

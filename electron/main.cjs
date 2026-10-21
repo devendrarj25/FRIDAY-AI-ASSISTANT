@@ -1750,6 +1750,18 @@ async function refreshRoutable(force = false, trigger = "") {
     .routable(modelsContext())
     .then((result) => {
       routableCache = result;
+      if (
+        named === "foreground" ||
+        named === "manual" ||
+        named === "after-failure" ||
+        named === "catalogue"
+      ) {
+        try {
+          persistCatalogueSnapshot(result);
+        } catch (error) {
+          log(`catalogue persist failed: ${error?.message || error}`);
+        }
+      }
       return result;
     })
     .catch((error) => {
@@ -1764,8 +1776,6 @@ async function refreshRoutable(force = false, trigger = "") {
 
 let lastKernelSyncHash = "";
 let modelRefreshTimer = null;
-const MODEL_REFRESH_MS = modelAccess.CATALOGUE_TTL_MS || 10 * 60 * 1000;
-
 /**
  * Stamp a lifecycle kind onto the existing models:* broadcasts.
  * Brain already listens to registry-changed / health-changed; this is the
@@ -1806,7 +1816,85 @@ function voicePrivacyOn() {
   }
 }
 
-let modelRefreshWait = null;
+let catalogueTimer = null;
+let catalogueArmed = false;
+const HEALTH_TICK_MS = 60 * 1000;
+
+function catalogueDir() {
+  return path.join(paths.dir("cache"), "model-catalogue");
+}
+
+function persistCatalogueSnapshot(result) {
+  const store = require("./model-catalogue-store.cjs");
+  const dir = catalogueDir();
+  const models = Array.isArray(result?.models) ? result.models : [];
+  const grouped = store.groupByProvider(models);
+  const fetchedAt = Date.now();
+  for (const [providerId, rows] of Object.entries(grouped)) {
+    const records = rows
+      .map((row) => store.canonicalFromRoutable(row))
+      .filter((row) => row && row.providerId && row.nativeId);
+    const file = store.fileFor(dir, providerId);
+    const previous = store.readEnvelope(file);
+    const diff = store.diffCatalogues(previous.ok ? previous.doc.records : [], records);
+    const next = store.envelope(providerId, records, fetchedAt, rows, store.changeLines(diff));
+    const committed = store.commitRecords(previous.ok ? previous.doc : null, next);
+    if (committed.ok && committed.doc) store.atomicWrite(file, committed.doc);
+  }
+}
+
+function seedCatalogueFromDisk() {
+  const store = require("./model-catalogue-store.cjs");
+  const loaded = store.inspectDir(catalogueDir(), Date.now());
+  if (!routableCache.models.length && loaded.docs.length) {
+    const models = [];
+    for (const doc of loaded.docs) {
+      if (Array.isArray(doc.routable)) models.push(...doc.routable);
+    }
+    if (models.length) routableCache = { at: Number(loaded.oldestFetchedAt) || 0, models };
+  }
+  return loaded;
+}
+
+async function runCatalogueRefresh(trigger) {
+  const store = require("./model-catalogue-store.cjs");
+  const loaded = seedCatalogueFromDisk();
+  const ageMs = loaded.oldestFetchedAt
+    ? Date.now() - Number(loaded.oldestFetchedAt)
+    : Number.POSITIVE_INFINITY;
+  const privacy = voicePrivacyOn() || modelRouteMode() === "local-only";
+  const plan = store.planCatalogueRefresh({
+    trigger,
+    ageMs,
+    privacy,
+    jitterMs: Math.floor(Math.random() * 60_000),
+  });
+  if (!plan.refresh) return { refreshed: false, plan, sendsPrompt: false };
+  if (plan.delayMs > 0 && trigger !== "manual" && trigger !== "foreground") {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, plan.delayMs);
+      if (timer.unref) timer.unref();
+    });
+  }
+  const named = trigger === "manual" || trigger === "foreground" ? "manual" : "catalogue";
+  const result = await refreshRoutable(true, named);
+  await probeRoutableModels(result?.models || []);
+  return {
+    refreshed: true,
+    plan,
+    sendsPrompt: false,
+    count: Array.isArray(result?.models) ? result.models.length : 0,
+  };
+}
+
+function armCatalogueSchedule() {
+  if (catalogueTimer) return;
+  const store = require("./model-catalogue-store.cjs");
+  catalogueTimer = setInterval(() => {
+    void runCatalogueRefresh("interval");
+  }, store.FRESH_MS);
+  if (catalogueTimer.unref) catalogueTimer.unref();
+}
 
 function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
@@ -1816,33 +1904,15 @@ function startModelRegistryRefresh() {
     /* a missing settings file is a fresh install */
   }
   modelRefreshTimer = setInterval(() => {
-    const plan = modelRouter.planHealthProbe({
-      privacy: voicePrivacyOn(),
-      ageMs: routableCache.at ? Date.now() - routableCache.at : Number.POSITIVE_INFINITY,
-      jitterMs: Math.floor(Math.random() * 60_000),
-    });
-    if (!plan.run) return;
-    if (modelRefreshWait) clearTimeout(modelRefreshWait);
-    modelRefreshWait = setTimeout(
-      () => {
-        modelRefreshWait = null;
-        const refresh = plan.run
-          ? refreshRoutable(false, "background")
-          : Promise.resolve(routableCache);
-        void refresh.then(async (result) => {
-          await probeRoutableModels(result?.models || routableCache.models || []);
-          if (!plan.run) return;
-          void syncKernelModels();
-          emitModelLifecycle("MODEL_UPDATED", {
-            reason: "ttl-refresh",
-            count: Array.isArray(result?.models) ? result.models.length : 0,
-          });
-        });
-      },
-      Number(plan.delayMs) || 0,
-    );
-    if (modelRefreshWait.unref) modelRefreshWait.unref();
-  }, MODEL_REFRESH_MS);
+    const tick = providerHealth.tickCooldowns(Date.now());
+    if (!tick || tick.fetched !== false) return;
+    if (tick.expired > 0) {
+      emitModelLifecycle("MODEL_UPDATED", {
+        reason: "cooldown-expired",
+        count: tick.expired,
+      });
+    }
+  }, HEALTH_TICK_MS);
   if (modelRefreshTimer.unref) modelRefreshTimer.unref();
 }
 
@@ -1893,9 +1963,13 @@ async function probeRoutableModels(models) {
 function stopModelRegistryRefresh() {
   if (modelRefreshTimer) clearInterval(modelRefreshTimer);
   modelRefreshTimer = null;
-  if (modelRefreshWait) clearTimeout(modelRefreshWait);
-  modelRefreshWait = null;
+  if (catalogueTimer) clearInterval(catalogueTimer);
+  catalogueTimer = null;
 }
+
+require("./net-fetch.cjs").setEgressPolicy(() => ({
+  localOnly: voicePrivacyOn() || modelRouteMode() === "local-only",
+}));
 
 /** Register everything reachable with the kernel router — idempotent. */
 async function syncKernelModels(force = false) {
@@ -5217,6 +5291,44 @@ ipcMain.handle("models:run-probe", (_e, model, prompt) => modelsApi.ollamaProbeR
 
 // Routable catalogue, kernel registration, auto selection and engine control.
 ipcMain.handle("models:routable", async (_e, force) => refreshRoutable(Boolean(force)));
+ipcMain.handle("models:catalogue-status", () => {
+  const store = require("./model-catalogue-store.cjs");
+  return store.status(path.join(paths.dir("cache"), "model-catalogue"), Date.now(), {
+    privacy: voicePrivacyOn() || modelRouteMode() === "local-only",
+  });
+});
+ipcMain.handle("models:catalogue-refresh", () => runCatalogueRefresh("manual"));
+ipcMain.handle("models:verify-capabilities", async (_e, modelId) => {
+  const id = String(modelId || "");
+  if (!id) {
+    return {
+      ok: false,
+      refused: true,
+      reason: "Pick a free-verified model before checking capabilities.",
+    };
+  }
+  const { models } = await refreshRoutable(false);
+  const spec = (models || []).find((row) => row.id === id || row.meta?.modelName === id);
+  if (!spec) return { ok: false, refused: true, reason: "That model is not in the catalogue." };
+  const access = spec.access || modelRouter.classifyAccess(spec);
+  if (access !== "free") {
+    return {
+      ok: false,
+      refused: true,
+      reason: "Capability checks run only on a free-verified model.",
+    };
+  }
+  const auth = await authoriseProviderRequest({
+    model: spec,
+    label: `capability check ${spec.id}`,
+    content: "FRIDAY capability check",
+  });
+  if (!auth.allowed) {
+    return { ok: false, refused: true, reason: auth.message, modelId: spec.id };
+  }
+  const probe = await modelsApi.probeModel(spec);
+  return { ...probe, modelId: spec.id };
+});
 ipcMain.handle("models:sync-kernel", (_e, force) => syncKernelModels(Boolean(force)));
 ipcMain.handle("models:select", async (_e, task, preferred) => {
   const resolvedTask = task || "chat";
@@ -5838,6 +5950,11 @@ ipcMain.handle("doctor:run", async (_e, options) => {
       const checks = Array.isArray(result?.checks) ? result.checks.slice() : [];
       checks.push(require("./csp.cjs").doctorCheck());
       checks.push(require("./watchdog.cjs").doctorCheck());
+      checks.push(
+        require("./model-catalogue-store.cjs").doctorCheck(
+          path.join(paths.dir("cache"), "model-catalogue"),
+        ),
+      );
       return { ...(result || {}), checks };
     })
     .finally(() => {
@@ -8156,6 +8273,7 @@ app
           for (const open of BrowserWindow.getAllWindows()) {
             if (!open.isDestroyed()) open.webContents.send("system:resume");
           }
+          if (catalogueArmed) void runCatalogueRefresh("sleep-resume");
           if (!kernel && !kernelReady && !app.__fridayQuitting) {
             void startKernel(getWorkspaceRoot()).catch((error) => {
               log(`resume kernel: ${error?.message || error}`);
@@ -8278,6 +8396,19 @@ app
           stopCapabilityWatch = capabilityIndex.watch(capabilityRoots(), (info) =>
             send("capabilities:changed", info),
           );
+        },
+      });
+      startupTasks.register({
+        id: "catalogue-refresh",
+        phase: "after-first-paint",
+        timeoutMs: 4000,
+        readiness: false,
+        run() {
+          catalogueArmed = true;
+          seedCatalogueFromDisk();
+          armCatalogueSchedule();
+          void runCatalogueRefresh("startup");
+          return { armed: true, policy: "catalogue-24h" };
         },
       });
       await startupTasks.runPhase("after-first-paint");

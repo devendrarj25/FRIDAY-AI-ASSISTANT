@@ -20,6 +20,41 @@ try {
 }
 
 let dispatcher = null;
+let egressPolicy = null;
+
+function setEgressPolicy(fn) {
+  egressPolicy = typeof fn === "function" ? fn : null;
+  return egressPolicy;
+}
+
+function hostOf(url) {
+  try {
+    return new URL(String(url)).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function isLoopback(host) {
+  const name = String(host || "")
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  return name === "localhost" || name === "127.0.0.1" || name === "::1";
+}
+
+function egressDecision(url) {
+  if (!egressPolicy) return { allow: true };
+  let policy = {};
+  try {
+    policy = egressPolicy() || {};
+  } catch {
+    policy = {};
+  }
+  if (policy.localOnly && !isLoopback(hostOf(url))) {
+    return { allow: false, code: "LOCAL_ONLY" };
+  }
+  return { allow: true };
+}
 
 function nodeDispatcher() {
   if (!dispatcher) {
@@ -42,6 +77,12 @@ const chromiumReady = () => {
  * The signature is the standard one, so callers need no special handling.
  */
 async function fetchCompat(url, init = {}) {
+  const decision = egressDecision(url);
+  if (!decision.allow) {
+    const error = new Error("privacy mode keeps this request on the device");
+    error.code = decision.code || "LOCAL_ONLY";
+    throw error;
+  }
   if (chromiumReady()) {
     try {
       return await electron.net.fetch(String(url), init);
@@ -59,4 +100,10 @@ async function fetchCompat(url, init = {}) {
   });
 }
 
-module.exports = { fetchCompat, chromiumReady, nodeDispatcher };
+module.exports = {
+  fetchCompat,
+  chromiumReady,
+  nodeDispatcher,
+  setEgressPolicy,
+  egressDecision,
+};

@@ -359,6 +359,32 @@ const ROUTE_END = "<!-- docs-engine: end generated kernel routes -->";
 const MCP_START =
   "<!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->";
 const MCP_END = "<!-- docs-engine: end generated mcp surface -->";
+const PROVIDER_STATUS_START =
+  "<!-- docs-engine: generated provider status. Edit scripts/docs-engine.cjs, not this. -->";
+const PROVIDER_STATUS_END = "<!-- docs-engine: end generated provider status -->";
+
+function providerStatusBlock() {
+  const rows = require("../electron/provider-status.cjs").matrixRows();
+  const lines = [
+    PROVIDER_STATUS_START,
+    "",
+    "| Provider | Adapter | Discovery | Metadata normalised | Pricing verified | Entitlement verified | Request/response tested | Live verified |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const row of rows) {
+    lines.push(
+      `| \`${row.id}\` | ${row.adapter} | ${row.discovery} | ${row.metadataNormalised} | ${row.pricingVerified} | ${row.entitlementVerified} | ${row.requestResponseTested} | ${row.liveVerified} |`,
+    );
+  }
+  lines.push("", PROVIDER_STATUS_END);
+  return `${lines.join("\n")}\n`;
+}
+
+function providerStatusStale() {
+  const file = "docs/FRIDAY_PROVIDERS_AND_SECRETS.md";
+  if (!exists(file)) return true;
+  return !read(file).includes(providerStatusBlock().trimEnd());
+}
 
 function mcpSurfaceJson() {
   const catalog = require("../electron/mcp-catalog.cjs");
@@ -686,6 +712,7 @@ function inspect() {
     kernelRoutesStale,
     flowStale,
     mcpSurfaceStale: mcpSurfaceStale(),
+    providerStatusStale: providerStatusStale(),
     countDrift: countDrift(),
     get ok() {
       return (
@@ -699,6 +726,7 @@ function inspect() {
         !this.kernelRoutesStale &&
         !this.flowStale &&
         !this.mcpSurfaceStale &&
+        !this.providerStatusStale &&
         !this.countDrift.length
       );
     },
@@ -733,6 +761,18 @@ function sync({ root = ROOT } = {}) {
   )
     touched.push("ARCHITECTURE.md");
   for (const rel of syncCounts()) if (!touched.includes(rel)) touched.push(rel);
+  if (exists("docs/FRIDAY_PROVIDERS_AND_SECRETS.md")) {
+    if (
+      writeBlock(
+        "docs/FRIDAY_PROVIDERS_AND_SECRETS.md",
+        PROVIDER_STATUS_START,
+        PROVIDER_STATUS_END,
+        providerStatusBlock().trimEnd(),
+      )
+    ) {
+      touched.push("docs/FRIDAY_PROVIDERS_AND_SECRETS.md");
+    }
+  }
   if (exists("docs/FRIDAY_MCP.md")) {
     if (writeBlock("docs/FRIDAY_MCP.md", MCP_START, MCP_END, mcpSurfaceBlock().trimEnd())) {
       touched.push("docs/FRIDAY_MCP.md");
@@ -768,6 +808,7 @@ function main() {
   console.log(`flow registry stale  : ${report.flowStale}`);
   console.log(`capability counts off: ${report.countDrift.length}`);
   console.log(`mcp surface stale    : ${report.mcpSurfaceStale}`);
+  console.log(`provider status stale: ${report.providerStatusStale}`);
   for (const rel of report.missing) console.log(`  missing        ${rel}`);
   for (const rel of report.unregistered)
     console.log(`  unregistered   ${rel} -> add it to scripts/docs-engine.cjs`);
