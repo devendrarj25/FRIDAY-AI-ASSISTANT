@@ -791,6 +791,16 @@ class ProviderHealthManager {
     return "CLOSED";
   }
 
+  /** Local cooldown bookkeeping. This never calls a models endpoint. */
+  tickCooldowns(now = Date.now()) {
+    let expired = 0;
+    for (const entry of this.state.values()) {
+      if (entry.cooldownUntil && entry.cooldownUntil <= now && entry.breaker === "OPEN")
+        expired += 1;
+    }
+    return { fetched: false, network: false, spend: "zero", expired, at: now };
+  }
+
   noteDecision(row) {
     const decisions = this.decisions || [];
     decisions.push({
@@ -2817,6 +2827,9 @@ function packRoute(modelsOut, decision, options, surface) {
         .join(", ")
     : "";
   const hint = surface === "voice" ? "latency-first" : "quality-first";
+  const exclusions = Array.isArray(options.traceExclusions) ? options.traceExclusions : [];
+  const providerId = winner ? winner.providerId || winner.meta?.providerId || null : null;
+  const nativeId = winner ? winner.meta?.modelName || winner.providerModelId || winner.id : null;
   return {
     lane: decision.lane,
     handoff: decision.handoff,
@@ -2835,6 +2848,20 @@ function packRoute(modelsOut, decision, options, surface) {
     why: publicDecision(`${decision.lane}: ${decision.reason}`),
     whyThisModel,
     handler: handler ? handler.id : null,
+    decisionTrace: {
+      catalogue: "canonical",
+      evidence:
+        winner?.accessRecord?.verification || winner?.meta?.verification || winner?.access || null,
+      candidates: modelsOut.map((model) => ({
+        id: model.id,
+        providerId: model.providerId || model.meta?.providerId || null,
+        access: model.access || null,
+      })),
+      exclusions,
+      choice: winner ? winner.id : null,
+      catalogueId: winner && providerId ? `${providerId}/${nativeId}` : null,
+      lane: decision.lane,
+    },
   };
 }
 
@@ -2872,6 +2899,9 @@ function routeRequest(models, options = {}) {
     if (modelAccess.isLocalModel(model)) localPool.push(model);
     else cloudPool.push(model);
   }
+  require("./provider-hub-cloud.cjs").ensureReady();
+  require("./provider-hub-local.cjs").ensureReady();
+  const localView = require("./model-routing-local.cjs").prepare(localPool);
   const localPick = decision.handoff.includes("local")
     ? selectEligible(localPool, laneOptions)
     : [];
@@ -2879,15 +2909,19 @@ function routeRequest(models, options = {}) {
   const cloudPick = decision.handoff.some((lane) => lane.startsWith("cloud"))
     ? selectEligible(cloudFiltered, laneOptions)
     : [];
+  const split = require("./model-routing-cloud.cjs").splitLanes(cloudPick, {
+    paidOpen: decision.paidOpen,
+  });
   const groups = {
     local: localPick,
-    "cloud-free": preferNewestFree(
-      cloudPick.filter((model) => model.access === "free"),
-      { failedIds: options.failedIds, allowlist },
-    ).order,
-    "cloud-paid": decision.paidOpen ? cloudPick.filter((model) => model.access === "paid") : [],
+    "cloud-free": preferNewestFree(split.free, { failedIds: options.failedIds, allowlist }).order,
+    "cloud-paid": split.paid,
   };
-  const droppedPaid = !decision.paidOpen && cloudPick.some((model) => model.access === "paid");
+  const droppedPaid = split.droppedPaid;
+  laneOptions.traceExclusions = [
+    ...localView.unavailable,
+    ...(droppedPaid ? [{ reason: "paid lane is closed", access: "paid" }] : []),
+  ];
   const limit = Math.max(1, Number(options.limit) || 4);
   const active = decision.handoff.filter((lane) => (groups[lane] || []).length);
   const reserve = Math.min(Math.max(0, active.length - 1), Math.max(0, limit - 1));
@@ -2929,7 +2963,7 @@ function routeRequest(models, options = {}) {
   return packRoute(
     ordered,
     { ...decision, lane: spans ? "hybrid" : active[0] || decision.lane, reason },
-    options,
+    { ...options, traceExclusions: laneOptions.traceExclusions },
     surface,
   );
 }

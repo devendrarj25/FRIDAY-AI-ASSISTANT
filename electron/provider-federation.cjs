@@ -56,6 +56,10 @@ function customOpenAiManifest({ id, baseUrl, name } = {}) {
     .trim()
     .replace(/\/+$/, "");
   if (!base) return { ok: false, reason: "missing-base" };
+  const models = require("./models.cjs");
+  const cloudId = id && models.CLOUD[id] ? id : "openai";
+  const decision = models.acceptEndpoint(cloudId, base);
+  if (!decision.ok) return { ok: false, reason: decision.error || "rejected-base" };
   return {
     ok: true,
     manifest: {

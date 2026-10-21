@@ -319,13 +319,8 @@ function chatHeaders(spec, key) {
  * Mirrors kernel/router.py `openai_chat_url` so a health probe never hits a
  * different path than a live turn (the Gemini `/v1beta/openai/v1/...` class).
  */
-const VERSIONED_TAIL = /\/(v\d+[a-z0-9]*|openai|compatibility\/v\d+|paas\/v\d+)$/i;
 function openaiChatUrl(base, chatPath) {
-  const trimmed = String(base || "").replace(/\/+$/, "");
-  if (chatPath) return trimmed + chatPath;
-  if (trimmed.endsWith("/chat/completions")) return trimmed;
-  if (VERSIONED_TAIL.test(trimmed)) return trimmed + "/chat/completions";
-  return trimmed + "/v1/chat/completions";
+  return require("./protocol-openai-compatible.cjs").chatUrl(base, chatPath);
 }
 
 /**
@@ -1639,13 +1634,7 @@ async function testProvider(id, { userData = null, apiKey = null } = {}) {
 }
 
 function openAiChatUrl(base, chatPath) {
-  const trimmed = String(base || "").replace(/\/+$/, "");
-  if (chatPath) return trimmed + chatPath;
-  if (trimmed.endsWith("/chat/completions")) return trimmed;
-  if (/\/(v\d+[a-z0-9]*|openai|compatibility\/v\d+|paas\/v\d+)$/i.test(trimmed)) {
-    return `${trimmed}/chat/completions`;
-  }
-  return `${trimmed}/v1/chat/completions`;
+  return openaiChatUrl(base, chatPath);
 }
 
 /**
@@ -2364,79 +2353,13 @@ function coerceChatText(raw) {
   return String(raw);
 }
 
-/** Real generation probe for any routable model — used by Health check. */
-/** Ollama chat is newline JSON. One error object is the error body. */
+/** Ollama chat is newline JSON. The native adapter owns the parser. */
 function parseOllamaStream(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return { content: "", sawDone: false, sawTool: false, error: "" };
-  if (raw.startsWith("{") && !raw.includes("\n")) {
-    try {
-      const one = JSON.parse(raw);
-      if (one && one.error) {
-        const message =
-          typeof one.error === "string"
-            ? one.error
-            : one.error.message || JSON.stringify(one.error);
-        return { content: "", sawDone: false, sawTool: false, error: String(message) };
-      }
-    } catch {
-      /* fall through to lines */
-    }
-  }
-  let content = "";
-  let sawDone = false;
-  let error = "";
-  for (const line of raw.split(/\r?\n/)) {
-    const textLine = line.trim();
-    if (!textLine) continue;
-    try {
-      const payload = JSON.parse(textLine);
-      if (payload.error) {
-        error = String(
-          typeof payload.error === "string"
-            ? payload.error
-            : payload.error.message || payload.error,
-        );
-        continue;
-      }
-      content += coerceChatText(payload.message?.content || payload.response || "");
-      if (payload.done) sawDone = true;
-    } catch {
-      /* keep scanning */
-    }
-  }
-  return { content: content.trim(), sawDone, sawTool: false, error };
+  return require("./protocol-ollama-native.cjs").parseStream(text);
 }
 
 function parseOpenAiSse(text) {
-  let content = "";
-  let sawDone = false;
-  let sawTool = false;
-  for (const line of String(text || "").split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.replace(/^data:\s?/, "").trim();
-    if (!payload) continue;
-    if (payload === "[DONE]") {
-      sawDone = true;
-      continue;
-    }
-    try {
-      const frame = JSON.parse(payload);
-      const choice = (frame.choices || [])[0] || {};
-      const delta = choice.delta || {};
-      if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) sawTool = true;
-      content += coerceChatText(
-        delta.content ||
-          delta.text ||
-          choice.text ||
-          (choice.message && choice.message.content) ||
-          frame.text,
-      );
-    } catch {
-      /* keep scanning */
-    }
-  }
-  return { content: String(content || "").trim(), sawDone, sawTool };
+  return require("./protocol-openai-compatible.cjs").parseStream(text);
 }
 
 function extractChatText(res, provider) {
@@ -2973,6 +2896,7 @@ module.exports = {
   LOCAL_ENGINES,
   localEndpointCandidates,
   openaiChatUrl,
+  acceptEndpoint,
   inventory,
   testProvider,
   ollamaModels,

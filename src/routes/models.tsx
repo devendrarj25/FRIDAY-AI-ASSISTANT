@@ -437,6 +437,20 @@ function ModelsPage() {
   const [routeDraft, setRouteDraft] = useState("");
   const [routePreview, setRoutePreview] = useState("No dry run yet.");
   const [notified, setNotified] = useState<string[]>([]);
+  const [catalogueNote, setCatalogueNote] = useState("Catalogue status is not loaded yet.");
+  const [catalogueChanges, setCatalogueChanges] = useState<string[]>([]);
+
+  useEffect(() => {
+    const status = desktopApi()?.catalogueStatus;
+    if (!status) return;
+    void status()
+      .then((row) => {
+        if (!row) return;
+        setCatalogueNote(row.summary || "Catalogue status is unavailable in this window.");
+        setCatalogueChanges(Array.isArray(row.changes) ? row.changes : []);
+      })
+      .catch(() => setCatalogueNote("Catalogue status is unavailable in this window."));
+  }, []);
 
   useEffect(() => {
     const fresh = state.jobs.filter((j) => !isJobActive(j.phase) && !notified.includes(j.id));
@@ -567,6 +581,52 @@ function ModelsPage() {
               </li>
             ))}
           </ul>
+        </div>
+        <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium">Catalogue</h2>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void (async () => {
+                    const api = desktopApi();
+                    const refreshed = await api?.catalogueRefresh?.();
+                    const row = await api?.catalogueStatus?.();
+                    const summary =
+                      row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
+                    setCatalogueNote(summary);
+                    setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
+                    toast(summary);
+                  })();
+                }}
+              >
+                Refresh now
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  void desktopApi()
+                    ?.verifyCapabilities?.("")
+                    .then((row) => {
+                      toast(row?.reason || "Capability checks stay on a free-verified model.");
+                    });
+                }}
+              >
+                Verify capabilities
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{catalogueNote}</p>
+          {catalogueChanges.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+              {catalogueChanges.slice(0, 8).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         {/* -------------------------------------------------------- overview */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

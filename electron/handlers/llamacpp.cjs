@@ -1,3 +1,16 @@
 "use strict";
-const { localHandler } = require("./local-bind.cjs");
-module.exports = localHandler("llamacpp");
+const { defineLocalProvider } = require("../provider-module.cjs");
+
+module.exports = defineLocalProvider({
+  id: "llamacpp",
+  protocol: "openai-compatible",
+  endpointKinds: ["chat"],
+  discovery: "existing-catalogue",
+  provenance: {
+    sourceUrl: "http://127.0.0.1:8080",
+    method: "existing-catalogue",
+    fetchedAt: null,
+    confidence: "unknown",
+  },
+  replacementMap: {},
+});

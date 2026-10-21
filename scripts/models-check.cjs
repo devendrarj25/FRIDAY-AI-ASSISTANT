@@ -156,6 +156,7 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
     }
     const spec = cloud[row.id];
     const key = env[row.keyName];
+    const started = Date.now();
     try {
       const res = await fetchImpl(row.url, {
         headers: spec.headers(key),
@@ -208,13 +209,16 @@ async function runLive(cloud, env, fetchImpl, modelsApi) {
         freeProof: access,
         statusClass: `${Math.floor(res.status / 100)}xx`,
         category: res.ok ? "ok" : `http_${res.status}`,
-        latencyMs: null,
+        latencyMs: Date.now() - started,
+        fixtureHint: listed.ok ? null : "response did not match the documented list shape",
         detail: federation.redactSecrets(detail),
       });
     } catch (err) {
       lines.push({
         id: row.id,
         result: "FAIL",
+        category: "transport",
+        latencyMs: Date.now() - started,
         detail: federation.redactSecrets(err && err.message ? err.message : String(err)),
       });
     }
@@ -232,6 +236,7 @@ function writeLiveReport(rows, file) {
     statusClass: row.statusClass == null ? null : String(row.statusClass),
     category: String(row.category || ""),
     latencyMs: Number.isFinite(row.latencyMs) ? row.latencyMs : null,
+    fixtureHint: row.fixtureHint ? String(row.fixtureHint) : null,
     detail: federation.redactSecrets(String(row.detail || "")),
   }));
   const body = JSON.stringify({ providers: enriched }, null, 2);

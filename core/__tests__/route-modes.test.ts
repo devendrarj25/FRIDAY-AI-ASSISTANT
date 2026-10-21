@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
+import { pinKnowledgeClock } from "./helpers/knowledge-clock";
 
 const require_ = createRequire(import.meta.url);
+pinKnowledgeClock();
 const router = require_("../../electron/model-router.cjs");
 const access = require_("../../electron/model-access.cjs");
 

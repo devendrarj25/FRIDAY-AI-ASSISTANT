@@ -441,6 +441,18 @@ type DesktopApi = {
   probeModel?: (model: string, prompt?: string) => Promise<ModelProbeRun>;
   /** Models this machine can actually route to right now, best first. */
   routableModels?: (force?: boolean) => Promise<{ at: number; models: RoutableModel[] }>;
+  catalogueStatus?: () => Promise<{
+    summary: string;
+    freshness: string;
+    changes: string[];
+    notes: string[];
+    providers: string[];
+    privacy: boolean;
+  }>;
+  catalogueRefresh?: () => Promise<{ refreshed: boolean; plan?: { reason?: string } }>;
+  verifyCapabilities?: (
+    modelId?: string,
+  ) => Promise<{ ok: boolean; reason?: string; refused?: boolean }>;
   /** Dynamic model registry for the selector: free/paid classified, live health. */
   modelRegistry?: (force?: boolean) => Promise<{
     at: number;

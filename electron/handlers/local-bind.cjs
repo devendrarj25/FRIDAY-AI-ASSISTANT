@@ -1,24 +1,26 @@
 /**
  * Shared local handler. Endpoint data stays in electron/models.cjs.
  * Nothing here starts a process or downloads a launcher.
+ * The protocol name comes from the provider module.
  */
 "use strict";
 
 const modelAccess = require("../model-access.cjs");
 const { createHandler, defaultDiscover } = require("../provider-handler.cjs");
 
-function endpointFor(id) {
+function endpointFor(id, overrides) {
+  if (overrides && typeof overrides.endpoint === "function") return overrides.endpoint();
   const models = require("../models.cjs");
-  if (id === "ollama") return models.OLLAMA || "";
   return models.LOCAL_ENGINES?.[id]?.endpoint || "";
 }
 
 function localHandler(id, overrides = {}) {
+  const protocol = overrides.protocol || "openai-compatible";
   return createHandler({
     id,
     kind: "local",
     baseUrl() {
-      return endpointFor(id);
+      return endpointFor(id, overrides);
     },
     auth: { scheme: "none" },
     discoverModels(payload) {
@@ -40,27 +42,12 @@ function localHandler(id, overrides = {}) {
       });
     },
     buildRequest(input) {
-      const base = String(endpointFor(id) || "").replace(/\/+$/, "");
-      const model = String(input?.model || input?.modelId || "");
-      const messages = Array.isArray(input?.messages) ? input.messages : [];
-      if (id === "ollama") {
-        return {
-          url: base ? `${base}/api/chat` : "",
-          wire: "ollama",
-          body: { model, messages, stream: input?.stream !== false },
-        };
-      }
-      const models = require("../models.cjs");
-      return {
-        url: base ? models.openaiChatUrl(base) : "",
-        wire: "online",
-        body: { model, messages, stream: input?.stream !== false },
-      };
+      const base = String(endpointFor(id, overrides) || "").replace(/\/+$/, "");
+      const protocols = require("../protocol-registry.cjs");
+      return protocols.buildChat(protocol, { chat: base, base, wire: "online" }, input);
     },
     parseStream(chunk) {
-      const models = require("../models.cjs");
-      if (id === "ollama") return models.parseOllamaStream(chunk);
-      return models.parseOpenAiSse(chunk);
+      return require("../protocol-registry.cjs").parseStream(protocol, chunk);
     },
     mapError(error) {
       return require("../model-router.cjs").classifyError(error);
