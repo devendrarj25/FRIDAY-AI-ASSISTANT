@@ -38,6 +38,10 @@ function applyLaunchArgs() {
     if (progressArg) {
       process.env.FRIDAY_READINESS_PROGRESS = progressArg.replace(/^["']|["']$/g, "");
     }
+    const portArg = arg.startsWith("--friday-kernel-port=")
+      ? arg.slice("--friday-kernel-port=".length)
+      : "";
+    if (portArg) process.env.FRIDAY_KERNEL_PORT = portArg.replace(/^["']|["']$/g, "");
   }
 }
 applyLaunchArgs();
@@ -701,7 +705,8 @@ function log(message, level = "info") {
 }
 
 const KERNEL_HOST = "127.0.0.1";
-const KERNEL_PORT = 8765;
+const kernelBind = require("./kernel-bind.cjs");
+let KERNEL_PORT = kernelBind.initialPort(process.env);
 let kernelInstanceId = "";
 // Per-launch token: the kernel rejects any bridge client that does not present it.
 const BRIDGE_TOKEN = crypto.randomBytes(32).toString("hex");
@@ -1283,6 +1288,20 @@ async function startKernel(root) {
   if (kernel) await stopKernel();
   kernelInstanceId = "";
   await recoverStaleOwned();
+  if (process.env.FRIDAY_READINESS === "1") {
+    KERNEL_PORT = kernelBind.initialPort(process.env);
+  } else if (await portBusy(KERNEL_PORT)) {
+    const own = await kernelBind.probeFriday(KERNEL_PORT);
+    if (!own) {
+      const next = await kernelBind.pickFreePort();
+      log(`kernel port ${KERNEL_PORT} is held by another program; using ${next}`);
+      KERNEL_PORT = next;
+    } else {
+      log("kernel port is in use by FRIDAY; leaving that process alone");
+    }
+  }
+  const checkout = paths.checkoutGuard(root);
+  if (checkout.checkout) log(checkout.message);
 
   // A packaged app must resolve its interpreter from the installed runtime and
   // the selected FRIDAY folder — never from a source checkout that only exists
@@ -4735,6 +4754,8 @@ ipcMain.handle("app:paths", () => ({
   userData: app.getPath("userData"),
   workspace: getWorkspaceRoot(),
   canonical: paths.describe(),
+  checkout: paths.checkoutGuard(getWorkspaceRoot()),
+  kernelPort: KERNEL_PORT,
 }));
 ipcMain.handle("boot:steps", () => bootSteps);
 
@@ -5076,6 +5097,11 @@ const MIGRATED_FOLDERS = [
   "conversations",
   path.join("resources", "voices"),
   "models",
+  "voices",
+  "downloads",
+  "cache",
+  "runtime",
+  "logs",
 ];
 
 /** Real copy (not a reference) of the previous folder's data into the new one. */
@@ -5090,13 +5116,15 @@ async function migrateWorkspaceData(from, to) {
     }
     send("workspace:migrate", { phase: "copy", folder: relative, from, to });
     try {
-      await fs.promises.mkdir(path.dirname(target), { recursive: true });
-      await fs.promises.cp(source, target, {
-        recursive: true,
-        force: false, // never overwrite data already present in the new folder
-        errorOnExist: false,
-      });
-      report.copied.push(relative);
+      const copied = await paths.copyVerified(source, target);
+      if (!copied.ok) {
+        report.failed.push({
+          folder: relative,
+          error: `copied ${copied.targetCount} of ${copied.sourceCount} files`,
+        });
+      } else {
+        report.copied.push(relative);
+      }
     } catch (error) {
       const message = error?.message || String(error);
       report.failed.push({ folder: relative, error: message });

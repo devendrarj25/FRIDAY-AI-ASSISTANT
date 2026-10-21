@@ -206,7 +206,13 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; count?: number }>;
   companionRemote?: () => Promise<CompanionRemoteState>;
   setCompanionRemote?: (enabled: boolean) => Promise<CompanionRemoteState>;
-  paths?: () => Promise<{ install: string; userData: string; workspace: string | null }>;
+  paths?: () => Promise<{
+    install: string;
+    userData: string;
+    workspace: string | null;
+    checkout?: { checkout: boolean; message: string };
+    kernelPort?: number;
+  }>;
 
   getBootSteps?: () => Promise<BootStep[]>;
   onBootStep?: (cb: (s: BootStep) => void) => () => void;

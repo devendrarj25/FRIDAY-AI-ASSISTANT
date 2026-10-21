@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,19 @@ export function AdvancedSettings() {
   const workspaceRoot = useWorkspaceRootState();
   const appVersion = useAppVersion();
   const [busy, setBusy] = useState<string | null>(null);
+  const [checkoutNote, setCheckoutNote] = useState("");
+  useEffect(() => {
+    let active = true;
+    void desktopApi()
+      ?.paths?.()
+      .then((row) => {
+        if (active && row?.checkout?.checkout) setCheckoutNote(row.checkout.message);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const isOn = (k: string) => prefs.toggles[k] === true;
 
   const run = async (id: string, label: string, action: () => Promise<unknown>) => {
@@ -60,6 +73,9 @@ export function AdvancedSettings() {
           value={workspaceRoot || "unknown"}
           className="border-primary/25 bg-surface font-mono text-xs"
         />
+        {checkoutNote ? (
+          <p className="font-mono text-[11px] text-muted-foreground">{checkoutNote}</p>
+        ) : null}
       </div>
       <div className="mt-4 space-y-1">
         <div className="flex items-center justify-between">

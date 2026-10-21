@@ -505,6 +505,55 @@ function describe() {
  * and shows the owner a "config reloaded" toast for a change that never
  * happened. Returns true only when a real write took place.
  */
+function checkoutGuard(dir) {
+  if (!dir) return { checkout: false, message: "" };
+  const resolved = path.resolve(String(dir));
+  const git = path.join(resolved, ".git");
+  const manifest = path.join(resolved, "package.json");
+  if (!fs.existsSync(git) || !fs.existsSync(manifest)) return { checkout: false, message: "" };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    if (parsed.name !== "friday") return { checkout: false, message: "" };
+  } catch {
+    return { checkout: false, message: "" };
+  }
+  return {
+    checkout: true,
+    message:
+      "This FRIDAY folder is the source checkout. Choose a separate folder such as D:\\FRIDAY or %USERPROFILE%\\FRIDAY. Copy my data copies, checks, and switches. The checkout is not deleted.",
+  };
+}
+
+async function copyVerified(source, target) {
+  await fs.promises.mkdir(path.dirname(target), { recursive: true });
+  await fs.promises.cp(source, target, { recursive: true, force: false, errorOnExist: false });
+  const sourceCount = countFiles(source);
+  const targetCount = countFiles(target);
+  return {
+    ok: targetCount >= sourceCount,
+    sourceCount,
+    targetCount,
+  };
+}
+
+function countFiles(dir) {
+  let count = 0;
+  const walk = (current) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) walk(path.join(current, entry.name));
+      else count += 1;
+    }
+  };
+  walk(dir);
+  return count;
+}
+
 function writeIfChanged(target, body) {
   let existing = null;
   try {
@@ -534,6 +583,9 @@ module.exports = {
   file,
   ensureStructure,
   writeIfChanged,
+  checkoutGuard,
+  countFiles,
+  copyVerified,
   programDir,
   isProgramPath,
   migrateLegacy,

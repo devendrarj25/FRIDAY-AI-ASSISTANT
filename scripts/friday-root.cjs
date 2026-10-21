@@ -63,6 +63,23 @@ function workspaceRootOrDev() {
   return { root: path.join(projectRoot, ".friday-dev"), development: true };
 }
 
+/** Runtime folders a checkout must ignore. Source trees are not in this list. */
+const RUNTIME_FOLDERS = [
+  "cache",
+  "data",
+  "voices",
+  "downloads",
+  "memory",
+  "state",
+  "knowledge",
+  "library",
+  "sandbox",
+  "preferences",
+  "database",
+  "runtime",
+  "logs",
+];
+
 /** Canonical data locations derived from one root. */
 const layout = (root) => ({
   root,
@@ -75,4 +92,10 @@ const layout = (root) => ({
   cache: path.join(root, "cache"),
 });
 
-module.exports = { projectRoot, findWorkspaceRoot, workspaceRootOrDev, layout };
+module.exports = {
+  projectRoot,
+  findWorkspaceRoot,
+  workspaceRootOrDev,
+  layout,
+  RUNTIME_FOLDERS,
+};

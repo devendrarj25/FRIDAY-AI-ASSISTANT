@@ -99,6 +99,10 @@ export function WorkspaceSetup({ onDone }: { onDone?: (root: string) => void }) 
 
           <ul className="mt-4 space-y-1.5 font-mono text-[11px] text-muted-foreground">
             <li>· an existing FRIDAY folder is reused — never duplicated or overwritten</li>
+            <li>
+              · a source checkout should stay separate. Copy my data copies and checks, and does not
+              delete the old folder
+            </li>
             <li>· missing parts of the layout are created, then everything is scanned</li>
             <li>· indexes into local memory and watches for edits — nothing leaves this PC</li>
           </ul>
