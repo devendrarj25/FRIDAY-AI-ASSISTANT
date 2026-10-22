@@ -6,7 +6,7 @@
 
 Discovery: `listCapabilities()` in `src/lib/friday/capability-trees.ts`. Disk trees: `electron/friday-contract.cjs` `TREES`. Landing path: `resolveLandingPath()` in `src/lib/friday/navigation.ts`. Root folders: `ensureStructure()` in `electron/friday-paths.cjs`. Public identity: `readCanonicalIdentity()` in `scripts/release-engine.cjs`.
 
-Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **177** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **117** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **53** in `kernel/tools.py`.
+Checkout counts (manifest files on disk, plus 9 builtins in `electron/skills.cjs`): Skills **214** `skill.json`, Tools **178** `tool.json`, Agents **98** `manifest.json`, Plugins **78** `plugin.json`, Workflows **117** `workflow.json`, Modules **76** `manifest.json`. Connectors **113** in `electron/connectors.cjs`. Kernel tools **53** in `kernel/tools.py`.
 
 ## 1. Shell and routes
 
@@ -435,7 +435,11 @@ Helper output from the Python voice tools is read by `electron/json-line.cjs`: t
 
 Auto mode has two listen styles (Voice settings, How Auto mode listens). **Always listening** is the default and today's behaviour: the wake word, follow-ups, and "Respond to anything meant for me" decide when a heard line is a turn. **Push to talk** transcribes only speech that starts while Ctrl+Space is held in the FRIDAY window, while the on-screen hold button is pressed, or while the global Ctrl+Alt+Space toggle is on (a global shortcut reports no release, so it toggles, and a forgotten toggle closes after 60 s). Speech with the key up is refused before a segment starts, so it is neither recorded nor transcribed. A push-to-talk turn is addressed by the press, so no wake word is needed; FRIDAY's own echo is still dropped. The global shortcut is registered only while that style is on in Auto mode and is released on quit. Manual and chat never arm it.
 
-ComfyUI is an optional local runner. FRIDAY does not bundle it (GPL-3.0); the owner installs and starts it, and `electron/comfyui-client.cjs` talks to its local API only on 127.0.0.1: `/system_stats`, `POST /prompt`, `GET /history/{id}`, `GET /view`. Models, Local has a ComfyUI panel: check, paste a workflow saved with Save (API), run, and the images are saved under the FRIDAY `assets/comfyui` folder.
+ComfyUI is an optional local runner. FRIDAY does not bundle it (GPL-3.0); the owner installs and starts it, and `electron/comfyui-client.cjs` talks to its local API only on 127.0.0.1: `/system_stats`, `POST /prompt`, `GET /history/{id}`, `GET /view`. Models, Local has a ComfyUI panel: check, paste a workflow saved with Save (API), run, and the images are saved under the FRIDAY `assets/comfyui` folder. The tool pack `tools/media/comfyui-generate` (off until the owner enables it, risk write, asks before it runs) lets a chat or voice request make an image: it builds ComfyUI's standard text-to-image graph with the first installed checkpoint, or runs a saved API workflow.
+
+In "Respond to anything meant for me", a line about FRIDAY (`she`, `usne`, `assistant`, `tumne`) or one that shares two or more content words with what she just said or worked on counts toward a turn without her name (`about-her`, `about-her-work` in the heard log). Conversation and Name only keep today's rule.
+
+Files: `electron/document-extract.cjs` reads PDF (with OCR fallback), DOCX, XLSX, CSV, PowerPoint (`.pptx`, slide by slide), OpenDocument (`.odt`, `.ods`, `.odp`), EPUB, RTF, email (`.eml`, headers plus the plain-text part; attachments are not opened), HTML (visible text, scripts dropped), ZIP and TAR archives, and source, config, and subtitle files as text. The chat attachment path sends each of these to that one extractor.
 
 Research, 2026-10-22:
 

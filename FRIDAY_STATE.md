@@ -75,7 +75,7 @@ Counted from the files named in the last column. `docs:sync` rewrites the six di
 | Kind | Count | How counted |
 | --- | --- | --- |
 | Skills | 214 `skill.json` + 9 builtins | disk + `electron/skills.cjs` `BUILTIN` |
-| Tools | 177 `tool.json` | disk |
+| Tools | 178 `tool.json` | disk |
 | Agents | 98 `manifest.json` | `agents/` |
 | Plugins | 78 `plugin.json` | disk |
 | Workflows | 117 `workflow.json` | disk |
@@ -121,7 +121,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
-- Push-to-talk and the ComfyUI client are tested on Linux with unit tests and a fake ComfyUI HTTP server. The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
+- Push-to-talk, the ComfyUI client and image tool, the meant-for-me work mentions, and the new document formats are tested on Linux (unit tests, a fake ComfyUI HTTP server, ZIP fixtures built in the test). The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
 
 - The readiness run above had no Whisper weights (VOICE reports a visible skip) and no cloud keys (CHAT used the fake local runner). Real provider calls, real speech, and Windows runner installs through the Install Manager (winget, direct download) are unverified here.
 - Not audited in this pass: PC-control tools against a real Windows desktop, web-search ladder against the live web, and each cloud provider's live list and chat. They need the owner's PC and keys.
@@ -152,8 +152,10 @@ These look like bugs. They are not. Do not "fix" them.
 0. Owner checks for push-to-talk and ComfyUI, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice settings, How Auto mode listens: Push to talk. In Auto mode, talk without the key: nothing is transcribed and the voice log says `push-to-talk: talk key is up`. Hold Ctrl+Space and say "Friday, what time is it", or just "what time is it": FRIDAY answers without the wake word.
    2. With FRIDAY in the background, press Ctrl+Alt+Space, speak, press it again. Switch back to Always listening: the shortcut is released (another app can use it).
-   3. Install and start ComfyUI yourself, then Models, Local, ComfyUI: Check shows its version; paste a Save (API) workflow and Run; the images land in `assets\comfyui`.
-   Not built yet, from the research: full-duplex voice (listen while speaking, beyond today's barge-in), a chat tool that sends a prompt to ComfyUI so FRIDAY can make images from a request, and a Windows key-up hook for a global hold-to-talk. OmniVoice was rejected (torch and voice cloning).
+   3. Install and start ComfyUI yourself, then Models, Local, ComfyUI: Check shows its version; paste a Save (API) workflow and Run; the images land in `assets\comfyui`. Then enable the ComfyUI image tool in Tools and ask in chat: "make an image of a red fox in the snow".
+   4. Voice settings: Respond to anything meant for me. After FRIDAY finishes a task, say something about that task without her name: she answers. Unrelated chatter stays ambient.
+   5. Attach a .pptx, .odt, .epub, .rtf, and .eml in chat and ask for a summary.
+   Not built yet, from the research: full-duplex voice (listen while speaking, beyond today's barge-in) and a Windows key-up hook for a global hold-to-talk (Electron's global shortcut reports no release; a native keyboard hook would change the EXE pack, a locked area). OmniVoice was rejected (torch and voice cloning).
 
 0. Owner checks for this change, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice diagnostics, run voice self-test: three `hearing at peak 0.5 / 0.05 / 0.008` rows must read PASS. Send any FAIL row and the newest `debug\reports\voice-hearing.jsonl`.
