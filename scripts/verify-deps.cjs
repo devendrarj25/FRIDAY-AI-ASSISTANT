@@ -53,7 +53,7 @@ const { spawnSync } = require("node:child_process");
 const requirements = fs.readFileSync(path.join(root, "kernel", "requirements.txt"), "utf8");
 if (!/^\s*av>=17\.0\.0,<19\s*$/m.test(requirements)) {
   console.error(
-    '[friday] kernel/requirements.txt must pin av>=17.0.0,<19 (faster-whisper 1.2.1 / PyAV 19).',
+    "[friday] kernel/requirements.txt must pin av>=17.0.0,<19 (faster-whisper 1.2.1 / PyAV 19).",
   );
   process.exit(1);
 }

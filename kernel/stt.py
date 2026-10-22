@@ -287,7 +287,7 @@ def moonshine_model_dir() -> str | None:
         return None
     if not parents:
         return None
-    return str(max(parents, key=parents.get))
+    return str(max(parents, key=lambda path: parents[path]))
 
 
 AV_REQUIREMENT = "av>=17.0.0,<19"

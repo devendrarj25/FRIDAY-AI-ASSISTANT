@@ -210,8 +210,11 @@ def score_vad(samples: list[float] | None = None, sample_rate: int = 16000) -> d
         state = np.zeros((2, 1, 128), dtype=np.float32)
         audio = np.asarray(window, dtype=np.float32).reshape(1, 512)
         sr = np.array(16000, dtype=np.int64)
-        out, _state = session.run(None, {"input": audio, "state": state, "sr": sr})
-        probability = float(out[0][0])
+        outputs = session.run(None, {"input": audio, "state": state, "sr": sr})
+        first = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
+        if not isinstance(first, np.ndarray):
+            raise TypeError("silero output was not an array")
+        probability = float(first.reshape(-1)[0])
     except Exception as exc:  # noqa: BLE001 — missing runtime falls back to energy VAD
         return {
             "ok": True,

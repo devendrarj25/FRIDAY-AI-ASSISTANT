@@ -92,6 +92,7 @@ class SttAudioGuardTests(unittest.TestCase):
             wav = stt.write_probe_wav(str(Path(tmp) / "clip.wav"))
             audio = stt.read_pcm16_wav(wav)
             self.assertIsNotNone(audio)
+            assert audio is not None
             self.assertEqual(int(audio.shape[0]), int(1.5 * 16000))
             self.assertLess(float(audio.dtype.itemsize), 8)
             text = SCRIPT.read_text(encoding="utf-8")

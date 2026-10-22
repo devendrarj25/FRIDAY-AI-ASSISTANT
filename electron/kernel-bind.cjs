@@ -46,7 +46,8 @@ function classifyKernelExit({ code, text } = {}) {
   let kind = "crash";
   if (/eaddrinuse|address already in use|port is in use|10048/.test(body)) kind = "port in use";
   else if (/database is locked|sqlite_busy|database locked/.test(body)) kind = "database locked";
-  else if (/modulenotfounderror|importerror|no module named/.test(body)) kind = "python import error";
+  else if (/modulenotfounderror|importerror|no module named/.test(body))
+    kind = "python import error";
   else if (/eacces|eperm|permission denied|access is denied/.test(body)) kind = "permission";
   else if (code === 0) kind = "exit";
   const detail = lines.slice(-3).join(" ").slice(0, 240) || `exit ${code ?? "none"}`;

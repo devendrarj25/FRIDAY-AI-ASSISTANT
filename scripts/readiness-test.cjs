@@ -185,9 +185,7 @@ function chooseReadinessRoot(options = {}) {
     };
   }
   if (explicit && recorded && path.resolve(explicit) === recorded) {
-    const error = new Error(
-      "that folder is the recorded FRIDAY folder; pass --use-recorded-root",
-    );
+    const error = new Error("that folder is the recorded FRIDAY folder; pass --use-recorded-root");
     error.code = "recorded-root";
     throw error;
   }
@@ -409,9 +407,7 @@ function restartReportLine(second, first) {
     second && second.leak && second.leak.ok === false
       ? `leak ${(second.leak.alive || []).join(",")}`
       : "leak none";
-  const tail = [second && second.output, first && first.output]
-    .filter(Boolean)
-    .join("\n");
+  const tail = [second && second.output, first && first.output].filter(Boolean).join("\n");
   const cause = kernelBind.classifyKernelExit({
     code: second && second.exitCode,
     text: `${details}\n${tail}`,

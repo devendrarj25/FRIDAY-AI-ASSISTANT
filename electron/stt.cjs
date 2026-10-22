@@ -650,15 +650,7 @@ async function install() {
     }
     const result = await run(
       py[0],
-      [
-        ...py[1],
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "faster-whisper>=1.2.1",
-        "av>=17.0.0,<19",
-      ],
+      [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper>=1.2.1", "av>=17.0.0,<19"],
       600000,
     );
     if (!result.ok) {
