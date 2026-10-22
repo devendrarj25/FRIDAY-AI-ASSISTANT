@@ -1300,3 +1300,25 @@ button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
   margin-inline-end: 0.35em;
   vertical-align: -0.125em;
 }
+
+/* Windows "transparency effects" off (prefers-reduced-transparency): glass
+   becomes solid and nothing is blurred. The 1px borders stay, so edges
+   remain visible in forced-colors mode too. */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui-style="glass"] .hud-panel,
+  html[data-ui-style="glass"] .hud-tile,
+  html[data-ui-style="glass"] .glass-menu,
+  html[data-ui-style="glass"] .friday-sidebar,
+  html[data-ui-style="glass"] .friday-titlestrip,
+  .glass-1,
+  .glass-2,
+  .glass-3 {
+    background: var(--color-card);
+  }
+  [class*="backdrop-blur"],
+  .friday-chat-full,
+  .voice-glass,
+  .voice-glass-menu {
+    backdrop-filter: none !important;
+  }
+}

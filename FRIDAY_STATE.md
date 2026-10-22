@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/chat-window-levels`, FRIDAY Glass whole-app upgrade (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 399 files, 3337 passed, 4 skipped; kernel 242 passed, 2 skipped (no kernel file changed); lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. AppShell chunk 3,677.06 kB before and 3,704.28 kB after (gzip 1,311.37 to 1,319.19 kB); `src/routeTree.gen.ts` unchanged. Control parity: all 1520 baseline labels present, no unnamed icon-only button. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
 | Branch `upgrade/chat-window-levels`, voice window levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3284 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, microphone, mouse, or GPU check. |
 | Branch `upgrade/chat-window-levels`, chat levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3268 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
 | Branch `fix/build-stt-self-test`, Doctor fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 391 files, 3219 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
@@ -116,7 +117,8 @@ These look like bugs. They are not. Do not "fix" them.
 - `PROTECTED_POLICY_FILES` in `src/lib/friday/self/governance.ts` are off-limits to self-dev auto-apply.
 - One feature, one implementation (`config/project-structure.json`).
 - Requirements are **floors**, not pins. numpy and chromadb stay optional at FastAPI boot.
-- The look of the app stays outside the Flow Studio canvas. Inside that canvas the drawing uses canvas tokens on the same theme. Which areas are locked is the rule in [AGENTS.md](AGENTS.md). A change that is not re-checked on the owner's PC stays unverified until the owner re-checks.
+- The look of the app is FRIDAY Glass, by the owner's direction of 2026-10-22 (task ui-glass-upgrade). It is defined once in `src/styles.css` and reaches pages through the shared primitives in `src/components/friday/ui.tsx`. Classic, the earlier look, stays selectable in Settings, Appearance, Interface style, and adds no CSS of its own. Further look changes outside that design language need the owner's words. Inside the Flow Studio canvas the drawing still uses canvas tokens on the same theme. Which areas are locked is the rule in [AGENTS.md](AGENTS.md). A change that is not re-checked on the owner's PC stays unverified until the owner re-checks.
+- No control is removed by a redesign: `core/__tests__/ui-control-parity.test.ts` holds the 1520-label baseline, and only a reviewed rename may replace a label.
 - GitHub workflows stay locked. The owner reported the 1.1.2.4 runs green on 2026-10-18. Do not add a twelfth. No agent or AI runs a workflow. The owner runs every workflow. A run that is already going may be watched, and the code fixed from its log. Do not start, rerun, or cancel one. Do not pull a pull request into `main`. The owner merges. Do not edit those files to tidy them. If the owner asks for a change there, ask once more and edit only after a second yes or ok. If other work cannot finish without a change there, make the smallest change, read the effect on every workflow that shares that behaviour, and fix every error that change causes in the same change. The rule is [AGENTS.md](AGENTS.md) → Actions, pull, and merge, and → GitHub workflows stay locked.
 - Windows CMD pack (`scripts\build-windows.cmd` / `npm run build:win`), NSIS Setup and Portable, install, boot, open, uninstall, and reinstall of public line 1.1.2.4 were owner-verified on 2026-10-18. This branch is unverified until the owner re-checks. Do not wrap `build:win` for Linux. Do not invent a second pack or installer.
 - `electron-builder.yml`: `perMachine: false`, `signExecutable: false`, `nsis.deleteAppDataOnUninstall: false`.
@@ -126,6 +128,8 @@ These look like bugs. They are not. Do not "fix" them.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 
 ## Known gaps (honest)
+
+- FRIDAY Glass (the whole-app look, the Appearance options, button and panel icons, the glass chrome) is covered by Linux render, source and contrast tests only. The look on the Windows EXE, the real mouse feel, GPU smoothness of blur and transitions, and the Windows transparency setting are unverified until the owner checks. Plain `<button>` list rows (names, files, tabs) intentionally get no icon; only text action buttons do.
 
 - Auto mode voice window levels (Compact, Expanded, Transcript) are covered by Linux render and source tests only. The large-graphic scale at 1080x680, hover labels, the More menu, glass, hold to talk with a real mouse, and a real microphone and speech at each level have not been checked on the Windows EXE. They are unverified until the owner checks. At the window minimum the large graphic now scales down when its boxes cannot fit, so Compact is smaller there than before (it used to overlap).
 
@@ -198,6 +202,18 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Owner checks for FRIDAY Glass, on the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Every sidebar page opens and looks consistent.
+   2. Dark and Daylight with each of the 4 accents.
+   3. Interface style Classic and Futuristic Glass.
+   4. Blur, Glow, Animations, Reduce motion and High contrast each change the look immediately.
+   5. The window at the minimum size and maximized.
+   6. Chat Compact, Expanded and Full, and voice Compact, Expanded and Transcript, each remembered after a restart.
+   7. Every button shows its icon, expands its label on hover where it is an icon control, and works.
+   8. The cursor is a pointer on buttons, a text bar in inputs, and never sticks.
+   9. The Models and Settings pages keep all their controls.
+   10. Install, uninstall, reinstall and in-app update still work.
+   Not built yet: SectionTabs and Toolbar adoption inside individual pages (pages keep their FilterTabs and button rows, which now carry the new look and icons); explicit per-panel icons (inferred from titles instead); EmptyState and LoadingState beyond the bookmarks, devices and sandbox lists; an explicit `forced-colors` stylesheet (borders already stay visible); and the two voice items above.
 0. Owner checks for the voice window levels, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Compact shows the full logo and current flow plus 2 caption lines.
    2. Expanded shrinks the graphic with no overlap at 1080x680.

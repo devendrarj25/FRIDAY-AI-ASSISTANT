@@ -390,3 +390,14 @@ describe("responsive, motion and performance contracts", () => {
     );
   });
 });
+
+describe("Windows transparency setting", () => {
+  it("turns glass solid and switches blur off under prefers-reduced-transparency", () => {
+    const css = read("src/styles.css");
+    const block = css.slice(css.indexOf("@media (prefers-reduced-transparency: reduce) {"));
+    expect(block).toContain('html[data-ui-style="glass"] .hud-panel,');
+    expect(block).toContain("background: var(--color-card);");
+    expect(block).toContain('[class*="backdrop-blur"],');
+    expect(block).toContain("backdrop-filter: none !important;");
+  });
+});

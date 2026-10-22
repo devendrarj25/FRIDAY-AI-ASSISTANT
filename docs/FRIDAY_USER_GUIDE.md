@@ -95,6 +95,28 @@ Live listening research, 14 October 2026. An ended track cannot be resumed ([mic
 
 Voice graphic research, 14 October 2026. React compares an external snapshot with Object.is ([useSyncExternalStore](https://react.dev/reference/react/useSyncExternalStore)): ADOPT, the voice cue is a string and a caption does not change it. A hidden document keeps scheduling frames until the page hides them ([visibilitychange](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)): ADOPT, one clock pauses while hidden. Drawing the orb from React state on every audio frame: REJECT.
 
+## Chat sizes
+
+The Manual chat has three sizes. Pick them with **1 | 2 | 3** in the conversation header, or press Alt+1, Alt+2 or Alt+3 while you are in the chat. The choice is remembered after a restart.
+
+1. **Compact**: the full FRIDAY graphic and the last four messages.
+2. **Expanded**: every message in a taller area, with the graphic shrunk so nothing overlaps.
+3. **Full chat**: no graphic. Saved chats sit in a rail on the left, and the conversation is centred. Each message has Copy, code has Copy code, and the newest answer has Regenerate. Scroll up to read and following stops; **Jump to latest** brings it back.
+
+Enter sends, Shift+Enter starts a new line. Chat never opens the microphone; the Mic button stays disabled and says Auto mode listens.
+
+## Appearance
+
+Settings, Appearance changes the whole app at once and shows a live preview of your choices.
+
+- **Theme**: Dark, Daylight or Match system; Cyan, Green, Orange or Purple; or one of the 8 combinations.
+- **Look**: Interface style (**Futuristic Glass**, the default, or **Classic**, the earlier look), Glass depth (Subtle, Balanced, Rich), Blur effect, Neon glow, Scanlines, the live circuit graphic, GPU rendering, Graphic intensity and Panel opacity.
+- **Motion**: Animations and Reduce motion. Either one makes every transition instant.
+- **Text and layout**: heading font, body font, Text size, Interface density, Sidebar default, Button labels (On hover, Always, Icons only) and High contrast.
+- **Chat**: bubble style and timestamps.
+
+**Reset appearance** puts every option back to the shipped defaults. When Windows has transparency effects turned off, glass turns solid by itself. Below 1200 pixels wide the sidebar shows as icons; your saved choice comes back on a wider window.
+
 ## Model routing checks
 
 On the owner's PC with real keys. These steps are unverified until that PC runs them.
