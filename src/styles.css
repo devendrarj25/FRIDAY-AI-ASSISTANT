@@ -725,3 +725,115 @@ html.no-gpu * {
 html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
   animation: none;
 }
+
+/* Manual chat (ChatDock): three levels, hover labels, cursor and glass.
+   Chat region only; built from the existing tokens. */
+.friday-chat {
+  container: friday-chat / inline-size;
+}
+
+/* Icon buttons slide their label out on hover or keyboard focus. The label
+   is overlaid, so it never pushes a neighbour; only width and opacity move. */
+.chat-hover-label {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  z-index: 30;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  translate: -50% 0;
+  border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+  border-radius: 0.25rem;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  padding: 0.125rem 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    max-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.chat-hover-label-below {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+.chat-hover-label-end {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+.chat-icon-btn:hover .chat-hover-label,
+.chat-icon-btn:focus-visible .chat-hover-label {
+  max-width: 14rem;
+  padding: 0.125rem 0.375rem;
+  opacity: 1;
+}
+
+/* Narrow chat: toolbar buttons keep their icon, the text and slide-out
+   labels hide (the button title still names it). */
+@container friday-chat (max-width: 48rem) {
+  .chat-btn-text,
+  .chat-hover-label {
+    display: none;
+  }
+}
+
+/* Per-message Copy / Regenerate show on hover or focus; in Full chat the
+   Regenerate on the last answer stays visible. */
+.chat-row-action {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.group:hover .chat-row-action,
+.group:focus-within .chat-row-action,
+.chat-row-action:focus-visible,
+.friday-chat-full .chat-row-keep {
+  opacity: 1;
+}
+
+/* Cursor: disabled controls say so (and still show their title), message
+   text is selectable, the graphic never keeps a caret or move cursor, the
+   level switch is a pointer. */
+.friday-chat button:disabled {
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+.friday-chat-messages {
+  cursor: auto;
+  user-select: text;
+}
+.friday-chat-messages button {
+  cursor: pointer;
+  user-select: none;
+}
+.chat-level-switch button {
+  cursor: pointer;
+}
+.neural-circuit-compact {
+  cursor: default;
+  user-select: none;
+}
+
+/* Glass only in Full chat, where nothing animates behind the panel. The
+   panel opacity setting still comes through hud-panel. */
+.friday-chat-full {
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+html.no-glow .friday-chat-full {
+  backdrop-filter: none;
+  background: var(--color-card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-hover-label,
+  .chat-row-action,
+  .friday-chat-messages,
+  .friday-chat aside {
+    transition: none;
+  }
+}

@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/chat-window-levels`, chat levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3268 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
 | Branch `fix/build-stt-self-test`, Doctor fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 391 files, 3219 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test`, voice fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 390 files, 3209 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 389 files, 3195 passed, 4 skipped; kernel 237 passed, 2 skipped; pyright ceiling, lint, typecheck, docs, version, provenance, actionlint, arrange, deps, audit, renderer pass. NSIS, verify-build, and installer smoke skipped on Linux. `python -I kernel/stt.py --self-test` fails on the old file and exits 0 with JSON on the new one. `pip download` for `win_amd64`: ctranslate2 4.8.3 has a `cp314` wheel and no `cp315` one. PowerShell was not available to parse `installer/build/install-python.ps1`. |
@@ -125,6 +126,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Manual chat levels (Compact, Expanded, Full chat) are covered by Linux source and render tests only. The Expanded graphic scale, hover labels, cursor, glass, and the More menu at 1080x680 have not been seen on the Windows EXE, with a real mouse or GPU. They are unverified until the owner checks.
+
 - PR Validation's kernel job on `main` at the merge of #73 failed `test_self_test_runs_under_the_embeddable_python_rules`: the runner's self-test answered `ok: false`, while a clean Python 3.12 venv with the CI requirements answers a model-missing skip and passes 240 kernel tests. The test now asserts the import it guards and prints the payload when it fails. The runner's own reason stays unverified until the owner's next PR Validation run shows it.
 
 - The owner's 2026-10-22 screenshot showed FRIDAY "Not Responding" with every label greyed (a frozen window and a page selection).
@@ -192,6 +195,18 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Owner checks for the chat levels, on the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Compact (1) shows the full logo and the current flow.
+   2. Expanded (2) shrinks the graphic with no overlap at 1080x680.
+   3. Full chat (3) shows no graphic.
+   4. The level survives a restart.
+   5. Every button shows its icon and expands its label on hover.
+   6. The cursor is a pointer on buttons and a text bar in the box. It never sticks.
+   7. Resize to the minimum.
+   8. A long reply streams smoothly in all three levels.
+   9. Library and Projects update when changed on their pages.
+   10. Switch to Auto mode and back. Nothing is lost.
+   Not built yet: a virtualised transcript (rows are memoised and the brain keeps 200 messages); stopping the follow while text is being selected during a stream; a remembered rail open/closed state; glass on the shared dropdown menus (they use the shared popover surface, outside the chat region).
 0. Voice re-test on the Windows PC after this branch: Auto mode, hands-free on, say "Friday, what time is it". The voice pipeline log should show a segment longer than 600 ms and a transcript. Voice diagnostics should show `heard` rising and the hearing levels as PASS, or `misheard` with the recogniser name. In chat, "voice me baat kyu nahi ho rahi?" should return the live voice report.
 0. Owner checks for push-to-talk and ComfyUI, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice settings, How Auto mode listens: Push to talk. In Auto mode, talk without the key: nothing is transcribed and the voice log says `push-to-talk: talk key is up`. Hold Ctrl+Space and say "Friday, what time is it", or just "what time is it": FRIDAY answers without the wake word.
