@@ -14,6 +14,7 @@ import {
   Sliders,
   Sparkles,
   Terminal,
+  RefreshCw,
 } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -67,7 +68,7 @@ const SECTIONS = [
   { key: "security", label: "Security", icon: Lock },
   { key: "performance", label: "Performance", icon: Activity },
   { key: "notifications", label: "Notifications", icon: Bell },
-  { key: "updates", label: "Updates", icon: HardDriveDownload },
+  { key: "updates", label: "Updates", icon: RefreshCw },
   { key: "backup", label: "Backup & Restore", icon: Save },
   { key: "advanced", label: "Advanced", icon: Terminal },
 ] as const;
@@ -108,11 +109,12 @@ function SettingsPage() {
     >
       <div className="grid min-w-0 gap-4 lg:grid-cols-[13rem_minmax(0,1fr)]">
         <HudPanel title="Settings" bodyClassName="max-h-[min(70vh,40rem)] overflow-y-auto p-2">
-          <nav className="space-y-0.5">
+          <nav aria-label="Settings sections" className="space-y-0.5">
             {SECTIONS.map((s) => (
               <button
                 key={s.key}
                 type="button"
+                aria-current={section === s.key ? "page" : undefined}
                 onClick={() => {
                   setSection(s.key);
                   void navigate({
@@ -121,12 +123,13 @@ function SettingsPage() {
                   });
                 }}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-sm border px-2.5 py-2 text-left text-sm transition-colors",
+                  "friday-btn friday-nav-link relative flex w-full items-center gap-2 rounded-sm border px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   section === s.key
                     ? "border-primary/50 bg-primary/12 text-primary"
                     : "border-transparent text-muted-foreground hover:border-primary/25 hover:text-foreground",
                 )}
               >
+                {section === s.key ? <span aria-hidden="true" className="nav-active-bar" /> : null}
                 <s.icon className="size-4 shrink-0" />
                 <span className="truncate">{s.label}</span>
               </button>
@@ -134,7 +137,7 @@ function SettingsPage() {
           </nav>
         </HudPanel>
 
-        <div className="space-y-4">
+        <div key={section} className="page-enter min-w-0 space-y-4">
           {section === "general" ? <GeneralSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "ai" ? <AISettings /> : null}
