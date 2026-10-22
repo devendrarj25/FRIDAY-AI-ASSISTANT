@@ -481,7 +481,24 @@ export const modelRegistry = new ModelRegistryStore();
  */
 export const isInstalledModel = (m: RegistryModel): boolean => m.available;
 
-/** Selector groups: Local first, then one group per provider display name. */
+/** OpenRouter's free router and a `:free` id that is already priced free. */
+export function isOpenRouterFreeLane(model: {
+  type?: string;
+  access?: string;
+  providerId?: string;
+  providerModelId?: string;
+  modelName?: string;
+  id?: string;
+}): boolean {
+  if (model.type === "local" || model.access !== "free") return false;
+  const provider = String(model.providerId || "").toLowerCase();
+  if (provider && provider !== "openrouter") return false;
+  const name =
+    `${model.providerModelId || ""} ${model.modelName || ""} ${model.id || ""}`.toLowerCase();
+  return name.includes("openrouter/free") || name.endsWith(":free");
+}
+
+/** Selector groups: Local first, then Free, then one group per provider. */
 export function groupModels(models: RegistryModel[], showAll = false) {
   const pool = models.filter((model) => {
     if (model.visibility === "hide") return false;
@@ -491,12 +508,25 @@ export function groupModels(models: RegistryModel[], showAll = false) {
   });
   const byPriority = (a: RegistryModel, b: RegistryModel) => b.priority - a.priority;
   const local = pool.filter((model) => model.type === "local").sort(byPriority);
+  const freeLane = pool
+    .filter((model) => isOpenRouterFreeLane(model))
+    .sort((a, b) => {
+      const aRouter = `${a.id} ${a.modelName || ""}`.toLowerCase().includes("openrouter/free")
+        ? 1
+        : 0;
+      const bRouter = `${b.id} ${b.modelName || ""}`.toLowerCase().includes("openrouter/free")
+        ? 1
+        : 0;
+      if (aRouter !== bRouter) return bRouter - aRouter;
+      return byPriority(a, b);
+    });
   const groups: { label: string; models: RegistryModel[] }[] = [];
   if (local.length) groups.push({ label: "Local", models: local });
+  if (freeLane.length) groups.push({ label: "Free", models: freeLane });
   const names: string[] = [];
   const buckets = new Map<string, RegistryModel[]>();
   for (const model of pool) {
-    if (model.type === "local") continue;
+    if (model.type === "local" || isOpenRouterFreeLane(model)) continue;
     const name = model.providerName || model.providerId || "Cloud";
     if (!buckets.has(name)) {
       buckets.set(name, []);

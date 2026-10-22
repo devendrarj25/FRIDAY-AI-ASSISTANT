@@ -65,6 +65,9 @@ function billingClass(model) {
     if (record.eligibility === "EXHAUSTED" || record.eligibility === "NOT_ELIGIBLE") {
       return record.billingMode === "PAID" ? "paid" : "unknown";
     }
+    if (record.failureReason === "pricing_stale" || record.evidence?.stale === true) {
+      return "unknown";
+    }
     const coarse = modelAccess.coarseAccess(record);
     if (coarse === "free" || coarse === "paid" || coarse === "unknown") return coarse;
   }

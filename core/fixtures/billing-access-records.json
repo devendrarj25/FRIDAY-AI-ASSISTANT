@@ -1,0 +1,302 @@
+{
+  "paidAccess": false,
+  "cases": [
+    {
+      "id": "openrouter-zero-unverified",
+      "model": {
+        "id": "openrouter:meta/llama:free",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_pricing" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "openrouter-free-router",
+      "model": {
+        "id": "openrouter:openrouter/free",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_router" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "provider-free-plan",
+      "model": {
+        "id": "gemini:gemini-2.5-flash",
+        "type": "cloud",
+        "provider": "gemini",
+        "accessRecord": {
+          "billingMode": "FREE_QUOTA",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_free_plan" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "provider-model-catalog",
+      "model": {
+        "id": "nvidia:listed",
+        "type": "cloud",
+        "provider": "nvidia",
+        "accessRecord": {
+          "billingMode": "FREE_QUOTA",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_model_catalog" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "provider-trial",
+      "model": {
+        "id": "cohere:command",
+        "type": "cloud",
+        "provider": "cohere",
+        "accessRecord": {
+          "billingMode": "FREE_CREDIT",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_trial" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "owner-declared",
+      "model": {
+        "id": "groq:marked",
+        "type": "cloud",
+        "provider": "groq",
+        "accessRecord": {
+          "billingMode": "FREE_QUOTA",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "owner_declared" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "live-probe-verified",
+      "model": {
+        "id": "openrouter:probed",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "VERIFIED",
+          "evidence": { "source": "live_probe" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "local-runtime-source",
+      "model": {
+        "id": "custom:local-runtime",
+        "type": "cloud",
+        "provider": "custom",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "local_runtime" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "rate-limited-official-free",
+      "model": {
+        "id": "openrouter:busy:free",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "RATE_LIMITED",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_pricing" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "verified-free-without-official-source",
+      "model": {
+        "id": "gemini:verified",
+        "type": "cloud",
+        "provider": "gemini",
+        "accessRecord": {
+          "billingMode": "FREE_QUOTA",
+          "eligibility": "ELIGIBLE",
+          "verification": "VERIFIED",
+          "evidence": { "source": "note" }
+        }
+      },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "local-engine",
+      "model": { "id": "ollama:llama3.2", "type": "local", "provider": "ollama" },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "access-string-free",
+      "model": { "id": "openrouter:named", "type": "cloud", "provider": "openrouter", "access": "free" },
+      "class": "free",
+      "allowed": true
+    },
+    {
+      "id": "paid-catalogue",
+      "model": {
+        "id": "openrouter:anthropic/claude",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "PAID",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_pricing" }
+        }
+      },
+      "class": "paid",
+      "allowed": false
+    },
+    {
+      "id": "access-string-paid",
+      "model": { "id": "openai:gpt-4o", "type": "cloud", "provider": "openai", "access": "paid" },
+      "class": "paid",
+      "allowed": false
+    },
+    {
+      "id": "truly-unknown",
+      "model": { "id": "somewhere:mystery", "type": "cloud", "provider": "somewhere" },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "free-name-without-source",
+      "model": {
+        "id": "openrouter:gemma:free",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "UNKNOWN",
+          "eligibility": "UNKNOWN",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "provider_model_catalog" }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "source-outside-allow-list",
+      "model": {
+        "id": "openrouter:guess",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "evidence": { "source": "guess" }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "exhausted-free-quota",
+      "model": {
+        "id": "gemini:exhausted",
+        "type": "cloud",
+        "provider": "gemini",
+        "accessRecord": {
+          "billingMode": "FREE_QUOTA",
+          "eligibility": "EXHAUSTED",
+          "verification": "VERIFIED",
+          "evidence": { "source": "provider_free_plan" }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "not-eligible",
+      "model": {
+        "id": "gemini:nope",
+        "type": "cloud",
+        "provider": "gemini",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "NOT_ELIGIBLE",
+          "verification": "VERIFIED",
+          "evidence": { "source": "provider_pricing" }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "stale-zero-cost",
+      "model": {
+        "id": "openrouter:stale",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "UNVERIFIED",
+          "failureReason": "pricing_stale",
+          "evidence": { "source": "provider_pricing", "stale": true }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    },
+    {
+      "id": "stale-evidence-only",
+      "model": {
+        "id": "openrouter:stale-flag",
+        "type": "cloud",
+        "provider": "openrouter",
+        "accessRecord": {
+          "billingMode": "ZERO_COST",
+          "eligibility": "ELIGIBLE",
+          "verification": "VERIFIED",
+          "evidence": { "source": "provider_pricing", "stale": true }
+        }
+      },
+      "class": "unknown",
+      "allowed": false
+    }
+  ]
+}

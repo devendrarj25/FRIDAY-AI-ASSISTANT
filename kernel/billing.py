@@ -8,7 +8,8 @@ the identical final check before any HTTP call is made.
 
 The kernel never invents its own state: the desktop pushes the authoritative
 billing record with the ``billing.set`` RPC. Until it does, paid and
-unknown-cost models remain blocked. Local and verified-free models stay allowed.
+unknown-cost models remain blocked. Local models and official free evidence
+stay allowed. A stale price stays unverified.
 
 Pure logic only (no I/O, no httpx) so it can be unit tested on its own.
 """
@@ -19,6 +20,22 @@ import time
 from typing import Any
 
 GRANT_SCOPES = ("off", "request", "session", "always")
+
+# Same list as electron/model-access.cjs officialFreeUsable().
+OFFICIAL_FREE_SOURCES = frozenset(
+    {
+        "provider_pricing",
+        "provider_free_plan",
+        "provider_model_catalog",
+        "provider_trial",
+        "provider_router",
+        "owner_declared",
+        "live_probe",
+        "local_runtime",
+    }
+)
+FREE_MODES = frozenset({"ZERO_COST", "FREE_QUOTA", "FREE_CREDIT"})
+FREE_ELIGIBILITY = frozenset({"ELIGIBLE", "RATE_LIMITED"})
 
 DEFAULT_BILLING: dict[str, Any] = {
     "paidAccess": False,
@@ -84,13 +101,51 @@ def paid_unlocked(billing: Any, now: int | None = None) -> tuple[bool, str]:
     return False, "paid AI access is off — free and local models only"
 
 
+def _as_record(model: Any) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    options = getattr(model, "options", None)
+    if not isinstance(options, dict):
+        options = model if isinstance(model, dict) else {}
+    record = options.get("accessRecord")
+    if not isinstance(record, dict):
+        nested = options.get("meta")
+        if isinstance(nested, dict) and isinstance(nested.get("accessRecord"), dict):
+            record = nested["accessRecord"]
+        else:
+            record = None
+    return options, record
+
+
+def record_stale(record: dict[str, Any] | None) -> bool:
+    """14-day pricing failure, or an evidence flag the desktop already set."""
+    if not isinstance(record, dict):
+        return False
+    if record.get("failureReason") == "pricing_stale":
+        return True
+    evidence = record.get("evidence")
+    return isinstance(evidence, dict) and evidence.get("stale") is True
+
+
+def official_free_usable(record: dict[str, Any] | None) -> bool:
+    """Mirror ``officialFreeUsable`` in electron/model-access.cjs.
+
+    A stale price is not usable, even when the source is on this list.
+    """
+    if not isinstance(record, dict) or record_stale(record):
+        return False
+    mode = str(record.get("billingMode") or "").upper()
+    elig = str(record.get("eligibility") or "").upper()
+    if mode not in FREE_MODES or elig not in FREE_ELIGIBILITY:
+        return False
+    evidence = record.get("evidence")
+    source = str(evidence.get("source") or "") if isinstance(evidence, dict) else ""
+    return source in OFFICIAL_FREE_SOURCES
+
+
 def billing_class(model: Any) -> str:
     """ "free" | "paid" | "unknown". Unknown remains distinct from paid."""
     if model is None:
         return "unknown"
-    options = getattr(model, "options", None)
-    if not isinstance(options, dict):
-        options = model if isinstance(model, dict) else {}
+    options, record = _as_record(model)
     kind = str(options.get("type") or getattr(model, "kind", "") or "").lower()
     provider = str(options.get("provider") or getattr(model, "provider", "") or "").lower()
     local_ids = (
@@ -106,22 +161,18 @@ def billing_class(model: Any) -> str:
     )
     if kind == "local" or kind in local_ids or provider in local_ids:
         return "free"
-    record = options.get("accessRecord")
     if isinstance(record, dict):
         mode = str(record.get("billingMode") or "").upper()
         elig = str(record.get("eligibility") or "").upper()
         ver = str(record.get("verification") or "").upper()
         if elig in ("EXHAUSTED", "NOT_ELIGIBLE"):
             return "paid" if mode == "PAID" else "unknown"
-        if (
-            ver == "VERIFIED"
-            and mode in ("ZERO_COST", "FREE_QUOTA", "FREE_CREDIT")
-            and elig
-            in (
-                "ELIGIBLE",
-                "RATE_LIMITED",
-            )
-        ):
+        # Stale wins over a verified or official free stamp.
+        if record_stale(record):
+            return "unknown"
+        if ver == "VERIFIED" and mode in FREE_MODES and elig in FREE_ELIGIBILITY:
+            return "free"
+        if official_free_usable(record):
             return "free"
         if mode == "PAID":
             return "paid"

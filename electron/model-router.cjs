@@ -954,7 +954,7 @@ function describe(model, health, now = Date.now()) {
     access,
     accessStatus: modelAccess.effectiveStatus(accessRecord),
     // Verified means a live probe (or local runtime) proved the class.
-    // Unknown and unverified free-class evidence stay out of free-only.
+    // Official free evidence is usable before that probe. Unknown cost is not.
     pricingVerified: accessRecord.verification === "VERIFIED" && access !== "unknown",
     capabilities: caps,
     evidence: {
@@ -1627,7 +1627,7 @@ function prepareRoute(models, options = {}) {
     .sort((a, b) => b.score - a.score || a.m.id.localeCompare(b.m.id))
     .map((row) => row.m);
 
-  const ordered = [...pinned, ...rest];
+  const ordered = [...pinned, ...orderFreeLane(rest, usage)];
   const chosen =
     qualityTarget === "diverse"
       ? diversifyBy(ordered, Math.max(1, limit), familyOf)
@@ -1994,6 +1994,43 @@ function freeLaneModel(model) {
   if (model.access === "free") return true;
   const type = String(model.type || model.kind || model.meta?.kind || "").toLowerCase();
   return LOCAL_PROVIDERS.has(type) || type === "llama.cpp";
+}
+
+/** A priced OpenRouter free router or `:free` id. A name alone is not this. */
+function isOpenRouterFreeLane(model) {
+  if (!model || model.access !== "free" || model.type === "local") return false;
+  const provider = String(model.providerId || model.meta?.providerId || "").toLowerCase();
+  if (provider && provider !== "openrouter") return false;
+  const name = String(model.providerModelId || model.id || "").toLowerCase();
+  return name.includes("openrouter/free") || name.endsWith(":free");
+}
+
+/**
+ * On a free policy, ready local models stay first, then OpenRouter's free
+ * lane, then every other model the score already ordered. Paid policies keep
+ * that score order.
+ */
+function orderFreeLane(models, policy) {
+  const rows = models || [];
+  if (policy === "allow-paid" || policy === "paid-only") return rows;
+  const lane = [];
+  const rest = [];
+  for (const model of rows) {
+    if (isOpenRouterFreeLane(model)) lane.push(model);
+    else rest.push(model);
+  }
+  if (!lane.length) return rest;
+  const routerFirst = [];
+  const variants = [];
+  for (const model of lane) {
+    const name = String(model.providerModelId || model.id || "").toLowerCase();
+    if (name.includes("openrouter/free")) routerFirst.push(model);
+    else variants.push(model);
+  }
+  const laneOrdered = [...routerFirst, ...variants];
+  const firstCloud = rest.findIndex((model) => model.type !== "local");
+  if (firstCloud < 0) return [...rest, ...laneOrdered];
+  return [...rest.slice(0, firstCloud), ...laneOrdered, ...rest.slice(firstCloud)];
 }
 
 function fallbackAdvances(category, options = {}) {
@@ -2487,7 +2524,7 @@ function selectVerificationCandidates(models, options = {}) {
         a.id.localeCompare(b.id)
       );
     });
-  return [...pinned, ...rest];
+  return [...pinned, ...orderFreeLane(rest, usage)];
 }
 
 /** Which backend a candidate really talks to — one quota, one failure mode. */
