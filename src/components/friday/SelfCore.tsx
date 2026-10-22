@@ -132,6 +132,8 @@ export function IdentityPanel() {
                       size="sm"
                       variant="ghost"
                       className="h-6 px-2 text-destructive"
+                      aria-label="Remove rule"
+                      title="Remove rule"
                       onClick={() => selfIdentity.removeRule(rule.id)}
                     >
                       <Trash2 className="size-3" />

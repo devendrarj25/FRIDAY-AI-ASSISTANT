@@ -1007,6 +1007,9 @@ function BrowserPage() {
           <Button
             size="sm"
             variant={panel === "bookmarks" ? "default" : "ghost"}
+            aria-label="Bookmarks"
+            title="Bookmarks"
+            aria-pressed={panel === "bookmarks"}
             onClick={() => setPanel(panel === "bookmarks" ? "none" : "bookmarks")}
           >
             <Bookmark className="size-4" />
@@ -1014,6 +1017,9 @@ function BrowserPage() {
           <Button
             size="sm"
             variant={panel === "history" ? "default" : "ghost"}
+            aria-label="History"
+            title="History"
+            aria-pressed={panel === "history"}
             onClick={() => setPanel(panel === "history" ? "none" : "history")}
           >
             <History className="size-4" />
@@ -1021,6 +1027,9 @@ function BrowserPage() {
           <Button
             size="sm"
             variant={panel === "downloads" ? "default" : "ghost"}
+            aria-label="Downloads"
+            title="Downloads"
+            aria-pressed={panel === "downloads"}
             onClick={() => setPanel(panel === "downloads" ? "none" : "downloads")}
           >
             <Download className="size-4" />
@@ -1028,6 +1037,9 @@ function BrowserPage() {
           <Button
             size="sm"
             variant={panel === "ask" ? "default" : "ghost"}
+            aria-label="Ask FRIDAY about this page"
+            title="Ask FRIDAY about this page"
+            aria-pressed={panel === "ask"}
             onClick={() => setPanel(panel === "ask" ? "none" : "ask")}
           >
             <MessageSquare className="size-4" />
@@ -1035,6 +1047,9 @@ function BrowserPage() {
           <Button
             size="sm"
             variant={panel === "settings" ? "default" : "ghost"}
+            aria-label="Browser settings"
+            title="Browser settings"
+            aria-pressed={panel === "settings"}
             onClick={() => setPanel(panel === "settings" ? "none" : "settings")}
           >
             <Settings2 className="size-4" />

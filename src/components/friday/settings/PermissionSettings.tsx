@@ -103,7 +103,12 @@ export function PermissionSettings() {
                 className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b border-border/60 pb-2 text-sm last:border-0"
               >
                 <span className="truncate font-mono text-xs text-foreground">{tool}</span>
-                <button type="button" onClick={() => void set(tool, NEXT[decision])}>
+                <button
+                  type="button"
+                  aria-label={`${tool}: ${decision}, change`}
+                  title="Change this decision"
+                  onClick={() => void set(tool, NEXT[decision])}
+                >
                   <StatusPill label={decision} tone={TONE[decision]} />
                 </button>
                 <Button

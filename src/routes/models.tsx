@@ -1016,7 +1016,13 @@ function ModelsPage() {
                   >
                     Pause
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => engine.cancel(job.id)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Cancel download"
+                    title="Cancel download"
+                    onClick={() => engine.cancel(job.id)}
+                  >
                     <X className="size-4" />
                   </Button>
                 </div>
@@ -1201,7 +1207,13 @@ function ModelsPage() {
                             {m.category} · {formatGb(m.sizeGb)} · wants {m.vramGb} GB VRAM
                           </div>
                         </div>
-                        <Button size="sm" variant="ghost" onClick={() => engine.install(m.id)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Install ${m.name}`}
+                          title="Install"
+                          onClick={() => engine.install(m.id)}
+                        >
                           <Download className="size-3.5" />
                         </Button>
                       </div>
@@ -2143,7 +2155,13 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
                       {m.path}
                     </p>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => engine.removeImport(m.id)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Remove imported model"
+                    title="Remove imported model"
+                    onClick={() => engine.removeImport(m.id)}
+                  >
                     <Trash2 className="size-3.5 text-destructive" />
                   </Button>
                 </li>

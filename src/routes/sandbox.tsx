@@ -730,7 +730,13 @@ function SandboxPage() {
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   {time(p.updatedAt)}
                 </span>
-                <Button size="sm" variant="ghost" onClick={() => void reveal(p.dir)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label="Open folder"
+                  title="Open folder"
+                  onClick={() => void reveal(p.dir)}
+                >
                   <FolderOpen className="size-3.5" />
                 </Button>
                 <Button
@@ -772,7 +778,13 @@ function SandboxPage() {
                 hint={`${files.filter((f) => !f.dir).length} file(s)`}
                 actions={
                   <div className="flex gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => void onNewFile()}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="New file"
+                      title="New file"
+                      onClick={() => void onNewFile()}
+                    >
                       <FilePlus2 className="size-3.5" />
                     </Button>
                     <Button
@@ -816,7 +828,10 @@ function SandboxPage() {
                       </button>
                       {!f.dir ? (
                         <button
-                          className="opacity-0 transition-opacity group-hover:opacity-100"
+                          type="button"
+                          aria-label={`Delete ${f.path}`}
+                          title="Delete file"
+                          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                           onClick={() => void onDelete(f.path)}
                         >
                           <Trash2 className="size-3 text-destructive" />
