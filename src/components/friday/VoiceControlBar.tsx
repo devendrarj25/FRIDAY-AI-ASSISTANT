@@ -51,7 +51,7 @@ export function HudButton({
       onClick={onClick}
       {...pointer}
       className={cn(
-        "voice-btn inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
+        "voice-btn friday-btn inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
         active
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-primary/20 text-muted-foreground hover:border-primary/35 hover:text-primary active:bg-primary/15",
@@ -105,7 +105,7 @@ export function VoiceLevelSwitch({
           title={`${VOICE_LEVEL_LABELS[value]} (Alt+${value})`}
           onClick={() => onSelect(value)}
           className={cn(
-            "px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60",
+            "friday-btn px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60",
             index > 0 && "border-l border-primary/15",
             level === value
               ? "bg-primary/15 text-primary"

@@ -838,7 +838,7 @@ html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
 /* Glass only in Full chat, where nothing animates behind the panel. The
    panel opacity setting still comes through hud-panel. */
 .friday-chat-full {
-  backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
 }
 html.no-glow .friday-chat-full {
   backdrop-filter: none;
@@ -935,7 +935,7 @@ html.no-glow .friday-chat-full {
    and on the voice More menu. */
 .voice-glass,
 .voice-glass-menu {
-  backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
 }
 html.no-glow .voice-glass,
 html.no-glow .voice-glass-menu {

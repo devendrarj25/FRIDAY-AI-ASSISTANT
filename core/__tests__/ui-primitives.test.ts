@@ -224,3 +224,19 @@ describe("chrome keeps its locked behaviour under the new look", () => {
     expect(strip).toContain("<FridayOrb size={18}");
   });
 });
+
+describe("chat and voice levels use the FRIDAY Glass tokens", () => {
+  it("takes blur strength from Glass depth and the Blur switch", () => {
+    const css = read("src/styles.css");
+    expect(css.match(/blur\(var\(--friday-glass-blur, 12px\)\) saturate\(1\.1\)/g)).toHaveLength(2);
+    expect(css).not.toContain("blur(12px) saturate(1.1)");
+    expect(css).toContain("html.no-blur .friday-chat-full,");
+  });
+
+  it("gives the size switches and voice HUD buttons the shared button states", () => {
+    expect(read("src/components/friday/ChatToolbar.tsx")).toContain('"friday-btn h-6 min-w-6');
+    const voice = read("src/components/friday/VoiceControlBar.tsx");
+    expect(voice).toContain('"voice-btn friday-btn inline-flex');
+    expect(voice).toContain('"friday-btn px-2 transition-colors');
+  });
+});
