@@ -1,6 +1,6 @@
-# FRIDAY — Architecture Baseline (v1.1.2.4)
+# FRIDAY — Architecture Baseline (v1.1.3.4)
 
-📐 **baseline locked** on the 1.1.2.4 checkout.
+📐 **baseline locked** on the 1.1.3.4 checkout.
 
 Folder and subsystem pins the architecture audit enforces. Runtime layers: [ARCHITECTURE.md](../ARCHITECTURE.md). Disk rules: [FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md).
 

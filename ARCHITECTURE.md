@@ -1,6 +1,6 @@
 # FRIDAY — Architecture Overview
 
-**Current shipping version: 1.1.2.4**
+**Current shipping version: 1.1.3.4**
 
 🏗️ Layer map for this checkout. The locked folder baseline is [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md). The owner loop is [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md). Disk layout is [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 

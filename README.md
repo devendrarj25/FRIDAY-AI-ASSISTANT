@@ -83,12 +83,12 @@ Terms: [LICENSE](LICENSE). How to change the tree: [CONTRIBUTING.md](CONTRIBUTIN
 
 ---
 
-## 9. What is new in 1.1.2.4
+## 9. What is new in 1.1.3.4
 
 <!-- release-engine: generated section. Summary plus links only - the full
      write-up lives in the changelog and the release notes. -->
 
-Released October 17, 2026 on the Stable channel - This update refreshes how FRIDAY is packaged and checked, so the app you install stays consistent.
+Released October 22, 2026 on the Stable channel - FRIDAY 1.1.3.4 adds FRIDAY now includes a persisted model catalogue and provider protocol modules and reliability fixes.
 
-- Full detail for this release: **[releases/notes/v1.1.2.4.md](releases/notes/v1.1.2.4.md)**
+- Full detail for this release: **[releases/notes/v1.1.3.4.md](releases/notes/v1.1.3.4.md)**
 - Changelog for the current public line: **[CHANGELOG.md](CHANGELOG.md)**
