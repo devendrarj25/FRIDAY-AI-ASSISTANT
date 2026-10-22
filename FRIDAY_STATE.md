@@ -125,6 +125,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- PR Validation's kernel job on `main` at the merge of #73 failed `test_self_test_runs_under_the_embeddable_python_rules`: the runner's self-test answered `ok: false`, while a clean Python 3.12 venv with the CI requirements answers a model-missing skip and passes 240 kernel tests. The test now asserts the import it guards and prints the payload when it fails. The runner's own reason stays unverified until the owner's next PR Validation run shows it.
+
 - The owner's 2026-10-22 screenshot showed FRIDAY "Not Responding" with every label greyed (a frozen window and a page selection).
   - `env:refresh` and `env:repair` ran the environment registry's synchronous probes (npm, Python, pip) on Electron's main thread. They now run in `electron/scan-worker.cjs`.
   - The Auto screen is not selectable chrome.
