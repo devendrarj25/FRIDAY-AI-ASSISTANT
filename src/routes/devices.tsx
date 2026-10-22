@@ -10,7 +10,7 @@ import {
   Wifi,
 } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
-import { ToggleRow } from "@/components/friday/ui";
+import { ToggleRow, EmptyState } from "@/components/friday/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -194,7 +194,9 @@ function DevicesPage() {
               </li>
             ))}
             {!state.bluetooth.length && (
-              <li className="text-xs text-muted-foreground">No Bluetooth devices found yet.</li>
+              <li>
+                <EmptyState title="No Bluetooth devices found yet." />
+              </li>
             )}
           </ul>
         </Panel>
@@ -318,7 +320,9 @@ function DevicesPage() {
               </li>
             ))}
             {!state.companion?.phones?.length && (
-              <li className="text-xs text-muted-foreground">No phone paired yet.</li>
+              <li>
+                <EmptyState title="No phone paired yet." />
+              </li>
             )}
           </ul>
         </Panel>

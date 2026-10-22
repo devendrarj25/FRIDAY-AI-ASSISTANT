@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { EmptyState } from "@/components/friday/ui";
 import {
   ArrowLeft,
   ArrowRight,
@@ -1136,7 +1137,10 @@ function BrowserPage() {
                 <Panel title="Bookmarks">
                   <div className="space-y-1">
                     {bookmarks.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No bookmarks yet.</p>
+                      <EmptyState
+                        title="No bookmarks yet."
+                        hint="Bookmark a page from the address bar."
+                      />
                     ) : null}
                     {bookmarks.map((item) => (
                       <div key={item.url} className="flex items-center gap-2">
