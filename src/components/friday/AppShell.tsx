@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ChevronsLeft, ChevronsRight, Power, RotateCw, Settings } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Power, RotateCw, Settings, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +19,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { BootScreen } from "@/components/friday/BootScreen";
@@ -88,24 +89,56 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+/** The page's own sidebar entry, so the header icon and the sidebar match. */
+function pageNav(pathname: string) {
+  if (pathname === SETTINGS_NAV.to) return SETTINGS_NAV;
+  return ALL_ITEMS.find((item) => item.to === pathname) ?? null;
+}
+
 function AppShellPage({ title, subtitle, actions, fill = false, children }: AppShellProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const nav = pageNav(pathname);
   return (
-    <main className={cn("min-h-0 flex-1 p-3", fill ? "overflow-hidden" : "overflow-y-auto")}>
+    <main
+      className={cn(
+        "friday-page min-h-0 flex-1 p-3",
+        fill ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden",
+      )}
+    >
       {title ? (
-        <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate font-display text-sm font-bold uppercase tracking-[0.16em] text-primary glow-text">
-              {title}
-            </h1>
-            {subtitle ? <p className="truncate text-xs text-muted-foreground">{subtitle}</p> : null}
+        <div className="page-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {nav ? (
+              <span
+                aria-hidden="true"
+                className="glass-2 grid size-8 shrink-0 place-items-center rounded-md text-primary"
+              >
+                <nav.icon className="size-4" />
+              </span>
+            ) : null}
+            <div className="min-w-0">
+              <h1
+                className="truncate font-display text-sm font-bold uppercase tracking-[0.16em] text-primary glow-text"
+                title={title}
+              >
+                {title}
+              </h1>
+              {subtitle ? (
+                <p className="truncate text-xs text-muted-foreground" title={subtitle}>
+                  {subtitle}
+                </p>
+              ) : null}
+            </div>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
             <Button
               size="sm"
               variant="outline"
+              className="gap-1.5"
+              title="Show this page as a flow chart"
               onClick={() => flowStudio.open(featureForPath(pathname), "chart")}
             >
+              <Workflow className="size-3.5" />
               Flow
             </Button>
             {actions}
@@ -115,8 +148,37 @@ function AppShellPage({ title, subtitle, actions, fill = false, children }: AppS
       {importTargetLabel(pathname) ? (
         <ImportBar target={importTargetLabel(pathname)!} className="mb-3" />
       ) : null}
-      {fill ? <div className="h-full min-h-0">{children}</div> : children}
+      {fill ? (
+        <div className="h-full min-h-0">{children}</div>
+      ) : (
+        <div key={pathname} className="page-enter min-w-0">
+          {children}
+        </div>
+      )}
     </main>
+  );
+}
+
+/**
+ * Below this window width the sidebar shows as the icon rail without
+ * changing the saved choice ("friday.sidebar.collapsed"); the toggle then
+ * opens it for this session only.
+ */
+const NARROW_SIDEBAR_QUERY = "(max-width: 1199px)";
+
+function subscribeNarrow(onChange: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => undefined;
+  const media = window.matchMedia(NARROW_SIDEBAR_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function useNarrowWindow(): boolean {
+  return useSyncExternalStore(
+    subscribeNarrow,
+    () =>
+      typeof window !== "undefined" && Boolean(window.matchMedia?.(NARROW_SIDEBAR_QUERY).matches),
+    () => false,
   );
 }
 
@@ -175,7 +237,11 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   const prefs = usePreferences();
   const defaultExpanded = (prefs.fields["sidebarDefault"] ?? "Expanded") === "Expanded";
   // Collapsed by default on first run unless Settings → Appearance says Expanded.
-  const [collapsed, setCollapsed] = useState(() => readSidebarCollapsed(defaultExpanded));
+  const [savedCollapsed, setCollapsed] = useState(() => readSidebarCollapsed(defaultExpanded));
+  const narrow = useNarrowWindow();
+  const [peek, setPeek] = useState(false);
+  if (!narrow && peek) setPeek(false);
+  const collapsed = savedCollapsed || (narrow && !peek);
   const [lifeMode, setLifeMode] = useState<"restart" | "shutdown" | null>(null);
   const [lifeLines, setLifeLines] = useState<string[]>([]);
   const [lifeBusy, setLifeBusy] = useState(false);
@@ -408,6 +474,12 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleCollapsed = () => {
+    // A narrow window only opens or closes the rail for now; the saved
+    // choice stays what the owner set on a wide window.
+    if (narrow) {
+      setPeek((open) => !open);
+      return;
+    }
     setCollapsed((c) => {
       localStorage.setItem("friday.sidebar.collapsed", c ? "0" : "1");
       return !c;
@@ -442,8 +514,10 @@ function AppShellChrome({ children }: { children: ReactNode }) {
         <TitleStrip />
         <div className="friday-interactive-region flex min-h-0 flex-1">
           <aside
+            aria-label="FRIDAY sections"
+            data-collapsed={collapsed ? "true" : "false"}
             className={cn(
-              "hidden shrink-0 flex-col border-r border-primary/20 bg-sidebar transition-[width] duration-200 lg:flex",
+              "friday-sidebar hidden shrink-0 flex-col border-r border-primary/20 bg-sidebar transition-[width] duration-200 lg:flex",
               collapsed ? "w-16" : "w-60",
             )}
           >
@@ -470,14 +544,17 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                           key={item.to}
                           to={item.to}
                           title={item.label}
+                          aria-label={collapsed ? item.label : undefined}
+                          aria-current={active ? "page" : undefined}
                           className={cn(
-                            "flex items-center gap-2.5 rounded-sm border px-2.5 py-2 text-sm transition-all",
+                            "friday-nav-link relative flex items-center gap-2.5 rounded-sm border px-2.5 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                             collapsed && "justify-center px-0",
                             active
                               ? "border-primary/50 bg-primary/12 text-primary glow-ring"
                               : "border-transparent text-muted-foreground hover:border-primary/25 hover:bg-primary/6 hover:text-foreground",
                           )}
                         >
+                          {active ? <span aria-hidden="true" className="nav-active-bar" /> : null}
                           <item.icon className="size-4 shrink-0" />
                           {!collapsed ? <span className="truncate">{item.label}</span> : null}
                         </Link>
@@ -495,7 +572,9 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   type="button"
                   onClick={toggleCollapsed}
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  className="grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  aria-expanded={!collapsed}
+                  className="friday-btn grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                 >
                   {collapsed ? (
                     <ChevronsRight className="size-4" />
@@ -516,8 +595,10 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 <Link
                   to="/settings"
                   aria-label="Settings"
+                  title="Settings"
+                  aria-current={pathname === "/settings" ? "page" : undefined}
                   className={cn(
-                    "grid flex-1 place-items-center rounded-sm border py-2 transition-colors",
+                    "friday-btn grid flex-1 place-items-center rounded-sm border py-2 transition-colors",
                     pathname === "/settings"
                       ? "border-primary/50 bg-primary/12 text-primary"
                       : "border-primary/20 bg-surface text-muted-foreground hover:border-primary/50 hover:text-primary",

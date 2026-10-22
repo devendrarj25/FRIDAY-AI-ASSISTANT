@@ -28,14 +28,16 @@ const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
 
 describe("panels and tiles", () => {
   it("keeps HudPanel and its legacy alias, with an optional header icon", () => {
-    const plain = html(createElement(HudPanel, { title: "Memory", hint: "12 records" }, "body"));
+    const plain = html(
+      createElement(HudPanel, { title: "Memory", hint: "12 records", children: "body" }),
+    );
     expect(plain).toContain('class="hud-panel relative overflow-hidden rounded-md"');
     expect(plain).toContain('title="Memory"');
     expect(plain).toContain("12 records");
     expect(plain).toContain("shadow-[0_0_10px_2px_var(--color-primary)]");
-    const withIcon = html(createElement(HudPanel, { title: "CPU", icon: Cpu }, "x"));
+    const withIcon = html(createElement(HudPanel, { title: "CPU", icon: Cpu, children: "x" }));
     expect(withIcon).toMatch(/<svg[^>]*aria-hidden="true"[^>]*>.*?<\/svg><h2/);
-    expect(html(createElement(Panel, { title: "Legacy" }, "y"))).toContain("Legacy");
+    expect(html(createElement(Panel, { title: "Legacy", children: "y" }))).toContain("Legacy");
   });
 
   it("gives tiles a motion state without moving layout", () => {
@@ -176,5 +178,49 @@ describe("shadcn primitives carry the FRIDAY Glass hooks", () => {
     for (const file of ["dialog", "alert-dialog", "sheet"]) {
       expect(read(`src/components/ui/${file}.tsx`)).toContain("glass-dialog glass-backdrop-blur");
     }
+  });
+});
+
+describe("chrome keeps its locked behaviour under the new look", () => {
+  const shell = read("src/components/friday/AppShell.tsx");
+  const strip = read("src/components/friday/TitleStrip.tsx");
+
+  it("auto-collapses a narrow window without touching the saved choice", () => {
+    expect(shell).toContain('const NARROW_SIDEBAR_QUERY = "(max-width: 1199px)";');
+    expect(shell).toContain("const collapsed = savedCollapsed || (narrow && !peek);");
+    const toggle = shell.slice(
+      shell.indexOf("const toggleCollapsed"),
+      shell.indexOf("const askLife"),
+    );
+    // Narrow: only the session peek flips, then returns before the saved write.
+    expect(toggle.indexOf("setPeek((open) => !open);")).toBeLessThan(
+      toggle.indexOf('localStorage.setItem("friday.sidebar.collapsed"'),
+    );
+    expect(toggle).toContain("return;");
+    expect(shell).toContain('localStorage.getItem("friday.sidebar.collapsed")');
+  });
+
+  it("keeps the nav from navigation.ts, the scroll restore and one shell", () => {
+    expect(shell).toContain("NAV_GROUPS.map((group) =>");
+    expect(shell).toContain("savedSidebarScroll = event.currentTarget.scrollTop;");
+    expect(shell).toContain("if (inShell) return <AppShellPage {...props} />;");
+    expect(shell).toContain('aria-current={active ? "page" : undefined}');
+    expect(shell).toContain('className="nav-active-bar"');
+  });
+
+  it("gives every page one header with its sidebar icon, a Flow button and a page-enter", () => {
+    expect(shell).toContain("function pageNav(pathname: string)");
+    expect(shell).toContain('<nav.icon className="size-4" />');
+    expect(shell).toMatch(/<Workflow className="size-3\.5" \/>\s*Flow/);
+    expect(shell).toContain('<div key={pathname} className="page-enter min-w-0">');
+    expect(shell).toContain('"overflow-y-auto overflow-x-hidden"');
+  });
+
+  it("keeps the title strip as the only drag region with its window controls", () => {
+    expect(strip).toContain('WebkitAppRegion: "drag"');
+    expect(strip).toContain('WebkitAppRegion: "no-drag"');
+    expect(strip).toContain('aria-label="Minimize FRIDAY"');
+    expect(strip).toContain('aria-label="Close FRIDAY"');
+    expect(strip).toContain("<FridayOrb size={18}");
   });
 });

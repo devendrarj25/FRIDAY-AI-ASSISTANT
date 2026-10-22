@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Minus, Mic, MicOff, Wifi, WifiOff, X } from "lucide-react";
 // Pulls in the `window.friday` global type declaration.
 import "@/lib/friday/bridge";
+import { FridayOrb } from "@/components/friday/FridayOrb";
 import { NotificationCenter } from "@/components/friday/NotificationCenter";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { onVisibleFrame } from "@/lib/friday/frame-clock";
@@ -93,14 +94,17 @@ export function TitleStrip() {
 
   return (
     <header
-      className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-primary/20 bg-sidebar px-3 select-none"
+      className="friday-titlestrip flex h-9 shrink-0 items-center justify-between gap-3 border-b border-primary/20 bg-sidebar px-3 select-none"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
-      <p className="min-w-0 truncate font-display text-[13px] font-bold tracking-[0.2em] text-primary glow-text">
-        FRIDAY <span className="text-muted-foreground">— PERSONAL AI ASSISTANT</span>
-      </p>
+      <div className="flex min-w-0 items-center gap-2">
+        <FridayOrb size={18} className="shrink-0" />
+        <p className="min-w-0 truncate font-display text-[13px] font-bold tracking-[0.2em] text-primary glow-text">
+          FRIDAY <span className="text-muted-foreground">— PERSONAL AI ASSISTANT</span>
+        </p>
+      </div>
 
       <div
         className="flex min-w-0 shrink items-center gap-2 overflow-hidden font-mono text-[11px] text-muted-foreground"
@@ -155,13 +159,18 @@ export function TitleStrip() {
           </span>
         </button>
         <span className="hidden text-primary/25 sm:inline">|</span>
-        <span className={`hidden sm:inline ${fpsTone}`} title="Live frames per second">
+        <span
+          className={`title-chip hidden rounded-sm px-1.5 sm:inline ${fpsTone}`}
+          title="Live frames per second"
+        >
           {fps} FPS
         </span>
         <span className="hidden text-primary/25 sm:inline">|</span>
         <span
           className={
-            net.online ? "flex items-center gap-1" : "flex items-center gap-1 text-destructive"
+            net.online
+              ? "title-chip flex items-center gap-1 rounded-sm px-1.5"
+              : "title-chip flex items-center gap-1 rounded-sm px-1.5 text-destructive"
           }
           title={
             net.online
@@ -205,7 +214,7 @@ export function TitleStrip() {
             onClick={minimize}
             aria-label="Minimize FRIDAY"
             title="Minimize"
-            className="grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary"
+            className="friday-btn grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <Minus className="size-3.5" />
           </button>
@@ -214,7 +223,7 @@ export function TitleStrip() {
             onClick={close}
             aria-label="Close FRIDAY"
             title="Close"
-            className="grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+            className="friday-btn grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="size-3.5" />
           </button>

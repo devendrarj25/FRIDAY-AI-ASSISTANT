@@ -1235,3 +1235,60 @@ html[data-button-labels="icons"] .voice-btn {
 html.no-motion .page-enter {
   animation: none;
 }
+
+/* Chrome: sidebar, title strip and page frame (FRIDAY Glass). The sidebar
+   items, groups, order and paths come from navigation.ts unchanged. */
+.nav-active-bar {
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: -1px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 8px var(--color-primary);
+  transform-origin: center;
+  animation: friday-nav-bar var(--friday-motion-mid) var(--friday-ease);
+}
+@keyframes friday-nav-bar {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+html[data-ui-style="glass"] .friday-sidebar {
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 30%),
+    color-mix(in oklab, var(--color-sidebar) calc(var(--friday-panel-opacity, 1) * 94%), transparent);
+  border-right-color: var(--friday-glass-border);
+}
+html[data-ui-style="glass"] .friday-nav-link {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: var(--friday-motion-fast);
+  transition-timing-function: var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-titlestrip {
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent),
+    color-mix(in oklab, var(--color-sidebar) 96%, transparent);
+  border-bottom-color: var(--friday-glass-border);
+}
+html[data-ui-style="glass"] .title-chip {
+  border: 1px solid color-mix(in oklab, currentColor 22%, transparent);
+  background: color-mix(in oklab, currentColor 7%, transparent);
+}
+html.no-glow .nav-active-bar {
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-active-bar {
+    animation: none;
+  }
+}
+html.no-motion .nav-active-bar {
+  animation: none;
+}
