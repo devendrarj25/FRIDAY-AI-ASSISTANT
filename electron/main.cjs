@@ -1908,9 +1908,22 @@ async function runCatalogueRefresh(trigger) {
     ? Date.now() - Number(loaded.oldestFetchedAt)
     : Number.POSITIVE_INFINITY;
   const privacy = voicePrivacyOn() || modelRouteMode() === "local-only";
-  if (!privacy && (trigger === "startup" || trigger === "manual" || trigger === "foreground")) {
-    void refreshPricingKnowledge().catch((error) => {
+  let knowledgeRefresh = null;
+  if (
+    !privacy &&
+    (trigger === "startup" ||
+      trigger === "manual" ||
+      trigger === "foreground" ||
+      trigger === "interval" ||
+      trigger === "sleep-resume")
+  ) {
+    knowledgeRefresh = refreshPricingKnowledge().catch((error) => {
       log(`pricing refresh failed: ${error?.message || error}`);
+      return {
+        skipped: "failed",
+        applied: [],
+        kept: [{ reason: String(error?.message || error) }],
+      };
     });
   }
   const plan = store.planCatalogueRefresh({
@@ -1919,7 +1932,15 @@ async function runCatalogueRefresh(trigger) {
     privacy,
     jitterMs: Math.floor(Math.random() * 60_000),
   });
-  if (!plan.refresh) return { refreshed: false, plan, sendsPrompt: false };
+  const manual = trigger === "manual" || trigger === "foreground";
+  if (!plan.refresh) {
+    return {
+      refreshed: false,
+      plan,
+      sendsPrompt: false,
+      ...(manual && knowledgeRefresh ? { knowledge: await knowledgeRefresh } : {}),
+    };
+  }
   if (plan.delayMs > 0 && trigger !== "manual" && trigger !== "foreground") {
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, plan.delayMs);
@@ -1934,6 +1955,7 @@ async function runCatalogueRefresh(trigger) {
     plan,
     sendsPrompt: false,
     count: Array.isArray(result?.models) ? result.models.length : 0,
+    ...(manual && knowledgeRefresh ? { knowledge: await knowledgeRefresh } : {}),
   };
 }
 
@@ -3184,7 +3206,13 @@ async function startChat(request) {
       }),
     )}`,
   );
-  send("chat:error", { requestId, error: honestHandoff(detail) });
+  const reason = modelRouter.blockedSummary({
+    detail,
+    failures,
+    offline: netStatus.isOffline(),
+    checked,
+  });
+  send("chat:error", { requestId, error: honestHandoff(detail, reason) });
 }
 
 /**
@@ -3409,9 +3437,9 @@ async function runParallelChat(request = {}) {
  * particular request needs a model, what she can still do without one, and the
  * next step — never a bare failure block, and never a pretended answer.
  */
-function honestHandoff(detail) {
+function honestHandoff(detail, reason) {
   return [
-    "I can't answer that one on my own — it needs a connected AI model, and none is reachable right now.",
+    reason || "No model is connected or running right now.",
     "",
     detail,
     "",
@@ -5374,6 +5402,7 @@ ipcMain.handle("models:catalogue-status", () => {
   });
 });
 ipcMain.handle("models:catalogue-refresh", () => runCatalogueRefresh("manual"));
+ipcMain.handle("models:knowledge-status", () => modelAccess.knowledgeStatus(Date.now()));
 ipcMain.handle("models:verify-capabilities", async (_e, modelId) => {
   const id = String(modelId || "");
   if (!id) {
@@ -5599,9 +5628,24 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
     }) ||
     null;
   const result = await modelsApi.startEngine(id, { selectedModel: selected });
-  if (result.ok) announceModelInstalled(id);
+  if (result.ok) {
+    announceModelInstalled(id);
+    // Auto-use: a runner that just came up is routable on the next turn.
+    try {
+      await refreshRoutable(true, "runner-started");
+      await syncKernelModels();
+    } catch (error) {
+      log(`engine ${id} started, catalogue refresh failed — ${error && error.message}`);
+    }
+  }
   return result;
 });
+ipcMain.handle("models:local-status", async () =>
+  require("./local-model-status.cjs").describeLocal({
+    inventory: await modelsApi.inventory(modelsContext()),
+    engines: await modelsApi.engineStatus(),
+  }),
+);
 ipcMain.handle("models:engine-stop", async (_e, id) => {
   const result = await modelsApi.stopEngine(id);
   if (result.ok) announceModelInstalled(id);

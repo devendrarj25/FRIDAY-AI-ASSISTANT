@@ -36,7 +36,15 @@ import {
 } from "./heard-log";
 import { allowRestart, encodeWav, preRollFrom } from "./pcm-capture";
 import { desktopApi } from "./desktop";
-import { hearingVerdict, keepUtteranceWavs, MIC_TEST_MS, recordFromStream } from "./voice-hearing";
+import {
+  dropLine,
+  hearingCounters,
+  hearingVerdict,
+  keepUtteranceWavs,
+  MIC_TEST_MS,
+  recordFromStream,
+} from "./voice-hearing";
+import { beginVoiceTurn, markTurnStage, turnTraceLine, voiceTurn } from "./voice-turn-trace";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
@@ -1548,7 +1556,7 @@ class AssistantModeStore {
         // inside this same box" caption had nothing to show).
         if (event.stage === "transcribing") {
           this.state.interim = "…";
-        } else if (event.stage === "transcript" && event.detail !== "(empty transcript)") {
+        } else if (event.stage === "transcript" && !event.detail.startsWith("(")) {
           this.state.interim = event.detail;
         } else if (event.stage === "dropped") {
           this.state.interim = "";
@@ -1556,7 +1564,9 @@ class AssistantModeStore {
         this.trace(event.stage, `${event.detail}${took}${size}`);
         if (
           event.stage === "dropped" &&
-          /too short|empty transcript|no-speech/.test(event.detail)
+          /too short|too-short|no-frames|empty|no-speech|low-confidence|denoise-skipped/.test(
+            event.detail,
+          )
         ) {
           this.to("transcript");
         }
@@ -1578,6 +1588,8 @@ class AssistantModeStore {
           return;
         }
         this.state.interim = "";
+        beginVoiceTurn();
+        markTurnStage("heard", true, "", `${trimmed.split(/\s+/).length} words`);
         this.state.stt = {
           ...this.state.stt,
           lastTranscript: text.slice(0, 200),
@@ -1779,7 +1791,10 @@ class AssistantModeStore {
     // the old 1.5s window had usually already expired by the time the text
     // arrived — which silently ate short commands, "friday" included.
     if (words <= 2 && !isStopCommand(text) && !voiceGate.heardSpeechWithin(6000)) {
-      this.trace("dropped", `"${text.trim()}" — too short and no verified speech signal`);
+      this.trace(
+        "dropped",
+        dropLine("too-short", `"${text.trim()}" — too short and no verified speech signal`),
+      );
       this.state.interim = "";
       this.emit();
       return;
@@ -2202,6 +2217,12 @@ class AssistantModeStore {
       brain.stop();
       result = brain.send(command, payload);
     }
+    markTurnStage(
+      "routed",
+      result.accepted,
+      result.message || result.reason || "the brain did not accept the turn",
+      modelIds.length ? `${modelIds.length} model(s) preferred` : "auto",
+    );
     if (!result.accepted) {
       this.pendingUserEcho = Math.max(0, this.pendingUserEcho - 1);
       this.reportFailure(
@@ -2277,11 +2298,24 @@ class AssistantModeStore {
 
   private speak(text: string) {
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
-    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return;
-    if (!preferences.getSnapshot().voice.speakReplies) return;
+    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
+      markTurnStage(
+        "spoken",
+        false,
+        this.state.muted ? "output is muted" : `${this.state.mode} mode does not speak`,
+      );
+      return;
+    }
+    if (!preferences.getSnapshot().voice.speakReplies) {
+      markTurnStage("spoken", false, "Speak replies is turned off in Voice settings");
+      return;
+    }
     // Only ever speak the hearable form: no markdown, no code, two sentences.
     const spoken = spokenSummary(preferSpoken(text));
-    if (!spoken) return;
+    if (!spoken) {
+      markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
+      return;
+    }
     this.speechQueue.push(spoken);
     void this.drainSpeech();
   }
@@ -2422,6 +2456,13 @@ class AssistantModeStore {
           this.state.status = statusWithVoice(this.state.status);
         }
         this.trace("segment", `tts engine: ${how.toUpperCase()}`);
+        markTurnStage(
+          "spoken",
+          how !== "none",
+          "no speech engine could speak the reply",
+          `${engine}${route.voiceId ? ` · ${route.voiceId}` : ""}`,
+        );
+        this.trace("segment", `turn: ${turnTraceLine(voiceTurn())}`);
         if (how !== "none") return;
         this.to("tts-failed");
         this.state.speaking = false;
@@ -2435,6 +2476,7 @@ class AssistantModeStore {
         if (gen !== this.speechGen) return;
         const detail = String((error as Error)?.message || error);
         this.state.tts = { ...this.state.tts, engine: "none", lastError: detail };
+        markTurnStage("spoken", false, detail);
         this.to("tts-failed");
         this.state.speaking = false;
         voiceGate.setSpeakingGuard(false);
@@ -2564,7 +2606,10 @@ class AssistantModeStore {
         this.narratedTool = toolKey;
         this.speak(narration);
       }
-      if (live?.answer) this.speakStreamed(live.id, live.answer, false);
+      if (live?.answer) {
+        markTurnStage("model", true, "", live.answeredBy?.line || "answering");
+        this.speakStreamed(live.id, live.answer, false);
+      }
       return;
     }
     if (messages.length <= this.spokenUpTo) {
@@ -2582,6 +2627,7 @@ class AssistantModeStore {
       .join(". ")
       .trim();
     if (!say) {
+      markTurnStage("reply", false, "the model returned an empty reply");
       this.emit();
       return;
     }
@@ -2591,6 +2637,14 @@ class AssistantModeStore {
       return runs.find((row) => row.id === message.runId)?.state === "failed";
     });
     const spoken = failed ? spokenRouteError(say) : say;
+    markTurnStage(
+      "model",
+      !failed,
+      spokenRouteError(say),
+      runs.find((row) => row.id === fresh.find((m) => m.role !== "user")?.runId)?.answeredBy
+        ?.line || "",
+    );
+    markTurnStage("reply", !failed, failed ? "the model call failed" : "", `${say.length} chars`);
     this.caption("friday", say);
     this.setAwake();
     // FRIDAY manages her own box: show structured content, expand when needed.

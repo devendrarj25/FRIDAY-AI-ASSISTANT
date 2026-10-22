@@ -199,6 +199,7 @@ contextBridge.exposeInMainWorld("friday", {
   routableModels: (force) => ipcRenderer.invoke("models:routable", Boolean(force)),
   catalogueStatus: () => ipcRenderer.invoke("models:catalogue-status"),
   catalogueRefresh: () => ipcRenderer.invoke("models:catalogue-refresh"),
+  knowledgeStatus: () => ipcRenderer.invoke("models:knowledge-status"),
   verifyCapabilities: (modelId) => ipcRenderer.invoke("models:verify-capabilities", modelId || ""),
   // Dynamic registry for the chat model selector: free/paid classified, with
   // live health. API keys never cross this bridge — only model metadata does.
@@ -239,6 +240,7 @@ contextBridge.exposeInMainWorld("friday", {
   startModelEngine: (id, selectedModel) =>
     ipcRenderer.invoke("models:engine-start", id, selectedModel || null),
   stopModelEngine: (id) => ipcRenderer.invoke("models:engine-stop", id),
+  localModelStatus: () => ipcRenderer.invoke("models:local-status"),
 
   // Non-streaming kernel calls (chat history, memory, code runner).
   kernel: (method, params) => ipcRenderer.invoke("kernel:rpc", method, params || {}),

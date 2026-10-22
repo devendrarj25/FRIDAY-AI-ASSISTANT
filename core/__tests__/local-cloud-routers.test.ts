@@ -337,4 +337,26 @@ describe("single funnel", () => {
     }
     expect(spawned).toEqual([]);
   });
+
+  it("picks the local model that fits the task, then the next local one, then free cloud", () => {
+    const coder = local("ollama:qwen2.5-coder:7b");
+    const chatty = local("ollama:llama3.2:3b");
+    const coding = router.routeRequest([chatty, coder, FREE, PAID], {
+      mode: "auto",
+      policy: "free-preferred",
+      task: "code",
+    });
+    expect(coding.lane).toBe("local");
+    expect(coding.candidates[0]).toBe(coder.id);
+    expect(coding.candidates).toContain(FREE.id);
+    expect(coding.candidates).not.toContain(PAID.id);
+    const talking = router.routeRequest([chatty, coder, FREE, PAID], {
+      mode: "auto",
+      policy: "free-preferred",
+      task: "chat",
+    });
+    // The chat model leads, the other local model is the next fallback, and
+    // verified free cloud is last. Paid never joins the list.
+    expect(talking.candidates).toEqual([chatty.id, coder.id, FREE.id]);
+  });
 });

@@ -460,7 +460,16 @@ type DesktopApi = {
     providers: string[];
     privacy: boolean;
   }>;
-  catalogueRefresh?: () => Promise<{ refreshed: boolean; plan?: { reason?: string } }>;
+  catalogueRefresh?: () => Promise<{
+    refreshed: boolean;
+    plan?: { reason?: string };
+    knowledge?: {
+      skipped?: string | null;
+      applied?: string[];
+      kept?: Array<{ id?: string; reason?: string }>;
+    };
+  }>;
+  knowledgeStatus?: () => Promise<KnowledgeStatusRow[]>;
   verifyCapabilities?: (
     modelId?: string,
   ) => Promise<{ ok: boolean; reason?: string; refused?: boolean }>;
@@ -705,6 +714,7 @@ type DesktopApi = {
   modelEngines?: () => Promise<EngineStatus[]>;
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
+  localModelStatus?: () => Promise<LocalModelStatus>;
   onModelPullProgress?: (cb: (p: ModelPullProgress) => void) => () => void;
   onModelPullDone?: (
     cb: (p: {
@@ -750,6 +760,34 @@ export type EngineStatus = {
   canStart: boolean;
   canStop: boolean;
   hint: string | null;
+};
+
+export type KnowledgeStatusRow = {
+  id: string;
+  source: string;
+  sourceName?: string;
+  basis: string;
+  checkedAt: number;
+  ageMs: number | null;
+  state: "fresh" | "cached" | "no-proof";
+};
+
+export type LocalRunnerState =
+  "serving" | "not-loaded" | "runner-stopped" | "runner-not-installed" | "failed";
+
+export type LocalModelStatus = {
+  at: number;
+  runners: Array<{
+    id: string;
+    name: string;
+    running: boolean;
+    canStart: boolean;
+    servable: number;
+    models: number;
+    state: LocalRunnerState;
+    line: string;
+  }>;
+  models: Array<{ id: string; runner: string; state: LocalRunnerState; line: string }>;
 };
 
 export type EngineResult = {

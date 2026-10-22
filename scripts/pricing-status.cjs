@@ -3,9 +3,10 @@
 //
 // electron/model-access.cjs classifies provider models from a documentation
 // snapshot (Groq free plan, Gemini free tier, Mistral / OpenAI / Anthropic /
-// DeepSeek / Perplexity pricing ...). It fails CLOSED once that snapshot is
-// older than its TTL, so a stale snapshot silently turns models into "unknown".
-// This is the one place that reports it - tests never depend on today's date.
+// DeepSeek / Perplexity pricing ...). A source is re-read at start and every
+// 24 hours. A model that an official source proved free stays free on the last
+// good copy (flagged "cached"); only a model with no proof turns "unknown".
+// This is the one place that reports source age - tests never depend on today's date.
 //
 //   node scripts/pricing-status.cjs            -> print status, exit 1 if expired
 //   node scripts/pricing-status.cjs --warn 4   -> also exit 1 when <= 4 days remain

@@ -31,7 +31,9 @@ import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
 import {
   formatHearingDetail,
+  dropLine,
   keepUtteranceWavs,
+  noteHearingOutcome,
   transcriptDropDetail,
   type HearingAudio,
 } from "./voice-hearing";
@@ -724,8 +726,8 @@ export class DesktopDictation {
           stage: "dropped",
           detail:
             chunkCount === 0
-              ? "no audio frames in this segment"
-              : "utterance too short to transcribe",
+              ? dropLine("no-frames", "no audio frames in this segment")
+              : dropLine("too-short", "utterance too short to transcribe"),
           ms: clock.reportMs,
           bytes: blob.size,
         });
@@ -953,7 +955,10 @@ export class DesktopDictation {
       this.droppedCount += admitted.dropped;
       this.options.onDiagnostic?.({
         stage: "dropped",
-        detail: `transcription backlog — oldest utterance discarded x${this.droppedCount}`,
+        detail: dropLine(
+          "stt-fault",
+          `transcription backlog — oldest utterance discarded x${this.droppedCount}`,
+        ),
         bytes: blob.size,
       });
     } else if (this.busy) {
@@ -990,7 +995,7 @@ export class DesktopDictation {
       this.speaking = false;
       this.options.onDiagnostic?.({
         stage: "dropped",
-        detail: "utterance too short to transcribe",
+        detail: dropLine("too-short", "utterance too short to transcribe"),
         bytes: blob.size,
       });
       return;
@@ -1048,6 +1053,7 @@ export class DesktopDictation {
         error?: string;
         language?: string;
         noSpeechProb?: number;
+        dropCode?: string;
         sttClass?: string;
         fix?: string;
         notice?: string;
@@ -1058,7 +1064,6 @@ export class DesktopDictation {
         this.lastErrorDetail = "";
         if (result.notice) this.reportOnce(result.notice);
         const text = (result.text || "").trim();
-        const noSpeech = result.noSpeechProb;
         const heard = transcriptDropDetail(result);
         const levels = formatHearingDetail(result.audio);
         if (levels) {
@@ -1073,20 +1078,15 @@ export class DesktopDictation {
           detail: text || `(${heard})`,
           ms: Date.now() - startedAt,
         });
-        if (text && typeof noSpeech === "number" && noSpeech >= 0.7) {
-          this.options.onDiagnostic?.({
-            stage: "segment",
-            detail: `kept segment text; no_speech ${noSpeech.toFixed(2)}`,
-            ms: Date.now() - startedAt,
-          });
-          this.options.onFinal(text, { wake, ms: Date.now() - startedAt });
-        } else if (typeof noSpeech === "number" && noSpeech >= 0.65 && !text) {
-          this.options.onDiagnostic?.({
-            stage: "dropped",
-            detail: heard,
-            ms: Date.now() - startedAt,
-          });
-        } else if (text) {
+        noteHearingOutcome(text ? "" : result.dropCode || "empty");
+        if (text) {
+          if (result.audio?.noSpeechNote) {
+            this.options.onDiagnostic?.({
+              stage: "segment",
+              detail: result.audio.noSpeechNote,
+              ms: Date.now() - startedAt,
+            });
+          }
           this.options.onFinal(text, { wake, ms: Date.now() - startedAt });
         } else {
           this.options.onDiagnostic?.({
@@ -1097,6 +1097,11 @@ export class DesktopDictation {
         }
       } else if (result?.error) {
         const detail = transcriptionFaultLine(result);
+        this.options.onDiagnostic?.({
+          stage: "dropped",
+          detail: dropLine("stt-fault", detail),
+          ms: Date.now() - startedAt,
+        });
         this.reportOnce(detail);
       }
     } catch (error) {

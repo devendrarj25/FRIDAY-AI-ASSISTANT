@@ -71,7 +71,7 @@ import {
 } from "@/lib/friday/models-engine";
 import { billing, type AccessTier } from "@/lib/friday/billing";
 import { useBilling } from "@/lib/friday/use-billing";
-import { desktopApi } from "@/lib/friday/desktop";
+import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { sourceCount } from "@/lib/friday/model-sources";
@@ -81,6 +81,7 @@ import {
   MODEL_SECTIONS,
   firstPage,
   isModelSection,
+  knowledgeLine,
   launcherLines,
   pinAgeLabel,
   normaliseLocalAnswer,
@@ -139,6 +140,15 @@ function phaseTone(phase: Job["phase"]) {
 }
 
 function LocalRunners() {
+  const [status, setStatus] = useState<LocalModelStatus | null>(null);
+  const [confirming, setConfirming] = useState<string>("");
+  const [starting, setStarting] = useState<string>("");
+  const refreshStatus = () => {
+    const api = desktopApi();
+    if (!api?.localModelStatus) return;
+    void api.localModelStatus().then((row) => setStatus(row));
+  };
+  useEffect(refreshStatus, []);
   const [clicked, setClicked] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState<Record<string, string>>({});
   const [releaseNote, setReleaseNote] = useState<Record<string, string>>({});
@@ -171,6 +181,18 @@ function LocalRunners() {
                 >
                   {runner.catalogNote}
                 </p>
+                {(() => {
+                  const live = status?.runners.find((row) => row.id === runner.id);
+                  return live ? (
+                    <p
+                      className="mt-1 text-[11px] text-foreground/80"
+                      title={live.line}
+                      data-runner-state={live.state}
+                    >
+                      {live.line}
+                    </p>
+                  ) : null;
+                })()}
                 <p
                   className="mt-1 text-[11px] text-muted-foreground"
                   title={note[runner.id] || lines.check}
@@ -239,15 +261,44 @@ function LocalRunners() {
                     size="sm"
                     variant="ghost"
                     aria-label={`Start ${runner.name}`}
-                    onClick={() =>
-                      setNote((prev) => ({
-                        ...prev,
-                        [runner.id]:
-                          "Start stays on this PC. This view does not launch the installer.",
-                      }))
-                    }
+                    disabled={starting === runner.id}
+                    onClick={() => {
+                      const api = desktopApi();
+                      if (!api?.startModelEngine) {
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: "Start runs in the desktop app on this PC.",
+                        }));
+                        return;
+                      }
+                      if (confirming !== runner.id) {
+                        setConfirming(runner.id);
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `FRIDAY will launch ${runner.name} on this PC. Click Start again to allow it.`,
+                        }));
+                        return;
+                      }
+                      setConfirming("");
+                      setStarting(runner.id);
+                      setNote((prev) => ({ ...prev, [runner.id]: `Starting ${runner.name}…` }));
+                      void api
+                        .startModelEngine(runner.id)
+                        .then((result) =>
+                          setNote((prev) => ({
+                            ...prev,
+                            [runner.id]: result.ok
+                              ? `${runner.name} is running. Its models are now routable.`
+                              : `failed: ${result.error || "it did not start"}`,
+                          })),
+                        )
+                        .finally(() => {
+                          setStarting("");
+                          refreshStatus();
+                        });
+                    }}
                   >
-                    Start
+                    {confirming === runner.id ? "Confirm start" : "Start"}
                   </Button>
                   <Button
                     size="sm"
@@ -282,6 +333,19 @@ function LocalRunners() {
             );
           })}
         </div>
+        {status?.models.length ? (
+          <ul className="mt-3 space-y-1" aria-label="Local model status">
+            {status.models.map((row) => (
+              <li
+                key={row.id}
+                className="text-[11px] text-muted-foreground"
+                data-model-state={row.state}
+              >
+                {row.line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </HudPanel>
       <HudPanel title="Curated library" hint="official page plus a manual import">
         <ul className="space-y-1.5">
@@ -439,6 +503,15 @@ function ModelsPage() {
   const [notified, setNotified] = useState<string[]>([]);
   const [catalogueNote, setCatalogueNote] = useState("Catalogue status is not loaded yet.");
   const [catalogueChanges, setCatalogueChanges] = useState<string[]>([]);
+  const [knowledgeLines, setKnowledgeLines] = useState<string[]>([]);
+  const loadKnowledge = () => {
+    const status = desktopApi()?.knowledgeStatus;
+    if (!status) return;
+    void status()
+      .then((rows) => setKnowledgeLines(Array.isArray(rows) ? rows.map(knowledgeLine) : []))
+      .catch(() => setKnowledgeLines([]));
+  };
+  useEffect(loadKnowledge, []);
 
   useEffect(() => {
     const status = desktopApi()?.catalogueStatus;
@@ -596,9 +669,18 @@ function ModelsPage() {
                     const row = await api?.catalogueStatus?.();
                     const summary =
                       row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
-                    setCatalogueNote(summary);
+                    const knowledge = refreshed?.knowledge;
+                    const pricing = knowledge?.skipped
+                      ? ` Pricing sources kept as cached (${knowledge.skipped}).`
+                      : knowledge?.applied?.length
+                        ? ` Pricing re-read for ${knowledge.applied.join(", ")}.`
+                        : knowledge?.kept?.length
+                          ? ` Pricing sources kept as cached (${knowledge.kept[0]?.reason || "no change"}).`
+                          : "";
+                    setCatalogueNote(`${summary}${pricing}`);
                     setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
-                    toast(summary);
+                    loadKnowledge();
+                    toast(`${summary}${pricing}`);
                   })();
                 }}
               >
@@ -620,6 +702,16 @@ function ModelsPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{catalogueNote}</p>
+          {knowledgeLines.length > 0 ? (
+            <ul
+              className="mt-2 space-y-1 text-xs text-muted-foreground"
+              aria-label="Pricing evidence"
+            >
+              {knowledgeLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
           {catalogueChanges.length > 0 ? (
             <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
               {catalogueChanges.slice(0, 8).map((line) => (

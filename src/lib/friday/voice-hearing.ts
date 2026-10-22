@@ -19,7 +19,70 @@ export function keepUtteranceWavs(): boolean {
   return keepWavs;
 }
 
+/** The kernel's `DROP_CODES` (voice_runtime.py), same order. A test keeps them equal. */
+export const DROP_CODES = [
+  "too-short",
+  "no-frames",
+  "denoise-skipped",
+  "no-speech",
+  "low-confidence",
+  "empty",
+  "stt-fault",
+] as const;
+export type DropCode = (typeof DROP_CODES)[number];
+
+export type HearingCounters = {
+  heard: number;
+  dropped: Record<DropCode, number>;
+  droppedTotal: number;
+};
+
+function zeroCounters(): HearingCounters {
+  return {
+    heard: 0,
+    dropped: Object.fromEntries(DROP_CODES.map((code) => [code, 0])) as Record<DropCode, number>,
+    droppedTotal: 0,
+  };
+}
+
+let counters = zeroCounters();
+
+/** An empty code is a heard utterance. Anything else is a drop with that reason. */
+export function noteHearingOutcome(code: string): void {
+  if (!code) {
+    counters.heard += 1;
+    return;
+  }
+  const known = (DROP_CODES as readonly string[]).includes(code) ? (code as DropCode) : "empty";
+  counters.dropped[known] += 1;
+  counters.droppedTotal += 1;
+}
+
+export function hearingCounters(): HearingCounters {
+  return { ...counters, dropped: { ...counters.dropped } };
+}
+
+export function hearingCountersLine(value: HearingCounters): string {
+  const parts = DROP_CODES.filter((code) => value.dropped[code] > 0).map(
+    (code) => `${code} ${value.dropped[code]}`,
+  );
+  return `heard ${value.heard} · dropped ${value.droppedTotal}${parts.length ? ` (${parts.join(", ")})` : ""}`;
+}
+
+export function resetHearingCounters(): void {
+  counters = zeroCounters();
+}
+
+/** One heard-log line: the code first, then the plain reason. The drop is counted. */
+export function dropLine(code: DropCode, detail: string): string {
+  noteHearingOutcome(code);
+  return `${code}: ${detail}`;
+}
+
 export type HearingAudio = {
+  dropCode?: string;
+  avgLogprob?: number | null;
+  noSpeechNote?: string;
   durationMs?: number;
   rmsDbfs?: number | null;
   peakDbfs?: number | null;
@@ -68,17 +131,14 @@ export function formatHearingDetail(audio: HearingAudio | null | undefined): str
 export function transcriptDropDetail(result: {
   text?: string;
   emptyReason?: string;
-  noSpeechProb?: number;
+  dropCode?: string;
   audio?: HearingAudio | null;
 }): string {
   const text = (result.text || "").trim();
   if (text) return text;
-  const reason = result.emptyReason || result.audio?.emptyReason || "";
-  if (reason) return reason;
-  if (typeof result.noSpeechProb === "number" && result.noSpeechProb >= 0.7) {
-    return `no_speech ${result.noSpeechProb.toFixed(2)}`;
-  }
-  return "empty transcript";
+  const code = result.dropCode || result.audio?.dropCode || "empty";
+  const reason = result.emptyReason || result.audio?.emptyReason || "empty transcript";
+  return `${code}: ${reason}`;
 }
 
 export function hearingVerdict(input: {

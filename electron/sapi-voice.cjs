@@ -9,9 +9,11 @@ const NO_INDIAN_VOICE =
   "No Indian voice is installed. Windows Settings, Time and language, Speech, Add voices, Hindi (India).";
 
 function sapiScript(text, options = {}) {
+  // Single-quoted in PowerShell: `$`, backticks and `$(...)` in a reply stay text.
   const clean = String(text || "")
-    .replace(/[\r\n"]/g, " ")
-    .slice(0, 400);
+    .replace(/[\r\n]/g, " ")
+    .slice(0, 400)
+    .replace(/'/g, "''");
   const wav = String(options.wav || "").replace(/'/g, "''");
   const rate = Number(options.rate);
   const volume = Number(options.volume);
@@ -53,7 +55,7 @@ function sapiScript(text, options = {}) {
     lines.push(`$s.Volume = ${vol}`);
   }
   if (wav) lines.push(`$s.SetOutputToWaveFile('${wav}')`);
-  lines.push(`$s.Speak("${clean}")`);
+  lines.push(`$s.Speak('${clean}')`);
   lines.push("$s.Dispose()");
   return lines.join("; ");
 }

@@ -137,6 +137,63 @@ async function speechSelfTest() {
 }
 
 /**
+ * Spoken clip -> WAV -> denoise -> Whisper at three input levels. One check per
+ * level so the diagnostics screen shows PASS or FAIL for each. A machine with no
+ * synthesiser or no speech model gets one visible skip, never a pass.
+ */
+async function hearingSelfTest() {
+  const found = await resolvePython();
+  if (!found) {
+    return [
+      {
+        id: "hearing-self-test",
+        label: "hearing self-test",
+        ok: true,
+        required: false,
+        detail: "skipped: no Python interpreter",
+      },
+    ];
+  }
+  const runResult = await run(
+    found.exe,
+    [...(found.prefix || []), sttScript(), "--hearing-self-test"],
+    600000,
+  );
+  const parsed = parseJsonLine(runResult.stdout);
+  if (!parsed) {
+    return [
+      {
+        id: "hearing-self-test",
+        label: "hearing self-test",
+        ok: false,
+        required: true,
+        detail: tail(runResult.stderr, "hearing self-test did not return JSON"),
+      },
+    ];
+  }
+  if (parsed.skipped) {
+    return [
+      {
+        id: "hearing-self-test",
+        label: "hearing self-test",
+        ok: true,
+        required: false,
+        detail: `skipped: ${String(parsed.reason || "not available").slice(0, 160)}`,
+      },
+    ];
+  }
+  return (parsed.levels || []).map((row) => ({
+    id: `hearing-level-${row.level}`,
+    label: `hearing at peak ${row.level} (${parsed.engine})`,
+    ok: Boolean(row.ok),
+    required: true,
+    detail: row.ok
+      ? `heard "${String(row.text).slice(0, 80)}" in ${row.ms}ms${row.denoiseNote ? ` · ${row.denoiseNote}` : ""}`
+      : `${row.dropCode || row.sttClass || "empty"}: ${String(row.error || row.text || "nothing heard").slice(0, 120)}`,
+  }));
+}
+
+/**
  * @returns {Promise<{ok:boolean, python:string|null, checks:Array<{id:string,label:string,ok:boolean,detail:string}>}>}
  */
 async function verifyVoiceRuntime({ loadModel = true } = {}) {
@@ -295,6 +352,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
     required: !speech.skipped,
     detail: speech.detail,
   });
+  checks.push(...(await hearingSelfTest()));
   if (speech.av && speech.av.installed && !speech.av.ok) {
     checks.push({
       id: "av-pin",
@@ -324,4 +382,4 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
   };
 }
 
-module.exports = { verifyVoiceRuntime, speechSelfTest };
+module.exports = { verifyVoiceRuntime, speechSelfTest, hearingSelfTest };

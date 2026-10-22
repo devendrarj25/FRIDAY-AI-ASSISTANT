@@ -210,10 +210,10 @@ class VoiceRuntimeTests(unittest.TestCase):
         original = np.full(1600, 0.2, dtype=np.float32)
         collapsed = original * 0.01
         chosen, note = voice_runtime.guard_denoised(original, collapsed)
-        self.assertEqual(note, "denoise removed the signal")
+        self.assertEqual(note, "denoise-skipped: removed the signal")
         self.assertAlmostEqual(float(chosen[0]), 0.2, places=3)
         empty, empty_note = voice_runtime.guard_denoised(original, np.zeros(0, dtype=np.float32))
-        self.assertEqual(empty_note, "denoise removed the signal")
+        self.assertEqual(empty_note, "denoise-skipped: no samples came back")
         self.assertEqual(int(empty.shape[0]), 1600)
         quiet = np.full(1600, 0.0001, dtype=np.float32)
         kept, quiet_note = voice_runtime.guard_denoised(quiet, quiet * 0.1)
@@ -221,12 +221,14 @@ class VoiceRuntimeTests(unittest.TestCase):
         self.assertLess(float(np.max(np.abs(kept))), 0.001)
 
     def test_no_speech_policy_and_empty_ladder(self):
-        kept, note = stt.apply_no_speech_policy("chrome open karo", 0.83)
+        kept, note, code = stt.apply_no_speech_policy("chrome open karo", 0.83)
         self.assertEqual(kept, "chrome open karo")
         self.assertIn("0.83", note)
-        blank, blank_note = stt.apply_no_speech_policy("", 0.83)
+        self.assertEqual(code, "")
+        blank, blank_note, blank_code = stt.apply_no_speech_policy("", 0.83)
         self.assertEqual(blank, "")
         self.assertEqual(blank_note, "no_speech 0.83")
+        self.assertEqual(blank_code, "no-speech")
         self.assertEqual(stt.hearing_passes("hello", -30.0), [])
         self.assertEqual(stt.hearing_passes("", -62.0), [])
         self.assertEqual(
@@ -253,11 +255,11 @@ class VoiceRuntimeTests(unittest.TestCase):
             stt.empty_transcript_reason(
                 "",
                 -20.0,
-                denoise_note="denoise removed the signal",
+                denoise_note="denoise-skipped: removed the signal",
                 used_collapsed=True,
                 vad_ms=0,
             ),
-            "denoise removed the signal",
+            "denoise-skipped: removed the signal",
         )
 
         calls: list[str] = []
