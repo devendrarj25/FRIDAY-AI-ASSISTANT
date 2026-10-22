@@ -155,7 +155,8 @@ These look like bugs. They are not. Do not "fix" them.
    3. Install and start ComfyUI yourself, then Models, Local, ComfyUI: Check shows its version; paste a Save (API) workflow and Run; the images land in `assets\comfyui`. Then enable the ComfyUI image tool in Tools and ask in chat: "make an image of a red fox in the snow".
    4. Voice settings: Respond to anything meant for me. After FRIDAY finishes a task, say something about that task without her name: she answers. Unrelated chatter stays ambient.
    5. Attach a .pptx, .odt, .epub, .rtf, and .eml in chat and ask for a summary.
-   Not built yet, from the research: full-duplex voice (listen while speaking, beyond today's barge-in) and a Windows key-up hook for a global hold-to-talk (Electron's global shortcut reports no release; a native keyboard hook would change the EXE pack, a locked area). OmniVoice was rejected (torch and voice cloning).
+   6. Talk to FRIDAY normally for a few turns, then once in a clearly stressed or raised voice. Voice diagnostics, voice tone: it should read `tense` or `energetic` and her spoken reply should soften. It reads `still learning this voice` for the first five utterances.
+   Not built yet, from the research: agent work on an isolated virtual desktop (UFO2 style) so FRIDAY and the owner can use the PC at the same time, full-duplex voice (listen while speaking, beyond today's barge-in) and a Windows key-up hook for a global hold-to-talk (Electron's global shortcut reports no release; a native keyboard hook would change the EXE pack, a locked area). OmniVoice was rejected (torch and voice cloning).
 
 0. Owner checks for this change, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice diagnostics, run voice self-test: three `hearing at peak 0.5 / 0.05 / 0.008` rows must read PASS. Send any FAIL row and the newest `debug\reports\voice-hearing.jsonl`.
