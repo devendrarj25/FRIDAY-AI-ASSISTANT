@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
 | Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
 | `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0, provider status stale false. |
