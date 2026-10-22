@@ -734,6 +734,14 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "comfyui:run",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "comfyui:status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "companion:cognize-ack",
       file: "electron/main.cjs",
     },
@@ -8518,8 +8526,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 458,
-      total: 458,
+      mapped: 460,
+      total: 460,
     },
     kernel: {
       mapped: 14,

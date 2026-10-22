@@ -5665,6 +5665,12 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
   }
   return result;
 });
+ipcMain.handle("comfyui:status", () => require("./comfyui-client.cjs").status());
+ipcMain.handle("comfyui:run", (_e, workflow) =>
+  require("./comfyui-client.cjs").run(workflow, {
+    outDir: path.join(paths.ensureDir("assets"), "comfyui"),
+  }),
+);
 ipcMain.handle("models:local-status", async () =>
   require("./local-model-status.cjs").describeLocal({
     inventory: await modelsApi.inventory(modelsContext()),

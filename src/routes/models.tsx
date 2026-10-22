@@ -142,6 +142,90 @@ function phaseTone(phase: Job["phase"]) {
   return "primary" as const;
 }
 
+/** ComfyUI stays a separate local program. FRIDAY queues an API-format workflow and saves the images. */
+function ComfyPanel() {
+  const [line, setLine] = useState(() =>
+    desktopApi()?.comfyuiStatus
+      ? "Checking ComfyUI…"
+      : "ComfyUI runs in the desktop app on this PC.",
+  );
+  const [graph, setGraph] = useState("");
+  const [files, setFiles] = useState<string[]>([]);
+  const [running, setRunning] = useState(false);
+  const check = () => {
+    void desktopApi()
+      ?.comfyuiStatus?.()
+      .then((row) =>
+        setLine(
+          row.online
+            ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
+            : row.reason,
+        ),
+      );
+  };
+  useEffect(check, []);
+  return (
+    <HudPanel title="ComfyUI" hint="image graphs on this PC, through its local API">
+      <p className="text-[11px] text-muted-foreground">{line}</p>
+      <textarea
+        aria-label="ComfyUI workflow in API format"
+        value={graph}
+        onChange={(event) => setGraph(event.target.value)}
+        placeholder="Paste a workflow saved with ComfyUI's Save (API)."
+        className="hud-tile mt-2 h-24 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-[11px] text-foreground"
+      />
+      <div className="mt-2 flex flex-wrap gap-1">
+        <Button size="sm" variant="outline" onClick={check}>
+          Check ComfyUI
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={running || !graph.trim()}
+          onClick={() => {
+            const api = desktopApi();
+            let workflow: unknown;
+            try {
+              workflow = JSON.parse(graph);
+            } catch {
+              setLine("That is not valid JSON. Export the workflow with Save (API).");
+              return;
+            }
+            if (!api?.comfyuiRun) {
+              setLine("ComfyUI runs in the desktop app on this PC.");
+              return;
+            }
+            setRunning(true);
+            setLine("Queued in ComfyUI…");
+            void api
+              .comfyuiRun(workflow)
+              .then((row) => {
+                setFiles(row.files);
+                setLine(row.ok ? `Saved ${row.files.length} file(s).` : row.reason);
+              })
+              .finally(() => setRunning(false));
+          }}
+        >
+          {running ? "Running…" : "Run workflow"}
+        </Button>
+      </div>
+      {files.length ? (
+        <ul className="mt-2 space-y-1" aria-label="ComfyUI outputs">
+          {files.map((file) => (
+            <li
+              key={file}
+              className="truncate font-mono text-[10px] text-muted-foreground"
+              title={file}
+            >
+              {file}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </HudPanel>
+  );
+}
+
 function LocalRunners() {
   const [status, setStatus] = useState<LocalModelStatus | null>(null);
   const [confirming, setConfirming] = useState<string>("");
@@ -376,6 +460,7 @@ function LocalRunners() {
           </ul>
         ) : null}
       </HudPanel>
+      <ComfyPanel />
       <HudPanel title="Curated library" hint="official page plus a manual import">
         <ul className="space-y-1.5">
           {runnersFile.curated.map((row) => (

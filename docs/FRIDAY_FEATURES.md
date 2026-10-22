@@ -433,6 +433,19 @@ Local models are free and private for normal use: the billing firewall classes e
 
 Helper output from the Python voice tools is read by `electron/json-line.cjs`: the last line that parses as JSON. The old cut at the last `{` made every result that ends with a nested object (the speech self-test, the STT status) read as "did not return JSON", so a working self-test failed the Voice readiness stage.
 
+Auto mode has two listen styles (Voice settings, How Auto mode listens). **Always listening** is the default and today's behaviour: the wake word, follow-ups, and "Respond to anything meant for me" decide when a heard line is a turn. **Push to talk** transcribes only speech that starts while Ctrl+Space is held in the FRIDAY window, while the on-screen hold button is pressed, or while the global Ctrl+Alt+Space toggle is on (a global shortcut reports no release, so it toggles, and a forgotten toggle closes after 60 s). Speech with the key up is refused before a segment starts, so it is neither recorded nor transcribed. A push-to-talk turn is addressed by the press, so no wake word is needed; FRIDAY's own echo is still dropped. The global shortcut is registered only while that style is on in Auto mode and is released on quit. Manual and chat never arm it.
+
+ComfyUI is an optional local runner. FRIDAY does not bundle it (GPL-3.0); the owner installs and starts it, and `electron/comfyui-client.cjs` talks to its local API only on 127.0.0.1: `/system_stats`, `POST /prompt`, `GET /history/{id}`, `GET /view`. Models, Local has a ComfyUI panel: check, paste a workflow saved with Save (API), run, and the images are saved under the FRIDAY `assets/comfyui` folder.
+
+Research, 2026-10-22:
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| [Handy](https://github.com/cjpais/handy) (MIT): offline dictation, hold-to-talk or toggle, Silero VAD, Whisper or Parakeet | ADAPT | Its listen styles fit Auto mode. FRIDAY keeps its own faster-whisper path and voice gate; no second STT stack. |
+| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) local API, official `script_examples/websockets_api_example.py` | ADAPT | Separate GPL program over loopback HTTP, the same way FRIDAY uses Ollama. History is polled, so no websocket dependency. |
+| OmniVoice TTS ([model card](https://huggingface.co/SwinliQ-AI-2/OmniVoice)): code Apache-2.0, weights CC-BY-NC, voice cloning | REJECT | It needs torch, which the voice stack must not depend on, and zero-shot cloning conflicts with "no real person's voice". The official repo page was not reachable here (unverified). |
+| ChatGPT voice is full-duplex in 2026 and Gemini Live supports barge-in ([Apidog](https://apidog.com/vi/blog/gpt-live-vs-advanced-voice-mode), [TechCrunch](https://techcrunch.com/2024/08/13/gemini-live-googles-answer-to-chatgpts-advanced-voice-mode-launches/)) | ADAPT | FRIDAY already has barge-in and a follow-up window. Full duplex is listed under Next priorities. |
+
 Chat and Voice call the same brain turn. The surface changes delivery only.
 
 | Family | Chat | Voice | Approval | Memory |

@@ -243,6 +243,8 @@ contextBridge.exposeInMainWorld("friday", {
     ipcRenderer.invoke("models:engine-start", id, selectedModel || null),
   stopModelEngine: (id) => ipcRenderer.invoke("models:engine-stop", id),
   localModelStatus: () => ipcRenderer.invoke("models:local-status"),
+  comfyuiStatus: () => ipcRenderer.invoke("comfyui:status"),
+  comfyuiRun: (workflow) => ipcRenderer.invoke("comfyui:run", workflow),
 
   // Non-streaming kernel calls (chat history, memory, code runner).
   kernel: (method, params) => ipcRenderer.invoke("kernel:rpc", method, params || {}),
