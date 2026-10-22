@@ -1,6 +1,6 @@
 # FRIDAY — Project State
 
-FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.1.2.4) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+FRIDAY is a private local-first Windows Electron + React + Python FastAPI work desk (currently version 1.1.3.4) owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
 This briefing is the tree as it is now. Evidence: [AUDIT.md](AUDIT.md). Features: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Rules: [AGENTS.md](AGENTS.md). Gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history stays in [CHANGELOG.md](CHANGELOG.md).
 
@@ -50,7 +50,7 @@ Live microphone and speech recognition on Windows. A live speech-model download.
 | Item | Live value |
 | --- | --- |
 | Public version | `1.1.2.4` (`config/friday-version.json`) |
-| npm encoding | `1.1.2` (`package.json`) — never compared as an update identity |
+| npm encoding | `1.1.3` (`package.json`) — never compared as an update identity |
 | Epoch | 2 / `friday-2` |
 | Published line | GitHub release `v1.1.2.4` (2026-10-17). The next patch is `1.1.2.5` and is not bumped here. |
 | Next public revision | Do not bump this file. Assistants do not bump `config/friday-version.json`. |

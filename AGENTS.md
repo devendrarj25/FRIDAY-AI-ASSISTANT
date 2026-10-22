@@ -263,7 +263,7 @@ Every behaviour change updates the document that owns that subject, in the same 
 
 Owning documents: build and packaging → `docs/FRIDAY_BUILD_AND_RELEASE.md`; Actions → `docs/FRIDAY_GITHUB_ACTIONS.md`; merge → `docs/FRIDAY_MERGE_FLOW.md`.
 
-**One version authority.** `config/friday-version.json` is the only place a developer changes the product version. Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/electron-builder SemVer encoding (`1.0.0`) and is never an update identity. Do not scatter versions, invent release history, or overwrite `releases/notes`, `CHANGELOG.md`, or `release-notes.md` from a test fixture. Policy: [VERSIONING.md](VERSIONING.md). Next public revision is **1.1.2.5** and may only describe work done after the current public line **FRIDAY 1.1.2.4**. Assistants do not bump `config/friday-version.json` until the owner asks. Never force-push or rewrite published history.
+**One version authority.** `config/friday-version.json` is the only place a developer changes the product version. Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/electron-builder SemVer encoding (`1.0.0`) and is never an update identity. Do not scatter versions, invent release history, or overwrite `releases/notes`, `CHANGELOG.md`, or `release-notes.md` from a test fixture. Policy: [VERSIONING.md](VERSIONING.md). Next public revision is **1.1.3.5** and may only describe work done after the current public line **FRIDAY 1.1.3.4**. Assistants do not bump `config/friday-version.json` until the owner asks. Never force-push or rewrite published history.
 
 ## Assistant standard (voice and Auto mode)
 

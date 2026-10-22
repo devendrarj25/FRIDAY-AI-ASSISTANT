@@ -2,6 +2,46 @@
 
 What changed in each released version. Each entry is the owner-facing What's New for that version, kept in sync with releases/notes.
 
+## v1.1.3.4
+
+**Released:** October 22, 2026  
+**Channel:** Stable (official release)  
+**Release type:** MINOR / CHANGES  
+**Changes since:** v1.1.2.4  
+**Summary:** FRIDAY 1.1.3.4 adds FRIDAY now includes a persisted model catalogue and provider protocol modules and reliability fixes.
+
+### What's New
+
+FRIDAY 1.1.3.4 is an update with changes. Here is what changed for you.
+
+#### Voice
+- Read helper output as the last JSON line so nested results (speech self-test, STT status) are no longer reported as no answer.
+- One denoise scale and loudness guard, drop reason codes, spoken self-test, turn trace, true blocked reason.
+
+#### Chat
+- Route installed local chat models and say why one is skipped.
+
+#### Models
+- FRIDAY now includes a persisted model catalogue and provider protocol modules.
+
+#### Fixed
+- Runner Install uses the Install Manager after a confirm click, status refreshes when an install ends.
+- Format, pyright ceiling, and the LM Studio not-loaded test now pins the documented behaviour.
+- Keep proven-free models free on a cached table, refresh pricing sources daily, show evidence and Refresh now result, HF route pricing, owner free mark survives stale.
+- Local runner status, consented runner start with auto-use, local free/private contract tests.
+- Format the hearing edits and keep the pyright ceiling.
+- Allow official free evidence before a live probe.
+- Scale RNNoise frames and name an empty transcript.
+- Isolate the harness from the live FRIDAY folder.
+- Transcribe local wavs without PyAV 19.
+- Name a sensitive block and a daily limit.
+- Hard-stop real identifiers and keep stale prices unverified.
+
+### Important Notes
+
+- Your FRIDAY data remains preserved during updates. Installing this release replaces application files only.
+- Downloads are verified against the published SHA-256 before installation.
+
 ## v1.1.2.4
 
 **Released:** October 17, 2026  

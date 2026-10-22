@@ -1,6 +1,6 @@
 # FRIDAY — User Guide
 
-**Current shipping version: 1.1.2.4**
+**Current shipping version: 1.1.3.4**
 
 🪟 How to use FRIDAY after the window is open. Install and pack: [INSTALL.md](../INSTALL.md). The implementation map: [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md). This page is the click-path only.
 
