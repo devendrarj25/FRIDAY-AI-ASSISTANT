@@ -453,8 +453,17 @@ function wingetPython(id) {
  * Detection always runs first, so an already installed supported Python is
  * reused and nothing is downloaded.
  */
-function installPython() {
+/** True when setup can build the kernel on this choice without guessing. */
+const isBuildable = (found) =>
+  !!found && (found.explicit || found.wheelsProven || isWheelProven(found.version));
+
+/**
+ * `fallback` is an installed newer series without proven wheels. It is
+ * returned when no proven series could be installed, so setup still tries it.
+ */
+function installPython({ fallback = null } = {}) {
   if (!win) {
+    if (fallback) return fallback;
     console.error(
       `[friday] install Python >=${MINIMUM} with your system package manager (https://www.python.org/downloads/).`,
     );
@@ -507,20 +516,24 @@ function installPython() {
     // Re-scan after every attempt: a partial install may still register a
     // usable interpreter that the previous sweep could not see.
     const found = discoverPython({ wheelCheck: requiredWheelsPublished });
-    if (found) return found;
+    if (isBuildable(found)) return found;
     console.error(
       `[friday] method failed: ${method.label} (exit ${result ? result.status : "spawn error"}${ok ? ", but no interpreter found" : ""})`,
     );
   }
-  return null;
+  return fallback;
 }
 
 /** Discover a supported Python, installing one from official sources if needed. */
 function ensurePython({ install = true } = {}) {
   const found = discoverPython({ wheelCheck: requiredWheelsPublished });
-  if (found) return found;
-  if (!install) return null;
-  return installPython();
+  if (isBuildable(found) || !install) return found;
+  if (found) {
+    log(
+      `Python ${found.version} has no published wheel for every kernel requirement; installing the newest ${WHEEL_PROVEN} series from python.org`,
+    );
+  }
+  return installPython({ fallback: found });
 }
 
 module.exports = {
@@ -535,6 +548,7 @@ module.exports = {
   compare,
   isSupported,
   isWheelProven,
+  isBuildable,
   choosePython,
   requiredWheelsPublished,
   probe,

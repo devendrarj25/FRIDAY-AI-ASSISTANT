@@ -66,6 +66,21 @@ describe("Python wheel-proven selection", () => {
     expect(runtime.choosePython([], { proven: "3.14" })).toBeNull();
   });
 
+  it("installs a proven series when only an unproven one is present", () => {
+    expect(runtime.isBuildable(py("3.14.7"))).toBe(true);
+    expect(runtime.isBuildable(py("3.15.0", { explicit: true }))).toBe(true);
+    expect(runtime.isBuildable({ ...py("3.15.0"), wheelsProven: true })).toBe(true);
+    expect(runtime.isBuildable(py("3.15.0"))).toBe(false);
+    expect(runtime.isBuildable(null)).toBe(false);
+    const source = readFileSync(join(root, "scripts/python-runtime.cjs"), "utf8");
+    const ensure = source.slice(source.indexOf("function ensurePython"));
+    expect(ensure).toContain("if (isBuildable(found) || !install) return found;");
+    expect(ensure).toContain("installPython({ fallback: found })");
+    const install = source.slice(source.indexOf("function installPython"));
+    expect(install).toContain("if (isBuildable(found)) return found;");
+    expect(install).toContain("return fallback;");
+  });
+
   it("never second-guesses FRIDAY_PYTHON or an existing venv", () => {
     const chosen = runtime.choosePython([py("3.15.0", { explicit: true }), py("3.14.7")], {
       proven: "3.14",
