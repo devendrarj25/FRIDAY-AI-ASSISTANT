@@ -29,6 +29,7 @@ import { preferences } from "./preferences";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
+import type { VoiceProsody } from "./voice-tone";
 import {
   formatHearingDetail,
   dropLine,
@@ -224,7 +225,10 @@ export interface DictationOptions {
    * the low-latency engine really ran, so the caller knows which detector
    * answered instead of assuming the transcript regex.
    */
-  onFinal: (text: string, meta?: { wake?: WakeProbe | null; ms?: number }) => void;
+  onFinal: (
+    text: string,
+    meta?: { wake?: WakeProbe | null; ms?: number; prosody?: VoiceProsody | null },
+  ) => void;
   /**
    * Optional low-latency wake scoring, run on the RAW audio before whisper.
    * Returning null means the engine is unavailable → transcript fallback.
@@ -1106,7 +1110,11 @@ export class DesktopDictation {
               ms: Date.now() - startedAt,
             });
           }
-          this.options.onFinal(text, { wake, ms: Date.now() - startedAt });
+          this.options.onFinal(text, {
+            wake,
+            ms: Date.now() - startedAt,
+            prosody: result.audio?.prosody ?? null,
+          });
         } else {
           this.options.onDiagnostic?.({
             stage: "dropped",

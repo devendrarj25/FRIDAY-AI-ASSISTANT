@@ -55,6 +55,7 @@ import {
   resetPtt,
   type ListenStyle,
 } from "./push-to-talk";
+import { assessTone, type VoiceTone } from "./voice-tone";
 import { beginVoiceTurn, markTurnStage, turnTraceLine, voiceTurn } from "./voice-turn-trace";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -1048,6 +1049,12 @@ class AssistantModeStore {
   }
 
   private pttCleanup: Array<() => void> = [];
+  /** How the owner's last utterance sounded against their own baseline. */
+  private lastTone: VoiceTone | null = null;
+
+  voiceTone(): VoiceTone | null {
+    return this.lastTone;
+  }
 
   /** Hold Ctrl+Space in the window, or press the global toggle, to talk. */
   private armPushToTalk() {
@@ -1678,6 +1685,7 @@ class AssistantModeStore {
         }
       },
       onFinal: (text, meta) => {
+        this.lastTone = assessTone(meta?.prosody);
         const trimmed = text.trim();
         if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
           this.trace("dropped", "duplicate finalized utterance");
@@ -2318,6 +2326,7 @@ class AssistantModeStore {
       extra,
       turnAwarenessExtra(command, { kind: "voice" }),
       ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+      this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
     );
     const payload = {
       ...(merged ? { extra: merged } : {}),
@@ -2494,7 +2503,14 @@ class AssistantModeStore {
       baseRate: tuning.rate,
       basePitch: tuning.pitch,
       baseVolume: tuning.volume,
-      affect: /!/.test(spoken) ? "urgent" : prosodyAffect(readFeeling(lastOwner).label),
+      affect: /!/.test(spoken)
+        ? "urgent"
+        : prosodyAffect(
+            readFeeling(
+              lastOwner,
+              this.lastTone ? { prosody: (this.lastTone.arousal - 0.5) * 2 } : undefined,
+            ).label,
+          ),
       quiet: !alertsAudible(),
       whisper: voicePrefs.whisperMode === true,
     });

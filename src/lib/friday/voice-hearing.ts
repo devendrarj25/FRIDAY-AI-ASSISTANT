@@ -80,6 +80,7 @@ export function dropLine(code: DropCode, detail: string): string {
 }
 
 export type HearingAudio = {
+  prosody?: import("./voice-tone").VoiceProsody | null;
   dropCode?: string;
   avgLogprob?: number | null;
   noSpeechNote?: string;

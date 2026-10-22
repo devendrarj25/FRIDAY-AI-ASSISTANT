@@ -606,6 +606,7 @@ def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None, dict
         after = voice_runtime.pcm_levels(cleaned, PROBE_RATE)
         chosen, note = voice_runtime.guard_denoised(original, cleaned)
         chosen = np.asarray(chosen, dtype=np.float32).reshape(-1)
+        hearing["prosody"] = voice_runtime.voice_prosody(original, PROBE_RATE)
         hearing.update(
             {
                 "durationMs": before["durationMs"],
