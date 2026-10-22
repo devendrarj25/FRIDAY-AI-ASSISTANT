@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { EmptyState } from "@/components/friday/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import {
@@ -1139,9 +1140,7 @@ function SandboxPage() {
                   {entry.detail ?? ""} {entry.ok === false ? "· failed" : ""}
                 </p>
               ))}
-              {!summary?.history.length ? (
-                <p className="text-muted-foreground">No sandbox activity yet.</p>
-              ) : null}
+              {!summary?.history.length ? <EmptyState title="No sandbox activity yet." /> : null}
             </div>
           </Panel>
         </div>
