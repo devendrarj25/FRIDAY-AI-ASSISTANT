@@ -16,6 +16,7 @@ import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
 import { voiceDoctorMarks, voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
+import { installer } from "./installer-engine";
 
 export type DoctorStatus =
   "Ready" | "Running" | "Missing" | "Outdated" | "Error" | "Warning" | "Repairing";
@@ -50,6 +51,11 @@ export type DoctorCheck = {
   repairKind?: RepairKind;
   /** True after FRIDAY attempted the safe automatic repair for this check. */
   tried?: boolean;
+  /**
+   * An add-on FRIDAY works without (a diagram compiler, a speaker file). Not
+   * installed is a note for the owner, never a critical problem.
+   */
+  optional?: boolean;
 };
 
 export type DoctorLog = {
@@ -118,6 +124,9 @@ const uid = (p: string) => `${p}-${Date.now().toString(36)}-${(seq += 1).toStrin
 /** Statuses that count as "needs attention". */
 export const isProblem = (s: DoctorStatus) => s === "Missing" || s === "Error";
 export const isWarning = (s: DoctorStatus) => s === "Warning" || s === "Outdated";
+/** A problem FRIDAY needs fixed. An optional add-on that is not installed is not one. */
+export const isProblemCheck = (check: Pick<DoctorCheck, "status" | "optional">) =>
+  isProblem(check.status) && !check.optional;
 export const isHealthy = (s: DoctorStatus) => s === "Ready" || s === "Running";
 
 /**
@@ -137,6 +146,9 @@ export function stepsFor(check: DoctorCheck): string[] {
     steps.push(
       "FRIDAY already tried the safe automatic repair and it did not clear this. The remaining steps are yours.",
     );
+  } else if (/install manager/i.test(`${check.fix ?? ""} ${check.detail}`)) {
+    // An Install Manager row installs it: no key or Windows permission is involved.
+    steps.push("Open Install Manager, find it, and press Install. FRIDAY checks the pinned file.");
   } else {
     steps.push(
       "FRIDAY cannot do this for you — it needs a key, driver, account, or Windows permission only you can grant.",
@@ -306,7 +318,7 @@ class DoctorStore {
               : {}),
           }));
           this.state.durationMs = result.durationMs;
-          const bad = result.checks.filter((c) => isProblem(c.status)).length;
+          const bad = result.checks.filter((c) => isProblemCheck(c)).length;
           const warn = result.checks.filter((c) => isWarning(c.status)).length;
           this.push(
             bad ? "error" : warn ? "warn" : "ok",
@@ -727,60 +739,97 @@ function sttLadderChecks(): DoctorCheck[] {
   ];
 }
 
+/**
+ * What Install Manager last detected for a catalog tool: true, false, or null
+ * when it has not scanned yet (then the row says so instead of guessing).
+ */
+function installedTool(id: string): boolean | null {
+  try {
+    // Only a tool a real probe looked at counts; the starting map is catalog defaults.
+    const snap = installer.getSnapshot();
+    if (!snap.probed?.includes(id)) return null;
+    return Boolean((snap.installed as Record<string, unknown>)[id]);
+  } catch {
+    return null;
+  }
+}
+
+/** One optional add-on row from Install Manager's real detection. */
+function optionalToolRow(input: {
+  id: string;
+  tool: string;
+  label: string;
+  group: string;
+  without: string;
+}): DoctorCheck {
+  const here = installedTool(input.tool);
+  return {
+    id: input.id,
+    label: input.label,
+    group: input.group,
+    status: here ? "Ready" : "Missing",
+    optional: true,
+    detail: here
+      ? `Installed (Install Manager detected ${input.tool}).`
+      : `Optional${here === null ? ", not checked yet by Install Manager" : ""}. ${input.without}`,
+    fix: here ? null : `Install ${input.tool} from Install Manager.`,
+    fixable: false,
+    ...(here
+      ? {}
+      : {
+          steps: [
+            input.without,
+            `To add it: open Install Manager, find ${input.tool}, and press Install.`,
+            "Run Setup & Doctor again so the row reads the install.",
+          ],
+        }),
+  };
+}
+
 /** Windows CPU pack for the local engine. The pin is in Install Manager. */
 export function localLlamaChecks(): DoctorCheck[] {
   return [
-    {
+    optionalToolRow({
       id: "local:llama-cpp",
+      tool: "llama.cpp",
       label: "llama.cpp CPU pack",
       group: "Models",
-      status: "Missing",
-      detail:
-        "Optional Windows CPU zip. Install Manager checks the pinned hash. CUDA and DirectML builds are not this pack. A live install was not checked here.",
-      fix: "Install llama.cpp from Install Manager.",
-      fixable: false,
-    },
+      without:
+        "Ollama and LM Studio run local models without it. Install Manager checks the pinned hash of the Windows CPU zip.",
+    }),
   ];
 }
 
 /** UI Automation helper. The tree normalizer does not need it. The live walker does. */
 export function desktopUiaChecks(): DoctorCheck[] {
   return [
-    {
+    optionalToolRow({
       id: "desktop:uia",
+      tool: "comtypes",
       label: "UI Automation helper",
       group: "Desktop",
-      status: "Missing",
-      detail:
-        "Optional Windows package. A fixture tree is normalized without it. Live window walking needs comtypes from Install Manager.",
-      fix: "Install comtypes from Install Manager.",
-      fixable: false,
-    },
+      without: "Window trees are read without it. Live window walking needs comtypes.",
+    }),
   ];
 }
 
 /** Optional diagram compilers. Core drawing does not need them. */
 export function optionalDiagramChecks(): DoctorCheck[] {
   return [
-    {
+    optionalToolRow({
       id: "diagram:graphviz",
+      tool: "Graphviz",
       label: "Graphviz compiler",
       group: "Diagrams",
-      status: "Missing",
-      detail:
-        "Optional. The canvas draws with the bundled library. Install Manager can add the Windows compiler.",
-      fix: "Install Graphviz from Install Manager.",
-      fixable: false,
-    },
-    {
+      without: "The canvas draws with the bundled library without it.",
+    }),
+    optionalToolRow({
       id: "diagram:d2",
+      tool: "D2",
       label: "D2 compiler",
       group: "Diagrams",
-      status: "Missing",
-      detail: "Optional. D2 text export works without the compiler.",
-      fix: "Install D2 from Install Manager.",
-      fixable: false,
-    },
+      without: "D2 text export works without the compiler.",
+    }),
   ];
 }
 
@@ -810,14 +859,14 @@ export function handleDoctorCommand(text: string): string | null {
   }
   if (/^(doctor (status|report)|what did the doctor find)\b/.test(message)) {
     const snap = doctor.getSnapshot();
-    const problems = snap.checks.filter((check) => isProblem(check.status)).length;
+    const problems = snap.checks.filter((check) => isProblemCheck(check)).length;
     const warnings = snap.checks.filter((check) => isWarning(check.status)).length;
     if (!snap.checks.length) return "No Doctor scan has run yet. Say “quick doctor” to start one.";
     return [
       `Doctor ${snap.scanning ? "scanning" : "idle"} · ${snap.checks.length} checks · ${problems} problem(s) · ${warnings} warning(s)`,
       snap.desktop ? "live system" : "browser preview",
       ...snap.checks
-        .filter((check) => isProblem(check.status) || isWarning(check.status))
+        .filter((check) => isProblemCheck(check) || isWarning(check.status))
         .slice(0, 8)
         .map((check) => `[${check.status}] ${check.label} — ${check.detail}`),
     ].join("\n");

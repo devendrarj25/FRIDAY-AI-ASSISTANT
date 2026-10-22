@@ -204,6 +204,7 @@ Friday Hub (build/release dispatch, Revert Center), Import & Build (mixed intake
 | Doctor: Bundled runtime rows | A pack still inside the install is the fallback. It is extracted the first time no installed Python or Node is found, so a staged pack is Ready. Missing means the pack file itself is absent |
 | Doctor: Voice layers | Each layer is PASS or FAIL from the last voice check in Voice diagnostics and the live Auto session. Unchecked layers are one row with the steps to check them |
 | Doctor: Window and kernel watchdog | Warning only for a stall in the last 10 minutes. An older one shows as recovered |
+| Self-Management: issue count | An optional add-on that is not installed (Graphviz, D2, comtypes, llama.cpp, a bundled or on-demand toolchain pack, the speaker file) is one fact line, not a critical issue. Those rows read Install Manager's real detection, say "not checked yet" before Install Manager has scanned, and tell you to press Install. "Environment checks healthy" counts required checks only. The platform comes from the environment registry or the window, never the "browser" placeholder. The architecture index skips imports written inside template strings (generated scripts), Vite `?url` and `?inline` suffixes, and test fixtures. Its saved copy is rebuilt once (schema 3) |
 | Doctor: Content Security Policy | The status bar network meter's three hosts are allowed in `connect-src`. Any other violation still shows |
 
 ## 7. Conversation research (2026-10-09)

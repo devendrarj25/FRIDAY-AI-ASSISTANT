@@ -131,6 +131,8 @@ export type DoctorRow = {
   status: "Ready" | "Warning" | "Missing" | "Error";
   detail: string;
   fixable: false;
+  /** Bundled packs are a fallback and on-demand packs are extras: never a critical gap. */
+  optional?: boolean;
 };
 
 export function toolchainDoctorRows(
@@ -152,6 +154,7 @@ export function toolchainDoctorRows(
       status,
       detail,
       fixable: false,
+      optional: true,
     };
   });
 }

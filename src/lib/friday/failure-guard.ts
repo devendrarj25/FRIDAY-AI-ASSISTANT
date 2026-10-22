@@ -177,6 +177,7 @@ export type WaveCheck = {
   detail: string;
   fix: string;
   fixable: boolean;
+  optional?: boolean;
 };
 
 export type WaveSnapshot = {
@@ -253,6 +254,8 @@ export function waveCapabilityChecks(input: WaveSnapshot = {}): WaveCheck[] {
         : "WeSpeaker ECAPA is CC-BY-4.0, not bundled, and was not downloaded here. A missing file is not a match.",
       fix: "Place the file on this PC when you choose to. FRIDAY does not fetch it.",
       fixable: false,
+      // Speaker match is an opt-in extra; a match never approves anything.
+      optional: true,
     },
   ];
 }

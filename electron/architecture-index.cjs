@@ -13,7 +13,8 @@ const crypto = require("crypto");
 
 const { classify, walk } = require("./importer.cjs");
 
-const SCHEMA = 2;
+// 3: template-literal imports, Vite "?url" suffixes, and test fixtures are not broken edges.
+const SCHEMA = 3;
 const INDEX_FILE = path.join("database", "architecture-index.json");
 
 // Only text sources are parsed for edges; everything else is tracked by hash.
@@ -74,12 +75,22 @@ function resolvePython(fromRel, spec, files) {
 
 const JS_IMPORT =
   /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+const TEST_FILE = /(^|\/)(__tests__|tests)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$/;
 const PY_IMPORT = /^\s*(?:from\s+([.\w]+)\s+import|import\s+([.\w]+))/gm;
 
 /**
  * Extract outgoing edges for one file.
  * Returns { deps: [relative paths], external: [package names], missing: [specs] }.
  */
+/**
+ * Template literals hold code FRIDAY writes for a child process or a
+ * generated file (an agent runner script, the route-tree footer). Those are
+ * not this file's imports, so their contents are blanked before matching.
+ */
+function withoutTemplates(text) {
+  return String(text || "").replace(/`(?:\\[\s\S]|[^`\\])*`/g, "``");
+}
+
 function extractEdges(rel, files, root) {
   const ext = path.extname(rel).toLowerCase();
   if (!PARSED.has(ext)) return { deps: [], external: [], missing: [] };
@@ -88,11 +99,16 @@ function extractEdges(rel, files, root) {
 
   const deps = new Set();
   const external = new Set();
+  // Tests are not shipped. They load modules by path strings relative to
+  // electron/ or scripts/ and feed deliberately missing specifiers as
+  // fixtures, so an unresolved one there is not a broken import.
   const missing = new Set();
+  const isTest = TEST_FILE.test(rel);
 
   if ([".ts", ".tsx", ".js", ".jsx", ".cjs", ".mjs"].includes(ext)) {
-    for (const match of text.matchAll(JS_IMPORT)) {
-      const spec = match[1] || match[2] || match[3];
+    for (const match of withoutTemplates(text).matchAll(JS_IMPORT)) {
+      // Vite asset suffixes ("./styles.css?url", "./font.ttf?inline") name the file before "?".
+      const spec = (match[1] || match[2] || match[3] || "").replace(/\?[\w=&-]*$/, "");
       if (!spec) continue;
       if (spec.startsWith(".")) {
         const target = resolveRelative(rel, spec, files);
@@ -142,7 +158,7 @@ function extractEdges(rel, files, root) {
     }
   }
 
-  return { deps: [...deps], external: [...external], missing: [...missing] };
+  return { deps: [...deps], external: [...external], missing: isTest ? [] : [...missing] };
 }
 
 /** Entry points that force a rebuild whenever anything reachable from them changes. */
@@ -300,5 +316,6 @@ module.exports = {
   saveIndex,
   updateIndex,
   extractEdges,
+  withoutTemplates,
   indexPath,
 };

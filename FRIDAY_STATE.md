@@ -125,6 +125,12 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Owner's 2026-10-22 Self-Management report: "58 issues, 23 critical". The critical items were optional add-ons and unprobed toolchain packs.
+  - Graphviz, D2, comtypes, and the llama.cpp rows were hardcoded Missing. Install Manager rows ended with a "key, driver, account" line.
+  - The platform read "browser" in the desktop app.
+  - The 165 "broken imports" were imports inside generated-script template strings, Vite `?url` and `?inline` suffixes, and test fixtures. This checkout now indexes with 0 broken.
+  - On the owner's folder (4749 files) the new count is unverified until a rescan after rebuilding.
+
 - Owner's 2026-10-22 Doctor report (installed app v1.1.2.4) was mostly false alarms, now fixed on this branch:
   - 382 "errors" were uvicorn `INFO:` lines.
   - "No outbound connection" and Gemini/OpenRouter "fetch failed" came from Node's fetch and a 2.5 s single-host ping, while chat answered through OpenRouter.
