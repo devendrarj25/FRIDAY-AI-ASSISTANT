@@ -173,3 +173,26 @@ class SttAudioGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_self_test_runs_under_the_embeddable_python_rules(tmp_path):
+    """The packaged self-check uses the bundled embeddable Python, whose ._pth
+    keeps the script folder off sys.path. `-I` reproduces that: the sibling
+    voice_runtime import must still resolve and the self-test must answer JSON."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[1] / "stt.py"
+    proc = subprocess.run(
+        [sys.executable, "-I", str(script), "--self-test"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert "ModuleNotFoundError" not in proc.stderr, proc.stderr[-400:]
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["ok"] is True
+    assert proc.returncode == 0

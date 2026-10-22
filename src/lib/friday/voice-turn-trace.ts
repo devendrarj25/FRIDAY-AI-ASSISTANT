@@ -37,6 +37,11 @@ export function markTurnStage(
   detail = "",
   now = Date.now(),
 ): void {
+  // Only a routed turn can be spoken. A Speak test, a status line, or a
+  // repeat prompt must not mark an older, unanswered turn as spoken.
+  if (stage === "spoken" && !current?.rows.some((row) => row.stage === "routed" && row.ok)) {
+    return;
+  }
   if (!current) beginVoiceTurn(now);
   const turn = current as VoiceTurn;
   const existing = turn.rows.findIndex((row) => row.stage === stage);

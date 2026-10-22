@@ -36,6 +36,7 @@ import { governance } from "../self/governance";
 import { runIntelligenceBenchmark } from "../self/intelligence-benchmark";
 import { self } from "../self/self-manager";
 import { devPipeline } from "../self/dev-pipeline";
+import { currentVoiceHealth, problemsFromVoiceHealth } from "../voice-health";
 
 export type SelfProblemSeverity = "critical" | "warning" | "info";
 
@@ -706,6 +707,7 @@ export function inspectSelf(): SelfReport {
   if (doc && doc.checks.length) {
     inspected = true;
     for (const check of doc.checks) {
+      if (check.optional && !isWarning(check.status)) continue;
       if (!isProblem(check.status) && !isWarning(check.status)) continue;
       const query = `${check.label} ${check.detail} ${check.cause ?? ""}`;
       const guidance = guidanceFor(check);
@@ -726,8 +728,18 @@ export function inspectSelf(): SelfReport {
         ...(steps?.length ? { steps } : {}),
       });
     }
-    const ready = doc.checks.filter((c) => c.status === "Ready" || c.status === "Running").length;
-    facts.push(`${ready}/${doc.checks.length} environment checks healthy.`);
+    const required = doc.checks.filter((c) => !c.optional);
+    const ready = required.filter((c) => c.status === "Ready" || c.status === "Running").length;
+    facts.push(`${ready}/${required.length} environment checks healthy.`);
+    const extras = doc.checks.filter((c) => c.optional && isProblem(c.status));
+    if (extras.length) {
+      facts.push(
+        `${extras.length} optional add-on(s) not installed (FRIDAY works without them; Install Manager adds them): ${extras
+          .slice(0, 6)
+          .map((c) => c.label)
+          .join(", ")}${extras.length > 6 ? ", …" : ""}.`,
+      );
+    }
   }
 
   // 2. Unified system map — FRIDAY's own subsystems.
@@ -843,6 +855,14 @@ export function inspectSelf(): SelfReport {
     if (extras.length) {
       facts.push(`Upgrade surfaces: ${extras.map((resource) => resource.ref).join(", ")}.`);
     }
+  }
+
+  // 9. Voice — the live Auto session, when it has registered.
+  const voice = problemsFromVoiceHealth(currentVoiceHealth());
+  if (voice.facts.length) {
+    inspected = true;
+    problems.push(...voice.problems);
+    facts.push(...voice.facts);
   }
 
   const order: Record<SelfProblemSeverity, number> = { critical: 0, warning: 1, info: 2 };

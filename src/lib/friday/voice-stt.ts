@@ -21,6 +21,7 @@ import {
   micWatch,
   PRE_ROLL_MS,
   preRollFrom,
+  capturedSince,
   segmentClock,
   workletCapturing,
   type MicFaultKind,
@@ -603,7 +604,7 @@ export class DesktopDictation {
       if (voiceGate.getSnapshot().speech) {
         if (!this.speechSince) this.speechSince = performance.now();
       } else this.speechSince = 0;
-      if (this.pcmFrom) this.segmentSamples = preRollFrom(this.pcmFrom + PRE_ROLL_MS).length;
+      if (this.pcmFrom) this.segmentSamples = capturedSince(this.pcmFrom + PRE_ROLL_MS);
       const speechFor = this.speechSince ? performance.now() - this.speechSince : 0;
       const decision = micWatch({
         live: true,

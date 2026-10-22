@@ -92,7 +92,7 @@ export async function verifyVoiceRuntime(): Promise<{ ok: boolean; checks: Voice
 }
 
 type FirstRunBridge = {
-  verifyVoiceRuntime?: (payload?: { loadModel?: boolean }) => Promise<{
+  verifyVoiceRuntime?: (payload?: { loadModel?: boolean; model?: string }) => Promise<{
     ok: boolean;
     checks: VoiceCheck[];
   }>;

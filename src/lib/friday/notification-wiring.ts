@@ -10,7 +10,7 @@
  */
 
 import { inspectSelf, type SelfProblem, type SelfReport } from "./brain/self-diagnosis";
-import { doctor, isProblem, isWarning, type DoctorCheck } from "./doctor-engine";
+import { doctor, isProblem, isProblemCheck, isWarning, type DoctorCheck } from "./doctor-engine";
 
 /** What FRIDAY puts on screen when she needs the owner to understand a fault. */
 function describeProblem(problem: SelfProblem): string {
@@ -44,7 +44,7 @@ export function wireNotifications(): void {
   doctor.subscribe(() => {
     const checks: DoctorCheck[] = doctor.getSnapshot().checks ?? [];
     for (const check of checks) {
-      if (!isProblem(check.status) && !isWarning(check.status)) continue;
+      if (!isProblemCheck(check) && !isWarning(check.status)) continue;
       notifications.push({
         id: `doctor:${check.id}:${check.status}`,
         level: isProblem(check.status) ? "error" : "warn",

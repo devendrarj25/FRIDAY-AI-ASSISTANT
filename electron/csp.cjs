@@ -19,7 +19,9 @@ function reportOnlyHeader() {
     "img-src 'self' friday: blob: data:",
     "media-src 'self' friday: blob: data:",
     "worker-src 'self' friday: blob:",
-    "connect-src 'self' friday: blob: data: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*",
+    // The status bar network meter (src/lib/friday/network.ts) measures
+    // latency and speed against these three hosts and nothing else.
+    "connect-src 'self' friday: blob: data: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://cloudflare.com https://www.gstatic.com https://speed.cloudflare.com",
   ].join("; ");
 }
 

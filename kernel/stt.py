@@ -24,13 +24,21 @@ import argparse
 import json
 import math
 import os
+import re
 import struct
 import sys
 import tempfile
 import wave
 from pathlib import Path
 
-import voice_runtime
+# The packaged self-check and the speech worker run this file with the bundled
+# embeddable Python. Its ._pth file means the script folder is not on sys.path,
+# so the sibling voice_runtime module must be added explicitly.
+_KERNEL_DIR = str(Path(__file__).resolve().parent)
+if _KERNEL_DIR not in sys.path:
+    sys.path.insert(0, _KERNEL_DIR)
+
+import voice_runtime  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
@@ -499,13 +507,41 @@ def apply_no_speech_policy(text: str, avg_ns: float, avg_logprob: float | None =
     return "", "", "empty"
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", (text or "").lower())
+
+
+def _instruction_part(hint: str) -> str:
+    """The fixed instruction sentences of a prompt.
+
+    Example commands, the owner's current work, and the names list are left
+    out: the owner may really say those, and they must never be dropped.
+    """
+    body = re.sub(r"(?i)examples?:[^.]*\.", " ", hint or "")
+    body = re.sub(r"(?i)current work:[^.]*\.", " ", body)
+    body = re.sub(r"(?i)names and apps:[^.]*\.?", " ", body)
+    return body
+
+
 def prompt_echo(text: str, hint: str) -> bool:
-    """True when the transcript is the instruction prompt, not the utterance."""
-    body = " ".join((text or "").lower().split())
-    seed = " ".join((hint or "").lower().split())
-    if len(body) < 40 or len(seed) < 40:
+    """True when the transcript is the instruction prompt, not the utterance.
+
+    Whisper on silence or a clipped segment can return a sentence of its
+    prompt, sometimes with a word changed ("Indian language" for "Indian
+    English"). A transcript of five or more words that sits inside the
+    instruction text, or whose words are nearly all instruction words, is an
+    echo.
+    """
+    said = _words(text)
+    seed = _words(_instruction_part(hint))
+    if len(said) < 5 or len(seed) < 5:
         return False
-    return seed.startswith(body) or body.startswith(seed[: min(80, len(seed))])
+    joined_said = " ".join(said)
+    if joined_said in " ".join(seed):
+        return True
+    vocab = set(seed)
+    inside = sum(1 for word in said if word in vocab)
+    return inside / len(said) >= 0.85
 
 
 HEARING_ORIGINAL = "original-audio"
@@ -1448,12 +1484,17 @@ def run_hearing_self_test(levels=HEARING_LEVELS, synth=None, transcribe=None) ->
         text = str(result.get("text") or "")
         hit = words_heard(text)
         audio = result.get("audio") or {}
+        ok = len(hit) >= 2
+        # Words came back but not the phrase: that is a mishearing, not silence.
+        code = result.get("dropCode") or ("misheard" if text.strip() and not ok else "")
         row.update(
             {
-                "ok": len(hit) >= 2,
+                "ok": ok,
                 "text": text,
                 "wordsHeard": hit,
-                "dropCode": result.get("dropCode") or "",
+                "recogniser": result.get("engine") or "",
+                "model": result.get("model") or "",
+                "dropCode": code,
                 "denoiseNote": audio.get("denoiseNote") or "",
                 "ms": int((time.perf_counter() - started) * 1000),
             }

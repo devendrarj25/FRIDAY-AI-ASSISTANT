@@ -14,6 +14,10 @@
 
 param(
   [string]$Floor = "3.12.10",
+  # Newest series with every kernel binary wheel; mirrors pythonWheelProven in
+  # config/toolchain-versions.json. A newer series is still used when it is the
+  # only Python installed.
+  [string]$WheelProven = "3.14",
   [string]$OutFile = "$env:TEMP\friday-python-path.txt",
   [string]$InstallDir = ""
 )
@@ -24,6 +28,14 @@ $ProgressPreference = "SilentlyContinue"
 function Test-Floor([string]$version) {
   if (-not $version) { return $false }
   try { return ([version]$version) -ge ([version]$Floor) } catch { return $false }
+}
+
+function Test-WheelProven([string]$version) {
+  if (-not $version) { return $false }
+  try {
+    $v = [version]$version
+    return ([version]"$($v.Major).$($v.Minor)") -le ([version]$WheelProven)
+  } catch { return $false }
 }
 
 # Runs the candidate and requires a real on-disk sys.executable, so Windows
@@ -98,7 +110,12 @@ function Find-Python {
       if ($hit) { return $hit }
     }
   }
-  foreach ($minor in @("-3", "-3.16", "-3.15", "-3.14", "-3.13", "-3.12")) {
+  # A wheel-proven series first, newest first; then any newer series.
+  $proven = [version]$WheelProven
+  $order = @()
+  for ($m = $proven.Minor; $m -ge 12; $m--) { $order += "-3.$m" }
+  $order += @("-3", "-3.16", "-3.15")
+  foreach ($minor in ($order | Select-Object -Unique)) {
     $hit = Probe "py" @($minor)
     if ($hit) { return $hit }
   }
@@ -125,7 +142,7 @@ function Official-Versions {
     $index = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri "https://www.python.org/ftp/python/"
     $versions = ([regex]::Matches($index.Content, 'href="(\d+\.\d+\.\d+)/"') |
         ForEach-Object { $_.Groups[1].Value } |
-        Where-Object { Test-Floor $_ } |
+        Where-Object { (Test-Floor $_) -and (Test-WheelProven $_) } |
         Sort-Object { [version]$_ } -Descending |
         Select-Object -First 3)
   } catch { $versions = @() }

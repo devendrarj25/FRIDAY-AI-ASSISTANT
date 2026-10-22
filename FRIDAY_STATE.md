@@ -18,6 +18,9 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `fix/build-stt-self-test`, Doctor fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 391 files, 3219 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
+| Branch `fix/build-stt-self-test`, voice fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 390 files, 3209 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
+| Branch `fix/build-stt-self-test` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 389 files, 3195 passed, 4 skipped; kernel 237 passed, 2 skipped; pyright ceiling, lint, typecheck, docs, version, provenance, actionlint, arrange, deps, audit, renderer pass. NSIS, verify-build, and installer smoke skipped on Linux. `python -I kernel/stt.py --self-test` fails on the old file and exits 0 with JSON on the new one. `pip download` for `win_amd64`: ctranslate2 4.8.3 has a `cp314` wheel and no `cp315` one. PowerShell was not available to parse `installer/build/install-python.ps1`. |
 | Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
 | Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
 | `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
@@ -122,6 +125,43 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- The owner's 2026-10-22 screenshot showed FRIDAY "Not Responding" with every label greyed (a frozen window and a page selection).
+  - `env:refresh` and `env:repair` ran the environment registry's synchronous probes (npm, Python, pip) on Electron's main thread. They now run in `electron/scan-worker.cjs`.
+  - The Auto screen is not selectable chrome.
+  - The Auto mode bar is grouped with icons. Diagnostics and the pipeline open from the Live captions strip in their own pane.
+  - Linux tests only. Smoothness and responsiveness on the Windows EXE are unverified until the owner rebuilds.
+
+- Owner's 2026-10-22 Status page (installed v1.1.2.4), fixed on this branch:
+  - Environment rows read Node.js, Electron, dependencies, the interface bundle, and Installed FRIDAY as Missing inside the installed app.
+  - The Node check spawned FRIDAY.exe `-v`, which started another FRIDAY.
+  - Wiring showed 7 false "no index.ts" errors and `0/0` with no source in the app.
+  - `finetune:active` had no preload subscription.
+  - Local providers read "This operation was aborted".
+  - The pip bootstrap row named the Python pack.
+  - The kernel logged two lines per loopback RPC socket.
+  - The routing row named the `qwen2.5-32b` placeholder.
+  - The fine-tune feature (`src/lib/friday/self/finetune.ts`, its IPC and events) still has no screen; the activity flows are bridged but nothing shows them. A Windows rescan of all of this is unverified.
+
+- Owner's 2026-10-22 Self-Management report: "58 issues, 23 critical". The critical items were optional add-ons and unprobed toolchain packs.
+  - Graphviz, D2, comtypes, and the llama.cpp rows were hardcoded Missing. Install Manager rows ended with a "key, driver, account" line.
+  - The platform read "browser" in the desktop app.
+  - The 165 "broken imports" were imports inside generated-script template strings, Vite `?url` and `?inline` suffixes, and test fixtures. This checkout now indexes with 0 broken.
+  - On the owner's folder (4749 files) the new count is unverified until a rescan after rebuilding.
+
+- Owner's 2026-10-22 Doctor report (installed app v1.1.2.4) was mostly false alarms, now fixed on this branch:
+  - 382 "errors" were uvicorn `INFO:` lines.
+  - "No outbound connection" and Gemini/OpenRouter "fetch failed" came from Node's fetch and a 2.5 s single-host ping, while chat answered through OpenRouter.
+  - The CSP warnings were the status bar network meter's own hosts.
+  - Bundled packs read Missing although they are an unextracted fallback.
+  - The 12 voice warnings were never given results.
+  - A single event-loop lag stayed a Warning for the whole session.
+  - Whether Gemini and OpenRouter probes pass through Chromium on that PC is unverified until the owner rescans after rebuilding.
+  - PowerShell 7 and Tesseract OCR are really not installed (Install Manager). The speaker-match file stays optional.
+
+- Owner's 2026-10-22 voice test: 21 of 22 live utterances were dropped as `vad kept 0 ms`, because the PCM ring held 600 ms and each segment was its trailing silence. The ring now holds 30 s, and a test pins a 5 s utterance. The self-tests now use the live model folder. Prompt echoes are dropped. The turn trace names why a heard line was not routed. Chat answers voice questions from the live session, and the Voice Agent role match is a skip. All of this ran on Linux tests only. Live hearing on the owner's microphone is unverified until step 0 below runs.
+
+- Release `v1.1.3.4` was prepared and merged into `main` on 2026-10-22 and is not published. FRIDAY Release run 39794578719 failed in publish, Prepare the build environment: the runner's Python 3.15 had no ctranslate2 wheel. Setup and the installer helper now prefer the newest installed series at or below `pythonWheelProven` (3.14) and take a newer series once a pip dry run proves its kernel wheels. The local `npm run build:win` stop at `stt-self-test failed (1)` was the embeddable Python not finding `voice_runtime`; `kernel/stt.py` now adds its own folder. A hosted FRIDAY Release, a Windows CMD pack, and the installer helper on Windows are unverified until the owner runs them. The release pull request's own PR Validation `startup_failure` (actor `github-actions[bot]`) is expected and documented.
+
 - Push-to-talk, the ComfyUI client and image tool, the meant-for-me work mentions, and the new document formats are tested on Linux (unit tests, a fake ComfyUI HTTP server, ZIP fixtures built in the test). The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
 
 - The readiness run above had no Whisper weights (VOICE reports a visible skip) and no cloud keys (CHAT used the fake local runner). Real provider calls, real speech, and Windows runner installs through the Install Manager (winget, direct download) are unverified here.
@@ -150,6 +190,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Voice re-test on the Windows PC after this branch: Auto mode, hands-free on, say "Friday, what time is it". The voice pipeline log should show a segment longer than 600 ms and a transcript. Voice diagnostics should show `heard` rising and the hearing levels as PASS, or `misheard` with the recogniser name. In chat, "voice me baat kyu nahi ho rahi?" should return the live voice report.
 0. Owner checks for push-to-talk and ComfyUI, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice settings, How Auto mode listens: Push to talk. In Auto mode, talk without the key: nothing is transcribed and the voice log says `push-to-talk: talk key is up`. Hold Ctrl+Space and say "Friday, what time is it", or just "what time is it": FRIDAY answers without the wake word.
    2. With FRIDAY in the background, press Ctrl+Alt+Space, speak, press it again. Switch back to Always listening: the shortcut is released (another app can use it).

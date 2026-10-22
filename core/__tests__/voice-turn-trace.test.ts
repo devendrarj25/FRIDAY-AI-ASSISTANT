@@ -27,6 +27,35 @@ describe("voice turn trace", () => {
     );
   });
 
+  it("a Speak test does not mark an unanswered turn as spoken", () => {
+    beginVoiceTurn(0);
+    markTurnStage("heard", true, "", "8 words", 0);
+    markTurnStage("spoken", true, "", "sapi", 192_265);
+    expect(voiceTurn()?.rows.map((row) => row.stage)).toEqual(["heard"]);
+    markTurnStage("routed", false, "not meant for FRIDAY (ambient)", "", 5);
+    markTurnStage("spoken", true, "", "sapi", 192_265);
+    expect(whereItStopped(voiceTurn())).toEqual({
+      stage: "routed",
+      reason: "not meant for FRIDAY (ambient)",
+    });
+    expect(turnTraceLine(voiceTurn())).not.toContain("spoken ✓");
+  });
+
+  it("every early exit in handleHeard names why the turn was not routed", () => {
+    const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const heard = mode.slice(mode.indexOf("  private handleHeard("));
+    const body = heard.slice(0, heard.indexOf("this.setAwake();"));
+    for (const reason of [
+      "too short and no verified speech signal",
+      "addressed to another assistant",
+      "FRIDAY's own voice (echo)",
+      "not meant for FRIDAY",
+      "wake word repeated inside the cooldown",
+    ]) {
+      expect(body).toContain(reason);
+    }
+  });
+
   it("names the stage where a transcript died and keeps its first reason", () => {
     beginVoiceTurn(0);
     markTurnStage("heard", true, "", "", 0);

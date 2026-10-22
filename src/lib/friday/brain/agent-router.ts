@@ -40,6 +40,12 @@ export type AgentRun = {
   ok: boolean;
   detail: string;
   value: unknown;
+  /**
+   * Nothing ran: the agent has no plan()/run() and no installed skill or
+   * workflow (the built-in role agents such as the Voice Agent). That is not
+   * a fault of the agent or of the feature it is named after.
+   */
+  skipped?: boolean;
 };
 
 const STOP = new Set([
@@ -470,10 +476,19 @@ async function invokeOne(
     const flowRuns = await runDeclaredWorkflows(agent, prompt, previous);
     const ms = Date.now() - started;
     if (!outputs.length && !flowRuns.length) {
-      return fail(
-        `selected ${agent.name} (${ms}ms) — no plan()/run() and no installed skills or workflows to invoke`,
-        { role: agent.role, skills: agent.skills, workflows: agent.workflows, outputs },
-      );
+      const detail = `selected ${agent.name} (${ms}ms) — no plan()/run() and no installed skills or workflows to invoke`;
+      // The selection stays in the experience ledger; the chat turn treats it
+      // as a skip, not as a broken feature.
+      turnDone("agent", "invoke", "skipped");
+      recordOutcome(agent, false, ms, detail);
+      return {
+        id: agent.id,
+        name: agent.name,
+        ok: false,
+        skipped: true,
+        detail,
+        value: { role: agent.role, skills: agent.skills, workflows: agent.workflows, outputs },
+      };
     }
     const ok = outputs.every((item) => item.ok) && flowRuns.every((item) => item.ok);
     const detail = ok

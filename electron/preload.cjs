@@ -432,6 +432,7 @@ contextBridge.exposeInMainWorld("friday", {
   finetuneActivate: (id) => ipcRenderer.invoke("finetune:activate", id),
   finetuneRemove: (id) => ipcRenderer.invoke("finetune:remove", id),
   onFinetuneRun: on("finetune:run"),
+  onFinetuneActive: on("finetune:active"),
   // Read-only reads of FRIDAY's own project source (no write counterpart).
   selfReadSource: (relative) => ipcRenderer.invoke("self:read-source", relative),
   selfListSource: (relative) => ipcRenderer.invoke("self:list-source", relative),

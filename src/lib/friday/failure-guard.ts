@@ -177,6 +177,7 @@ export type WaveCheck = {
   detail: string;
   fix: string;
   fixable: boolean;
+  optional?: boolean;
 };
 
 export type WaveSnapshot = {
@@ -224,9 +225,11 @@ export function waveCapabilityChecks(input: WaveSnapshot = {}): WaveCheck[] {
       id: "browser:page",
       label: "Browser page agent",
       group: "Desktop",
-      status: "Warning",
+      // Nothing is wrong: the agent waits for a task. Its limits are facts,
+      // not a fault, so this row is not a standing warning.
+      status: "Ready",
       detail:
-        "A live page was not driven. A host off the allow list, a login, a payment, and a captcha stay a handoff. Repair does not edit the allow list.",
+        "Waits for a task; this scan did not drive a page. A host off the allow list, a login, a payment, and a captcha stay a handoff. Repair does not edit the allow list.",
       fix: "Keep the allow list as you set it.",
       fixable: false,
     },
@@ -251,6 +254,8 @@ export function waveCapabilityChecks(input: WaveSnapshot = {}): WaveCheck[] {
         : "WeSpeaker ECAPA is CC-BY-4.0, not bundled, and was not downloaded here. A missing file is not a match.",
       fix: "Place the file on this PC when you choose to. FRIDAY does not fetch it.",
       fixable: false,
+      // Speaker match is an opt-in extra; a match never approves anything.
+      optional: true,
     },
   ];
 }

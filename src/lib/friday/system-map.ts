@@ -148,6 +148,21 @@ const healthStatus = (health: string): MapStatus => {
 };
 
 /** Pure fold of every engine snapshot into one registry. */
+/**
+ * The OS FRIDAY runs on. Until the environment registry has been read, its
+ * placeholder says "browser", which the desktop app must not repeat.
+ */
+export function systemPlatform(
+  env: { platform?: string; updatedAt?: number | null },
+  desktop: boolean,
+  nav: { platform?: string } | null = typeof navigator === "undefined" ? null : navigator,
+): string {
+  if (env.updatedAt && env.platform) return env.platform;
+  if (nav?.platform) return nav.platform;
+  if (desktop) return "desktop";
+  return nav ? "browser" : env.platform || "node";
+}
+
 export function buildSystemMap(input: SystemMapInput): SystemMapSnapshot {
   const at = input.at ?? Date.now();
   const entries: MapEntry[] = [];
@@ -476,13 +491,12 @@ class SystemMapStore {
   /** Rebuild from the engines right now. Cheap: it only folds snapshots. */
   refresh(): SystemMapSnapshot {
     const env = cachedEnvironment();
+    const desktop =
+      typeof window !== "undefined" &&
+      Boolean((window as { friday?: { isDesktop?: boolean } }).friday?.isDesktop);
     this.snapshot = buildSystemMap({
-      desktop:
-        typeof window !== "undefined" &&
-        Boolean((window as { friday?: { isDesktop?: boolean } }).friday?.isDesktop),
-      platform:
-        env.platform ||
-        (typeof navigator === "undefined" ? "node" : navigator.platform || "browser"),
+      desktop,
+      platform: systemPlatform(env, desktop),
       version: APP_VERSION,
       build: APP_BUILD,
       env,

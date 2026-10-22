@@ -203,6 +203,15 @@ Checked on 2026-10-11 against the live pages. A Windows `electron-builder --dir`
 | ggml-base is a file, not a zip | The catalog pin is one file, `ggml-base.bin`. | ADOPT | First run copies it. A 16-byte header that starts with a zip signature is not a model. | `electron/bundled-runtime.cjs` |
 | Doctor Ready only after a run | The same first-run module records the hash, the source, and the time of the prove command. | ADOPT | A file on disk with no successful run stays Warning. Repair extracts again from the installed pack. | `electron/diagnostics.cjs` |
 
+## Research (2026-10-22) — Python series for the build environment
+
+Checked on 2026-10-22 with `pip download --only-binary=:all: --platform win_amd64`. `ctranslate2>=4,<5` resolved `ctranslate2-4.8.3-cp314-cp314-win_amd64.whl` for Python 3.14 and found no distribution for 3.15 ([PyPI files](https://pypi.org/project/ctranslate2/#files)). FRIDAY Release run 39794578719 failed there on the `windows-latest` Python 3.15.
+
+| Idea | Source | Decision | Reason | Where |
+| --- | --- | --- | --- | --- |
+| Prefer a series whose kernel wheels are published | The PyPI result above. [pip install `--dry-run`](https://pip.pypa.io/en/stable/cli/pip_install/#cmdoption-dry-run) resolves without installing. | ADOPT | The floor stays `>=3.12.10`. Setup and the installer helper prefer the newest installed series at or below `pythonWheelProven` (3.14). Setup takes a newer series as soon as a pip dry run of `kernel/requirements.txt` with `--only-binary=:all:` passes on it, so a new series is picked up without a config change. When only an unproven newer series is installed, Windows setup first installs the newest proven series from python.org and uses the newer one only if that install fails. The installer helper still uses a newer series when it is the only Python. `FRIDAY_PYTHON` and an existing venv are never second-guessed. The python.org installer list stays inside the proven series, which also skips a series folder that holds only pre-releases. | `scripts/python-runtime.cjs`, `installer/build/install-python.ps1`, `config/toolchain-versions.json` |
+| Cap Python with a maximum | Same source. | REJECT | A hard maximum would refuse a newer Python that is the only one installed, and would need an edit for every series. | none |
+
 ## Research (2026-10-13) — local Windows pack log
 
 Checked on 2026-10-13. This Linux tree did not run `npm run build:win`, the installer, or a speech download.

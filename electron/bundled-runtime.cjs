@@ -397,7 +397,8 @@ function inspect(input = {}) {
       present,
       proved: Boolean(present && stamp && stamp.proved),
       hashOk,
-      source: stamp ? stamp.source : layout.findPack(id, input.resourcesRoots || []),
+      // get-pip shares the Python folder and its stamp; name each pack's own file.
+      source: layout.findPack(id, input.resourcesRoots || []) || (stamp ? stamp.source : null),
       lastRun: stamp ? stamp.provedAt : null,
       manual: null,
     };
@@ -408,6 +409,26 @@ function inspect(input = {}) {
 function doctorRows(states) {
   return (states || []).map((state) => {
     const ready = state.proved === true;
+    // A pack still inside the install is the fallback, not a fault: it is
+    // extracted the first time no installed runtime is found.
+    if (!ready && !state.present && state.source) {
+      return {
+        id: `toolchain:${state.id}`,
+        label: state.name || state.id,
+        group: "Bundled runtime",
+        status: "Ready",
+        detail: [
+          state.version ? `version ${state.version}` : "",
+          "staged in the install, extracted on first use when no installed runtime is found",
+          `source ${state.source}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        cause: null,
+        fix: null,
+        fixable: false,
+      };
+    }
     const parts = [
       state.version ? `version ${state.version}` : "",
       state.source ? `source ${state.source}` : "",

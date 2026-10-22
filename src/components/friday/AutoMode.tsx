@@ -1,22 +1,35 @@
 import {
+  Activity,
   Check,
   ChevronDown,
   ChevronUp,
   Copy,
+  Ear,
   Eraser,
+  Hand,
+  ListTree,
   Loader2,
   Mic,
   MicOff,
   Pause,
   Play,
+  RotateCcw,
+  Trash2,
   Volume2,
   VolumeX,
+  Workflow,
+  Wrench,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NeuralCircuit } from "@/components/friday/NeuralCircuit";
 import { ageOf, type LiveComponent } from "@/lib/friday/use-friday-live";
-import { assistantMode, type PanelDisplay } from "@/lib/friday/assistant-mode";
+import {
+  assistantMode,
+  type AssistantModeState,
+  type PanelDisplay,
+} from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { useBrain } from "@/lib/friday/use-brain";
 import { useFridayLive } from "@/lib/friday/use-friday-live";
@@ -99,6 +112,126 @@ function selectCircuitNode(node: LiveComponent) {
   });
 }
 
+/** One HUD control: icon + label, one height, clear pressed and focus states. */
+function HudButton({
+  icon: Icon,
+  label,
+  title,
+  active = false,
+  onClick,
+  className,
+  ...pointer
+}: {
+  icon: LucideIcon;
+  label: string;
+  title?: string;
+  active?: boolean;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  className?: string;
+  onPointerDown?: () => void;
+  onPointerUp?: () => void;
+  onPointerLeave?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title ?? label}
+      aria-pressed={active}
+      onClick={onClick}
+      {...pointer}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
+        active
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-primary/20 text-muted-foreground hover:border-primary/35 hover:text-primary active:bg-primary/15",
+        className,
+      )}
+    >
+      <Icon className="size-3" />
+      {label}
+    </button>
+  );
+}
+
+/** Thin separator between HUD groups. */
+function HudDivider() {
+  return <span aria-hidden className="mx-0.5 h-4 w-px bg-primary/15" />;
+}
+
+/** A caption-strip button; `pressed` marks an open panel. */
+function StripButton({
+  icon: Icon,
+  label,
+  title,
+  pressed,
+  tone,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  title: string;
+  pressed?: boolean;
+  tone?: "warning" | undefined;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={pressed}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
+        pressed && "bg-primary/10 text-primary",
+        tone === "warning" && "text-warning",
+      )}
+    >
+      <Icon className="size-3.5" />
+      {label}
+    </button>
+  );
+}
+
+/** Live voice pipeline trace: mic → segment → transcript → wake word. */
+function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
+  if (!voice.voiceLog.length) {
+    return (
+      <p className="font-mono text-[10px] text-muted-foreground">
+        No pipeline step yet. Speak in Auto mode and each step shows here.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-0.5">
+      {voice.voiceLog
+        .slice(-30)
+        .reverse()
+        .map((entry, index) => (
+          <li key={`${entry.at}-${entry.stage}-${index}`} className="flex gap-2">
+            <span
+              className={cn(
+                "w-20 shrink-0 font-mono text-[10px] uppercase",
+                entry.stage === "error" || entry.stage === "dropped"
+                  ? "text-destructive"
+                  : entry.stage === "transcript"
+                    ? "text-accent"
+                    : "text-muted-foreground",
+              )}
+            >
+              {entry.stage}
+            </span>
+            <span className="min-w-0 break-words font-mono text-[10px] text-muted-foreground">
+              {entry.detail}
+              {entry.repeat && entry.repeat > 1 ? ` x${entry.repeat}` : ""}
+            </span>
+          </li>
+        ))}
+    </ul>
+  );
+}
+
+type CaptionPanel = "diagnostics" | "pipeline" | null;
+
 export function AutoMode() {
   const voice = useAssistantMode();
   const brainState = useBrain();
@@ -106,6 +239,10 @@ export function AutoMode() {
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const [copied, setCopied] = useState(false);
+  // Diagnostics and the pipeline open beside the captions, never inside them.
+  const [panel, setPanel] = useState<CaptionPanel>(null);
+  const togglePanel = (next: Exclude<CaptionPanel, null>) =>
+    setPanel((open) => (open === next ? null : next));
 
   useEffect(() => {
     if (!follow) return;
@@ -126,18 +263,22 @@ export function AutoMode() {
   };
 
   // Only the last couple of exchanges when collapsed; full history expanded.
-  const visible = voice.expanded ? voice.captions : voice.captions.slice(-2);
+  const tall = voice.expanded || panel !== null;
+  const visible = tall ? voice.captions : voice.captions.slice(-2);
   const working = live.components.some((c) => c.active);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    // The screen is chrome: a stray Ctrl+A or drag must not grey every label.
+    // Captions and the diagnostic panels stay selectable for copying.
+    <div className="flex h-full min-h-0 select-none flex-col gap-2">
       {/* Stage: the real live graphic, bigger. HUD and stats are flex rows
           (same tokens as the old overlays) so they never sit on the boxes. */}
       <div className="hud-panel relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
         <div className="flex max-w-full shrink-0 flex-wrap items-center gap-1.5 px-3 pt-3 font-mono text-[10px]">
+          {/* 1. What the voice session is doing right now */}
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5",
+              "inline-flex h-6 items-center gap-1.5 rounded-sm border px-2",
               voice.listening
                 ? "border-accent/40 bg-accent/10 text-accent"
                 : "border-primary/25 bg-primary/5 text-muted-foreground",
@@ -147,14 +288,71 @@ export function AutoMode() {
             {voice.status}
           </span>
           {voice.speaking ? (
-            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary">
+            <span className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 text-primary">
               <Volume2 className="size-3" /> speaking
             </span>
           ) : null}
-          <AutonomyDial />
-          <button
-            type="button"
-            className="rounded-sm border border-primary/20 px-2 py-0.5 text-muted-foreground hover:text-primary"
+          {run ? (
+            <span className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-primary/30 bg-primary/5 px-2 text-primary">
+              <Loader2 className="size-3 animate-spin" />
+              {stage?.label ?? run.intentLabel}
+            </span>
+          ) : null}
+
+          <HudDivider />
+          {/* 2. How FRIDAY listens */}
+          <HudButton
+            icon={Ear}
+            onClick={() => assistantMode.toggleHandsFree()}
+            title="Hands-free: speak without repeating the wake word"
+            active={voice.handsFree || voice.awake}
+            label={
+              voice.handsFree && !voice.error
+                ? "hands-free · just talk"
+                : voice.awake && !voice.error
+                  ? "awake · go ahead"
+                  : "say “FRIDAY …”"
+            }
+          />
+          {assistantMode.listenStyle() === "push-to-talk" ? (
+            <HudButton
+              icon={Hand}
+              // Keyboard activation (Enter or Space on the focused button) toggles.
+              onClick={(event) => {
+                if (event.detail === 0) assistantMode.togglePushToTalk();
+              }}
+              onPointerDown={() => assistantMode.holdToTalk(true)}
+              onPointerUp={() => assistantMode.holdToTalk(false)}
+              onPointerLeave={() => assistantMode.holdToTalk(false)}
+              title="Hold to talk. Ctrl+Space in this window, Ctrl+Alt+Space toggles from anywhere."
+              active={assistantMode.pushToTalkActive()}
+              label={
+                assistantMode.pushToTalkActive() ? "listening · release to send" : "hold to talk"
+              }
+            />
+          ) : null}
+          <HudButton
+            icon={voice.paused ? Play : Pause}
+            onClick={() => assistantMode.setPaused(!voice.paused)}
+            active={voice.paused}
+            label={voice.paused ? "Resume listening" : "Pause listening"}
+          />
+          <HudButton
+            icon={RotateCcw}
+            onClick={() => assistantMode.resetMicrophone()}
+            title="Close and reopen the microphone"
+            label="Reset microphone"
+          />
+
+          <HudDivider />
+          {/* 3. How much FRIDAY may do without asking */}
+          <AutonomyDial compact />
+
+          <HudDivider />
+          <HudButton
+            icon={Workflow}
+            title="Open this voice session as a live flow"
+            label="Voice flow"
             onClick={() => {
               const prefs = preferences.getSnapshot();
               const dial = autonomy.getSnapshot();
@@ -179,76 +377,16 @@ export function AutoMode() {
                 voice.voiceState !== "PAUSED";
               flowStudio.openBoard(graph, live ? "watch" : "chart");
             }}
-          >
-            Voice flow
-          </button>
-          <button
-            type="button"
-            onClick={() => assistantMode.toggleHandsFree()}
-            title="Hands-free: speak without repeating the wake word"
-            className={cn(
-              "rounded-sm border px-2 py-0.5 transition-colors",
-              voice.handsFree || voice.awake
-                ? "border-primary/40 bg-primary/10 text-primary"
-                : "border-primary/20 text-muted-foreground hover:text-primary",
-            )}
-          >
-            {voice.handsFree && !voice.error
-              ? "hands-free · just talk"
-              : voice.awake && !voice.error
-                ? "awake · go ahead"
-                : "say “FRIDAY …”"}
-          </button>
-          {assistantMode.listenStyle() === "push-to-talk" ? (
-            <button
-              type="button"
-              // Keyboard activation (Enter or Space on the focused button) toggles.
-              onClick={(event) => {
-                if (event.detail === 0) assistantMode.togglePushToTalk();
-              }}
-              onPointerDown={() => assistantMode.holdToTalk(true)}
-              onPointerUp={() => assistantMode.holdToTalk(false)}
-              onPointerLeave={() => assistantMode.holdToTalk(false)}
-              title="Hold to talk. Ctrl+Space in this window, Ctrl+Alt+Space toggles from anywhere."
-              className={cn(
-                "rounded-sm border px-2 py-0.5 transition-colors",
-                assistantMode.pushToTalkActive()
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-primary/20 text-muted-foreground hover:text-primary",
-              )}
-            >
-              {assistantMode.pushToTalkActive() ? "listening · release to send" : "hold to talk"}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => assistantMode.setPaused(!voice.paused)}
-            className="rounded-sm border border-primary/20 px-2 py-0.5 text-muted-foreground hover:text-primary"
-          >
-            {voice.paused ? "Resume listening" : "Pause listening"}
-          </button>
-          <button
-            type="button"
-            onClick={() => assistantMode.resetMicrophone()}
-            className="rounded-sm border border-primary/20 px-2 py-0.5 text-muted-foreground hover:text-primary"
-          >
-            Reset microphone
-          </button>
-
-          {run ? (
-            <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/30 bg-primary/5 px-2 py-0.5 text-primary">
-              <Loader2 className="size-3 animate-spin" />
-              {stage?.label ?? run.intentLabel}
-            </span>
-          ) : null}
+          />
           {voice.error ? (
-            <span className="inline-flex items-center gap-1 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
-              {voice.error}
+            <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
+              <span className="min-w-0 break-words">{voice.error}</span>
               <button
                 type="button"
-                className="rounded-sm border border-destructive/40 px-1.5 py-0.5"
+                className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-destructive/40 px-1.5 py-0.5 transition-colors hover:bg-destructive/15 active:bg-destructive/25"
                 onClick={() => assistantMode.fixVoice()}
               >
+                <Wrench className="size-3" />
                 Fix voice
               </button>
             </span>
@@ -256,7 +394,7 @@ export function AutoMode() {
 
           <span
             className={cn(
-              "ml-auto inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-mono text-[10px]",
+              "ml-auto inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 font-mono text-[10px]",
               working
                 ? "border-accent/40 bg-accent/10 text-accent"
                 : "border-primary/25 bg-primary/8 text-muted-foreground",
@@ -331,70 +469,70 @@ export function AutoMode() {
         </div>
       </div>
 
-      {/* FRIDAY's own box: compact captions + anything she needs to show */}
+      {/* FRIDAY's own box: compact captions + anything she needs to show.
+          Diagnostics and the pipeline open in their own pane beside the
+          captions, so the captions never move. */}
       <div
         className={cn(
           "hud-panel flex shrink-0 flex-col overflow-hidden rounded-lg transition-[height] duration-300 ease-out",
-          voice.expanded ? "h-[42vh]" : "h-[5.6rem]",
+          tall ? "h-[42vh]" : "h-[5.6rem]",
         )}
       >
         <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-3 py-1">
           <p className="label-xs text-primary/60">
             Live captions{voice.display ? " · showing" : ""}
           </p>
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3 font-mono text-[10px] text-muted-foreground">
-            <button
-              type="button"
-              onClick={() => assistantMode.toggleMuted()}
-              className={cn(
-                "inline-flex items-center gap-1 hover:text-primary",
-                voice.muted && "text-warning",
-              )}
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 font-mono text-[10px] text-muted-foreground">
+            <StripButton
+              icon={Activity}
+              label={`diagnostics · ${voice.voiceState.toLowerCase()}`}
+              title={panel === "diagnostics" ? "Close voice diagnostics" : "Open voice diagnostics"}
+              pressed={panel === "diagnostics"}
+              onClick={() => togglePanel("diagnostics")}
+            />
+            <StripButton
+              icon={ListTree}
+              label={`pipeline · ${voice.voiceLog.length}`}
+              title={panel === "pipeline" ? "Close the voice pipeline" : "Open the voice pipeline"}
+              pressed={panel === "pipeline"}
+              onClick={() => togglePanel("pipeline")}
+            />
+            <span aria-hidden className="h-3.5 w-px bg-primary/15" />
+            <StripButton
+              icon={voice.muted ? VolumeX : Volume2}
+              label={voice.muted ? "muted" : "voice"}
               title={voice.muted ? "Unmute FRIDAY" : "Mute FRIDAY"}
-            >
-              {voice.muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-              {voice.muted ? "muted" : "voice"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFollow((f) => !f)}
-              className={cn("inline-flex items-center gap-1 hover:text-primary")}
+              tone={voice.muted ? "warning" : undefined}
+              onClick={() => assistantMode.toggleMuted()}
+            />
+            <StripButton
+              icon={follow ? Pause : Play}
+              label={follow ? "follow" : "paused"}
               title={follow ? "Pause auto-scroll" : "Resume auto-scroll"}
-            >
-              {follow ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-              {follow ? "follow" : "paused"}
-            </button>
-            <button
-              type="button"
-              onClick={copyTranscript}
-              className="inline-flex items-center gap-1 hover:text-primary"
+              onClick={() => setFollow((f) => !f)}
+            />
+            <StripButton
+              icon={copied ? Check : Copy}
+              label={copied ? "copied" : "copy"}
               title="Copy transcript"
-            >
-              {copied ? <Check className="size-3.5 text-accent" /> : <Copy className="size-3.5" />}
-              {copied ? "copied" : "copy"}
-            </button>
-            <button
-              type="button"
-              onClick={() => assistantMode.clearCaptions()}
-              className="inline-flex items-center gap-1 hover:text-primary"
+              onClick={copyTranscript}
+            />
+            <StripButton
+              icon={Eraser}
+              label="clear"
               title="Clear captions"
-            >
-              <Eraser className="size-3.5" />
-              clear
-            </button>
-            <button
-              type="button"
-              onClick={() => assistantMode.clearHeardLog()}
-              className="inline-flex items-center gap-1 hover:text-primary"
+              onClick={() => assistantMode.clearCaptions()}
+            />
+            <StripButton
+              icon={Trash2}
+              label="delete heard"
               title="Delete the heard log on this PC"
-            >
-              <Eraser className="size-3.5" />
-              delete heard
-            </button>
+              onClick={() => assistantMode.clearHeardLog()}
+            />
             <button
               type="button"
               onClick={() => assistantMode.toggleExpanded()}
-              className="inline-flex items-center gap-1 rounded-sm border border-primary/30 px-2 py-0.5 text-primary hover:bg-primary/10"
+              className="inline-flex items-center gap-1 rounded-sm border border-primary/30 px-2 py-0.5 text-primary transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/20"
               title={voice.expanded ? "Collapse box" : "Expand box"}
             >
               {voice.expanded ? (
@@ -407,83 +545,66 @@ export function AutoMode() {
           </div>
         </div>
 
-        <div ref={scroller} className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-1.5">
-          {voice.captions.length === 0 && !voice.interim && !voice.display ? (
-            <p className="text-xs text-muted-foreground">
-              Nothing heard yet. Say “FRIDAY” followed by what you need.
-            </p>
-          ) : null}
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <div
+            ref={scroller}
+            className="min-h-0 flex-1 select-text space-y-1 overflow-y-auto px-3 py-1.5"
+          >
+            {voice.captions.length === 0 && !voice.interim && !voice.display ? (
+              <p className="text-xs text-muted-foreground">
+                Nothing heard yet. Say “FRIDAY” followed by what you need.
+              </p>
+            ) : null}
 
-          {visible.map((c) => (
-            <div key={c.id} className="flex gap-2 text-sm">
-              <span
-                className={cn(
-                  "shrink-0 font-mono text-[10px] uppercase",
-                  c.who === "user" ? "text-accent" : "text-primary",
-                )}
-              >
-                {c.who === "user" ? "you" : "friday"}
-              </span>
-              <span className="min-w-0 text-foreground/90">
-                {c.text}
-                {c.tag ? (
-                  <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">
-                    {c.tag}
-                    {c.language ? ` · ${c.language}` : ""}
-                    {typeof c.confidence === "number" ? ` · ${c.confidence.toFixed(2)}` : ""}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-          ))}
+            {visible.map((c) => (
+              <div key={c.id} className="flex gap-2 text-sm">
+                <span
+                  className={cn(
+                    "shrink-0 font-mono text-[10px] uppercase",
+                    c.who === "user" ? "text-accent" : "text-primary",
+                  )}
+                >
+                  {c.who === "user" ? "you" : "friday"}
+                </span>
+                <span className="min-w-0 text-foreground/90">
+                  {c.text}
+                  {c.tag ? (
+                    <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">
+                      {c.tag}
+                      {c.language ? ` · ${c.language}` : ""}
+                      {typeof c.confidence === "number" ? ` · ${c.confidence.toFixed(2)}` : ""}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+            ))}
 
-          {/* Live speech streams inside this same box */}
-          {voice.interim ? (
-            <div className="flex gap-2 text-sm opacity-70">
-              <span className="shrink-0 font-mono text-[10px] uppercase text-accent">you</span>
-              <span className="min-w-0 italic text-foreground/70">{voice.interim}</span>
-            </div>
-          ) : null}
+            {/* Live speech streams inside this same box */}
+            {voice.interim ? (
+              <div className="flex gap-2 text-sm opacity-70">
+                <span className="shrink-0 font-mono text-[10px] uppercase text-accent">you</span>
+                <span className="min-w-0 italic text-foreground/70">{voice.interim}</span>
+              </div>
+            ) : null}
 
-          {voice.display ? <DisplayPanel display={voice.display} /> : null}
+            {voice.display ? <DisplayPanel display={voice.display} /> : null}
+          </div>
 
-          {/* The real values behind the pipeline: mic, VAD, wake engine,
-              STT, TTS and session — plus the real runtime self-test. */}
-          <VoiceDiagnostics voice={voice} />
-
-          {/* Live voice pipeline trace: mic → segment → transcript → wake word.
-              Auto Mode used to fail silently; every step is now visible. */}
-          {voice.voiceLog.length ? (
-            <details className="mt-2 rounded-md border border-border/50 px-2 py-1">
-              <summary className="cursor-pointer font-mono text-[10px] uppercase text-muted-foreground">
-                voice pipeline · {voice.voiceLog.length}
-              </summary>
-              <ul className="mt-1 space-y-0.5">
-                {voice.voiceLog
-                  .slice(-12)
-                  .reverse()
-                  .map((entry) => (
-                    <li key={`${entry.at}-${entry.stage}-${entry.detail}`} className="flex gap-2">
-                      <span
-                        className={cn(
-                          "shrink-0 font-mono text-[10px] uppercase",
-                          entry.stage === "error" || entry.stage === "dropped"
-                            ? "text-destructive"
-                            : entry.stage === "transcript"
-                              ? "text-accent"
-                              : "text-muted-foreground",
-                        )}
-                      >
-                        {entry.stage}
-                      </span>
-                      <span className="min-w-0 font-mono text-[10px] text-muted-foreground">
-                        {entry.detail}
-                        {entry.repeat && entry.repeat > 1 ? ` x${entry.repeat}` : ""}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-            </details>
+          {panel ? (
+            <aside
+              aria-label={panel === "diagnostics" ? "Voice diagnostics" : "Voice pipeline"}
+              className="min-h-0 select-text overflow-y-auto border-t border-primary/15 px-3 py-1.5 max-md:max-h-[55%] md:w-[min(52%,640px)] md:border-l md:border-t-0"
+            >
+              {/* The real values behind the pipeline: mic, VAD, wake engine,
+                  STT, TTS and session — plus the real runtime self-test.
+                  Mounted only while open, so its live meters cost nothing
+                  while FRIDAY is just listening. */}
+              {panel === "diagnostics" ? (
+                <VoiceDiagnostics voice={voice} />
+              ) : (
+                <VoicePipelineLog voice={voice} />
+              )}
+            </aside>
           ) : null}
         </div>
       </div>

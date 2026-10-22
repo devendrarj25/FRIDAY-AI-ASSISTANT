@@ -465,11 +465,15 @@ const BUILD_CHANNEL = buildChannel.init({ app, paths });
 // Shared with the setup scripts and the readiness test: ONE environment truth.
 // In development it lives in the project; in the packaged app it ships as a
 // resource, so both builds load exactly the same implementation.
+let envRegistryPath = null;
 const envRegistry = loadNamed("env-registry", () => {
   const resourcePaths = require("./resource-paths.cjs");
   try {
     const candidate = resourcePaths.resolveResourceFile("scripts/env-registry.cjs");
-    if (candidate) return require(candidate);
+    if (candidate) {
+      envRegistryPath = candidate;
+      return require(candidate);
+    }
   } catch (error) {
     console.error(
       `[friday] environment registry unavailable: ${error && error.message ? error.message : error}`,
@@ -1382,12 +1386,15 @@ async function startKernel(root) {
   }
 
   // The last lines of kernel output make an unavailable kernel diagnosable.
+  const { kernelLogLevel } = require("./diagnostics.cjs");
   const forward = (level) => (chunk) => {
     const text = chunk.toString();
     if (level === "error") kernelStderr = `${kernelStderr}${text}`.slice(-2000);
     send("kernel:log", { level, text });
     for (const line of String(text).split(/\r?\n/)) {
-      if (line.trim()) telemetry.recordLog(level === "error" ? "error" : "info", "kernel", line);
+      // uvicorn writes INFO lines to stderr; each line keeps its own level.
+      const lineLevel = kernelLogLevel(line, level === "error" ? "stderr" : "stdout");
+      if (line.trim()) telemetry.recordLog(lineLevel, "kernel", line);
     }
     // Readiness owns one result file. Kernel text on this pipe can block the
     // main thread for the whole 5 minute budget.
@@ -8350,14 +8357,48 @@ ipcMain.handle("identity:write", (_e, prompt) => {
 // Same module the setup scripts and the readiness test use, so the desktop app
 // and the browser build always report identical component health.
 ipcMain.handle("env:registry", () => envRegistry.readRegistry());
-ipcMain.handle("env:refresh", async () => {
-  // Probing spawns real processes; keep it off the UI thread's critical path.
-  await Promise.resolve();
-  return envRegistry.refreshRegistry();
-});
+/**
+ * The registry probes are synchronous child processes (npm, Python, pip).
+ * They run in the scan worker so the window keeps painting; on the main thread
+ * they held it long enough for Windows to mark FRIDAY "Not Responding".
+ */
+function envRegistryJob(job, id) {
+  const fallback = () =>
+    job === "env-refresh"
+      ? envRegistry.refreshRegistry()
+      : id
+        ? envRegistry.repairComponent(String(id))
+        : envRegistry.repairAll();
+  if (!envRegistryPath) return Promise.resolve().then(fallback);
+  const { Worker } = require("node:worker_threads");
+  return new Promise((resolve) => {
+    let worker;
+    try {
+      worker = new Worker(path.join(__dirname, "scan-worker.cjs"), {
+        workerData: {
+          job,
+          id: id || null,
+          registryPath: envRegistryPath,
+          resourcesPath: process.resourcesPath || "",
+          packaged: app.isPackaged
+            ? { exe: process.execPath, appPath: app.getAppPath(), version: app.getVersion() }
+            : null,
+        },
+      });
+    } catch {
+      resolve(fallback());
+      return;
+    }
+    worker.once("message", (message) =>
+      resolve(message && message.ok ? message.result : fallback()),
+    );
+    worker.once("error", () => resolve(fallback()));
+  });
+}
+
+ipcMain.handle("env:refresh", () => envRegistryJob("env-refresh"));
 ipcMain.handle("env:repair", async (_e, id) => {
-  await Promise.resolve();
-  const result = id ? envRegistry.repairComponent(String(id)) : envRegistry.repairAll();
+  const result = await envRegistryJob("env-repair", id);
   send("env:repaired", result);
   return result;
 });

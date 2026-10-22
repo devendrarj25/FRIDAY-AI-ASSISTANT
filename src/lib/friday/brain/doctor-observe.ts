@@ -7,7 +7,7 @@
  */
 
 import { formatDoctorExtra, doctorSnapshot, type DoctorSession } from "../doctor-awareness";
-import { isProblem, isWarning } from "../doctor-engine";
+import { isProblemCheck, isWarning } from "../doctor-engine";
 
 const LOOK =
   /\b(look at (the |my )?(setup( and)? )?doctor|setup (and |& )?doctor|what(?:'s| is) on (the |my )?doctor|doctor (page|scan|report|log|checks?|session)|run (a )?(quick |deep )?doctor|quick doctor|deep doctor|auto diagnose|fix all safe|what did the doctor find|show (me )?(the )?doctor|scan now)\b/i;
@@ -31,7 +31,7 @@ export type DoctorObservation = {
 };
 
 export function observationFromDoctor(snap: DoctorSession): DoctorObservation {
-  const problems = snap.checks.filter((check) => isProblem(check.status)).length;
+  const problems = snap.checks.filter((check) => isProblemCheck(check)).length;
   const warnings = snap.checks.filter((check) => isWarning(check.status)).length;
   let summary: string;
   if (snap.scanning) {

@@ -121,6 +121,10 @@ describe("failure injection", () => {
     expect(off.find((row) => row.id === "sense:watching")?.status).toBe("Ready");
     expect(off.find((row) => row.id === "speaker:ecapa")?.status).toBe("Missing");
     expect(off.find((row) => row.id === "browser:page")?.fixable).toBe(false);
+    expect(off.find((row) => row.id === "browser:page")?.status).toBe("Ready");
+    expect(off.find((row) => row.id === "browser:page")?.detail).toContain(
+      "captcha stay a handoff",
+    );
     const on = waveCapabilityChecks({
       toggles: { senseForeground: true },
       consent: true,

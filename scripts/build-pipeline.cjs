@@ -494,8 +494,10 @@ function runPackagedSelfCheck(input = {}) {
     const speechOut = String((speech && speech.stdout) || "");
     const speechStatus = speech && speech.status;
     if (speechStatus !== 0 && !/skipped/i.test(speechOut)) {
+      // The tail names the cause (an import error, a missing DLL) in the build log.
+      const detail = speechOut.replace(/\s+/g, " ").trim().slice(-300);
       throw new Error(
-        `packaged self-check: stt-self-test failed (${speechStatus === null || speechStatus === undefined ? "no exit" : speechStatus})`,
+        `packaged self-check: stt-self-test failed (${speechStatus === null || speechStatus === undefined ? "no exit" : speechStatus})${detail ? `: ${detail}` : ""}`,
       );
     }
     lines.push(/skipped/i.test(speechOut) ? "stt-self-test skipped" : "stt-self-test ok");

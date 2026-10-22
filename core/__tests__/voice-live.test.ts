@@ -18,6 +18,7 @@ import {
   encodeWav,
   micWatch,
   PcmRing,
+  RING_MS,
   PRE_ROLL_MS,
   resetCaptureRing,
   segmentClock,
@@ -88,6 +89,52 @@ describe("pre-roll", () => {
     expect(heard[heard.length - 1]).toBeCloseTo(0.8);
     const wav = encodeWav(heard);
     expect(String.fromCharCode(...wav.slice(0, 4))).toBe("RIFF");
+  });
+});
+
+describe("utterance capture", () => {
+  it("keeps the whole utterance, not just the last 600 ms", () => {
+    const ring = new PcmRing(PRE_ROLL_MS);
+    // 5 s of 48 kHz speech in 128-sample worklet frames, then 1.3 s of silence.
+    const frame = new Float32Array(128);
+    let at = 1_000;
+    for (let n = 0; n < (48_000 * 5) / 128; n += 1) {
+      frame.fill(0.3);
+      ring.push(frame, at, 48_000);
+      at += (128 / 48_000) * 1000;
+    }
+    for (let n = 0; n < (48_000 * 1.3) / 128; n += 1) {
+      frame.fill(0);
+      ring.push(frame, at, 48_000);
+      at += (128 / 48_000) * 1000;
+    }
+    const heard = ring.takeSince(1_000 - PRE_ROLL_MS);
+    expect(heard.length).toBeGreaterThan(16_000 * 6);
+    expect(heard[0]).toBeCloseTo(0.3);
+    expect(ring.countSince(1_000 - PRE_ROLL_MS)).toBe(heard.length);
+    expect(ring.capacity).toBeGreaterThanOrEqual((16_000 * (20_000 + 1_500 + PRE_ROLL_MS)) / 1000);
+    expect(RING_MS).toBeGreaterThanOrEqual(20_000 + 1_500 + PRE_ROLL_MS);
+  });
+
+  it("averages when it downsamples, so a 24 kHz whine does not alias into speech", () => {
+    const ring = new PcmRing(PRE_ROLL_MS);
+    const whine = new Float32Array(4_800);
+    for (let i = 0; i < whine.length; i += 1) whine[i] = i % 2 === 0 ? 0.5 : -0.5;
+    ring.push(whine, 10, 48_000);
+    const out = ring.takeSince(0);
+    expect(out.length).toBe(1_600);
+    const peak = out.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
+    expect(peak).toBeLessThan(0.2);
+  });
+
+  it("returns only samples from the requested mark onward", () => {
+    const ring = new PcmRing(PRE_ROLL_MS);
+    ring.push(new Float32Array(1_600).fill(0.1), 100, 16_000);
+    ring.push(new Float32Array(1_600).fill(0.9), 200, 16_000);
+    const late = ring.takeSince(150);
+    expect(late.length).toBe(1_600);
+    expect(late[0]).toBeCloseTo(0.9);
+    expect(ring.takeSince(500).length).toBe(0);
   });
 });
 

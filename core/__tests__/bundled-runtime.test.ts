@@ -335,9 +335,14 @@ describe("bundled runtime", () => {
       },
     });
     expect(again.ok).toBe(true);
-    const rows = runtime.doctorRows(
-      runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools,
-    );
+    const tools = runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools;
+    // Each row names its own pack file, even when two tools share one folder.
+    for (const tool of tools) {
+      expect(String((tool as { source?: string }).source).replace(/\\/g, "/")).toContain(
+        layout.packRelative(tool.id),
+      );
+    }
+    const rows = runtime.doctorRows(tools);
     expect(rows.every((row) => row.status === "Ready")).toBe(true);
     expect(
       rows.every((row) => row.detail.includes("hash OK") && row.detail.includes("last run")),
@@ -353,6 +358,36 @@ describe("bundled runtime", () => {
       runtimeRoot,
     });
     expect(launched.command).toBe(path.join(runtimeRoot, "node", "node.exe"));
+  });
+
+  it("shows a staged, not yet extracted pack as the ready fallback, and a missing one as Missing", () => {
+    const rows = runtime.doctorRows([
+      {
+        id: "python-embed",
+        name: "CPython embeddable",
+        version: "3.12.10",
+        present: false,
+        proved: false,
+        hashOk: false,
+        source: "D:/F/App/resources/toolchain/python-embed/pack.bin",
+        lastRun: null,
+        manual: null,
+      },
+      {
+        id: "node-win",
+        name: "Node.js",
+        version: "22.23.3",
+        present: false,
+        proved: false,
+        hashOk: false,
+        source: null,
+        lastRun: null,
+        manual: null,
+      },
+    ] as never);
+    expect(rows[0]?.status).toBe("Ready");
+    expect(rows[0]?.detail).toContain("extracted on first use");
+    expect(rows[1]?.status).toBe("Missing");
   });
 
   it("keeps Doctor on Warning when the prove command is skipped", () => {

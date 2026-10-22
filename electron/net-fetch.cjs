@@ -83,6 +83,7 @@ async function fetchCompat(url, init = {}) {
     error.code = decision.code || "LOCAL_ONLY";
     throw error;
   }
+  let chromiumError = null;
   if (chromiumReady()) {
     try {
       return await electron.net.fetch(String(url), init);
@@ -91,17 +92,39 @@ async function fetchCompat(url, init = {}) {
       if (init?.signal?.aborted || error?.name === "AbortError") throw error;
       // Anything else (an unsupported option, a Chromium-side refusal) falls
       // back to Node's stack rather than reporting the provider as offline.
+      chromiumError = error;
     }
   }
   const { fetch: undiciFetch } = require("undici");
-  return undiciFetch(String(url), {
-    ...init,
-    dispatcher: init.dispatcher || nodeDispatcher(),
-  });
+  try {
+    return await undiciFetch(String(url), {
+      ...init,
+      dispatcher: init.dispatcher || nodeDispatcher(),
+    });
+  } catch (error) {
+    throw combinedNetworkError(chromiumError, error);
+  }
+}
+
+/**
+ * Node's own message is a bare "fetch failed". When Chromium also refused the
+ * request, its reason (net::ERR_PROXY_CONNECTION_FAILED, a certificate error)
+ * is the one the owner can act on, so it leads.
+ */
+function combinedNetworkError(chromiumError, nodeError) {
+  if (!chromiumError) return nodeError;
+  const nodeCause = nodeError?.cause?.code || nodeError?.cause?.message || nodeError?.message;
+  const error = new Error(
+    `${chromiumError.message || String(chromiumError)} (Node fallback: ${nodeCause || "fetch failed"})`,
+  );
+  error.cause = nodeError;
+  error.code = chromiumError.code || nodeError?.code;
+  return error;
 }
 
 module.exports = {
   fetchCompat,
+  combinedNetworkError,
   chromiumReady,
   nodeDispatcher,
   setEgressPolicy,

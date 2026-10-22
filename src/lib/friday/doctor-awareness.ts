@@ -10,7 +10,7 @@
 import {
   doctor,
   isHealthy,
-  isProblem,
+  isProblemCheck,
   isWarning,
   type DoctorCheck,
   type DoctorState,
@@ -115,7 +115,7 @@ export function filterChecks(
     .trim()
     .toLowerCase();
   return checks.filter((check) => {
-    if (filter === "problems" && !isProblem(check.status)) return false;
+    if (filter === "problems" && !isProblemCheck(check)) return false;
     if (filter === "warnings" && !isWarning(check.status)) return false;
     if (filter === "healthy" && !isHealthy(check.status)) return false;
     if (filter === "fixable" && !(check.fixable && !isHealthy(check.status))) return false;
@@ -136,7 +136,7 @@ export function summarizeDoctorProblems(checks: DoctorCheck[], maxLines = 12): s
   return checks
     .filter(
       (check) =>
-        isProblem(check.status) || isWarning(check.status) || check.repairKind === "needs-owner",
+        isProblemCheck(check) || isWarning(check.status) || check.repairKind === "needs-owner",
     )
     .slice(0, maxLines)
     .map((check) => `[${check.status}] ${check.label} — ${check.cause || check.detail}`)

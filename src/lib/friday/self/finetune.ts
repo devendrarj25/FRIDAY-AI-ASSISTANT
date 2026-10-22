@@ -72,6 +72,7 @@ type Bridge = {
   ) => Promise<{ ok: boolean; activeAdapter?: string | null; error?: string }>;
   finetuneRemove?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onFinetuneRun?: (fn: (run: FinetuneRun) => void) => () => void;
+  onFinetuneActive?: (fn: (payload: { activeAdapter: string | null }) => void) => () => void;
 };
 
 const bridge = (): Bridge | undefined =>
@@ -99,6 +100,10 @@ export const removeAdapter = (id: string) =>
   bridge()?.finetuneRemove?.(id) ?? Promise.resolve({ ok: false, error: NO_DESKTOP });
 
 export const onFinetuneRun = (fn: (run: FinetuneRun) => void) => bridge()?.onFinetuneRun?.(fn);
+
+/** The adapter switched (from this window or another). */
+export const onFinetuneActive = (fn: (payload: { activeAdapter: string | null }) => void) =>
+  bridge()?.onFinetuneActive?.(fn);
 
 /** Minimum verified examples before training is worth doing at all. */
 export const MIN_EXAMPLES = 8;

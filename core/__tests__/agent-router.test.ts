@@ -405,7 +405,20 @@ describe("agent router ledger", () => {
     resetAgentIndex();
     const runs = await routeAgents("use the inbox-agent please");
     expect(runs[0]!.ok).toBe(false);
+    expect(runs[0]!.skipped).toBe(true);
     expect(runs[0]!.detail).toMatch(/no plan\(\)\/run\(\)/);
+  });
+
+  it("a skipped role agent is not a tool failure in the chat turn", () => {
+    const brain = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/friday/brain/core-brain.ts"),
+      "utf8",
+    );
+    const loop = brain.slice(brain.indexOf("for (const agent of agentRuns)"));
+    const skip = loop.indexOf("if (agent.skipped)");
+    expect(skip).toBeGreaterThan(-1);
+    expect(skip).toBeLessThan(loop.indexOf("tools.push("));
+    expect(loop.slice(skip, loop.indexOf("tools.push("))).toContain("continue;");
   });
 
   it("dry-runs declared workflows after a successful plan", async () => {

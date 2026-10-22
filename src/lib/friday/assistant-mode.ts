@@ -56,7 +56,14 @@ import {
   type ListenStyle,
 } from "./push-to-talk";
 import { assessTone, type VoiceTone } from "./voice-tone";
-import { beginVoiceTurn, markTurnStage, turnTraceLine, voiceTurn } from "./voice-turn-trace";
+import {
+  beginVoiceTurn,
+  markTurnStage,
+  turnTraceLine,
+  voiceTurn,
+  whereItStopped,
+} from "./voice-turn-trace";
+import { registerVoiceHealth } from "./voice-health";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
@@ -70,7 +77,7 @@ import {
   statusWithVoice,
   stopSpeaking,
 } from "./voice-library";
-import { formatVoiceProbeReport } from "./voice-doctor";
+import { formatVoiceProbeReport, noteVoiceCheck } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
   approvalFresh,
@@ -340,7 +347,7 @@ type VoiceDesktop = {
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   onSystemResume?: (cb: () => void) => () => void;
   /** Real faster-whisper / edge-tts probes run by the main process. */
-  verifyVoiceRuntime?: (payload?: { loadModel?: boolean }) => Promise<{
+  verifyVoiceRuntime?: (payload?: { loadModel?: boolean; model?: string }) => Promise<{
     ok: boolean;
     python: string | null;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
@@ -1819,8 +1826,15 @@ class AssistantModeStore {
         diagnostics: report.diagnostics,
       };
     }
-    const result = await api.verifyVoiceRuntime({ loadModel: true });
+    // Verify the same speech model size the live worker uses.
+    const sttSize = preferences.getSnapshot().voice.sttSize;
+    const result = await api.verifyVoiceRuntime({
+      loadModel: true,
+      ...(sttSize && sttSize !== "auto" ? { model: sttSize } : {}),
+    });
     const report = formatVoiceProbeReport(result?.checks ?? []);
+    // Setup & Doctor reads these marks instead of "not checked".
+    noteVoiceCheck(result?.checks ?? []);
     if (!result?.ok) {
       const failed = report.checks.find((check) => !check.ok);
       this.applyVoiceHeal(failed?.detail || "stt-model-missing", true);
@@ -1909,6 +1923,7 @@ class AssistantModeStore {
         "dropped",
         dropLine("too-short", `"${text.trim()}" — too short and no verified speech signal`),
       );
+      markTurnStage("routed", false, "too short and no verified speech signal");
       this.state.interim = "";
       this.emit();
       return;
@@ -1925,6 +1940,7 @@ class AssistantModeStore {
       source: "voice",
     });
     if (repeat && !isStopCommand(corrected)) {
+      markTurnStage("routed", false, "unclear transcript — asked to repeat");
       this.caption("friday", repeat);
       this.speak(repeat);
       this.state.interim = "";
@@ -2018,6 +2034,7 @@ class AssistantModeStore {
     };
     if (foreignAssistant(text) && !matched) {
       this.trace("dropped", "addressed to another assistant");
+      markTurnStage("routed", false, "addressed to another assistant");
       this.remember("not-addressed", text, "ignored");
       this.noteAddress(text, {
         tag: "ambient",
@@ -2050,6 +2067,7 @@ class AssistantModeStore {
     if (decision.closeFollowUp) this.followUpUntil = 0;
     if (decision.tag === "self") {
       this.trace("dropped", "ignored FRIDAY's own voice (echo)");
+      markTurnStage("routed", false, "FRIDAY's own voice (echo)");
       this.to("transcript");
       this.emit();
       return;
@@ -2070,6 +2088,13 @@ class AssistantModeStore {
           : "no wake word, not awake, not a hands-free turn",
     );
     if (!accepted) {
+      markTurnStage(
+        "routed",
+        false,
+        microphoneAllowed(this.state.mode, this.state.paused)
+          ? `not meant for FRIDAY (${decision.tag}${decision.reason ? `: ${decision.reason}` : ""})`
+          : "listening is paused or not in Auto mode",
+      );
       this.to("wake-missed");
       this.state.status = "Say “FRIDAY …” to start";
       this.emit();
@@ -2078,6 +2103,7 @@ class AssistantModeStore {
     const command = (wake.matched ? wake.command : text).trim();
     if (wake.matched && !command && wakeOnCooldown(Date.now(), this.lastWakeAt)) {
       this.trace("dropped", "wake word repeated inside the cooldown");
+      markTurnStage("routed", false, "wake word repeated inside the cooldown");
       this.remember("wake-cooldown", text, "dropped");
       this.emit();
       return;
@@ -2089,6 +2115,7 @@ class AssistantModeStore {
     // go straight back to listening instead of sending "stop" to the brain.
     if (isStopCommand(text)) {
       this.trace("wake", "stop word — cancelling speech and the in-flight turn");
+      markTurnStage("routed", true, "", "stop word");
       this.cancelSpeech();
       this.state.status = "Stopped — listening";
       this.emit();
@@ -2796,6 +2823,29 @@ class AssistantModeStore {
 }
 
 export const assistantMode = new AssistantModeStore();
+
+// The self-check and a chat question about her voice read the live session.
+registerVoiceHealth(() => {
+  const live = assistantMode.getSnapshot();
+  const counts = hearingCounters();
+  return {
+    mode: live.mode,
+    listening: live.listening,
+    paused: live.paused,
+    micReady: live.micReady,
+    micDetail: live.mic.reason || live.mic.state || "",
+    sttReady: live.stt.ready,
+    sttModel: live.stt.model || "",
+    sttError: live.stt.lastError || "",
+    heard: counts.heard,
+    dropped: { ...counts.dropped },
+    droppedTotal: counts.droppedTotal,
+    ttsEngine: live.tts.engine || "",
+    ttsError: live.tts.lastError || "",
+    turnLine: turnTraceLine(voiceTurn()),
+    stoppedAt: whereItStopped(voiceTurn()),
+  };
+});
 
 bindVoiceSurface(() => {
   const live = assistantMode.getSnapshot();

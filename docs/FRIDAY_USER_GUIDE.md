@@ -58,6 +58,16 @@ This checklist is unverified until it is run on the owner's Windows PC. A Linux 
 
 ## Live listening
 
+The Auto mode bar has three groups.
+
+1. Status: the microphone state, speaking, and the running task.
+2. Listening: hands-free, hold to talk, pause or resume, reset microphone.
+3. Autonomy: Ask every time, Balanced, Full autonomy, and Stop everything.
+
+After those come Voice flow, any error with Fix voice, and WORKING or IDLE. Every control has an icon and one height. The FRIDAY graphic is unchanged.
+
+The Live captions strip has **diagnostics** and **pipeline** buttons. Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
+
 On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them. A finished clause is spoken while later tokens are still arriving. A failed turn is spoken as one sentence, and the chat text stays complete. A partial answer that already started is not spoken again.
 
 1. Auto mode on: Live Captions shows the mic live; speak 5 normal sentences, then a very short word, then a long paragraph: every one appears with the right tag, none is dropped, none shows "already active elsewhere".
@@ -199,6 +209,18 @@ Friday Hub (build/release dispatch, Revert Center), Import & Build (mixed intake
 | Chat empty / no models | Models page; local engine ports 11434 / 1234 / 8080 / 8000 |
 | Update not offered | Settings → Updates channel vs GitHub Latest; SHA256 mismatch refuses install |
 | TEST EXE vs Official | Different Windows appId — both can be installed |
+| Doctor: Recent errors in log | Counts real errors only. Kernel `INFO:` lines that uvicorn writes to stderr are logged at their own level. The scan reads the last 512 KB of the log |
+| Doctor: Internet connectivity or Cloud AI providers red while chat works | The checks use the same Chromium network stack as provider calls, with the Windows proxy and certificates. The internet check tries three hosts for 6 s each. A failing provider is re-probed once. One that answered a chat this session shows Warning, not Error. When both network stacks fail, the row names Chromium's error |
+| Doctor: Bundled runtime rows | A pack still inside the install is the fallback. It is extracted the first time no installed Python or Node is found, so a staged pack is Ready. Missing means the pack file itself is absent |
+| Doctor: Voice layers | Each layer is PASS or FAIL from the last voice check in Voice diagnostics and the live Auto session. Unchecked layers are one row with the steps to check them |
+| Doctor: Window and kernel watchdog | Warning only for a stall in the last 10 minutes. An older one shows as recovered |
+| Self-Management: issue count | An optional add-on that is not installed (Graphviz, D2, comtypes, llama.cpp, a bundled or on-demand toolchain pack, the speaker file) is one fact line, not a critical issue. Those rows read Install Manager's real detection, say "not checked yet" before Install Manager has scanned, and tell you to press Install. "Environment checks healthy" counts required checks only. The platform comes from the environment registry or the window, never the "browser" placeholder. The architecture index skips imports written inside template strings (generated scripts), Vite `?url` and `?inline` suffixes, and test fixtures. Its saved copy is rebuilt once (schema 3) |
+| Status: environment rows inside the installed app | Node.js is the Node built into FRIDAY.exe. Electron, its dependencies, and the interface bundle are inside the installed app. Installed FRIDAY is the running exe. The registry never spawns FRIDAY.exe to read a version; that used to start another FRIDAY |
+| Status: Connections (wiring) | In the installed app, routes and capability barrels are compiled into the bundle, so Kernel and Pages read "in bundle" and the barrel check is skipped. A page rendered inside another page (the visual builder in Workflows) is reachable |
+| Status: local provider "no answer within N s" | That engine is not running, or is still loading. It replaced "This operation was aborted" |
+| Kernel log | Routine lines for every loopback socket and `/health` poll are left out, so real errors stay in the tail. `FRIDAY_KERNEL_VERBOSE_LOG=1` keeps every line |
+| Routing sync row | The planner leads with a pinned model only when it can answer on this PC. The shipped `qwen2.5-32b` default is a placeholder until it is installed |
+| Doctor: Content Security Policy | The status bar network meter's three hosts are allowed in `connect-src`. Any other violation still shows |
 
 ## 7. Conversation research (2026-10-09)
 
