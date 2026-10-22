@@ -1,5 +1,5 @@
 /**
- * FRIDAY · Manual-mode chat level
+ * FRIDAY · Manual-mode chat level and Auto-mode voice window level
  *
  * The main window chat has three levels:
  *   1 Compact   — today's layout: the full live graphic, the last 4 messages.
@@ -9,6 +9,12 @@
  * The level is one small shared store so the main window layout and the chat
  * dock read the same value without polling. It is remembered on this PC under
  * one key; a corrupt or unknown stored value falls back to Compact.
+ *
+ * The Auto (voice) window has its own three levels on the same rules, saved
+ * under a second key:
+ *   1 Compact    — the large live graphic, the last two caption lines.
+ *   2 Expanded   — the graphic scaled to the room left, the full caption box.
+ *   3 Transcript — no graphic: the voice control bar and a centred transcript.
  */
 import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import { readLocalState, writeState } from "./persist";
@@ -68,6 +74,13 @@ export function followsLatest(
   return next.last !== prev.last && next.lastRole === "user";
 }
 
+/** Never take Alt+digit from someone typing in a field. */
+export function isTypingTarget(target: unknown): boolean {
+  const el = target as { tagName?: unknown; isContentEditable?: unknown } | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  return el.isContentEditable === true || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+}
+
 /** Alt+1 / Alt+2 / Alt+3 inside the chat region. Anything else is not ours. */
 export function levelForKey(event: {
   altKey: boolean;
@@ -84,12 +97,15 @@ export function levelForKey(event: {
 
 export type ChatLevelIO = { read: () => unknown; write: (level: ChatLevel) => void };
 
-const defaultIO: ChatLevelIO = {
-  read: () => (typeof window === "undefined" ? null : readLocalState<unknown>(CHAT_LEVEL_KEY)),
-  write: (level) => writeState(CHAT_LEVEL_KEY, level),
-};
+/** Storage for one level key. Reads nothing during server render. */
+export function levelIO(key: string): ChatLevelIO {
+  return {
+    read: () => (typeof window === "undefined" ? null : readLocalState<unknown>(key)),
+    write: (level) => writeState(key, level),
+  };
+}
 
-export function createChatLevelStore(io: ChatLevelIO = defaultIO) {
+export function createChatLevelStore(io: ChatLevelIO = levelIO(CHAT_LEVEL_KEY)) {
   let level: ChatLevel = DEFAULT_CHAT_LEVEL;
   let loaded = false;
   const listeners = new Set<() => void>();
@@ -131,6 +147,33 @@ export function createChatLevelStore(io: ChatLevelIO = defaultIO) {
 }
 
 export const chatLevel = createChatLevelStore();
+
+export const VOICE_LEVEL_KEY = "friday.voice.level.v1";
+export const VOICE_LEVEL_LABELS: Record<ChatLevel, string> = {
+  1: "Compact",
+  2: "Expanded",
+  3: "Transcript",
+};
+export const voiceLevel = createChatLevelStore(levelIO(VOICE_LEVEL_KEY));
+
+export function useVoiceLevel(): ChatLevel {
+  return useSyncExternalStore(
+    voiceLevel.subscribe,
+    voiceLevel.getSnapshot,
+    voiceLevel.getServerSnapshot,
+  );
+}
+
+/**
+ * The voice level on screen. The owner's saved choice wins, except that the
+ * caption box FRIDAY expands for code, long text or a long list
+ * (assistantMode.expanded) lifts Compact to Expanded for that moment without
+ * saving it. Transcript is never left by that.
+ */
+export function voiceDisplayLevel(saved: ChatLevel, expanded: boolean): ChatLevel {
+  if (saved === 3) return 3;
+  return saved === 2 || expanded ? 2 : 1;
+}
 
 export function useChatLevel(): ChatLevel {
   return useSyncExternalStore(
@@ -185,18 +228,7 @@ export function secondaryFit(width: number): number {
  * on the toolbar row (disconnected on unmount); no polling.
  */
 export function useToolbarFit(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([entry]) => {
-      const next = Math.round(entry?.contentRect.width ?? 0);
-      setWidth((prev) => (prev === next ? prev : next));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return secondaryFit(width);
+  return secondaryFit(useMeasuredWidth(ref));
 }
 
 /**
@@ -224,4 +256,74 @@ export function circuitFitScale(stageW: number, stageH: number, viewportH: numbe
   const need = circuitDesignSize(viewportH);
   const scale = Math.min(1, stageH / need.height, stageW / need.width);
   return Math.max(0.3, Math.floor(scale * 1000) / 1000);
+}
+
+/**
+ * Auto mode's large graphic: readout lines hide first (circuitReadoutLines).
+ * When even a box with no readout lines cannot fit its slot, or the mark
+ * would reach the boxes, the whole graphic scales down as one piece.
+ * Large boxes need ~86px a slot (6 slots over 86% of the height); the mark's
+ * rings and logo are capped by the viewport height.
+ */
+const LARGE_SLOT_PX = 86;
+const LARGE_BOX_HALF_WIDTH_PX = 108; // w-[13.5rem] / 2
+const LARGE_INNER_BOX_EDGE = 0.38; // the box columns sit at 12% / 88%
+
+export function largeCircuitDesignSize(viewportH: number): { width: number; height: number } {
+  const vh = viewportH > 0 ? viewportH : 680;
+  const ring = Math.min(600, 0.52 * vh);
+  const orb = Math.min(310, 0.27 * vh);
+  return {
+    height: Math.ceil(Math.max((LARGE_SLOT_PX * 6) / 0.86, ring + 16, orb + 2 * (64 + 50) + 16)),
+    width: Math.ceil(
+      Math.max(640, (ring / 2 + LARGE_BOX_HALF_WIDTH_PX + BOX_GAP_PX) / LARGE_INNER_BOX_EDGE),
+    ),
+  };
+}
+
+export function largeCircuitFitScale(stageW: number, stageH: number, viewportH: number): number {
+  if (!(stageW > 0) || !(stageH > 0)) return 1;
+  const need = largeCircuitDesignSize(viewportH);
+  const scale = Math.min(1, stageH / need.height, stageW / need.width);
+  return Math.max(0.3, Math.floor(scale * 1000) / 1000);
+}
+
+/* Voice control bar widths in px, estimated from the rendered HUD chips at
+   font-mono 10px, h-6, px-2. Below VOICE_LABELS_MIN_WIDTH the buttons show
+   icons only (styles.css, the same width as a 48rem container). */
+export const VOICE_LABELS_MIN_WIDTH = 768;
+/** Never moves into More: mic chip, listen and speak buttons, the dial, Stop everything, the level switch. */
+export const VOICE_FIXED_WIDTH = { labelled: 900, iconOnly: 420 };
+/** Secondary tools in order: Voice flow, Voice settings, Diagnostics, Pipeline. */
+export const VOICE_SECONDARY_WIDTHS = {
+  labelled: [86, 104, 98, 82],
+  iconOnly: [30, 30, 30, 30],
+};
+
+/** How many secondary voice tools fit in the bar; the rest go into More. */
+export function voiceBarFit(width: number, count: number): number {
+  const n = Math.max(0, Math.min(count, VOICE_SECONDARY_WIDTHS.labelled.length));
+  if (!(width > 0)) return n;
+  const labelled = width >= VOICE_LABELS_MIN_WIDTH;
+  // Labelled bars wrap onto a second row (as they always have), so only an
+  // icon-only bar that still runs out of room moves tools into More.
+  if (labelled) return n;
+  const widths = VOICE_SECONDARY_WIDTHS.iconOnly.slice(0, n);
+  return toolbarFit(widths, width - VOICE_FIXED_WIDTH.iconOnly, MORE_WIDTH);
+}
+
+/** Measured width of an element, from one ResizeObserver; no polling. */
+export function useMeasuredWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.round(entry?.contentRect.width ?? 0);
+      setWidth((prev) => (prev === next ? prev : next));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
 }

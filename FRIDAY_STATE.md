@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/chat-window-levels`, voice window levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3284 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, microphone, mouse, or GPU check. |
 | Branch `upgrade/chat-window-levels`, chat levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3268 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
 | Branch `fix/build-stt-self-test`, Doctor fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 391 files, 3219 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test`, voice fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 390 files, 3209 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
@@ -126,6 +127,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Auto mode voice window levels (Compact, Expanded, Transcript) are covered by Linux render and source tests only. The large-graphic scale at 1080x680, hover labels, the More menu, glass, hold to talk with a real mouse, and a real microphone and speech at each level have not been checked on the Windows EXE. They are unverified until the owner checks. At the window minimum the large graphic now scales down when its boxes cannot fit, so Compact is smaller there than before (it used to overlap).
+
 - Manual chat levels (Compact, Expanded, Full chat) are covered by Linux source and render tests only. The Expanded graphic scale, hover labels, cursor, glass, and the More menu at 1080x680 have not been seen on the Windows EXE, with a real mouse or GPU. They are unverified until the owner checks.
 
 - PR Validation's kernel job on `main` at the merge of #73 failed `test_self_test_runs_under_the_embeddable_python_rules`: the runner's self-test answered `ok: false`, while a clean Python 3.12 venv with the CI requirements answers a model-missing skip and passes 240 kernel tests. The test now asserts the import it guards and prints the payload when it fails. The runner's own reason stays unverified until the owner's next PR Validation run shows it.
@@ -195,6 +198,19 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Owner checks for the voice window levels, on the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Compact shows the full logo and current flow plus 2 caption lines.
+   2. Expanded shrinks the graphic with no overlap at 1080x680.
+   3. Transcript shows no graphic, but the mic chip and Stop everything stay visible.
+   4. The level survives a restart.
+   5. Hands-free, hold to talk, pause, reset mic and mute each work by mouse.
+   6. Ctrl+Space and Ctrl+Alt+Space still work.
+   7. Say "Friday, what time is it" at each level and read the reply.
+   8. A long answer streams smoothly at each level.
+   9. The confirmation card works at level 3.
+   10. Switch to Manual chat and back. Nothing is lost.
+   11. The cursor is a pointer on buttons and never sticks.
+   Not built yet: a Stop speaking button (assistant-mode exposes no public stop-playback method; barge-in and Stop everything already stop speech, and adding one means changing speech code); a live mic level meter on the control bar (the only meter is inside Voice diagnostics, mounted while open).
 0. Owner checks for the chat levels, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Compact (1) shows the full logo and the current flow.
    2. Expanded (2) shrinks the graphic with no overlap at 1080x680.

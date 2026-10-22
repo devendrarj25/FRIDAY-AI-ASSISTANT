@@ -100,10 +100,16 @@ describe("Manual chat levels: Compact, Expanded, Full chat", () => {
     const auto = source("src/components/friday/AutoMode.tsx");
     expect(auto).toContain("<NeuralCircuit large onSelectNode={selectCircuitNode} />");
     expect(auto).not.toContain("useChatLevel");
-    expect(circuit).toContain("!large && fit");
+    // Manual scales only when asked (fit); Auto hides readout lines first and
+    // scales only when a bare box still cannot fit.
+    expect(circuit).toContain("maxDetails === 0");
+    expect(circuit).toContain("largeCircuitFitScale(stageW, stageH, viewportH)");
+    expect(circuit).toContain(": fit\n      ? circuitFitScale(stageW, stageH, viewportH)");
     const large = renderToStaticMarkup(createElement(NeuralCircuit, { large: true }));
     expect(large).not.toContain("neural-circuit-compact");
-    expect(large).not.toContain("origin-top-left");
+    // Unmeasured (static render): no scale, the graphic fills its stage.
+    expect(large).toContain("width:100%;height:100%");
+    expect(large).not.toContain("transform:scale(");
     expect(large).toContain(
       'class="neural-circuit relative isolate size-full overflow-hidden rounded-lg"',
     );

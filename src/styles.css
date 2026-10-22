@@ -837,3 +837,99 @@ html.no-glow .friday-chat-full {
     transition: none;
   }
 }
+
+/* Auto (voice) window: levels, grouped control bar, cursor and glass.
+   Voice window only; built from the existing tokens. */
+.voice-bar {
+  container: voice-bar / inline-size;
+}
+
+/* A narrow bar keeps every icon. The label text stays in the DOM right after
+   its icon (screen readers and tests read it); it is only hidden here and
+   slides out, overlaid, on hover or keyboard focus. Width and opacity only. */
+@container voice-bar (max-width: 48rem) {
+  .voice-btn {
+    position: relative;
+    gap: 0;
+    font-size: 0;
+  }
+  .voice-btn::after {
+    content: attr(data-label);
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    z-index: 30;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    translate: -50% 0;
+    border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+    border-radius: 0.25rem;
+    background: var(--color-card);
+    color: var(--color-foreground);
+    padding: 0.125rem 0;
+    font-size: 10px;
+    line-height: 1.2;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      max-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      padding 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .voice-btn:hover::after,
+  .voice-btn:focus-visible::after {
+    max-width: 14rem;
+    padding: 0.125rem 0.375rem;
+    opacity: 1;
+  }
+  /* The autonomy dial clips its own box; its buttons keep their title. */
+  [aria-label="Autonomy"] .voice-btn::after {
+    display: none;
+  }
+}
+
+/* Cursor: a pointer on every control and the size switch, not-allowed on a
+   disabled control, a text cursor over selectable captions, and never a
+   caret or move cursor over the graphic. */
+.friday-voice button:disabled {
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+.friday-voice .voice-level-switch button,
+.friday-voice .voice-btn {
+  cursor: pointer;
+}
+.friday-voice .voice-captions,
+.friday-voice aside {
+  cursor: text;
+  user-select: text;
+}
+.friday-voice .voice-captions button {
+  cursor: pointer;
+  user-select: none;
+}
+.friday-voice .neural-circuit {
+  cursor: default;
+  user-select: none;
+}
+
+/* Glass: translucency comes from hud-panel and --friday-panel-opacity at
+   every level. Blur only at Transcript, where nothing animates behind it,
+   and on the voice More menu. */
+.voice-glass,
+.voice-glass-menu {
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+html.no-glow .voice-glass,
+html.no-glow .voice-glass-menu {
+  backdrop-filter: none;
+  background: var(--color-card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-btn::after,
+  .friday-voice .hud-panel {
+    transition: none;
+  }
+}

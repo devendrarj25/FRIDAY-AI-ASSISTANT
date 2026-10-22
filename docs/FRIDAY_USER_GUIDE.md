@@ -58,15 +58,24 @@ This checklist is unverified until it is run on the owner's Windows PC. A Linux 
 
 ## Live listening
 
-The Auto mode bar has three groups.
+The Auto mode bar has four groups.
 
-1. Status: the microphone state, speaking, and the running task.
-2. Listening: hands-free, hold to talk, pause or resume, reset microphone.
-3. Autonomy: Ask every time, Balanced, Full autonomy, and Stop everything.
+1. Listen: the microphone chip (listening, paused, off, or error), hands-free, hold to talk, pause or resume, reset microphone.
+2. Speak: speaking while FRIDAY talks, and Mute voice in the Transcript size.
+3. Safety: Ask every time, Balanced, Full autonomy, and Stop everything.
+4. Tools: Voice flow, Voice settings (opens Settings, Voice), and in the Transcript size Diagnostics and Pipeline.
 
-After those come Voice flow, any error with Fix voice, and WORKING or IDLE. Every control has an icon and one height. The FRIDAY graphic is unchanged.
+After those come any error with Fix voice, the running task, and WORKING or IDLE. Every control has an icon, a name, and one height. On a narrow window the names hide behind the icons and slide out when you point at a button or tab to it; tools that still do not fit go into **More**. The microphone chip and **Stop everything** never hide.
 
-The Live captions strip has **diagnostics** and **pipeline** buttons. Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
+The voice window has three sizes. Pick them on the captions strip (**Compact**, **Expanded**, **Transcript**), or press Alt+1, Alt+2 or Alt+3 while you are in the voice window and not typing in a box. The choice is remembered after a restart.
+
+1. **Compact**: the full FRIDAY graphic and the last two caption lines.
+2. **Expanded**: the whole caption history, with the graphic shrunk to the room left so nothing overlaps. FRIDAY opens this size herself for code, long text, or a long list; your saved choice stays as it was.
+3. **Transcript**: no graphic. The control bar sits on top, the conversation is centred with you on the right and FRIDAY on the left, and copy, clear, delete heard, follow and the session numbers sit underneath. A confirmation card shows inside the conversation. Scroll up to read and following stops; **Jump to latest** brings it back.
+
+Ctrl+Space (in this window) and Ctrl+Alt+Space (anywhere) still work for hold to talk at every size.
+
+The Live captions strip has **diagnostics** and **pipeline** buttons (on the bar in the Transcript size). Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button or Esc closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
 
 On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them. A finished clause is spoken while later tokens are still arriving. A failed turn is spoken as one sentence, and the chat text stays complete. A partial answer that already started is not spoken again.
 

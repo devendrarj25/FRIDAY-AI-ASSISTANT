@@ -12,12 +12,20 @@ import {
   clampChatLevel,
   createChatLevelStore,
   followsLatest,
+  isTypingTarget,
+  largeCircuitDesignSize,
+  largeCircuitFitScale,
   levelForKey,
+  levelIO,
   nextChatLevel,
   previousChatLevel,
   secondaryFit,
   toolbarFit,
   visibleMessages,
+  VOICE_LEVEL_KEY,
+  VOICE_LEVEL_LABELS,
+  voiceBarFit,
+  voiceDisplayLevel,
   type ChatLevel,
 } from "../../src/lib/friday/chat-level";
 
@@ -229,5 +237,85 @@ describe("Expanded graphic scale", () => {
     expect(small.height * 0.13).toBeGreaterThanOrEqual(38);
     const tall = circuitDesignSize(1600);
     expect(tall.height).toBeGreaterThanOrEqual(420 + 16);
+  });
+});
+
+describe("voice window level", () => {
+  it("is saved under its own key, separate from the chat level", () => {
+    expect(VOICE_LEVEL_KEY).toBe("friday.voice.level.v1");
+    expect(VOICE_LEVEL_KEY).not.toBe(CHAT_LEVEL_KEY);
+    expect(VOICE_LEVEL_LABELS).toEqual({ 1: "Compact", 2: "Expanded", 3: "Transcript" });
+    // Server render: no window, nothing is read.
+    expect(levelIO(VOICE_LEVEL_KEY).read()).toBeNull();
+  });
+
+  it("keeps the two stores independent on shared storage", () => {
+    const disk = new Map<string, unknown>();
+    const io = (key: string) => ({
+      read: () => disk.get(key),
+      write: (level: ChatLevel) => void disk.set(key, level),
+    });
+    const chat = createChatLevelStore(io(CHAT_LEVEL_KEY));
+    const voice = createChatLevelStore(io(VOICE_LEVEL_KEY));
+    voice.set(3);
+    expect(chat.getSnapshot()).toBe(1);
+    chat.set(2);
+    expect(createChatLevelStore(io(VOICE_LEVEL_KEY)).getSnapshot()).toBe(3);
+    expect(createChatLevelStore(io(CHAT_LEVEL_KEY)).getSnapshot()).toBe(2);
+    disk.set(VOICE_LEVEL_KEY, "garbage");
+    expect(createChatLevelStore(io(VOICE_LEVEL_KEY)).getSnapshot()).toBe(1);
+  });
+
+  it("lets FRIDAY lift Compact to Expanded for a moment, never out of Transcript", () => {
+    expect(voiceDisplayLevel(1, false)).toBe(1);
+    expect(voiceDisplayLevel(1, true)).toBe(2);
+    expect(voiceDisplayLevel(2, false)).toBe(2);
+    expect(voiceDisplayLevel(2, true)).toBe(2);
+    expect(voiceDisplayLevel(3, false)).toBe(3);
+    expect(voiceDisplayLevel(3, true)).toBe(3);
+  });
+
+  it("never takes Alt+digit from a text field", () => {
+    expect(isTypingTarget({ tagName: "INPUT" })).toBe(true);
+    expect(isTypingTarget({ tagName: "TEXTAREA" })).toBe(true);
+    expect(isTypingTarget({ tagName: "SELECT" })).toBe(true);
+    expect(isTypingTarget({ tagName: "DIV", isContentEditable: true })).toBe(true);
+    expect(isTypingTarget({ tagName: "BUTTON" })).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
+    expect(isTypingTarget({})).toBe(false);
+  });
+
+  it("moves voice tools into More only when an icon-only bar runs out of room", () => {
+    expect(voiceBarFit(0, 4)).toBe(4);
+    expect(voiceBarFit(1200, 4)).toBe(4);
+    expect(voiceBarFit(768, 2)).toBe(2);
+    expect(voiceBarFit(700, 4)).toBe(4);
+    expect(voiceBarFit(480, 4)).toBeLessThan(4);
+    expect(voiceBarFit(300, 4)).toBe(0);
+    let last = voiceBarFit(300, 4);
+    for (let w = 300; w < 768; w += 9) {
+      expect(voiceBarFit(w, 4)).toBeGreaterThanOrEqual(last);
+      last = voiceBarFit(w, 4);
+    }
+  });
+
+  it("scales Auto's large graphic only when a bare box cannot fit, keeping it inside the stage", () => {
+    const need = largeCircuitDesignSize(680);
+    // Six slots of 86px over 86% of the height.
+    expect(need.height).toBeGreaterThanOrEqual(600);
+    expect(largeCircuitFitScale(need.width, need.height, 680)).toBe(1);
+    expect(largeCircuitFitScale(2000, 1200, 680)).toBe(1);
+    expect(largeCircuitFitScale(0, 0, 680)).toBe(1);
+    for (const [w, h, vh] of [
+      [1000, 260, 680],
+      [900, 420, 680],
+      [700, 500, 1080],
+    ] as const) {
+      const scale = largeCircuitFitScale(w, h, vh);
+      const size = largeCircuitDesignSize(vh);
+      expect(scale).toBeLessThan(1);
+      expect(size.height * scale).toBeLessThanOrEqual(h + 0.5);
+      expect(size.width * scale).toBeLessThanOrEqual(w + 0.5);
+    }
   });
 });

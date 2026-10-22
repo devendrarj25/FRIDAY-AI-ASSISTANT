@@ -33,7 +33,7 @@ import {
   resetVoiceRenderRate,
   voiceDebugOn,
 } from "@/lib/friday/voice-doctor";
-import { circuitFitScale } from "@/lib/friday/chat-level";
+import { circuitFitScale, largeCircuitFitScale } from "@/lib/friday/chat-level";
 import { cn } from "@/lib/utils";
 
 /**
@@ -253,6 +253,10 @@ const ComponentBox = memo(function ComponentBox({
  * `fit` (Manual chat level 2, Expanded) scales the compact graphic down as one
  * piece when its stage is shorter than the graphic needs, so boxes and the
  * mark never touch. At full size it lays out exactly like Compact.
+ *
+ * The Auto Mode stage (`large`) fits itself: readout lines hide first, and
+ * only when a box with no readout lines still cannot fit does the whole
+ * graphic scale down as one piece. Same wires, same current, same mark.
  */
 export const NeuralCircuit = memo(function NeuralCircuit({
   large = false,
@@ -289,13 +293,19 @@ export const NeuralCircuit = memo(function NeuralCircuit({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const scale =
-    !large && fit && typeof window !== "undefined"
-      ? circuitFitScale(stageW, stageH, window.innerHeight)
-      : 1;
   // Slot pitch = 82% of the canvas spread across 6 gaps; a box needs ~62px of
   // chrome plus ~13px per readout line, and 10px of breathing room.
   const maxDetails = circuitReadoutLines(stageH, large, heldLines);
+  // Auto Mode hides readout lines first; only when a bare box still cannot
+  // fit does the whole graphic scale down. Manual scales only when asked.
+  const viewportH = typeof window !== "undefined" ? window.innerHeight : 0;
+  const scale = large
+    ? maxDetails === 0
+      ? largeCircuitFitScale(stageW, stageH, viewportH)
+      : 1
+    : fit
+      ? circuitFitScale(stageW, stageH, viewportH)
+      : 1;
   if (maxDetails !== heldLines) setHeldLines(maxDetails);
   // Auto Mode boxes are much taller (they carry real readouts), so they are
   // laid out as two fixed-slot columns: evenly spaced, never overlapping.
@@ -448,24 +458,20 @@ export const NeuralCircuit = memo(function NeuralCircuit({
       )}
     >
       <span className="panel-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
-      {large ? (
-        graphic
-      ) : (
-        <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={
-            scale < 1
-              ? {
-                  width: stageW / scale,
-                  height: stageH / scale,
-                  transform: `scale(${scale})`,
-                }
-              : { width: "100%", height: "100%" }
-          }
-        >
-          {graphic}
-        </div>
-      )}
+      <div
+        className="absolute left-0 top-0 origin-top-left"
+        style={
+          scale < 1
+            ? {
+                width: stageW / scale,
+                height: stageH / scale,
+                transform: `scale(${scale})`,
+              }
+            : { width: "100%", height: "100%" }
+        }
+      >
+        {graphic}
+      </div>
 
       {/* Manual mode keeps the corner badge. Auto Mode parks the same badge
           on the HUD row so it cannot sit on the Verification box. */}
