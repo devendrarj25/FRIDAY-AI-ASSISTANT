@@ -2029,6 +2029,7 @@ class AssistantModeStore {
       followUpOpen: Date.now() < this.followUpUntil,
       lastSpoken: this.spokenText,
       recentlySpeaking: this.recentlySpeaking(),
+      recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
     });
     // A push-to-talk turn is addressed by the key press itself: no wake word.
     if (this.listenStyle() === "push-to-talk" && decision.tag !== "self") {

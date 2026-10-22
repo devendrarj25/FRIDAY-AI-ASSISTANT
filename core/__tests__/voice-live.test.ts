@@ -119,6 +119,33 @@ describe("captions and addressing", () => {
     expect(rows[0]?.count).toBe(3);
   });
 
+  it("in meant-for-me, answers talk about her work, but not unrelated chatter", () => {
+    const recentWork = "I saved the quarterly sales report in Documents and emailed the summary";
+    const about = decideAddressing({
+      text: "the quarterly sales report needs one more chart",
+      mode: "meant-for-me",
+      recentWork,
+    });
+    expect(about).toMatchObject({ tag: "addressed", answer: true, reason: "about-her-work" });
+    const her = decideAddressing({
+      text: "usne kya kiya batao",
+      mode: "meant-for-me",
+    });
+    expect(her.answer).toBe(true);
+    expect(her.reason).toBe("about-her");
+    const chatter = decideAddressing({
+      text: "the weather was nice yesterday",
+      mode: "meant-for-me",
+      recentWork,
+    });
+    expect(chatter.answer).toBe(false);
+    // Conversation mode keeps today's rule: a mention of her work is not a turn on its own.
+    expect(
+      decideAddressing({ text: "the quarterly sales report needs one more chart", recentWork })
+        .answer,
+    ).toBe(false);
+  });
+
   it("answers a name, a follow-up, and not a weekday or someone else", () => {
     expect(decideAddressing({ text: "FRIDAY, kal ka schedule batao" }).tag).toBe("addressed");
     expect(decideAddressing({ text: "hey friday" }).reason).toBe("name");

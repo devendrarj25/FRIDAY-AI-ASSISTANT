@@ -153,8 +153,8 @@ describe("ComfyUI local runner", () => {
   });
 
   it("the chat tool makes an image from a prompt with the first checkpoint", async () => {
-    const previous = process.env.FRIDAY_COMFYUI_ENDPOINT;
-    process.env.FRIDAY_COMFYUI_ENDPOINT = base;
+    const previous = process.env["FRIDAY_COMFYUI_ENDPOINT"];
+    process.env["FRIDAY_COMFYUI_ENDPOINT"] = base;
     historyCalls = 0;
     try {
       expect(await comfy.checkpoints()).toEqual(["sdxl_base.safetensors"]);
@@ -172,8 +172,8 @@ describe("ComfyUI local runner", () => {
       expect(missing.reason).toMatch(/no checkpoint named/);
       expect((await tool.run({ prompt: "  " })).reason).toMatch(/what the image should show/);
     } finally {
-      if (previous === undefined) delete process.env.FRIDAY_COMFYUI_ENDPOINT;
-      else process.env.FRIDAY_COMFYUI_ENDPOINT = previous;
+      if (previous === undefined) delete process.env["FRIDAY_COMFYUI_ENDPOINT"];
+      else process.env["FRIDAY_COMFYUI_ENDPOINT"] = previous;
     }
   });
 });
