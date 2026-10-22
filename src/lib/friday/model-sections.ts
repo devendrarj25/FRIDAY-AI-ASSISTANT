@@ -144,3 +144,16 @@ export function knowledgeLine(row: {
     ? `${row.id}: ${row.basis}, ${when}`
     : `${row.id}: ${row.basis}, cached ${ageWords(row.ageMs)}. Refresh is due; proven-free models stay free until it runs.`;
 }
+
+/** Runner id in config/local-runners.json -> package name in the Install Manager catalog. */
+const RUNNER_PACKAGE: Record<string, string> = {
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  llamacpp: "llama.cpp",
+  jan: "Jan",
+  localai: "LocalAI",
+};
+
+export function runnerPackage(runnerId: string): string {
+  return RUNNER_PACKAGE[runnerId] ?? "";
+}
