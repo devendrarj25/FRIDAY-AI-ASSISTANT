@@ -328,3 +328,65 @@ describe("panel headers get an icon from the title vocabulary", () => {
     expect(iconForTitle("Zebra")).toBeNull();
   });
 });
+
+describe("responsive, motion and performance contracts", () => {
+  const css = read("src/styles.css");
+
+  it("adds no timers, frame loops or polling in the design layer", () => {
+    for (const file of [
+      "src/components/friday/ui.tsx",
+      "src/components/friday/button-icons.ts",
+      "src/components/ui/button.tsx",
+      "src/lib/friday/appearance.ts",
+      "src/components/friday/settings/AppearanceSettings.tsx",
+    ]) {
+      const text = read(file);
+      expect(text, file).not.toContain("setInterval");
+      expect(text, file).not.toContain("requestAnimationFrame");
+    }
+  });
+
+  it("animates only transform and opacity, and Reduce motion makes it instant", () => {
+    const keyframes = [
+      ...css.matchAll(/@keyframes (friday-(?:mode-enter|nav-bar)) \{([\s\S]*?)\n\}/g),
+    ];
+    expect(keyframes.length).toBe(2);
+    for (const [, name, body] of keyframes) {
+      const props = [...(body ?? "").matchAll(/^\s*([a-z-]+):/gm)].map((m) => m[1]);
+      expect(
+        props.every((p) => p === "transform" || p === "opacity"),
+        name,
+      ).toBe(true);
+    }
+    expect(css).toMatch(
+      /html\.no-motion \*,\s*html\.no-motion \*::before,\s*html\.no-motion \*::after \{[\s\S]*?transition-duration: 0\.001ms !important;/,
+    );
+    expect(css).toContain("html.no-motion .page-enter {\n  animation: none;\n}");
+    expect(css).toContain("html.no-motion .nav-active-bar {\n  animation: none;\n}");
+  });
+
+  it("keeps blur switchable and off the animated graphic panels", () => {
+    expect(css).toContain("@utility glass-backdrop-blur {");
+    expect(css).toContain(
+      'html.no-blur [class*="backdrop-blur"] { backdrop-filter: none !important; }',
+    );
+    // The Auto stage and the Manual graphic panel are translucent, never blurred.
+    expect(read("src/components/friday/AutoMode.tsx")).toContain(
+      '"hud-panel relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg"',
+    );
+    expect(read("src/routes/index.tsx")).toContain(
+      '"hud-panel relative min-h-0 flex-1 overflow-hidden rounded-lg rounded-b-none border-b-0"',
+    );
+    expect(css).not.toMatch(/\.hud-panel[^{]*\{[^}]*backdrop-filter/);
+  });
+
+  it("keeps the app inside the no-drag region with the cursor rules", () => {
+    expect(css).toContain(".friday-interactive-region button:disabled,");
+    expect(css).toMatch(/\.friday-interactive-region button:disabled,[\s\S]*?cursor: not-allowed;/);
+    expect(css).toContain(".friday-select-text,\n.friday-select-text * {\n  cursor: text;");
+    expect(css).toContain("caret-color: transparent;");
+    expect(read("src/components/friday/AppShell.tsx")).toContain(
+      'className="friday-interactive-region flex min-h-0 flex-1"',
+    );
+  });
+});
