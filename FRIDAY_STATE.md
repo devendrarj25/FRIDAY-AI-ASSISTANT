@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `fix/build-stt-self-test` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 389 files, 3195 passed, 4 skipped; kernel 237 passed, 2 skipped; pyright ceiling, lint, typecheck, docs, version, provenance, actionlint, arrange, deps, audit, renderer pass. NSIS, verify-build, and installer smoke skipped on Linux. `python -I kernel/stt.py --self-test` fails on the old file and exits 0 with JSON on the new one. `pip download` for `win_amd64`: ctranslate2 4.8.3 has a `cp314` wheel and no `cp315` one. PowerShell was not available to parse `installer/build/install-python.ps1`. |
 | Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
 | Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
 | `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
@@ -121,6 +122,8 @@ These look like bugs. They are not. Do not "fix" them.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 
 ## Known gaps (honest)
+
+- Release `v1.1.3.4` was prepared and merged into `main` on 2026-10-22 and is not published. FRIDAY Release run 39794578719 failed in publish, Prepare the build environment: the runner's Python 3.15 had no ctranslate2 wheel. Setup and the installer helper now prefer the newest installed series at or below `pythonWheelProven` (3.14) and take a newer series once a pip dry run proves its kernel wheels. The local `npm run build:win` stop at `stt-self-test failed (1)` was the embeddable Python not finding `voice_runtime`; `kernel/stt.py` now adds its own folder. A hosted FRIDAY Release, a Windows CMD pack, and the installer helper on Windows are unverified until the owner runs them. The release pull request's own PR Validation `startup_failure` (actor `github-actions[bot]`) is expected and documented.
 
 - Push-to-talk, the ComfyUI client and image tool, the meant-for-me work mentions, and the new document formats are tested on Linux (unit tests, a fake ComfyUI HTTP server, ZIP fixtures built in the test). The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
 

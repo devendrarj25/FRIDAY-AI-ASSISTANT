@@ -8,6 +8,12 @@
  *
  * Policy: minimum version is a FLOOR (config/toolchain-versions.json).
  * Any newer stable CPython is detected, reused and never downgraded.
+ *
+ * A brand-new CPython series often reaches a machine before every binary
+ * wheel the kernel needs (ctranslate2 for faster-whisper, for example). The
+ * newest series known to have those wheels is `pythonWheelProven`. Setup still
+ * takes a newer series as soon as pip proves the kernel requirements install
+ * from wheels on it; until then an installed proven series is used instead.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -19,6 +25,7 @@ const versions = JSON.parse(
   fs.readFileSync(path.join(root, "config", "toolchain-versions.json"), "utf8"),
 );
 const MINIMUM = versions.pythonMinimum;
+const WHEEL_PROVEN = versions.pythonWheelProven || "3.14";
 
 const parts = (v) =>
   String(v || "")
@@ -34,6 +41,9 @@ function compare(left, right) {
 }
 /** Floor check: >= minimum passes, newer stable releases always pass. */
 const isSupported = (version, minimum = MINIMUM) => !!version && compare(version, minimum) >= 0;
+/** True when the version's series is at or below the wheel-proven series. */
+const isWheelProven = (version, proven = WHEEL_PROVEN) =>
+  !!version && compare(parts(version).slice(0, 2).join("."), proven) <= 0;
 
 /**
  * The environment FRIDAY actually runs on.
@@ -239,13 +249,86 @@ function candidates() {
   return list;
 }
 
-/** First installed interpreter that satisfies the floor, or null. */
-function discoverPython() {
-  for (const [exe, prefix] of candidates()) {
-    const found = probe(exe, prefix);
-    if (found) return found;
+/**
+ * Ask pip, without installing anything, whether every kernel requirement has a
+ * binary wheel for this interpreter. Used only for a series newer than the
+ * wheel-proven one. No pip, no network, or a missing wheel all answer false.
+ */
+function requiredWheelsPublished(executable) {
+  const requirements = path.join(root, "kernel", "requirements.txt");
+  if (!exists(requirements)) return false;
+  const r = capture(
+    executable,
+    [
+      "-m",
+      "pip",
+      "install",
+      "--dry-run",
+      "--quiet",
+      "--ignore-installed",
+      "--only-binary=:all:",
+      "--disable-pip-version-check",
+      "-r",
+      requirements,
+    ],
+    { timeout: 300000 },
+  );
+  return r.status === 0;
+}
+
+/**
+ * Pick one interpreter from probed candidates, in candidate order.
+ * FRIDAY_PYTHON and an existing venv are explicit and always win. Otherwise the
+ * first newer-than-proven interpreter wins only when `wheelCheck` passes; a
+ * proven series is next; a newer series without proof is the last resort.
+ */
+function choosePython(found, { wheelCheck = null, proven = WHEEL_PROVEN } = {}) {
+  let unproven = null;
+  const checked = new Set();
+  for (const item of found) {
+    if (!item) continue;
+    if (item.explicit || isWheelProven(item.version, proven)) return item;
+    if (checked.has(item.executable)) continue;
+    checked.add(item.executable);
+    if (wheelCheck && wheelCheck(item.executable)) return { ...item, wheelsProven: true };
+    if (!unproven) unproven = item;
   }
-  return null;
+  return unproven;
+}
+
+/**
+ * Best installed interpreter that satisfies the floor, or null.
+ * `wheelCheck` is passed by setup; Doctor and the registry stay offline.
+ */
+function discoverPython({ wheelCheck = null } = {}) {
+  const found = [];
+  for (const [exe, prefix] of candidates()) {
+    const hit = probe(exe, prefix);
+    if (!hit) continue;
+    const explicit = exe === process.env.FRIDAY_PYTHON || exe === venvPython;
+    const item = { ...hit, explicit };
+    // An explicit or proven interpreter ends the scan; later ones are older.
+    if (explicit || isWheelProven(hit.version)) {
+      found.push(item);
+      break;
+    }
+    found.push(item);
+  }
+  const chosen = choosePython(found, { wheelCheck });
+  // Only setup (which passes wheelCheck) prints; the registry reads stdout.
+  if (!wheelCheck) return chosen;
+  if (chosen && !chosen.explicit && !isWheelProven(chosen.version)) {
+    log(
+      chosen.wheelsProven
+        ? `Python ${chosen.version} is newer than ${WHEEL_PROVEN} and pip proved its kernel wheels`
+        : `Python ${chosen.version} is newer than ${WHEEL_PROVEN}; no proven series is installed, so it is used`,
+    );
+  } else if (chosen && found.some((item) => !item.explicit && !isWheelProven(item.version))) {
+    log(
+      `Python ${chosen.version} chosen: a newer installed series has no published wheels yet for every kernel requirement`,
+    );
+  }
+  return chosen;
 }
 
 // ------------------------------------------------------------------ install
@@ -261,7 +344,9 @@ function latestOfficialVersion() {
   ]);
   if (r.status !== 0 || !r.stdout) return null;
   const found = [...r.stdout.matchAll(/href="(\d+\.\d+\.\d+)\//g)].map((m) => m[1]);
-  const stable = found.filter((v) => isSupported(v));
+  // Only a wheel-proven series: python.org lists a new series folder from its
+  // first alpha, and a new series can lack the kernel's binary wheels.
+  const stable = found.filter((v) => isSupported(v) && isWheelProven(v));
   if (!stable.length) return null;
   return stable.sort(compare).pop();
 }
@@ -421,7 +506,7 @@ function installPython() {
     const ok = result && [0, 3010, 1638, -1978335189, -1978335135].includes(result.status);
     // Re-scan after every attempt: a partial install may still register a
     // usable interpreter that the previous sweep could not see.
-    const found = discoverPython();
+    const found = discoverPython({ wheelCheck: requiredWheelsPublished });
     if (found) return found;
     console.error(
       `[friday] method failed: ${method.label} (exit ${result ? result.status : "spawn error"}${ok ? ", but no interpreter found" : ""})`,
@@ -432,7 +517,7 @@ function installPython() {
 
 /** Discover a supported Python, installing one from official sources if needed. */
 function ensurePython({ install = true } = {}) {
-  const found = discoverPython();
+  const found = discoverPython({ wheelCheck: requiredWheelsPublished });
   if (found) return found;
   if (!install) return null;
   return installPython();
@@ -440,6 +525,7 @@ function ensurePython({ install = true } = {}) {
 
 module.exports = {
   MINIMUM,
+  WHEEL_PROVEN,
   root,
   win,
   venvDir,
@@ -448,6 +534,9 @@ module.exports = {
   CAPABILITY_PACKAGES,
   compare,
   isSupported,
+  isWheelProven,
+  choosePython,
+  requiredWheelsPublished,
   probe,
   windowsInstalledPythons,
   discoverPython,

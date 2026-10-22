@@ -2,6 +2,7 @@
   "nodeMinimum": "22.19.0",
   "npmMinimum": "10.9.0",
   "pythonMinimum": "3.12.10",
+  "pythonWheelProven": "3.14",
   "sqliteMinimum": "3.45.3",
   "gitMinimum": "2.49.0",
   "powershellMinimum": "7.5.0",

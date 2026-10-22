@@ -535,6 +535,61 @@ describe("build pipeline", () => {
     expect(detail).toContain("node ok");
   });
 
+  it("runs the speech self-test with the bundled Python and names why it failed", () => {
+    const checker = pipeline as unknown as {
+      runPackagedSelfCheck: (input: Record<string, unknown>) => string;
+    };
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "friday-stt-check-"));
+    const unpack = path.join(root, "win-unpacked");
+    const body = Buffer.from("pack-bytes");
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
+    const manifest = {
+      budgetBytes: 1000,
+      packs: ["python-embed", "whisper-cpp"].map((id) => ({
+        id,
+        tier: "bundled",
+        sha256: sha,
+        bytes: body.length,
+        license: "MIT",
+      })),
+    };
+    for (const rel of [
+      "resources/toolchain/python-embed/pack.bin",
+      "resources/speech/whisper-cpp/pack.bin",
+    ]) {
+      const file = path.join(unpack, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, body);
+    }
+    const stt = path.join(unpack, "resources/kernel/stt.py");
+    fs.mkdirSync(path.dirname(stt), { recursive: true });
+    fs.writeFileSync(stt, "");
+    const run = (speech: { status: number; stdout: string }, workDir: string) =>
+      checker.runPackagedSelfCheck({
+        platform: "win32",
+        unpackDir: unpack,
+        root,
+        manifest,
+        workDir: path.join(root, workDir),
+        extract: (_pack: string, dest: string) => {
+          if (dest.endsWith("python")) fs.writeFileSync(path.join(dest, "python.exe"), "");
+          else fs.writeFileSync(path.join(dest, "whisper-cli.exe"), "");
+        },
+        runner: (probe: { name: string; command?: string[]; expect?: string }) => {
+          if (probe.name !== "stt-self-test") return { status: 0, stdout: probe.expect || "ok" };
+          expect(probe.command?.slice(1)).toEqual([stt, "--self-test"]);
+          return speech;
+        },
+      });
+    expect(run({ status: 0, stdout: '{"ok": true}' }, "ok")).toContain("stt-self-test ok");
+    expect(run({ status: 1, stdout: '{"skipped": "no model"}' }, "skip")).toContain(
+      "stt-self-test skipped",
+    );
+    expect(() =>
+      run({ status: 1, stdout: "ModuleNotFoundError: No module named 'voice_runtime'" }, "broken"),
+    ).toThrow(/stt-self-test failed \(1\): .*voice_runtime/);
+  });
+
   it("names the official and test differences and keeps new checks in the pipeline", () => {
     const release = fs.readFileSync(path.join(ROOT, ".github/workflows/release.yml"), "utf8");
     const testBuild = fs.readFileSync(path.join(ROOT, ".github/workflows/test-build.yml"), "utf8");

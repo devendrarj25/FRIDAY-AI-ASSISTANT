@@ -30,7 +30,14 @@ import tempfile
 import wave
 from pathlib import Path
 
-import voice_runtime
+# The packaged self-check and the speech worker run this file with the bundled
+# embeddable Python. Its ._pth file means the script folder is not on sys.path,
+# so the sibling voice_runtime module must be added explicitly.
+_KERNEL_DIR = str(Path(__file__).resolve().parent)
+if _KERNEL_DIR not in sys.path:
+    sys.path.insert(0, _KERNEL_DIR)
+
+import voice_runtime  # noqa: E402
 
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.

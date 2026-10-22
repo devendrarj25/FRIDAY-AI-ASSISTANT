@@ -91,7 +91,7 @@ log(`using Python: ${python}`);
 const pyVersion = capture(python, ["-c", "import sys; print(sys.version.split()[0])"]);
 if (pyVersion.status === 0) {
   log(
-    `resolved Python ${String(pyVersion.stdout || "").trim()} (floor >=${versions.pythonMinimum}; newer versions are reused)`,
+    `resolved Python ${String(pyVersion.stdout || "").trim()} (floor >=${versions.pythonMinimum}; a newer series is reused once its kernel wheels are published)`,
   );
 }
 
