@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `fix/build-stt-self-test`, Doctor fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 391 files, 3219 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test`, voice fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 390 files, 3209 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 389 files, 3195 passed, 4 skipped; kernel 237 passed, 2 skipped; pyright ceiling, lint, typecheck, docs, version, provenance, actionlint, arrange, deps, audit, renderer pass. NSIS, verify-build, and installer smoke skipped on Linux. `python -I kernel/stt.py --self-test` fails on the old file and exits 0 with JSON on the new one. `pip download` for `win_amd64`: ctranslate2 4.8.3 has a `cp314` wheel and no `cp315` one. PowerShell was not available to parse `installer/build/install-python.ps1`. |
 | Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
@@ -123,6 +124,16 @@ These look like bugs. They are not. Do not "fix" them.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 
 ## Known gaps (honest)
+
+- Owner's 2026-10-22 Doctor report (installed app v1.1.2.4) was mostly false alarms, now fixed on this branch:
+  - 382 "errors" were uvicorn `INFO:` lines.
+  - "No outbound connection" and Gemini/OpenRouter "fetch failed" came from Node's fetch and a 2.5 s single-host ping, while chat answered through OpenRouter.
+  - The CSP warnings were the status bar network meter's own hosts.
+  - Bundled packs read Missing although they are an unextracted fallback.
+  - The 12 voice warnings were never given results.
+  - A single event-loop lag stayed a Warning for the whole session.
+  - Whether Gemini and OpenRouter probes pass through Chromium on that PC is unverified until the owner rescans after rebuilding.
+  - PowerShell 7 and Tesseract OCR are really not installed (Install Manager). The speaker-match file stays optional.
 
 - Owner's 2026-10-22 voice test: 21 of 22 live utterances were dropped as `vad kept 0 ms`, because the PCM ring held 600 ms and each segment was its trailing silence. The ring now holds 30 s, and a test pins a 5 s utterance. The self-tests now use the live model folder. Prompt echoes are dropped. The turn trace names why a heard line was not routed. Chat answers voice questions from the live session, and the Voice Agent role match is a skip. All of this ran on Linux tests only. Live hearing on the owner's microphone is unverified until step 0 below runs.
 

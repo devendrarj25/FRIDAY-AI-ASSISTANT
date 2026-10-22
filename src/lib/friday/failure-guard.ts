@@ -224,9 +224,11 @@ export function waveCapabilityChecks(input: WaveSnapshot = {}): WaveCheck[] {
       id: "browser:page",
       label: "Browser page agent",
       group: "Desktop",
-      status: "Warning",
+      // Nothing is wrong: the agent waits for a task. Its limits are facts,
+      // not a fault, so this row is not a standing warning.
+      status: "Ready",
       detail:
-        "A live page was not driven. A host off the allow list, a login, a payment, and a captcha stay a handoff. Repair does not edit the allow list.",
+        "Waits for a task; this scan did not drive a page. A host off the allow list, a login, a payment, and a captcha stay a handoff. Repair does not edit the allow list.",
       fix: "Keep the allow list as you set it.",
       fixable: false,
     },

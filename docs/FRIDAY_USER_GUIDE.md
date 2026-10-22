@@ -199,6 +199,12 @@ Friday Hub (build/release dispatch, Revert Center), Import & Build (mixed intake
 | Chat empty / no models | Models page; local engine ports 11434 / 1234 / 8080 / 8000 |
 | Update not offered | Settings → Updates channel vs GitHub Latest; SHA256 mismatch refuses install |
 | TEST EXE vs Official | Different Windows appId — both can be installed |
+| Doctor: Recent errors in log | Counts real errors only. Kernel `INFO:` lines that uvicorn writes to stderr are logged at their own level. The scan reads the last 512 KB of the log |
+| Doctor: Internet connectivity or Cloud AI providers red while chat works | The checks use the same Chromium network stack as provider calls, with the Windows proxy and certificates. The internet check tries three hosts for 6 s each. A failing provider is re-probed once. One that answered a chat this session shows Warning, not Error. When both network stacks fail, the row names Chromium's error |
+| Doctor: Bundled runtime rows | A pack still inside the install is the fallback. It is extracted the first time no installed Python or Node is found, so a staged pack is Ready. Missing means the pack file itself is absent |
+| Doctor: Voice layers | Each layer is PASS or FAIL from the last voice check in Voice diagnostics and the live Auto session. Unchecked layers are one row with the steps to check them |
+| Doctor: Window and kernel watchdog | Warning only for a stall in the last 10 minutes. An older one shows as recovered |
+| Doctor: Content Security Policy | The status bar network meter's three hosts are allowed in `connect-src`. Any other violation still shows |
 
 ## 7. Conversation research (2026-10-09)
 

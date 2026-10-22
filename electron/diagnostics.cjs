@@ -13,7 +13,7 @@ const net = require("net");
 const path = require("path");
 const { execFile } = require("child_process");
 
-const { detectTools, run, which, ping, pool } = require("./toolchain.cjs");
+const { detectTools, run, which, anyReachable, pool } = require("./toolchain.cjs");
 const project = require("./project.cjs");
 const { resolvePython } = require("./python.cjs");
 const resourcePaths = require("./resource-paths.cjs");
@@ -46,6 +46,67 @@ const check = (o) => ({
 
 /** A paid/cloud key the provider refused — FRIDAY must not rotate or invent one. */
 const REJECTED_KEY = /rejected|401|403|invalid.?key|incorrect api key|unauthorized/i;
+
+/** The last `bytes` of a log, without reading a large file into memory on the main thread. */
+function readLogTail(file, bytes) {
+  const size = fs.statSync(file).size;
+  const length = Math.min(size, bytes);
+  const fd = fs.openSync(file, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, size - length);
+    const text = buffer.toString("utf8");
+    // Drop a first line that the cut started in the middle of.
+    return size > length ? text.slice(text.indexOf("\n") + 1) : text;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Python logging and uvicorn write every level to stderr. The line's own
+ * level decides: "INFO:     connection open" is information, not an error.
+ */
+function kernelLogLevel(line, stream = "stderr") {
+  const text = String(line || "").trimStart();
+  const tagged = /^(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b[:\s]/i.exec(text);
+  if (tagged) {
+    const level = tagged[1].toUpperCase();
+    if (level === "DEBUG" || level === "INFO") return "info";
+    if (level === "WARNING" || level === "WARN") return "warn";
+    return "error";
+  }
+  return stream === "stdout" ? "info" : "error";
+}
+
+/** A logged line that is a real error, not a kernel INFO line written to stderr. */
+function isErrorLogLine(line) {
+  const text = String(line || "");
+  if (!/error|exception|traceback|failed/i.test(text)) return false;
+  if (
+    /Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available|ignored late shutdown callback/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  // Older logs stored kernel stderr at [error] whatever its level.
+  const kernel = /\[error\]\s+kernel\s+(.*)$/i.exec(text);
+  if (kernel && kernelLogLevel(kernel[1]) !== "error") return false;
+  return true;
+}
+
+/** Provider ids whose model answered a routed chat ("openrouter:openrouter/free" -> openrouter). */
+function answeredProviders(routerHealth) {
+  const decisions = Array.isArray(routerHealth?.decisions) ? routerHealth.decisions : [];
+  const out = new Set();
+  for (const row of decisions) {
+    if (!/^ok\b/i.test(String(row?.outcome || ""))) continue;
+    const id = String(row?.modelId || "").split(":")[0];
+    if (id) out.add(id);
+  }
+  return out;
+}
 
 function keyRejected(error) {
   return REJECTED_KEY.test(String(error || ""));
@@ -97,6 +158,13 @@ async function processCount(namePattern) {
 }
 
 /* ------------------------------------------------------------------ checks */
+
+/** Reachability targets for the Internet check. Any one answering is online. */
+const NETWORK_PROBES = [
+  "https://registry.npmjs.org/-/ping",
+  "https://www.gstatic.com/generate_204",
+  "https://cloudflare.com/cdn-cgi/trace",
+];
 
 async function runDiagnostics(ctx = {}, { deep = false } = {}) {
   const {
@@ -446,6 +514,10 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
   // real state visible, and `applyFix("cloud-providers")` repairs it with the
   // provider's own documented endpoints — never by touching the owner's keys.
   const cloud = await inspectCloudProviders();
+  // A provider that answered a real chat in this session is reachable; a
+  // failed probe is then a probe problem, not an outage.
+  const answered = answeredProviders(ctx.routerHealth);
+  const answeredBroken = cloud.broken.filter((p) => answered.has(p.id));
   const rejected = cloud.broken.filter((p) => keyRejected(p.error));
   const retryableBroken = cloud.broken.filter((p) => !keyRejected(p.error));
   const cloudSteps = [];
@@ -477,7 +549,8 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
       status: !cloud.configured.length
         ? "Ready"
         : cloud.broken.length
-          ? cloud.broken.length === cloud.configured.length
+          ? cloud.broken.length === cloud.configured.length &&
+            answeredBroken.length < cloud.broken.length
             ? "Error"
             : "Warning"
           : "Ready",
@@ -485,7 +558,10 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
         ? "no cloud provider key connected"
         : cloud.broken.length
           ? `${cloud.working.length}/${cloud.configured.length} connected provider(s) answering · failing: ${cloud.broken
-              .map((p) => `${p.name} (${p.error})`)
+              .map(
+                (p) =>
+                  `${p.name} (${p.error})${answered.has(p.id) ? " — but it answered a chat in this session" : ""}`,
+              )
               .join(", ")}`
           : `${cloud.working.length} connected provider(s) answering · ${cloud.models} model(s)`,
       cause: cloud.broken.length
@@ -724,14 +800,17 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
   });
 
   // --- network --------------------------------------------------------------
-  const online = await ping("https://registry.npmjs.org/-/ping", 2500);
+  // Three independent hosts, the same network stack provider calls use.
+  const online = await anyReachable(NETWORK_PROBES, 6000);
   checks.push(
     check({
       id: "network",
       label: "Internet connectivity",
       group: "Network",
       status: online ? "Ready" : "Warning",
-      detail: online ? "registry.npmjs.org reachable" : "no outbound connection",
+      detail: online
+        ? "outbound HTTPS reachable"
+        : `no outbound connection (${NETWORK_PROBES.map((url) => new URL(url).hostname).join(", ")} did not answer in 6 s)`,
       cause: online ? null : "Downloads, updates and cloud providers will fail.",
       fix: online ? null : "Check your connection, proxy or firewall rules.",
       steps: online
@@ -749,14 +828,10 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
   // --- crashes / errors -----------------------------------------------------
   if (logPath && exists(logPath)) {
     try {
-      const text = fs.readFileSync(logPath, "utf8").split(/\r?\n/).slice(-400);
-      const errors = text.filter(
-        (l) =>
-          /error|exception|traceback|failed/i.test(l) &&
-          !/Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available|ignored late shutdown callback/i.test(
-            l,
-          ),
-      );
+      const text = readLogTail(logPath, 512 * 1024)
+        .split(/\r?\n/)
+        .slice(-400);
+      const errors = text.filter(isErrorLogLine);
       checks.push(
         check({
           id: "crashes",
@@ -868,19 +943,26 @@ async function inspectCloudProviders() {
   const configured = Object.keys(modelsApi.CLOUD).filter(
     (id) => keys[id] || (modelsApi.CLOUD[id].env && process.env[modelsApi.CLOUD[id].env]),
   );
-  const results = await Promise.all(
-    configured.map(async (id) => {
-      const probe = await modelsApi.testProvider(id, { userData: store });
-      return {
-        id,
-        name: modelsApi.CLOUD[id].name || id,
-        online: Boolean(probe.online),
-        models: probe.models || 0,
-        latencyMs: probe.latencyMs ?? null,
-        error: probe.error || null,
-      };
-    }),
-  );
+  const probeOne = async (id) => {
+    const probe = await modelsApi.testProvider(id, { userData: store });
+    return {
+      id,
+      name: modelsApi.CLOUD[id].name || id,
+      online: Boolean(probe.online),
+      models: probe.models || 0,
+      latencyMs: probe.latencyMs ?? null,
+      error: probe.error || null,
+    };
+  };
+  const results = await Promise.all(configured.map(probeOne));
+  // A network failure during a busy scan is re-probed once, alone. A rejected
+  // key is not: asking again cannot change the answer.
+  for (let i = 0; i < results.length; i += 1) {
+    const row = results[i];
+    if (row.online || keyRejected(row.error)) continue;
+    const again = await probeOne(row.id);
+    results[i] = again.online ? again : { ...again, error: again.error || row.error };
+  }
   return {
     configured,
     results,
@@ -1276,4 +1358,9 @@ module.exports = {
   healCloudProviders,
   keyRejected,
   kernelOwnerSteps,
+  kernelLogLevel,
+  isErrorLogLine,
+  answeredProviders,
+  NETWORK_PROBES,
+  readLogTail,
 };

@@ -355,6 +355,36 @@ describe("bundled runtime", () => {
     expect(launched.command).toBe(path.join(runtimeRoot, "node", "node.exe"));
   });
 
+  it("shows a staged, not yet extracted pack as the ready fallback, and a missing one as Missing", () => {
+    const rows = runtime.doctorRows([
+      {
+        id: "python-embed",
+        name: "CPython embeddable",
+        version: "3.12.10",
+        present: false,
+        proved: false,
+        hashOk: false,
+        source: "D:/F/App/resources/toolchain/python-embed/pack.bin",
+        lastRun: null,
+        manual: null,
+      },
+      {
+        id: "node-win",
+        name: "Node.js",
+        version: "22.23.3",
+        present: false,
+        proved: false,
+        hashOk: false,
+        source: null,
+        lastRun: null,
+        manual: null,
+      },
+    ] as never);
+    expect(rows[0]?.status).toBe("Ready");
+    expect(rows[0]?.detail).toContain("extracted on first use");
+    expect(rows[1]?.status).toBe("Missing");
+  });
+
   it("keeps Doctor on Warning when the prove command is skipped", () => {
     const root = temp("friday-runtime-unproved-");
     const resources = path.join(root, "resources");

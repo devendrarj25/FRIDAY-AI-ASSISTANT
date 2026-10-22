@@ -2139,16 +2139,29 @@ async function probeTool(tool, freeze, installedPackages = "", root = "") {
   };
 }
 
+/**
+ * Reachability through the same network stack provider calls use (Chromium in
+ * the app: system proxy and Windows certificates). Node's bare fetch ignores
+ * both and called an online PC offline.
+ */
 async function ping(url, timeout = 1200) {
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), timeout);
   try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), timeout);
-    const res = await fetch(url, { signal: c.signal });
-    clearTimeout(t);
+    const res = await fetchCompat(url, { signal: c.signal });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(t);
   }
+}
+
+/** Online when any one of several independent hosts answers. */
+async function anyReachable(urls, timeout = 6000) {
+  const results = await Promise.all(urls.map((url) => ping(url, timeout)));
+  return results.some(Boolean);
 }
 
 async function pool(items, size, worker) {
@@ -2982,6 +2995,7 @@ function installerDir(root) {
 }
 
 module.exports = {
+  anyReachable,
   TOOLS,
   toolById,
   CATALOG_ALIAS,

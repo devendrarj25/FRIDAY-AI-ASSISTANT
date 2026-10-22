@@ -93,3 +93,38 @@ describe("a chat question about her own voice", () => {
     expect(text).not.toMatch(/agent/i);
   });
 });
+
+describe("Setup & Doctor voice layers", () => {
+  it("collapses unchecked layers into one row with real steps", async () => {
+    const { voiceLayerChecks } = await import("../../src/lib/friday/voice-doctor");
+    const rows = voiceLayerChecks({});
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe("voice:unchecked");
+    expect(rows[0]!.steps?.join(" ")).toMatch(/voice check/);
+  });
+
+  it("turns the last voice check and the live session into PASS and FAIL rows", async () => {
+    const { noteVoiceCheck, voiceDoctorMarks, voiceLayerChecks } =
+      await import("../../src/lib/friday/voice-doctor");
+    noteVoiceCheck([
+      { id: "python", ok: true },
+      { id: "stt-import", ok: true },
+      { id: "stt-model", ok: true },
+      { id: "stt-transcribe", ok: true, detail: "skipped: model-missing" },
+      { id: "hearing-level-0.5", ok: false, required: true, detail: "misheard" },
+      { id: "tts-voice", ok: true },
+    ]);
+    off = registerVoiceHealth(() => live({ heard: 3 }));
+    const marks = voiceDoctorMarks();
+    expect(marks.interpreter).toBe("pass");
+    expect(marks.model).toBe("pass");
+    // The failed hearing level wins over the live session's heard lines.
+    expect(marks.inference).toBe("fail");
+    expect(marks.permission).toBe("pass");
+    const rows = voiceLayerChecks(marks);
+    expect(rows.find((row) => row.id === "voice:inference")?.status).toBe("Error");
+    expect(rows.find((row) => row.id === "voice:interpreter")?.status).toBe("Ready");
+    expect(rows.find((row) => row.id === "voice:unchecked")?.detail).toContain("wake");
+    noteVoiceCheck([]);
+  });
+});

@@ -1382,12 +1382,15 @@ async function startKernel(root) {
   }
 
   // The last lines of kernel output make an unavailable kernel diagnosable.
+  const { kernelLogLevel } = require("./diagnostics.cjs");
   const forward = (level) => (chunk) => {
     const text = chunk.toString();
     if (level === "error") kernelStderr = `${kernelStderr}${text}`.slice(-2000);
     send("kernel:log", { level, text });
     for (const line of String(text).split(/\r?\n/)) {
-      if (line.trim()) telemetry.recordLog(level === "error" ? "error" : "info", "kernel", line);
+      // uvicorn writes INFO lines to stderr; each line keeps its own level.
+      const lineLevel = kernelLogLevel(line, level === "error" ? "stderr" : "stdout");
+      if (line.trim()) telemetry.recordLog(lineLevel, "kernel", line);
     }
     // Readiness owns one result file. Kernel text on this pipe can block the
     // main thread for the whole 5 minute budget.

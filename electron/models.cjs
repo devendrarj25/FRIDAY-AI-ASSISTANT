@@ -1679,7 +1679,7 @@ async function testProviderChat(
   if (!key) return { ok: false, id, category: "not-connected", detail: "no API key", usable: 0 };
   const urls = resolveEndpoints(userData, id);
   const started = Date.now();
-  const fetcher = fetchImpl || globalThis.fetch;
+  const fetcher = fetchImpl || fetchCompat;
   let listed = [];
   try {
     const listRes = await fetcher(urls.list || cloud.url, { headers: cloud.headers(key) });

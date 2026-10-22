@@ -77,7 +77,7 @@ import {
   statusWithVoice,
   stopSpeaking,
 } from "./voice-library";
-import { formatVoiceProbeReport } from "./voice-doctor";
+import { formatVoiceProbeReport, noteVoiceCheck } from "./voice-doctor";
 import {
   acceptsVoiceTurn,
   approvalFresh,
@@ -1833,6 +1833,8 @@ class AssistantModeStore {
       ...(sttSize && sttSize !== "auto" ? { model: sttSize } : {}),
     });
     const report = formatVoiceProbeReport(result?.checks ?? []);
+    // Setup & Doctor reads these marks instead of "not checked".
+    noteVoiceCheck(result?.checks ?? []);
     if (!result?.ok) {
       const failed = report.checks.find((check) => !check.ok);
       this.applyVoiceHeal(failed?.detail || "stt-model-missing", true);

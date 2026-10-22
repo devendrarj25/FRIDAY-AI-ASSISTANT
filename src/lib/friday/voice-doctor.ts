@@ -11,6 +11,7 @@ import { CLEAN_PC_SCRIPT, freshMachine, walkVoiceFlow } from "./voice-flow";
 import { voicePackReport } from "./voice-pack";
 import { voiceGate } from "./voice-audio";
 import { lastSpeechRoute } from "./voice-library";
+import { currentVoiceHealth } from "./voice-health";
 
 export const VOICE_LAYERS = [
   "interpreter",
@@ -30,32 +31,128 @@ export const VOICE_LAYERS = [
 export type VoiceLayer = (typeof VOICE_LAYERS)[number];
 export type LayerMark = "pass" | "fail" | "unknown";
 
-export function voiceLayerChecks(marks?: Partial<Record<VoiceLayer, LayerMark>>): {
+type VoiceLayerRow = {
   id: string;
   label: string;
   group: string;
   status: "Ready" | "Error" | "Warning";
   detail: string;
   fixable: false;
-}[] {
-  return VOICE_LAYERS.map((id) => {
+  steps?: string[];
+};
+
+/** Which voice-check row proves which layer. */
+const CHECK_LAYER: Array<[RegExp, VoiceLayer]> = [
+  [/^python$/, "interpreter"],
+  [/^stt-import$|^tts-import$/, "package"],
+  [/^stt-model$/, "model"],
+  [/^stt-transcribe$|^hearing-level-/, "inference"],
+  [/^tts-voice$/, "tts"],
+];
+
+let lastCheckMarks: Partial<Record<VoiceLayer, LayerMark>> = {};
+
+/**
+ * Remember the last real voice check (Voice diagnostics → voice check) as
+ * layer marks. A layer fails when any of its rows failed.
+ */
+export function noteVoiceCheck(
+  checks: ReadonlyArray<{ id: string; ok: boolean; required?: boolean; detail?: string }>,
+): Partial<Record<VoiceLayer, LayerMark>> {
+  const marks: Partial<Record<VoiceLayer, LayerMark>> = {};
+  for (const check of checks) {
+    const layer = CHECK_LAYER.find(([pattern]) => pattern.test(check.id))?.[1];
+    if (!layer) continue;
+    // A visible skip (no weights, no synthesiser) proves nothing either way.
+    if (check.ok && /^skipped/i.test(String(check.detail || ""))) continue;
+    if (!check.ok && check.required === false) continue;
+    marks[layer] = check.ok && marks[layer] !== "fail" ? "pass" : "fail";
+  }
+  if (marks.package === "pass") marks.pip = "pass";
+  if (marks.model === "pass") marks.worker = "pass";
+  lastCheckMarks = marks;
+  return marks;
+}
+
+/** Marks the running Auto session proves without a separate check. */
+export function liveVoiceMarks(
+  live: {
+    mode: string;
+    micReady: boolean;
+    sttReady: boolean;
+    ttsEngine: string;
+    ttsError: string;
+    heard: number;
+  } | null,
+): Partial<Record<VoiceLayer, LayerMark>> {
+  if (!live || live.mode !== "auto") return {};
+  const marks: Partial<Record<VoiceLayer, LayerMark>> = {};
+  if (live.micReady) {
+    marks.permission = "pass";
+    marks.device = "pass";
+    marks.exclusive = "pass";
+  }
+  if (live.sttReady) marks.worker = "pass";
+  if (live.heard > 0) marks.inference = "pass";
+  if (live.ttsEngine && live.ttsEngine !== "none" && !live.ttsError) {
+    marks.tts = "pass";
+    marks.output = "pass";
+  }
+  return marks;
+}
+
+/** The last voice check and the live session together. A failure wins over a pass. */
+export function voiceDoctorMarks(): Partial<Record<VoiceLayer, LayerMark>> {
+  const merged: Partial<Record<VoiceLayer, LayerMark>> = {
+    ...liveVoiceMarks(currentVoiceHealth()),
+  };
+  for (const [layer, mark] of Object.entries(lastCheckMarks) as Array<[VoiceLayer, LayerMark]>) {
+    merged[layer] = mark === "fail" || merged[layer] !== "fail" ? mark : "fail";
+  }
+  return merged;
+}
+
+/**
+ * One row per layer that passed or failed. Layers nobody has checked yet are
+ * one row that says how to check them, not twelve warnings.
+ */
+export function voiceLayerChecks(marks?: Partial<Record<VoiceLayer, LayerMark>>): VoiceLayerRow[] {
+  const rows: VoiceLayerRow[] = [];
+  const unchecked: VoiceLayer[] = [];
+  for (const id of VOICE_LAYERS) {
     const mark = marks?.[id] ?? "unknown";
-    const status = mark === "pass" ? "Ready" : mark === "fail" ? "Error" : "Warning";
-    const detail =
-      mark === "pass"
-        ? `${id} passed the last local check.`
-        : mark === "fail"
-          ? `${id} failed. Use Fix voice or Install Manager, then retry.`
-          : `${id} was not run on a live microphone or a live install.`;
-    return {
+    if (mark === "unknown") {
+      unchecked.push(id);
+      continue;
+    }
+    rows.push({
       id: `voice:${id}`,
       label: `Voice ${id}`,
       group: "Voice",
-      status,
-      detail,
+      status: mark === "pass" ? "Ready" : "Error",
+      detail:
+        mark === "pass"
+          ? `${id} passed the last local check.`
+          : `${id} failed. Use Fix voice or Install Manager, then retry.`,
       fixable: false,
-    };
-  });
+    });
+  }
+  if (unchecked.length) {
+    rows.push({
+      id: "voice:unchecked",
+      label: "Voice layers not checked yet",
+      group: "Voice",
+      status: "Warning",
+      detail: `${unchecked.join(", ")} — not checked in this session.`,
+      fixable: false,
+      steps: [
+        "Switch to Auto mode and open Voice diagnostics.",
+        "Press voice check. It loads the speech model and tests hearing and speaking on this PC.",
+        "Run Setup & Doctor again; each layer then shows PASS or the exact failure.",
+      ],
+    });
+  }
+  return rows;
 }
 
 export function voiceSelfTestPlan(): string[] {

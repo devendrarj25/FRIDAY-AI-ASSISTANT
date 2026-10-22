@@ -14,7 +14,7 @@ import { speechDoctorRows } from "./speech-core";
 import { liveSttFromStatus, rememberedLiveStt, sttLadderDoctor } from "./speech-stt";
 import { cachedSttStatus } from "./voice-stt";
 import { toolchainDoctorRows } from "./toolchain-manifest";
-import { voiceLayerChecks } from "./voice-doctor";
+import { voiceDoctorMarks, voiceLayerChecks } from "./voice-doctor";
 import { preferences } from "./preferences";
 
 export type DoctorStatus =
@@ -338,7 +338,7 @@ class DoctorStore {
         ...this.state.checks,
         await this.crossModeCheck(),
         ...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }),
-        ...voiceLayerChecks(),
+        ...voiceLayerChecks(voiceDoctorMarks()),
         ...sttLadderChecks(),
       ].map((check) => {
         const enriched = enrichCheck(check, this.triedIds);
@@ -707,7 +707,7 @@ function brainSurfaceChecks(): DoctorCheck[] {
   checks.push(...desktopUiaChecks());
   checks.push(...localLlamaChecks());
   checks.push(...waveCapabilityChecks({ toggles: preferences.getSnapshot().toggles }));
-  checks.push(...voiceLayerChecks());
+  checks.push(...voiceLayerChecks(voiceDoctorMarks()));
   checks.push(...speechDoctorRows());
   checks.push(...sttLadderChecks());
   checks.push(...toolchainDoctorRows());

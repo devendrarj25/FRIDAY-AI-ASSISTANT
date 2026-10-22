@@ -217,8 +217,26 @@ function stop() {
   freezeSince = 0;
 }
 
-function doctorCheck() {
+/** A stall older than this has recovered; it is history, not a standing warning. */
+const RECENT_STALL_MS = 10 * 60_000;
+
+function ago(ms) {
+  const minutes = Math.round(ms / 60_000);
+  return minutes < 1 ? "just now" : `${minutes} min ago`;
+}
+
+function doctorCheck(nowMs = Date.now()) {
   const latest = notes[0];
+  if (latest && nowMs - latest.at > RECENT_STALL_MS) {
+    return {
+      id: "watchdog:stall",
+      label: "Window and kernel watchdog",
+      group: "FRIDAY",
+      status: "Ready",
+      detail: `No stall in the last 10 minutes. Last: ${latest.kind}: ${latest.detail}, ${ago(nowMs - latest.at)}, recovered.`,
+      fixable: false,
+    };
+  }
   if (!latest) {
     return {
       id: "watchdog:stall",
@@ -235,7 +253,7 @@ function doctorCheck() {
     label: "Window and kernel watchdog",
     group: "FRIDAY",
     status: "Warning",
-    detail: `${latest.kind}: ${latest.detail}. Recovery owner: ${plan.owner} (${plan.action}).`,
+    detail: `${latest.kind}: ${latest.detail}, ${ago(nowMs - latest.at)}. Recovery owner: ${plan.owner} (${plan.action}).`,
     fixable: false,
   };
 }
