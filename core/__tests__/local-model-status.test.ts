@@ -86,4 +86,16 @@ describe("local model status says which fact is missing", () => {
     expect(page).toContain("startModelEngine(runner.id)");
     expect(readFileSync("electron/preload.cjs", "utf8")).toContain("models:local-status");
   });
+
+  it("installs a runner through the Install Manager only after a second click", () => {
+    const page = readFileSync("src/routes/models.tsx", "utf8");
+    expect(page).toContain("Click Install again to allow it");
+    expect(page).toContain('installer.enqueue(pkg, "install")');
+    const sections = readFileSync("src/lib/friday/model-sections.ts", "utf8");
+    const catalog = readFileSync("src/lib/friday/catalog.ts", "utf8");
+    for (const name of ["Ollama", "LM Studio", "llama.cpp", "Jan", "LocalAI"]) {
+      expect(sections).toContain(`"${name}"`);
+      expect(catalog).toContain(`"${name}"`);
+    }
+  });
 });

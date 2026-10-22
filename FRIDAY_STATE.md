@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
 | `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0, provider status stale false. |
 | `npm run verify:version` | Passed. `version 1.1.2.4 - all version sources and governed documents are in sync`. Heal check: `version 1.1.2.4 - release-ready, nothing to heal`. |
@@ -119,6 +120,9 @@ These look like bugs. They are not. Do not "fix" them.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 
 ## Known gaps (honest)
+
+- The readiness run above had no Whisper weights (VOICE reports a visible skip) and no cloud keys (CHAT used the fake local runner). Real provider calls, real speech, and Windows runner installs through the Install Manager (winget, direct download) are unverified here.
+- Not audited in this pass: PC-control tools against a real Windows desktop, web-search ladder against the live web, and each cloud provider's live list and chat. They need the owner's PC and keys.
 
 - Hearing: denoise scale was already fixed on `main`; this change added the single clip, the 4x loudness guard, one no-speech constant with the confidence rule, drop codes and counters, and the spoken self-test. Whether those fix the owner's silent mic on real speech is unverified until step 0.1 runs on Windows.
 - Pricing: proven-free models now outlive the 14-day table age. Risk accepted by the owner direction: a provider that moves a model from free to paid is caught by the daily refresh, a live probe, or a billing-required error, not by age. The old `pricing:status` EXPIRED exit still reports source age and still exits 1 for an old source.

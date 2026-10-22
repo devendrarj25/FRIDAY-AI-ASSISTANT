@@ -24,6 +24,7 @@ const { execFile, spawn } = require("child_process");
 const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
+const { parseJsonLine } = require("./json-line.cjs");
 
 const SCRIPT = path.join(__dirname, "..", "kernel", "wake_word.py");
 
@@ -54,16 +55,7 @@ function run(exe, args, timeout = 30000) {
   });
 }
 
-function parse(stdout) {
-  const text = String(stdout || "").trim();
-  const start = text.lastIndexOf("{");
-  if (start < 0) return null;
-  try {
-    return JSON.parse(text.slice(start));
-  } catch {
-    return null;
-  }
-}
+const parse = parseJsonLine;
 
 async function python() {
   const found = await resolvePython();

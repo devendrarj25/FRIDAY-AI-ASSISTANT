@@ -72,6 +72,8 @@ import {
 import { billing, type AccessTier } from "@/lib/friday/billing";
 import { useBilling } from "@/lib/friday/use-billing";
 import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
+import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/installer-engine";
+import { useInstaller } from "@/lib/friday/use-installer";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { sourceCount } from "@/lib/friday/model-sources";
@@ -83,6 +85,7 @@ import {
   isModelSection,
   knowledgeLine,
   launcherLines,
+  runnerPackage,
   pinAgeLabel,
   normaliseLocalAnswer,
   selectCloud,
@@ -142,6 +145,7 @@ function phaseTone(phase: Job["phase"]) {
 function LocalRunners() {
   const [status, setStatus] = useState<LocalModelStatus | null>(null);
   const [confirming, setConfirming] = useState<string>("");
+  const [installing, setInstalling] = useState<string>("");
   const [starting, setStarting] = useState<string>("");
   const refreshStatus = () => {
     const api = desktopApi();
@@ -149,6 +153,11 @@ function LocalRunners() {
     void api.localModelStatus().then((row) => setStatus(row));
   };
   useEffect(refreshStatus, []);
+  // A finished install job changes what is installed: read the runner status again.
+  const finishedInstalls = useInstaller().jobs.filter(
+    (job) => !isInstallJobActive(job.phase),
+  ).length;
+  useEffect(refreshStatus, [finishedInstalls]);
   const [clicked, setClicked] = useState<Record<string, boolean>>({});
   const [note, setNote] = useState<Record<string, string>>({});
   const [releaseNote, setReleaseNote] = useState<Record<string, string>>({});
@@ -249,13 +258,33 @@ function LocalRunners() {
                     title={launcherLines(runner, true).check}
                     onClick={() => {
                       setClicked((prev) => ({ ...prev, [runner.id]: true }));
+                      const pkg = runnerPackage(runner.id);
+                      if (!pkg) {
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `${runner.name} installs from its official page: ${runner.officialPage}`,
+                        }));
+                        return;
+                      }
+                      if (installing !== runner.id) {
+                        setInstalling(runner.id);
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `FRIDAY will download ${runner.name} from its official source and install it through the Install Manager. Click Install again to allow it.`,
+                        }));
+                        return;
+                      }
+                      setInstalling("");
+                      const job = installer.enqueue(pkg, "install");
                       setNote((prev) => ({
                         ...prev,
-                        [runner.id]: launcherLines(runner, true).check,
+                        [runner.id]: job
+                          ? `Installing ${runner.name}. Progress is in the Install Manager; the status above updates when it finishes.`
+                          : `${runner.name} could not be queued.`,
                       }));
                     }}
                   >
-                    Install
+                    {installing === runner.id ? "Confirm install" : "Install"}
                   </Button>
                   <Button
                     size="sm"
