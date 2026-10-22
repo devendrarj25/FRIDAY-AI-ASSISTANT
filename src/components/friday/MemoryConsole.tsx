@@ -354,7 +354,7 @@ export function MemoryConsole() {
               tieredResults.slice(0, 60).map((item) => (
                 <div
                   key={item.id}
-                  className="rounded-lg border border-border/60 bg-card/40 px-3 py-2"
+                  className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
