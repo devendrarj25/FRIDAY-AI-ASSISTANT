@@ -1,3 +1,13 @@
+import {
+  ClipboardCopy,
+  Download,
+  Mic,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+  Volume2,
+  Wrench,
+} from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
@@ -194,6 +204,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           disabled={micBusy}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
+          <Mic className="size-3" aria-hidden="true" />
           {micBusy ? "listening…" : "mic test"}
         </button>
         <button
@@ -209,6 +220,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           disabled={speakBusy}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
+          <Volume2 className="size-3" aria-hidden="true" />
           {speakBusy ? "speaking…" : "speak test"}
         </button>
         <label className="flex items-center gap-1 font-mono text-[10px] uppercase text-muted-foreground">
@@ -229,6 +241,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           disabled={busy}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
+          <ShieldCheck className="size-3" aria-hidden="true" />
           {busy ? "probing…" : "run voice self-test"}
         </button>
         <button
@@ -236,6 +249,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           onClick={() => void assistantMode.refreshWakeEngine(true)}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
+          <RefreshCw className="size-3" aria-hidden="true" />
           recheck wake engine
         </button>
         <button
@@ -243,6 +257,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           onClick={() => assistantMode.fixVoice()}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
+          <Wrench className="size-3" aria-hidden="true" />
           fix voice
         </button>
         <button
@@ -250,6 +265,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           onClick={() => assistantMode.resetMicrophone()}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
+          <RotateCcw className="size-3" aria-hidden="true" />
           reset microphone
         </button>
         <button
@@ -267,6 +283,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           }}
           className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
+          <ClipboardCopy className="size-3" aria-hidden="true" />
           copy diagnostics
         </button>
       </div>
@@ -300,6 +317,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                   onClick={() => models.install(check.installId || "")}
                   className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
                 >
+                  <Download className="size-3" aria-hidden="true" />
                   Install
                 </button>
               ) : null}

@@ -1292,3 +1292,11 @@ html.no-glow .nav-active-bar {
 html.no-motion .nav-active-bar {
   animation: none;
 }
+
+/* A leading icon in a button that has no flex gap of its own keeps a small
+   space before its label and sits on the text line. */
+button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
+  display: inline-block;
+  margin-inline-end: 0.35em;
+  vertical-align: -0.125em;
+}

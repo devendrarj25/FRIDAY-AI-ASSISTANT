@@ -93,6 +93,7 @@ export function ConfirmationCard({
           onClick={() => assistantMode.confirmPending(true)}
           className="rounded-sm border border-accent/50 bg-accent/15 px-3 py-1.5 font-mono text-[11px] text-accent hover:bg-accent/25"
         >
+          <Check className="size-3" aria-hidden="true" />
           YES · run it
         </button>
         <button
@@ -100,6 +101,7 @@ export function ConfirmationCard({
           onClick={() => assistantMode.confirmPending(false)}
           className="rounded-sm border border-primary/25 px-3 py-1.5 font-mono text-[11px] text-muted-foreground hover:border-destructive/60 hover:text-destructive"
         >
+          <X className="size-3" aria-hidden="true" />
           NO · cancel
         </button>
       </div>

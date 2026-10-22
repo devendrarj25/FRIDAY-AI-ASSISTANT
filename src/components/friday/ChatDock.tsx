@@ -31,6 +31,7 @@ import {
   Link2,
   Plus,
   X,
+  Eraser,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1166,6 +1167,7 @@ export function ChatDock() {
                       onClick={() => composer.clear()}
                       className="rounded-sm px-1 font-mono text-[9px] text-muted-foreground hover:text-primary"
                     >
+                      <Eraser className="size-3" aria-hidden="true" />
                       clear all
                     </button>
                   ) : null}

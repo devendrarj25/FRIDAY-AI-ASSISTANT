@@ -1,3 +1,4 @@
+import { MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { HudPanel } from "@/components/friday/ui";
 import { handleHubIntent } from "@/lib/friday/hub-chat";
@@ -75,6 +76,7 @@ export function HubChat() {
           disabled={busy || !draft.trim()}
           onClick={() => void send()}
         >
+          <MessageSquare className="size-3" aria-hidden="true" />
           {busy ? "…" : "Ask"}
         </button>
       </div>

@@ -240,3 +240,66 @@ describe("chat and voice levels use the FRIDAY Glass tokens", () => {
     expect(voice).toContain('"friday-btn px-2 transition-colors');
   });
 });
+
+describe("every text button gets an icon from one vocabulary", () => {
+  it("adds the icon only to plain-text buttons, never a second one", async () => {
+    const { Button } = await import("../../src/components/ui/button");
+    const { Plus } = await import("lucide-react");
+    const auto = html(createElement(Button, null, "Refresh now"));
+    expect(auto).toMatch(
+      /<svg[^>]*class="[^"]*friday-auto-icon[^"]*"[^>]*>.*<\/svg>Refresh now<\/button>/,
+    );
+    expect(auto).toContain('aria-hidden="true"');
+    // Expression children resolve to text too: {busy ? "Saving…" : "Save"}.
+    expect(html(createElement(Button, null, "Install ", "llama3"))).toContain("friday-auto-icon");
+    // Already has an icon, is icon-sized, opted out, a link, or an unknown word.
+    expect(html(createElement(Button, null, createElement(Plus), "Add"))).not.toContain(
+      "friday-auto-icon",
+    );
+    expect(html(createElement(Button, { size: "icon", "aria-label": "Add" }, "+"))).not.toContain(
+      "friday-auto-icon",
+    );
+    expect(html(createElement(Button, { "data-no-icon": "" } as never, "Install"))).not.toContain(
+      "friday-auto-icon",
+    );
+    expect(
+      html(createElement(Button, { asChild: true }, createElement("a", { href: "/x" }, "Open"))),
+    ).not.toContain("friday-auto-icon");
+    expect(html(createElement(Button, null, "Mermaid-ish thing"))).not.toContain(
+      "friday-auto-icon",
+    );
+  });
+
+  it("knows the verbs the app actually uses", async () => {
+    const { iconForLabel, leadingVerb, BUTTON_VERB_COUNT } =
+      await import("../../src/components/friday/button-icons");
+    expect(leadingVerb("  Install llama3 ")).toBe("install");
+    expect(leadingVerb("YES · run it")).toBe("yes");
+    for (const label of [
+      "Open full",
+      "Cancel",
+      "Ask FRIDAY",
+      "Clear all",
+      "Allow once",
+      "Add folder",
+      "Deny",
+      "Save chat",
+      "Install",
+      "Reset appearance",
+      "Refresh now",
+      "Export as JSON",
+      "Approve",
+      "Delete",
+      "Stop",
+      "Run",
+      "Verify",
+      "Test",
+      "Copy",
+    ]) {
+      expect(iconForLabel(label), label).not.toBeNull();
+    }
+    expect(iconForLabel("")).toBeNull();
+    expect(iconForLabel("constructor")).toBeNull();
+    expect(BUTTON_VERB_COUNT).toBeGreaterThan(100);
+  });
+});

@@ -2,6 +2,7 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { iconForLabel } from "@/components/friday/button-icons";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -38,11 +39,44 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
+/**
+ * The leading text of a button whose children are only text (a string, a
+ * number, or several of them). Anything with an element child (an icon, a
+ * spinner, a badge) returns null, so a button that already has its own
+ * icon is never given a second one.
+ */
+function plainLabel(children: React.ReactNode): string | null {
+  const parts = React.Children.toArray(children);
+  if (!parts.length) return null;
+  if (!parts.every((part) => typeof part === "string" || typeof part === "number")) return null;
+  const text = parts.join("").trim();
+  return text || null;
+}
+
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
+    // FRIDAY Glass: every text button gets its icon from one vocabulary
+    // (button-icons.ts). Opt out with data-no-icon; links (asChild) and
+    // icon-sized buttons are left alone.
+    const label =
+      asChild || size === "icon" || (props as Record<string, unknown>)["data-no-icon"] !== undefined
+        ? null
+        : plainLabel(children);
+    const icon = label ? iconForLabel(label) : null;
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props}>
+        {/* Without an icon the children pass through untouched: asChild
+            (Slot) needs exactly one child element. */}
+        {icon ? (
+          <>
+            {React.createElement(icon, { "aria-hidden": true, className: "friday-auto-icon" })}
+            {children}
+          </>
+        ) : (
+          children
+        )}
+      </Comp>
     );
   },
 );
