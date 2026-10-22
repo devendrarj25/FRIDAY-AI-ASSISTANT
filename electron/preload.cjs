@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld("friday", {
   reportVoiceState: (state) => ipcRenderer.send("voice:state", state),
   getTrayVoiceState: () => ipcRenderer.invoke("voice:tray-state"),
   onVoicePause: on("voice:pause"),
+  onPttToggle: on("voice:ptt-toggle"),
+  setPttShortcut: (on) => ipcRenderer.invoke("voice:ptt-shortcut", on === true),
 
   // Neural voice (edge-tts): free, no key, natural Hindi / Indian-English.
   neuralVoiceStatus: () => ipcRenderer.invoke("voice:neural-status"),
@@ -241,6 +243,8 @@ contextBridge.exposeInMainWorld("friday", {
     ipcRenderer.invoke("models:engine-start", id, selectedModel || null),
   stopModelEngine: (id) => ipcRenderer.invoke("models:engine-stop", id),
   localModelStatus: () => ipcRenderer.invoke("models:local-status"),
+  comfyuiStatus: () => ipcRenderer.invoke("comfyui:status"),
+  comfyuiRun: (workflow) => ipcRenderer.invoke("comfyui:run", workflow),
 
   // Non-streaming kernel calls (chat history, memory, code runner).
   kernel: (method, params) => ipcRenderer.invoke("kernel:rpc", method, params || {}),

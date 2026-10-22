@@ -60,6 +60,8 @@ export type VoicePreferences = {
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */
   addressMode: "name-only" | "conversation" | "meant-for-me";
+  /** Auto mode only. "always" listens for every utterance; "push-to-talk" waits for the talk key. */
+  listenStyle: "always" | "push-to-talk";
   /** Seconds after FRIDAY speaks in which the next line is a follow-up. */
   addressWindowSec: number;
   /** Minutes of heard lines kept on this PC. Zero turns the log off. */
@@ -193,6 +195,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",
+    listenStyle: "always",
     addressWindowSec: 8,
     heardKeepMin: 10,
     heardKeepRows: 40,

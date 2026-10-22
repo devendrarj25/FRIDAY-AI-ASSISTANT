@@ -390,7 +390,9 @@ function decodeXml(value) {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)));
 }
 
 function parseCsv(text) {
@@ -531,6 +533,133 @@ function parsePdf(bytes) {
   return ocrPdfFallback(buf);
 }
 
+/** Visible text of an HTML or XHTML page. Scripts and styles are not text. */
+function htmlText(html) {
+  return decodeXml(
+    String(html || "")
+      .replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6]|section|article)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " "),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
+/** PowerPoint: one block per slide, in slide order. */
+function parsePptx(bytes) {
+  const files = unzip(bytes);
+  const slides = [...files.keys()]
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => Number(a.match(/\d+/g).pop()) - Number(b.match(/\d+/g).pop()));
+  if (!slides.length) throw new Error("This PPTX has no slides.");
+  const text = slides
+    .map((name, index) => {
+      const words = xmlText(files.get(name).toString("utf8"), "a:t").map(decodeXml);
+      return `Slide ${index + 1}: ${words.join(" ").trim()}`;
+    })
+    .join("\n")
+    .trim();
+  return { text, rows: [], slides: slides.length };
+}
+
+/** OpenDocument text, sheet, or slides: content.xml paragraphs. */
+function parseOpenDocument(bytes) {
+  const files = unzip(bytes);
+  const content = files.get("content.xml");
+  if (!content) throw new Error("This OpenDocument file has no content.xml.");
+  const xml = content
+    .toString("utf8")
+    .replace(/<text:(p|h)\b[^>]*\/>/g, "\n")
+    .replace(/<\/text:(p|h)>/g, "\n")
+    .replace(/<\/table:table-cell>/g, "\t")
+    .replace(/<\/table:table-row>/g, "\n");
+  const text = decodeXml(xml.replace(/<[^>]+>/g, ""))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!text) throw new Error("This OpenDocument file has no text.");
+  return { text, rows: [] };
+}
+
+/** EPUB: every XHTML chapter, in archive order. */
+function parseEpub(bytes) {
+  const files = unzip(bytes);
+  const pages = [...files.keys()].filter((name) => /\.(x?html?)$/i.test(name)).sort();
+  if (!pages.length) throw new Error("This EPUB has no chapters.");
+  const text = pages
+    .map((name) => htmlText(files.get(name).toString("utf8")))
+    .filter(Boolean)
+    .join("\n\n");
+  return { text, rows: [] };
+}
+
+/** RTF: drop control words and groups, keep the words. */
+function parseRtf(bytes) {
+  const raw = asBuffer(bytes).toString("latin1");
+  const text = raw
+    .replace(/\\par[d]?\b/g, "\n")
+    .replace(/\\'([0-9a-f]{2})/gi, (_m, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\{\\\*[^{}]*\}/g, "")
+    .replace(/\\[a-z]+-?\d* ?/gi, "")
+    .replace(/[{}]/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .trim();
+  return { text, rows: [] };
+}
+
+function decodeMimeBody(body, encoding) {
+  const enc = String(encoding || "").toLowerCase();
+  if (enc === "base64") return Buffer.from(body.replace(/\s+/g, ""), "base64").toString("utf8");
+  if (enc === "quoted-printable") {
+    return body
+      .replace(/=\r?\n/g, "")
+      .replace(/=([0-9A-F]{2})/gi, (_m, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+  return body;
+}
+
+/** An .eml message: the main headers and the plain text (or HTML) body. Attachments are not opened. */
+function parseEml(bytes) {
+  const raw = asBuffer(bytes).toString("utf8").replace(/\r\n/g, "\n");
+  const split = raw.indexOf("\n\n");
+  const head = split >= 0 ? raw.slice(0, split) : raw;
+  const body = split >= 0 ? raw.slice(split + 2) : "";
+  const header = (name) => {
+    const hit = new RegExp(`^${name}:\\s*(.*(?:\\n[ \\t].*)*)`, "im").exec(head);
+    return hit ? hit[1].replace(/\n[ \t]+/g, " ").trim() : "";
+  };
+  const type = header("Content-Type");
+  let text = "";
+  const boundary = /boundary="?([^";]+)"?/i.exec(type)?.[1];
+  if (boundary) {
+    const parts = body.split(`--${boundary}`);
+    const pick = (want) =>
+      parts.find((part) => new RegExp(`content-type:\\s*${want}`, "i").test(part));
+    const part = pick("text/plain") || pick("text/html") || "";
+    const gap = part.indexOf("\n\n");
+    const partHead = gap >= 0 ? part.slice(0, gap) : "";
+    const encoding = /content-transfer-encoding:\s*([\w-]+)/i.exec(partHead)?.[1];
+    const decoded = decodeMimeBody(gap >= 0 ? part.slice(gap + 2) : "", encoding);
+    text = /content-type:\s*text\/html/i.test(partHead) ? htmlText(decoded) : decoded;
+  } else {
+    const decoded = decodeMimeBody(body, header("Content-Transfer-Encoding"));
+    text = /text\/html/i.test(type) ? htmlText(decoded) : decoded;
+  }
+  const lines = ["From", "To", "Date", "Subject"]
+    .map((name) => (header(name) ? `${name}: ${header(name)}` : ""))
+    .filter(Boolean);
+  return { text: `${lines.join("\n")}\n\n${text.trim()}`.trim(), rows: [] };
+}
+
+/** Plain text, config, and source files read as UTF-8. */
+const TEXT_FILE =
+  /\.(txt|md|markdown|log|json|jsonl|xml|yaml|yml|toml|ini|cfg|conf|env\.example|js|cjs|mjs|ts|tsx|jsx|py|ps1|bat|cmd|sh|java|kt|c|h|cpp|hpp|cs|go|rs|rb|php|sql|css|scss|svg|srt|vtt)$/i;
+
 function extract({ filename = "", text = "", bytes = null } = {}) {
   const name = String(filename || "").toLowerCase();
   if (text && !bytes) {
@@ -549,7 +678,15 @@ function extract({ filename = "", text = "", bytes = null } = {}) {
   }
   if (name.endsWith(".docx")) return { kind: "docx", ...parseDocx(bytes) };
   if (name.endsWith(".pdf")) return { kind: "pdf", ...parsePdf(bytes) };
-  if (name.endsWith(".txt") || name.endsWith(".md")) {
+  if (name.endsWith(".pptx")) return { kind: "pptx", ...parsePptx(bytes) };
+  if (/\.(odt|ods|odp)$/.test(name)) return { kind: "opendocument", ...parseOpenDocument(bytes) };
+  if (name.endsWith(".epub")) return { kind: "epub", ...parseEpub(bytes) };
+  if (name.endsWith(".rtf")) return { kind: "rtf", ...parseRtf(bytes) };
+  if (name.endsWith(".eml")) return { kind: "email", ...parseEml(bytes) };
+  if (/\.(html?|xhtml)$/.test(name)) {
+    return { kind: "html", text: htmlText(asBuffer(bytes).toString("utf8")), rows: [] };
+  }
+  if (TEXT_FILE.test(name)) {
     const body = asBuffer(bytes).toString("utf8");
     return { kind: "text", text: body, rows: [] };
   }
@@ -573,6 +710,12 @@ module.exports = {
   parseXlsx,
   parseDocx,
   parsePdf,
+  parsePptx,
+  parseOpenDocument,
+  parseEpub,
+  parseRtf,
+  parseEml,
+  htmlText,
   extract,
   probePdfOcr,
   pythonExecutable,

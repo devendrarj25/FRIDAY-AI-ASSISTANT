@@ -788,3 +788,65 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# Voice tone, measured from the samples. Words say what the owner wants; the
+# tone says how they feel about it. Pitch, loudness, and how much of the clip is
+# voiced are classic paralinguistic cues. These are cues, not a diagnosis: the
+# renderer compares them with the owner's own running baseline.
+PROSODY_FRAME = 0.03
+PITCH_MIN_HZ = 70.0
+PITCH_MAX_HZ = 400.0
+
+
+def voice_prosody(samples, sample_rate: int = 16000) -> dict:
+    """Median pitch, pitch spread, loudness, and voiced share of one utterance."""
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return {"ok": False, "reason": "numpy missing"}
+    audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+    frame = int(sample_rate * PROSODY_FRAME)
+    if audio.size < frame * 4:
+        return {"ok": False, "reason": "too short"}
+    peak = float(np.max(np.abs(audio))) or 1.0
+    audio = audio / peak
+    lag_min = int(sample_rate / PITCH_MAX_HZ)
+    lag_max = int(sample_rate / PITCH_MIN_HZ)
+    pitches: list[float] = []
+    energies: list[float] = []
+    voiced = 0
+    total = 0
+    for start in range(0, audio.size - frame * 2, frame):
+        chunk = audio[start : start + frame * 2]
+        rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+        total += 1
+        if rms < 0.02:
+            continue
+        energies.append(rms)
+        chunk = chunk - float(chunk.mean())
+        corr = np.correlate(chunk, chunk, mode="full")[chunk.size - 1 :]
+        if corr[0] <= 0:
+            continue
+        window = corr[lag_min : min(lag_max, corr.size - 1)]
+        if window.size == 0:
+            continue
+        lag = int(np.argmax(window)) + lag_min
+        strength = float(corr[lag] / corr[0])
+        if strength < 0.5:
+            continue
+        voiced += 1
+        pitches.append(sample_rate / lag)
+    if not pitches:
+        return {"ok": False, "reason": "no voiced frames", "voicedShare": 0.0}
+    hz = np.asarray(pitches)
+    median = float(np.median(hz))
+    spread = float(np.std(np.log2(hz))) * 12.0  # semitones
+    loud = float(20 * math.log10(max(float(np.mean(energies)) * peak, 1e-6)))
+    return {
+        "ok": True,
+        "pitchHz": round(median, 1),
+        "pitchSpreadSemitones": round(spread, 2),
+        "energyDbfs": round(loud, 1),
+        "voicedShare": round(voiced / max(1, total), 3),
+    }

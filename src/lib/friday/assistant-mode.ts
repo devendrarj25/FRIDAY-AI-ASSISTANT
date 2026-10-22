@@ -44,6 +44,18 @@ import {
   MIC_TEST_MS,
   recordFromStream,
 } from "./voice-hearing";
+import {
+  isHoldKey,
+  normalizeListenStyle,
+  pttActive,
+  pttAdmits,
+  pttPress,
+  pttRelease,
+  pttToggle,
+  resetPtt,
+  type ListenStyle,
+} from "./push-to-talk";
+import { assessTone, type VoiceTone } from "./voice-tone";
 import { beginVoiceTurn, markTurnStage, turnTraceLine, voiceTurn } from "./voice-turn-trace";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -323,6 +335,8 @@ type VoiceDesktop = {
     muted?: boolean;
   }) => void;
   onVoicePause?: (cb: (payload: { paused: boolean }) => void) => () => void;
+  onPttToggle?: (cb: (payload: unknown) => void) => () => void;
+  setPttShortcut?: (on: boolean) => Promise<{ ok: boolean; accelerator: string; reason: string }>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   onSystemResume?: (cb: () => void) => () => void;
   /** Real faster-whisper / edge-tts probes run by the main process. */
@@ -1029,7 +1043,104 @@ class AssistantModeStore {
     else this.noteVoiceTrigger("focus");
   }
 
+  /** The Auto listen style the owner picked. "always" keeps today's behaviour. */
+  listenStyle(): ListenStyle {
+    return normalizeListenStyle(preferences.getSnapshot().voice.listenStyle);
+  }
+
+  private pttCleanup: Array<() => void> = [];
+  /** How the owner's last utterance sounded against their own baseline. */
+  private lastTone: VoiceTone | null = null;
+
+  voiceTone(): VoiceTone | null {
+    return this.lastTone;
+  }
+
+  /** Hold Ctrl+Space in the window, or press the global toggle, to talk. */
+  private armPushToTalk() {
+    this.disarmPushToTalk();
+    const api = desktop();
+    let shortcutWanted: boolean | null = null;
+    const syncShortcut = () => {
+      const want = this.state.mode === "auto" && this.listenStyle() === "push-to-talk";
+      if (want === shortcutWanted) return;
+      shortcutWanted = want;
+      void api?.setPttShortcut?.(want).then((row) => {
+        if (want && row && !row.ok) this.trace("error", `push-to-talk shortcut: ${row.reason}`);
+      });
+    };
+    syncShortcut();
+    this.pttCleanup.push(preferences.subscribe(syncShortcut));
+    const off = api?.onPttToggle?.(() => {
+      if (this.listenStyle() !== "push-to-talk") return;
+      const open = pttToggle();
+      this.trace("speech", open ? "push-to-talk on" : "push-to-talk off");
+      this.emit();
+    });
+    if (off) this.pttCleanup.push(off);
+    if (typeof window !== "undefined") {
+      const down = (event: KeyboardEvent) => {
+        if (this.listenStyle() !== "push-to-talk" || !isHoldKey(event)) return;
+        event.preventDefault();
+        if (!pttActive()) this.trace("speech", "push-to-talk held");
+        pttPress();
+        this.emit();
+      };
+      const up = (event: KeyboardEvent) => {
+        if (!pttActive() || (event.code !== "Space" && event.key !== "Control")) return;
+        pttRelease();
+        this.emit();
+      };
+      const blur = () => {
+        pttRelease();
+        this.emit();
+      };
+      window.addEventListener("keydown", down);
+      window.addEventListener("keyup", up);
+      window.addEventListener("blur", blur);
+      this.pttCleanup.push(() => {
+        window.removeEventListener("keydown", down);
+        window.removeEventListener("keyup", up);
+        window.removeEventListener("blur", blur);
+      });
+    }
+    this.pttCleanup.push(() => {
+      if (shortcutWanted) void api?.setPttShortcut?.(false);
+    });
+  }
+
+  private disarmPushToTalk() {
+    for (const cleanup of this.pttCleanup.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        /* already gone */
+      }
+    }
+    resetPtt();
+  }
+
+  /** On-screen talk button: press and release, the same path as the key. */
+  holdToTalk(down: boolean) {
+    if (this.state.mode !== "auto" || this.listenStyle() !== "push-to-talk") return;
+    if (down) pttPress();
+    else pttRelease();
+    this.emit();
+  }
+
+  /** Keyboard path for the on-screen button: one activation opens, the next closes. */
+  togglePushToTalk() {
+    if (this.state.mode !== "auto" || this.listenStyle() !== "push-to-talk") return;
+    pttToggle();
+    this.emit();
+  }
+
+  pushToTalkActive(): boolean {
+    return pttActive();
+  }
+
   private enterAuto() {
+    this.armPushToTalk();
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
@@ -1155,6 +1266,7 @@ class AssistantModeStore {
   }
 
   private leaveAuto() {
+    this.disarmPushToTalk();
     this.to("session-stop");
     brain.setAutoMode(false);
     this.unBrain?.();
@@ -1502,6 +1614,7 @@ class AssistantModeStore {
           vocab: [voice.addressName, voice.wakeWord, voice.voiceName].filter(Boolean),
         });
       },
+      admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
         this.turnClock = {
           heardAt: Date.now(),
@@ -1572,6 +1685,7 @@ class AssistantModeStore {
         }
       },
       onFinal: (text, meta) => {
+        this.lastTone = assessTone(meta?.prosody);
         const trimmed = text.trim();
         if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
           this.trace("dropped", "duplicate finalized utterance");
@@ -1923,7 +2037,15 @@ class AssistantModeStore {
       followUpOpen: Date.now() < this.followUpUntil,
       lastSpoken: this.spokenText,
       recentlySpeaking: this.recentlySpeaking(),
+      recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
     });
+    // A push-to-talk turn is addressed by the key press itself: no wake word.
+    if (this.listenStyle() === "push-to-talk" && decision.tag !== "self") {
+      decision.tag = "addressed";
+      decision.answer = true;
+      decision.tools = true;
+      decision.reason = "push-to-talk";
+    }
     this.noteAddress(text, decision);
     if (decision.closeFollowUp) this.followUpUntil = 0;
     if (decision.tag === "self") {
@@ -2204,6 +2326,7 @@ class AssistantModeStore {
       extra,
       turnAwarenessExtra(command, { kind: "voice" }),
       ambient ? `Heard nearby, untrusted:\n${ambient}` : "",
+      this.lastTone && this.lastTone.label !== "steady" ? this.lastTone.line : "",
     );
     const payload = {
       ...(merged ? { extra: merged } : {}),
@@ -2380,7 +2503,14 @@ class AssistantModeStore {
       baseRate: tuning.rate,
       basePitch: tuning.pitch,
       baseVolume: tuning.volume,
-      affect: /!/.test(spoken) ? "urgent" : prosodyAffect(readFeeling(lastOwner).label),
+      affect: /!/.test(spoken)
+        ? "urgent"
+        : prosodyAffect(
+            readFeeling(
+              lastOwner,
+              this.lastTone ? { prosody: (this.lastTone.arousal - 0.5) * 2 } : undefined,
+            ).label,
+          ),
       quiet: !alertsAudible(),
       whisper: voicePrefs.whisperMode === true,
     });

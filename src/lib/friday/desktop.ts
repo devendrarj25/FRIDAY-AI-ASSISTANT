@@ -715,6 +715,16 @@ type DesktopApi = {
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
   localModelStatus?: () => Promise<LocalModelStatus>;
+  comfyuiStatus?: () => Promise<{
+    online: boolean;
+    endpoint: string;
+    version?: string;
+    device?: string;
+    reason: string;
+  }>;
+  comfyuiRun?: (
+    workflow: unknown,
+  ) => Promise<{ ok: boolean; files: string[]; promptId?: string; reason: string }>;
   onModelPullProgress?: (cb: (p: ModelPullProgress) => void) => () => void;
   onModelPullDone?: (
     cb: (p: {

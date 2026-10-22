@@ -109,6 +109,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         whereItStopped(voiceTurn())?.reason !== "never reached",
       ),
     },
+    {
+      label: "voice tone",
+      value: assistantMode.voiceTone()?.line ?? "no voiced utterance yet",
+    },
     { label: "heard / dropped", value: hearingCountersLine(hearingCounters()) },
     { label: "route", value: liveVoiceRuntimeLine(voice) },
     {

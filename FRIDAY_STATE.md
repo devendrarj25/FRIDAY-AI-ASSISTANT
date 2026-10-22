@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
 | Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
 | `npm run docs:sync` | Passed. 24 documents, all zeros. Provider status stale false. |
 | `npm run docs:check` | Passed. 24 documents. missing 0, unregistered 0, thin 0, wrong title 0, duplicated blocks 0, capability counts off 0, provider status stale false. |
@@ -75,7 +76,7 @@ Counted from the files named in the last column. `docs:sync` rewrites the six di
 | Kind | Count | How counted |
 | --- | --- | --- |
 | Skills | 214 `skill.json` + 9 builtins | disk + `electron/skills.cjs` `BUILTIN` |
-| Tools | 177 `tool.json` | disk |
+| Tools | 178 `tool.json` | disk |
 | Agents | 98 `manifest.json` | `agents/` |
 | Plugins | 78 `plugin.json` | disk |
 | Workflows | 117 `workflow.json` | disk |
@@ -121,6 +122,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Push-to-talk, the ComfyUI client and image tool, the meant-for-me work mentions, and the new document formats are tested on Linux (unit tests, a fake ComfyUI HTTP server, ZIP fixtures built in the test). The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
+
 - The readiness run above had no Whisper weights (VOICE reports a visible skip) and no cloud keys (CHAT used the fake local runner). Real provider calls, real speech, and Windows runner installs through the Install Manager (winget, direct download) are unverified here.
 - Not audited in this pass: PC-control tools against a real Windows desktop, web-search ladder against the live web, and each cloud provider's live list and chat. They need the owner's PC and keys.
 
@@ -146,6 +149,15 @@ These look like bugs. They are not. Do not "fix" them.
 - `kernel/router.py` and `electron/model-router.cjs` kept their names. The flow registry, tests, and docs pin those paths. Existing duplicate basenames stay on the allowlist in `core/__tests__/duplicate-stems.test.ts`. A new duplicate basename fails that test.
 
 ## Next priorities
+
+0. Owner checks for push-to-talk and ComfyUI, on the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Voice settings, How Auto mode listens: Push to talk. In Auto mode, talk without the key: nothing is transcribed and the voice log says `push-to-talk: talk key is up`. Hold Ctrl+Space and say "Friday, what time is it", or just "what time is it": FRIDAY answers without the wake word.
+   2. With FRIDAY in the background, press Ctrl+Alt+Space, speak, press it again. Switch back to Always listening: the shortcut is released (another app can use it).
+   3. Install and start ComfyUI yourself, then Models, Local, ComfyUI: Check shows its version; paste a Save (API) workflow and Run; the images land in `assets\comfyui`. Then enable the ComfyUI image tool in Tools and ask in chat: "make an image of a red fox in the snow".
+   4. Voice settings: Respond to anything meant for me. After FRIDAY finishes a task, say something about that task without her name: she answers. Unrelated chatter stays ambient.
+   5. Attach a .pptx, .odt, .epub, .rtf, and .eml in chat and ask for a summary.
+   6. Talk to FRIDAY normally for a few turns, then once in a clearly stressed or raised voice. Voice diagnostics, voice tone: it should read `tense` or `energetic` and her spoken reply should soften. It reads `still learning this voice` for the first five utterances.
+   Not built yet, from the research: agent work on an isolated virtual desktop (UFO2 style) so FRIDAY and the owner can use the PC at the same time, full-duplex voice (listen while speaking, beyond today's barge-in) and a Windows key-up hook for a global hold-to-talk (Electron's global shortcut reports no release; a native keyboard hook would change the EXE pack, a locked area). OmniVoice was rejected (torch and voice cloning).
 
 0. Owner checks for this change, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice diagnostics, run voice self-test: three `hearing at peak 0.5 / 0.05 / 0.008` rows must read PASS. Send any FAIL row and the newest `debug\reports\voice-hearing.jsonl`.

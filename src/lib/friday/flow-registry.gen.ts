@@ -289,6 +289,7 @@ export const FLOW_REGISTRY = {
     "voice.heardKeepRows",
     "voice.hinglish",
     "voice.inputDeviceId",
+    "voice.listenStyle",
     "voice.models",
     "voice.pauseDuringCalls",
     "voice.pitch",
@@ -730,6 +731,14 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "chat:send",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "comfyui:run",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "comfyui:status",
       file: "electron/main.cjs",
     },
     {
@@ -2006,6 +2015,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:neural-voices",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:ptt-shortcut",
       file: "electron/main.cjs",
     },
     {
@@ -7244,6 +7257,12 @@ export const FLOW_REGISTRY = {
       file: "tools/media/camera-clip/tool.json",
     },
     {
+      id: "tools/media/comfyui-generate/tool",
+      kind: "tool",
+      name: "ComfyUI image",
+      file: "tools/media/comfyui-generate/tool.json",
+    },
+    {
       id: "tools/media/ffmpeg-transcode/tool",
       kind: "tool",
       name: "FFmpeg transcode",
@@ -8505,16 +8524,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 109,
-      total: 109,
+      mapped: 110,
+      total: 110,
     },
     capabilities: {
-      mapped: 1014,
-      total: 1014,
+      mapped: 1015,
+      total: 1015,
     },
     ipc: {
-      mapped: 457,
-      total: 457,
+      mapped: 460,
+      total: 460,
     },
     kernel: {
       mapped: 14,

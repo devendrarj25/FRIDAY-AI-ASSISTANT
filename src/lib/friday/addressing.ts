@@ -66,6 +66,33 @@ function directedScore(text: string): number {
   return Math.min(0.95, score);
 }
 
+const STOP = new Set(
+  "this that with from have will what when where which about there their your then than they them were been into just also only very kya hai tha thi hain karo kiya".split(
+    " ",
+  ),
+);
+
+function contentWords(text: string): Set<string> {
+  return new Set(
+    normalizeTranscript(text)
+      .split(" ")
+      .filter((word) => word.length >= 4 && !STOP.has(word)),
+  );
+}
+
+/** Talk about her, or about the work she just did, without her name. */
+const ABOUT_HER = /\b(she|her|usne|isne|unhone|assistant|tumne|aapne)\b/i;
+
+export function aboutHerWork(text: string, recentWork = ""): { score: number; work: boolean } {
+  const heard = contentWords(text);
+  const work = contentWords(recentWork);
+  let shared = 0;
+  for (const word of heard) if (work.has(word)) shared += 1;
+  const onWork = shared >= 2;
+  const score = (onWork ? 0.4 : 0) + (ABOUT_HER.test(normalizeTranscript(text)) ? 0.15 : 0);
+  return { score, work: onWork };
+}
+
 /**
  * Decide whether this utterance is for FRIDAY.
  * `followUpOpen` is the window after she spoke or acted.
@@ -77,6 +104,8 @@ export function decideAddressing(input: {
   followUpOpen?: boolean;
   lastSpoken?: string;
   recentlySpeaking?: boolean;
+  /** What FRIDAY just answered or worked on, for "meant for me" without her name. */
+  recentWork?: string;
 }): AddressDecision {
   const text = String(input.text || "").trim();
   const mode = input.mode ?? "conversation";
@@ -153,12 +182,13 @@ export function decideAddressing(input: {
     };
   }
   if (mode === "meant-for-me") {
-    const confidence = directedScore(text);
+    const about = aboutHerWork(text, input.recentWork);
+    const confidence = Math.min(0.95, directedScore(text) + about.score);
     if (confidence >= 0.72) {
       return {
         tag: "addressed",
         answer: true,
-        reason: "directed",
+        reason: about.work ? "about-her-work" : about.score > 0 ? "about-her" : "directed",
         confidence,
         tools: true,
         closeFollowUp: false,

@@ -4320,6 +4320,31 @@ ipcMain.handle("voice:neural-status", () => neuralVoice.status(true));
 ipcMain.handle("voice:neural-install", () => neuralVoice.install());
 ipcMain.handle("voice:neural-voices", () => neuralVoice.voices());
 ipcMain.handle("voice:neural-speak", (_e, payload) => neuralVoice.speak(payload || {}));
+// Push-to-talk toggle. A global shortcut reports a press and no release, so it
+// toggles; hold-to-talk is Ctrl+Space inside the window. Registered only while
+// the owner picked push-to-talk in Auto mode, and released again when not.
+const PTT_TOGGLE_ACCELERATOR = "Control+Alt+Space";
+let pttShortcutOn = false;
+function setPttShortcut(on) {
+  const { globalShortcut } = require("electron");
+  if (on && !pttShortcutOn) {
+    pttShortcutOn = globalShortcut.register(PTT_TOGGLE_ACCELERATOR, () =>
+      send("voice:ptt-toggle", {}),
+    );
+    return {
+      ok: pttShortcutOn,
+      accelerator: PTT_TOGGLE_ACCELERATOR,
+      reason: pttShortcutOn ? "" : "another app holds that shortcut",
+    };
+  }
+  if (!on && pttShortcutOn) {
+    globalShortcut.unregister(PTT_TOGGLE_ACCELERATOR);
+    pttShortcutOn = false;
+  }
+  return { ok: true, accelerator: PTT_TOGGLE_ACCELERATOR, reason: "" };
+}
+ipcMain.handle("voice:ptt-shortcut", (_e, on) => setPttShortcut(on === true));
+app.on("will-quit", () => setPttShortcut(false));
 ipcMain.handle("voice:duck", (_e, payload) => {
   const on = Boolean(payload && payload.on);
   return audioDuck.apply(on);
@@ -5640,6 +5665,12 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
   }
   return result;
 });
+ipcMain.handle("comfyui:status", () => require("./comfyui-client.cjs").status());
+ipcMain.handle("comfyui:run", (_e, workflow) =>
+  require("./comfyui-client.cjs").run(workflow, {
+    outDir: path.join(paths.ensureDir("assets"), "comfyui"),
+  }),
+);
 ipcMain.handle("models:local-status", async () =>
   require("./local-model-status.cjs").describeLocal({
     inventory: await modelsApi.inventory(modelsContext()),

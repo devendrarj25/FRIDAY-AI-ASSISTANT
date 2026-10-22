@@ -48,7 +48,7 @@ const TEXT_EXT =
   /\.(txt|md|markdown|json|jsonc|ya?ml|toml|ini|cfg|conf|env|csv|tsv|log|html?|xml|svg|css|scss|js|jsx|mjs|cjs|ts|tsx|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|sh|bash|ps1|bat|cmd|sql|gradle|dockerfile|gitignore)$/i;
 
 /** Office / PDF types the existing document-extract engine can read. */
-export const OFFICE_EXT = /\.(pdf|docx|xlsx|xlsm)$/i;
+export const OFFICE_EXT = /\.(pdf|docx|xlsx|xlsm|pptx|odt|ods|odp|epub|rtf|eml)$/i;
 
 type ExtractBridge = {
   extractDocument?: (payload: {
