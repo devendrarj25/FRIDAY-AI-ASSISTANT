@@ -48,3 +48,52 @@ if (failed) {
   process.exit(1);
 }
 console.log(`[friday] ok       main-process dependencies (${files.length} files checked)`);
+
+const { spawnSync } = require("node:child_process");
+const requirements = fs.readFileSync(path.join(root, "kernel", "requirements.txt"), "utf8");
+if (!/^\s*av>=17\.0\.0,<19\s*$/m.test(requirements)) {
+  console.error(
+    "[friday] kernel/requirements.txt must pin av>=17.0.0,<19 (faster-whisper 1.2.1 / PyAV 19).",
+  );
+  process.exit(1);
+}
+const pythons = [
+  process.env.FRIDAY_PYTHON,
+  path.join(root, ".venv", "bin", "python"),
+  path.join(root, ".venv", "Scripts", "python.exe"),
+  "python3",
+].filter(Boolean);
+let avChecked = false;
+for (const python of pythons) {
+  const probe = spawnSync(
+    python,
+    [
+      "-c",
+      "import json,sys; sys.path.insert(0,'kernel'); import stt; print(json.dumps(stt.av_guard()))",
+    ],
+    { cwd: root, encoding: "utf8", timeout: 30000 },
+  );
+  if (probe.status !== 0 || !probe.stdout) continue;
+  avChecked = true;
+  let guard = null;
+  try {
+    guard = JSON.parse(probe.stdout.trim().split(/\n/).pop());
+  } catch {
+    guard = null;
+  }
+  if (!guard) continue;
+  if (!guard.installed) {
+    console.log(`[friday] skip     av is not installed (${guard.reason})`);
+    break;
+  }
+  if (!guard.ok) {
+    console.error(`[friday] ${guard.reason}`);
+    console.error(`[friday] fix      ${guard.fix}`);
+    process.exit(1);
+  }
+  console.log(`[friday] ok       av ${guard.version} inside ${guard.requirement}`);
+  break;
+}
+if (!avChecked) {
+  console.log("[friday] skip     av pin check: no Python could import kernel/stt.py");
+}

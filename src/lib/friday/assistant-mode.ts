@@ -35,6 +35,8 @@ import {
   noteHeard,
 } from "./heard-log";
 import { allowRestart, encodeWav, preRollFrom } from "./pcm-capture";
+import { desktopApi } from "./desktop";
+import { hearingVerdict, keepUtteranceWavs, MIC_TEST_MS, recordFromStream } from "./voice-hearing";
 import { preferences } from "./preferences";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
@@ -356,6 +358,8 @@ class AssistantModeStore {
   private sttRecoveryAttempt = 0;
   private healMemory: HealMemory = emptyHealMemory();
   private lastHealFault: HealClass | "none" = "none";
+  /** Fix voice is the one confirm before a pinned PyAV reinstall. */
+  private sttRepairConfirmed = false;
   private ttsPrefer: "auto" | "supertonic" | "sapi" = "auto";
   private wakeOnlyUnsub: (() => void) | null = null;
   private wakeOnlySpeechAt = 0;
@@ -756,6 +760,85 @@ class AssistantModeStore {
     this.emit();
   }
 
+  /** Three seconds on the open Auto microphone, then the real transcriber. */
+  async micTest(onLevel?: (level: number) => void): Promise<{ stage: string; line: string }> {
+    const device = this.state.mic.deviceLabel || "default device";
+    const stream = voiceGate.micStream();
+    if (!stream) {
+      const verdict = hearingVerdict({
+        rms: 0,
+        peak: 0,
+        transcript: "",
+        error: "no microphone stream",
+        deviceLabel: device,
+        contextRate: voiceGate.inputRate(),
+      });
+      this.trace("segment", `mic test: ${verdict.line}`);
+      return verdict;
+    }
+    try {
+      const clip = await recordFromStream(stream, MIC_TEST_MS, onLevel);
+      const api = desktopApi();
+      if (!api?.transcribe) {
+        const verdict = hearingVerdict({
+          rms: clip.rms,
+          peak: clip.peak,
+          transcript: "",
+          error: "no transcribe bridge",
+          deviceLabel: clip.deviceLabel || device,
+          contextRate: clip.contextRate,
+        });
+        this.trace("segment", `mic test: ${verdict.line}`);
+        return verdict;
+      }
+      const result = await api.transcribe({
+        audioBytes: clip.wav,
+        mime: "audio/wav",
+        localOnly: true,
+        ...(keepUtteranceWavs() ? { keepWav: true } : {}),
+      });
+      const verdict = hearingVerdict({
+        rms: clip.rms,
+        peak: clip.peak,
+        transcript: result?.text || "",
+        emptyReason: result?.emptyReason || result?.audio?.emptyReason || "",
+        error: result?.ok ? "" : result?.error || "transcription failed",
+        deviceLabel: clip.deviceLabel || device,
+        contextRate: clip.contextRate,
+      });
+      this.trace("segment", `mic test: ${verdict.line}`);
+      return verdict;
+    } catch (error) {
+      const verdict = hearingVerdict({
+        rms: 0,
+        peak: 0,
+        transcript: "",
+        error: String((error as Error)?.message || error),
+        deviceLabel: device,
+        contextRate: voiceGate.inputRate(),
+      });
+      this.trace("segment", `mic test: ${verdict.line}`);
+      return verdict;
+    }
+  }
+
+  /** One short line through the Auto speech path. Manual and chat stay silent. */
+  async speakTest(): Promise<{ ok: boolean; engine: string; detail: string }> {
+    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
+      const detail = "Speak test runs in Auto mode. Manual and chat stay silent.";
+      this.trace("segment", `speak test: ${detail}`);
+      return { ok: false, engine: "none", detail };
+    }
+    await this.playSpoken("Voice check.", this.speechGen);
+    const engine = this.state.tts.engine || "none";
+    const detail =
+      engine === "none"
+        ? this.state.tts.lastError || "no speech engine could speak"
+        : `${engine} spoke`;
+    this.trace("segment", `speak test: ${detail}`);
+    return { ok: engine !== "none", engine, detail };
+  }
+
   /** Counts for the debug report. No audio and no transcript text. */
   micDebug(): string {
     const report = this.dictation?.captureReport();
@@ -767,6 +850,7 @@ class AssistantModeStore {
       `restarts ${this.micRestarts.length}`,
       `device ${this.state.mic.deviceLabel || "default"}`,
       `rate ${this.state.mic.sampleRate ?? "unknown"}`,
+      `input clock ${voiceGate.inputRate() ?? "stopped"} Hz`,
       `echo ${echo === null ? "requested" : echo ? "on" : "off"}`,
       `fps ${report?.fps ?? 0}`,
       `queue ${report?.queue ?? 0}`,
@@ -1221,7 +1305,9 @@ class AssistantModeStore {
 
   fixVoice() {
     speechTurnPlan("fix voice", preferences.getSnapshot().voice.recognitionLang || "hi-IN");
-    this.applyVoiceHeal(this.state.error || "stt-model-missing", true);
+    const fault = this.state.error || "";
+    if (/dependency-incompatible|metadata_errors/i.test(fault)) this.sttRepairConfirmed = true;
+    this.applyVoiceHeal(fault || "stt-model-missing", true);
     this.noteVoiceTrigger("fix-voice");
   }
 
@@ -1266,6 +1352,16 @@ class AssistantModeStore {
       return;
     }
     if (action === "download-stt" || action === "verify-stt") {
+      void desktop()?.installStt?.();
+      return;
+    }
+    if (action === "reinstall-pinned-av") {
+      if (!this.sttRepairConfirmed) {
+        this.state.status =
+          "dependency-incompatible: av with faster-whisper. Press Fix voice to install av>=17.0.0,<19 from PyPI.";
+        return;
+      }
+      this.sttRepairConfirmed = false;
       void desktop()?.installStt?.();
       return;
     }

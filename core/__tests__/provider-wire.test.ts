@@ -162,8 +162,10 @@ describe("provider wires through a fake server", () => {
     );
     expect(idle[0]?.loaded).toBe(false);
     const result = models.lmStudioResult("http://127.0.0.1:9", idle, 1);
-    expect(result.models).toEqual([]);
-    expect(result.error).toMatch(/no model loaded/i);
+    expect(
+      result.models.map((row: { id: string; loaded: boolean }) => [row.id, row.loaded]),
+    ).toEqual([["local-model", false]]);
+    expect(result.error).toMatch(/not loaded/i);
   });
 
   it("maps a removed model and a dead daemon, then skips them", () => {

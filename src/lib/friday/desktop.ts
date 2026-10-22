@@ -206,7 +206,13 @@ type DesktopApi = {
   ) => Promise<{ ok: boolean; count?: number }>;
   companionRemote?: () => Promise<CompanionRemoteState>;
   setCompanionRemote?: (enabled: boolean) => Promise<CompanionRemoteState>;
-  paths?: () => Promise<{ install: string; userData: string; workspace: string | null }>;
+  paths?: () => Promise<{
+    install: string;
+    userData: string;
+    workspace: string | null;
+    checkout?: { checkout: boolean; message: string };
+    kernelPort?: number;
+  }>;
 
   getBootSteps?: () => Promise<BootStep[]>;
   onBootStep?: (cb: (s: BootStep) => void) => () => void;
@@ -534,6 +540,7 @@ type DesktopApi = {
     initialPrompt?: string;
     speechPref?: string;
     sttSize?: string;
+    keepWav?: boolean;
   }) => Promise<{
     ok: boolean;
     text?: string;
@@ -542,6 +549,23 @@ type DesktopApi = {
     noSpeechProb?: number;
     turnProbability?: number | null;
     engine?: string;
+    emptyReason?: string;
+    audio?: {
+      durationMs?: number;
+      rmsDbfs?: number | null;
+      peakDbfs?: number | null;
+      denoisedRmsDbfs?: number | null;
+      denoisedPeakDbfs?: number | null;
+      vadMs?: number | null;
+      noSpeechProb?: number | null;
+      model?: string;
+      device?: string;
+      compute?: string;
+      language?: string;
+      promptUsed?: boolean;
+      emptyReason?: string;
+      denoiseNote?: string;
+    } | null;
   }>;
   scoreTurn?: (payload: {
     audioBytes?: Uint8Array;

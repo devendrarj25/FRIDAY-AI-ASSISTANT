@@ -508,6 +508,12 @@ export class VoiceGate {
     return this.stream;
   }
 
+  /** AudioContext rate before the 16 kHz ring. Null when the graph is closed. */
+  inputRate(): number | null {
+    const rate = this.ctx?.sampleRate;
+    return typeof rate === "number" && rate > 0 ? rate : null;
+  }
+
   lastCaptureFailure(): { state: MicState; reason: string } | null {
     return this.lastFailure;
   }

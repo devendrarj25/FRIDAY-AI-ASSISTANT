@@ -131,9 +131,16 @@ export function redactDiagnostics(text: string): string {
     .replace(/\bgithub_pat_[A-Za-z0-9_]+\b/g, "[blank]");
 }
 
-export type VoiceProbeCheck = { id: string; label: string; ok: boolean; detail: string };
+export type VoiceProbeCheck = {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+  optional?: boolean;
+  installId?: string;
+};
 
-/** One PASS or FAIL line per probe, plus a diagnostics block with secrets removed. */
+/** One PASS, OPTIONAL, or FAIL line per probe, plus a diagnostics block with secrets removed. */
 export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
   lines: string[];
   diagnostics: string;
@@ -143,9 +150,13 @@ export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
     id: String(check.id || "layer"),
     label: String(check.label || check.id || "layer"),
     ok: Boolean(check.ok),
+    optional: Boolean(check.optional),
+    installId: String(check.installId || ""),
     detail: redactDiagnostics(check.detail),
   }));
-  const lines = safe.map((check) => `${check.ok ? "PASS" : "FAIL"} ${check.id}`);
+  const lines = safe.map(
+    (check) => `${check.optional ? "OPTIONAL" : check.ok ? "PASS" : "FAIL"} ${check.id}`,
+  );
   const diagnostics = safe
     .map((check, index) => `${lines[index]} ${check.label}: ${check.detail}`)
     .join("\n");

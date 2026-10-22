@@ -872,7 +872,20 @@ class ModelRouter:
             return None
         if any(m.status == "ready" and self.can_chat(m) for m in local):
             return None
-        return "no installed local model"
+        notes: list[str] = []
+        generic = ""
+        for model in local:
+            options = model.options if isinstance(model.options, dict) else {}
+            note = str(options.get("notice") or "").strip()
+            if note:
+                notes.append(note)
+            elif not self.can_chat(model):
+                notes.append("flagged embedding-only")
+            elif model.status != "ready" and not generic:
+                generic = "unavailable after scan"
+        if notes:
+            return notes[0]
+        return generic or "no installed local model"
 
     def best_available(self, role: str = "brain", *, surface: str | None = None) -> Model | None:
         """Auto mode inside the kernel: score ready models, never spend on its own.

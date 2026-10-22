@@ -26,6 +26,11 @@ PyYAML>=6.0.3
 # imports — the kernel still boots without them. Windows CMD treats a failed
 # voice pip as a setup failure so hear/speak is ready before pack.
 faster-whisper>=1.2.1
+# faster-whisper 1.2.1 calls av.open(..., metadata_errors="ignore").
+# PyAV 19 removed that keyword. The upstream guard is on master and is not
+# in a PyPI release (latest remains 1.2.1, which only requires av>=11).
+# audiolab (via pyrnnoise) needs av>=17.0.0, so the safe range is below 19.
+av>=17.0.0,<19
 edge-tts>=7.2.8
 
 # Memory, devices, wake scorer, OCR and Windows control extras live in

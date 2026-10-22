@@ -51,8 +51,12 @@ class VoiceRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("PASS boot", proc.stdout)
-        self.assertIn("FAIL local-tts", proc.stdout)
-        self.assertIn("FAIL vad-silero", proc.stdout)
+        self.assertIn("OPTIONAL local-tts optional - not installed", proc.stdout)
+        self.assertIn("OPTIONAL vad-silero optional - not installed", proc.stdout)
+        self.assertIn("OPTIONAL smart-turn optional - not installed", proc.stdout)
+        self.assertNotIn("FAIL local-tts", proc.stdout)
+        self.assertNotIn("FAIL vad-silero", proc.stdout)
+        self.assertNotIn("FAIL smart-turn", proc.stdout)
         self.assertIn("OPTIONAL speaker", proc.stdout)
         self.assertNotIn("FAIL speaker", proc.stdout)
         self.assertIn("PASS cpu-fallback", proc.stdout)
@@ -184,6 +188,132 @@ class VoiceRuntimeTests(unittest.TestCase):
         leaked = voice_runtime.voice_context(True, {"text": "password: hunter2"})
         self.assertNotIn("hunter2", leaked["text"])
         self.assertFalse(leaked["instruction"])
+
+    def test_denoise_keeps_unit_float_scale(self):
+        """pyrnnoise 0.4.5 yields int16. Whisper needs float32 in [-1, 1]."""
+        try:
+            import numpy as np
+            from pyrnnoise import RNNoise  # noqa: F401
+        except ImportError:
+            self.skipTest("pyrnnoise or numpy is not installed")
+        rate = 16000
+        timeline = np.arange(rate) / rate
+        speech = (0.2 * np.sin(2 * np.pi * 220 * timeline)).astype(np.float32)
+        cleaned = np.asarray(voice_runtime.denoise_pcm(speech, rate), dtype=np.float32)
+        peak = float(np.max(np.abs(cleaned))) if cleaned.size else 0.0
+        self.assertLess(peak, 1.5)
+        self.assertGreater(float(np.sqrt(np.mean(cleaned.astype(np.float64) ** 2))), 0.01)
+
+    def test_energy_guard_restores_speech_and_keeps_quiet_noise(self):
+        import numpy as np
+
+        original = np.full(1600, 0.2, dtype=np.float32)
+        collapsed = original * 0.01
+        chosen, note = voice_runtime.guard_denoised(original, collapsed)
+        self.assertEqual(note, "denoise removed the signal")
+        self.assertAlmostEqual(float(chosen[0]), 0.2, places=3)
+        empty, empty_note = voice_runtime.guard_denoised(original, np.zeros(0, dtype=np.float32))
+        self.assertEqual(empty_note, "denoise removed the signal")
+        self.assertEqual(int(empty.shape[0]), 1600)
+        quiet = np.full(1600, 0.0001, dtype=np.float32)
+        kept, quiet_note = voice_runtime.guard_denoised(quiet, quiet * 0.1)
+        self.assertEqual(quiet_note, "")
+        self.assertLess(float(np.max(np.abs(kept))), 0.001)
+
+    def test_no_speech_policy_and_empty_ladder(self):
+        kept, note = stt.apply_no_speech_policy("chrome open karo", 0.83)
+        self.assertEqual(kept, "chrome open karo")
+        self.assertIn("0.83", note)
+        blank, blank_note = stt.apply_no_speech_policy("", 0.83)
+        self.assertEqual(blank, "")
+        self.assertEqual(blank_note, "no_speech 0.83")
+        self.assertEqual(stt.hearing_passes("hello", -30.0), [])
+        self.assertEqual(stt.hearing_passes("", -62.0), [])
+        self.assertEqual(
+            stt.hearing_passes("", -30.0),
+            ["no-vad-no-prompt", "original-audio"],
+        )
+        self.assertEqual(
+            stt.empty_transcript_reason("", -62.0),
+            "silent input (rms -62 dBFS)",
+        )
+        self.assertEqual(
+            stt.empty_transcript_reason("", -20.0, vad_ms=0),
+            "vad kept 0 ms",
+        )
+        self.assertEqual(
+            stt.empty_transcript_reason("", -20.0, vad_ms=400, no_speech=0.83),
+            "no_speech 0.83",
+        )
+        self.assertEqual(
+            stt.empty_transcript_reason("Hinglish mixed", -20.0, echoed_prompt=True, vad_ms=400),
+            "prompt only",
+        )
+        self.assertEqual(
+            stt.empty_transcript_reason(
+                "",
+                -20.0,
+                denoise_note="denoise removed the signal",
+                used_collapsed=True,
+                vad_ms=0,
+            ),
+            "denoise removed the signal",
+        )
+
+        calls: list[str] = []
+
+        def transcribe(kind: str) -> dict:
+            calls.append(kind)
+            if kind == "original-audio":
+                return {"text": "chrome open karo", "noSpeechProb": 0.1, "vadMs": 900}
+            return {"text": "", "noSpeechProb": 0.9, "vadMs": 0}
+
+        chosen, passes = stt.run_hearing_ladder(
+            {"text": "", "noSpeechProb": 0.91, "vadMs": 0},
+            {"rmsDbfs": -28.0, "usedOriginal": False},
+            stt.DEFAULT_HINT,
+            transcribe,
+        )
+        self.assertEqual(calls, ["no-vad-no-prompt", "original-audio"])
+        self.assertEqual(chosen["text"], "chrome open karo")
+        self.assertEqual(passes[0], "vad")
+        self.assertIn("original-audio", passes)
+
+        silent, silent_passes = stt.run_hearing_ladder(
+            {"text": "", "noSpeechProb": 0.9, "vadMs": 0},
+            {"rmsDbfs": -62.0, "usedOriginal": False},
+            "",
+            lambda _kind: {"text": "should not run"},
+        )
+        self.assertEqual(silent["text"], "")
+        self.assertEqual(silent_passes, ["vad"])
+
+    def test_hearing_report_keeps_five_wav_pairs(self):
+        import numpy as np
+
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = os.environ.get("FRIDAY_ROOT")
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                tone = np.full(160, 0.2, dtype=np.float32)
+                for _ in range(6):
+                    stt._record_hearing(
+                        {"emptyReason": "vad kept 0 ms", "rmsDbfs": -20.0},
+                        tone,
+                        tone * 0.5,
+                        True,
+                    )
+                folder = Path(tmp) / "debug" / "reports"
+                lines = (folder / "voice-hearing.jsonl").read_text(encoding="utf-8").strip().splitlines()
+                self.assertEqual(len(lines), 6)
+                self.assertIn("vad kept 0 ms", lines[-1])
+                wavs = sorted((folder / "utterances").glob("*.wav"))
+                self.assertEqual(len(wavs), 10)
+            finally:
+                if previous is None:
+                    os.environ.pop("FRIDAY_ROOT", None)
+                else:
+                    os.environ["FRIDAY_ROOT"] = previous
 
     def test_partial_plan_stays_on_this_worker(self):
         self.assertEqual(stt.plan_partials(0), [])

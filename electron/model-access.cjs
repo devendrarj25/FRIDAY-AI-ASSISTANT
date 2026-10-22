@@ -408,7 +408,13 @@ function cataloguePricing(catalogue) {
       if (src[key] != null && native[key] == null) native[key] = src[key];
     }
   }
-  const extraPaid = EXTRA_PAID_PRICE_KEYS.some((key) => parseMoney(native[key]) > 0);
+  const pricingObject = pricing && typeof pricing === "object" ? pricing : {};
+  for (const key of ["request", "image"]) {
+    if (pricingObject[key] != null && native[key] == null) native[key] = pricingObject[key];
+  }
+  const extraPaid =
+    EXTRA_PAID_PRICE_KEYS.some((key) => parseMoney(native[key]) > 0) ||
+    ["request", "image"].some((key) => parseMoney(pricingObject[key]) > 0);
   return {
     input,
     output,
@@ -477,9 +483,15 @@ function effectiveStatus(record) {
   return "UNKNOWN";
 }
 
+function recordStale(record) {
+  if (!record) return false;
+  if (record.failureReason === "pricing_stale") return true;
+  return record.evidence?.stale === true;
+}
+
 /** Official free evidence the owner can use before a live probe. */
 function officialFreeUsable(record) {
-  if (!record || !FREE_BILLING.has(record.billingMode)) return false;
+  if (!record || recordStale(record) || !FREE_BILLING.has(record.billingMode)) return false;
   if (record.eligibility !== "ELIGIBLE" && record.eligibility !== "RATE_LIMITED") return false;
   const source = String(record.evidence?.source || "");
   return (
@@ -495,6 +507,7 @@ function officialFreeUsable(record) {
 }
 
 function coarseAccess(record) {
+  if (recordStale(record)) return "unknown";
   const status = effectiveStatus(record);
   if (status === "PAID") return "paid";
   if (

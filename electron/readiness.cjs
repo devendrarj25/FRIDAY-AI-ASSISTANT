@@ -27,7 +27,7 @@ const stage = (name, ok, detail) => ({ name, ok: Boolean(ok), detail: detail || 
  * The pipeline is wired; Chat is not READY until a model answers.
  */
 function isUnloadedLocalChat(error) {
-  return /All connection attempts failed|No models loaded|does not expose this model id|model ['"][^'"]+['"] not found|Please load a model|lms load|no local \(offline\) model|no model available|no installed local model/i.test(
+  return /All connection attempts failed|No models loaded|does not expose this model id|model ['"][^'"]+['"] not found|Please load a model|lms load|no local \(offline\) model|no model available|no installed local model|unavailable after scan|model not loaded in LM Studio|flagged embedding-only|engine not running|id mismatch/i.test(
     String(error || ""),
   );
 }
@@ -296,7 +296,15 @@ async function runReadiness(ctx) {
       voice = { ok: false, detail: String(error.message || error) };
     }
   }
-  stages.push(stage("VOICE", voice.ok, voice.detail));
+  let speech = { ok: true, detail: "speech self-test skipped" };
+  try {
+    speech = await require("./voice-verify.cjs").speechSelfTest();
+  } catch (error) {
+    speech = { ok: false, detail: String(error.message || error) };
+  }
+  const voiceOk = Boolean(voice.ok) && speech.ok !== false;
+  const voiceDetail = `${voice.detail || "renderer unavailable"}. ${speech.detail || ""}`.trim();
+  stages.push(stage("VOICE", voiceOk, voiceDetail));
 
   // ----------------------------------------------------------- BASIC TASK
   // The smallest real end-to-end unit of work: list the kernel's tools and run

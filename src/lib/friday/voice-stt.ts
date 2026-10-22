@@ -29,6 +29,31 @@ import { preferences } from "./preferences";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
+import {
+  formatHearingDetail,
+  keepUtteranceWavs,
+  transcriptDropDetail,
+  type HearingAudio,
+} from "./voice-hearing";
+
+/** The same fault line is logged once. A new class replaces it. */
+export function collapseRepeat(previous: string, next: string): string | null {
+  const text = String(next || "").trim();
+  if (!text || text === previous) return null;
+  return text;
+}
+
+export function transcriptionFaultLine(result: {
+  error?: string;
+  sttClass?: string;
+  fix?: string;
+}): string {
+  const error = String(result.error || "").trim();
+  const kind = String(result.sttClass || "").trim();
+  const fix = String(result.fix || "").trim();
+  const head = kind && !error.includes(kind) ? `${kind}: ${error}` : error;
+  return fix && !head.includes(fix) ? `${head} ${fix}`.trim() : head;
+}
 
 export interface SttStatus {
   available: boolean;
@@ -362,6 +387,7 @@ export class DesktopDictation {
   private speaking = false;
   private running = false;
   private busy = false;
+  private lastErrorDetail = "";
   /** Utterances captured while whisper was busy, transcribed in order. */
   private queue: Array<{ blob: Blob; wake: WakeProbe | null }> = [];
   /** In-utterance wake score (once); reused at send if it already matched. */
@@ -494,6 +520,14 @@ export class DesktopDictation {
     });
 
     return true;
+  }
+
+  private reportOnce(detail: string) {
+    const next = collapseRepeat(this.lastErrorDetail, detail);
+    if (!next) return;
+    this.lastErrorDetail = next;
+    this.options.onError?.(next);
+    this.options.onDiagnostic?.({ stage: "error", detail: next });
   }
 
   stop() {
@@ -1007,25 +1041,49 @@ export class DesktopDictation {
         ...(sttSize && sttSize !== "auto" ? { model: sttSize, sttSize } : {}),
         localOnly: Boolean(this.options.localOnly),
         ...(initialPrompt ? { initialPrompt } : {}),
+        ...(keepUtteranceWavs() ? { keepWav: true } : {}),
       })) as {
         ok: boolean;
         text?: string;
         error?: string;
         language?: string;
         noSpeechProb?: number;
+        sttClass?: string;
+        fix?: string;
+        notice?: string;
+        emptyReason?: string;
+        audio?: HearingAudio | null;
       };
       if (result?.ok) {
+        this.lastErrorDetail = "";
+        if (result.notice) this.reportOnce(result.notice);
         const text = (result.text || "").trim();
         const noSpeech = result.noSpeechProb;
+        const heard = transcriptDropDetail(result);
+        const levels = formatHearingDetail(result.audio);
+        if (levels) {
+          this.options.onDiagnostic?.({
+            stage: "segment",
+            detail: levels,
+            ms: Date.now() - startedAt,
+          });
+        }
         this.options.onDiagnostic?.({
           stage: "transcript",
-          detail: text || "(empty transcript)",
+          detail: text || `(${heard})`,
           ms: Date.now() - startedAt,
         });
-        if (typeof noSpeech === "number" && noSpeech >= 0.65) {
+        if (text && typeof noSpeech === "number" && noSpeech >= 0.7) {
+          this.options.onDiagnostic?.({
+            stage: "segment",
+            detail: `kept segment text; no_speech ${noSpeech.toFixed(2)}`,
+            ms: Date.now() - startedAt,
+          });
+          this.options.onFinal(text, { wake, ms: Date.now() - startedAt });
+        } else if (typeof noSpeech === "number" && noSpeech >= 0.65 && !text) {
           this.options.onDiagnostic?.({
             stage: "dropped",
-            detail: `no-speech probability ${noSpeech.toFixed(2)} — not sent to the brain`,
+            detail: heard,
             ms: Date.now() - startedAt,
           });
         } else if (text) {
@@ -1033,18 +1091,17 @@ export class DesktopDictation {
         } else {
           this.options.onDiagnostic?.({
             stage: "dropped",
-            detail: "empty transcript",
+            detail: heard,
             ms: Date.now() - startedAt,
           });
         }
       } else if (result?.error) {
-        this.options.onError?.(result.error);
-        this.options.onDiagnostic?.({ stage: "error", detail: result.error });
+        const detail = transcriptionFaultLine(result);
+        this.reportOnce(detail);
       }
     } catch (error) {
       const message = String((error as Error)?.message || error);
-      this.options.onError?.(message);
-      this.options.onDiagnostic?.({ stage: "error", detail: message });
+      this.reportOnce(message);
     } finally {
       this.busy = false;
       // The segment is over — never leave capture latched. A recorder that is

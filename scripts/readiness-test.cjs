@@ -19,6 +19,7 @@
  */
 const fs = require("node:fs");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const launchHarness = require("./packaged-launch.cjs");
@@ -27,6 +28,7 @@ const registry = require("./env-registry.cjs");
 const runtime = require("./python-runtime.cjs");
 const hang = require("./readiness-hang.cjs");
 const { isUnloadedLocalChat } = require("../electron/readiness.cjs");
+const kernelBind = require("../electron/kernel-bind.cjs");
 
 /** Parent ceiling when milestones keep advancing. A stall fails sooner. */
 const CEILING_MS = 300000;
@@ -154,16 +156,67 @@ function recordedRoot() {
   return null;
 }
 
-/** The root the test selects on the first launch (restart must rediscover it). */
-function testRoot() {
-  const i = process.argv.indexOf("--root");
-  const explicit = i > -1 ? process.argv[i + 1] : process.env["FRIDAY_WORKSPACE_ROOT"];
-  const chosen = explicit || recordedRoot() || path.join(root, ".friday-readiness-root");
-  fs.mkdirSync(chosen, { recursive: true });
-  return path.resolve(chosen);
+/**
+ * A readiness run never opens the recorded FRIDAY folder unless
+ * --use-recorded-root is set, and that flag refuses a live app.
+ * The default is a fresh directory in the OS temp folder.
+ */
+function chooseReadinessRoot(options = {}) {
+  const argv = options.argv || [];
+  const useRecorded = argv.includes("--use-recorded-root");
+  const rootFlag = argv.indexOf("--root");
+  const explicit = rootFlag > -1 ? String(argv[rootFlag + 1] || "") : "";
+  const recorded = options.recorded ? path.resolve(options.recorded) : "";
+  if (useRecorded) {
+    if (!recorded) {
+      const error = new Error("no recorded FRIDAY folder");
+      error.code = "no-recorded-root";
+      throw error;
+    }
+    if (options.alive) {
+      const error = new Error("refusing to run while that FRIDAY folder is in use");
+      error.code = "recorded-root-live";
+      throw error;
+    }
+    return {
+      root: recorded,
+      userData: path.join(recorded, ".readiness-user-data"),
+      optedIn: true,
+    };
+  }
+  if (explicit && recorded && path.resolve(explicit) === recorded) {
+    const error = new Error("that folder is the recorded FRIDAY folder; pass --use-recorded-root");
+    error.code = "recorded-root";
+    throw error;
+  }
+  if (explicit) {
+    const chosen = path.resolve(explicit);
+    fs.mkdirSync(chosen, { recursive: true });
+    return { root: chosen, userData: path.join(chosen, ".user-data"), optedIn: false };
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-readiness-"));
+  const isolated = path.join(dir, "root");
+  fs.mkdirSync(isolated, { recursive: true });
+  return { root: isolated, userData: path.join(dir, "user-data"), optedIn: false };
 }
 
-const FRIDAY_ROOT = testRoot();
+let FRIDAY_ROOT = "";
+let READINESS_USER_DATA = "";
+let READINESS_PORT = kernelBind.DEFAULT_KERNEL_PORT;
+
+async function bindReadinessIsolation() {
+  const useRecorded = process.argv.includes("--use-recorded-root");
+  const plan = chooseReadinessRoot({
+    argv: process.argv,
+    recorded: recordedRoot(),
+    alive: useRecorded ? await portBusy(kernelBind.DEFAULT_KERNEL_PORT) : false,
+  });
+  FRIDAY_ROOT = plan.root;
+  READINESS_USER_DATA = plan.userData;
+  fs.mkdirSync(READINESS_USER_DATA, { recursive: true });
+  READINESS_PORT = await kernelBind.pickFreePort();
+  return plan;
+}
 
 /** The venv setup-python just built. A packaged EXE does not look in the checkout. */
 function checkoutPython() {
@@ -210,6 +263,7 @@ function launch(app, label, { select = true } = {}) {
     const env = {
       ...process.env,
       FRIDAY_READINESS: "1",
+      FRIDAY_KERNEL_PORT: String(READINESS_PORT),
       ELECTRON_DISABLE_SECURITY_WARNINGS: "1",
     };
     if (select) env.FRIDAY_WORKSPACE_ROOT = FRIDAY_ROOT;
@@ -218,8 +272,14 @@ function launch(app, label, { select = true } = {}) {
     if (python) env.FRIDAY_PYTHON = python;
     // A Windows GUI process can miss the inherited environment. The arguments
     // still arrive. Restart omits the workspace argument so FRIDAY has to
-    // rediscover the same folder.
-    const args = [...(app.args || []), "--friday-readiness", `--friday-progress=${progress}`];
+    // rediscover the same folder. userData and the port stay isolated.
+    const args = [
+      ...(app.args || []),
+      "--friday-readiness",
+      `--friday-progress=${progress}`,
+      `--user-data-dir=${READINESS_USER_DATA}`,
+      `--friday-kernel-port=${READINESS_PORT}`,
+    ];
     if (python) args.push(`--friday-python=${python}`);
     if (select) args.push(`--friday-workspace=${FRIDAY_ROOT}`);
     const child = spawn(app.exe, args, {
@@ -347,7 +407,12 @@ function restartReportLine(second, first) {
     second && second.leak && second.leak.ok === false
       ? `leak ${(second.leak.alive || []).join(",")}`
       : "leak none";
-  return `${details}; ${launches}; ${leak}`;
+  const tail = [second && second.output, first && first.output].filter(Boolean).join("\n");
+  const cause = kernelBind.classifyKernelExit({
+    code: second && second.exitCode,
+    text: `${details}\n${tail}`,
+  });
+  return `${cause.class}: ${cause.detail}; ${details}; ${launches}; ${leak}`;
 }
 
 function portBusy(port) {
@@ -393,6 +458,7 @@ function report(payload) {
 }
 
 async function runReadinessHarness() {
+  await bindReadinessIsolation();
   const stages = [];
   const add = (name, ok, detail) => {
     stages.push({ name, ok, detail });
@@ -416,6 +482,8 @@ async function runReadinessHarness() {
   );
 
   log(`FRIDAY root for this run: ${FRIDAY_ROOT}`);
+  log(`readiness userData: ${READINESS_USER_DATA}`);
+  log(`readiness kernel port: ${READINESS_PORT}`);
   const app = resolveApp();
   if (
     !add("INSTALL", Boolean(app), app ? `${app.kind}: ${app.exe}` : "no FRIDAY application found")
@@ -504,11 +572,11 @@ async function runReadinessHarness() {
   // Restart must be clean: no stale lock, no orphaned kernel, same result.
   // A first launch with no report does not start a second 5 minute wait.
   let second = null;
-  let release = { released: true, port: 8765 };
+  let release = { released: true, port: READINESS_PORT };
   if (!first.skipped && !firstHung) {
-    release = await waitForRelease(8765, 8000);
+    release = await waitForRelease(READINESS_PORT, 8000);
     if (release.released) clearDatabaseSidecars(FRIDAY_ROOT);
-    else log("kernel port 8765 still held before restart");
+    else log(`kernel port ${READINESS_PORT} still held before restart`);
     second = await launch(app, "FRIDAY (restart)", { select: false });
     // Restart is only clean when the app found the SAME folder on its own.
     const boot = (second.stages || []).find((s) => s.name === "BOOT");
@@ -575,4 +643,6 @@ module.exports = {
   restartReportLine,
   waitForRelease,
   clearDatabaseSidecars,
+  chooseReadinessRoot,
+  recordedRoot,
 };

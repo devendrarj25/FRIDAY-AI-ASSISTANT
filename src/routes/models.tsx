@@ -1558,10 +1558,11 @@ function ProviderUse({
   const cooling = rows.filter((model) => model.visibility === "disabled");
   const hidden = rows.filter((model) => model.visibility === "hide");
   const reasons = new Map<string, number>();
-  for (const row of hidden) {
-    const reason = row.reason || "hidden";
+  for (const row of [...hidden, ...cooling]) {
+    const reason = row.disabledReason || row.reason || "hidden";
     reasons.set(reason, (reasons.get(reason) || 0) + 1);
   }
+  const localWhy = !cloud && !connected ? "engine not running" : "";
   const reasonLine = [...reasons.entries()]
     .map(([reason, count]) => `${reason} ×${count}`)
     .join(", ");
@@ -1573,6 +1574,7 @@ function ProviderUse({
         HIDDEN {hidden.length}
         {cooling.length ? ` · limited ${cooling.length}` : ""}
         {reasonLine ? ` · ${reasonLine}` : ""}
+        {localWhy ? ` · ${localWhy}` : ""}
       </p>
       {providerId === "groq" ? (
         <p className="font-mono text-[10px] text-muted-foreground">

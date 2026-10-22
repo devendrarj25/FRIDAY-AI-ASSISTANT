@@ -255,15 +255,23 @@ describe("local discovery", () => {
     expect(native.find((row: { id: string }) => row.id === "loaded-one").loaded).toBe(true);
     expect(native.find((row: { id: string }) => row.id === "sitting").loaded).toBe(false);
     const running = models.lmStudioResult("http://127.0.0.1:1234", native, 12);
-    expect(running.models.map((row: { id: string }) => row.id)).toEqual(["loaded-one"]);
+    expect(
+      running.models
+        .filter((row: { loaded: boolean }) => row.loaded)
+        .map((row: { id: string }) => row.id),
+    ).toEqual(["loaded-one"]);
+    expect(running.models.find((row: { id: string }) => row.id === "sitting")?.notice).toBe(
+      "model not loaded in LM Studio",
+    );
     expect(running.error).toBeNull();
     const empty = models.lmStudioResult(
       "http://127.0.0.1:1234",
       native.filter((row: { loaded: boolean }) => !row.loaded),
       4,
     );
-    expect(empty.models).toEqual([]);
-    expect(empty.error).toBe("LM Studio running, no model loaded");
+    expect(empty.models.map((row: { id: string }) => row.id)).toEqual(["sitting"]);
+    expect(empty.models[0].loaded).toBe(false);
+    expect(empty.error).toBe("model not loaded in LM Studio");
     const legacy = models.lmStudioCatalog(
       {
         data: [
@@ -277,9 +285,44 @@ describe("local discovery", () => {
       ["old", true],
       ["idle", false],
     ]);
-    const compat = models.lmStudioCatalog({ data: [{ id: "download-only" }] }, "openai");
-    expect(compat[0].loaded).toBe(false);
-    expect(models.lmStudioResult("http://127.0.0.1:1234", compat, 1).models).toEqual([]);
+    const compat = models.lmStudioCatalog({ data: [{ id: "served-by-the-server" }] }, "openai");
+    expect(compat[0].loaded).toBe(true);
+    expect(
+      models
+        .lmStudioResult("http://127.0.0.1:1234", compat, 1)
+        .models.map((row: { id: string }) => row.id),
+    ).toEqual(["served-by-the-server"]);
+    const tags = models.ollamaCatalog({
+      models: [
+        { name: "llama3.2:latest", size: 2_000_000_000, details: { family: "llama" } },
+        { name: "nomic-embed-text", size: 200_000_000, details: { family: "nomic" } },
+      ],
+    });
+    expect(tags.map((row: { id: string }) => row.id)).toEqual([
+      "llama3.2:latest",
+      "nomic-embed-text",
+    ]);
+    const chat = local("ollama:llama3.2:latest");
+    const embed = local("ollama:nomic-embed-text");
+    const cloudFree = cloud("openrouter", "openrouter/free");
+    const served = models.lmStudioResult("http://127.0.0.1:1234", compat, 1).models[0];
+    const studio = local(`lmstudio:${served.id}`, { providerId: "lmstudio", loaded: true });
+    const plan = router.routeRequest([embed, chat, studio, cloudFree], {
+      mode: "auto",
+      policy: "free-preferred",
+      task: "chat",
+      requirements: { privacy: "private" },
+    });
+    expect(plan.candidates).toContain("ollama:llama3.2:latest");
+    expect(plan.candidates).toContain(`lmstudio:${served.id}`);
+    expect(plan.candidates).not.toContain("ollama:nomic-embed-text");
+    expect(plan.candidates).not.toContain("openrouter:openrouter/free");
+    const hidden = router.usableModels([embed], { policy: "free-preferred", task: "chat" });
+    expect(hidden.rows[0].reason).toBe("flagged embedding-only");
+    const unloaded = router.classifyError({ message: "Please load a model in LM Studio" });
+    expect(unloaded.nextStep).toBe("model not loaded in LM Studio");
+    const mismatch = router.classifyError({ message: "does not expose this model id" });
+    expect(mismatch.nextStep).toBe("id mismatch");
   });
 
   it("says when Ollama is down and does not route a stale id", () => {

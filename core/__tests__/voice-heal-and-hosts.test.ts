@@ -21,6 +21,8 @@ import {
   spokenRepairLine,
 } from "../../src/lib/friday/voice-heal";
 import { intentStatusLine } from "../../src/lib/friday/use-friday-live";
+import { collapseRepeat, transcriptionFaultLine } from "../../src/lib/friday/voice-stt";
+import { formatVoiceProbeReport } from "../../src/lib/friday/voice-doctor";
 
 const require_ = createRequire(import.meta.url);
 const safety = require_("../../electron/download-safety.cjs");
@@ -293,5 +295,55 @@ describe("speech ladder, hearing, and self-heal", () => {
     expect(assistant).toMatch(/scheduleSttRecovery[\s\S]*applyVoiceHeal/);
     expect(assistant).toMatch(/async verifyVoiceRuntime\(\)[\s\S]*applyVoiceHeal/);
     expect(main).toContain('id: "voice-heal"');
+  });
+
+  it("classifies a PyAV mismatch once, labels optional assets, and stays local", () => {
+    expect(classifyVoiceFault("dependency-incompatible: av 19.0.2 with faster-whisper")).toBe(
+      "stt-dependency-incompatible",
+    );
+    expect(classifyVoiceFault("open() got an unexpected keyword argument 'metadata_errors'")).toBe(
+      "stt-dependency-incompatible",
+    );
+    expect(classifyVoiceFault("worker timeout")).toBe("stt-engine-crash");
+    const plan = planVoiceHeal({
+      fault: "dependency-incompatible: av 19.0.2 with faster-whisper",
+      now: 1,
+      auto: true,
+    });
+    expect(plan.fault).toBe("stt-dependency-incompatible");
+    expect(plan.action).toBe("reinstall-pinned-av");
+    expect(
+      collapseRepeat("dependency-incompatible: av 19.0.2", "dependency-incompatible: av 19.0.2"),
+    ).toBe(null);
+    expect(collapseRepeat("", "dependency-incompatible: av 19.0.2")).toContain("av 19.0.2");
+    expect(
+      transcriptionFaultLine({
+        error: "dependency-incompatible: av 19.0.2 with faster-whisper",
+        sttClass: "dependency-incompatible",
+        fix: 'python -m pip install "av>=17.0.0,<19"',
+      }),
+    ).toContain("av>=17.0.0,<19");
+    const report = formatVoiceProbeReport([
+      {
+        id: "local-tts",
+        label: "local-tts optional - not installed",
+        ok: false,
+        optional: true,
+        installId: "supertonic-3",
+        detail: "OPTIONAL local-tts optional - not installed",
+      },
+    ]);
+    expect(report.lines).toEqual(["OPTIONAL local-tts"]);
+    expect(report.checks[0]?.installId).toBe("supertonic-3");
+    expect(read("electron/stt.cjs")).toContain('"av>=17.0.0,<19"');
+    expect(read("kernel/requirements.txt")).toContain("av>=17.0.0,<19");
+    expect(read("electron/readiness.cjs")).toContain("speechSelfTest");
+    expect(read("kernel/voice_runtime.py")).toContain(
+      "OPTIONAL local-tts optional - not installed",
+    );
+    expect(read("src/lib/friday/assistant-mode.ts")).toContain("sttRepairConfirmed");
+    const selfTest = read("kernel/stt.py");
+    expect(selfTest).toContain('"local": True');
+    expect(selfTest).not.toContain("httpx");
   });
 });

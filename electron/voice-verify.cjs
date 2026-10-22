@@ -60,6 +60,82 @@ function run(exe, args, timeout = 120000, env) {
 
 const tail = (text, fallback) => (String(text || "").trim() || fallback).slice(-400);
 
+const OPTIONAL_INSTALL = {
+  "local-tts": "supertonic-3",
+  "vad-silero": "silero-vad",
+  "smart-turn": "smart-turn",
+};
+
+function parseJsonLine(stdout) {
+  const text = String(stdout || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text.slice(text.lastIndexOf("{")));
+  } catch {
+    return null;
+  }
+}
+
+async function speechSelfTest() {
+  const found = await resolvePython();
+  if (!found) {
+    return {
+      ok: true,
+      skipped: true,
+      detail: "skipped: no Python interpreter for the speech self-test",
+      av: null,
+    };
+  }
+  const runResult = await run(
+    found.exe,
+    [...(found.prefix || []), sttScript(), "--self-test"],
+    600000,
+  );
+  const parsed = parseJsonLine(runResult.stdout);
+  if (!parsed) {
+    return {
+      ok: false,
+      skipped: false,
+      detail: tail(runResult.stderr, "speech self-test did not return JSON"),
+      av: null,
+    };
+  }
+  if (parsed.skipped) {
+    return {
+      ok: true,
+      skipped: true,
+      detail: `skipped: ${parsed.reason || "speech model is not installed"} · audio path verified`,
+      engine: parsed.engine || "",
+      model: parsed.model || "",
+      loadMs: parsed.loadMs || 0,
+      transcribeMs: parsed.transcribeMs || 0,
+      av: parsed.av || null,
+    };
+  }
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      skipped: false,
+      detail: parsed.error || parsed.reason || "transcription failed",
+      engine: parsed.engine || "",
+      model: parsed.model || "",
+      loadMs: parsed.loadMs || 0,
+      transcribeMs: parsed.transcribeMs || 0,
+      av: parsed.av || null,
+    };
+  }
+  return {
+    ok: true,
+    skipped: false,
+    detail: `${parsed.engine} · ${parsed.model} · load ${parsed.loadMs}ms · transcribe ${parsed.transcribeMs}ms`,
+    engine: parsed.engine || "",
+    model: parsed.model || "",
+    loadMs: parsed.loadMs || 0,
+    transcribeMs: parsed.transcribeMs || 0,
+    av: parsed.av || null,
+  };
+}
+
 /**
  * @returns {Promise<{ok:boolean, python:string|null, checks:Array<{id:string,label:string,ok:boolean,detail:string}>}>}
  */
@@ -184,7 +260,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
   const stages = local.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => /^(PASS|FAIL)\s+\S+/.test(line));
+    .filter((line) => /^(PASS|FAIL|OPTIONAL)\s+\S+/.test(line));
   if (!stages.length) {
     checks.push({
       id: "voice-check",
@@ -195,17 +271,48 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
     });
   } else {
     for (const line of stages) {
+      const optional = line.startsWith("OPTIONAL");
       const ok = line.startsWith("PASS");
-      const rest = line.slice(5).trim();
+      const rest = line.slice(line.indexOf(" ") + 1).trim();
       const id = rest.split(/\s+/)[0] || "stage";
       checks.push({
         id,
-        label: rest,
+        label: optional ? `${rest} optional - not installed` : rest,
         ok,
+        optional,
+        installId: OPTIONAL_INSTALL[id] || "",
         required: false,
         detail: line,
       });
     }
+  }
+
+  const speech = await speechSelfTest();
+  checks.push({
+    id: "stt-transcribe",
+    label: "speech transcription",
+    ok: speech.ok,
+    required: !speech.skipped,
+    detail: speech.detail,
+  });
+  if (speech.av && speech.av.installed && !speech.av.ok) {
+    checks.push({
+      id: "av-pin",
+      label: "PyAV range",
+      ok: false,
+      required: true,
+      detail: `${speech.av.reason}. ${speech.av.fix}`,
+    });
+  } else if (speech.av) {
+    checks.push({
+      id: "av-pin",
+      label: "PyAV range",
+      ok: true,
+      required: false,
+      detail: speech.av.installed
+        ? `av ${speech.av.version} is inside ${speech.av.requirement}`
+        : speech.av.reason,
+    });
   }
 
   const requiredOk = checks.filter((check) => check.required !== false).every((check) => check.ok);
@@ -217,4 +324,4 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
   };
 }
 
-module.exports = { verifyVoiceRuntime };
+module.exports = { verifyVoiceRuntime, speechSelfTest };

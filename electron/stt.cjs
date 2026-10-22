@@ -650,7 +650,7 @@ async function install() {
     }
     const result = await run(
       py[0],
-      [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper"],
+      [...py[1], "-m", "pip", "install", "--upgrade", "faster-whisper>=1.2.1", "av>=17.0.0,<19"],
       600000,
     );
     if (!result.ok) {
@@ -798,6 +798,7 @@ async function transcribe(req = {}, onPartial) {
           initial_prompt: prompt.slice(0, 800),
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
           sttSize: String(req.sttSize || req.stt_size || ""),
+          keep_wav: Boolean(req.keepWav || req.keep_wav),
         },
         loadBudget,
         onPartial,
@@ -828,6 +829,7 @@ async function transcribe(req = {}, onPartial) {
               initial_prompt: prompt.slice(0, 800),
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
+              keep_wav: Boolean(req.keepWav || req.keep_wav),
             },
             loadBudget,
             onPartial,
@@ -851,6 +853,7 @@ async function transcribe(req = {}, onPartial) {
               initial_prompt: prompt.slice(0, 800),
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
+              keep_wav: Boolean(req.keepWav || req.keep_wav),
             },
             voiceInstall.loadBudgetMs(fallback),
             onPartial,
@@ -869,7 +872,14 @@ async function transcribe(req = {}, onPartial) {
     if (!parsed) {
       return { ok: false, reason: "engine-failed", error: "the transcriber returned nothing" };
     }
-    if (!parsed.ok) return { ok: false, reason: parsed.reason || "failed", error: parsed.error };
+    if (!parsed.ok)
+      return {
+        ok: false,
+        reason: parsed.reason || "failed",
+        error: parsed.error,
+        sttClass: parsed.sttClass || parsed.reason || "",
+        fix: parsed.fix || "",
+      };
     lastLocalLayers.inference = "verified";
     lastLocalLayers.loadCount = parsed.loadCount || lastLocalLayers.loadCount;
     lastLocalLayers.model = model;
@@ -884,6 +894,8 @@ async function transcribe(req = {}, onPartial) {
       noSpeechProb: typeof parsed.noSpeechProb === "number" ? parsed.noSpeechProb : undefined,
       turnProbability: typeof parsed.turnProbability === "number" ? parsed.turnProbability : null,
       loadCount: parsed.loadCount,
+      emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),
+      audio: parsed.audio || null,
     };
   } finally {
     inFlight -= 1;
