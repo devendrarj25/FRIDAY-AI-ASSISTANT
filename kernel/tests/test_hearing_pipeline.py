@@ -182,6 +182,22 @@ class HearingSelfTest(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["levels"][0]["dropCode"], "empty")
 
+    def test_wrong_words_read_as_misheard_with_the_recogniser(self):
+        report = stt.run_hearing_self_test(
+            levels=(0.5,),
+            synth=lambda: (_voiced(1.0, 0.8), "stand-in"),
+            transcribe=lambda _path: {
+                "text": "Friday or Todd is it",
+                "dropCode": "",
+                "engine": "windows-speech",
+                "model": "windows-speech",
+            },
+        )
+        row = report["levels"][0]
+        self.assertFalse(row["ok"])
+        self.assertEqual(row["dropCode"], "misheard")
+        self.assertEqual(row["recogniser"], "windows-speech")
+
     def test_no_synthesiser_is_a_visible_skip(self):
         report = stt.run_hearing_self_test(synth=lambda: (None, "no speech synthesiser"))
         self.assertTrue(report["skipped"])
@@ -214,3 +230,32 @@ class PipelineOrder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+LIVE_PROMPT = (
+    "Hinglish: mixed Hindi and English in one utterance. "
+    "Preserve filenames, paths, code identifiers, application names, project names, commands, "
+    "FRIDAY, and technical terms. Do not translate or replace those with similar everyday words. "
+    "The speaker often uses Hindi and Indian English. Current work: fix the voice mode settings. "
+    "Names and apps: Chrome, GitHub, ComfyUI."
+)
+
+
+class PromptEchoTests(unittest.TestCase):
+    def test_a_reworded_prompt_sentence_is_an_echo(self):
+        self.assertTrue(stt.prompt_echo("The speaker often uses Hindi and Indian language.", LIVE_PROMPT))
+        self.assertTrue(stt.prompt_echo("Do not translate or replace those with similar everyday words", LIVE_PROMPT))
+        self.assertTrue(stt.prompt_echo(stt.DEFAULT_HINT[:60], stt.DEFAULT_HINT))
+
+    def test_real_speech_is_never_an_echo(self):
+        for said in (
+            "Chrome open karo",
+            "GitHub ka latest status check karo",
+            "fix the voice mode settings",
+            "Friday what time is it",
+            "open ComfyUI and make an image of a fox",
+            "kya tum check kar sakti ho ki voice me baat kyu nahi ho rahi",
+        ):
+            self.assertFalse(stt.prompt_echo(said, LIVE_PROMPT), said)
+        self.assertFalse(stt.prompt_echo("GitHub ka latest status check karo", stt.DEFAULT_HINT))
+        self.assertFalse(stt.prompt_echo("The speaker often uses Hindi", ""))

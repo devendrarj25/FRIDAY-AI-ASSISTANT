@@ -67,7 +67,31 @@ const OPTIONAL_INSTALL = {
   "smart-turn": "smart-turn",
 };
 
-async function speechSelfTest() {
+const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3"];
+
+/**
+ * The model folder the live worker uses. The load probe, the transcription
+ * self-test, and the hearing self-test all open this same folder. Without it
+ * the self-tests looked up a model by name, found nothing on disk, and the
+ * hearing test fell back to Windows speech recognition.
+ */
+function sttEnv(size, prepared) {
+  const env = { FRIDAY_STT_MODEL: size };
+  if (prepared && prepared.ok && prepared.dir) env.FRIDAY_STT_MODEL_PATH = prepared.dir;
+  return env;
+}
+
+/** The size live listening picks on "auto" (electron/stt.cjs uses the same call). */
+function liveAutoSize() {
+  try {
+    const picked = require("./voice-install.cjs").bootModel({ requested: "auto" }).model;
+    return STT_SIZES.includes(picked) ? picked : "base";
+  } catch {
+    return "base";
+  }
+}
+
+async function speechSelfTest(env) {
   const found = await resolvePython();
   if (!found) {
     return {
@@ -81,6 +105,7 @@ async function speechSelfTest() {
     found.exe,
     [...(found.prefix || []), sttScript(), "--self-test"],
     600000,
+    env,
   );
   const parsed = parseJsonLine(runResult.stdout);
   if (!parsed) {
@@ -132,7 +157,7 @@ async function speechSelfTest() {
  * level so the diagnostics screen shows PASS or FAIL for each. A machine with no
  * synthesiser or no speech model gets one visible skip, never a pass.
  */
-async function hearingSelfTest() {
+async function hearingSelfTest(env) {
   const found = await resolvePython();
   if (!found) {
     return [
@@ -149,6 +174,7 @@ async function hearingSelfTest() {
     found.exe,
     [...(found.prefix || []), sttScript(), "--hearing-self-test"],
     600000,
+    env,
   );
   const parsed = parseJsonLine(runResult.stdout);
   if (!parsed) {
@@ -180,14 +206,16 @@ async function hearingSelfTest() {
     required: true,
     detail: row.ok
       ? `heard "${String(row.text).slice(0, 80)}" in ${row.ms}ms${row.denoiseNote ? ` · ${row.denoiseNote}` : ""}`
-      : `${row.dropCode || row.sttClass || "empty"}: ${String(row.error || row.text || "nothing heard").slice(0, 120)}`,
+      : `${row.dropCode || row.sttClass || "empty"}: ${String(row.error || row.text || "nothing heard").slice(0, 120)}${row.recogniser ? ` · ${row.recogniser}${row.model ? ` ${row.model}` : ""}` : ""}`,
   }));
 }
 
 /**
  * @returns {Promise<{ok:boolean, python:string|null, checks:Array<{id:string,label:string,ok:boolean,detail:string}>}>}
  */
-async function verifyVoiceRuntime({ loadModel = true } = {}) {
+async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
+  const size = STT_SIZES.includes(model) ? model : liveAutoSize();
+  let prepared = null;
   const checks = [];
   const found = await resolvePython();
   if (!found) {
@@ -229,7 +257,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
 
   if (whisperImport.ok && loadModel) {
     const weights = require("./voice-weights.cjs");
-    const prepared = await weights.ensureSttWeights("base", paths.root() || "", {
+    prepared = await weights.ensureSttWeights(size, paths.root() || "", {
       exists: (file) => fs.existsSync(file),
       downloadModel: require("./model-download.cjs").downloadModel,
     });
@@ -241,10 +269,12 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
         detail: prepared.error || "speech weights are not on disk",
       });
     } else {
-      const load = await run(exe, [...prefix, sttScript(), "--load-probe"], 600000, {
-        ...process.env,
-        FRIDAY_STT_MODEL_PATH: prepared.dir,
-      });
+      const load = await run(
+        exe,
+        [...prefix, sttScript(), "--load-probe", "--model", size],
+        600000,
+        sttEnv(size, prepared),
+      );
       const parsed = parseJsonLine(load.stdout);
       checks.push({
         id: "stt-model",
@@ -329,7 +359,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
     }
   }
 
-  const speech = await speechSelfTest();
+  const speech = await speechSelfTest(sttEnv(size, prepared));
   checks.push({
     id: "stt-transcribe",
     label: "speech transcription",
@@ -337,7 +367,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
     required: !speech.skipped,
     detail: speech.detail,
   });
-  checks.push(...(await hearingSelfTest()));
+  checks.push(...(await hearingSelfTest(sttEnv(size, prepared))));
   if (speech.av && speech.av.installed && !speech.av.ok) {
     checks.push({
       id: "av-pin",
@@ -367,4 +397,4 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
   };
 }
 
-module.exports = { verifyVoiceRuntime, speechSelfTest, hearingSelfTest };
+module.exports = { verifyVoiceRuntime, speechSelfTest, hearingSelfTest, sttEnv };

@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `fix/build-stt-self-test`, voice fixes (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 390 files, 3209 passed, 4 skipped; kernel 240 passed, 2 skipped; lint, typecheck, pyright, docs, provenance pass. Windows pack gates skipped on Linux. |
 | Branch `fix/build-stt-self-test` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 389 files, 3195 passed, 4 skipped; kernel 237 passed, 2 skipped; pyright ceiling, lint, typecheck, docs, version, provenance, actionlint, arrange, deps, audit, renderer pass. NSIS, verify-build, and installer smoke skipped on Linux. `python -I kernel/stt.py --self-test` fails on the old file and exits 0 with JSON on the new one. `pip download` for `win_amd64`: ctranslate2 4.8.3 has a `cp314` wheel and no `cp315` one. PowerShell was not available to parse `installer/build/install-python.ps1`. |
 | Branch `upgrade/voice-listen-modes` (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 388 files, 3186 passed, 4 skipped; kernel pytest, pyright ceiling, lint, typecheck, docs, provenance, verify:version pass. Real-app readiness under xvfb with a fake Ollama passed all 13 stages; the fake log shows 2 `POST /api/chat`. Windows paths unverified. |
 | Real app readiness (`node scripts/readiness-test.cjs`, Electron 43 under xvfb as root with a `--no-sandbox` wrapper, fake Ollama on 11434) | PASSED all stages: ENVIRONMENT, INSTALL, START, ROOT, BOOT, KERNEL, DATABASE, MODEL, CHAT, VOICE, BASIC TASK, SHUTDOWN, RESTART. The fake Ollama log shows 2 `POST /api/chat`, so the real app routed a chat to the local model. Before the JSON fix the same run failed VOICE with `speech self-test did not return JSON`. Not a Windows run. |
@@ -123,6 +124,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Owner's 2026-10-22 voice test: 21 of 22 live utterances were dropped as `vad kept 0 ms`, because the PCM ring held 600 ms and each segment was its trailing silence. The ring now holds 30 s, and a test pins a 5 s utterance. The self-tests now use the live model folder. Prompt echoes are dropped. The turn trace names why a heard line was not routed. Chat answers voice questions from the live session, and the Voice Agent role match is a skip. All of this ran on Linux tests only. Live hearing on the owner's microphone is unverified until step 0 below runs.
+
 - Release `v1.1.3.4` was prepared and merged into `main` on 2026-10-22 and is not published. FRIDAY Release run 39794578719 failed in publish, Prepare the build environment: the runner's Python 3.15 had no ctranslate2 wheel. Setup and the installer helper now prefer the newest installed series at or below `pythonWheelProven` (3.14) and take a newer series once a pip dry run proves its kernel wheels. The local `npm run build:win` stop at `stt-self-test failed (1)` was the embeddable Python not finding `voice_runtime`; `kernel/stt.py` now adds its own folder. A hosted FRIDAY Release, a Windows CMD pack, and the installer helper on Windows are unverified until the owner runs them. The release pull request's own PR Validation `startup_failure` (actor `github-actions[bot]`) is expected and documented.
 
 - Push-to-talk, the ComfyUI client and image tool, the meant-for-me work mentions, and the new document formats are tested on Linux (unit tests, a fake ComfyUI HTTP server, ZIP fixtures built in the test). The global shortcut, a real microphone, and a real ComfyUI install on Windows are unverified.
@@ -153,6 +156,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Voice re-test on the Windows PC after this branch: Auto mode, hands-free on, say "Friday, what time is it". The voice pipeline log should show a segment longer than 600 ms and a transcript. Voice diagnostics should show `heard` rising and the hearing levels as PASS, or `misheard` with the recogniser name. In chat, "voice me baat kyu nahi ho rahi?" should return the live voice report.
 0. Owner checks for push-to-talk and ComfyUI, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Voice settings, How Auto mode listens: Push to talk. In Auto mode, talk without the key: nothing is transcribed and the voice log says `push-to-talk: talk key is up`. Hold Ctrl+Space and say "Friday, what time is it", or just "what time is it": FRIDAY answers without the wake word.
    2. With FRIDAY in the background, press Ctrl+Alt+Space, speak, press it again. Switch back to Always listening: the shortcut is released (another app can use it).

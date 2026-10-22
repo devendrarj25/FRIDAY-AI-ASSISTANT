@@ -956,13 +956,27 @@ class CoreBrain {
         markId,
         "agent-route",
         agentRuns.length
-          ? agentRuns.map((run) => `${run.name} ${run.ok ? "ok" : "failed"}`).join(", ")
+          ? agentRuns
+              .map((run) => `${run.name} ${run.ok ? "ok" : run.skipped ? "skipped" : "failed"}`)
+              .join(", ")
           : "none",
       );
       if (agentRuns.length) {
         noteObserve({ tool: agentRuns[agentRuns.length - 1]!.id });
         for (const agent of agentRuns) {
           stage?.("execution.runners", `${agent.name} — ${agent.detail}`);
+          if (agent.skipped) {
+            // A role agent with nothing installed matched a word in the prompt
+            // ("voice", "code"). It is not a tool call and not a failure. Only
+            // an explicit ask for an agent is told so; otherwise the model
+            // reads it as the feature being broken.
+            if (/\bagents?\b/i.test(prompt)) {
+              notes.push(
+                `the "${agent.name}" agent has nothing installed to run here — say that plainly; it is not a fault in the feature it is named after`,
+              );
+            }
+            continue;
+          }
           tools.push({
             tool: "agent",
             query: agent.name,

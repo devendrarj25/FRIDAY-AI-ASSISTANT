@@ -29,6 +29,7 @@ import {
   inspectSelfComplete,
   inspectSourceHealth,
 } from "./self-diagnosis";
+import { currentVoiceHealth, describeVoiceHealth } from "../voice-health";
 import {
   describeLiveSelf,
   describeSections,
@@ -343,6 +344,21 @@ const MACHINE_ASK =
 const SELF_CHECK =
   /\b(what(?:'s| is) wrong|any (problems|issues|errors)|are you (ok|okay|healthy)|health check|diagnose (yourself|the app|the system)|status of (the )?(app|system|yourself)|system status|kya problem|sab theek)\b/i;
 
+/**
+ * "Why can't you talk in voice?", "tumhari voice check karo", "can you hear me?"
+ * A question about her own voice or hearing that names a problem or a check.
+ * Answered from the live Auto session (voice-health), never from a guess.
+ */
+const VOICE_SUBJECT =
+  /\b(voice|awaaz|aawaz|awaz|mic|microphone|hear(?:ing)?|listen(?:ing)?|speak(?:ing)?|sun(?:ti|te|na)?|bol(?:ti|te|na)?|baat)\b/i;
+const VOICE_PROBLEM =
+  /\b(kyu|kyun|kyon|why|check|thik|theek|fix|problem|issue|issues|not working|doesn'?t work|isn'?t working|can'?t|cannot|nahi|nhi|kaam|work(?:ing)?|wrong|broken|dead|status)\b/i;
+const VOICE_SELF = /\b(you|your|yourself|tum|tumhari|tumhara|tumare|tumhe|aap|aapki|friday)\b/i;
+
+export function isOwnVoiceQuestion(text: string): boolean {
+  return VOICE_SUBJECT.test(text) && VOICE_PROBLEM.test(text) && VOICE_SELF.test(text);
+}
+
 /** "Find bugs in your source" — architecture index + sandbox verify + AUDIT.md. */
 const SOURCE_BUGS =
   /\b(find (the )?(bugs?|issues?|errors?) in (your|my|the|own) ?(own )?(source|code|app|project)|scan (your|my|the) (own )?(source|code)|bugs? in (your|the|my) (own )?(source|code)|what(?:'s| is) broken in (your|the|my) (own )?(source|code)|source health|inspect (your|my|the) (own )?source)\b/i;
@@ -565,6 +581,17 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
     if (BATTERY_ASK.test(text)) return live(describeBattery, 0.9);
     if (NETWORK_ASK.test(text)) return live(describeNetwork, 0.88);
     if (LOAD_ASK.test(text)) return live(describeLoad, 0.88);
+  }
+
+  // 3b. her own voice — the live Auto session, not a model's guess ----------
+  if (isOwnVoiceQuestion(text)) {
+    return {
+      handled: true,
+      kind: "diagnosis",
+      text: "",
+      confidence: 0.86,
+      resolve: async () => describeVoiceHealth(currentVoiceHealth()),
+    };
   }
 
   // 4. direct capability execution -----------------------------------------

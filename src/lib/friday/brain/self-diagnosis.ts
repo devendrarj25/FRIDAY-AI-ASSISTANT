@@ -36,6 +36,7 @@ import { governance } from "../self/governance";
 import { runIntelligenceBenchmark } from "../self/intelligence-benchmark";
 import { self } from "../self/self-manager";
 import { devPipeline } from "../self/dev-pipeline";
+import { currentVoiceHealth, problemsFromVoiceHealth } from "../voice-health";
 
 export type SelfProblemSeverity = "critical" | "warning" | "info";
 
@@ -843,6 +844,14 @@ export function inspectSelf(): SelfReport {
     if (extras.length) {
       facts.push(`Upgrade surfaces: ${extras.map((resource) => resource.ref).join(", ")}.`);
     }
+  }
+
+  // 9. Voice — the live Auto session, when it has registered.
+  const voice = problemsFromVoiceHealth(currentVoiceHealth());
+  if (voice.facts.length) {
+    inspected = true;
+    problems.push(...voice.problems);
+    facts.push(...voice.facts);
   }
 
   const order: Record<SelfProblemSeverity, number> = { critical: 0, warning: 1, info: 2 };

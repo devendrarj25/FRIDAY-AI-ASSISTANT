@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
 
 import {
   nextVoiceState,
@@ -182,5 +183,25 @@ describe("diagnostics, TTS identity and the shared microphone", () => {
     expect(assistant).toContain('this.to("pause")');
     expect(assistant).toContain('this.to("resume")');
     expect(assistant).toContain("this.stopRecognition();");
+  });
+});
+
+describe("voice check uses the live speech model", () => {
+  it("hands the load probe and both self-tests the same model folder", () => {
+    const verify = readFileSync(join(process.cwd(), "electron/voice-verify.cjs"), "utf8");
+    const { sttEnv } = createRequire(import.meta.url)(
+      join(process.cwd(), "electron/voice-verify.cjs"),
+    ) as { sttEnv: (size: string, prepared: unknown) => Record<string, string> };
+    expect(sttEnv("base", { ok: true, dir: "D:/F/cache/stt/base" })).toEqual({
+      FRIDAY_STT_MODEL: "base",
+      FRIDAY_STT_MODEL_PATH: "D:/F/cache/stt/base",
+    });
+    expect(sttEnv("small", { ok: false, dir: "x" })).toEqual({ FRIDAY_STT_MODEL: "small" });
+    expect(verify).toContain("speechSelfTest(sttEnv(size, prepared))");
+    expect(verify).toContain("hearingSelfTest(sttEnv(size, prepared))");
+    expect(verify).toContain('"--load-probe", "--model", size');
+    expect(verify).toContain('bootModel({ requested: "auto" })');
+    const mode = readFileSync(join(process.cwd(), "src/lib/friday/assistant-mode.ts"), "utf8");
+    expect(mode).toMatch(/verifyVoiceRuntime\(\{\s*loadModel: true,\s*\.\.\.\(sttSize/);
   });
 });

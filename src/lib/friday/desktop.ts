@@ -622,7 +622,7 @@ type DesktopApi = {
     reason?: string;
   }>;
   /** Real post-install probes for faster-whisper / edge-tts. */
-  verifyVoiceRuntime?: (payload?: { loadModel?: boolean }) => Promise<{
+  verifyVoiceRuntime?: (payload?: { loadModel?: boolean; model?: string }) => Promise<{
     ok: boolean;
     python: string | null;
     checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
