@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { HardDriveDownload, Mic, Save } from "lucide-react";
+import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
@@ -366,6 +366,7 @@ export function VoiceSettings() {
                   void desktopApi()?.openExternalUrl?.("ms-settings:privacy-microphone")
                 }
               >
+                <ShieldCheck className="size-3" aria-hidden="true" />
                 Windows microphone privacy
               </button>
               <button
@@ -373,6 +374,7 @@ export function VoiceSettings() {
                 className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
                 onClick={() => void desktopApi()?.openExternalUrl?.("ms-settings:sound")}
               >
+                <Settings2 className="size-3" aria-hidden="true" />
                 Sound input settings
               </button>
             </div>
@@ -391,6 +393,7 @@ export function VoiceSettings() {
               void api?.clearVoiceprint?.();
             }}
           >
+            <Trash2 className="size-3" aria-hidden="true" />
             Delete voice data
           </button>
           <div className="space-y-1">

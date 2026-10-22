@@ -135,11 +135,12 @@
 
 .theme-purple {
   --primary: oklch(0.72 0.22 320);
-  --primary-foreground: oklch(0.98 0.01 320);
+  /* Dark text on the bright purple: 7:1 instead of 2.6:1. */
+  --primary-foreground: oklch(0.15 0.04 320);
   --accent: oklch(0.79 0.15 213);
   --ring: oklch(0.72 0.22 320);
   --sidebar-primary: oklch(0.72 0.22 320);
-  --sidebar-primary-foreground: oklch(0.98 0.01 320);
+  --sidebar-primary-foreground: oklch(0.15 0.04 320);
 }
 
 .theme-daylight {
@@ -156,9 +157,22 @@
   --secondary-foreground: oklch(0.24 0.03 250);
   --muted: oklch(0.94 0.01 240);
   --muted-foreground: oklch(0.48 0.03 245);
-  --primary: oklch(0.58 0.15 232);
+  /* Daylight signal colors are darkened so text and icons hold 4.5:1 and
+     3:1 on white (checked by core/__tests__/ui-glass-tokens.test.ts). */
+  --primary: oklch(0.52 0.15 232);
   --primary-foreground: oklch(0.99 0.005 232);
-  --success: oklch(0.6 0.16 150);
+  --ring: oklch(0.52 0.15 232);
+  --sidebar-primary: oklch(0.52 0.15 232);
+  --sidebar-primary-foreground: oklch(0.99 0.005 232);
+  --accent: oklch(0.48 0.15 150);
+  --accent-foreground: oklch(0.99 0.005 150);
+  --success: oklch(0.5 0.15 150);
+  --success-foreground: oklch(0.99 0.005 150);
+  --warning: oklch(0.55 0.14 75);
+  --warning-foreground: oklch(0.99 0.005 75);
+  --destructive: oklch(0.55 0.2 25);
+  --info: oklch(0.52 0.15 232);
+  --info-foreground: oklch(0.99 0.005 232);
   --border: oklch(0.88 0.015 240);
   --input: oklch(0.88 0.015 240);
   --sidebar: oklch(0.95 0.01 240);
@@ -170,6 +184,8 @@
 
 /* Daylight + accent stack: darker primaries so contrast holds on light surfaces. */
 .theme-daylight.theme-green {
+  --accent: oklch(0.48 0.15 232);
+  --accent-foreground: oklch(0.99 0.005 232);
   --primary: oklch(0.45 0.16 150);
   --primary-foreground: oklch(0.99 0.005 150);
   --ring: oklch(0.45 0.16 150);
@@ -724,4 +740,585 @@ html.no-gpu * {
 
 html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
   animation: none;
+}
+
+/* Manual chat (ChatDock): three levels, hover labels, cursor and glass.
+   Chat region only; built from the existing tokens. */
+.friday-chat {
+  container: friday-chat / inline-size;
+}
+
+/* Icon buttons slide their label out on hover or keyboard focus. The label
+   is overlaid, so it never pushes a neighbour; only width and opacity move. */
+.chat-hover-label {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  z-index: 30;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  translate: -50% 0;
+  border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+  border-radius: 0.25rem;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  padding: 0.125rem 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    max-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.chat-hover-label-below {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+.chat-hover-label-end {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+.chat-icon-btn:hover .chat-hover-label,
+.chat-icon-btn:focus-visible .chat-hover-label {
+  max-width: 14rem;
+  padding: 0.125rem 0.375rem;
+  opacity: 1;
+}
+
+/* Narrow chat: toolbar buttons keep their icon, the text and slide-out
+   labels hide (the button title still names it). */
+@container friday-chat (max-width: 48rem) {
+  .chat-btn-text,
+  .chat-hover-label {
+    display: none;
+  }
+}
+
+/* Per-message Copy / Regenerate show on hover or focus; in Full chat the
+   Regenerate on the last answer stays visible. */
+.chat-row-action {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.group:hover .chat-row-action,
+.group:focus-within .chat-row-action,
+.chat-row-action:focus-visible,
+.friday-chat-full .chat-row-keep {
+  opacity: 1;
+}
+
+/* Cursor: disabled controls say so (and still show their title), message
+   text is selectable, the graphic never keeps a caret or move cursor, the
+   level switch is a pointer. */
+.friday-chat button:disabled {
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+.friday-chat-messages {
+  cursor: auto;
+  user-select: text;
+}
+.friday-chat-messages button {
+  cursor: pointer;
+  user-select: none;
+}
+.chat-level-switch button {
+  cursor: pointer;
+}
+.neural-circuit-compact {
+  cursor: default;
+  user-select: none;
+}
+
+/* Glass only in Full chat, where nothing animates behind the panel. The
+   panel opacity setting still comes through hud-panel. */
+.friday-chat-full {
+  backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
+}
+html.no-glow .friday-chat-full {
+  backdrop-filter: none;
+  background: var(--color-card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-hover-label,
+  .chat-row-action,
+  .friday-chat-messages,
+  .friday-chat aside {
+    transition: none;
+  }
+}
+
+/* Auto (voice) window: levels, grouped control bar, cursor and glass.
+   Voice window only; built from the existing tokens. */
+.voice-bar {
+  container: voice-bar / inline-size;
+}
+
+/* A narrow bar keeps every icon. The label text stays in the DOM right after
+   its icon (screen readers and tests read it); it is only hidden here and
+   slides out, overlaid, on hover or keyboard focus. Width and opacity only. */
+@container voice-bar (max-width: 48rem) {
+  .voice-btn {
+    position: relative;
+    gap: 0;
+    font-size: 0;
+  }
+  .voice-btn::after {
+    content: attr(data-label);
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    z-index: 30;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    translate: -50% 0;
+    border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+    border-radius: 0.25rem;
+    background: var(--color-card);
+    color: var(--color-foreground);
+    padding: 0.125rem 0;
+    font-size: 10px;
+    line-height: 1.2;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      max-width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      padding 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .voice-btn:hover::after,
+  .voice-btn:focus-visible::after {
+    max-width: 14rem;
+    padding: 0.125rem 0.375rem;
+    opacity: 1;
+  }
+  /* The autonomy dial clips its own box; its buttons keep their title. */
+  [aria-label="Autonomy"] .voice-btn::after {
+    display: none;
+  }
+}
+
+/* Cursor: a pointer on every control and the size switch, not-allowed on a
+   disabled control, a text cursor over selectable captions, and never a
+   caret or move cursor over the graphic. */
+.friday-voice button:disabled {
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+.friday-voice .voice-level-switch button,
+.friday-voice .voice-btn {
+  cursor: pointer;
+}
+.friday-voice .voice-captions,
+.friday-voice aside {
+  cursor: text;
+  user-select: text;
+}
+.friday-voice .voice-captions button {
+  cursor: pointer;
+  user-select: none;
+}
+.friday-voice .neural-circuit {
+  cursor: default;
+  user-select: none;
+}
+
+/* Glass: translucency comes from hud-panel and --friday-panel-opacity at
+   every level. Blur only at Transcript, where nothing animates behind it,
+   and on the voice More menu. */
+.voice-glass,
+.voice-glass-menu {
+  backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
+}
+html.no-glow .voice-glass,
+html.no-glow .voice-glass-menu {
+  backdrop-filter: none;
+  background: var(--color-card);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-btn::after,
+  .friday-voice .hud-panel {
+    transition: none;
+  }
+}
+
+/* ===================================================================
+   FRIDAY Glass — one design language for the whole app.
+   Defined once here; components use it only through the shared
+   primitives (src/components/friday/ui.tsx) and the classes below.
+   Everything is built from the tokens above, so all 8 mode + accent
+   combinations, High contrast, Text size, Density and Panel opacity
+   apply automatically. The Classic interface style adds nothing, so
+   Classic is exactly the earlier look on the same tokens.
+   =================================================================== */
+:root {
+  /* Motion */
+  --friday-motion-fast: 120ms; /* hover, press */
+  --friday-motion-mid: 180ms; /* labels, menus, expand/collapse */
+  --friday-motion-slow: 260ms; /* panels, page enter */
+  --friday-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Spacing, scaled by Interface density */
+  --friday-space-1: calc(0.25rem * var(--friday-density-scale, 1));
+  --friday-space-2: calc(0.5rem * var(--friday-density-scale, 1));
+  --friday-space-3: calc(0.75rem * var(--friday-density-scale, 1));
+  --friday-space-4: calc(1rem * var(--friday-density-scale, 1));
+  --friday-space-6: calc(1.5rem * var(--friday-density-scale, 1));
+  /* Glass depth (Settings › Appearance › Glass depth) */
+  --friday-glass-depth: 1;
+  --friday-glass-blur: 14px;
+  /* Glass surfaces: color-mix on existing tokens, honouring panel opacity */
+  --friday-glass-1: color-mix(
+    in oklab,
+    var(--color-card)
+      calc(var(--friday-panel-opacity, 1) * (100% - 18% * var(--friday-glass-depth))),
+    transparent
+  );
+  --friday-glass-2: color-mix(
+    in oklab,
+    var(--color-surface-raised)
+      calc(var(--friday-panel-opacity, 1) * (100% - 12% * var(--friday-glass-depth))),
+    transparent
+  );
+  --friday-glass-3: color-mix(
+    in oklab,
+    var(--color-popover) calc(100% - 8% * var(--friday-glass-depth)),
+    transparent
+  );
+  --friday-glass-border: color-mix(
+    in oklab,
+    var(--color-primary) calc(16% + 8% * var(--friday-glass-depth)),
+    transparent
+  );
+  --friday-glass-highlight: color-mix(
+    in oklab,
+    var(--color-foreground) calc(5% * var(--friday-glass-depth)),
+    transparent
+  );
+  --friday-glass-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 0 0 1px color-mix(in oklab, var(--color-primary) 5%, transparent),
+    0 10px 30px -18px
+      color-mix(
+        in oklab,
+        var(--color-primary) calc(55% * var(--friday-graphic-intensity, 0.7)),
+        transparent
+      ),
+    0 2px 8px -4px color-mix(in oklab, var(--color-background) 60%, transparent);
+}
+html[data-glass-depth="Subtle"] {
+  --friday-glass-depth: 0.5;
+  --friday-glass-blur: 8px;
+}
+html[data-glass-depth="Rich"] {
+  --friday-glass-depth: 1.5;
+  --friday-glass-blur: 20px;
+}
+
+/* Glass levels: 1 base panel, 2 raised card, 3 floating menu or dialog */
+@utility glass-1 {
+  border: 1px solid var(--friday-glass-border);
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 40%), var(--friday-glass-1);
+  box-shadow: var(--friday-glass-shadow);
+}
+@utility glass-2 {
+  border: 1px solid var(--friday-glass-border);
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 55%), var(--friday-glass-2);
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+}
+@utility glass-3 {
+  border: 1px solid var(--friday-glass-border);
+  background: var(--friday-glass-3);
+  box-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 18px 40px -16px color-mix(in oklab, var(--color-background) 80%, transparent);
+}
+/* Blur goes only through a class that contains "backdrop-blur", so the Blur
+   setting (html.no-blur) switches it off, and never over an animated canvas. */
+@utility glass-backdrop-blur {
+  backdrop-filter: blur(var(--friday-glass-blur)) saturate(1.15);
+}
+@utility motion-friday {
+  transition-duration: var(--friday-motion-fast);
+  transition-timing-function: var(--friday-ease);
+}
+@utility page-enter {
+  animation: friday-mode-enter var(--friday-motion-slow) cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Futuristic Glass applied to the existing surfaces, so every page that
+   already uses HudPanel / hud-tile / the shared menus picks it up. */
+html[data-ui-style="glass"] .hud-panel {
+  border-color: var(--friday-glass-border);
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 40%), var(--friday-glass-1);
+  box-shadow: var(--friday-glass-shadow);
+}
+html[data-ui-style="glass"] .hud-tile {
+  border-color: var(--friday-glass-border);
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 55%), var(--friday-glass-2);
+}
+html[data-ui-style="glass"] .glass-menu {
+  border-color: var(--friday-glass-border);
+  background: var(--friday-glass-3);
+  box-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 18px 40px -16px color-mix(in oklab, var(--color-background) 80%, transparent);
+}
+html[data-ui-style="glass"] .glass-menu.glass-backdrop-blur,
+html[data-ui-style="glass"] .glass-dialog.glass-backdrop-blur {
+  background: color-mix(in oklab, var(--color-popover) 82%, transparent);
+}
+html[data-ui-style="glass"] .glass-dialog {
+  border-color: var(--friday-glass-border);
+  box-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 30px 60px -24px color-mix(in oklab, var(--color-background) 85%, transparent);
+}
+/* Blur is a Glass-style effect; Classic keeps today's solid menus. */
+html:not([data-ui-style="glass"]) .glass-backdrop-blur {
+  backdrop-filter: none;
+}
+
+/* Buttons and inputs: one motion and focus language. */
+html[data-ui-style="glass"] .friday-btn {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: var(--friday-motion-fast);
+  transition-timing-function: var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-btn:not(:disabled):active {
+  transform: translateY(0.5px) scale(0.985);
+}
+html[data-ui-style="glass"] .friday-btn:focus-visible,
+html[data-ui-style="glass"] .friday-field:focus-visible {
+  box-shadow:
+    0 0 0 1px var(--color-ring),
+    0 0 14px -2px color-mix(in oklab, var(--color-ring) 60%, transparent);
+}
+html.no-glow[data-ui-style="glass"] .friday-btn:focus-visible,
+html.no-glow[data-ui-style="glass"] .friday-field:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-ring);
+}
+html.no-glow .glass-1,
+html.no-glow .glass-3,
+html.no-glow[data-ui-style="glass"] .hud-panel,
+html.no-glow[data-ui-style="glass"] .glass-menu {
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+}
+
+/* The chat and voice glass from the window levels: blur only through the
+   class the Blur setting can switch off. */
+html.no-blur .friday-chat-full,
+html.no-blur .voice-glass,
+html.no-blur .voice-glass-menu {
+  backdrop-filter: none;
+}
+
+/* Button labels (Settings › Appearance › Button labels). Compact icon
+   controls only; label text always stays in the DOM and the accessible
+   name. "always" shows it inline, "icons" keeps icons with a hover label. */
+html[data-button-labels="always"] .chat-hover-label {
+  position: static;
+  max-width: none;
+  translate: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  opacity: 1;
+  font-size: inherit;
+}
+html[data-button-labels="always"] .action-label {
+  position: static;
+  max-width: none;
+  translate: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  opacity: 1;
+}
+html[data-button-labels="icons"] .chat-btn-text {
+  display: none;
+}
+html[data-button-labels="icons"] .voice-btn {
+  position: relative;
+  gap: 0;
+  font-size: 0;
+}
+
+/* ActionButton: icon with an overlaid label that slides out on hover or
+   keyboard focus (width and opacity only, never pushing a neighbour). */
+.action-label {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  z-index: 40;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  translate: -50% 0;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  padding: 0.125rem 0;
+  font-size: 11px;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    max-width var(--friday-motion-mid) var(--friday-ease),
+    opacity var(--friday-motion-mid) var(--friday-ease),
+    padding var(--friday-motion-mid) var(--friday-ease);
+}
+.action-btn[data-label-side="below"] .action-label {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+.action-btn:hover .action-label,
+.action-btn:focus-visible .action-label {
+  max-width: 16rem;
+  padding: 0.125rem 0.45rem;
+  opacity: 1;
+}
+.action-btn[data-label-mode="inline"] .action-label {
+  position: static;
+  max-width: none;
+  translate: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  opacity: 1;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Cursor, app-wide (the global reset block above stays as it is). */
+.friday-interactive-region button:disabled,
+.friday-interactive-region [aria-disabled="true"],
+.friday-interactive-region input:disabled,
+.friday-interactive-region select:disabled {
+  cursor: not-allowed;
+}
+.friday-select-text,
+.friday-select-text * {
+  cursor: text;
+  user-select: text;
+}
+.friday-select-text button,
+.friday-select-text a {
+  cursor: pointer;
+}
+.neural-circuit,
+.neural-circuit * {
+  caret-color: transparent;
+}
+
+/* Motion off: every transition and the page enter are instant. */
+@media (prefers-reduced-motion: reduce) {
+  .action-label,
+  .page-enter,
+  html[data-ui-style="glass"] .friday-btn {
+    transition: none;
+    animation: none;
+  }
+}
+html.no-motion .page-enter {
+  animation: none;
+}
+
+/* Chrome: sidebar, title strip and page frame (FRIDAY Glass). The sidebar
+   items, groups, order and paths come from navigation.ts unchanged. */
+.nav-active-bar {
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: -1px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 8px var(--color-primary);
+  transform-origin: center;
+  animation: friday-nav-bar var(--friday-motion-mid) var(--friday-ease);
+}
+@keyframes friday-nav-bar {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+html[data-ui-style="glass"] .friday-sidebar {
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 30%),
+    color-mix(in oklab, var(--color-sidebar) calc(var(--friday-panel-opacity, 1) * 94%), transparent);
+  border-right-color: var(--friday-glass-border);
+}
+html[data-ui-style="glass"] .friday-nav-link {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: var(--friday-motion-fast);
+  transition-timing-function: var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-titlestrip {
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent),
+    color-mix(in oklab, var(--color-sidebar) 96%, transparent);
+  border-bottom-color: var(--friday-glass-border);
+}
+html[data-ui-style="glass"] .title-chip {
+  border: 1px solid color-mix(in oklab, currentColor 22%, transparent);
+  background: color-mix(in oklab, currentColor 7%, transparent);
+}
+html.no-glow .nav-active-bar {
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-active-bar {
+    animation: none;
+  }
+}
+html.no-motion .nav-active-bar {
+  animation: none;
+}
+
+/* A leading icon in a button that has no flex gap of its own keeps a small
+   space before its label and sits on the text line. */
+button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
+  display: inline-block;
+  margin-inline-end: 0.35em;
+  vertical-align: -0.125em;
+}
+
+/* Windows "transparency effects" off (prefers-reduced-transparency): glass
+   becomes solid and nothing is blurred. The 1px borders stay, so edges
+   remain visible in forced-colors mode too. */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui-style="glass"] .hud-panel,
+  html[data-ui-style="glass"] .hud-tile,
+  html[data-ui-style="glass"] .glass-menu,
+  html[data-ui-style="glass"] .friday-sidebar,
+  html[data-ui-style="glass"] .friday-titlestrip,
+  .glass-1,
+  .glass-2,
+  .glass-3 {
+    background: var(--color-card);
+  }
+  [class*="backdrop-blur"],
+  .friday-chat-full,
+  .voice-glass,
+  .voice-glass-menu {
+    backdrop-filter: none !important;
+  }
 }

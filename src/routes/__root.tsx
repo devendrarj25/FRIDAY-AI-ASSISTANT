@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -62,6 +63,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
+            <RotateCcw className="size-3" aria-hidden="true" />
             Try again
           </button>
           <a

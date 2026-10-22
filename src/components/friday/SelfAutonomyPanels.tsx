@@ -72,7 +72,7 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+    <div className="flex items-start justify-between gap-3 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <div className="min-w-0">
         <p className="text-sm text-foreground">{label}</p>
         <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>
@@ -96,7 +96,7 @@ function Choice<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+    <div className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <p className="text-sm text-foreground">{label}</p>
       <p className="mb-2 text-[11px] leading-snug text-muted-foreground">{hint}</p>
       <Select value={value} onValueChange={(v) => onChange(v as T)}>
@@ -131,7 +131,7 @@ function NumberField({
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+    <div className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <p className="text-sm text-foreground">{label}</p>
       <p className="mb-2 text-[11px] leading-snug text-muted-foreground">{hint}</p>
       <Input
@@ -372,7 +372,7 @@ function CorePanel() {
           core.health.map((h) => (
             <div
               key={h.id}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-1.5"
+              className="flex items-center justify-between gap-2 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-1.5"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm text-foreground">{h.label}</p>
@@ -434,7 +434,7 @@ function BackgroundPanel() {
         {bg.jobs.map((job) => (
           <div
             key={job.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-2"
+            className="flex flex-wrap items-center justify-between gap-2 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2"
           >
             <div className="min-w-0">
               <p className="text-sm text-foreground">{job.label}</p>
@@ -522,7 +522,10 @@ function GovernancePanel() {
       ) : (
         <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1">
           {listed.map((item) => (
-            <div key={item.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+            <div
+              key={item.id}
+              className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+            >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">{item.title}</p>
@@ -750,7 +753,10 @@ function MaintenancePanel() {
 
       <div className="mt-3 grid gap-2">
         {pending.map((entry) => (
-          <div key={entry.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+          <div
+            key={entry.id}
+            className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+          >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{entry.summary}</p>

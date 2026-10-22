@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Bell, BellOff, Check, Maximize2, Minimize2, Monitor, Sparkles, X } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  Check,
+  Eraser,
+  Maximize2,
+  Minimize2,
+  Monitor,
+  Pause,
+  Play,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { askFriday, canAsk } from "@/lib/friday/ask";
 import { notifications, type Notification } from "@/lib/friday/notifications";
 import { stage } from "@/lib/friday/stage";
@@ -168,7 +180,7 @@ export function NotificationCenter() {
       {open ? (
         <div
           className={cn(
-            "hud-panel absolute top-8 right-0 z-50 flex flex-col",
+            "hud-panel glass-menu glass-backdrop-blur absolute top-8 right-0 z-50 flex flex-col",
             expanded ? "max-h-[85vh] w-[40rem]" : "max-h-[70vh] w-[22rem]",
             " rounded-md border border-primary/25 bg-sidebar shadow-[0_10px_40px_-10px_var(--color-primary)]",
           )}
@@ -180,22 +192,27 @@ export function NotificationCenter() {
                 type="button"
                 onClick={() => setExpanded((e) => !e)}
                 aria-label={expanded ? "Collapse notifications" : "Expand notifications"}
-                className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-primary"
+                title={expanded ? "Collapse notifications" : "Expand notifications"}
+                className="friday-btn grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-primary"
               >
                 {expanded ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
               </button>
               <button
                 type="button"
                 onClick={() => notifications.toggle()}
-                className="rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-primary"
+                title={state.enabled ? "Pause notifications" : "Resume notifications"}
+                className="friday-btn inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-primary"
               >
+                {state.enabled ? <Pause className="size-3" /> : <Play className="size-3" />}
                 {state.enabled ? "PAUSE" : "RESUME"}
               </button>
               <button
                 type="button"
                 onClick={() => notifications.clear()}
-                className="rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-destructive"
+                title="Clear all notifications"
+                className="friday-btn inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-destructive"
               >
+                <Eraser className="size-3" />
                 CLEAR
               </button>
             </div>
@@ -263,7 +280,7 @@ export function NotificationCenter() {
                       ) : null}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                       {!item.advice ? (
                         <button
                           type="button"
@@ -290,6 +307,7 @@ export function NotificationCenter() {
                           type="button"
                           onClick={() => notifications.markRead(item.id)}
                           aria-label="Mark as read"
+                          title="Mark as read"
                           className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-accent"
                         >
                           <Check className="size-3" />

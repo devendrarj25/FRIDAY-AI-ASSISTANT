@@ -987,6 +987,8 @@ function JobRow({ job }: { job: Job }) {
             size="sm"
             variant="ghost"
             className="h-6 px-1.5 text-[11px] text-muted-foreground"
+            aria-label="Cancel this install"
+            title="Cancel this install"
             onClick={() => installer.cancel(job.id)}
           >
             <X className="size-3" />

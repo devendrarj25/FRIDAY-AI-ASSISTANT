@@ -66,7 +66,7 @@ export function WorkspaceSetup({ onDone }: { onDone?: (root: string) => void }) 
     <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-background">
       <TitleStrip />
       <div className="grid min-h-0 flex-1 place-items-center overflow-auto px-4 py-6">
-        <div className="w-full max-w-lg rounded-md border border-border bg-card p-6">
+        <div className="hud-panel page-enter w-full max-w-lg rounded-md p-6">
           <div className="flex items-center gap-4">
             <FridayOrb size={72} />
             <div>

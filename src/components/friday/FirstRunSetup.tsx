@@ -85,7 +85,7 @@ export function FirstRunSetup({ onDone }: { onDone: () => void }) {
           )}
 
           {steps.length > 0 && (
-            <ul className="space-y-2 rounded-lg border border-primary/20 p-4">
+            <ul className="hud-panel space-y-2 rounded-lg p-4">
               {steps.map((step) => (
                 <li key={step.id} className="flex items-start gap-2 text-sm">
                   {step.state === "running" ? (

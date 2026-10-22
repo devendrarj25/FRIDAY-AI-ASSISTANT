@@ -16,6 +16,7 @@ import {
   X,
   ClipboardPaste,
   Link2,
+  Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -737,6 +738,7 @@ function ImportPage() {
                               onClick={() => upgrades.fix(activeRun.id, f.id)}
                               className="font-mono text-[10px] text-primary hover:underline"
                             >
+                              <Wrench className="size-3" aria-hidden="true" />
                               fix now
                             </button>
                           )}

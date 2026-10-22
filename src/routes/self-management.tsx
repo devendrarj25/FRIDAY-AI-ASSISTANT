@@ -353,7 +353,10 @@ function SelfManagementPage() {
             ) : (
               <div className="grid gap-2">
                 {openProposals.map((p) => (
-                  <div key={p.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+                  <div
+                    key={p.id}
+                    className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-foreground">{p.title}</p>
@@ -418,7 +421,10 @@ function SelfManagementPage() {
             ) : (
               <div className="grid max-h-[420px] gap-3 overflow-y-auto pr-1">
                 {state.lifecycles.map((lc) => (
-                  <div key={lc.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+                  <div
+                    key={lc.id}
+                    className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-foreground">{lc.title}</p>
                       <StatusPill label={lc.state} tone={stateTone[lc.state] ?? "muted"} />
@@ -478,7 +484,10 @@ function SelfManagementPage() {
         >
           <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
             {memoryTiers.map((t) => (
-              <div key={t.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+              <div
+                key={t.id}
+                className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+              >
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.label}</p>
                 <p className="text-xl font-semibold text-foreground">{mem.counts[t.id]}</p>
                 <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{t.note}</p>
@@ -524,7 +533,10 @@ function SelfManagementPage() {
           </p>
           <div className="mt-3 grid gap-2">
             {dev.runs.slice(0, 6).map((run) => (
-              <div key={run.id} className="rounded-lg border border-border/60 bg-card/40 p-3">
+              <div
+                key={run.id}
+                className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 p-3"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-sm text-foreground">{run.request}</p>
@@ -653,7 +665,7 @@ function SelfManagementPage() {
               mapRows.map((entry) => (
                 <div
                   key={entry.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-1.5"
+                  className="flex flex-wrap items-center justify-between gap-2 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-1.5"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{entry.label}</p>
@@ -713,7 +725,10 @@ function SelfManagementPage() {
           ) : (
             <div className="grid max-h-[360px] gap-2 overflow-y-auto pr-1">
               {tasks.tasks.map((t) => (
-                <div key={t.id} className="rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+                <div
+                  key={t.id}
+                  className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       {t.status === "done" ? (
@@ -772,7 +787,7 @@ function SelfManagementPage() {
                 return (
                   <div
                     key={graph.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm text-foreground">{graph.request}</p>

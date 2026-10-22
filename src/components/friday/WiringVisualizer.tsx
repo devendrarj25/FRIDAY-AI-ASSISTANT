@@ -105,7 +105,7 @@ export function WiringVisualizerHost() {
           <HudPanel title="Waiting approval" hint={`${pending.length} wiring change(s)`}>
             <div className="grid gap-2">
               {pending.map((item) => (
-                <div key={item.id} className="rounded-md border border-border/60 bg-card/40 p-3">
+                <div key={item.id} className="hud-tile rounded-md p-3">
                   <p className="text-sm font-medium text-foreground">{item.title}</p>
                   <p className="text-xs text-muted-foreground">{item.rationale}</p>
                   {item.dryRun ? (

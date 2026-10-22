@@ -1,7 +1,31 @@
-import type { ReactNode } from "react";
+import {
+  createElement,
+  forwardRef,
+  isValidElement,
+  useRef,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
+import { Inbox, Loader2, MoreHorizontal, type LucideIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { iconForTitle } from "@/components/friday/button-icons";
+import { toolbarFit, useMeasuredWidth } from "@/lib/friday/chat-level";
 import { cn } from "@/lib/utils";
 
-/** Shared FRIDAY HUD primitives: neon panels, tiles, pills, rings, tables. */
+/**
+ * Shared FRIDAY HUD primitives: neon panels, tiles, pills, rings, tables,
+ * and the FRIDAY Glass controls (ActionButton, Toolbar, SectionTabs,
+ * EmptyState, LoadingState). Pages build on these instead of hand-rolling
+ * surfaces, so the Appearance settings reach every page. All are SSR-safe:
+ * nothing reads `window` while rendering.
+ */
 
 type Tone = "primary" | "accent" | "warning" | "magenta" | "destructive" | "muted";
 
@@ -18,6 +42,7 @@ export function HudPanel({
   title,
   hint,
   actions,
+  icon: Icon,
   children,
   className,
   bodyClassName,
@@ -25,18 +50,33 @@ export function HudPanel({
   title?: string;
   hint?: string;
   actions?: ReactNode;
+  /** Header icon (lucide). Without one, the title picks one, else the signal dot. */
+  icon?: LucideIcon | undefined;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
 }) {
+  // No icon given: one from the panel-title vocabulary, else the signal dot.
+  const titleIcon = !Icon && title ? iconForTitle(title) : null;
   return (
     <section className={cn("hud-panel relative overflow-hidden rounded-md", className)}>
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
       {title ? (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-[calc(1rem*var(--friday-density-scale,1))] py-[calc(0.625rem*var(--friday-density-scale,1))]">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_10px_2px_var(--color-primary)]" />
-            <h2 className="label-xs glow-text truncate text-primary">{title}</h2>
+            {Icon ? (
+              <Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+            ) : titleIcon ? (
+              createElement(titleIcon, {
+                className: "size-4 shrink-0 text-primary",
+                "aria-hidden": true,
+              })
+            ) : (
+              <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_10px_2px_var(--color-primary)]" />
+            )}
+            <h2 className="label-xs glow-text truncate text-primary" title={title}>
+              {title}
+            </h2>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
             {hint ? (
@@ -72,7 +112,7 @@ export function StatTile({
   tone?: Tone;
 }) {
   return (
-    <div className="hud-tile group relative overflow-hidden rounded-md px-3 py-3 text-center transition-colors hover:border-primary/45">
+    <div className="hud-tile motion-friday group relative overflow-hidden rounded-md px-3 py-3 text-center transition-[border-color,transform] hover:-translate-y-px hover:border-primary/45">
       <div className={cn("flex items-center justify-center gap-1.5", toneText[tone])}>
         {icon}
         <span className="label-xs">{label}</span>
@@ -130,6 +170,33 @@ export function toneForStatus(status: string): Tone {
   return "primary";
 }
 
+/** Left / Right / Home / End move between tabs, as a tab list should. */
+function tabKeys(
+  event: KeyboardEvent<HTMLElement>,
+  keys: string[],
+  value: string,
+  onChange: (key: string) => void,
+) {
+  const i = keys.indexOf(value);
+  const next =
+    event.key === "ArrowRight"
+      ? keys[(i + 1) % keys.length]
+      : event.key === "ArrowLeft"
+        ? keys[(i - 1 + keys.length) % keys.length]
+        : event.key === "Home"
+          ? keys[0]
+          : event.key === "End"
+            ? keys[keys.length - 1]
+            : undefined;
+  if (next === undefined) return;
+  event.preventDefault();
+  onChange(next);
+  const list = event.currentTarget;
+  queueMicrotask(() => {
+    list.querySelector<HTMLElement>(`[data-tab-key="${CSS.escape(next)}"]`)?.focus();
+  });
+}
+
 export function FilterTabs({
   tabs,
   value,
@@ -140,14 +207,29 @@ export function FilterTabs({
   onChange: (key: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div
+      role="tablist"
+      className="flex flex-wrap gap-1.5"
+      onKeyDown={(e) =>
+        tabKeys(
+          e,
+          tabs.map((t) => t.key),
+          value,
+          onChange,
+        )
+      }
+    >
       {tabs.map((t) => (
         <button
           key={t.key}
           type="button"
+          role="tab"
+          aria-selected={value === t.key}
+          tabIndex={value === t.key ? 0 : -1}
+          data-tab-key={t.key}
           onClick={() => onChange(t.key)}
           className={cn(
-            "rounded-sm border px-2 py-1 font-mono text-[11px] transition-colors",
+            "friday-btn rounded-sm border px-2 py-1 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             value === t.key
               ? "border-primary/50 bg-primary/15 text-primary glow-ring"
               : "border-border bg-surface text-muted-foreground hover:border-primary/30 hover:text-foreground",
@@ -328,7 +410,7 @@ export function ToggleRow({
         aria-label={label}
         onClick={onToggle}
         className={cn(
-          "relative h-5 w-9 shrink-0 rounded-full border transition-colors",
+          "friday-btn relative h-5 w-9 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           on ? "border-accent/60 bg-accent/30" : "border-border bg-muted",
         )}
       >
@@ -375,5 +457,274 @@ export function StatusDot({ state }: { state: "ready" | "loading" | "offline" })
         state === "offline" && "bg-muted-foreground",
       )}
     />
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  FRIDAY Glass controls                                              */
+/* ------------------------------------------------------------------ */
+
+type ActionButtonProps = Omit<ComponentProps<typeof Button>, "children"> & {
+  icon: LucideIcon;
+  label: string;
+  /** "auto" follows Settings › Button labels; "inline" always shows the text. */
+  labelMode?: "auto" | "inline";
+  /** The sliding label opens upward by default; "below" for top bars. */
+  labelSide?: "above" | "below";
+  /** Shows a spinner instead of the icon and disables the button. */
+  busy?: boolean;
+  children?: ReactNode;
+};
+
+/**
+ * Icon + label. The label is always in the DOM right after the icon and in
+ * the accessible name; it slides out on hover or keyboard focus (~180 ms,
+ * width and opacity only, overlaid so neighbours never move), or sits
+ * inline when labelMode is "inline" or Button labels is "Always".
+ */
+export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(function ActionButton(
+  {
+    icon: Icon,
+    label,
+    labelMode = "auto",
+    labelSide = "above",
+    busy = false,
+    variant = "outline",
+    size = "sm",
+    className,
+    children,
+    title,
+    disabled,
+    ...rest
+  },
+  ref,
+) {
+  return (
+    <Button
+      ref={ref}
+      variant={variant}
+      size={size}
+      aria-label={label}
+      title={title ?? label}
+      aria-busy={busy || undefined}
+      disabled={disabled || busy}
+      data-label-mode={labelMode === "inline" ? "inline" : undefined}
+      data-label-side={labelSide === "below" ? "below" : undefined}
+      className={cn("action-btn relative h-8 gap-1.5 px-2.5", className)}
+      {...rest}
+    >
+      {busy ? (
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <Icon className="size-4" aria-hidden="true" />
+      )}
+      <span className="action-label">{label}</span>
+      {children}
+    </Button>
+  );
+});
+
+export type ToolbarAction = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  onSelect: () => void;
+  disabled?: boolean;
+  /** Primary actions never move into More. */
+  primary?: boolean;
+};
+
+/** Rough width of one ActionButton at the default size, in px. */
+function actionWidth(action: ToolbarAction, inline: boolean): number {
+  return inline ? 44 + action.label.length * 7 : 40;
+}
+
+/**
+ * A row of actions that wraps, and on a narrow container moves the
+ * secondary actions into one More menu (same handlers, keyboard reachable).
+ * The split is the pure `toolbarFit` from chat-level.ts.
+ */
+export function Toolbar({
+  actions,
+  labelMode = "auto",
+  className,
+  children,
+}: {
+  actions: ToolbarAction[];
+  labelMode?: "auto" | "inline";
+  className?: string;
+  children?: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const width = useMeasuredWidth(ref);
+  const inline = labelMode === "inline";
+  const primary = actions.filter((a) => a.primary);
+  const secondary = actions.filter((a) => !a.primary);
+  const fixed = primary.reduce((sum, a) => sum + actionWidth(a, inline) + 6, 0);
+  const shown =
+    width > 0
+      ? toolbarFit(
+          secondary.map((a) => actionWidth(a, inline) + 6),
+          width - fixed,
+          40,
+        )
+      : secondary.length;
+  const render = (a: ToolbarAction) => (
+    <ActionButton
+      key={a.id}
+      icon={a.icon}
+      label={a.label}
+      labelMode={labelMode}
+      disabled={a.disabled}
+      onClick={a.onSelect}
+    />
+  );
+  const more = secondary.slice(shown);
+  return (
+    <div
+      ref={ref}
+      role="toolbar"
+      className={cn("flex min-w-0 flex-wrap items-center gap-1.5", className)}
+    >
+      {primary.map(render)}
+      {secondary.slice(0, shown).map(render)}
+      {more.length ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ActionButton icon={MoreHorizontal} label="More" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {more.map((a) => (
+              <DropdownMenuItem key={a.id} disabled={Boolean(a.disabled)} onSelect={a.onSelect}>
+                <a.icon className="size-4" /> {a.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+export type SectionTab = { key: string; label: string; icon?: LucideIcon; count?: number };
+
+/** Tabs for a page's sections: icon, label and an optional live count. */
+export function SectionTabs({
+  tabs,
+  value,
+  onChange,
+  label = "Sections",
+}: {
+  tabs: SectionTab[];
+  value: string;
+  onChange: (key: string) => void;
+  label?: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label={label}
+      className="flex min-w-0 flex-wrap gap-1 border-b border-primary/15 pb-1"
+      onKeyDown={(e) =>
+        tabKeys(
+          e,
+          tabs.map((t) => t.key),
+          value,
+          onChange,
+        )
+      }
+    >
+      {tabs.map((t) => {
+        const on = value === t.key;
+        const Icon = t.icon;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            tabIndex={on ? 0 : -1}
+            data-tab-key={t.key}
+            onClick={() => onChange(t.key)}
+            className={cn(
+              "friday-btn relative inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              on
+                ? "bg-primary/12 text-primary after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary"
+                : "text-muted-foreground hover:bg-primary/6 hover:text-foreground",
+            )}
+          >
+            {Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
+            {t.label}
+            {typeof t.count === "number" ? (
+              <span className="rounded-sm bg-primary/15 px-1 font-mono text-[10px] text-primary">
+                {t.count}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Nothing to show yet: an icon, one sentence, and the next step. */
+export function EmptyState({
+  icon: Icon = Inbox,
+  title,
+  hint,
+  action,
+  className,
+}: {
+  icon?: LucideIcon;
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-primary/20 px-4 py-8 text-center",
+        className,
+      )}
+    >
+      <Icon className="size-5 text-primary/70" aria-hidden="true" />
+      <p className="text-sm text-foreground">{title}</p>
+      {hint ? <p className="max-w-md text-xs text-muted-foreground">{hint}</p> : null}
+      {action && isValidElement(action) ? <div className="mt-1">{action}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * Still loading: static skeleton rows (no animation of its own, so a page
+ * that waits costs nothing) and a screen-reader status line.
+ */
+export function LoadingState({
+  label = "Loading…",
+  rows = 3,
+  className,
+}: {
+  label?: string;
+  rows?: number;
+  className?: string;
+}) {
+  return (
+    <div role="status" aria-busy="true" className={cn("space-y-2", className)}>
+      <p className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+        {label}
+      </p>
+      {Array.from({ length: Math.max(0, rows) }, (_, i) => (
+        <div
+          key={i}
+          aria-hidden="true"
+          className="h-3 rounded-sm bg-primary/8"
+          style={{ width: `${92 - i * 14}%` }}
+        />
+      ))}
+    </div>
   );
 }

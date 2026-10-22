@@ -58,15 +58,24 @@ This checklist is unverified until it is run on the owner's Windows PC. A Linux 
 
 ## Live listening
 
-The Auto mode bar has three groups.
+The Auto mode bar has four groups.
 
-1. Status: the microphone state, speaking, and the running task.
-2. Listening: hands-free, hold to talk, pause or resume, reset microphone.
-3. Autonomy: Ask every time, Balanced, Full autonomy, and Stop everything.
+1. Listen: the microphone chip (listening, paused, off, or error), hands-free, hold to talk, pause or resume, reset microphone.
+2. Speak: speaking while FRIDAY talks, and Mute voice in the Transcript size.
+3. Safety: Ask every time, Balanced, Full autonomy, and Stop everything.
+4. Tools: Voice flow, Voice settings (opens Settings, Voice), and in the Transcript size Diagnostics and Pipeline.
 
-After those come Voice flow, any error with Fix voice, and WORKING or IDLE. Every control has an icon and one height. The FRIDAY graphic is unchanged.
+After those come any error with Fix voice, the running task, and WORKING or IDLE. Every control has an icon, a name, and one height. On a narrow window the names hide behind the icons and slide out when you point at a button or tab to it; tools that still do not fit go into **More**. The microphone chip and **Stop everything** never hide.
 
-The Live captions strip has **diagnostics** and **pipeline** buttons. Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
+The voice window has three sizes. Pick them on the captions strip (**Compact**, **Expanded**, **Transcript**), or press Alt+1, Alt+2 or Alt+3 while you are in the voice window and not typing in a box. The choice is remembered after a restart.
+
+1. **Compact**: the full FRIDAY graphic and the last two caption lines.
+2. **Expanded**: the whole caption history, with the graphic shrunk to the room left so nothing overlaps. FRIDAY opens this size herself for code, long text, or a long list; your saved choice stays as it was.
+3. **Transcript**: no graphic. The control bar sits on top, the conversation is centred with you on the right and FRIDAY on the left, and copy, clear, delete heard, follow and the session numbers sit underneath. A confirmation card shows inside the conversation. Scroll up to read and following stops; **Jump to latest** brings it back.
+
+Ctrl+Space (in this window) and Ctrl+Alt+Space (anywhere) still work for hold to talk at every size.
+
+The Live captions strip has **diagnostics** and **pipeline** buttons (on the bar in the Transcript size). Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button or Esc closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
 
 On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them. A finished clause is spoken while later tokens are still arriving. A failed turn is spoken as one sentence, and the chat text stays complete. A partial answer that already started is not spoken again.
 
@@ -85,6 +94,28 @@ Any failing step: send the step number, the on-screen text and the newest `debug
 Live listening research, 14 October 2026. An ended track cannot be resumed ([microphone track](https://www.webrtc-developers.com/how-to-know-if-my-microphone-works/)): ADOPT, reopen the one stream. Windows sleep can freeze the process before a suspend handler runs ([electron#47739](https://github.com/electron/electron/issues/47739)): ADAPT, rebuild on `resume`. faster-whisper yields segments from a generator ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)): ADAPT, show a stream line and keep Hindi and Hinglish on auto-detect. A second streaming engine: REJECT.
 
 Voice graphic research, 14 October 2026. React compares an external snapshot with Object.is ([useSyncExternalStore](https://react.dev/reference/react/useSyncExternalStore)): ADOPT, the voice cue is a string and a caption does not change it. A hidden document keeps scheduling frames until the page hides them ([visibilitychange](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)): ADOPT, one clock pauses while hidden. Drawing the orb from React state on every audio frame: REJECT.
+
+## Chat sizes
+
+The Manual chat has three sizes. Pick them with **1 | 2 | 3** in the conversation header, or press Alt+1, Alt+2 or Alt+3 while you are in the chat. The choice is remembered after a restart.
+
+1. **Compact**: the full FRIDAY graphic and the last four messages.
+2. **Expanded**: every message in a taller area, with the graphic shrunk so nothing overlaps.
+3. **Full chat**: no graphic. Saved chats sit in a rail on the left, and the conversation is centred. Each message has Copy, code has Copy code, and the newest answer has Regenerate. Scroll up to read and following stops; **Jump to latest** brings it back.
+
+Enter sends, Shift+Enter starts a new line. Chat never opens the microphone; the Mic button stays disabled and says Auto mode listens.
+
+## Appearance
+
+Settings, Appearance changes the whole app at once and shows a live preview of your choices.
+
+- **Theme**: Dark, Daylight or Match system; Cyan, Green, Orange or Purple; or one of the 8 combinations.
+- **Look**: Interface style (**Futuristic Glass**, the default, or **Classic**, the earlier look), Glass depth (Subtle, Balanced, Rich), Blur effect, Neon glow, Scanlines, the live circuit graphic, GPU rendering, Graphic intensity and Panel opacity.
+- **Motion**: Animations and Reduce motion. Either one makes every transition instant.
+- **Text and layout**: heading font, body font, Text size, Interface density, Sidebar default, Button labels (On hover, Always, Icons only) and High contrast.
+- **Chat**: bubble style and timestamps.
+
+**Reset appearance** puts every option back to the shipped defaults. When Windows has transparency effects turned off, glass turns solid by itself. Below 1200 pixels wide the sidebar shows as icons; your saved choice comes back on a wider window.
 
 ## Model routing checks
 

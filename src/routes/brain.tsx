@@ -474,7 +474,7 @@ function BrainPage() {
                         {m.text}
                       </p>
                     ) : (
-                      <div className="rounded-md border border-primary/20 bg-surface px-3 py-2">
+                      <div className="hud-tile rounded-md px-3 py-2">
                         <p className="label-xs mb-1 text-primary">{identity.name}</p>
                         <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
                           {m.text}

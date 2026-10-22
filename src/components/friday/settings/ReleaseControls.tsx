@@ -361,6 +361,7 @@ export function ReleaseControls() {
             className="underline underline-offset-2"
             onClick={() => window.open(status.pr!.url, "_blank")}
           >
+            <GitPullRequest className="size-3" aria-hidden="true" />
             Open PR
           </button>
         </div>

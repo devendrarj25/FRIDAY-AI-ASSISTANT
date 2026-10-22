@@ -33,6 +33,7 @@ import {
   resetVoiceRenderRate,
   voiceDebugOn,
 } from "@/lib/friday/voice-doctor";
+import { circuitFitScale, largeCircuitFitScale } from "@/lib/friday/chat-level";
 import { cn } from "@/lib/utils";
 
 /**
@@ -248,11 +249,24 @@ const ComponentBox = memo(function ComponentBox({
  * `large` only changes presentation (bigger boxes, wider spread, bigger rings
  * and mark) for the Auto Mode stage. The data, wiring and animations stay
  * identical, and Manual mode renders exactly as before.
+ *
+ * `fit` (Manual chat level 2, Expanded) scales the compact graphic down as one
+ * piece when its stage is shorter than the graphic needs, so boxes and the
+ * mark never touch. At full size it lays out exactly like Compact.
+ *
+ * The Auto Mode stage (`large`) fits itself: readout lines hide first, and
+ * only when a box with no readout lines still cannot fit does the whole
+ * graphic scale down as one piece. Same wires, same current, same mark.
  */
 export const NeuralCircuit = memo(function NeuralCircuit({
   large = false,
+  fit = false,
   onSelectNode,
-}: { large?: boolean; onSelectNode?: (node: LiveComponent) => void } = {}) {
+}: {
+  large?: boolean;
+  fit?: boolean;
+  onSelectNode?: (node: LiveComponent) => void;
+} = {}) {
   const gid = useId();
   const liveRaw = useFridayLive();
   const [heldLines, setHeldLines] = useState(large ? 0 : 3);
@@ -268,16 +282,30 @@ export const NeuralCircuit = memo(function NeuralCircuit({
   // and show only as many readout lines as fit without boxes ever touching.
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageH, setStageH] = useState(0);
+  const [stageW, setStageW] = useState(0);
   useEffect(() => {
     const el = stageRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([entry]) => setStageH(entry?.contentRect.height ?? 0));
+    const ro = new ResizeObserver(([entry]) => {
+      setStageH(entry?.contentRect.height ?? 0);
+      setStageW(entry?.contentRect.width ?? 0);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
   // Slot pitch = 82% of the canvas spread across 6 gaps; a box needs ~62px of
   // chrome plus ~13px per readout line, and 10px of breathing room.
   const maxDetails = circuitReadoutLines(stageH, large, heldLines);
+  // Auto Mode hides readout lines first; only when a bare box still cannot
+  // fit does the whole graphic scale down. Manual scales only when asked.
+  const viewportH = typeof window !== "undefined" ? window.innerHeight : 0;
+  const scale = large
+    ? maxDetails === 0
+      ? largeCircuitFitScale(stageW, stageH, viewportH)
+      : 1
+    : fit
+      ? circuitFitScale(stageW, stageH, viewportH)
+      : 1;
   if (maxDetails !== heldLines) setHeldLines(maxDetails);
   // Auto Mode boxes are much taller (they carry real readouts), so they are
   // laid out as two fixed-slot columns: evenly spaced, never overlapping.
@@ -299,13 +327,8 @@ export const NeuralCircuit = memo(function NeuralCircuit({
     : liveRaw;
   const anyActive = live.components.some((c) => c.active);
 
-  return (
-    <div
-      ref={stageRef}
-      className="neural-circuit relative isolate size-full overflow-hidden rounded-lg"
-    >
-      <span className="panel-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
-
+  const graphic = (
+    <>
       {/* Neon circuit wires: thin + connected when idle, energised only where
           the current run is genuinely working. */}
       <svg
@@ -422,6 +445,32 @@ export const NeuralCircuit = memo(function NeuralCircuit({
             </p>
           </div>
         </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div
+      ref={stageRef}
+      className={cn(
+        "neural-circuit relative isolate size-full overflow-hidden rounded-lg",
+        !large && "neural-circuit-compact",
+      )}
+    >
+      <span className="panel-grid pointer-events-none absolute inset-0 opacity-[0.12]" />
+      <div
+        className="absolute left-0 top-0 origin-top-left"
+        style={
+          scale < 1
+            ? {
+                width: stageW / scale,
+                height: stageH / scale,
+                transform: `scale(${scale})`,
+              }
+            : { width: "100%", height: "100%" }
+        }
+      >
+        {graphic}
       </div>
 
       {/* Manual mode keeps the corner badge. Auto Mode parks the same badge
