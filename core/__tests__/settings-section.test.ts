@@ -92,6 +92,23 @@ describe("Settings section upgrade", () => {
     expect(appearance).toContain("bodyFont");
     expect(appearance).toContain("Atkinson Hyperlegible");
     expect(panel).toContain("Color combinations");
+    // FRIDAY Glass options, grouped, each wired to its preference field.
+    for (const group of [
+      'title="Theme"',
+      'title="Look"',
+      'title="Motion"',
+      'title="Text and layout"',
+      'title="Chat"',
+    ]) {
+      expect(panel).toContain(group);
+    }
+    expect(panel).toContain('label="Interface style"');
+    expect(panel).toContain('onChange={setField("uiStyle")}');
+    expect(panel).toContain('label="Glass depth"');
+    expect(panel).toContain('onChange={setField("glassDepth")}');
+    expect(panel).toContain('label="Button labels"');
+    expect(panel).toContain('onChange={setField("buttonLabels")}');
+    expect(panel).toContain('aria-label="Preview of your current choices"');
     expect(panel).toContain("persistAccent");
     expect(panel).not.toContain("preferences.setTheme(a)");
     expect(css).toContain("--friday-panel-opacity");

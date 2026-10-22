@@ -165,6 +165,10 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     textSize: "Normal",
     panelOpacity: "100",
     graphicIntensity: "70",
+    // FRIDAY Glass (appearance.ts): interface style, glass depth, labels.
+    uiStyle: "glass",
+    glassDepth: "Balanced",
+    buttonLabels: "hover",
     personality:
       "Be direct and short. State the risk before running any exec tool. Prefer local models; use an online model only for research or when local models disagree. After a failure, write one lesson to memory.",
     cpuBudget: "50",
