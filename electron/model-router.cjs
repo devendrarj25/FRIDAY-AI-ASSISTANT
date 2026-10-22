@@ -413,7 +413,7 @@ function classifyError(input) {
     return {
       ...row,
       category,
-      nextStep: NEXT_STEP[category] || "",
+      nextStep: row.nextStep || NEXT_STEP[category] || "",
       facts: attemptFacts(input),
     };
   };
@@ -516,6 +516,24 @@ function classifyError(input) {
       category: "model_access",
       retryable: false,
       cooldownMs: 15 * 60_000,
+    });
+  }
+  if (has("please load a model", "no models loaded", "lms load")) {
+    return withStep({
+      category: "model_unavailable",
+      retryable: false,
+      cooldownMs: 0,
+      nextStep: "model not loaded in LM Studio",
+      delist: true,
+    });
+  }
+  if (has("does not expose this model id")) {
+    return withStep({
+      category: "model_unavailable",
+      retryable: false,
+      cooldownMs: 0,
+      nextStep: "id mismatch",
+      delist: true,
     });
   }
   if (has("has been deprecated", "was renamed", "model was removed")) {
@@ -1238,7 +1256,12 @@ function modelAvailability(model, policy, now, task = "chat") {
     model?.capabilities &&
     model.capabilities.chat === false
   ) {
-    return { visibility: "hide", reason: "not-chat" };
+    const why = model.capabilities.embeddings
+      ? "flagged embedding-only"
+      : model.capabilities.audio
+        ? "flagged speech-only"
+        : "not-chat";
+    return { visibility: "hide", reason: why };
   }
   return {
     visibility: "show",

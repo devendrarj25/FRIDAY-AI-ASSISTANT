@@ -795,6 +795,22 @@ function ollamaListError(res) {
   return res.status ? res.error || `HTTP ${res.status}` : "Ollama not running";
 }
 
+function ollamaCatalog(body) {
+  return (body?.models || []).map((m) => ({
+    id: m.name,
+    name: m.name,
+    provider: "ollama",
+    kind: "local",
+    sizeGb: gb(m.size),
+    family: m.details?.family || null,
+    parameters: m.details?.parameter_size || null,
+    quantization: m.details?.quantization_level || null,
+    format: m.details?.format || "gguf",
+    installedAt: m.modified_at || null,
+    catalogue: m,
+  }));
+}
+
 async function ollamaModels(base = OLLAMA) {
   const root = String(base || OLLAMA).replace(/\/+$/, "");
   const res = await request(`${root}/api/tags`, { timeout: 4000 });
@@ -809,19 +825,7 @@ async function ollamaModels(base = OLLAMA) {
     online: true,
     latencyMs: res.latencyMs,
     error: null,
-    models: (res.body?.models || []).map((m) => ({
-      id: m.name,
-      name: m.name,
-      provider: "ollama",
-      kind: "local",
-      sizeGb: gb(m.size),
-      family: m.details?.family || null,
-      parameters: m.details?.parameter_size || null,
-      quantization: m.details?.quantization_level || null,
-      format: m.details?.format || "gguf",
-      installedAt: m.modified_at || null,
-      catalogue: m,
-    })),
+    models: ollamaCatalog(res.body),
   };
 }
 
@@ -1026,13 +1030,17 @@ function lmStudioCatalog(body, kind) {
       .filter((row) => row.id);
   }
   const rows = Array.isArray(body?.data) ? body.data : [];
+  // The OpenAI list is what that server will serve. JIT may include every
+  // download; a later "load a model" reply marks that id unavailable.
   return rows
-    .map((row) => ({ id: String(row?.id || ""), loaded: false, raw: row }))
+    .map((row) => ({ id: String(row?.id || ""), loaded: true, raw: row }))
     .filter((row) => row.id);
 }
 
 function lmStudioResult(endpoint, rows, latencyMs) {
   const loaded = rows.filter((row) => row.loaded);
+  const held = rows.filter((row) => !row.loaded);
+  const notice = "model not loaded in LM Studio";
   return {
     id: "lmstudio",
     name: "LM Studio",
@@ -1040,17 +1048,30 @@ function lmStudioResult(endpoint, rows, latencyMs) {
     endpoint,
     online: true,
     latencyMs: latencyMs || null,
-    error: loaded.length ? null : "LM Studio running, no model loaded",
-    models: loaded.map((row) => ({
-      id: row.id,
-      name: row.id,
-      provider: "lmstudio",
-      kind: "local",
-      sizeGb: 0,
-      format: "server",
-      loaded: true,
-      catalogue: row.raw,
-    })),
+    error: loaded.length ? null : held.length ? notice : "LM Studio running, no model loaded",
+    models: [
+      ...loaded.map((row) => ({
+        id: row.id,
+        name: row.id,
+        provider: "lmstudio",
+        kind: "local",
+        sizeGb: 0,
+        format: "server",
+        loaded: true,
+        catalogue: row.raw,
+      })),
+      ...held.map((row) => ({
+        id: row.id,
+        name: row.id,
+        provider: "lmstudio",
+        kind: "local",
+        sizeGb: 0,
+        format: "server",
+        loaded: false,
+        notice,
+        catalogue: row.raw,
+      })),
+    ],
   };
 }
 
@@ -2228,7 +2249,7 @@ async function routable(ctx = {}) {
         supportsStreaming: capabilities.streaming,
         supportsTools: capabilities.tools,
         supportsVision: capabilities.vision,
-        status: "ready",
+        status: model.loaded === false ? "unavailable" : "ready",
         options: {
           model: model.id,
           registryId,
@@ -2244,6 +2265,8 @@ async function routable(ctx = {}) {
           lastVerified,
           access: modelAccess.coarseAccess(accessRecord),
           accessRecord,
+          ...(model.notice ? { notice: model.notice } : {}),
+          ...(model.loaded === false ? { loaded: false } : {}),
           ...(cloud?.chatPath && !urls.custom ? { chat_path: cloud.chatPath } : {}),
         },
         // routing metadata (not sent to the kernel router constructor)
@@ -2260,6 +2283,8 @@ async function routable(ctx = {}) {
           endpoint,
           customEndpoint: Boolean(urls?.custom),
           resident: provider.id === "ollama" && resident.has(model.id),
+          loaded: model.loaded !== false,
+          ...(model.notice ? { notice: model.notice } : {}),
           sizeGb: model.sizeGb ?? 0,
           accessTier: cloud ? tier : "auto",
           declaredAccess: cloud && tier !== "auto" ? tier : null,
@@ -2885,6 +2910,7 @@ module.exports = {
   OLLAMA,
   ollamaListError,
   lmStudioCatalog,
+  ollamaCatalog,
   lmStudioResult,
   chatHeaders,
   providerMessage,

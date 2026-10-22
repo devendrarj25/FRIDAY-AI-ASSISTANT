@@ -22,6 +22,8 @@ describe("kernel identity", () => {
 
   it("keeps an unloaded-local chat inside the pack-continues rule", () => {
     expect(readiness.isUnloadedLocalChat("no installed local model")).toBe(true);
+    expect(readiness.isUnloadedLocalChat("model not loaded in LM Studio")).toBe(true);
+    expect(readiness.isUnloadedLocalChat("unavailable after scan")).toBe(true);
     expect(readiness.isUnloadedLocalChat("chat produced no answer")).toBe(false);
   });
 });
