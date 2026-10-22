@@ -233,6 +233,11 @@ export interface DictationOptions {
   /** Fired once per utterance when an in-flight wake probe matches. */
   onEarlyWake?: (wake: WakeProbe) => void;
   onSpeechStart?: () => void;
+  /**
+   * Checked when speech starts. False discards that utterance before any
+   * audio is kept or transcribed (push-to-talk with the key up).
+   */
+  admit?: () => boolean;
   onError?: (message: string) => void;
   onStateChange?: (state: "listening" | "thinking" | "idle") => void;
   /**
@@ -381,6 +386,8 @@ let turnScoreReady: "unknown" | "absent" | "ready" = "unknown";
 export class DesktopDictation {
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
+  /** Start of speech that push-to-talk refused, so the log says it once. */
+  private refusedSince = 0;
   /** True while this utterance is taken from the PCM ring, not MediaRecorder. */
   private pcmSegment = false;
   private chunks: Blob[] = [];
@@ -509,7 +516,19 @@ export class DesktopDictation {
         this.bindTrack(live);
         if (this.recorder) this.finishSegment("microphone stream changed");
       }
+      if (snapshot.speech && !this.speaking && this.options.admit && !this.options.admit()) {
+        if (!this.refusedSince) {
+          this.refusedSince = Date.now();
+          this.options.onDiagnostic?.({
+            stage: "speech",
+            detail: "push-to-talk: talk key is up, speech not recorded",
+          });
+        }
+        return;
+      }
+      if (!snapshot.speech) this.refusedSince = 0;
       if (snapshot.speech && !this.speaking) {
+        this.refusedSince = 0;
         this.options.onDiagnostic?.({ stage: "speech", detail: "speech detected" });
         // `speaking` latches only when a segment really starts. A failed
         // start must not freeze the next utterance.

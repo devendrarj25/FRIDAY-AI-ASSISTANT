@@ -108,6 +108,25 @@ export function VoiceSettings() {
               </option>
             </select>
           </label>
+          <label className="block sm:col-span-2">
+            <span className="label-xs text-muted-foreground">How Auto mode listens</span>
+            <select
+              value={prefs.voice.listenStyle || "always"}
+              onChange={(e) =>
+                preferences.setVoice({
+                  listenStyle: e.target.value === "push-to-talk" ? "push-to-talk" : "always",
+                })
+              }
+              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            >
+              <option value="always" className="bg-background">
+                Always listening (wake word and follow-ups)
+              </option>
+              <option value="push-to-talk" className="bg-background">
+                Push to talk (hold Ctrl+Space, or Ctrl+Alt+Space to toggle)
+              </option>
+            </select>
+          </label>
           <label className="block">
             <span className="label-xs text-muted-foreground">Heard lines kept on this PC</span>
             <select

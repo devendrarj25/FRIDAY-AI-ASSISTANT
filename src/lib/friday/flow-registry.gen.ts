@@ -289,6 +289,7 @@ export const FLOW_REGISTRY = {
     "voice.heardKeepRows",
     "voice.hinglish",
     "voice.inputDeviceId",
+    "voice.listenStyle",
     "voice.models",
     "voice.pauseDuringCalls",
     "voice.pitch",
@@ -2006,6 +2007,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:neural-voices",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:ptt-shortcut",
       file: "electron/main.cjs",
     },
     {
@@ -8505,16 +8510,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 109,
-      total: 109,
+      mapped: 110,
+      total: 110,
     },
     capabilities: {
       mapped: 1014,
       total: 1014,
     },
     ipc: {
-      mapped: 457,
-      total: 457,
+      mapped: 458,
+      total: 458,
     },
     kernel: {
       mapped: 14,

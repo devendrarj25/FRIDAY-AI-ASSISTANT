@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld("friday", {
   reportVoiceState: (state) => ipcRenderer.send("voice:state", state),
   getTrayVoiceState: () => ipcRenderer.invoke("voice:tray-state"),
   onVoicePause: on("voice:pause"),
+  onPttToggle: on("voice:ptt-toggle"),
+  setPttShortcut: (on) => ipcRenderer.invoke("voice:ptt-shortcut", on === true),
 
   // Neural voice (edge-tts): free, no key, natural Hindi / Indian-English.
   neuralVoiceStatus: () => ipcRenderer.invoke("voice:neural-status"),

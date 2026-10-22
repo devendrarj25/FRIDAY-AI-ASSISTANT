@@ -199,6 +199,27 @@ export function AutoMode() {
                 ? "awake · go ahead"
                 : "say “FRIDAY …”"}
           </button>
+          {assistantMode.listenStyle() === "push-to-talk" ? (
+            <button
+              type="button"
+              // Keyboard activation (Enter or Space on the focused button) toggles.
+              onClick={(event) => {
+                if (event.detail === 0) assistantMode.togglePushToTalk();
+              }}
+              onPointerDown={() => assistantMode.holdToTalk(true)}
+              onPointerUp={() => assistantMode.holdToTalk(false)}
+              onPointerLeave={() => assistantMode.holdToTalk(false)}
+              title="Hold to talk. Ctrl+Space in this window, Ctrl+Alt+Space toggles from anywhere."
+              className={cn(
+                "rounded-sm border px-2 py-0.5 transition-colors",
+                assistantMode.pushToTalkActive()
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-primary/20 text-muted-foreground hover:text-primary",
+              )}
+            >
+              {assistantMode.pushToTalkActive() ? "listening · release to send" : "hold to talk"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => assistantMode.setPaused(!voice.paused)}

@@ -423,6 +423,7 @@ const CHANNEL_CLASS = Object.freeze({
   "updates:apply": "long-job",
   "updates:check": "quick",
   "updates:rollback": "long-job",
+  "voice:ptt-shortcut": "quick",
   "voice:duck": "quick",
   "voice:import": "quick",
   "voice:list": "quick",
