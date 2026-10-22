@@ -228,6 +228,7 @@ function sampleFor(slug: string, tmp: string): Record<string, unknown> {
     "network-discover": { kind: "mdns", seconds: 0.2 },
     "network-cast": {},
     "ffmpeg-transcode": { probe: true },
+    "comfyui-generate": { prompt: "" },
     "credential-vault": { action: "list", root: tmp },
     "port-scan": { host: "127.0.0.1", ports: [1], timeoutMs: 200 },
     "git-commit": { probe: true, root: ROOT },

@@ -67,6 +67,66 @@ async function status(options = {}) {
   }
 }
 
+/** Checkpoints ComfyUI can load, from GET /object_info/CheckpointLoaderSimple. */
+async function checkpoints(options = {}) {
+  const where = endpoint(options.env);
+  if (!where.ok) return [];
+  try {
+    const info = await getJson(
+      options.fetch || fetch,
+      `${where.base}/object_info/CheckpointLoaderSimple`,
+    );
+    const names = info?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
+    return Array.isArray(names) ? names.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The standard text-to-image graph from ComfyUI's own API example: checkpoint,
+ * two prompts, an empty latent, KSampler, VAE decode, save.
+ */
+function textToImageWorkflow(input = {}) {
+  const clamp = (value, low, high, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(high, Math.max(low, Math.round(n))) : fallback;
+  };
+  const size = (value) => clamp(value, 256, 2048, 1024) - (clamp(value, 256, 2048, 1024) % 8);
+  return {
+    4: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: String(input.checkpoint) } },
+    5: {
+      class_type: "EmptyLatentImage",
+      inputs: { width: size(input.width), height: size(input.height), batch_size: 1 },
+    },
+    6: {
+      class_type: "CLIPTextEncode",
+      inputs: { text: String(input.prompt || ""), clip: ["4", 1] },
+    },
+    7: {
+      class_type: "CLIPTextEncode",
+      inputs: { text: String(input.negative || "blurry, low quality, watermark"), clip: ["4", 1] },
+    },
+    3: {
+      class_type: "KSampler",
+      inputs: {
+        seed: clamp(input.seed, 0, 2 ** 31 - 1, Math.floor(Math.random() * 2 ** 31)),
+        steps: clamp(input.steps, 1, 80, 25),
+        cfg: 7,
+        sampler_name: "euler",
+        scheduler: "normal",
+        denoise: 1,
+        model: ["4", 0],
+        positive: ["6", 0],
+        negative: ["7", 0],
+        latent_image: ["5", 0],
+      },
+    },
+    8: { class_type: "VAEDecode", inputs: { samples: ["3", 0], vae: ["4", 2] } },
+    9: { class_type: "SaveImage", inputs: { filename_prefix: "FRIDAY", images: ["8", 0] } },
+  };
+}
+
 /** API-format workflow: { "<node id>": { class_type, inputs } }. */
 function validateWorkflow(workflow) {
   if (!workflow || typeof workflow !== "object" || Array.isArray(workflow)) {
@@ -180,4 +240,12 @@ async function run(workflow, options = {}) {
   };
 }
 
-module.exports = { DEFAULT_ENDPOINT, endpoint, status, validateWorkflow, run };
+module.exports = {
+  DEFAULT_ENDPOINT,
+  endpoint,
+  status,
+  checkpoints,
+  textToImageWorkflow,
+  validateWorkflow,
+  run,
+};

@@ -7257,6 +7257,12 @@ export const FLOW_REGISTRY = {
       file: "tools/media/camera-clip/tool.json",
     },
     {
+      id: "tools/media/comfyui-generate/tool",
+      kind: "tool",
+      name: "ComfyUI image",
+      file: "tools/media/comfyui-generate/tool.json",
+    },
+    {
       id: "tools/media/ffmpeg-transcode/tool",
       kind: "tool",
       name: "FFmpeg transcode",
@@ -8522,8 +8528,8 @@ export const FLOW_REGISTRY = {
       total: 110,
     },
     capabilities: {
-      mapped: 1014,
-      total: 1014,
+      mapped: 1015,
+      total: 1015,
     },
     ipc: {
       mapped: 460,

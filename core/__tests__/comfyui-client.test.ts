@@ -37,6 +37,16 @@ beforeAll(async () => {
         );
         return;
       }
+      if (url.pathname === "/object_info/CheckpointLoaderSimple") {
+        res.end(
+          JSON.stringify({
+            CheckpointLoaderSimple: {
+              input: { required: { ckpt_name: [["sdxl_base.safetensors"]] } },
+            },
+          }),
+        );
+        return;
+      }
       if (url.pathname === "/prompt" && req.method === "POST") {
         posted = JSON.parse(body);
         res.end(
@@ -124,5 +134,46 @@ describe("ComfyUI local runner", () => {
     expect(path.dirname(saved)).toBe(outDir);
     expect(path.basename(saved)).toBe("abcdef12-evil_name.png");
     expect(readFileSync(saved, "utf8")).toBe("PNG:../evil name.png");
+  });
+
+  it("builds the standard text-to-image graph that passes validation", () => {
+    const graph = comfy.textToImageWorkflow({
+      prompt: "a red fox",
+      checkpoint: "x.safetensors",
+      width: 1001,
+      steps: 500,
+      seed: 7,
+    });
+    expect(comfy.validateWorkflow(graph)).toBe("");
+    expect(graph["6"].inputs.text).toBe("a red fox");
+    expect(graph["5"].inputs.width % 8).toBe(0);
+    expect(graph["3"].inputs.steps).toBe(80);
+    expect(graph["3"].inputs.seed).toBe(7);
+    expect(graph["9"].class_type).toBe("SaveImage");
+  });
+
+  it("the chat tool makes an image from a prompt with the first checkpoint", async () => {
+    const previous = process.env.FRIDAY_COMFYUI_ENDPOINT;
+    process.env.FRIDAY_COMFYUI_ENDPOINT = base;
+    historyCalls = 0;
+    try {
+      expect(await comfy.checkpoints()).toEqual(["sdxl_base.safetensors"]);
+      const tool = require_("../../tools/media/comfyui-generate/index.cjs");
+      const outDir = mkdtempSync(path.join(os.tmpdir(), "friday-comfy-tool-"));
+      const made = await tool.run({ prompt: "a red fox", outDir });
+      expect(made.ok).toBe(true);
+      expect(made.checkpoint).toBe("sdxl_base.safetensors");
+      expect(
+        (posted as { prompt: Record<string, { inputs: { text?: string } }> }).prompt["6"]?.inputs
+          .text,
+      ).toBe("a red fox");
+      const missing = await tool.run({ prompt: "x", checkpoint: "nope.safetensors", outDir });
+      expect(missing.ok).toBe(false);
+      expect(missing.reason).toMatch(/no checkpoint named/);
+      expect((await tool.run({ prompt: "  " })).reason).toMatch(/what the image should show/);
+    } finally {
+      if (previous === undefined) delete process.env.FRIDAY_COMFYUI_ENDPOINT;
+      else process.env.FRIDAY_COMFYUI_ENDPOINT = previous;
+    }
   });
 });
