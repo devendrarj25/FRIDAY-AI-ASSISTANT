@@ -17,6 +17,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
+const { parseJsonLine } = require("./json-line.cjs");
 
 const STT_SCRIPT = path.join(__dirname, "..", "kernel", "stt.py");
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
@@ -65,16 +66,6 @@ const OPTIONAL_INSTALL = {
   "vad-silero": "silero-vad",
   "smart-turn": "smart-turn",
 };
-
-function parseJsonLine(stdout) {
-  const text = String(stdout || "").trim();
-  if (!text) return null;
-  try {
-    return JSON.parse(text.slice(text.lastIndexOf("{")));
-  } catch {
-    return null;
-  }
-}
 
 async function speechSelfTest() {
   const found = await resolvePython();
@@ -254,13 +245,7 @@ async function verifyVoiceRuntime({ loadModel = true } = {}) {
         ...process.env,
         FRIDAY_STT_MODEL_PATH: prepared.dir,
       });
-      let parsed = null;
-      try {
-        const text = load.stdout.trim();
-        parsed = JSON.parse(text.slice(text.lastIndexOf("{")));
-      } catch {
-        parsed = null;
-      }
+      const parsed = parseJsonLine(load.stdout);
       checks.push({
         id: "stt-model",
         label: "speech model loads",

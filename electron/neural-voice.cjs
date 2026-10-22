@@ -24,6 +24,7 @@ const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
+const { parseJsonLine } = require("./json-line.cjs");
 const { classify } = require("./privacy-firewall.cjs");
 
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
@@ -178,12 +179,11 @@ async function localStatus() {
   if (!py) return { tts: { ready: false, reason: "Python 3.12+ was not found." } };
   const probe = await run(py[0], [...py[1], runtimeScript(), "--status"], 20000);
   if (!probe.ok) return { tts: { ready: false, reason: "local voice runtime did not answer" } };
-  try {
-    const text = probe.stdout.trim();
-    return JSON.parse(text.slice(text.lastIndexOf("{")));
-  } catch {
-    return { tts: { ready: false, reason: "local voice runtime returned no status" } };
-  }
+  return (
+    parseJsonLine(probe.stdout) || {
+      tts: { ready: false, reason: "local voice runtime returned no status" },
+    }
+  );
 }
 
 let speaker = null;

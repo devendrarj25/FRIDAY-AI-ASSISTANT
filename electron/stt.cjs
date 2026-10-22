@@ -24,6 +24,7 @@ const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
+const { parseJsonLine } = require("./json-line.cjs");
 const { resolvePython } = require("./python.cjs");
 const { fetchCompat } = require("./net-fetch.cjs");
 // The credential store is owned by models.cjs — read it, never duplicate it.
@@ -193,16 +194,7 @@ async function python() {
   return found ? [found.exe, found.prefix || []] : null;
 }
 
-function parse(stdout) {
-  const text = String(stdout || "").trim();
-  const start = text.lastIndexOf("{");
-  if (start < 0) return null;
-  try {
-    return JSON.parse(text.slice(start));
-  } catch {
-    return null;
-  }
-}
+const parse = parseJsonLine;
 
 function killTree(child) {
   if (!child || !child.pid) return;
