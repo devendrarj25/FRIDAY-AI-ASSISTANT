@@ -14,7 +14,7 @@ That check does not cover this branch. Shutdown and Restart button behaviour, mi
 
 ## Checks on this Linux tree
 
-Run on 2026-10-21 on this branch, after `npm ci` (exit 0) and `npm run setup:python` (exit 0). Windows pack gates were skipped on Linux. Hosted Actions were not started. `git status` was clean after `build:desktop`.
+Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container, not Windows), after `npm ci` and `npm run setup:python` (venv `.venv`, pytest and pyright on PATH). Windows pack gates were skipped on Linux. Hosted Actions were not started. `git status` was clean after `build:desktop`.
 
 | Check | Result |
 | --- | --- |
@@ -24,9 +24,9 @@ Run on 2026-10-21 on this branch, after `npm ci` (exit 0) and `npm run setup:pyt
 | `npm run arrange:check` | Passed. 140 folders, missing 0, duplicates 0, junk 0. |
 | `npm run lint` | Passed. ESLint was silent. Ruff reported `All checks passed!` and `65 files already formatted`. |
 | `npm run typecheck` | Passed. Printed `FRIDAY 1.1.2.4`. |
-| `npm run typecheck:py` | Passed. 4 passed in 5.72s. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
-| `npm run test:kernel` | 207 passed in 19.36s. Exit 0. |
-| `npm test` | 375 files passed, 3100 passed, 2 skipped, 70.99s. Exit 0. |
+| `npm run typecheck:py` | Passed. 4 passed in 11.87s. My new test file first pushed the count to 71 and was fixed. `kernel/pyright-baseline.txt` ceiling is 70. The test asserts the count does not grow. |
+| `npm run test:kernel` | 231 passed, 2 skipped in 29.06s. Exit 0. The 2 skips are the real-Whisper hearing test (no weights) and one optional-wheel test. |
+| `npm test` | 383 files passed, 3156 passed, 4 skipped. Exit 0. The first run found `local-daemon-funnel` failing on `origin/main` too (it pinned the pre-fix LM Studio not-loaded text); that test now pins the documented behaviour. |
 | `node scripts/tests-required.cjs origin/main` | 13 code files, 7 test files. |
 | `npm run check:provenance` | Passed. `provenance ok (origin/main)`. New commits use the repository owner as author. Assistant-authored commits already on `main` were not rewritten. |
 | `node scripts/run-actionlint.cjs` | Passed. `workflow lint: actionlint`. |
@@ -38,6 +38,8 @@ Run on 2026-10-21 on this branch, after `npm ci` (exit 0) and `npm run setup:pyt
 | `npm run pricing:status` | Exit 1. EXPIRED. Oldest is deepseek, checked 2026-10-07, expires 2026-10-21 (−1 day). groq, gemini, mistral, nvidia, zhipu, openai, anthropic, and perplexity are fresh (checked 2026-10-21, 13 days). DeepSeek's pricing URL did not contain a price table, so that date was not moved. |
 
 ## UNVERIFIED
+
+This change (hearing, speaking, local runners, pricing evidence): the Whisper leg of the hearing self-test never ran here, because Hugging Face is blocked from this container and no speech weights exist; only the espeak-ng, WAV, `prepare_audio`, real pyrnnoise 0.4.5 denoise path ran, with a stand-in recogniser. No live Ollama or LM Studio ran (a fake Ollama HTTP server proved detection and the firewall). The Groq free-plan id list could not be re-read (console.groq.com unreachable), so Groq ids stay unknown until the owner marks them free. Hosted Actions, the Windows CMD pack, and every Windows speech and speaker path remain unverified.
 
 Live microphone and speech recognition on Windows. A live speech-model download. A long answer past 30 seconds on a slow free model and on a big local model. A frozen-window recovery message. Moonshine or Windows speech chosen on that PC after the faster-whisper weights are removed. A dead model marked on the Models page before use. Live provider calls, including OpenRouter. Shutdown and Restart on the packaged EXE, and process cleanup after them. In-app update apply. This branch's Windows CMD pack (`scripts\build-windows.cmd`), readiness RESTART, installer, and SmartScreen. Hosted Actions for this branch. This session did not start a workflow. Linux output is not those checks.
 
@@ -118,6 +120,11 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Hearing: denoise scale was already fixed on `main`; this change added the single clip, the 4x loudness guard, one no-speech constant with the confidence rule, drop codes and counters, and the spoken self-test. Whether those fix the owner's silent mic on real speech is unverified until step 0.1 runs on Windows.
+- Pricing: proven-free models now outlive the 14-day table age. Risk accepted by the owner direction: a provider that moves a model from free to paid is caught by the daily refresh, a live probe, or a billing-required error, not by age. The old `pricing:status` EXPIRED exit still reports source age and still exits 1 for an old source.
+- The per-model free, unknown, or paid reason is shown per pricing source on the Models page, not as a line under every model row.
+- Provider fixtures in `core/fixtures/provider-model-lists.json` are list shapes written from each provider's docs, not live recordings.
+
 - Live provider calls are unverified. A cloud failure keeps the HTTP status and a redacted body. OpenRouter's data-policy 404 is an account setting (`https://openrouter.ai/settings/privacy`). `npm run models:check --live` was not run. No owner keys are in this environment.
 - A live Windows speech download, microphone, Windows speech pack, and Shutdown or Restart on the packaged EXE are unverified. `hf-mirror.com` is off unless `FRIDAY_HF_MIRROR=1`.
 - This branch's Windows CMD pack, readiness RESTART, installer, and in-app update apply are unverified. The owner's 1.1.2.4 pack is the verified line. Silent uninstall keeps the data folder. The get-pip pin read from bootstrap.pypa.io on 2026-10-21 (2234489 bytes) is on main. Hosted Actions for this branch were not started.
@@ -135,6 +142,13 @@ These look like bugs. They are not. Do not "fix" them.
 - `kernel/router.py` and `electron/model-router.cjs` kept their names. The flow registry, tests, and docs pin those paths. Existing duplicate basenames stay on the allowlist in `core/__tests__/duplicate-stems.test.ts`. A new duplicate basename fails that test.
 
 ## Next priorities
+
+0. Owner checks for this change, on the Windows PC after `npm run setup` and `npm run build:win`:
+   1. Voice diagnostics, run voice self-test: three `hearing at peak 0.5 / 0.05 / 0.008` rows must read PASS. Send any FAIL row and the newest `debug\reports\voice-hearing.jsonl`.
+   2. In Auto mode say "Friday, what time is it". Confirm it answers aloud. If not, copy the `last turn` row (heard, routed, model, reply, spoken) from Voice diagnostics: the stage marked with a cross is where it stopped. Run speak test and note which engine it names.
+   3. Models, Local: start Ollama or LM Studio with the Start button (second click confirms), then confirm the model line says `serving` and the next chat uses it.
+   4. Models, Catalogue: press Refresh now. Each pricing source shows its basis and `read Nh ago` or `cached`. Turn Wi-Fi off and press it again: sources stay `cached` and proven-free models stay free.
+   5. Open a chat with every model blocked (Paid-only with paid access off) and confirm the reply and the spoken line name the real reason.
 
 Owner checks stay in order. A failed step should be reported with the step number and the on-screen text.
 

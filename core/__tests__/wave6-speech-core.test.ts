@@ -175,7 +175,7 @@ describe("wave 6 speech core and toolchain", () => {
     expect(script).toContain("SelectVoice");
     expect(script).toContain("Swara");
     expect(script).not.toMatch(/[^\x00-\x7F]/);
-    const hostile = sapi.sapiCommand("it's $(calc) `x` \"q\" $5").join(" ");
+    const hostile = sapi.sapiCommand('it\'s $(calc) `x` "q" $5').join(" ");
     expect(hostile).toContain("$s.Speak('it''s $(calc) `x` \"q\" $5')");
     expect(hostile).not.toContain('$s.Speak("');
     const wav = sapi.sapiCommand("hello", { wav: "C:\\Friday\\clip.wav", rate: 0.96 });
