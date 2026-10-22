@@ -1,0 +1,68 @@
+{
+  "note": "Trimmed list responses in the shape each provider documents. Ids and prices are chosen to exercise the classifier, not copied from a live call. A live recording needs the owner's keys: run `npm run models:check -- --live` on the Windows PC.",
+  "shapeSources": {
+    "openrouter": "https://openrouter.ai/docs/api-reference/list-available-models",
+    "groq": "https://console.groq.com/docs/api-reference#models-list",
+    "gemini": "https://ai.google.dev/api/models#method:-models.list",
+    "huggingface": "https://huggingface.co/docs/inference-providers/en/hub-api"
+  },
+  "openrouter": {
+    "data": [
+      {
+        "id": "meta-llama/llama-3.3-70b-instruct:free",
+        "name": "Llama 3.3 70B Instruct (free)",
+        "context_length": 131072,
+        "pricing": { "prompt": "0", "completion": "0", "request": "0", "image": "0" },
+        "supported_parameters": ["tools", "temperature", "max_tokens"]
+      },
+      {
+        "id": "openai/gpt-4o-mini",
+        "name": "GPT-4o mini",
+        "context_length": 128000,
+        "pricing": { "prompt": "0.00000015", "completion": "0.0000006", "request": "0", "image": "0" },
+        "supported_parameters": ["tools", "temperature", "max_tokens"]
+      },
+      {
+        "id": "vendor/mislabelled:free",
+        "name": "Name says free, price does not",
+        "context_length": 8192,
+        "pricing": { "prompt": "0.000001", "completion": "0.000002" },
+        "supported_parameters": ["max_tokens"]
+      },
+      {
+        "id": "vendor/no-price-listed:free",
+        "name": "Name says free, no price at all",
+        "context_length": 8192,
+        "supported_parameters": ["max_tokens"]
+      }
+    ]
+  },
+  "groq": {
+    "object": "list",
+    "data": [
+      { "id": "llama-3.3-70b-versatile", "object": "model", "owned_by": "Meta", "active": true, "context_window": 131072 },
+      { "id": "openai/gpt-oss-20b", "object": "model", "owned_by": "OpenAI", "active": true, "context_window": 131072 }
+    ]
+  },
+  "gemini": {
+    "models": [
+      { "name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash", "supportedGenerationMethods": ["generateContent", "countTokens"] },
+      { "name": "models/gemini-2.5-flash-image", "displayName": "Image model", "supportedGenerationMethods": ["generateContent"] }
+    ]
+  },
+  "huggingface": {
+    "data": [
+      {
+        "id": "Qwen/Qwen3-8B",
+        "providers": [
+          { "provider": "free-host", "status": "live", "pricing": { "input": 0, "output": 0 } },
+          { "provider": "paid-host", "status": "live", "pricing": { "input": 0.3, "output": 0.6 } }
+        ]
+      },
+      {
+        "id": "vendor/paid-only-model",
+        "providers": [{ "provider": "paid-host", "status": "live", "pricing": { "input": 0.5, "output": 1.0 } }]
+      }
+    ]
+  }
+}

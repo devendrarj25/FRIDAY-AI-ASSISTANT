@@ -116,3 +116,31 @@ export function firstPage<T>(rows: T[], count: number) {
   const take = Math.max(0, count);
   return { rows: rows.slice(0, take), more: rows.length > take };
 }
+
+function ageWords(ageMs: number): string {
+  const hours = Math.floor(ageMs / 3_600_000);
+  if (hours < 1) return "under an hour";
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * One plain line per pricing source: why its models are called free, when the
+ * official page was last read, and whether that copy is fresh or the last good
+ * one ("cached"). A cached copy keeps proven-free models free. No proof at all
+ * stays unknown.
+ */
+export function knowledgeLine(row: {
+  id: string;
+  basis: string;
+  ageMs: number | null;
+  state: "fresh" | "cached" | "no-proof";
+}): string {
+  if (row.state === "no-proof" || row.ageMs == null) {
+    return `${row.id}: no official evidence yet, models stay unknown (${row.basis})`;
+  }
+  const when = `read ${ageWords(row.ageMs)} ago`;
+  return row.state === "fresh"
+    ? `${row.id}: ${row.basis}, ${when}`
+    : `${row.id}: ${row.basis}, cached ${ageWords(row.ageMs)}. Refresh is due; proven-free models stay free until it runs.`;
+}

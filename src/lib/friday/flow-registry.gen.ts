@@ -1333,6 +1333,14 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:knowledge-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:local-status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:policy",
       file: "electron/main.cjs",
     },
@@ -2245,6 +2253,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "local",
       file: "kernel/billing.py",
+    },
+    {
+      kind: "model-missing",
+      file: "kernel/stt.py",
     },
     {
       kind: "paid",
@@ -8501,8 +8513,8 @@ export const FLOW_REGISTRY = {
       total: 1014,
     },
     ipc: {
-      mapped: 455,
-      total: 455,
+      mapped: 457,
+      total: 457,
     },
     kernel: {
       mapped: 14,

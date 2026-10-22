@@ -460,7 +460,16 @@ type DesktopApi = {
     providers: string[];
     privacy: boolean;
   }>;
-  catalogueRefresh?: () => Promise<{ refreshed: boolean; plan?: { reason?: string } }>;
+  catalogueRefresh?: () => Promise<{
+    refreshed: boolean;
+    plan?: { reason?: string };
+    knowledge?: {
+      skipped?: string | null;
+      applied?: string[];
+      kept?: Array<{ id?: string; reason?: string }>;
+    };
+  }>;
+  knowledgeStatus?: () => Promise<KnowledgeStatusRow[]>;
   verifyCapabilities?: (
     modelId?: string,
   ) => Promise<{ ok: boolean; reason?: string; refused?: boolean }>;
@@ -751,6 +760,16 @@ export type EngineStatus = {
   canStart: boolean;
   canStop: boolean;
   hint: string | null;
+};
+
+export type KnowledgeStatusRow = {
+  id: string;
+  source: string;
+  sourceName?: string;
+  basis: string;
+  checkedAt: number;
+  ageMs: number | null;
+  state: "fresh" | "cached" | "no-proof";
 };
 
 export type LocalRunnerState =

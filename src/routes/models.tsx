@@ -81,6 +81,7 @@ import {
   MODEL_SECTIONS,
   firstPage,
   isModelSection,
+  knowledgeLine,
   launcherLines,
   pinAgeLabel,
   normaliseLocalAnswer,
@@ -502,6 +503,15 @@ function ModelsPage() {
   const [notified, setNotified] = useState<string[]>([]);
   const [catalogueNote, setCatalogueNote] = useState("Catalogue status is not loaded yet.");
   const [catalogueChanges, setCatalogueChanges] = useState<string[]>([]);
+  const [knowledgeLines, setKnowledgeLines] = useState<string[]>([]);
+  const loadKnowledge = () => {
+    const status = desktopApi()?.knowledgeStatus;
+    if (!status) return;
+    void status()
+      .then((rows) => setKnowledgeLines(Array.isArray(rows) ? rows.map(knowledgeLine) : []))
+      .catch(() => setKnowledgeLines([]));
+  };
+  useEffect(loadKnowledge, []);
 
   useEffect(() => {
     const status = desktopApi()?.catalogueStatus;
@@ -659,9 +669,18 @@ function ModelsPage() {
                     const row = await api?.catalogueStatus?.();
                     const summary =
                       row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
-                    setCatalogueNote(summary);
+                    const knowledge = refreshed?.knowledge;
+                    const pricing = knowledge?.skipped
+                      ? ` Pricing sources kept as cached (${knowledge.skipped}).`
+                      : knowledge?.applied?.length
+                        ? ` Pricing re-read for ${knowledge.applied.join(", ")}.`
+                        : knowledge?.kept?.length
+                          ? ` Pricing sources kept as cached (${knowledge.kept[0]?.reason || "no change"}).`
+                          : "";
+                    setCatalogueNote(`${summary}${pricing}`);
                     setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
-                    toast(summary);
+                    loadKnowledge();
+                    toast(`${summary}${pricing}`);
                   })();
                 }}
               >
@@ -683,6 +702,16 @@ function ModelsPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{catalogueNote}</p>
+          {knowledgeLines.length > 0 ? (
+            <ul
+              className="mt-2 space-y-1 text-xs text-muted-foreground"
+              aria-label="Pricing evidence"
+            >
+              {knowledgeLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
           {catalogueChanges.length > 0 ? (
             <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
               {catalogueChanges.slice(0, 8).map((line) => (

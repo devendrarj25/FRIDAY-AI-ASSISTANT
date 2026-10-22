@@ -1908,9 +1908,22 @@ async function runCatalogueRefresh(trigger) {
     ? Date.now() - Number(loaded.oldestFetchedAt)
     : Number.POSITIVE_INFINITY;
   const privacy = voicePrivacyOn() || modelRouteMode() === "local-only";
-  if (!privacy && (trigger === "startup" || trigger === "manual" || trigger === "foreground")) {
-    void refreshPricingKnowledge().catch((error) => {
+  let knowledgeRefresh = null;
+  if (
+    !privacy &&
+    (trigger === "startup" ||
+      trigger === "manual" ||
+      trigger === "foreground" ||
+      trigger === "interval" ||
+      trigger === "sleep-resume")
+  ) {
+    knowledgeRefresh = refreshPricingKnowledge().catch((error) => {
       log(`pricing refresh failed: ${error?.message || error}`);
+      return {
+        skipped: "failed",
+        applied: [],
+        kept: [{ reason: String(error?.message || error) }],
+      };
     });
   }
   const plan = store.planCatalogueRefresh({
@@ -1919,7 +1932,15 @@ async function runCatalogueRefresh(trigger) {
     privacy,
     jitterMs: Math.floor(Math.random() * 60_000),
   });
-  if (!plan.refresh) return { refreshed: false, plan, sendsPrompt: false };
+  const manual = trigger === "manual" || trigger === "foreground";
+  if (!plan.refresh) {
+    return {
+      refreshed: false,
+      plan,
+      sendsPrompt: false,
+      ...(manual && knowledgeRefresh ? { knowledge: await knowledgeRefresh } : {}),
+    };
+  }
   if (plan.delayMs > 0 && trigger !== "manual" && trigger !== "foreground") {
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, plan.delayMs);
@@ -1934,6 +1955,7 @@ async function runCatalogueRefresh(trigger) {
     plan,
     sendsPrompt: false,
     count: Array.isArray(result?.models) ? result.models.length : 0,
+    ...(manual && knowledgeRefresh ? { knowledge: await knowledgeRefresh } : {}),
   };
 }
 
@@ -5380,6 +5402,7 @@ ipcMain.handle("models:catalogue-status", () => {
   });
 });
 ipcMain.handle("models:catalogue-refresh", () => runCatalogueRefresh("manual"));
+ipcMain.handle("models:knowledge-status", () => modelAccess.knowledgeStatus(Date.now()));
 ipcMain.handle("models:verify-capabilities", async (_e, modelId) => {
   const id = String(modelId || "");
   if (!id) {

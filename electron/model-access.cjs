@@ -75,6 +75,12 @@ const DOC_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const KNOWLEDGE_CHECKED_AT = Date.parse("2026-09-30T00:00:00Z");
 /** Ask for a refresh this long before a source expires. */
 const REFRESH_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
+/**
+ * A source is re-read once it is this old, at start and on every daily tick.
+ * Age alone never turns a model that official evidence proved free into
+ * "unknown": the last good table keeps serving, flagged as cached.
+ */
+const REFRESH_EVERY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Pages re-read in this checkout. A date moves only after that page was read.
@@ -284,6 +290,31 @@ const DEFAULT_RECORD = () => ({
   liveProbe: null,
   failureReason: null,
 });
+
+/** Was this table ever read from an official source? Age is a refresh signal, not a verdict. */
+function knowledgeProof(entry) {
+  return Boolean(entry && Number(entry.checkedAt) > 0);
+}
+
+/**
+ * A free record from an old table. It stays free, and says how old the table
+ * is. Anything the table does not prove free still fails closed.
+ */
+function cachedFreeOrStale(table, now, record, source = "provider_pricing") {
+  if (!record || !FREE_BILLING.has(record.billingMode) || !knowledgeProof(table)) {
+    return staleUnknown(table, now, source);
+  }
+  return {
+    ...record,
+    evidence: {
+      ...record.evidence,
+      cached: true,
+      cachedAgeMs: Math.max(0, now - Number(table.checkedAt)),
+      stale: false,
+      refreshDue: true,
+    },
+  };
+}
 
 function knowledgeFresh(entry, now) {
   if (!entry || !entry.checkedAt) return false;
@@ -619,7 +650,7 @@ function groqPricedEntry(modelId, now) {
 
 function geminiFreeTierMatch(modelId, now) {
   const table = geminiTable(now);
-  if (!knowledgeFresh(table, now)) return false;
+  if (!knowledgeProof(table)) return false;
   const id = String(modelId || "")
     .toLowerCase()
     .replace(/^models\//, "");
@@ -845,8 +876,8 @@ function classifyOpenRouter(input, now) {
   );
 }
 
-function groqOnFreePlan(modelId, now) {
-  if (!knowledgeFresh(GROQ_FREE_PLAN, now)) return false;
+function groqOnFreePlan(modelId) {
+  if (!knowledgeProof(GROQ_FREE_PLAN)) return false;
   return GROQ_FREE_PLAN.ids.some((item) => groqIdMatch(modelId, item));
 }
 
@@ -855,10 +886,9 @@ function groqDeveloperAccount(input) {
   return input.declaredAccess === "paid" || plan === "developer" || plan === "paid";
 }
 
-function classifyGroq(input, now) {
+function classifyGroqTable(input, now) {
   const id = String(input.modelId || "");
   const table = groqTable(now);
-  if (!knowledgeFresh(table, now)) return staleUnknown(table, now);
   const listed = groqPricedEntry(id, now);
   const developerPrice = listed
     ? {
@@ -869,7 +899,7 @@ function classifyGroq(input, now) {
         native: { unit: listed.price.unit, developerPlan: true },
       }
     : null;
-  if (groqOnFreePlan(id, now) && !groqDeveloperAccount(input)) {
+  if (groqOnFreePlan(id) && !groqDeveloperAccount(input)) {
     return makeRecord(
       {
         billingMode: "FREE_QUOTA",
@@ -919,7 +949,19 @@ function classifyGroq(input, now) {
   );
 }
 
-function classifyGemini(input, now) {
+function classifyGroq(input, now) {
+  const table = groqTable(now);
+  const record = classifyGroqTable(input, now);
+  if (knowledgeFresh(table, now)) return record;
+  // Only the free-plan list is proof that outlives its refresh date.
+  return cachedFreeOrStale(
+    table,
+    now,
+    record.evidence?.source === "provider_free_plan" ? record : null,
+  );
+}
+
+function classifyGeminiTable(input, now) {
   const projectPaid =
     input.account?.projectTier === "paid" ||
     input.account?.billingEnabled === true ||
@@ -929,7 +971,6 @@ function classifyGemini(input, now) {
   const projectFree = input.account?.projectTier === "free";
   const table = geminiTable(now);
   const inTable = geminiFreeTierMatch(input.modelId, now);
-  if (!knowledgeFresh(table, now)) return staleUnknown(table, now);
   if (projectPaid) {
     return makeRecord(
       {
@@ -970,6 +1011,19 @@ function classifyGemini(input, now) {
   );
 }
 
+function classifyGemini(input, now) {
+  const table = geminiTable(now);
+  const record = classifyGeminiTable(input, now);
+  if (knowledgeFresh(table, now)) return record;
+  return cachedFreeOrStale(
+    table,
+    now,
+    record.evidence?.source === "provider_pricing" && FREE_BILLING.has(record.billingMode)
+      ? record
+      : null,
+  );
+}
+
 function classifyHuggingFace(input, now) {
   const customKey = Boolean(input.customEndpoint || input.account?.customProviderKey);
   const zero = pickHfZeroRoute(input.catalogue);
@@ -985,7 +1039,14 @@ function classifyHuggingFace(input, now) {
       now,
     );
   }
-  const pricing = cataloguePricing(input.catalogue);
+  // The router list prices each live provider route. A model with routes and no
+  // free one is priced at its cheapest route.
+  const routes = (Array.isArray(input.catalogue?.providers) ? input.catalogue.providers : [])
+    .filter((item) => (item?.status || "live") === "live")
+    .map((item) => cataloguePricing(item))
+    .filter((price) => paidPrice(price));
+  const cheapest = routes.sort((a, b) => Number(a.input || 0) - Number(b.input || 0))[0];
+  const pricing = cheapest || cataloguePricing(input.catalogue);
   if (paidPrice(pricing) || customKey) {
     const basePaid = makeRecord(
       {
@@ -1203,7 +1264,7 @@ function classifyNvidia(input, now) {
     );
   }
   const nvidia = liveMeta("nvidia", NVIDIA_FREE_TRIAL, now);
-  if (!knowledgeFresh(nvidia, now)) return staleUnknown(nvidia, now, "provider_free_plan");
+  if (!knowledgeProof(nvidia)) return staleUnknown(nvidia, now, "provider_free_plan");
   if (!nvidiaCatalogueRow(input.catalogue)) {
     return makeRecord(
       {
@@ -1219,7 +1280,7 @@ function classifyNvidia(input, now) {
       now,
     );
   }
-  return makeRecord(
+  const trial = makeRecord(
     {
       billingMode: "FREE_QUOTA",
       eligibility: "ELIGIBLE",
@@ -1233,6 +1294,9 @@ function classifyNvidia(input, now) {
     },
     now,
   );
+  return knowledgeFresh(nvidia, now)
+    ? trial
+    : cachedFreeOrStale(nvidia, now, trial, "provider_free_plan");
 }
 
 function zhipuTable(now) {
@@ -1241,7 +1305,7 @@ function zhipuTable(now) {
 
 function zhipuFreeMatch(modelId, now) {
   const table = zhipuTable(now);
-  if (!knowledgeFresh(table, now)) return false;
+  if (!knowledgeProof(table)) return false;
   const id = String(modelId || "")
     .toLowerCase()
     .replace(/^models\//, "");
@@ -1250,11 +1314,11 @@ function zhipuFreeMatch(modelId, now) {
 
 function classifyZhipu(input, now) {
   const table = zhipuTable(now);
-  if (!knowledgeFresh(table, now) && !cataloguePricing(input.catalogue)) {
+  if (!knowledgeProof(table) && !cataloguePricing(input.catalogue)) {
     return staleUnknown(table, now, "provider_free_plan");
   }
   if (zhipuFreeMatch(input.modelId, now) && input.declaredAccess !== "paid") {
-    return makeRecord(
+    const free = makeRecord(
       {
         billingMode: "FREE_QUOTA",
         eligibility: "ELIGIBLE",
@@ -1269,6 +1333,12 @@ function classifyZhipu(input, now) {
       },
       now,
     );
+    return knowledgeFresh(table, now)
+      ? free
+      : cachedFreeOrStale(table, now, free, "provider_free_plan");
+  }
+  if (!knowledgeFresh(table, now) && !cataloguePricing(input.catalogue)) {
+    return staleUnknown(table, now, "provider_free_plan");
   }
   return classifyCreditProvider(input, now);
 }
@@ -1323,10 +1393,13 @@ function classifyMistral(input, now) {
     );
   }
   const mistral = liveMeta("mistral", MISTRAL_API_PRICING, now);
-  if (!knowledgeFresh(mistral, now)) return staleUnknown(mistral, now);
   const id = String(input.modelId || "").toLowerCase();
-  if ((mistral.zeroCostIds || []).some((item) => item === id)) {
-    return makeRecord(
+  const mistralZero = (mistral.zeroCostIds || []).some((item) => item === id);
+  if (!knowledgeFresh(mistral, now)) {
+    if (!mistralZero) return staleUnknown(mistral, now);
+  }
+  if (mistralZero) {
+    const zero = makeRecord(
       {
         billingMode: "ZERO_COST",
         eligibility: "ELIGIBLE",
@@ -1341,6 +1414,7 @@ function classifyMistral(input, now) {
       },
       now,
     );
+    return knowledgeFresh(mistral, now) ? zero : cachedFreeOrStale(mistral, now, zero);
   }
   return makeRecord(
     {
@@ -1481,7 +1555,7 @@ function classifyDocumented(providerId, input, now) {
   if (
     record.billingMode === "UNKNOWN" &&
     (spec.freeIds || []).includes(id) &&
-    knowledgeFresh({ checkedAt: spec.checkedAt, ttlMs: DOC_TTL_MS }, now)
+    knowledgeProof({ checkedAt: spec.checkedAt })
   ) {
     record = makeRecord(
       {
@@ -1493,6 +1567,9 @@ function classifyDocumented(providerId, input, now) {
       now,
     );
     if (input.account) record = applyAccountCredits(record, input.account, now);
+    if (!knowledgeFresh({ checkedAt: spec.checkedAt, ttlMs: DOC_TTL_MS }, now)) {
+      record = cachedFreeOrStale({ checkedAt: spec.checkedAt }, now, record, "provider_docs");
+    }
   }
   record.evidence = {
     ...record.evidence,
@@ -1766,6 +1843,7 @@ function applyOwnerDeclaration(record, declaration, now) {
         ...record,
         billingMode: "PAID",
         eligibility: "ELIGIBLE",
+        failureReason: null,
         evidence: { source: "owner_declared", checkedAt: now, confidence: 0.9 },
       },
       now,
@@ -1777,6 +1855,9 @@ function applyOwnerDeclaration(record, declaration, now) {
         ...record,
         billingMode: record.billingMode === "ZERO_COST" ? "ZERO_COST" : "FREE_QUOTA",
         eligibility: "ELIGIBLE",
+        // The owner's word replaces a stale-snapshot verdict. It must not keep
+        // "pricing_stale" and stay blocked after the owner marked it free.
+        failureReason: null,
         evidence: { source: "owner_declared", checkedAt: now, confidence: 0.9 },
       },
       now,
@@ -2062,11 +2143,46 @@ function planKnowledgeRefresh(now = Date.now()) {
         checkedAt: entry.checkedAt,
         expiresAt,
         remainingMs,
-        due: remainingMs <= REFRESH_LEAD_MS,
+        ageMs: now - Number(entry.checkedAt),
+        due: now - Number(entry.checkedAt) >= REFRESH_EVERY_MS || remainingMs <= REFRESH_LEAD_MS,
         expired: remainingMs <= 0,
       };
     })
     .filter((row) => row.due);
+}
+
+/**
+ * What the Models page shows per provider source: when it was last read from
+ * the official page, whether it is inside the daily window or serving as the
+ * last good copy, and the plain basis for calling a model free.
+ */
+const KNOWLEDGE_BASIS = Object.freeze({
+  groq: "Groq's documented free plan",
+  gemini: "Google's documented Gemini API free tier",
+  nvidia: "NVIDIA's documented free trial catalogue",
+  zhipu: "Zhipu's documented free model list",
+  mistral: "Mistral's published API pricing",
+  openai: "OpenAI's published pricing (metered, not free)",
+  anthropic: "Anthropic's published pricing (metered, not free)",
+  deepseek: "DeepSeek's published pricing (metered, not free)",
+  perplexity: "Perplexity's published pricing (metered, not free)",
+});
+
+function knowledgeStatus(now = Date.now()) {
+  return knowledgeCatalogue(now).map((entry) => {
+    const checkedAt = Number(entry.checkedAt) || 0;
+    const ageMs = checkedAt ? Math.max(0, now - checkedAt) : null;
+    const cached = ageMs == null || ageMs >= REFRESH_EVERY_MS;
+    return {
+      id: entry.id,
+      source: entry.source,
+      sourceName: entry.sourceName,
+      basis: KNOWLEDGE_BASIS[entry.id] || "the provider's own model list",
+      checkedAt,
+      ageMs,
+      state: ageMs == null ? "no-proof" : cached ? "cached" : "fresh",
+    };
+  });
 }
 
 function parsedPriceUsable(parsed) {
@@ -2190,6 +2306,7 @@ module.exports = {
   MISTRAL_API_PRICING,
   METERED_API_DEFAULT,
   knowledgeCatalogue,
+  knowledgeStatus,
   planKnowledgeRefresh,
   refreshDueKnowledge,
   acceptPageEvidence,
@@ -2222,6 +2339,8 @@ module.exports = {
   stampVerified,
   validationState,
   knowledgeFresh,
+  knowledgeProof,
+  REFRESH_EVERY_MS,
   KNOWLEDGE_CHECKED_AT,
   DOC_TTL_MS,
   PROVIDER_EVIDENCE,
