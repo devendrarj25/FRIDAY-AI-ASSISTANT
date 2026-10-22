@@ -3184,7 +3184,13 @@ async function startChat(request) {
       }),
     )}`,
   );
-  send("chat:error", { requestId, error: honestHandoff(detail) });
+  const reason = modelRouter.blockedSummary({
+    detail,
+    failures,
+    offline: netStatus.isOffline(),
+    checked,
+  });
+  send("chat:error", { requestId, error: honestHandoff(detail, reason) });
 }
 
 /**
@@ -3409,9 +3415,9 @@ async function runParallelChat(request = {}) {
  * particular request needs a model, what she can still do without one, and the
  * next step — never a bare failure block, and never a pretended answer.
  */
-function honestHandoff(detail) {
+function honestHandoff(detail, reason) {
   return [
-    "I can't answer that one on my own — it needs a connected AI model, and none is reachable right now.",
+    reason || "No model is connected or running right now.",
     "",
     detail,
     "",

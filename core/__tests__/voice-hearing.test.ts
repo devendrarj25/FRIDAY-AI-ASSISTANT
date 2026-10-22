@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   captureClockNote,
+  DROP_CODES,
+  dropLine,
+  hearingCounters,
+  hearingCountersLine,
+  noteHearingOutcome,
+  resetHearingCounters,
   formatHearingDetail,
   hearingVerdict,
   keepUtteranceWavs,
@@ -49,12 +56,12 @@ describe("voice hearing diagnostics", () => {
     expect(
       transcriptDropDetail({
         text: "",
-        emptyReason: "denoise removed the signal",
-        noSpeechProb: 0.91,
+        emptyReason: "denoise-skipped: removed the signal",
+        dropCode: "denoise-skipped",
       }),
-    ).toBe("denoise removed the signal");
-    expect(transcriptDropDetail({ text: "hello", noSpeechProb: 0.8 })).toBe("hello");
-    expect(transcriptDropDetail({ text: "" })).toBe("empty transcript");
+    ).toBe("denoise-skipped: denoise-skipped: removed the signal");
+    expect(transcriptDropDetail({ text: "hello" })).toBe("hello");
+    expect(transcriptDropDetail({ text: "" })).toBe("empty: empty transcript");
     const line = formatHearingDetail({
       durationMs: 1400,
       rmsDbfs: -28,
@@ -83,5 +90,34 @@ describe("voice hearing diagnostics", () => {
     setKeepUtteranceWavs(true);
     expect(keepUtteranceWavs()).toBe(true);
     setKeepUtteranceWavs(false);
+  });
+
+  it("counts heard and dropped utterances by reason and never drops silently", () => {
+    resetHearingCounters();
+    noteHearingOutcome("");
+    noteHearingOutcome("no-speech");
+    noteHearingOutcome("no-speech");
+    noteHearingOutcome("not-a-code");
+    expect(dropLine("too-short", "tiny")).toBe("too-short: tiny");
+    const counts = hearingCounters();
+    expect(counts.heard).toBe(1);
+    expect(counts.dropped["no-speech"]).toBe(2);
+    expect(counts.dropped.empty).toBe(1);
+    expect(counts.dropped["too-short"]).toBe(1);
+    expect(counts.droppedTotal).toBe(4);
+    expect(hearingCountersLine(counts)).toContain("no-speech 2");
+    resetHearingCounters();
+    expect(hearingCounters().droppedTotal).toBe(0);
+  });
+
+  it("keeps the drop codes equal to the kernel list and the number in one place", () => {
+    const kernel = readFileSync("kernel/voice_runtime.py", "utf8");
+    const block = /DROP_CODES = \(([\s\S]*?)\)/.exec(kernel)?.[1] ?? "";
+    const codes = [...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+    expect(codes).toEqual([...DROP_CODES]);
+    for (const file of ["voice-stt.ts", "voice-hearing.ts"]) {
+      const body = readFileSync(`src/lib/friday/${file}`, "utf8");
+      expect(body).not.toMatch(/>=\s*0\.(65|7)\b/);
+    }
   });
 });

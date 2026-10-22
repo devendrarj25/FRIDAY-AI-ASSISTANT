@@ -316,6 +316,26 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | No
 SILENCE_FLOOR_DBFS = -50.0
 SPEECH_FLOOR_DBFS = -45.0
 DENOISE_KEEP_RATIO = 0.25
+# A cleaned clip more than this many times louder than the original is a
+# scale fault, not denoising. Together with DENOISE_KEEP_RATIO it is one 4x band.
+DENOISE_LOUD_RATIO = 4.0
+CLIP_LEVEL = 0.999
+# The single no-speech threshold. The kernel returns it with every transcript
+# and the renderer reads it from there. Text is dropped only when the average
+# no-speech probability is at or above it AND the average log-probability is at
+# or below LOW_CONFIDENCE_LOGPROB.
+NO_SPEECH_THRESHOLD = 0.7
+LOW_CONFIDENCE_LOGPROB = -1.0
+# Every dropped utterance carries exactly one of these codes.
+DROP_CODES = (
+    "too-short",
+    "no-frames",
+    "denoise-skipped",
+    "no-speech",
+    "low-confidence",
+    "empty",
+    "stt-fault",
+)
 
 
 def pcm_levels(samples, sample_rate: int = 16000) -> dict:
@@ -359,11 +379,12 @@ def pcm_levels(samples, sample_rate: int = 16000) -> dict:
 
 
 def guard_denoised(original, cleaned, ratio: float = DENOISE_KEEP_RATIO):
-    """Keep the original when denoise empties a speech-level clip.
+    """Keep the original when denoise changed the loudness by more than 4x or clipped.
 
     Import and decode failures never reach here: denoise_pcm returns the
     original samples in that case. This guard is for a successful call whose
-    samples no longer contain the speech.
+    samples no longer match the speech. The note is empty when the cleaned clip
+    is kept, else ``denoise-skipped: <reason>``.
     """
     try:
         import numpy as np  # type: ignore
@@ -372,22 +393,26 @@ def guard_denoised(original, cleaned, ratio: float = DENOISE_KEEP_RATIO):
     source = np.asarray(original, dtype=np.float32).reshape(-1)
     result = np.asarray(cleaned, dtype=np.float32).reshape(-1)
     if result.size == 0:
-        return source, "denoise removed the signal"
+        return source, "denoise-skipped: no samples came back"
     before = pcm_levels(source)
     after = pcm_levels(result)
     speech = before["rmsDbfs"] is not None and before["rmsDbfs"] >= SPEECH_FLOOR_DBFS
     if speech and before["rms"] > 0 and after["rms"] < before["rms"] * ratio:
-        return source, "denoise removed the signal"
+        return source, "denoise-skipped: removed the signal"
+    if before["rms"] > 0 and after["rms"] > before["rms"] * DENOISE_LOUD_RATIO:
+        return source, "denoise-skipped: louder than the original"
+    if before["peak"] < CLIP_LEVEL and after["peak"] >= CLIP_LEVEL:
+        return source, "denoise-skipped: clipped"
     return result, ""
 
 
 def denoise_pcm(samples, sample_rate: int = 16000):
     """RNNoise when the wheel is installed. The same samples come back otherwise.
 
-    pyrnnoise 0.4.5 ``denoise_chunk`` yields int16 frames (its wav path reads
-    int16). The worker stores float32 in [-1, 1] for Whisper, so the int16
-    frames are scaled back. A failed import or a failed decode returns the
-    original array.
+    pyrnnoise 0.4.5 ``denoise_chunk`` yields int16 frames whatever the input
+    (a 0.2 peak sine came back at 7116). This is the one place that scales them,
+    so every caller gets float32 in [-1, 1]. A failed import or a failed decode
+    returns the original array.
     """
     try:
         import numpy as np  # type: ignore
@@ -415,7 +440,7 @@ def denoise_pcm(samples, sample_rate: int = 16000):
             pieces.append(values)
         if not pieces:
             return mono
-        return np.concatenate(pieces)
+        return np.clip(np.concatenate(pieces), -1.0, 1.0).astype(np.float32)
     except Exception:
         return mono
 

@@ -2705,6 +2705,33 @@ function explainUnavailable({
 }
 
 /**
+ * One plain sentence for why nothing answered. It leads the failure message and
+ * is what FRIDAY says aloud. The generic "no model is reachable" line is only
+ * for a failure that has no recorded reason at all.
+ */
+function blockedSummary({ detail = "", failures = [], offline = false, checked = [] } = {}) {
+  const first = String(detail || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  const coded =
+    first && /^[A-Z][A-Z_]{3,}:\s*/.test(first) ? first.replace(/^[A-Z][A-Z_]{3,}:\s*/, "") : "";
+  if (coded) return coded;
+  const list = (Array.isArray(failures) ? failures : []).slice(0, 3).map((failure) => {
+    const category = failure.category || classifyError(failure.error).category;
+    return `${failure.label || failure.modelId} ${HEALTH_REASON[category] || "failed"}`;
+  });
+  if (list.length)
+    return `I tried ${list.length === 1 ? "one model" : "the models"} and none answered: ${list.join("; ")}.`;
+  if (offline) return "I am offline and no local model is running.";
+  if (first && !/couldn't connect to an available AI model/.test(first)) return first;
+  const looked = (Array.isArray(checked) ? checked : []).filter(Boolean).join(" and ");
+  return looked
+    ? `I looked at ${looked} and found no model I am allowed to use right now.`
+    : "No model is connected or running right now.";
+}
+
+/**
  * Canonical lifecycle kinds stamped onto the existing models:* IPC payloads.
  * Not a second event bus — Brain and Electron already share registry-changed,
  * health-changed, and route-mode; `kind` tells them *why* the snapshot moved.
@@ -3325,6 +3352,7 @@ module.exports = {
   EXCLUSIVE_MODES,
   explainFailure,
   explainUnavailable,
+  blockedSummary,
   HEALTH_REASON,
   TASK_CAPABILITY,
   MODEL_EVENT_KINDS,

@@ -30,6 +30,8 @@ import tempfile
 import wave
 from pathlib import Path
 
+import voice_runtime
+
 # Small is the best quality/latency trade-off on a normal Windows laptop and
 # handles Hindi + Indian English well. int8 keeps it CPU-friendly.
 DEFAULT_MODEL = os.environ.get("FRIDAY_STT_MODEL", "small")
@@ -475,16 +477,26 @@ def load_audio_array(path: str):
     return decode_foreign(path)
 
 
-def apply_no_speech_policy(text: str, avg_ns: float) -> tuple[str, str]:
-    """A high no-speech score does not erase segments that already have text."""
+def apply_no_speech_policy(text: str, avg_ns: float, avg_logprob: float | None = None) -> tuple[str, str, str]:
+    """Returns (text, note, drop code).
+
+    Text that Whisper produced is kept unless BOTH the average no-speech
+    probability is at the one threshold or above AND the average log-probability
+    is at the low-confidence mark or below. Empty text is dropped with the code
+    that says why.
+    """
     body = (text or "").strip()
+    high = avg_ns >= voice_runtime.NO_SPEECH_THRESHOLD
+    unsure = avg_logprob is not None and avg_logprob <= voice_runtime.LOW_CONFIDENCE_LOGPROB
     if body:
-        if avg_ns >= 0.7:
-            return body, f"kept segment text; no_speech {avg_ns:.2f}"
-        return body, ""
-    if avg_ns >= 0.7:
-        return "", f"no_speech {avg_ns:.2f}"
-    return "", ""
+        if high and unsure:
+            return "", f"no_speech {avg_ns:.2f} and avg_logprob {avg_logprob:.2f}", "low-confidence"
+        if high:
+            return body, f"kept segment text; no_speech {avg_ns:.2f}", ""
+        return body, "", ""
+    if high:
+        return "", f"no_speech {avg_ns:.2f}", "no-speech"
+    return "", "", "empty"
 
 
 def prompt_echo(text: str, hint: str) -> bool:
@@ -559,7 +571,7 @@ def empty_transcript_reason(
     if rms_dbfs is not None and float(rms_dbfs) <= -50.0:
         return f"silent input (rms {float(rms_dbfs):.0f} dBFS)"
     if used_collapsed and denoise_note:
-        return "denoise removed the signal"
+        return denoise_note
     if vad_ms is not None and vad_ms <= 0:
         return "vad kept 0 ms"
     if echoed_prompt:
@@ -587,7 +599,6 @@ def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None, dict
     }
     try:
         import numpy as np  # type: ignore
-        import voice_runtime
 
         original = np.asarray(samples, dtype=np.float32).reshape(-1)
         before = voice_runtime.pcm_levels(original, PROBE_RATE)
@@ -693,6 +704,7 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
     segments, info = model.transcribe(payload, **kwargs)
     parts: list[str] = []
     no_speech: list[float] = []
+    logprobs: list[float] = []
     partials = 0
     for seg in segments:
         text = (getattr(seg, "text", "") or "").strip()
@@ -704,19 +716,72 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         prob = getattr(seg, "no_speech_prob", None)
         if isinstance(prob, (int, float)):
             no_speech.append(float(prob))
+        logprob = getattr(seg, "avg_logprob", None)
+        if isinstance(logprob, (int, float)):
+            logprobs.append(float(logprob))
     joined = " ".join(parts).strip()
     avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
-    kept, note = apply_no_speech_policy(joined, avg)
+    avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
+    kept, note, policy_code = apply_no_speech_policy(joined, avg, avg_lp)
     vad = getattr(info, "duration_after_vad", None)
     vad_ms = int(float(vad) * 1000) if isinstance(vad, (int, float)) else 0
     return {
         "text": kept,
         "noSpeechProb": round(avg, 4),
         "noSpeechNote": note,
+        "avgLogprob": round(avg_lp, 4) if avg_lp is not None else None,
+        "policyCode": policy_code,
         "vadMs": vad_ms,
         "language": getattr(info, "language", "") or "",
         "durationMs": int(float(getattr(info, "duration", 0.0) or 0.0) * 1000),
     }
+
+
+TOO_SHORT_MS = 300
+
+_counters: dict = {"heard": 0, "dropped": {}}
+
+
+def note_outcome(code: str) -> None:
+    """Count one utterance: heard when the code is empty, else dropped by that code."""
+    if not code:
+        _counters["heard"] += 1
+        return
+    dropped = _counters["dropped"]
+    dropped[code] = int(dropped.get(code, 0)) + 1
+
+
+def counters_payload() -> dict:
+    dropped = {code: int(_counters["dropped"].get(code, 0)) for code in voice_runtime.DROP_CODES}
+    return {"heard": int(_counters["heard"]), "dropped": dropped, "droppedTotal": sum(dropped.values())}
+
+
+def drop_code(
+    text: str,
+    *,
+    duration_ms: int | None = None,
+    rms_dbfs: float | None = None,
+    denoise_note: str = "",
+    vad_ms: int | None = None,
+    policy_code: str = "",
+    echoed_prompt: bool = False,
+) -> str:
+    """One reason code for an utterance that produced no text. A real transcript has none."""
+    if (text or "").strip() and not echoed_prompt:
+        return ""
+    if duration_ms is not None and duration_ms <= 0:
+        return "no-frames"
+    if duration_ms is not None and duration_ms < TOO_SHORT_MS:
+        return "too-short"
+    if denoise_note:
+        return "denoise-skipped"
+    if policy_code in {"low-confidence", "no-speech"}:
+        return policy_code
+    if rms_dbfs is not None and float(rms_dbfs) <= -50.0:
+        return "no-speech"
+    if vad_ms is not None and vad_ms <= 0:
+        return "no-speech"
+    return "empty"
 
 
 def _finish_hearing(hearing: dict, pass_row: dict, hint: str, passes: list[str]) -> dict:
@@ -733,9 +798,21 @@ def _finish_hearing(hearing: dict, pass_row: dict, hint: str, passes: list[str])
         no_speech=pass_row.get("noSpeechProb"),
         echoed_prompt=echoed,
     )
+    code = drop_code(
+        text,
+        duration_ms=hearing.get("durationMs"),
+        rms_dbfs=hearing.get("rmsDbfs"),
+        denoise_note=str(hearing.get("denoiseNote") or ""),
+        vad_ms=pass_row.get("vadMs"),
+        policy_code=str(pass_row.get("policyCode") or ""),
+        echoed_prompt=echoed,
+    )
+    note_outcome(code)
     device = choose_stt_device(cuda_runtime_ready())
     hearing.update(
         {
+            "dropCode": code,
+            "avgLogprob": pass_row.get("avgLogprob"),
             "vadMs": pass_row.get("vadMs"),
             "noSpeechProb": pass_row.get("noSpeechProb"),
             "model": _model_name or "",
@@ -822,8 +899,6 @@ def _transcribe_prepared(
     turn_probability = None
     if samples is not None:
         try:
-            import voice_runtime
-
             scored = voice_runtime.score_turn(samples, 16000)
             if isinstance(scored.get("probability"), (int, float)):
                 turn_probability = float(scored["probability"])
@@ -949,6 +1024,9 @@ def _heard(payload: dict, hearing: dict | None, pass_row: dict, hint: str, passe
         facts["promptUsed"] = True
     payload["audio"] = facts
     payload["emptyReason"] = facts.get("emptyReason") or ""
+    payload["dropCode"] = facts.get("dropCode") or ""
+    payload["noSpeechThreshold"] = voice_runtime.NO_SPEECH_THRESHOLD
+    payload["counters"] = counters_payload()
     return payload
 
 
@@ -1086,6 +1164,8 @@ def status_payload() -> dict:
         "moonshineReady": moonshine_model_dir() is not None,
         "windowsSpeech": windows_speech_ready(),
         "av": av_guard(),
+        "counters": counters_payload(),
+        "noSpeechThreshold": voice_runtime.NO_SPEECH_THRESHOLD,
         "local": True,
         "ladder": live_ladder(
             {
@@ -1251,12 +1331,150 @@ def run_speech_self_test(transcribe=None) -> dict:
     }
 
 
+HEARING_PHRASE = "Friday, what time is it"
+HEARING_WORDS = ("friday", "what", "time")
+HEARING_LEVELS = (0.5, 0.05, 0.008)
+
+
+def synth_speech_clip(phrase: str = HEARING_PHRASE):
+    """Float32 16 kHz speech from the first TTS that exists, else (None, reason).
+
+    Order: espeak-ng, espeak, Windows SAPI, edge-tts. Nothing is downloaded here.
+    """
+    import shutil
+    import subprocess
+
+    folder = tempfile.mkdtemp(prefix="friday-hear-")
+    raw = str(Path(folder) / "synth.wav")
+    for exe in ("espeak-ng", "espeak"):
+        found = shutil.which(exe)
+        if not found:
+            continue
+        try:
+            subprocess.run([found, "-w", raw, "-s", "150", phrase], check=True, capture_output=True, timeout=60)
+            clip = decode_foreign(raw)
+            if clip is not None and len(clip):
+                return clip, exe
+        except Exception:  # noqa: BLE001, S112 — try the next engine
+            continue
+    if os.name == "nt":
+        script = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$s.SetOutputToWaveFile('{raw}'); $s.Speak('{phrase}'); $s.Dispose()"
+        )
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+            clip = decode_foreign(raw)
+            if clip is not None and len(clip):
+                return clip, "windows-sapi"
+        except Exception:  # noqa: BLE001, S110 — fall through to edge-tts
+            pass
+    try:
+        import asyncio
+
+        import edge_tts  # type: ignore
+
+        mp3 = str(Path(folder) / "synth.mp3")
+        asyncio.run(edge_tts.Communicate(phrase, "en-IN-NeerjaNeural").save(mp3))
+        clip = decode_foreign(mp3)
+        if clip is not None and len(clip):
+            return clip, "edge-tts"
+    except Exception:  # noqa: BLE001, S110 — no engine left
+        pass
+    return None, "no speech synthesiser (espeak-ng, Windows SAPI, edge-tts) is available here"
+
+
+def words_heard(text: str, expected=HEARING_WORDS) -> list[str]:
+    heard = {word.strip(".,!?;:'\"").lower() for word in (text or "").split()}
+    return [word for word in expected if word in heard]
+
+
+def run_hearing_self_test(levels=HEARING_LEVELS, synth=None, transcribe=None) -> dict:
+    """Spoken clip -> WAV -> prepare_audio (denoise) -> Whisper, at three input levels.
+
+    A level passes when the transcript holds at least two of the three expected
+    words. No synthesiser or no speech model is a visible skip, never a pass.
+    ``synth`` returns (float samples, engine) and ``transcribe`` takes a WAV
+    path and returns the transcribe_file dict. Both exist so a test can stand
+    in for the parts that are not on every machine.
+    """
+    import time
+
+    import numpy as np  # type: ignore
+
+    make = synth or synth_speech_clip
+    clip, engine = make()
+    if clip is None:
+        return {"ok": True, "skipped": True, "reason": engine, "levels": [], "phrase": HEARING_PHRASE}
+    clip = np.asarray(clip, dtype=np.float32).reshape(-1)
+    top = float(np.max(np.abs(clip))) or 1.0
+    run = transcribe or (lambda path: transcribe_file(path, DEFAULT_MODEL, "en", ""))
+    rows = []
+    folder = tempfile.mkdtemp(prefix="friday-hear-")
+    for level in levels:
+        scaled = np.clip(clip / top * float(level), -1.0, 1.0)
+        wav = str(Path(folder) / f"level-{level}.wav")
+        pcm = np.clip(np.round(scaled * 32767.0), -32768, 32767).astype("<i2")
+        with wave.open(wav, "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(PROBE_RATE)
+            handle.writeframes(pcm.tobytes())
+        started = time.perf_counter()
+        row: dict = {"level": level, "ms": 0}
+        try:
+            result = run(wav)
+        except Exception as exc:  # noqa: BLE001
+            fault = classify_stt_exception(exc)
+            if fault.kind == "model-missing":
+                return {
+                    "ok": True,
+                    "skipped": True,
+                    "reason": str(fault),
+                    "engine": engine,
+                    "levels": rows,
+                    "phrase": HEARING_PHRASE,
+                }
+            row.update({"ok": False, "text": "", "error": str(fault)[:200], "sttClass": fault.kind})
+            rows.append(row)
+            continue
+        text = str(result.get("text") or "")
+        hit = words_heard(text)
+        audio = result.get("audio") or {}
+        row.update(
+            {
+                "ok": len(hit) >= 2,
+                "text": text,
+                "wordsHeard": hit,
+                "dropCode": result.get("dropCode") or "",
+                "denoiseNote": audio.get("denoiseNote") or "",
+                "ms": int((time.perf_counter() - started) * 1000),
+            }
+        )
+        rows.append(row)
+    return {
+        "ok": all(row["ok"] for row in rows) and bool(rows),
+        "skipped": False,
+        "engine": engine,
+        "phrase": HEARING_PHRASE,
+        "levels": rows,
+    }
+
+
 def handle_request(req: dict) -> dict:
     op = str(req.get("op") or "")
     if op in {"status", "probe"}:
         return status_payload()
     if op == "self-test":
         return run_speech_self_test()
+    if op == "hearing-self-test":
+        return run_hearing_self_test()
     if op == "load":
         import time
 
@@ -1306,8 +1524,10 @@ def handle_request(req: dict) -> dict:
             fault = classify_stt_exception(exc)
             if _whisper_cls is None and fault.kind != "dependency-incompatible":
                 fault = SttFault("model-missing", str(fault), fault.fix)
+            note_outcome("stt-fault")
             return {
                 "ok": False,
+                "dropCode": "stt-fault",
                 "reason": fault.kind,
                 "sttClass": fault.kind,
                 "error": str(fault)[-600:],
@@ -1358,10 +1578,16 @@ def main() -> int:
     ap.add_argument("--load-probe", dest="load_probe", action="store_true")
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--self-test", dest="self_test", action="store_true")
+    ap.add_argument("--hearing-self-test", dest="hearing_self_test", action="store_true")
     args = ap.parse_args()
 
     if args.serve:
         return serve()
+
+    if args.hearing_self_test:
+        payload = run_hearing_self_test()
+        emit(payload)
+        return 0 if payload.get("ok") else 1
 
     if args.self_test:
         payload = run_speech_self_test()

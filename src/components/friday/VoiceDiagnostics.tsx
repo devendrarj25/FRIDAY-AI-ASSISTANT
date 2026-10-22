@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { models } from "@/lib/friday/models-engine";
+import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
+import { turnTraceLine, voiceTurn, whereItStopped } from "@/lib/friday/voice-turn-trace";
 import {
   formatVoiceProbeReport,
   liveVoiceRuntimeLine,
@@ -99,6 +101,15 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       bad: Boolean(voice.stt.lastError),
     },
     { label: "last transcript", value: voice.stt.lastTranscript || "—" },
+    {
+      label: "last turn",
+      value: turnTraceLine(voiceTurn()),
+      bad: Boolean(
+        whereItStopped(voiceTurn())?.reason &&
+        whereItStopped(voiceTurn())?.reason !== "never reached",
+      ),
+    },
+    { label: "heard / dropped", value: hearingCountersLine(hearingCounters()) },
     { label: "route", value: liveVoiceRuntimeLine(voice) },
     {
       label: "tts",

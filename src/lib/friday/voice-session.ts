@@ -461,6 +461,12 @@ export function spokenRouteError(text: string): string {
   const source = inner ? inner.trim() : raw;
   const flat = source.replace(/\s+/g, " ").trim();
   if (/connect a model|start a local/i.test(flat)) {
+    // The failure message leads with the true reason. Say that, not a generic line.
+    const lead = source.split("\n").find((line) => line.trim())?.trim() ?? "";
+    const generic = /^I can't answer that one on my own/i.test(lead);
+    if (lead && !generic && lead.length <= 220 && !/https?:\/\/|status \d{3}/i.test(lead)) {
+      return lead.length <= 180 ? lead : `${lead.slice(0, 177).trim()}…`;
+    }
     return "No model is reachable. Connect one in Models, or start a local engine.";
   }
   if (/https?:\/\/|traceback|sha256|econn|fetch failed|status \d{3}/i.test(flat)) {
