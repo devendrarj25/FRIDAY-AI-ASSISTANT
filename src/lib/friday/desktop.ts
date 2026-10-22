@@ -705,6 +705,7 @@ type DesktopApi = {
   modelEngines?: () => Promise<EngineStatus[]>;
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
+  localModelStatus?: () => Promise<LocalModelStatus>;
   onModelPullProgress?: (cb: (p: ModelPullProgress) => void) => () => void;
   onModelPullDone?: (
     cb: (p: {
@@ -750,6 +751,24 @@ export type EngineStatus = {
   canStart: boolean;
   canStop: boolean;
   hint: string | null;
+};
+
+export type LocalRunnerState =
+  "serving" | "not-loaded" | "runner-stopped" | "runner-not-installed" | "failed";
+
+export type LocalModelStatus = {
+  at: number;
+  runners: Array<{
+    id: string;
+    name: string;
+    running: boolean;
+    canStart: boolean;
+    servable: number;
+    models: number;
+    state: LocalRunnerState;
+    line: string;
+  }>;
+  models: Array<{ id: string; runner: string; state: LocalRunnerState; line: string }>;
 };
 
 export type EngineResult = {

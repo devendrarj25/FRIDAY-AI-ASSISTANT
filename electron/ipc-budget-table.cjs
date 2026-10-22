@@ -256,6 +256,7 @@ const CHANNEL_CLASS = Object.freeze({
   "models:endpoints": "quick",
   "models:engine-start": "quick",
   "models:engine-stop": "quick",
+  "models:local-status": "quick",
   "models:engines": "quick",
   "models:heal": "quick",
   "models:health": "quick",

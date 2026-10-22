@@ -173,3 +173,15 @@ class ConsumeGrantTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocalModelsAreNeverBlocked(unittest.TestCase):
+    """Mirror of core/__tests__/local-models-never-blocked.test.ts for the kernel."""
+
+    def test_every_local_kind_is_free_and_allowed_with_paid_access_off(self):
+        for kind in ("local", "ollama", "llamacpp", "lmstudio", "vllm", "localai", "jan", "mlx"):
+            model = {"id": f"{kind}/any", "type": kind}
+            self.assertEqual(billing.billing_class(model), "free", kind)
+            for policy in ("free-only", "free-preferred", "allow-paid", None):
+                verdict = billing.guard(model, billing.DEFAULT_BILLING, policy=policy)
+                self.assertTrue(verdict["allowed"], f"{kind} {policy}")

@@ -239,6 +239,7 @@ contextBridge.exposeInMainWorld("friday", {
   startModelEngine: (id, selectedModel) =>
     ipcRenderer.invoke("models:engine-start", id, selectedModel || null),
   stopModelEngine: (id) => ipcRenderer.invoke("models:engine-stop", id),
+  localModelStatus: () => ipcRenderer.invoke("models:local-status"),
 
   // Non-streaming kernel calls (chat history, memory, code runner).
   kernel: (method, params) => ipcRenderer.invoke("kernel:rpc", method, params || {}),

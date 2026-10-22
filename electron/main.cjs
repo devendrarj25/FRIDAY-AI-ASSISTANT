@@ -5605,9 +5605,24 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
     }) ||
     null;
   const result = await modelsApi.startEngine(id, { selectedModel: selected });
-  if (result.ok) announceModelInstalled(id);
+  if (result.ok) {
+    announceModelInstalled(id);
+    // Auto-use: a runner that just came up is routable on the next turn.
+    try {
+      await refreshRoutable(true, "runner-started");
+      await syncKernelModels();
+    } catch (error) {
+      log(`engine ${id} started, catalogue refresh failed — ${error && error.message}`);
+    }
+  }
   return result;
 });
+ipcMain.handle("models:local-status", async () =>
+  require("./local-model-status.cjs").describeLocal({
+    inventory: await modelsApi.inventory(modelsContext()),
+    engines: await modelsApi.engineStatus(),
+  }),
+);
 ipcMain.handle("models:engine-stop", async (_e, id) => {
   const result = await modelsApi.stopEngine(id);
   if (result.ok) announceModelInstalled(id);
