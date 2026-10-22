@@ -142,10 +142,12 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
   };
 
   return (
-    <details className="mt-2 rounded-md border border-border/50 px-2 py-1">
-      <summary className="cursor-pointer font-mono text-[10px] uppercase text-muted-foreground">
+    // Opened from the "diagnostics" button on the Live captions strip, so it
+    // renders open: the strip button is the only open/close.
+    <section aria-label="Voice diagnostics">
+      <p className="mb-1 font-mono text-[10px] uppercase text-primary/70">
         voice diagnostics · {voice.voiceState.toLowerCase()}
-      </summary>
+      </p>
       <ul className="mt-1 space-y-0.5">
         {rows.map((row) => (
           <li key={row.label} className="flex gap-2">
@@ -190,7 +192,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               .finally(() => setMicBusy(false));
           }}
           disabled={micBusy}
-          className="font-mono text-[10px] uppercase text-accent disabled:opacity-50"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           {micBusy ? "listening…" : "mic test"}
         </button>
@@ -205,7 +207,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               .finally(() => setSpeakBusy(false));
           }}
           disabled={speakBusy}
-          className="font-mono text-[10px] uppercase text-accent disabled:opacity-50"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           {speakBusy ? "speaking…" : "speak test"}
         </button>
@@ -225,28 +227,28 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           type="button"
           onClick={() => void runProbes()}
           disabled={busy}
-          className="font-mono text-[10px] uppercase text-accent disabled:opacity-50"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "probing…" : "run voice self-test"}
         </button>
         <button
           type="button"
           onClick={() => void assistantMode.refreshWakeEngine(true)}
-          className="font-mono text-[10px] uppercase text-accent"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           recheck wake engine
         </button>
         <button
           type="button"
           onClick={() => assistantMode.fixVoice()}
-          className="font-mono text-[10px] uppercase text-accent"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           fix voice
         </button>
         <button
           type="button"
           onClick={() => assistantMode.resetMicrophone()}
-          className="font-mono text-[10px] uppercase text-accent"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           reset microphone
         </button>
@@ -263,7 +265,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               [probes.diagnostics, live].filter(Boolean).join("\n"),
             );
           }}
-          className="font-mono text-[10px] uppercase text-accent"
+          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           copy diagnostics
         </button>
@@ -296,7 +298,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
                 <button
                   type="button"
                   onClick={() => models.install(check.installId || "")}
-                  className="font-mono text-[10px] uppercase text-accent"
+                  className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
                 >
                   Install
                 </button>
@@ -305,6 +307,6 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           ))}
         </ul>
       ) : null}
-    </details>
+    </section>
   );
 }

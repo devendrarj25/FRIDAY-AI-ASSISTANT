@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -47,5 +47,51 @@ describe("environment registry inside the installed app", () => {
     for (const row of out.rows) expect(row.health, row.id).toBe("ready");
     expect(out.rows.find((row) => row.id === "node")?.version).toBe(process.versions.node);
     expect(out.rows.find((row) => row.id === "installed-app")?.version).toBe("1.1.3");
+  });
+});
+
+describe("environment registry runs off the window's thread", () => {
+  it("the scan worker runs refresh and repair with the installed app's facts", async () => {
+    const { Worker } = await import("node:worker_threads");
+    const dir = mkdtempSync(join(tmpdir(), "friday-env-worker-"));
+    const stub = join(dir, "registry.cjs");
+    writeFileSync(
+      stub,
+      `module.exports = {
+        refreshRegistry: () => ({ job: "refresh", packaged: JSON.parse(process.env.FRIDAY_PACKAGED_APP || "null"), resources: process.resourcesPath }),
+        repairComponent: (id) => ({ job: "repair", id }),
+        repairAll: () => ({ job: "repair-all" }),
+      };`,
+    );
+    const run = (workerData: Record<string, unknown>) =>
+      new Promise<Record<string, unknown>>((resolve, reject) => {
+        const worker = new Worker(join(root, "electron/scan-worker.cjs"), { workerData });
+        worker.once("message", resolve);
+        worker.once("error", reject);
+      });
+    const packaged = {
+      exe: "D:/F/App/FRIDAY.exe",
+      appPath: "D:/F/App/resources/app.asar",
+      version: "1.1.3",
+    };
+    const refreshed = await run({
+      job: "env-refresh",
+      registryPath: stub,
+      packaged,
+      resourcesPath: "D:/F/App/resources",
+    });
+    expect(refreshed).toEqual({
+      ok: true,
+      result: { job: "refresh", packaged, resources: "D:/F/App/resources" },
+    });
+    expect(await run({ job: "env-repair", registryPath: stub, id: "node" })).toEqual({
+      ok: true,
+      result: { job: "repair", id: "node" },
+    });
+    const main = readFileSync(join(root, "electron/main.cjs"), "utf8");
+    expect(main).toContain('ipcMain.handle("env:refresh", () => envRegistryJob("env-refresh"));');
+    expect(main).not.toMatch(
+      /await Promise\.resolve\(\);\s*return envRegistry\.refreshRegistry\(\)/,
+    );
   });
 });

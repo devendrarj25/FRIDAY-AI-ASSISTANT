@@ -65,6 +65,14 @@ const meets = (found, minimum) => !minimum || (!!found && compare(found, minimum
  * started another FRIDAY window).
  */
 function packagedApp() {
+  // Set by electron/scan-worker.cjs, where Electron's `app` is not reachable.
+  if (process.env.FRIDAY_PACKAGED_APP) {
+    try {
+      return JSON.parse(process.env.FRIDAY_PACKAGED_APP);
+    } catch {
+      return null;
+    }
+  }
   if (!process.versions.electron) return null;
   try {
     const { app } = require("electron");

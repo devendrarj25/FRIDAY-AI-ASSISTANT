@@ -58,6 +58,16 @@ This checklist is unverified until it is run on the owner's Windows PC. A Linux 
 
 ## Live listening
 
+The Auto mode bar has three groups.
+
+1. Status: the microphone state, speaking, and the running task.
+2. Listening: hands-free, hold to talk, pause or resume, reset microphone.
+3. Autonomy: Ask every time, Balanced, Full autonomy, and Stop everything.
+
+After those come Voice flow, any error with Fix voice, and WORKING or IDLE. Every control has an icon and one height. The FRIDAY graphic is unchanged.
+
+The Live captions strip has **diagnostics** and **pipeline** buttons. Each opens a pane beside the captions, or below them on a narrow window, with its own scroll, and the same button closes it. The captions keep their place. Diagnostics runs only while its pane is open. The screen is not text-selectable, so a stray Ctrl+A does not grey it out; captions and the panes still are.
+
 On the owner's PC after `npm run setup` and `npm run build:win`. These steps are unverified until that PC runs them. A finished clause is spoken while later tokens are still arriving. A failed turn is spoken as one sentence, and the chat text stays complete. A partial answer that already started is not spoken again.
 
 1. Auto mode on: Live Captions shows the mic live; speak 5 normal sentences, then a very short word, then a long paragraph: every one appears with the right tag, none is dropped, none shows "already active elsewhere".

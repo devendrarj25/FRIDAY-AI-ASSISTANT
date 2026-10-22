@@ -125,6 +125,12 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- The owner's 2026-10-22 screenshot showed FRIDAY "Not Responding" with every label greyed (a frozen window and a page selection).
+  - `env:refresh` and `env:repair` ran the environment registry's synchronous probes (npm, Python, pip) on Electron's main thread. They now run in `electron/scan-worker.cjs`.
+  - The Auto screen is not selectable chrome.
+  - The Auto mode bar is grouped with icons. Diagnostics and the pipeline open from the Live captions strip in their own pane.
+  - Linux tests only. Smoothness and responsiveness on the Windows EXE are unverified until the owner rebuilds.
+
 - Owner's 2026-10-22 Status page (installed v1.1.2.4), fixed on this branch:
   - Environment rows read Node.js, Electron, dependencies, the interface bundle, and Installed FRIDAY as Missing inside the installed app.
   - The Node check spawned FRIDAY.exe `-v`, which started another FRIDAY.
