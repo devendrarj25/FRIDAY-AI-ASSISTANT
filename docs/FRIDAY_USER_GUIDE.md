@@ -205,6 +205,11 @@ Friday Hub (build/release dispatch, Revert Center), Import & Build (mixed intake
 | Doctor: Voice layers | Each layer is PASS or FAIL from the last voice check in Voice diagnostics and the live Auto session. Unchecked layers are one row with the steps to check them |
 | Doctor: Window and kernel watchdog | Warning only for a stall in the last 10 minutes. An older one shows as recovered |
 | Self-Management: issue count | An optional add-on that is not installed (Graphviz, D2, comtypes, llama.cpp, a bundled or on-demand toolchain pack, the speaker file) is one fact line, not a critical issue. Those rows read Install Manager's real detection, say "not checked yet" before Install Manager has scanned, and tell you to press Install. "Environment checks healthy" counts required checks only. The platform comes from the environment registry or the window, never the "browser" placeholder. The architecture index skips imports written inside template strings (generated scripts), Vite `?url` and `?inline` suffixes, and test fixtures. Its saved copy is rebuilt once (schema 3) |
+| Status: environment rows inside the installed app | Node.js is the Node built into FRIDAY.exe. Electron, its dependencies, and the interface bundle are inside the installed app. Installed FRIDAY is the running exe. The registry never spawns FRIDAY.exe to read a version; that used to start another FRIDAY |
+| Status: Connections (wiring) | In the installed app, routes and capability barrels are compiled into the bundle, so Kernel and Pages read "in bundle" and the barrel check is skipped. A page rendered inside another page (the visual builder in Workflows) is reachable |
+| Status: local provider "no answer within N s" | That engine is not running, or is still loading. It replaced "This operation was aborted" |
+| Kernel log | Routine lines for every loopback socket and `/health` poll are left out, so real errors stay in the tail. `FRIDAY_KERNEL_VERBOSE_LOG=1` keeps every line |
+| Routing sync row | The planner leads with a pinned model only when it can answer on this PC. The shipped `qwen2.5-32b` default is a placeholder until it is installed |
 | Doctor: Content Security Policy | The status bar network meter's three hosts are allowed in `connect-src`. Any other violation still shows |
 
 ## 7. Conversation research (2026-10-09)

@@ -33,6 +33,8 @@ export type ConnectivitySummary = {
   navEntries: number;
   capabilityTrees: number;
   rendererFiles: number;
+  /** False in the installed app: routes and barrels ship compiled, not as source. */
+  sourceAvailable?: boolean;
 };
 
 export type ConnectivityGraph = {

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import secrets
 import sys
@@ -1098,9 +1099,40 @@ async def on_startup() -> None:
     await workspace.start()
 
 
+class _RoutineConnectionFilter(logging.Filter):
+    """Drop the two INFO lines uvicorn writes for every loopback RPC socket.
+
+    The desktop opens a short socket per kernel call and polls /health, so
+    these lines arrived every few seconds and pushed real errors out of the
+    log tail the Doctor reads. Warnings and errors always pass.
+    """
+
+    _ROUTINE = ('"WebSocket /bridge" [accepted]', "connection open", "connection closed")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno > logging.INFO:
+            return True
+        message = record.getMessage()
+        if any(part in message for part in self._ROUTINE):
+            return False
+        return not ('"GET /health' in message and " 200" in message)
+
+
+def quiet_routine_connections() -> None:
+    """Applied after uvicorn configures logging. FRIDAY_KERNEL_VERBOSE_LOG=1 keeps every line."""
+    if os.environ.get("FRIDAY_KERNEL_VERBOSE_LOG", "").strip() in {"1", "true", "yes", "on"}:
+        return
+    routine = _RoutineConnectionFilter()
+    for name in ("uvicorn.error", "uvicorn.access", "websockets.server", "websockets"):
+        logger = logging.getLogger(name)
+        if not any(isinstance(item, _RoutineConnectionFilter) for item in logger.filters):
+            logger.addFilter(routine)
+
+
 @asynccontextmanager
 async def _kernel_lifespan(_app: FastAPI):
     """One startup and shutdown path. Replaces the deprecated on_event hooks."""
+    quiet_routine_connections()
     await _watch_companion_registry()
     await on_startup()
     yield

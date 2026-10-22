@@ -377,7 +377,10 @@ async function request(url, { timeout = 6000, ...init } = {}) {
       text: "",
       headers: {},
       latencyMs: Date.now() - started,
-      error: String(err.message || err),
+      // Our own timeout fired: say that, not "This operation was aborted".
+      error: controller.signal.aborted
+        ? `no answer within ${Math.round(timeout / 100) / 10} s (not running, or still loading)`
+        : String(err.message || err),
     };
   } finally {
     clearTimeout(timer);
@@ -2908,6 +2911,7 @@ async function aiModelSuggestions({ userData = null, system = null, query = "" }
 
 module.exports = {
   OLLAMA,
+  request,
   ollamaListError,
   lmStudioCatalog,
   ollamaCatalog,

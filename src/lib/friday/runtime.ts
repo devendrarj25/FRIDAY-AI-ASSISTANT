@@ -249,7 +249,11 @@ function routeModels(
     ids.push(id);
   };
 
-  // 1. Pinned routing for the task the prompt looks like.
+  // 1. Pinned routing for the task the prompt looks like — only when that
+  //    model can answer here. The shipped defaults ("qwen2.5-32b") are
+  //    placeholders until a model is installed, and leading with one made the
+  //    plan and the status page name a model that was never called.
+  const routable = new Set(modelRegistry.available().map((record) => record.id));
   const routing = models.getSnapshot().routing;
   const task: RoutingTask = CODE.test(prompt)
     ? "coding"
@@ -258,7 +262,8 @@ function routeModels(
       : VISION.test(prompt)
         ? "vision"
         : "brain";
-  add(routing[task] ?? routing.brain ?? routing.fast ?? null);
+  const pinned = routing[task] ?? routing.brain ?? routing.fast ?? null;
+  if (pinned && (routable.size === 0 || routable.has(pinned))) add(pinned);
 
   // 2. Then the roles her own registry chose for this request.
   for (const step of pipeline.steps) add(step.modelId);

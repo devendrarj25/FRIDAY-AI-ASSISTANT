@@ -158,6 +158,21 @@ function scanUi(root) {
     if (/throw\s+redirect\(/.test(text)) aliases.push(routePath);
     else pages.push(routePath);
   }
+  // A route whose screen another route imports and renders (the visual
+  // builder inside Workflows) is reached through that page.
+  const embedded = [];
+  for (const file of files) {
+    const stem = file.replace(/\.tsx$/, "");
+    const importers = files.filter(
+      (other) =>
+        other !== file &&
+        new RegExp(`from\\s+["'](?:@/routes/|\\./)${stem.replace(/\./g, "\\.")}["']`).test(
+          read(path.join(routesDir, other)),
+        ),
+    );
+    if (importers.length)
+      embedded.push(file === "index.tsx" ? "/" : `/${stem.replace(/\./g, "/")}`);
+  }
 
   // Navigation covers the sidebar list plus every other in-app <Link to="…">.
   const shellFiles = [
@@ -171,7 +186,7 @@ function scanUi(root) {
     for (const to of matchAll(text, /to:\s*"(\/[^"]*)"/g)) nav.add(to);
     for (const to of matchAll(text, /to="(\/[^"]*)"/g)) nav.add(to);
   }
-  return { pages, aliases, nav };
+  return { pages, aliases, nav, embedded };
 }
 
 /* --------------------------------------------------------- capabilities */
@@ -235,14 +250,18 @@ function buildGraph(root) {
   }
   // 5. Every page must be reachable from the sidebar.
   for (const page of ui.pages) {
-    if (!ui.nav.has(page)) add("warning", "route", page, "route file has no sidebar entry");
+    if (ui.nav.has(page) || ui.embedded.includes(page)) continue;
+    add("warning", "route", page, "route file has no sidebar entry");
   }
   for (const entry of ui.nav) {
     if (ui.pages.includes(entry) || ui.aliases.includes(entry)) continue;
     add("error", "route", entry, "navigation links to a missing route");
   }
-  // 6. Capability trees must stay discoverable.
-  for (const tree of capabilities) {
+  // 6. Capability trees must stay discoverable. The index.ts barrels are a
+  // source-tree contract; an installed app carries them compiled into the
+  // bundle, so a root without src/ has nothing to check here.
+  const sourceAvailable = fs.existsSync(path.join(root, "src", "routes"));
+  for (const tree of sourceAvailable ? capabilities : []) {
     if (!tree.barrel) add("error", "capability", tree.tree, "tree has no index.ts registration");
   }
 
@@ -257,6 +276,7 @@ function buildGraph(root) {
     navEntries: ui.nav.size,
     capabilityTrees: capabilities.filter((t) => t.registered).length,
     rendererFiles: rendererFiles.length,
+    sourceAvailable,
   };
 
   const errors = issues.filter((i) => i.severity === "error").length;

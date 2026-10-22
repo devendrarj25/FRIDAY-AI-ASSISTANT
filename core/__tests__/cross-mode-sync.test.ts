@@ -64,3 +64,23 @@ describe("doctor cross-mode check", () => {
     if (check?.status === "Ready") expect(check.fixable).toBeFalsy();
   });
 });
+
+describe("planner names a model that can answer", () => {
+  it("skips a pinned placeholder that is not routable on this PC", async () => {
+    const { vi } = await import("vitest");
+    const { modelRegistry } = await import("../../src/lib/friday/brain/model-registry");
+    const { models } = await import("../../src/lib/friday/models-engine");
+    expect(models.getSnapshot().routing.brain).toBe("qwen2.5-32b");
+    const base = modelRegistry.list()[0];
+    expect(base).toBeTruthy();
+    const free = { ...base!, id: "openrouter:openrouter/free" };
+    const spy = vi.spyOn(modelRegistry, "available").mockReturnValue([free]);
+    try {
+      const turn = prepareTurn("hello there", { mode: "manual" });
+      expect(turn.modelIds).not.toContain("qwen2.5-32b");
+      expect(inspectCrossModeSync().detail).not.toContain("qwen2.5-32b");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

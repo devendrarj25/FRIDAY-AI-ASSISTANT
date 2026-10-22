@@ -14,6 +14,9 @@ export function ConnectivityPanel() {
   const { graph, bridge, loading, error } = useConnectivity();
   const percent = connectedPercent(graph);
   const issues = graph?.issues ?? [];
+  // The installed app carries routes and kernel sources compiled or packed;
+  // a 0/0 there would read as broken wiring.
+  const compiled = graph?.summary.sourceAvailable === false;
 
   return (
     <HudPanel
@@ -54,12 +57,16 @@ export function ConnectivityPanel() {
               { label: "IPC", value: `${graph.summary.ipc}`, sub: "handlers bridged" },
               {
                 label: "Kernel",
-                value: `${graph.summary.kernelCalled}/${graph.summary.kernelMethods}`,
+                value: compiled
+                  ? "in bundle"
+                  : `${graph.summary.kernelCalled}/${graph.summary.kernelMethods}`,
                 sub: "methods in use",
               },
               {
                 label: "Pages",
-                value: `${graph.summary.navEntries}/${graph.summary.pages}`,
+                value: compiled
+                  ? "in bundle"
+                  : `${graph.summary.navEntries}/${graph.summary.pages}`,
                 sub: "reachable",
               },
             ].map((c) => (

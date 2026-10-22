@@ -335,9 +335,14 @@ describe("bundled runtime", () => {
       },
     });
     expect(again.ok).toBe(true);
-    const rows = runtime.doctorRows(
-      runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools,
-    );
+    const tools = runtime.inspect({ runtimeRoot, manifest, resourcesRoots: [resources] }).tools;
+    // Each row names its own pack file, even when two tools share one folder.
+    for (const tool of tools) {
+      expect(String((tool as { source?: string }).source).replace(/\\/g, "/")).toContain(
+        layout.packRelative(tool.id),
+      );
+    }
+    const rows = runtime.doctorRows(tools);
     expect(rows.every((row) => row.status === "Ready")).toBe(true);
     expect(
       rows.every((row) => row.detail.includes("hash OK") && row.detail.includes("last run")),

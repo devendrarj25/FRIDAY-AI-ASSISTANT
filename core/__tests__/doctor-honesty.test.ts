@@ -113,3 +113,42 @@ describe("Doctor history is not a standing warning", () => {
     expect(tail.trimEnd().endsWith("line 4999")).toBe(true);
   });
 });
+
+describe("Status page reads like the machine", () => {
+  it("a local engine that does not answer reads 'no answer', not 'operation was aborted'", async () => {
+    const net = await import("node:net");
+    const silent = net.createServer(() => {
+      /* accept and never answer */
+    });
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    const port = (silent.address() as { port: number }).port;
+    const models = require_(join(root, "electron/models.cjs")) as {
+      request: (url: string, init: { timeout: number }) => Promise<{ ok: boolean; error: string }>;
+    };
+    const res = await models.request(`http://127.0.0.1:${port}/v1/models`, { timeout: 300 });
+    silent.close();
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("no answer within 0.3 s (not running, or still loading)");
+  });
+
+  it("the wiring audit does not flag compiled trees or an embedded page in the installed app", async () => {
+    const { mkdtempSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const connectivity = require_(join(root, "electron/connectivity.cjs")) as {
+      buildGraph: (dir: string) => {
+        issues: { id: string }[];
+        summary: { sourceAvailable: boolean };
+      };
+    };
+    const installed = mkdtempSync(join(tmpdir(), "friday-installed-"));
+    for (const tree of ["agents", "skills", "tools"])
+      mkdirSync(join(installed, tree, "core"), { recursive: true });
+    const packed = connectivity.buildGraph(installed);
+    expect(packed.issues).toEqual([]);
+    expect(packed.summary.sourceAvailable).toBe(false);
+    const checkout = connectivity.buildGraph(root);
+    expect(checkout.summary.sourceAvailable).toBe(true);
+    expect(checkout.issues.map((row) => row.id)).not.toContain("/workflow-visual");
+    expect(checkout.issues.map((row) => row.id)).not.toContain("finetune:active");
+  });
+});

@@ -125,6 +125,17 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- Owner's 2026-10-22 Status page (installed v1.1.2.4), fixed on this branch:
+  - Environment rows read Node.js, Electron, dependencies, the interface bundle, and Installed FRIDAY as Missing inside the installed app.
+  - The Node check spawned FRIDAY.exe `-v`, which started another FRIDAY.
+  - Wiring showed 7 false "no index.ts" errors and `0/0` with no source in the app.
+  - `finetune:active` had no preload subscription.
+  - Local providers read "This operation was aborted".
+  - The pip bootstrap row named the Python pack.
+  - The kernel logged two lines per loopback RPC socket.
+  - The routing row named the `qwen2.5-32b` placeholder.
+  - The fine-tune feature (`src/lib/friday/self/finetune.ts`, its IPC and events) still has no screen; the activity flows are bridged but nothing shows them. A Windows rescan of all of this is unverified.
+
 - Owner's 2026-10-22 Self-Management report: "58 issues, 23 critical". The critical items were optional add-ons and unprobed toolchain packs.
   - Graphviz, D2, comtypes, and the llama.cpp rows were hardcoded Missing. Install Manager rows ended with a "key, driver, account" line.
   - The platform read "browser" in the desktop app.

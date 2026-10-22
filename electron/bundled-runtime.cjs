@@ -397,7 +397,8 @@ function inspect(input = {}) {
       present,
       proved: Boolean(present && stamp && stamp.proved),
       hashOk,
-      source: stamp ? stamp.source : layout.findPack(id, input.resourcesRoots || []),
+      // get-pip shares the Python folder and its stamp; name each pack's own file.
+      source: layout.findPack(id, input.resourcesRoots || []) || (stamp ? stamp.source : null),
       lastRun: stamp ? stamp.provedAt : null,
       manual: null,
     };

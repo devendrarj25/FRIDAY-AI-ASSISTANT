@@ -57,6 +57,24 @@ function compare(left, right) {
 }
 const meets = (found, minimum) => !minimum || (!!found && compare(found, minimum) >= 0);
 
+/**
+ * The installed FRIDAY.exe running this code, or null in a checkout or a
+ * script. An installed app has no node_modules, no electron.exe download and
+ * no dist folder on disk: those live inside app.asar. And process.execPath is
+ * FRIDAY.exe itself, so it must never be spawned to read a Node version (that
+ * started another FRIDAY window).
+ */
+function packagedApp() {
+  if (!process.versions.electron) return null;
+  try {
+    const { app } = require("electron");
+    if (!app || !app.isPackaged) return null;
+    return { exe: process.execPath, appPath: app.getAppPath(), version: app.getVersion() };
+  } catch {
+    return null;
+  }
+}
+
 const capture = (exe, args, opts = {}) => {
   try {
     const r = spawnOfficial(exe, args, {
@@ -104,7 +122,10 @@ const record = (id, extra) => ({
 });
 
 function probeNode() {
-  const version = firstVersion(capture(process.execPath, ["-v"]));
+  // Inside Electron the running Node is built in: read it, never spawn the app.
+  const version = process.versions.electron
+    ? process.versions.node
+    : firstVersion(capture(process.execPath, ["-v"]));
   return record("node", {
     label: "Node.js",
     kind: "runtime",
@@ -233,6 +254,20 @@ function electronBinary() {
 }
 
 function probeElectron() {
+  const installed = packagedApp();
+  if (installed) {
+    return record("electron", {
+      label: "Electron runtime",
+      kind: "runtime",
+      version: process.versions.electron,
+      path: installed.exe,
+      minimum: versions.electronMinimum,
+      source: "github.com/electron/electron",
+      capability: ["desktop", "windows-exe"],
+      health: meets(process.versions.electron, versions.electronMinimum) ? "ready" : "outdated",
+      detail: "built into the installed FRIDAY.exe",
+    });
+  }
   const exe = electronBinary();
   let version = null;
   try {
@@ -259,6 +294,19 @@ function probeElectron() {
 function probeNodeModules() {
   // Accept any resolved install (npm, bun or pnpm): what matters is that the
   // packages FRIDAY actually loads are present and executable.
+  const installed = packagedApp();
+  if (installed) {
+    return record("node-modules", {
+      label: "Electron/app dependencies",
+      kind: "dependencies",
+      path: installed.appPath,
+      source: "package-lock.json",
+      capability: ["desktop"],
+      version: "bundled",
+      health: "ready",
+      detail: "bundled inside the installed app",
+    });
+  }
   const required = ["electron", "vite", "react"];
   const present = required.every((name) => fs.existsSync(path.join(root, "node_modules", name)));
   return record("node-modules", {
@@ -413,7 +461,10 @@ function probeConfig() {
 }
 
 function probeBrowserBundle() {
-  const desktop = path.join(root, "dist-desktop", "index.html");
+  const installed = packagedApp();
+  const desktop = installed
+    ? path.join(installed.appPath, "dist-desktop", "index.html")
+    : path.join(root, "dist-desktop", "index.html");
   const web = path.join(root, "dist", "index.html");
   const file = fs.existsSync(desktop) ? desktop : fs.existsSync(web) ? web : null;
   return record("renderer", {
@@ -444,14 +495,22 @@ function installedApp() {
 }
 
 function probeInstalledApp() {
-  const exe = installedApp();
+  const running = packagedApp();
+  const exe = running ? running.exe : installedApp();
+  let version = null;
+  if (running) version = running.version;
+  else if (exe) {
+    try {
+      version = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+    } catch {
+      version = "installed";
+    }
+  }
   return record("installed-app", {
     label: "Installed FRIDAY (Windows)",
     kind: "application",
     path: exe,
-    version: exe
-      ? JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version
-      : null,
+    version,
     source: "FRIDAY-Setup.exe",
     capability: ["windows-exe"],
     optional: true,
@@ -628,6 +687,15 @@ function writeLog(name, payload) {
 }
 
 module.exports = {
+  packagedApp,
+  /** The probes that differ between a checkout and the installed app. */
+  installedProbes: {
+    probeNode,
+    probeNodeModules,
+    probeElectron,
+    probeBrowserBundle,
+    probeInstalledApp,
+  },
   registryFile,
   dataRoot,
   readRegistry,
