@@ -29,6 +29,12 @@ import { preferences } from "./preferences";
 import { biasPrompt } from "./speech-parse";
 import { voiceGate } from "./voice-audio";
 import type { WakeProbe } from "./wake-engine";
+import {
+  formatHearingDetail,
+  keepUtteranceWavs,
+  transcriptDropDetail,
+  type HearingAudio,
+} from "./voice-hearing";
 
 /** The same fault line is logged once. A new class replaces it. */
 export function collapseRepeat(previous: string, next: string): string | null {
@@ -1035,6 +1041,7 @@ export class DesktopDictation {
         ...(sttSize && sttSize !== "auto" ? { model: sttSize, sttSize } : {}),
         localOnly: Boolean(this.options.localOnly),
         ...(initialPrompt ? { initialPrompt } : {}),
+        ...(keepUtteranceWavs() ? { keepWav: true } : {}),
       })) as {
         ok: boolean;
         text?: string;
@@ -1044,21 +1051,39 @@ export class DesktopDictation {
         sttClass?: string;
         fix?: string;
         notice?: string;
+        emptyReason?: string;
+        audio?: HearingAudio | null;
       };
       if (result?.ok) {
         this.lastErrorDetail = "";
         if (result.notice) this.reportOnce(result.notice);
         const text = (result.text || "").trim();
         const noSpeech = result.noSpeechProb;
+        const heard = transcriptDropDetail(result);
+        const levels = formatHearingDetail(result.audio);
+        if (levels) {
+          this.options.onDiagnostic?.({
+            stage: "segment",
+            detail: levels,
+            ms: Date.now() - startedAt,
+          });
+        }
         this.options.onDiagnostic?.({
           stage: "transcript",
-          detail: text || "(empty transcript)",
+          detail: text || `(${heard})`,
           ms: Date.now() - startedAt,
         });
-        if (typeof noSpeech === "number" && noSpeech >= 0.65) {
+        if (text && typeof noSpeech === "number" && noSpeech >= 0.7) {
+          this.options.onDiagnostic?.({
+            stage: "segment",
+            detail: `kept segment text; no_speech ${noSpeech.toFixed(2)}`,
+            ms: Date.now() - startedAt,
+          });
+          this.options.onFinal(text, { wake, ms: Date.now() - startedAt });
+        } else if (typeof noSpeech === "number" && noSpeech >= 0.65 && !text) {
           this.options.onDiagnostic?.({
             stage: "dropped",
-            detail: `no-speech probability ${noSpeech.toFixed(2)} — not sent to the brain`,
+            detail: heard,
             ms: Date.now() - startedAt,
           });
         } else if (text) {
@@ -1066,7 +1091,7 @@ export class DesktopDictation {
         } else {
           this.options.onDiagnostic?.({
             stage: "dropped",
-            detail: "empty transcript",
+            detail: heard,
             ms: Date.now() - startedAt,
           });
         }

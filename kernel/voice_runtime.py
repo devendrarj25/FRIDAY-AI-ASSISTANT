@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -307,22 +308,108 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | No
     return data or None
 
 
+# Speech quieter than this is silence. A denoised clip that loses this much
+# energy against a speech-level original is not used.
+SILENCE_FLOOR_DBFS = -50.0
+SPEECH_FLOOR_DBFS = -45.0
+DENOISE_KEEP_RATIO = 0.25
+
+
+def pcm_levels(samples, sample_rate: int = 16000) -> dict:
+    """Duration plus RMS and peak in dBFS. Full scale is 1.0."""
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return {
+            "durationMs": 0,
+            "rms": 0.0,
+            "peak": 0.0,
+            "rmsDbfs": None,
+            "peakDbfs": None,
+        }
+    audio = np.asarray(samples, dtype=np.float64).reshape(-1)
+    count = int(audio.size)
+    duration_ms = int(round(count * 1000 / sample_rate)) if sample_rate and count else 0
+    if count == 0:
+        return {
+            "durationMs": 0,
+            "rms": 0.0,
+            "peak": 0.0,
+            "rmsDbfs": -120.0,
+            "peakDbfs": -120.0,
+        }
+    rms = float(np.sqrt(np.mean(audio * audio)))
+    peak = float(np.max(np.abs(audio)))
+
+    def db(value: float) -> float:
+        if value <= 1e-12:
+            return -120.0
+        return round(20.0 * math.log10(value), 1)
+
+    return {
+        "durationMs": duration_ms,
+        "rms": rms,
+        "peak": peak,
+        "rmsDbfs": db(rms),
+        "peakDbfs": db(peak),
+    }
+
+
+def guard_denoised(original, cleaned, ratio: float = DENOISE_KEEP_RATIO):
+    """Keep the original when denoise empties a speech-level clip.
+
+    Import and decode failures never reach here: denoise_pcm returns the
+    original samples in that case. This guard is for a successful call whose
+    samples no longer contain the speech.
+    """
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return original, ""
+    source = np.asarray(original, dtype=np.float32).reshape(-1)
+    result = np.asarray(cleaned, dtype=np.float32).reshape(-1)
+    if result.size == 0:
+        return source, "denoise removed the signal"
+    before = pcm_levels(source)
+    after = pcm_levels(result)
+    speech = before["rmsDbfs"] is not None and before["rmsDbfs"] >= SPEECH_FLOOR_DBFS
+    if speech and before["rms"] > 0 and after["rms"] < before["rms"] * ratio:
+        return source, "denoise removed the signal"
+    return result, ""
+
+
 def denoise_pcm(samples, sample_rate: int = 16000):
-    """RNNoise when the wheel is installed. The same samples come back otherwise."""
+    """RNNoise when the wheel is installed. The same samples come back otherwise.
+
+    pyrnnoise 0.4.5 ``denoise_chunk`` yields int16 frames (its wav path reads
+    int16). The worker stores float32 in [-1, 1] for Whisper, so the int16
+    frames are scaled back. A failed import or a failed decode returns the
+    original array.
+    """
     try:
         import numpy as np  # type: ignore
         from pyrnnoise import RNNoise  # type: ignore
     except Exception:
         return samples
-    audio = np.asarray(samples, dtype=np.float32)
-    if audio.size == 0:
-        return audio
-    mono = audio.reshape(-1)
+    mono = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if mono.size == 0:
+        return mono
+    peak = float(np.max(np.abs(mono)))
+    if peak <= 1.5:
+        pcm = np.clip(np.round(mono * 32768.0), -32768, 32767).astype(np.int16)
+    else:
+        pcm = np.clip(np.round(mono), -32768, 32767).astype(np.int16)
     try:
         denoiser = RNNoise(sample_rate)
         pieces = []
-        for _prob, frame in denoiser.denoise_chunk(mono[None, :], partial=True):
-            pieces.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+        for _prob, frame in denoiser.denoise_chunk(pcm[None, :], partial=True):
+            frame = np.asarray(frame).reshape(-1)
+            if frame.size == 0:
+                continue
+            values = frame.astype(np.float32)
+            if np.issubdtype(frame.dtype, np.integer) or float(np.max(np.abs(values))) > 1.5:
+                values = values / 32768.0
+            pieces.append(values)
         if not pieces:
             return mono
         return np.concatenate(pieces)

@@ -806,6 +806,7 @@ async function transcribe(req = {}, onPartial) {
           initial_prompt: prompt.slice(0, 800),
           speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
           sttSize: String(req.sttSize || req.stt_size || ""),
+          keep_wav: Boolean(req.keepWav || req.keep_wav),
         },
         loadBudget,
         onPartial,
@@ -836,6 +837,7 @@ async function transcribe(req = {}, onPartial) {
               initial_prompt: prompt.slice(0, 800),
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
+              keep_wav: Boolean(req.keepWav || req.keep_wav),
             },
             loadBudget,
             onPartial,
@@ -859,6 +861,7 @@ async function transcribe(req = {}, onPartial) {
               initial_prompt: prompt.slice(0, 800),
               speech_pref: String(req.speechPref || req.speech_pref || req.language || ""),
               sttSize: String(req.sttSize || req.stt_size || ""),
+              keep_wav: Boolean(req.keepWav || req.keep_wav),
             },
             voiceInstall.loadBudgetMs(fallback),
             onPartial,
@@ -899,6 +902,8 @@ async function transcribe(req = {}, onPartial) {
       noSpeechProb: typeof parsed.noSpeechProb === "number" ? parsed.noSpeechProb : undefined,
       turnProbability: typeof parsed.turnProbability === "number" ? parsed.turnProbability : null,
       loadCount: parsed.loadCount,
+      emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),
+      audio: parsed.audio || null,
     };
   } finally {
     inFlight -= 1;

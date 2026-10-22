@@ -9,6 +9,11 @@ import {
 } from "@/lib/friday/voice-doctor";
 import type { AssistantModeState } from "@/lib/friday/assistant-mode";
 import { gateSpeechKey, voiceGate } from "@/lib/friday/voice-audio";
+import {
+  captureClockNote,
+  keepUtteranceWavs,
+  setKeepUtteranceWavs,
+} from "@/lib/friday/voice-hearing";
 
 /**
  * Voice Diagnostics — the real values behind Auto Mode, in the Auto Mode
@@ -28,6 +33,13 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     }>
   >([]);
   const [busy, setBusy] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
+  const [speakBusy, setSpeakBusy] = useState(false);
+  const [micLine, setMicLine] = useState("");
+  const [speakLine, setSpeakLine] = useState("");
+  const [micLevel, setMicLevel] = useState(0);
+  const micLevelRef = useRef(0);
+  const [keepWav, setKeepWav] = useState(keepUtteranceWavs);
   const levelRef = useRef<HTMLSpanElement>(null);
   const gateKey = useSyncExternalStore(
     (fn) => voiceGate.subscribe(() => fn()),
@@ -55,7 +67,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     {
       label: "microphone",
       value: voice.mic.available
-        ? `${voice.mic.deviceLabel || "default device"} · ${voice.mic.state}`
+        ? `${voice.mic.deviceLabel || "default device"} · ${voice.mic.state} · ${captureClockNote(voiceGate.inputRate())}`
         : `unavailable — ${voice.mic.reason ?? "no device"}`,
       bad: !voice.mic.available,
     },
@@ -145,7 +157,55 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           </li>
         ))}
       </ul>
-      <div className="mt-1 flex gap-3">
+      <div className="mt-1 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setMicBusy(true);
+            setMicLevel(0);
+            setMicLine("recording 3 seconds…");
+            void assistantMode
+              .micTest((level) => {
+                micLevelRef.current = level;
+                setMicLevel(level);
+              })
+              .then((result) =>
+                setMicLine(`${result.line} · level ${micLevelRef.current.toFixed(3)}`),
+              )
+              .finally(() => setMicBusy(false));
+          }}
+          disabled={micBusy}
+          className="font-mono text-[10px] uppercase text-accent disabled:opacity-50"
+        >
+          {micBusy ? "listening…" : "mic test"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setSpeakBusy(true);
+            setSpeakLine("speaking…");
+            void assistantMode
+              .speakTest()
+              .then((result) => setSpeakLine(result.detail))
+              .finally(() => setSpeakBusy(false));
+          }}
+          disabled={speakBusy}
+          className="font-mono text-[10px] uppercase text-accent disabled:opacity-50"
+        >
+          {speakBusy ? "speaking…" : "speak test"}
+        </button>
+        <label className="flex items-center gap-1 font-mono text-[10px] uppercase text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={keepWav}
+            onChange={(event) => {
+              const on = event.target.checked;
+              setKeepWav(on);
+              setKeepUtteranceWavs(on);
+            }}
+          />
+          keep last 5 wavs
+        </label>
         <button
           type="button"
           onClick={() => void runProbes()}
@@ -193,6 +253,15 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
           copy diagnostics
         </button>
       </div>
+      {micBusy ? (
+        <p className="mt-1 font-mono text-[10px] text-foreground/80">
+          mic level {micLevel.toFixed(3)}
+        </p>
+      ) : null}
+      {micLine ? <p className="mt-1 font-mono text-[10px] text-foreground/80">{micLine}</p> : null}
+      {speakLine ? (
+        <p className="mt-1 font-mono text-[10px] text-foreground/80">{speakLine}</p>
+      ) : null}
       {checks.length ? (
         <ul className="mt-1 space-y-0.5">
           {checks.map((check) => (

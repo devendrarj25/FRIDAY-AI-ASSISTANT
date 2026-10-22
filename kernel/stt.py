@@ -46,6 +46,8 @@ _model_name: str | None = None
 _load_count = 0
 _whisper_cls = None
 _whisper_error: str | None = None
+_device_name = "cpu"
+_compute_type = "int8"
 
 
 def resolve_language(raw: str) -> str | None:
@@ -234,7 +236,7 @@ def _import_whisper():
 
 def get_model(name: str, model_path: str | None = None):
     """Load WhisperModel once per worker. `local_files_only` blocks a silent download."""
-    global _model, _model_name, _load_count
+    global _model, _model_name, _load_count, _device_name, _compute_type
     cls = _import_whisper()
     if cls is None:
         raise RuntimeError(_whisper_error or "faster-whisper is not installed.")
@@ -245,6 +247,10 @@ def get_model(name: str, model_path: str | None = None):
     _model, _used = open_whisper(cls, wanted, spec)
     if _used != spec["device"]:
         spec["reason"] = "CPU int8 — CUDA load failed"
+        spec["device"] = "cpu"
+        spec["compute_type"] = "int8"
+    _device_name = spec["device"]
+    _compute_type = spec["compute_type"]
     _model_name = wanted
     _load_count += 1
     return _model
@@ -469,20 +475,142 @@ def load_audio_array(path: str):
     return decode_foreign(path)
 
 
-def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None]:
-    """Denoise the array. The whisper call receives the array, not a PyAV path."""
+def apply_no_speech_policy(text: str, avg_ns: float) -> tuple[str, str]:
+    """A high no-speech score does not erase segments that already have text."""
+    body = (text or "").strip()
+    if body:
+        if avg_ns >= 0.7:
+            return body, f"kept segment text; no_speech {avg_ns:.2f}"
+        return body, ""
+    if avg_ns >= 0.7:
+        return "", f"no_speech {avg_ns:.2f}"
+    return "", ""
+
+
+def prompt_echo(text: str, hint: str) -> bool:
+    """True when the transcript is the instruction prompt, not the utterance."""
+    body = " ".join((text or "").lower().split())
+    seed = " ".join((hint or "").lower().split())
+    if len(body) < 40 or len(seed) < 40:
+        return False
+    return seed.startswith(body) or body.startswith(seed[: min(80, len(seed))])
+
+
+HEARING_ORIGINAL = "original-audio"
+HEARING_NO_VAD = "no-vad-no-prompt"
+
+
+def hearing_passes(text: str, rms_dbfs: float | None, floor: float = -50.0) -> list[str]:
+    """Extra passes when the first result is empty and the clip is not silence."""
+    if (text or "").strip():
+        return []
+    if rms_dbfs is None or float(rms_dbfs) <= floor:
+        return []
+    return [HEARING_NO_VAD, HEARING_ORIGINAL]
+
+
+def run_hearing_ladder(first: dict, hearing: dict | None, hint: str, transcribe) -> tuple[dict, list[str]]:
+    """Retry once without VAD and the prompt, then once on the original audio.
+
+    ``transcribe`` is ``(kind) -> pass dict`` with kind ``no-vad-no-prompt`` or
+    ``original-audio``. The single-flight worker stays the caller.
+    """
+    passes = ["vad"]
+    text = (first.get("text") or "").strip()
+    chosen = first
+    if prompt_echo(text, hint):
+        text = ""
+        chosen = {**first, "text": ""}
+    rms = (hearing or {}).get("rmsDbfs")
+    if not hearing_passes(text, rms):
+        return chosen, passes
+    try:
+        second = transcribe(HEARING_NO_VAD)
+        passes.append(HEARING_NO_VAD)
+        if (second.get("text") or "").strip() and not prompt_echo(second.get("text") or "", hint):
+            return second, passes
+    except Exception:
+        passes.append(f"{HEARING_NO_VAD}-failed")
+    if (hearing or {}).get("usedOriginal"):
+        return chosen, passes
+    try:
+        third = transcribe(HEARING_ORIGINAL)
+        passes.append(HEARING_ORIGINAL)
+        if (third.get("text") or "").strip() and not prompt_echo(third.get("text") or "", hint):
+            return third, passes
+    except Exception:
+        passes.append(f"{HEARING_ORIGINAL}-failed")
+    return chosen, passes
+
+
+def empty_transcript_reason(
+    text: str,
+    rms_dbfs: float | None,
+    *,
+    denoise_note: str = "",
+    used_collapsed: bool = False,
+    vad_ms: int | None = None,
+    no_speech: float | None = None,
+    echoed_prompt: bool = False,
+) -> str:
+    """One plain reason. A real transcript has none."""
+    if (text or "").strip() and not echoed_prompt:
+        return ""
+    if rms_dbfs is not None and float(rms_dbfs) <= -50.0:
+        return f"silent input (rms {float(rms_dbfs):.0f} dBFS)"
+    if used_collapsed and denoise_note:
+        return "denoise removed the signal"
+    if vad_ms is not None and vad_ms <= 0:
+        return "vad kept 0 ms"
+    if echoed_prompt:
+        return "prompt only"
+    if no_speech is not None and no_speech >= 0.7:
+        return f"no_speech {no_speech:.2f}"
+    return "empty transcript"
+
+
+def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None, dict]:
+    """Denoise the array. The whisper call receives the array, not a PyAV path.
+
+    A failed import or decode keeps the original array. A denoise result that
+    drops speech-level energy is discarded for that original array too.
+    """
     samples = load_audio_array(audio_path)
+    hearing = {
+        "durationMs": 0,
+        "rmsDbfs": None,
+        "peakDbfs": None,
+        "denoisedRmsDbfs": None,
+        "denoisedPeakDbfs": None,
+        "denoiseNote": "",
+        "usedOriginal": True,
+    }
     try:
         import numpy as np  # type: ignore
         import voice_runtime
 
         original = np.asarray(samples, dtype=np.float32).reshape(-1)
+        before = voice_runtime.pcm_levels(original, PROBE_RATE)
         cleaned = np.asarray(voice_runtime.denoise_pcm(original, PROBE_RATE), dtype=np.float32).reshape(-1)
+        after = voice_runtime.pcm_levels(cleaned, PROBE_RATE)
+        chosen, note = voice_runtime.guard_denoised(original, cleaned)
+        chosen = np.asarray(chosen, dtype=np.float32).reshape(-1)
+        hearing.update(
+            {
+                "durationMs": before["durationMs"],
+                "rmsDbfs": before["rmsDbfs"],
+                "peakDbfs": before["peakDbfs"],
+                "denoisedRmsDbfs": after["rmsDbfs"],
+                "denoisedPeakDbfs": after["peakDbfs"],
+                "denoiseNote": note,
+                "usedOriginal": bool(note) or chosen.size == 0,
+            }
+        )
     except Exception:
-        return audio_path, samples, None
-    if cleaned.size == 0:
-        return audio_path, original, None
-    return audio_path, cleaned, None
+        return audio_path, samples, None, hearing
+    if chosen.size == 0:
+        return audio_path, original, None, hearing
+    return audio_path, chosen, None, hearing
 
 
 def transcribe_moonshine(samples, model_dir: str, on_partial) -> str | None:
@@ -525,10 +653,19 @@ def transcribe_file(
     speech_pref: str = "",
     owner_size: str = "",
     model_path: str = "",
+    keep_wav: bool = False,
 ) -> dict:
-    prepared, samples, cleanup = prepare_audio(audio)
+    prepared, samples, cleanup, hearing = prepare_audio(audio)
+    original = None
     try:
-        return _transcribe_prepared(
+        import numpy as np  # type: ignore
+
+        loaded = load_audio_array(audio)
+        original = np.asarray(loaded, dtype=np.float32).reshape(-1)
+    except Exception:
+        original = samples
+    try:
+        result = _transcribe_prepared(
             prepared,
             samples,
             model_name,
@@ -538,13 +675,127 @@ def transcribe_file(
             speech_pref,
             owner_size,
             model_path,
+            hearing,
+            original,
         )
+        _record_hearing(result.get("audio") or hearing, original, samples, keep_wav)
+        return result
     finally:
         if cleanup and os.path.exists(cleanup):
             try:
                 os.remove(cleanup)
             except OSError:
                 pass
+
+
+def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
+    """One whisper pass. Segment text is kept even when no-speech is high."""
+    segments, info = model.transcribe(payload, **kwargs)
+    parts: list[str] = []
+    no_speech: list[float] = []
+    partials = 0
+    for seg in segments:
+        text = (getattr(seg, "text", "") or "").strip()
+        if text:
+            parts.append(text)
+            partials += 1
+            if on_partial and partials <= 12:
+                on_partial(" ".join(parts))
+        prob = getattr(seg, "no_speech_prob", None)
+        if isinstance(prob, (int, float)):
+            no_speech.append(float(prob))
+    joined = " ".join(parts).strip()
+    avg = sum(no_speech) / len(no_speech) if no_speech else 0.0
+    kept, note = apply_no_speech_policy(joined, avg)
+    vad = getattr(info, "duration_after_vad", None)
+    vad_ms = int(float(vad) * 1000) if isinstance(vad, (int, float)) else 0
+    return {
+        "text": kept,
+        "noSpeechProb": round(avg, 4),
+        "noSpeechNote": note,
+        "vadMs": vad_ms,
+        "language": getattr(info, "language", "") or "",
+        "durationMs": int(float(getattr(info, "duration", 0.0) or 0.0) * 1000),
+    }
+
+
+def _finish_hearing(hearing: dict, pass_row: dict, hint: str, passes: list[str]) -> dict:
+    text = (pass_row.get("text") or "").strip()
+    echoed = prompt_echo(text, hint)
+    if echoed:
+        text = ""
+    reason = empty_transcript_reason(
+        text,
+        hearing.get("rmsDbfs"),
+        denoise_note=str(hearing.get("denoiseNote") or ""),
+        used_collapsed=not hearing.get("usedOriginal"),
+        vad_ms=pass_row.get("vadMs"),
+        no_speech=pass_row.get("noSpeechProb"),
+        echoed_prompt=echoed,
+    )
+    device = choose_stt_device(cuda_runtime_ready())
+    hearing.update(
+        {
+            "vadMs": pass_row.get("vadMs"),
+            "noSpeechProb": pass_row.get("noSpeechProb"),
+            "model": _model_name or "",
+            "device": _device_name or device["device"],
+            "compute": _compute_type or device["compute_type"],
+            "language": pass_row.get("language") or "",
+            "promptUsed": bool(hint) and HEARING_NO_VAD not in passes and HEARING_ORIGINAL not in passes,
+            "emptyReason": reason,
+            "passes": passes,
+            "noSpeechNote": pass_row.get("noSpeechNote") or "",
+        }
+    )
+    return hearing
+
+
+def _record_hearing(hearing: dict, original, cleaned, keep_wav: bool) -> None:
+    """One JSON line per utterance. WAVs stay off unless the owner asks."""
+    root = os.environ.get("FRIDAY_ROOT", "").strip()
+    if not root:
+        return
+    folder = Path(root) / "debug" / "reports"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "voice-hearing.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(hearing, ensure_ascii=False) + "\n")
+        if path.stat().st_size > 200_000:
+            lines = path.read_text(encoding="utf-8").splitlines()[-200:]
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if keep_wav:
+            _stash_utterance_wavs(folder / "utterances", original, cleaned)
+    except OSError:
+        return
+
+
+def _stash_utterance_wavs(folder: Path, original, cleaned) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    existing = sorted(folder.glob("*.wav"))
+    stamp = f"{len(existing):05d}"
+    _write_float_wav(folder / f"{stamp}-raw.wav", original)
+    _write_float_wav(folder / f"{stamp}-denoised.wav", cleaned if cleaned is not None else original)
+    wavs = sorted(folder.glob("*.wav"))
+    # Five utterances, raw and denoised.
+    for old in wavs[:-10]:
+        try:
+            old.unlink()
+        except OSError:
+            continue
+
+
+def _write_float_wav(path: Path, samples) -> None:
+    import numpy as np  # type: ignore
+
+    audio = np.asarray(samples if samples is not None else [], dtype=np.float32).reshape(-1)
+    pcm = np.clip(np.round(audio * 32767.0), -32768, 32767).astype("<i2")
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(PROBE_RATE)
+        handle.writeframes(pcm.tobytes())
 
 
 def _transcribe_prepared(
@@ -557,6 +808,8 @@ def _transcribe_prepared(
     speech_pref: str,
     owner_size: str = "",
     model_path: str = "",
+    hearing: dict | None = None,
+    original=None,
 ) -> dict:
     engine = "faster-whisper"
     moon_text = None
@@ -577,34 +830,46 @@ def _transcribe_prepared(
         except Exception:
             turn_probability = None
     if moon_text:
-        return {
-            "ok": True,
-            "text": moon_text,
-            "language": "en",
-            "durationMs": 0,
-            "model": "moonshine-tiny-streaming",
-            "noSpeechProb": 0.0,
-            "loadCount": _load_count,
-            "engine": engine,
-            "turnProbability": turn_probability,
-        }
+        return _heard(
+            {
+                "ok": True,
+                "text": moon_text,
+                "language": "en",
+                "durationMs": 0,
+                "model": "moonshine-tiny-streaming",
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": engine,
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": moon_text, "vadMs": None, "noSpeechProb": 0.0, "language": "en", "noSpeechNote": ""},
+            "",
+            ["moonshine"],
+        )
     try:
         model = get_model(owner_model(owner_size, model_name), model_path or None)
     except Exception:
         windows_text = transcribe_windows(audio)
         if not windows_text:
             raise
-        return {
-            "ok": True,
-            "text": windows_text,
-            "language": "",
-            "durationMs": 0,
-            "model": "windows-speech",
-            "noSpeechProb": 0.0,
-            "loadCount": _load_count,
-            "engine": "windows-speech",
-            "turnProbability": turn_probability,
-        }
+        return _heard(
+            {
+                "ok": True,
+                "text": windows_text,
+                "language": "",
+                "durationMs": 0,
+                "model": "windows-speech",
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": "windows-speech",
+                "turnProbability": turn_probability,
+            },
+            hearing,
+            {"text": windows_text, "vadMs": None, "noSpeechProb": 0.0, "language": "", "noSpeechNote": ""},
+            "",
+            ["windows-speech"],
+        )
     lang = resolve_language(language)
     hint = (initial_prompt or "").strip()
     if lang is None and not hint:
@@ -619,7 +884,7 @@ def _transcribe_prepared(
         kwargs["initial_prompt"] = hint[:800]
     payload = samples if samples is not None else audio
     try:
-        segments, info = model.transcribe(payload, **kwargs)
+        first = _consume_whisper(model, payload, kwargs, on_partial)
     except Exception as exc:  # noqa: BLE001 — classified, then the ladder may speak
         fault = classify_stt_exception(exc)
         windows_text = None
@@ -627,48 +892,64 @@ def _transcribe_prepared(
             windows_text = transcribe_windows(audio)
         if not windows_text:
             raise fault from exc
-        return {
+        return _heard(
+            {
+                "ok": True,
+                "text": windows_text,
+                "language": "",
+                "durationMs": 0,
+                "model": "windows-speech",
+                "noSpeechProb": 0.0,
+                "loadCount": _load_count,
+                "engine": "windows-speech",
+                "turnProbability": turn_probability,
+                "notice": str(fault),
+                "sttClass": fault.kind,
+                "fix": fault.fix,
+            },
+            hearing,
+            {"text": windows_text, "vadMs": None, "noSpeechProb": 0.0, "language": "", "noSpeechNote": ""},
+            "",
+            ["windows-speech"],
+        )
+    bare = {key: value for key, value in kwargs.items() if key != "initial_prompt"}
+    bare["vad_filter"] = False
+
+    def again(kind: str) -> dict:
+        clip = original if kind == HEARING_ORIGINAL and original is not None else payload
+        return _consume_whisper(model, clip, bare, on_partial)
+
+    chosen, passes = run_hearing_ladder(first, hearing, hint, again)
+    text = (chosen.get("text") or "").strip()
+    return _heard(
+        {
             "ok": True,
-            "text": windows_text,
-            "language": "",
-            "durationMs": 0,
-            "model": "windows-speech",
-            "noSpeechProb": 0.0,
+            "text": text,
+            "language": chosen.get("language") or lang or "",
+            "durationMs": chosen.get("durationMs") or 0,
+            "model": _model_name or model_name,
+            "noSpeechProb": chosen.get("noSpeechProb") or 0.0,
             "loadCount": _load_count,
-            "engine": "windows-speech",
+            "engine": engine,
             "turnProbability": turn_probability,
-            "notice": str(fault),
-            "sttClass": fault.kind,
-            "fix": fault.fix,
-        }
-    parts: list[str] = []
-    no_speech: list[float] = []
-    partials = 0
-    for seg in segments:
-        text = (getattr(seg, "text", "") or "").strip()
-        if text:
-            parts.append(text)
-            partials += 1
-            if on_partial and partials <= 12:
-                on_partial(" ".join(parts))
-        prob = getattr(seg, "no_speech_prob", None)
-        if isinstance(prob, (int, float)):
-            no_speech.append(float(prob))
-    text = " ".join(parts).strip()
-    avg_ns = sum(no_speech) / len(no_speech) if no_speech else 0.0
-    if avg_ns >= 0.7:
-        text = ""
-    return {
-        "ok": True,
-        "text": text,
-        "language": getattr(info, "language", lang or ""),
-        "durationMs": int(float(getattr(info, "duration", 0.0)) * 1000),
-        "model": _model_name or model_name,
-        "noSpeechProb": round(avg_ns, 4),
-        "loadCount": _load_count,
-        "engine": engine,
-        "turnProbability": turn_probability,
-    }
+        },
+        hearing,
+        chosen,
+        hint if HEARING_NO_VAD not in passes and HEARING_ORIGINAL not in passes else "",
+        passes,
+    )
+
+
+def _heard(payload: dict, hearing: dict | None, pass_row: dict, hint: str, passes: list[str]) -> dict:
+    facts = dict(hearing or {})
+    _finish_hearing(facts, pass_row, hint, passes)
+    if HEARING_NO_VAD in passes or HEARING_ORIGINAL in passes:
+        facts["promptUsed"] = False
+    elif hint:
+        facts["promptUsed"] = True
+    payload["audio"] = facts
+    payload["emptyReason"] = facts.get("emptyReason") or ""
+    return payload
 
 
 WINDOWS_SPEECH_PROBE = (
@@ -1019,6 +1300,7 @@ def handle_request(req: dict) -> dict:
                 str(req.get("speech_pref") or req.get("speechPref") or ""),
                 str(req.get("sttSize") or req.get("stt_size") or ""),
                 str(req.get("model_path") or ""),
+                bool(req.get("keep_wav") or req.get("keepWav")),
             )
         except Exception as exc:  # noqa: BLE001
             fault = classify_stt_exception(exc)
