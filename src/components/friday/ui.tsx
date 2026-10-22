@@ -1,4 +1,5 @@
 import {
+  createElement,
   forwardRef,
   isValidElement,
   useRef,
@@ -14,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { iconForTitle } from "@/components/friday/button-icons";
 import { toolbarFit, useMeasuredWidth } from "@/lib/friday/chat-level";
 import { cn } from "@/lib/utils";
 
@@ -48,12 +50,14 @@ export function HudPanel({
   title?: string;
   hint?: string;
   actions?: ReactNode;
-  /** Header icon (lucide). Without one the panel keeps its signal dot. */
+  /** Header icon (lucide). Without one, the title picks one, else the signal dot. */
   icon?: LucideIcon | undefined;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
 }) {
+  // No icon given: one from the panel-title vocabulary, else the signal dot.
+  const titleIcon = !Icon && title ? iconForTitle(title) : null;
   return (
     <section className={cn("hud-panel relative overflow-hidden rounded-md", className)}>
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
@@ -62,6 +66,11 @@ export function HudPanel({
           <div className="flex min-w-0 items-center gap-2">
             {Icon ? (
               <Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+            ) : titleIcon ? (
+              createElement(titleIcon, {
+                className: "size-4 shrink-0 text-primary",
+                "aria-hidden": true,
+              })
             ) : (
               <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_10px_2px_var(--color-primary)]" />
             )}

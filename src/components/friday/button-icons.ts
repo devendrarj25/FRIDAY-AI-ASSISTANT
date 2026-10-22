@@ -1,5 +1,5 @@
 /**
- * FRIDAY Glass: an icon for every text button.
+ * FRIDAY Glass: an icon for every text button and every panel header.
  *
  * The shared Button (src/components/ui/button.tsx) adds the icon named here
  * when its children are plain text and it carries no icon of its own, so
@@ -9,7 +9,35 @@
  * rather than a wrong one.
  */
 import {
+  Activity,
+  AlertTriangle,
   AlignCenter,
+  Bluetooth,
+  Bot,
+  Boxes,
+  Cable,
+  Cloud,
+  Cpu,
+  Database,
+  FolderTree,
+  GitBranch,
+  Globe,
+  HardDrive,
+  Layers,
+  Library,
+  ListTodo,
+  Network,
+  Palette,
+  Puzzle,
+  ScrollText as Scroll,
+  Server,
+  Shield,
+  Smartphone,
+  SlidersHorizontal,
+  Timer,
+  Upload as UploadIcon,
+  Users,
+  Wifi,
   ArchiveRestore,
   ArrowDown,
   ArrowLeft,
@@ -240,3 +268,52 @@ export function iconForLabel(label: string): LucideIcon | null {
 
 /** How many verbs the vocabulary knows (for tests). */
 export const BUTTON_VERB_COUNT = Object.keys(VERBS).length;
+
+/** Panel title keyword → icon, first match wins (most specific first). */
+const TITLE_ICONS: Array<[RegExp, LucideIcon]> = [
+  [/\b(approval|consent|awaiting|needs you|pending)\b/i, ShieldCheck],
+  [/\b(security|safety|permission|billing)\b/i, Shield],
+  [/\b(rollback|revert|restore|backup)\b/i, ArchiveRestore],
+  [/\b(alert|warning|unfinished)\b/i, AlertTriangle],
+  [/\b(memory|knowledge|index)\b/i, Database],
+  [/\b(model|models|engines|runners|ollama|comfyui)\b/i, Boxes],
+  [/\b(cloud|provider)\b/i, Cloud],
+  [/\b(agent|agents)\b/i, Bot],
+  [/\b(skill|learning|teach)\b/i, GraduationCap],
+  [/\b(plugin|module|capabilit)/i, Puzzle],
+  [/\b(flow|workflow|pipeline|routing|lifecycle)/i, Workflow],
+  [/\b(task|queue|runs|scheduler|work)\b/i, ListTodo],
+  [/\b(log|history|feed|noticed|did)\b/i, Scroll],
+  [/\b(voice|wake|speech)\b/i, Volume2],
+  [/\b(chat|conversation|ask)\b/i, MessageSquare],
+  [/\b(browser|bookmark)\b/i, Globe],
+  [/\b(phone|companion)\b/i, Smartphone],
+  [/\b(bluetooth)\b/i, Bluetooth],
+  [/\b(wifi|network|connection)\b/i, Wifi],
+  [/\b(cable|usb)\b/i, Cable],
+  [/\b(repo|repositor|branch|github|release)/i, GitBranch],
+  [/\b(import|imported|sources|transfer)\b/i, UploadIcon],
+  [/\b(build|package|installer|install|setup)\b/i, Package],
+  [/\b(upgrade|update)/i, RefreshCw],
+  [/\b(project|projects|folder|folders|sandbox|layers|items)\b/i, FolderTree],
+  [/\b(library|curated)\b/i, Library],
+  [/\b(hardware|system|performance|telemetry|cpu)\b/i, Cpu],
+  [/\b(storage|disk)\b/i, HardDrive],
+  [/\b(ipc|mcp|server)\b/i, Server],
+  [/\b(diagnostic|doctor|status|scan|overview|detail)/i, Activity],
+  [/\b(appearance|theme|look|placement|rendering|preview)\b/i, Palette],
+  [/\b(motion|text|layout)\b/i, SlidersHorizontal],
+  [/\b(network)\b/i, Network],
+  [/\b(owner|people|users)\b/i, Users],
+  [/\b(settings|preferences|behaviour|advanced|general|options|control)\b/i, Settings2],
+  [/\b(research|create|test|playground)\b/i, FlaskConical],
+  [/\b(timer|schedule)\b/i, Timer],
+  [/\b(brain)\b/i, Brain],
+  [/\b(layers?)\b/i, Layers],
+];
+
+/** The icon for a panel title, or null to keep the panel's signal dot. */
+export function iconForTitle(title: string): LucideIcon | null {
+  for (const [pattern, icon] of TITLE_ICONS) if (pattern.test(title)) return icon;
+  return null;
+}

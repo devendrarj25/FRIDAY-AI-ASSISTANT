@@ -34,7 +34,11 @@ describe("panels and tiles", () => {
     expect(plain).toContain('class="hud-panel relative overflow-hidden rounded-md"');
     expect(plain).toContain('title="Memory"');
     expect(plain).toContain("12 records");
-    expect(plain).toContain("shadow-[0_0_10px_2px_var(--color-primary)]");
+    // A known title gets its icon from the vocabulary; an unknown one keeps the dot.
+    expect(plain).toMatch(/<svg[^>]*aria-hidden="true"[^>]*>.*?<\/svg><h2/);
+    const unknown = html(createElement(HudPanel, { title: "Zebra", children: "z" }));
+    expect(unknown).toContain("shadow-[0_0_10px_2px_var(--color-primary)]");
+    expect(unknown).not.toContain("<svg");
     const withIcon = html(createElement(HudPanel, { title: "CPU", icon: Cpu, children: "x" }));
     expect(withIcon).toMatch(/<svg[^>]*aria-hidden="true"[^>]*>.*?<\/svg><h2/);
     expect(html(createElement(Panel, { title: "Legacy", children: "y" }))).toContain("Legacy");
@@ -301,5 +305,26 @@ describe("every text button gets an icon from one vocabulary", () => {
     expect(iconForLabel("")).toBeNull();
     expect(iconForLabel("constructor")).toBeNull();
     expect(BUTTON_VERB_COUNT).toBeGreaterThan(100);
+  });
+});
+
+describe("panel headers get an icon from the title vocabulary", () => {
+  it("matches the titles the pages use", async () => {
+    const { iconForTitle } = await import("../../src/components/friday/button-icons");
+    for (const title of [
+      "Memory tiers",
+      "Cloud models",
+      "Active Agents",
+      "Waiting for your approval",
+      "Backup & Restore",
+      "Voice & Wake Word",
+      "Hardware Overview",
+      "Brain log",
+      "Connected repositories",
+      "Appearance",
+    ]) {
+      expect(iconForTitle(title), title).not.toBeNull();
+    }
+    expect(iconForTitle("Zebra")).toBeNull();
   });
 });
