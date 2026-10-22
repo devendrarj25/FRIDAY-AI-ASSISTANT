@@ -146,7 +146,7 @@ class HearingSelfTest(unittest.TestCase):
             _audio, samples, _cleanup, hearing = stt.prepare_audio(path)
             import numpy as np
 
-            seen.append((hearing, float(np.max(np.abs(samples)))))
+            seen.append((hearing, float(np.max(np.abs(np.asarray(samples))))))
             loud_enough = hearing["rmsDbfs"] is not None and hearing["rmsDbfs"] > -50.0
             return {
                 "text": "Friday what time is it" if loud_enough else "",
@@ -167,6 +167,7 @@ class HearingSelfTest(unittest.TestCase):
         self.assertEqual([row["level"] for row in report["levels"]], [0.5, 0.05, 0.008])
         self.assertEqual(len(seen), 3)
         for hearing, peak in seen:
+            assert isinstance(peak, float)
             self.assertLessEqual(peak, 1.0)
             # RNNoise may treat a synthetic tone as noise. The guard then
             # hands Whisper the original, and says so.

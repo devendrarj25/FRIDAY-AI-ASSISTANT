@@ -26,7 +26,11 @@ describe("a local model is free and private for normal use", () => {
       const bare = { id: `${kind}/any-model`, type: kind, label: "Local" };
       const stale = {
         ...bare,
-        accessRecord: { billingMode: "UNKNOWN", failureReason: "pricing_stale", evidence: { stale: true } },
+        accessRecord: {
+          billingMode: "UNKNOWN",
+          failureReason: "pricing_stale",
+          evidence: { stale: true },
+        },
       };
       for (const model of [bare, stale]) {
         expect(firewall.billingClass(model)).toBe("free");

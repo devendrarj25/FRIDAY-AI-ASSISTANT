@@ -251,8 +251,11 @@ describe("local daemon funnel", () => {
     };
     const none = await models.lmStudioEngine([base]);
     expect(none.online).toBe(true);
-    expect(none.error).toMatch(/no model loaded/);
-    expect(none.models).toEqual([]);
+    // A downloaded model that is not loaded stays visible with the reason and is never routable.
+    expect(none.error).toBe("model not loaded in LM Studio");
+    expect(none.models).toHaveLength(1);
+    expect(none.models[0]).toMatchObject({ id: "google/gemma", loaded: false });
+    expect(none.models.filter((row: { loaded?: boolean }) => row.loaded !== false)).toEqual([]);
     body = {
       models: [
         {
