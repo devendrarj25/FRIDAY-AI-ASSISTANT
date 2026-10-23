@@ -220,6 +220,36 @@ class VoiceRuntimeTests(unittest.TestCase):
         self.assertEqual(quiet_note, "")
         self.assertLess(float(np.max(np.abs(kept))), 0.001)
 
+    def test_quiet_microphone_is_lifted_before_denoise_and_vad(self):
+        import numpy as np
+
+        t = np.arange(16000, dtype=np.float32) / 16000.0
+        # The owner's array: speech near -45 dBFS RMS, peak near -28 dBFS.
+        quiet = (0.0079 * np.sqrt(2) * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        quiet[8000:8010] = 0.04
+        boosted, gain = voice_runtime.normalize_gain(quiet)
+        self.assertGreater(gain, 15.0)
+        level = voice_runtime.pcm_levels(boosted)
+        self.assertGreater(level["rmsDbfs"], -30.0)
+        self.assertLessEqual(level["peak"], voice_runtime.GAIN_PEAK_CEILING + 1e-4)
+        # Silence is not turned into noise, normal speech is left alone, never attenuated.
+        hush = np.full(16000, 0.0005, dtype=np.float32)
+        self.assertEqual(voice_runtime.normalize_gain(hush)[1], 0.0)
+        loud = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        same, none = voice_runtime.normalize_gain(loud)
+        self.assertEqual(none, 0.0)
+        self.assertTrue(np.array_equal(same, loud))
+        self.assertEqual(voice_runtime.normalize_gain(np.zeros(0, dtype=np.float32))[1], 0.0)
+
+    def test_soft_speech_vad_threshold_and_measured_level_stays_raw(self):
+        self.assertLess(stt.VAD_PARAMETERS["threshold"], 0.5)
+        text = (KERNEL / "stt.py").read_text(encoding="utf-8")
+        prepare = text.split("def prepare_audio", 1)[1].split("def transcribe_moonshine", 1)[0]
+        # Gain runs before denoise; Diagnostics still report the microphone's own level.
+        self.assertLess(prepare.index("normalize_gain"), prepare.index("denoise_pcm"))
+        self.assertIn("before = voice_runtime.pcm_levels(raw", prepare)
+        self.assertIn('"vad_parameters": dict(VAD_PARAMETERS)', text)
+
     def test_no_speech_policy_and_empty_ladder(self):
         kept, note, code = stt.apply_no_speech_policy("chrome open karo", 0.83)
         self.assertEqual(kept, "chrome open karo")
