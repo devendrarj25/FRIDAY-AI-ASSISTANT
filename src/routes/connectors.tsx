@@ -9,6 +9,7 @@
  */
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { Loader2, Plug, RefreshCw, Search, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -370,14 +371,11 @@ function McpServerPanel() {
     if (row) setStatus(row);
   }
 
+  // Pairing requests and the on/off state change outside this page, so the
+  // status follows the shared poller (paused while the window is hidden).
+  useLivePoll("connectors.mcp-status", refresh, 10_000);
+
   useEffect(() => {
-    void safeCall<McpStatus>(
-      "mcp-desk:status",
-      () => desktopApi()?.mcpDesk?.({ action: "status" }) as Promise<McpStatus>,
-      { fallback: { ok: false, error: "Desktop bridge is not available." } },
-    ).then((row) => {
-      if (row) setStatus(row);
-    });
     void safeCall<{ ok?: boolean; clients?: McpSnippet[] }>(
       "mcp-desk:snippet",
       () => desktopApi()?.mcpDesk?.({ action: "snippet" }) as Promise<{ clients?: McpSnippet[] }>,

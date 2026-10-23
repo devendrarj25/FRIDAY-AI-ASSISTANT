@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Download, FolderOpen, Pin, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -84,6 +85,18 @@ function LibraryPage() {
       off();
     };
   }, [pull]);
+
+  // Files added or removed on disk show up without a manual rescan.
+  useLivePoll(
+    "library.scan",
+    async () => {
+      if (!desktop) return;
+      await library.scan();
+      setItems(library.list());
+    },
+    30_000,
+    desktop,
+  );
 
   useEffect(() => {
     registerLibraryAsk((prompt) => {

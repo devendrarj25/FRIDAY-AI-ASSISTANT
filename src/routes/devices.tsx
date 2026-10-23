@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { livePoller } from "@/lib/friday/live-poll";
 import { useEffect, useState } from "react";
 import {
   Bluetooth,
@@ -56,20 +57,28 @@ function DevicesPage() {
     desktopApi()?.companionRemote ? undefined : null,
   );
 
+  // The phone link and its pairing change on their own, so this follows the
+  // shared poller instead of reading once.
   useEffect(() => {
     const api = desktopApi();
     if (!api?.companionRemote) return;
     let alive = true;
-    void api
-      .companionRemote()
-      .then((probe) => {
-        if (alive) setRemote(probe ?? null);
-      })
-      .catch(() => {
-        if (alive) setRemote(null);
-      });
+    const off = livePoller().subscribe(
+      "devices.companion-remote",
+      async () => {
+        try {
+          const probe = await api.companionRemote?.();
+          if (alive) setRemote(probe ?? null);
+        } catch (error) {
+          if (alive) setRemote(null);
+          throw error;
+        }
+      },
+      15_000,
+    );
     return () => {
       alive = false;
+      off();
     };
   }, []);
 

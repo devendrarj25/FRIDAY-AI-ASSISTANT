@@ -76,6 +76,7 @@ import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/insta
 import { useInstaller } from "@/lib/friday/use-installer";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { sourceCount } from "@/lib/friday/model-sources";
 import { useModels } from "@/lib/friday/use-models";
 import runnersFile from "../../config/local-runners.json";
@@ -152,18 +153,17 @@ function ComfyPanel() {
   const [graph, setGraph] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-  const check = () => {
-    void desktopApi()
-      ?.comfyuiStatus?.()
-      .then((row) =>
-        setLine(
-          row.online
-            ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
-            : row.reason,
-        ),
-      );
+  const check = async () => {
+    const row = await desktopApi()?.comfyuiStatus?.();
+    if (!row) return;
+    setLine(
+      row.online
+        ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
+        : row.reason,
+    );
   };
-  useEffect(check, []);
+  // ComfyUI is a separate program: follow it starting and stopping.
+  useLivePoll("models.comfyui", check, 20_000, Boolean(desktopApi()?.comfyuiStatus));
   return (
     <HudPanel title="ComfyUI" hint="image graphs on this PC, through its local API">
       <p className="text-note text-muted-foreground">{line}</p>

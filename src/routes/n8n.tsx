@@ -126,7 +126,14 @@ function N8nPage() {
     }
   };
 
+  // One connect at a time: a newer attempt, or leaving the page, cancels the old one.
+  const connectAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => connectAbort.current?.abort(), []);
+
   const connect = async () => {
+    connectAbort.current?.abort();
+    const controller = new AbortController();
+    connectAbort.current = controller;
     setStatus("connecting");
     setError("");
     // Endpoint and webhook are remembered; the API key stays in memory only.
@@ -135,6 +142,7 @@ function N8nPage() {
     try {
       const res = await fetch(`${base.replace(/\/$/, "")}/api/v1/workflows?limit=50`, {
         headers: key ? { "X-N8N-API-KEY": key } : {},
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`n8n responded ${res.status}`);
       const json = (await res.json()) as { data?: N8nWorkflow[] };
@@ -142,6 +150,7 @@ function N8nPage() {
       setStatus("online");
       toast.success("n8n connected", { description: `${json.data?.length ?? 0} workflows found` });
     } catch (err) {
+      if (controller.signal.aborted) return;
       setStatus("error");
       setError(
         err instanceof Error

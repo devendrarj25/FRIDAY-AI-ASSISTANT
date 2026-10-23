@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -111,6 +112,19 @@ function ProjectsPage() {
       offLib();
     };
   }, [pull]);
+
+  // Projects changed on disk or by FRIDAY elsewhere show up on their own.
+  useLivePoll(
+    "projects.refresh",
+    async () => {
+      if (!desktop) return;
+      await projectWorkspaces.refreshFromDesktop();
+      setItems(projectWorkspaces.list(true));
+      setActiveId(projectWorkspaces.activeId());
+    },
+    30_000,
+    desktop,
+  );
 
   useEffect(() => {
     return brain.subscribe(() => {
