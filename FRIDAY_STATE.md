@@ -84,7 +84,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 - The new look and page states in the packaged app, in Dark and Daylight, Glass and Classic.
 - Microphone, wake word, barge-in, speech recognition, and speaker-match on real hardware; a live speech-model download.
 - Live provider calls with real keys, including OpenRouter, and a live stream.
-- Hosted Actions for this branch (no workflow was started from this session).
+- Hosted Actions for this branch (no workflow was started from this session). The owner's FRIDAY Release run failed once on a Windows test timeout (`managed-python.test.ts` building a venv with pip); the test now builds it without pip and with a longer limit, and the rerun is the owner's.
 
 ## Known gaps
 

@@ -208,9 +208,13 @@ describe("ensureDatabase interpreter (mocked FRIDAY root)", () => {
     const legacyPy = venvInterpreter(fridayRoot);
     if (HOST_WIN) {
       const { execFileSync } = await import("node:child_process");
-      execFileSync("python", ["-m", "venv", join(fridayRoot, "runtime", ".venv")], {
-        timeout: 60_000,
-      });
+      // --without-pip: the test only needs the interpreter and site-packages, and
+      // bootstrapping pip made this the slowest step on a loaded Windows runner.
+      execFileSync(
+        "python",
+        ["-m", "venv", "--without-pip", join(fridayRoot, "runtime", ".venv")],
+        { timeout: 120_000 },
+      );
       const site = join(fridayRoot, "runtime", ".venv", "Lib", "site-packages");
       writeFileSync(
         join(site, "sitecustomize.py"),
@@ -248,7 +252,7 @@ describe("ensureDatabase interpreter (mocked FRIDAY root)", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 180_000);
 
   it("ensureDatabase names the exact interpreter, source, and tried paths when Python fails", async () => {
     const base = mkdtempSync(join(tmpdir(), "friday-db-fail-"));
@@ -258,9 +262,13 @@ describe("ensureDatabase interpreter (mocked FRIDAY root)", () => {
     const runtimePy = venvInterpreter(join(fridayRoot, "runtime"));
     if (HOST_WIN) {
       const { execFileSync } = await import("node:child_process");
-      execFileSync("python", ["-m", "venv", join(fridayRoot, "runtime", ".venv")], {
-        timeout: 60_000,
-      });
+      // --without-pip: the test only needs the interpreter and site-packages, and
+      // bootstrapping pip made this the slowest step on a loaded Windows runner.
+      execFileSync(
+        "python",
+        ["-m", "venv", "--without-pip", join(fridayRoot, "runtime", ".venv")],
+        { timeout: 120_000 },
+      );
       const site = join(fridayRoot, "runtime", ".venv", "Lib", "site-packages");
       writeFileSync(
         join(site, "sitecustomize.py"),
@@ -286,7 +294,7 @@ describe("ensureDatabase interpreter (mocked FRIDAY root)", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 180_000);
 });
 
 describe("document-extract uses the same resolver", () => {
