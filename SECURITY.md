@@ -1,5 +1,7 @@
 # FRIDAY — Security Policy
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 **Current shipping version: 1.1.3.4**
 
 **Owner:** Devendra Singh Meena (`devendrarj25`). Official repository:
