@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 🔑 How FRIDAY reaches a model and where keys live. Connector list (113 services) is [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md), not this file. Threat model: [SECURITY.md](../SECURITY.md).
 

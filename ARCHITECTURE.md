@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 🏗️ Layer map for this checkout. The locked folder baseline is [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md). The owner loop is [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md). Disk layout is [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 

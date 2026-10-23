@@ -3,7 +3,7 @@
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
 **App:** FRIDAY · **Owner:** Devendra Singh Meena (devendrarj25)
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 This repository is the whole product. FRIDAY installs, builds, and runs from
 these files. It does not need an outside assistant service to do that.

@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.1.3.4), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.1.3.5), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
 This briefing is the tree as it is now and nothing older. Evidence: [AUDIT.md](AUDIT.md). Features: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Rules: [AGENTS.md](AGENTS.md). Gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 

@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 ⚙️ Every workflow file under `.github/workflows`. Merge philosophy: [FRIDAY_MERGE_FLOW.md](FRIDAY_MERGE_FLOW.md). Runbook clicks: [RELEASE.md](../RELEASE.md). Only the owner runs these jobs.
 
@@ -189,4 +189,4 @@ ADOPT means built as described, ADAPT means built in reduced form, REJECT means 
 
 ## 5. Owner publish and acceptance steps
 
-The click-by-click publish and the acceptance list are in [RELEASE.md](../RELEASE.md). In short: PR Validation green on the pull request head, the owner merges, then FRIDAY Release `stage` `publish` runs only when the line on `main` is not already a GitHub release; it stops unless a fresh green PR Validation exists for that tree and never replaces an existing release (`mode` `rebuild` is the only input that does). The same tree can be packed on a Windows PC with `npm run build:win` (expect `release\FRIDAY-Setup-1.1.3.4.exe`, `release\FRIDAY-Portable-1.1.3.4.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin`). That local pack is not a GitHub release. A Linux run does not prove the Windows CMD pack, install, boot, update, rollback, uninstall, signing, SmartScreen, the microphone, or a real MCP client.
+The click-by-click publish and the acceptance list are in [RELEASE.md](../RELEASE.md). In short: PR Validation green on the pull request head, the owner merges, then FRIDAY Release `stage` `publish` runs only when the line on `main` is not already a GitHub release; it stops unless a fresh green PR Validation exists for that tree and never replaces an existing release (`mode` `rebuild` is the only input that does). The same tree can be packed on a Windows PC with `npm run build:win` (expect `release\FRIDAY-Setup-1.1.3.5.exe`, `release\FRIDAY-Portable-1.1.3.5.exe`, and `release\win-unpacked\resources\toolchain\python-embed\pack.bin`). That local pack is not a GitHub release. A Linux run does not prove the Windows CMD pack, install, boot, update, rollback, uninstall, signing, SmartScreen, the microphone, or a real MCP client.

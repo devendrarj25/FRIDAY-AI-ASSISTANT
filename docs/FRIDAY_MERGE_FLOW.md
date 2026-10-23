@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 🌿 The repository may be **public or private**. The workflows do not depend on that choice. On a public free repository, ruleset **Main Protection** is active: it blocks deleting the default branch and force-pushing it. It does not require a review or a status check, so a normal push to `main` is still possible. On a private free personal repository those rulesets are not available. Required Code Owner review is not enforced in either case. Safety stays workflow design plus owner discipline. The catalog of every workflow is [FRIDAY_GITHUB_ACTIONS.md](FRIDAY_GITHUB_ACTIONS.md). The working rules are [AGENTS.md](../AGENTS.md).
 

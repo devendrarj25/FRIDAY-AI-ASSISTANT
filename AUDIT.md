@@ -1,7 +1,7 @@
-# FRIDAY — Project Audit (v1.1.3.4)
+# FRIDAY — Project Audit (v1.1.3.5)
 
 Owner: **Devendra Singh Meena (`devendrarj25`)**
-Scope: state of the codebase at version **1.1.3.4**.
+Scope: state of the codebase at version **1.1.3.5**.
 
 📋 What is verified versus not, with the command that is the evidence. Live briefing: [FRIDAY_STATE.md](FRIDAY_STATE.md). Feature map: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md).
 
@@ -12,12 +12,12 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | Check | `command` | result |
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `69 files already formatted`. |
-| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.3.4`. |
+| Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.3.5`. |
 | Tests | `npm test` | 406 files passed, 3439 passed, 4 skipped. Exit 0 |
 | Kernel tests | `npm run test:kernel` | 243 passed, 3 skipped in 39.60s. Exit 0 |
 | Kernel types | `npm run typecheck:py` | pass (pyright baseline) |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk, provider status stale false) |
-| Version heal | `npm run verify:version` | in sync at **1.1.3.4** (npm encoding **1.1.3**) |
+| Version heal | `npm run verify:version` | in sync at **1.1.3.5** (npm encoding **1.1.3**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
 | Architecture audit | `node scripts/audit-architecture.cjs --strict` | pass |
 | Commit provenance | `npm run check:provenance` | pass |
@@ -26,9 +26,9 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | Hosted Actions | PR Validation / FRIDAY Release | **NOT VERIFIED** for this branch (no workflow was started) |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** (needs a Windows PC) |
 
-## 2. Published 1.1.3.4
+## 2. Published 1.1.3.5
 
-GitHub release v1.1.3.4 is the current public line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release v1.1.3.5 is the current public line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 
