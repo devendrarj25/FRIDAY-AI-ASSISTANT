@@ -1534,6 +1534,14 @@ html[data-ui-style="glass"][data-ambient-motion="On"]:not(.no-motion):not(.no-gp
 html.friday-hidden body::before {
   animation-play-state: paused;
 }
+/* Typing and scrolling: the decorative loops hold still for the moment of
+   input (interaction-pause.ts), so every keystroke lands on the next frame
+   instead of waiting behind the blur layers' redraw. They resume on their own. */
+html.friday-busy *,
+html.friday-busy *::before,
+html.friday-busy *::after {
+  animation-play-state: paused !important;
+}
 html.no-motion body::before,
 html.no-gpu body::before {
   animation: none;

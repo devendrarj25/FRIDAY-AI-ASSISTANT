@@ -35,6 +35,7 @@ import {
 } from "@/lib/friday/desktop";
 import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
+import { installInteractionPause } from "@/lib/friday/interaction-pause";
 import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
 import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
@@ -516,6 +517,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => installRejectionToast(), []);
+  useEffect(() => installInteractionPause(), []);
 
   if (workspaceRoot === undefined) return null;
   if (workspaceRoot === null) return <WorkspaceSetup />;
