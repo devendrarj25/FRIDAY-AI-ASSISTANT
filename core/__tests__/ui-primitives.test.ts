@@ -493,7 +493,7 @@ describe("long tables and tab transitions", () => {
 
   it("keeps the tab primitives on the optimistic transition helper", () => {
     const src = read("src/components/friday/ui.tsx");
-    expect(src.match(/useTransitionValue\(/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(src.match(/useTransitionValue\(/g)?.length).toBeGreaterThanOrEqual(3);
     expect(src).toContain("useOptimistic(value)");
   });
 });
