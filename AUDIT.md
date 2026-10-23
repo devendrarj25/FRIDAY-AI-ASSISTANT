@@ -23,12 +23,12 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | Commit provenance | `npm run check:provenance` | pass |
 | Renderer build | `npm run build:desktop` | pass; `src/routeTree.gen.ts` unchanged |
 | Local CI substitute | `npm run preflight -- --full` | every Linux gate passed. Windows NSIS pack, packaged verify, and installer smoke were skipped on Linux |
-| Hosted Actions | PR Validation / FRIDAY Release | **NOT VERIFIED** for this branch (no workflow was started) |
+| Hosted Actions | PR Validation, FRIDAY Release, FRIDAY Test Build, Maintenance Cleanup, Branch Cleanup, Main Safety Recovery | success on the current `main` line, from the owner's runs (PR Validation 172, FRIDAY Release 30, Test Build 3). Repository Control **NOT VERIFIED** (never run) |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** (needs a Windows PC) |
 
 ## 2. Published line
 
-The last published GitHub release is v1.1.3.4. The line on `main` is 1.1.3.5 (release pull request merged); its FRIDAY Release publish has not succeeded yet, so v1.1.3.5 is **NOT PUBLISHED**. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release v1.1.3.5 is published (FRIDAY Release run 30: Setup 321406580 bytes, Portable 321028417 bytes, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`); the EXEs were not downloaded or installed here. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 

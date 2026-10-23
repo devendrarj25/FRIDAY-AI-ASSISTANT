@@ -12,7 +12,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 | Item | Live value |
 | --- | --- |
-| Public version | `1.1.3.5` (`config/friday-version.json`); last published release is `v1.1.3.4`, `v1.1.3.5` is not published yet |
+| Public version | `1.1.3.5` (`config/friday-version.json`), published as GitHub release `v1.1.3.5` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
 | npm encoding | `1.1.3` (`package.json`), never compared as an update identity |
 | Epoch | 2 / `friday-2` |
 | Next public revision | `1.1.3.6`, not bumped until the owner asks |
@@ -51,6 +51,8 @@ Python floors stay in `kernel/requirements.txt` (FastAPI, `faster-whisper`, `edg
 
 Eleven workflow files: eight release and repository workflows plus Health Weekly, Auto Recover, and Security Scan. Catalog and triggers: [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). GitHub workflows stay locked; the owner runs every workflow and merges every pull request. Rule text: [AGENTS.md](AGENTS.md) → Actions, pull, and merge.
 
+Owner-run hosted results on the current `main` line (2026-10-23, from the run logs): PR Validation (pull request, run 172) success; FRIDAY Release (`stage` all, `mode` auto, run 30) success, publish and confirm included, `v1.1.3.5` published with its assets; FRIDAY Test Build (run 3) success; Maintenance Cleanup, Branch Cleanup, and Main Safety Recovery success. Safe Merge ran inside an earlier FRIDAY Release and merged the release pull request. Auto Recover (2026-10-23), Security Scan (2026-10-20), and Health Weekly (2026-10-19) last ran green on schedule. Repository Control has not been run by the owner and stays unverified. They are working: do not edit `.github/` to tidy it.
+
 ## Deliberate design decisions
 
 These look like bugs. They are not. Do not "fix" them.
@@ -84,7 +86,6 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 - The new look and page states in the packaged app, in Dark and Daylight, Glass and Classic.
 - Microphone, wake word, barge-in, speech recognition, and speaker-match on real hardware; a live speech-model download.
 - Live provider calls with real keys, including OpenRouter, and a live stream.
-- Hosted Actions for this branch (no workflow was started from this session). Hosted Actions: after the fixes below, PR Validation and a fresh FRIDAY Release (`stage` all, `mode` auto, which publishes the unpublished 1.1.3.5 line) are the owner's to run. Two FRIDAY Release failures were fixed in code: a Windows test timeout in `managed-python.test.ts`, and the readiness RESTART launch, which exited without a report because the test-sandbox filter in `electron/main.cjs` ignored the sandbox the restart must rediscover (the filter is now off for readiness launches). Both reruns, and PR Validation on the new head, are the owner's.
 
 ## Known gaps
 
