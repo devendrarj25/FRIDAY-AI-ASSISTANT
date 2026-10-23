@@ -11,7 +11,7 @@ This is the single rulebook for every AI tool, agent, and model that works on th
 
 FRIDAY is an existing, working, single-owner desktop assistant for Windows. It is local-first: Electron and React on the desktop, a Python FastAPI kernel on this PC. Official repository: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
-Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/electron-builder SemVer encoding (`1.0.0`) and is never an update identity. Next public revision is **1.1.3.5** and may only describe work done after the current public line **FRIDAY 1.1.3.4**.
+Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/electron-builder SemVer encoding (`1.0.0`) and is never an update identity. Next public revision is **1.1.3.6** and may only describe work done after the current public line **FRIDAY 1.1.3.5**.
 
 ## Boundaries
 

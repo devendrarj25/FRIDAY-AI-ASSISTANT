@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 **Owner:** Devendra Singh Meena (`devendrarj25`). Official repository:
 https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
@@ -18,7 +18,7 @@ maintained. When a fix ships, it ships in that current line.
 
 | Version | Security fixes |
 | --- | --- |
-| 1.1.3.4 (current) | Yes |
+| 1.1.3.5 (current) | Yes |
 | Older releases | No |
 
 ## Scope

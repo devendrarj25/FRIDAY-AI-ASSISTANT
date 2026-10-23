@@ -82,12 +82,12 @@ Terms: [LICENSE](LICENSE). How to change the tree: [CONTRIBUTING.md](CONTRIBUTIN
 
 ---
 
-## 9. What is new in 1.1.3.4
+## 9. What is new in 1.1.3.5
 
 <!-- release-engine: generated section. Summary plus links only - the full
      write-up lives in the changelog and the release notes. -->
 
-Released October 22, 2026 on the Stable channel - FRIDAY 1.1.3.4 adds FRIDAY now includes a persisted model catalogue and provider protocol modules and reliability fixes.
+Released October 23, 2026 on the Stable channel - FRIDAY 1.1.3.5 adds prefetch speech, turn-taking and a small chat model at build time, improvements, reliability fixes, behaviour updates and performance improvements.
 
-- Full detail for this release: **[releases/notes/v1.1.3.4.md](releases/notes/v1.1.3.4.md)**
+- Full detail for this release: **[releases/notes/v1.1.3.5.md](releases/notes/v1.1.3.5.md)**
 - Changelog for the current public line: **[CHANGELOG.md](CHANGELOG.md)**

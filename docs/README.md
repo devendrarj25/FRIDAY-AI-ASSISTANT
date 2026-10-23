@@ -1,6 +1,6 @@
 # FRIDAY — Documentation Index
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 **Owner:** Devendra Singh Meena (`devendrarj25`)
 
 📚 Every official document is listed once, under the question it answers. The table is generated from `scripts/docs-engine.cjs`. Do not hand-edit that table. After a document change, run `npm run docs:sync` then `npm run docs:check`.
