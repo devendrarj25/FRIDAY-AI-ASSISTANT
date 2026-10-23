@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FlowStudioHost } from "@/components/friday/FlowStudio";
+import { FlowStudioLazyHost } from "@/components/friday/FlowStudioLazy";
 import { featureForPath } from "@/lib/friday/flow-adapters";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 import {
@@ -526,7 +526,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     <ShellPresenceContext.Provider value={true}>
       <div className="friday-shell flex h-screen w-full flex-col overflow-hidden bg-background">
         <BootScreen />
-        <FlowStudioHost />
+        <FlowStudioLazyHost />
         {/* The only FRIDAY branding: the custom top strip. */}
         <TitleStrip />
         <div className="friday-interactive-region flex min-h-0 flex-1">
