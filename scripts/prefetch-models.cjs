@@ -12,6 +12,10 @@
  * folders from Models and Install Manager. A failed or offline download never
  * fails the build; it is reported and the app fetches it on first use.
  *
+ * The offline neural voice (Supertonic 3, from its publisher's Hugging Face repo,
+ * every file checked against the publisher's own digest) is fetched the same
+ * way, so spoken answers work offline on the first launch.
+ *
  * Running it again is cheap and quiet: every piece that is already on disk (and
  * matches its pinned digest where one exists) is only verified and the next one
  * is taken. `npm run setup` and `build:win` both run it, so nothing downloads twice.
@@ -27,8 +31,10 @@
  * when Ollama could not provide the same small model.
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
- * local chat model only, FRIDAY_PREFETCH_OLLAMA=0 skips the Ollama install and pulls. Hosted CI skips it unless FRIDAY_PREFETCH=1, so a
- * workflow run does not pull gigabytes on every build.
+ * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
+ * FRIDAY_PREFETCH_OLLAMA=0 the Ollama install and pulls, and
+ * FRIDAY_PREFETCH_OLLAMA_SMART=0 only the larger model. Hosted CI skips it
+ * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
 const fs = require("node:fs");
 const path = require("node:path");
@@ -45,6 +51,12 @@ const OLLAMA_MODELS = localLibrary.ollamaModels();
 
 /** Speech sizes: base starts listening fast, small is the Hindi/Hinglish default. */
 const STT_SIZES = ["base", "small"];
+
+/** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
+const TTS_MODEL = {
+  id: "supertonic-3",
+  sources: [{ kind: "hf-repo", repo: "Supertone/supertonic-3", label: "Hugging Face (Supertone)" }],
+};
 
 /** A small, fast, Apache-2.0 local chat model from the publisher's own GGUF repo. */
 const CHAT_MODEL = {
@@ -124,6 +136,7 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       },
     });
   }
+  if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
   if (enabled(env, "FRIDAY_PREFETCH_CHAT") && !ollamaServesChat(env, platform)) {
     jobs.push(chatJob(root));
   }
@@ -164,6 +177,17 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   return jobs;
 }
 
+/** Done only when a whole run finished: the repo is fetched file by file, so one file proves nothing. */
+function ttsJob(root) {
+  const dir = path.join(root, "models");
+  return {
+    id: TTS_MODEL.id,
+    kind: "tts",
+    ready: path.join(dir, TTS_MODEL.id, ".friday-complete"),
+    job: { modelId: TTS_MODEL.id, sources: TTS_MODEL.sources, dir },
+  };
+}
+
 function chatJob(root) {
   return {
     id: CHAT_MODEL.id,
@@ -200,13 +224,22 @@ function alreadyThere(row) {
 function printer(log, id) {
   const tty = Boolean(process.stdout.isTTY) && log === console.log;
   let last = "";
-  return (event) => {
+  let open = false;
+  const report = (event) => {
     const line = stageToolchain.progressLine(id, event, tty);
     if (!line || line === last) return;
     last = line;
-    if (tty) process.stdout.write(line);
-    else log(line);
+    if (tty) {
+      process.stdout.write(line);
+      open = true;
+    } else log(line);
   };
+  /** End the redrawn progress line so the next message starts on its own line. */
+  report.end = () => {
+    if (open) process.stdout.write("\n");
+    open = false;
+  };
+  return report;
 }
 
 async function ollamaUp(fetchImpl) {
@@ -321,14 +354,16 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
     log(`[friday] pulling ${model.tag} (${model.tier}: ${model.role})`);
     let result;
+    const progress = printer(log, model.tag);
     try {
       result = await (deps.pull || ollamaPull)(model.tag, {
         fetchImpl,
-        onEvent: printer(log, model.tag),
+        onEvent: progress,
       });
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
+    progress.end();
     if (result.ok) rows.push({ id: model.tag, ok: true, downloaded: true });
     else {
       log(
@@ -468,12 +503,22 @@ async function prefetch(
     }
     log(`[friday] fetching ${row.id}`);
     let result;
+    const progress = printer(log, row.id);
     try {
-      result = await fetchModel(row.job, printer(log, row.id), undefined);
+      result = await fetchModel(row.job, progress, undefined);
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
+    progress.end();
     if (result && result.ok) {
+      if (row.kind === "tts") {
+        try {
+          fs.mkdirSync(path.dirname(row.ready), { recursive: true });
+          fs.writeFileSync(row.ready, new Date().toISOString());
+        } catch {
+          /* without the marker the next run only checks the files again */
+        }
+      }
       log(`[friday] ok       ${row.id} (${result.source || result.via || "downloaded"})`);
       rows.push({ id: row.id, ok: true, downloaded: true });
     } else {
@@ -517,11 +562,13 @@ async function prefetch(
     );
     const gguf = chatJob(root);
     let result;
+    const progress = printer(log, gguf.id);
     try {
-      result = await fetchModel(gguf.job, printer(log, gguf.id), undefined);
+      result = await fetchModel(gguf.job, progress, undefined);
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
+    progress.end();
     rows.push(
       result && result.ok
         ? { id: gguf.id, ok: true, downloaded: true }

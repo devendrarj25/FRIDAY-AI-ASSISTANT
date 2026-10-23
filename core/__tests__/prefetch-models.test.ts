@@ -4,7 +4,7 @@
  * No network here: the downloader is a stand-in.
  */
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -23,6 +23,7 @@ describe("build-time model prefetch", () => {
       "stt-small",
       "smart-turn",
       "silero-vad",
+      "supertonic-3",
       "qwen2.5-1.5b-instruct",
     ]);
     const small = jobs[1];
@@ -34,7 +35,12 @@ describe("build-time model prefetch", () => {
     const vad = jobs[3];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
-    expect(jobs[4].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
+    expect(jobs[4].job.sources[0]).toMatchObject({
+      kind: "hf-repo",
+      repo: "Supertone/supertonic-3",
+    });
+    expect(jobs[4].job.dir).toBe(path.join("/friday", "models"));
+    expect(jobs[5].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
   });
 
   it("honours the opt-outs and stays off on hosted CI unless asked", () => {
@@ -47,7 +53,12 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(5);
+    ).toBe(6);
+    expect(
+      prefetch
+        .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_TTS: "0" }, "linux")
+        .some((row: { kind: string }) => row.kind === "tts"),
+    ).toBe(false);
     expect(prefetch.prefetchPlan("", quiet)).toEqual([]);
   });
 
@@ -438,6 +449,9 @@ describe("local models by tier, and nothing downloaded twice", () => {
         writeFileSync(path.join(stt, "config.json"), "{}");
         writeFileSync(path.join(stt, "model.bin"), "x");
       }
+      const voice = path.join(dir, "models", "supertonic-3");
+      mkdirSync(voice, { recursive: true });
+      writeFileSync(path.join(voice, ".friday-complete"), "done");
       const chat = path.join(dir, "models", "qwen2.5-1.5b-instruct");
       mkdirSync(chat, { recursive: true });
       writeFileSync(path.join(chat, "qwen2.5-1.5b-instruct-q4_k_m.gguf"), "x");
@@ -454,8 +468,31 @@ describe("local models by tier, and nothing downloaded twice", () => {
       });
       // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
       expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
-      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(3);
+      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(4);
       expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the offline voice", () => {
+  it("writes its completion marker only after the whole voice downloaded", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+    try {
+      const marker = path.join(dir, "models", "supertonic-3", ".friday-complete");
+      const run = (ok: boolean) =>
+        prefetch.prefetch(dir, {
+          env: { ...quiet, FRIDAY_PREFETCH_CHAT: "0" },
+          platform: "linux",
+          log: () => {},
+          download: async (job: { modelId: string }) =>
+            job.modelId === "supertonic-3" && !ok ? { ok: false, error: "network" } : { ok: true },
+        });
+      await run(false);
+      expect(existsSync(marker)).toBe(false);
+      await run(true);
+      expect(existsSync(marker)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

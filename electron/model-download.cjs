@@ -75,7 +75,9 @@ function assertSha256(file, expected) {
   const got = hashFile(file);
   if (got !== String(expected).toLowerCase()) {
     fs.rmSync(file, { force: true });
-    throw new Error(`checksum mismatch for ${path.basename(file)}`);
+    const error = new Error(`checksum mismatch for ${path.basename(file)}`);
+    error.code = "SHA_MISMATCH";
+    throw error;
   }
 }
 
@@ -166,6 +168,10 @@ function progressReporter(total, onEvent, label) {
         percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null,
       });
     },
+    /** Bytes a resumed download already holds, so the percent starts where it stopped. */
+    seed(bytes) {
+      done = Math.max(0, Number(bytes) || 0);
+    },
     get bytes() {
       return done;
     },
@@ -199,9 +205,24 @@ function normaliseDownloadAbort(err, signal) {
   return error;
 }
 
-async function pipeInto(handle, res, position, report, signal, control) {
+/**
+ * Stream a response into the file at `position`. `limit` caps the bytes taken
+ * (a segment never writes past its own range) and `onWrite` reports each
+ * chunk after it is on disk. Returns the bytes written.
+ */
+async function pipeInto(
+  handle,
+  res,
+  position,
+  report,
+  signal,
+  control,
+  limit = Infinity,
+  onWrite = null,
+) {
   const reader = res.body.getReader();
   let pos = position;
+  let taken = 0;
   for (;;) {
     if (signal?.aborted) throw abortError(signal);
     while (control?.paused) {
@@ -210,112 +231,232 @@ async function pipeInto(handle, res, position, report, signal, control) {
     }
     const { value, done } = await reader.read();
     if (done) break;
-    const buf = Buffer.from(value);
-    await handle.write(buf, 0, buf.length, pos);
-    pos += buf.length;
-    report.add(buf.length);
-    const limit = Number(control?.maxBytesPerSecond || 0);
-    if (limit > 0) {
-      const wait = Math.min(1000, Math.ceil((buf.length / limit) * 1000));
+    let buf = Buffer.from(value);
+    if (taken + buf.length > limit) buf = buf.subarray(0, limit - taken);
+    if (buf.length) {
+      await handle.write(buf, 0, buf.length, pos);
+      pos += buf.length;
+      taken += buf.length;
+      report.add(buf.length);
+      onWrite?.(buf.length);
+    }
+    if (taken >= limit) {
+      await reader.cancel().catch(() => {});
+      break;
+    }
+    const rate = Number(control?.maxBytesPerSecond || 0);
+    if (rate > 0) {
+      const wait = Math.min(1000, Math.ceil((buf.length / rate) * 1000));
       if (wait > 0) await sleep(wait);
     }
   }
-  return pos - position;
+  return taken;
+}
+
+const SAVE_EVERY_MS = 1500;
+
+/** Errors that end a download for good: retrying the same request cannot change them. */
+function endsDownload(err, signal) {
+  return (
+    Boolean(signal?.aborted) ||
+    ["PAUSE", "CANCEL", "OFF_ALLOWLIST", "UNSAFE_URL", "NO_RANGE", "ENOSPC"].includes(err?.code)
+  );
+}
+
+function planSegments(total, count) {
+  const chunk = Math.ceil(total / count);
+  const segments = [];
+  for (let i = 0; i < count; i += 1) {
+    const start = i * chunk;
+    const end = Math.min(total - 1, start + chunk - 1);
+    if (start <= end) segments.push({ start, end, got: 0 });
+  }
+  return segments;
+}
+
+/** The segment table a stopped download left beside its .part, or null when it cannot be trusted. */
+function readSegments(file, total) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    const rows = Array.isArray(saved?.segments) ? saved.segments : [];
+    const ok =
+      saved?.total === total &&
+      rows.length > 0 &&
+      rows.every(
+        (row) =>
+          Number.isInteger(row.start) &&
+          Number.isInteger(row.end) &&
+          Number.isInteger(row.got) &&
+          row.start <= row.end &&
+          row.got >= 0 &&
+          row.got <= row.end - row.start + 1,
+      );
+    return ok ? rows.map((row) => ({ start: row.start, end: row.end, got: row.got })) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Download one URL to `dest`. Uses parallel range segments for big files and a
- * resumable single stream otherwise. Returns the number of bytes written.
+ * Fetch one byte range to completion. The bytes already written are kept: a
+ * stream that ends early, or a connection that drops, asks again for the rest
+ * with a Range request. A server that answers a range request with anything
+ * but 206 cannot be resumed or split, so that is reported, not written.
  */
-async function downloadUrl(
-  url,
-  dest,
-  { onEvent, signal, label = "downloading", sha256, needBytes, control, extraHosts = [] } = {},
-) {
+async function fetchSegment(segment, ctx) {
+  const { url, handle, report, signal, control, extraHosts, canRange, single, save } = ctx;
+  const length = segment.end - segment.start + 1;
+  let failures = 0;
+  while (segment.got < length) {
+    const from = segment.start + segment.got;
+    try {
+      const { res } = await safety.fetchAllowlisted(
+        url,
+        { headers: canRange ? { Range: `bytes=${from}-${segment.end}` } : {}, signal },
+        extraHosts,
+      );
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      if (canRange && res.status !== 206 && !(single && from === 0)) {
+        const error = new Error("the server ignored the Range request");
+        error.code = "NO_RANGE";
+        throw error;
+      }
+      const wrote = await pipeInto(
+        handle,
+        res,
+        from,
+        report,
+        signal,
+        control,
+        length - segment.got,
+        (bytes) => {
+          segment.got += bytes;
+          save(false);
+        },
+      );
+      if (wrote > 0) failures = 0;
+      if (segment.got < length) throw new Error("the connection closed before the range ended");
+    } catch (err) {
+      if (endsDownload(err, signal)) throw err;
+      // Without Range support there is nothing to resume from: start the file again.
+      if (!canRange) segment.got = 0;
+      failures += 1;
+      if (failures >= RETRIES) {
+        const message = String(err?.message || err);
+        const offline = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|network|fetch failed/i.test(
+          message,
+        );
+        throw new Error(
+          offline && !message.startsWith("offline:") ? `offline: ${message}` : message,
+        );
+      }
+      await sleep(800 * failures);
+    }
+  }
+}
+
+/** A body of unknown length (no usable HEAD): one plain stream, tried again from the start. */
+async function fetchUnknownLength(ctx) {
+  const { url, handle, report, signal, control, extraHosts } = ctx;
+  for (let failures = 1; ; failures += 1) {
+    try {
+      await handle.truncate(0);
+      const { res } = await safety.fetchAllowlisted(url, { signal }, extraHosts);
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      return await pipeInto(handle, res, 0, report, signal, control);
+    } catch (err) {
+      if (endsDownload(err, signal) || failures >= RETRIES) {
+        const message = String(err?.message || err);
+        const offline = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|network|fetch failed/i.test(
+          message,
+        );
+        if (endsDownload(err, signal)) throw err;
+        throw new Error(
+          offline && !message.startsWith("offline:") ? `offline: ${message}` : message,
+        );
+      }
+      await sleep(800 * failures);
+    }
+  }
+}
+
+async function downloadOnce(url, dest, options) {
+  const {
+    onEvent,
+    signal,
+    label = "downloading",
+    sha256,
+    needBytes,
+    control,
+    extraHosts = [],
+    forceSingle = false,
+    segmentThreshold = SEGMENT_THRESHOLD,
+    maxSegments = MAX_SEGMENTS,
+  } = options;
   safety.assertAllowedUrl(url, extraHosts);
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   assertDiskRoom(path.dirname(dest), needBytes);
   const part = `${dest}.part`;
+  const table = `${part}.json`;
   const head = await headInfo(url, signal, extraHosts);
   const total = head.ok ? head.size : 0;
-  const segments = head.ok && head.ranges && total > SEGMENT_THRESHOLD ? MAX_SEGMENTS : 1;
+  const canRange = head.ok && head.ranges && total > 0 && !forceSingle;
+  const count = canRange && total > segmentThreshold ? maxSegments : 1;
   const report = progressReporter(total, onEvent, label);
 
-  const existed = fs.existsSync(part);
-  const segmentCount = existed ? 1 : segments;
-  const handle = await fsp.open(part, existed ? "r+" : "w+");
-  const existingSize = existed ? (await handle.stat()).size : 0;
-  try {
-    if (segmentCount > 1) {
-      const chunk = Math.ceil(total / segmentCount);
-      await Promise.all(
-        Array.from({ length: segmentCount }, async (_, i) => {
-          const start = i * chunk;
-          const end = Math.min(total - 1, start + chunk - 1);
-          if (start > end) return;
-          for (let attempt = 0; attempt < RETRIES; attempt += 1) {
-            try {
-              const { res } = await safety.fetchAllowlisted(
-                url,
-                { headers: { Range: `bytes=${start}-${end}` }, signal },
-                extraHosts,
-              );
-              if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-              await pipeInto(handle, res, start, report, signal, control);
-              return;
-            } catch (err) {
-              if (
-                signal?.aborted ||
-                err?.code === "PAUSE" ||
-                err?.code === "CANCEL" ||
-                err?.code === "OFF_ALLOWLIST" ||
-                err?.code === "UNSAFE_URL"
-              )
-                throw err;
-              if (attempt === RETRIES - 1) throw err;
-              await sleep(600 * (attempt + 1));
-            }
-          }
-        }),
-      );
-    } else {
-      let written = existingSize;
-      for (let attempt = 0; attempt < RETRIES; attempt += 1) {
-        try {
-          const { res } = await safety.fetchAllowlisted(
-            url,
-            { headers: written > 0 ? { Range: `bytes=${written}-` } : {}, signal },
-            extraHosts,
-          );
-          if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-          written += await pipeInto(handle, res, written, report, signal, control);
-          break;
-        } catch (err) {
-          if (
-            signal?.aborted ||
-            err?.code === "PAUSE" ||
-            err?.code === "CANCEL" ||
-            err?.code === "OFF_ALLOWLIST" ||
-            err?.code === "UNSAFE_URL"
-          )
-            throw err;
-          const message = String(err?.message || err);
-          const offline = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|network|fetch failed/i.test(
-            message,
-          );
-          if (attempt === RETRIES - 1) {
-            throw new Error(
-              offline && !message.startsWith("offline:") ? `offline: ${message}` : message,
-            );
-          }
-          await sleep(800 * (attempt + 1));
-        }
-      }
+  // A partial file is only trusted together with the table of what each range
+  // already holds; a size alone says nothing about holes left by parallel ranges.
+  let segments = canRange && fs.existsSync(part) ? readSegments(table, total) : null;
+  if (!segments) {
+    await fsp.rm(part, { force: true });
+    await fsp.rm(table, { force: true });
+    segments =
+      total > 0
+        ? canRange
+          ? planSegments(total, count)
+          : [{ start: 0, end: total - 1, got: 0 }]
+        : [];
+  }
+  report.seed(segments.reduce((sum, row) => sum + row.got, 0));
+
+  let lastSave = 0;
+  const save = (force) => {
+    if (!canRange) return;
+    const now = Date.now();
+    if (!force && now - lastSave < SAVE_EVERY_MS) return;
+    lastSave = now;
+    try {
+      fs.writeFileSync(table, JSON.stringify({ total, segments }));
+    } catch {
+      /* the table only speeds up a resume */
     }
+  };
+
+  const handle = await fsp.open(part, fs.existsSync(part) ? "r+" : "w+");
+  try {
+    const ctx = {
+      url,
+      handle,
+      report,
+      signal,
+      control,
+      extraHosts,
+      canRange,
+      single: segments.length === 1,
+      save,
+    };
+    if (total > 0) await Promise.all(segments.map((segment) => fetchSegment(segment, ctx)));
+    else await fetchUnknownLength(ctx);
   } catch (err) {
     const normalised = normaliseDownloadAbort(err, signal);
     const paused = normalised?.code === "PAUSE";
-    if (!paused) await fsp.rm(part, { force: true }).catch(() => {});
+    // A pause, or a connection that kept failing, leaves the partial file and its
+    // table so the next call carries on; anything else starts clean.
+    if (paused || !normalised?.code) save(true);
+    else {
+      await fsp.rm(part, { force: true }).catch(() => {});
+      await fsp.rm(table, { force: true }).catch(() => {});
+    }
     if (normalised?.code === "PAUSE" || normalised?.code === "CANCEL") throw normalised;
     throw err instanceof Error ? err : new Error(String(err?.message || err));
   } finally {
@@ -325,8 +466,10 @@ async function downloadUrl(
   const stat = await fsp.stat(part);
   if (total > 0 && stat.size !== total) {
     await fsp.rm(part, { force: true });
+    await fsp.rm(table, { force: true });
     throw new Error(`incomplete download (${stat.size}/${total} bytes)`);
   }
+  await fsp.rm(table, { force: true });
   await fsp.rename(part, dest);
   assertSha256(dest, sha256);
   onEvent?.({
@@ -339,6 +482,25 @@ async function downloadUrl(
     etaSeconds: 0,
   });
   return stat.size;
+}
+
+/**
+ * Download one URL to `dest`. Big files use parallel range connections, every
+ * range is held to its exact length, and a stopped download resumes from the
+ * bytes each range really wrote. A server that ignores Range, or a file that
+ * fails its SHA-256, is fetched once more as a single clean stream before the
+ * error is reported. Returns the number of bytes written.
+ */
+async function downloadUrl(url, dest, options = {}) {
+  try {
+    return await downloadOnce(url, dest, options);
+  } catch (err) {
+    const again =
+      (err?.code === "NO_RANGE" && !options.forceSingle) ||
+      (err?.code === "SHA_MISMATCH" && !options.retried);
+    if (!again) throw err;
+    return downloadOnce(url, dest, { ...options, forceSingle: true, retried: true });
+  }
 }
 
 // ------------------------------------------------------------------- ollama
