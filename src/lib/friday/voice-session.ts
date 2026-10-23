@@ -594,6 +594,53 @@ export function backchannel(input: {
   return "Mm-hmm.";
 }
 
+/** Latin-script Hindi (Hinglish) markers; a Devanagari line is Hindi on its own. */
+const HINGLISH_WORDS =
+  /\b(kya|kar(?:o|na|ti|ta|ke)?|rahi|raha|rahe|hai|hain|abhi|ruko|batao|bata|dekh|mujhe|mera|meri|tum|aap|nahi|haan|achha|accha|theek|thik|kaise|kitna|kab|gaya|hua|chalo|bolo|suno|sun|bhai|yaar)\b/i;
+
+/** The language a short spoken line should answer in: Hindi or Hinglish gets Hinglish, the rest English. */
+export function replyLanguage(text: string): "hi" | "en" {
+  if (/\p{Script=Devanagari}/u.test(text)) return "hi";
+  return HINGLISH_WORDS.test(text) ? "hi" : "en";
+}
+
+/**
+ * Two short lines for a turn that is taking a while: one when nothing has come
+ * back yet, one when it is still running. They are said once each, never while
+ * the real answer is already being spoken.
+ */
+export function holdLines(text: string): { first: string; later: string } {
+  return replyLanguage(text) === "hi"
+    ? { first: "Ek second, dekh rahi hu.", later: "Abhi bhi kaam kar rahi hu, bas thoda aur." }
+    : { first: "One moment, I'm on it.", later: "Still working on it, almost there." };
+}
+
+const STATUS_ASK =
+  /\b(kya kar (?:rahi|raha|rahe)|kya ho raha|ho gaya|hua kya|kitna (?:time|der|samay)|kab tak|abhi tak|progress|status|what are you (?:doing|working)|are you (?:still )?(?:working|there|listening)|still working|how long|done yet|is it done|sun rahi|sunn? rahi ho)\b|^(?:hello|hi|hey)(?: friday)?[.!?]*$/i;
+const SMALL_ACK =
+  /^(?:ok(?:ay)?|theek hai|thik hai|achha|accha|haan|han|cool|thanks|thank you|shukriya|dhanyavad|great|nice|badhiya|sahi hai)[.!?]*$/i;
+
+/**
+ * A light remark made while a turn is still running (how is it going, are you
+ * there, thanks) gets an instant spoken answer and the turn keeps going. Any
+ * real request returns "" and takes the normal path, so nothing is lost or
+ * answered with a guess.
+ */
+export function busyReply(text: string, work: { task: string; elapsedMs: number }): string {
+  const heard = text.trim();
+  if (!heard) return "";
+  const hindi = replyLanguage(heard) === "hi";
+  if (STATUS_ASK.test(heard)) {
+    const task = work.task.replace(/\s+/g, " ").trim().slice(0, 60);
+    const seconds = Math.max(1, Math.round(work.elapsedMs / 1000));
+    return hindi
+      ? `Haan, main ${task ? `"${task}" par` : "kaam"} lagi hu, ${seconds} second se. Ho jaye to turant batati hu.`
+      : `I'm on it${task ? `: "${task}"` : ""}, ${seconds} seconds in. I'll tell you the moment it's done.`;
+  }
+  if (SMALL_ACK.test(heard)) return hindi ? "Haan, kaam chal raha hai." : "Still on it.";
+  return "";
+}
+
 /** Filled pauses are not commands. */
 export function isHoldSound(text: string): boolean {
   return /^(uh+|um+|hmm+|mm+|haan|achha)\.?$/i.test(text.trim());

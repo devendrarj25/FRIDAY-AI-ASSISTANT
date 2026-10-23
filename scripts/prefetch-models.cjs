@@ -24,16 +24,16 @@
  * this PC (running, on PATH, or in its standard folders) is reused as it is:
  * no installer is downloaded and nothing is reinstalled. Only a missing Ollama
  * is installed per user (the newest official release, SHA-256 and Authenticode
- * checked, no administrator). It is then started and the local chat models of
- * config/local-runners.json are pulled: two light, fast ones for quick replies
- * and talking, and one larger, smarter one for long, hard work. A model Ollama
- * already holds is not pulled again, and the Qwen GGUF below is fetched only
- * when Ollama could not provide the same small model.
+ * checked, no administrator). It is then started and the one light, fast local
+ * chat model of config/local-runners.json is pulled for quick replies and
+ * talking; long, hard work goes to the larger models the router picks. A model
+ * Ollama already holds is not pulled again, and the Qwen GGUF below is fetched
+ * only when Ollama could not provide the same small model.
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_OLLAMA=0 the Ollama install and pulls, and
- * FRIDAY_PREFETCH_OLLAMA_SMART=0 only the larger model. Hosted CI skips it
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
 const fs = require("node:fs");
@@ -45,12 +45,19 @@ const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const localLibrary = require("../electron/local-library.cjs");
 
-/** Ollama is the local engine FRIDAY starts and stops; the tiered models are pulled through it. */
+/** Ollama is the local engine FRIDAY starts and stops; the light chat model is pulled through it. */
 const OLLAMA_API = "http://127.0.0.1:11434";
 const OLLAMA_MODELS = localLibrary.ollamaModels();
 
 /** Speech sizes: base starts listening fast, small is the Hindi/Hinglish default. */
 const STT_SIZES = ["base", "small"];
+
+/**
+ * A larger, more accurate size kept on disk for long or hard speech (pick it
+ * in Settings, Voice, Speech size). Live talk stays on the two light sizes, so
+ * it needs a PC with the RAM to hold it and can be skipped.
+ */
+const STT_LARGE = { size: "medium", minRamGb: 8 };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
@@ -77,17 +84,6 @@ function enabled(env, key) {
 
 const findOllama = localLibrary.findInstalledOllama;
 
-/** Whether this PC can hold a tier: a smart model needs the RAM its config row names. */
-function modelWanted(model, env = process.env, totalGb = os.totalmem() / 1024 ** 3) {
-  if (model.tier === "smart" && !enabled(env, "FRIDAY_PREFETCH_OLLAMA_SMART")) {
-    return { ok: false, why: "FRIDAY_PREFETCH_OLLAMA_SMART=0" };
-  }
-  if (model.minRamGb && totalGb < model.minRamGb) {
-    return { ok: false, why: `needs ${model.minRamGb} GB RAM, this PC has ${Math.floor(totalGb)}` };
-  }
-  return { ok: true, why: "" };
-}
-
 /** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
 function ollamaServesChat(env, platform) {
   return (
@@ -112,6 +108,16 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       id: plan.id,
       kind: "stt",
       ready: plan.dir,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  }
+  if (enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+    const plan = voiceWeights.sttPlan(STT_LARGE.size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      minRamGb: STT_LARGE.minRamGb,
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
@@ -339,20 +345,12 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
   rows.push({ id: "ollama", ok: true });
   const models = deps.models || OLLAMA_MODELS;
   for (const model of models) {
-    const wanted = modelWanted(model, deps.env || process.env, deps.totalGb);
-    if (!wanted.ok) {
-      log(`[friday] INFO     ${model.tag} (${model.tier}) skipped: ${wanted.why}`);
-      rows.push({ id: model.tag, ok: true, downloaded: false, skipped: wanted.why });
-      continue;
-    }
     if (have.has(model.tag)) {
-      log(
-        `[friday] ok       ${model.tag} (${model.tier}) already in Ollama; verified, not pulled again`,
-      );
+      log(`[friday] ok       ${model.tag} already in Ollama; verified, not pulled again`);
       rows.push({ id: model.tag, ok: true, downloaded: false });
       continue;
     }
-    log(`[friday] pulling ${model.tag} (${model.tier}: ${model.role})`);
+    log(`[friday] pulling ${model.tag} (${model.role})`);
     let result;
     const progress = printer(log, model.tag);
     try {
@@ -454,6 +452,7 @@ async function prefetch(
     platform = process.platform,
     ollama,
     latest = localLibrary.latestOfficialRelease,
+    totalGb,
   } = {},
 ) {
   const rows = [];
@@ -495,10 +494,18 @@ async function prefetch(
     }
   }
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
+  const ramGb = totalGb ?? os.totalmem() / 1024 ** 3;
   for (const row of jobs) {
     if (alreadyThere(row)) {
       log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
       rows.push({ id: row.id, ok: true, downloaded: false });
+      continue;
+    }
+    if (row.minRamGb && ramGb < row.minRamGb) {
+      log(
+        `[friday] INFO     ${row.id} skipped: needs ${row.minRamGb} GB RAM, this PC has ${Math.floor(ramGb)}`,
+      );
+      rows.push({ id: row.id, ok: true, downloaded: false, skipped: true });
       continue;
     }
     log(`[friday] fetching ${row.id}`);
@@ -549,7 +556,7 @@ async function prefetch(
   }
   // The Qwen GGUF is the same small model Ollama pulls; it is fetched only
   // when Ollama is meant to provide it and could not.
-  const small = OLLAMA_MODELS.find((model) => model.tier === "fast")?.tag;
+  const small = OLLAMA_MODELS[0]?.tag;
   const provided = ollamaRows.some((row) => row.id === small && row.ok);
   if (
     ollamaServesChat(env, platform) &&
@@ -588,7 +595,6 @@ module.exports = {
   ollamaPull,
   findOllama,
   detectOllama,
-  modelWanted,
   ollamaServesChat,
 };
 

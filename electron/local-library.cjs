@@ -298,17 +298,12 @@ function findInstalledOllama({ env = process.env, exists = fs.existsSync, versio
   return { exe, version: read(exe) };
 }
 
-/** The local models setup pulls through Ollama, by tier (config/local-runners.json). */
+/** The local chat model setup pulls through Ollama (config/local-runners.json): one, kept light and fast. */
 function ollamaModels(options = {}) {
   const runner = options.runner || runnerById("ollama");
   return (Array.isArray(runner?.models) ? runner.models : [])
     .filter((row) => row && typeof row.tag === "string" && row.tag)
-    .map((row) => ({
-      tag: row.tag,
-      tier: row.tier === "smart" ? "smart" : "fast",
-      role: String(row.role || ""),
-      minRamGb: Number(row.minRamGb) > 0 ? Number(row.minRamGb) : 0,
-    }));
+    .map((row) => ({ tag: row.tag, role: String(row.role || "") }));
 }
 
 /**

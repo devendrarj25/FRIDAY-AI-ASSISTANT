@@ -8,10 +8,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   acceptsVoiceTurn,
+  busyReply,
   duplicateFinalUtterance,
   endpointSilenceMs,
+  holdLines,
   microphoneAllowed,
   nextSpokenCursor,
+  replyLanguage,
   spokenReplyAllowed,
   spokenRouteError,
   takeSpeakable,
@@ -137,5 +140,56 @@ describe("the existing voice owners enforce that policy", () => {
     expect(settings).toContain('label="Mute microphone"');
     expect(settings).toContain("assistantMode.setPaused(!voice.paused)");
     expect(settings).toContain("FRIDAY speaks only in Auto mode");
+  });
+});
+
+describe("FRIDAY stays responsive while a turn is running", () => {
+  const work = { task: "summarise the quarterly report", elapsedMs: 12_400 };
+
+  it("answers a status question or a thank-you at once, in the language it was asked in", () => {
+    const english = busyReply("are you still working?", work);
+    expect(english).toContain("I'm on it");
+    expect(english).toContain("summarise the quarterly report");
+    expect(english).toContain("12 seconds");
+    const hinglish = busyReply("kya kar rahi ho abhi", work);
+    expect(hinglish).toMatch(/^Haan, main/);
+    expect(hinglish).toContain("12 second");
+    expect(busyReply("क्या कर रही हो ho gaya", work)).toMatch(/^Haan, main/);
+    expect(busyReply("thanks", work)).toBe("Still on it.");
+    expect(busyReply("theek hai", work)).toBe("Haan, kaam chal raha hai.");
+  });
+
+  it("leaves a real request to the normal path, so nothing is answered with a guess", () => {
+    for (const text of [
+      "open the downloads folder",
+      "kal ki meeting ka summary banao",
+      "write an email to the team",
+      "",
+    ]) {
+      expect(busyReply(text, work)).toBe("");
+    }
+  });
+
+  it("picks Hinglish for Hindi and Hinglish speech and English otherwise", () => {
+    expect(replyLanguage("kya kar rahi ho")).toBe("hi");
+    expect(replyLanguage("यह क्या है")).toBe("hi");
+    expect(replyLanguage("what are you doing")).toBe("en");
+    expect(holdLines("kya haal hai").first).toBe("Ek second, dekh rahi hu.");
+    expect(holdLines("open the report").first).toBe("One moment, I'm on it.");
+    expect(holdLines("open the report").later).not.toBe(holdLines("open the report").first);
+  });
+
+  it("is wired into Auto mode: an instant in-place reply, a hold line, and no stop for a remark", () => {
+    const assistant = source("src/lib/friday/assistant-mode.ts");
+    expect(assistant).toContain("busyReply(command");
+    expect(assistant).toContain('this.remember("busy-reply"');
+    expect(assistant).toContain("this.armHoldLines(command)");
+    expect(assistant).toContain("this.clearHoldLines()");
+    // A real spoken request still interrupts, and a stop word still stops.
+    expect(assistant).toContain("brain.stop()");
+    const dispatch = assistant.slice(assistant.indexOf("private dispatch(command: string)"));
+    expect(dispatch.indexOf("busyReply(command")).toBeLessThan(
+      dispatch.indexOf("this.dropPlayback()"),
+    );
   });
 });
