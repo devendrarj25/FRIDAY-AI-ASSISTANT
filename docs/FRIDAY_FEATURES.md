@@ -383,3 +383,30 @@ Each decision was recorded from public documentation read on the date in its hea
 | ChatGPT agent mode, memory, projects, scheduled tasks ([TechCrunch](https://www.techcrunch.com/2025/07/17/openai-launches-a-general-purpose-agent-in-chatgpt)); Gemini Live camera and screen sharing ([Tom's Guide](https://tomsguide.com/ai/gemini-live-video-and-screen-sharing-is-now-free-for-android-heres-how-to-use-it)) | ADAPT | FRIDAY has each of these locally: agent runtime with tools and approval, memory, projects, reminders, screen and camera awareness. |
 | Speech emotion cues from pitch and energy ([patent 9972341](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9972341), [PMC10586421](https://pmc.ncbi.nlm.nih.gov/articles/PMC10586421/)) | ADOPT | `voice_prosody` measures median pitch, pitch spread, loudness, and voiced share per utterance with numpy; `src/lib/friday/voice-tone.ts` compares them with the owner's own baseline, so a naturally loud voice… |
 | ChatGPT voice is full-duplex in 2026 and Gemini Live supports barge-in ([Apidog](https://apidog.com/vi/blog/gpt-live-vs-advanced-voice-mode), [TechCrunch](https://techcrunch.com/2024/08/13/gemini-live-googles-answer-to-chatgpts-advanced-voice-mode-launches/)) | ADAPT | FRIDAY already has barge-in and a follow-up window. |
+
+### Conversation (2026-10-09)
+
+| Topic | Decision | Reason |
+| --- | --- | --- |
+| Short replies, a reused conversation, rare humour ([Siri HIG](https://developer.apple.com/design/human-interface-guidelines/siri)) | ADOPT | Implemented in `src/lib/friday/conversation-style.ts`. |
+| Voice stays in the same chat, the transcript stays visible, interruption is normal ([OpenAI Help, Voice](https://help.openai.com/en/articles/20001274-chatgpt-voice)) | ADAPT | One thread already; a hosted full-duplex model would be a second stack. |
+| Numbered citations resolve to search-result records ([Perplexity streaming citations](https://docs.perplexity.ai/docs/cookbook/articles/streaming-citations/README)) | ADAPT | Keys stay in safeStorage and an HTML scrape stays the last resort (`electron/browser.cjs`). |
+| Code runs with the network off and a memory cap ([code interpreter guide](https://developers.openai.com/api/docs/guides/tools-code-interpreter)) | ADAPT | The bundled Python and Node are used (`electron/sandbox-engines.cjs`); a hosted container is refused. |
+| A container sandbox opens the plugin file at its host path ([Docker bind mounts](https://docs.docker.com/engine/containers/run/)) | ADOPT | Docker and Podman mount the workspace at that path with the network off; Windows keeps the single `/work` mount. |
+| NSIS metadata lists `files[].sha512` and the updater does not roll back ([electron-builder auto-update](https://www.electron.build/docs/features/auto-update)) | ADAPT | FRIDAY checks SHA-256 and keeps its own rollback in `electron/update-safety.cjs`. |
+| Another product's dialogue, voice, or logo | REJECT | Independence: no copied persona. |
+
+### Voice interaction (2026-10-13 and 2026-10-14)
+
+| Topic | Decision | Reason |
+| --- | --- | --- |
+| Chromium echo cancellation covers audio this app plays ([electron#47043](https://github.com/electron/electron/issues/47043)) | ADOPT | Keep echo cancellation and the speaking guard. |
+| Swara and Neerja are female Indian neural voices ([Indian voices](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/announcing-ga-of-new-indian-voices/4247044)) | ADOPT | Swara is the silent default; Roman Hindi words go to her in Devanagari. |
+| Supertonic 3 voice F2 speaks Hindi ([model card](https://huggingface.co/Supertone/supertonic-3)) | ADOPT | F2 is used and not bundled. |
+| faster-whisper documents CPU int8; CUDA needs extra libraries ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) | ADAPT | Keep int8 unless the CUDA libraries are visible. |
+| React 19 compares an external-store snapshot with Object.is ([useSyncExternalStore](https://react.dev/reference/react/useSyncExternalStore)) | ADOPT | The voice cue is a string, so a caption does not redraw the mark. |
+| A separate Hinglish speech vendor ([hinglish-tts](https://github.com/harrrshall/hinglish-tts)) | REJECT | One voice path stays. |
+| An ended microphone track cannot be resumed ([microphone track](https://www.webrtc-developers.com/how-to-know-if-my-microphone-works/)) | ADOPT | Reopen the one stream. |
+| Windows sleep can freeze the process before a suspend handler runs ([electron#47739](https://github.com/electron/electron/issues/47739)) | ADAPT | Rebuild on `resume`. |
+| A hidden document keeps scheduling frames ([visibilitychange](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)) | ADOPT | One clock pauses while the window is hidden. |
+| A second streaming speech engine; drawing the orb from React state on every audio frame | REJECT | One worker; the orb draws from the shared clock. |
