@@ -292,6 +292,18 @@ export function toolNarration(
   return "Opening it.";
 }
 
+/**
+ * "Do you want me to show you how?" belongs after real work: a turn that ran a
+ * skill, a tool or a runner. Small talk and plain answers get no offer.
+ */
+export function offersShowHow(
+  trace: ReadonlyArray<{ nodeId: string; state: string; detail?: string }> | undefined,
+): boolean {
+  return (trace ?? []).some(
+    (step) => TOOL_NODES.has(step.nodeId) && Boolean(String(step.detail || "").trim()),
+  );
+}
+
 const CONDUCT_CAP = 40;
 const TIERS = new Set<TrustTier>(["read", "reversible", "exec", "spend", "message", "destructive"]);
 const OUTCOMES = new Set<ConductJournal["outcome"]>(["ran", "needs-approval", "undone"]);

@@ -138,6 +138,7 @@ import { alertsAudible } from "./settings-runtime";
 import {
   EMPTY_CONDUCT,
   loadConduct,
+  offersShowHow,
   partialPlan,
   reduceVoice,
   saveConduct,
@@ -2051,7 +2052,11 @@ class AssistantModeStore {
       text,
       mode: normalizeAddressMode(preferences.getSnapshot().voice.addressMode),
       wakeWord: wakeWord(),
-      followUpOpen: Date.now() < this.followUpUntil,
+      // Hands-free keeps the conversation open for the attention window after
+      // FRIDAY last woke or answered, so a follow-up needs no name.
+      followUpOpen:
+        Date.now() < this.followUpUntil ||
+        (this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil),
       lastSpoken: this.spokenText,
       recentlySpeaking: this.recentlySpeaking(),
       recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
@@ -2573,6 +2578,10 @@ class AssistantModeStore {
         onEnd: () => {
           if (gen !== this.speechGen) return;
           this.echoUntil = Date.now() + 1500;
+          // The follow-up window counts from the end of her reply, not its start,
+          // so a long answer does not use up the owner's turn.
+          this.openFollowUp();
+          if (this.state.handsFree) this.setAwake();
           this.to("tts-end");
           if (this.state.pending && this.state.voiceState !== "WAITING_CONFIRMATION") {
             this.to("confirm-required");
@@ -2661,7 +2670,12 @@ class AssistantModeStore {
     if (!chunk.spoken) return;
     this.voicedChars += chunk.consumed;
     this.speak(chunk.spoken);
-    if (final && this.state.mode === "auto" && this.chartOfferedFor !== runId) {
+    if (
+      final &&
+      this.state.mode === "auto" &&
+      this.chartOfferedFor !== runId &&
+      offersShowHow(brain.getSnapshot().runs.find((run) => run.id === runId)?.trace)
+    ) {
       this.chartOfferedFor = runId;
       const line = armChartOffer(
         "voice",

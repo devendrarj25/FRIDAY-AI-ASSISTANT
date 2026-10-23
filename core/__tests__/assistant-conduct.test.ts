@@ -17,6 +17,7 @@ import {
   deliverSenses,
   emptySenseGate,
   loadConduct,
+  offersShowHow,
   partialPlan,
   proposeStep,
   reduceVoice,
@@ -392,5 +393,40 @@ describe("assistant standard rules", () => {
     const state = fs.readFileSync(path.join(ROOT, "FRIDAY_STATE.md"), "utf8");
     expect(state).toContain("AGENTS.md");
     expect(state).not.toContain("UI organization is FINAL");
+  });
+});
+
+describe("hands-free conversation and the show-how offer", () => {
+  it("offers the chart only after a turn that ran a tool, skill or runner", () => {
+    expect(offersShowHow(undefined)).toBe(false);
+    expect(offersShowHow([{ nodeId: "models.route", state: "ok", detail: "answered" }])).toBe(
+      false,
+    );
+    expect(offersShowHow([{ nodeId: "agents.tools", state: "ok", detail: "" }])).toBe(false);
+    expect(
+      offersShowHow([{ nodeId: "execution.runners", state: "ok", detail: "opened Chrome" }]),
+    ).toBe(true);
+    const mode = fs.readFileSync(
+      path.resolve(process.cwd(), "src/lib/friday/assistant-mode.ts"),
+      "utf8",
+    );
+    const streamed = mode.slice(mode.indexOf("private speakStreamed("));
+    expect(streamed.slice(0, 1200)).toMatch(
+      /offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/,
+    );
+  });
+
+  it("keeps a hands-free follow-up open from the end of her reply", () => {
+    const mode = fs.readFileSync(
+      path.resolve(process.cwd(), "src/lib/friday/assistant-mode.ts"),
+      "utf8",
+    );
+    expect(mode).toContain(
+      "(this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil)",
+    );
+    const end = mode.slice(mode.indexOf("onEnd: () => {"));
+    const block = end.slice(0, end.indexOf('this.to("tts-end")'));
+    expect(block).toContain("this.openFollowUp();");
+    expect(block).toContain("if (this.state.handsFree) this.setAwake();");
   });
 });
