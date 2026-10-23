@@ -13,7 +13,11 @@
       "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
       "tier": "bundled",
       "entry": "python.exe",
-      "kind": "zip"
+      "kind": "zip",
+      "mirrors": [
+        "https://mirrors.huaweicloud.com/python/3.12.10/python-3.12.10-embed-amd64.zip",
+        "https://registry.npmmirror.com/-/binary/python/3.12.10/python-3.12.10-embed-amd64.zip"
+      ]
     },
     {
       "id": "get-pip",
@@ -37,7 +41,11 @@
       "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
       "tier": "bundled",
       "entry": "node-v22.23.3-win-x64/node.exe",
-      "kind": "zip"
+      "kind": "zip",
+      "mirrors": [
+        "https://registry.npmmirror.com/-/binary/node/v22.23.3/node-v22.23.3-win-x64.zip",
+        "https://mirrors.huaweicloud.com/nodejs/v22.23.3/node-v22.23.3-win-x64.zip"
+      ]
     },
     {
       "id": "whisper-cpp",
@@ -61,7 +69,8 @@
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
       "tier": "bundled",
       "entry": "ggml-base.bin",
-      "kind": "file"
+      "kind": "file",
+      "mirrors": ["https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"]
     },
     {
       "id": "ggml-tiny",

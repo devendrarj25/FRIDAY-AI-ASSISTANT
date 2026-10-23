@@ -966,9 +966,11 @@ async function resolveWorkspaceRoot() {
   // A recorded folder inside a test sandbox under %TEMP% (installer smoke,
   // readiness) is never this owner's FRIDAY home: an interrupted test can
   // leave that pointer behind. Only an explicit FRIDAY_WORKSPACE_ROOT (which
-  // those tests set for their own launch) may select one.
+  // those tests set for their own launch) may select one. The readiness run
+  // itself restarts without that variable to prove FRIDAY rediscovers its own
+  // sandbox, so the filter is off for that harness launch only.
   const settled = (value) => {
-    if (value && THROWAWAY_ROOT.test(String(value))) {
+    if (value && process.env.FRIDAY_READINESS !== "1" && THROWAWAY_ROOT.test(String(value))) {
       log(`ignoring a FRIDAY folder left by a test run: ${value}`);
       return null;
     }

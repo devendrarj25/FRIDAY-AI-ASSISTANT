@@ -270,3 +270,76 @@ describe("wave 7 speech depth", () => {
     expect(advanceFlow(flow, "auto-turn").line).toBe("auto-turn");
   });
 });
+
+describe("toolchain staging fallback and progress", () => {
+  const body = Buffer.from("pack");
+  const pack = {
+    id: "python-embed",
+    tier: "bundled",
+    sha256: sha(body),
+    bytes: body.length,
+    url: "https://primary.example/python.zip",
+    mirrors: ["https://mirror-one.example/python.zip", "https://mirror-two.example/python.zip"],
+    license: "MIT",
+  };
+
+  it("falls back to the next source when one fails or serves the wrong bytes", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "friday-stage-fallback-"));
+    const asked: string[] = [];
+    const lines: string[] = [];
+    const staged = await stage.stageBundledPacks({
+      manifest: { budgetBytes: 10, packs: [pack] },
+      cacheDir: path.join(root, "cache"),
+      stageDir: path.join(root, "resources"),
+      log: (line: string) => lines.push(line),
+      fetchImpl: async (url: string) => {
+        asked.push(new URL(url).hostname);
+        if (url.includes("primary")) throw new Error("HTTP 503");
+        if (url.includes("mirror-one")) return { body: Buffer.from("evil") };
+        return { body };
+      },
+    });
+    expect(asked).toEqual(["primary.example", "mirror-one.example", "mirror-two.example"]);
+    expect(staged.staged).toHaveLength(1);
+    expect(lines.join("\n")).toContain("trying the next source");
+  });
+
+  it("reports every failed source and keeps the hash error visible", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "friday-stage-allfail-"));
+    await expect(
+      stage.stageBundledPacks({
+        manifest: { budgetBytes: 10, packs: [pack] },
+        cacheDir: path.join(root, "cache"),
+        stageDir: path.join(root, "resources"),
+        fetchImpl: async () => {
+          throw new Error("offline");
+        },
+      }),
+    ).rejects.toThrow(/could not be downloaded.*primary\.example.*mirror-two\.example/);
+  });
+
+  it("lists https sources only and keeps hf-mirror opt-in", () => {
+    expect(
+      stage.sourceUrls(
+        { url: "https://a.example/x", mirrors: ["http://b.example/x", "https://hf-mirror.com/x"] },
+        {},
+      ),
+    ).toEqual(["https://a.example/x"]);
+    expect(
+      stage.sourceUrls(
+        { url: "https://a.example/x", mirrors: ["https://hf-mirror.com/x"] },
+        { FRIDAY_HF_MIRROR: "1" },
+      ),
+    ).toEqual(["https://a.example/x", "https://hf-mirror.com/x"]);
+  });
+
+  it("draws a progress bar on a terminal and ten-percent lines in a log", () => {
+    const event = { progress: 50, speedMbps: 12.5, etaSeconds: 9 };
+    expect(stage.progressLine("node-win", event, true)).toMatch(
+      /^\r.*\[#{12}-{12}\]\s+50% 12\.5 MB\/s eta 9s$/,
+    );
+    expect(stage.progressLine("node-win", event, false)).toContain("50%");
+    expect(stage.progressLine("node-win", { progress: 53 }, false)).toBe("");
+    expect(stage.progressLine("node-win", { progress: null }, true)).toBe("");
+  });
+});

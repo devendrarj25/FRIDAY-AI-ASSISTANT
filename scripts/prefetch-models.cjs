@@ -12,14 +12,27 @@
  * folders from Models and Install Manager. A failed or offline download never
  * fails the build; it is reported and the app fetches it on first use.
  *
+ * On Windows the same step also installs Ollama per user (pinned installer,
+ * SHA-256 and Authenticode checked, no administrator), starts it, and pulls the
+ * two small chat models above, so chat works on the first launch.
+ *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
- * local chat model only. Hosted CI skips it unless FRIDAY_PREFETCH=1, so a
+ * local chat model only, FRIDAY_PREFETCH_OLLAMA=0 skips the Ollama install and pulls. Hosted CI skips it unless FRIDAY_PREFETCH=1, so a
  * workflow run does not pull gigabytes on every build.
  */
 const fs = require("node:fs");
 const path = require("node:path");
 
 const voiceWeights = require("../electron/voice-weights.cjs");
+const stageToolchain = require("./stage-toolchain.cjs");
+const localRunners = require("../config/local-runners.json");
+
+/** Ollama is the local engine FRIDAY starts and stops; these two are pulled through it. */
+const OLLAMA_API = "http://127.0.0.1:11434";
+const OLLAMA_MODELS = [
+  { tag: "qwen2.5:1.5b", role: "fast replies and voice turns" },
+  { tag: "qwen2.5:3b", role: "smarter chat, English, Hindi and Hinglish" },
+];
 
 /** Speech sizes: base starts listening fast, small is the Hindi/Hinglish default. */
 const STT_SIZES = ["base", "small"];
@@ -42,7 +55,7 @@ function enabled(env, key) {
 }
 
 /** The ordered jobs for one FRIDAY root. Pure, so a test can read it. */
-function prefetchPlan(root, env = process.env) {
+function prefetchPlan(root, env = process.env, platform = process.platform) {
   if (!root || !enabled(env, "FRIDAY_PREFETCH")) return [];
   const hosted = Boolean(env.CI || env.GITHUB_ACTIONS);
   if (hosted && String(env.FRIDAY_PREFETCH || "") !== "1") return [];
@@ -85,6 +98,28 @@ function prefetchPlan(root, env = process.env) {
       job: { modelId: CHAT_MODEL.id, sources: CHAT_MODEL.sources, dir: path.join(root, "models") },
     });
   }
+  const release = (localRunners.runners || []).find((row) => row.id === "ollama")?.release;
+  if (platform === "win32" && release?.url && enabled(env, "FRIDAY_PREFETCH_OLLAMA")) {
+    const dir = path.join(root, "runtime", "installers");
+    jobs.push({
+      id: "ollama-setup",
+      kind: "installer",
+      ready: path.join(dir, "ollama", release.asset),
+      job: {
+        modelId: "ollama",
+        dir,
+        sources: [
+          {
+            kind: "url",
+            url: release.url,
+            sha256: release.sha256,
+            bytes: release.bytes,
+            label: `Ollama ${release.tag} (official release)`,
+          },
+        ],
+      },
+    });
+  }
   return jobs;
 }
 
@@ -94,10 +129,206 @@ function alreadyThere(row) {
   return fs.existsSync(row.ready);
 }
 
-/** Run every job; returns one row per job. Never throws. */
-async function prefetch(root, { env = process.env, log = console.log, download } = {}) {
+function printer(log, id) {
+  const tty = Boolean(process.stdout.isTTY) && log === console.log;
+  let last = "";
+  return (event) => {
+    const line = stageToolchain.progressLine(id, event, tty);
+    if (!line || line === last) return;
+    last = line;
+    if (tty) process.stdout.write(line);
+    else log(line);
+  };
+}
+
+async function ollamaUp(fetchImpl) {
+  try {
+    const res = await fetchImpl(`${OLLAMA_API}/api/tags`, { signal: AbortSignal.timeout(2500) });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return new Set((body.models || []).map((row) => String(row.name || row.model || "")));
+  } catch {
+    return null;
+  }
+}
+
+/** Stream POST /api/pull and report percent; resolves ok when the daemon says success. */
+async function ollamaPull(tag, { fetchImpl = fetch, onEvent } = {}) {
+  const res = await fetchImpl(`${OLLAMA_API}/api/pull`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: tag, stream: true }),
+  });
+  if (!res.ok || !res.body) return { ok: false, error: `HTTP ${res.status}` };
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let ok = false;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, cut).trim();
+      buffer = buffer.slice(cut + 1);
+      if (!line) continue;
+      let row;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (row.error) return { ok: false, error: String(row.error) };
+      if (row.status === "success") ok = true;
+      if (row.total > 0 && row.completed >= 0) {
+        onEvent?.({ progress: (row.completed / row.total) * 100 });
+      }
+    }
+  }
+  return ok ? { ok: true } : { ok: false, error: "the pull ended without success" };
+}
+
+/**
+ * Install Ollama from the pinned, already verified installer, start it, and pull
+ * the lite models. Every step is injectable and none throws.
+ */
+async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
+  const fetchImpl = deps.fetch || fetch;
+  const exists = deps.exists || fs.existsSync;
   const rows = [];
-  const jobs = prefetchPlan(root, env);
+  let have = await ollamaUp(fetchImpl);
+  if (!have) {
+    const installer = row?.ready;
+    const exe =
+      deps.ollamaExe ||
+      path.join(process.env.LOCALAPPDATA || "", "Programs", "Ollama", "ollama.exe");
+    if (!exists(exe)) {
+      if (!installer || !exists(installer)) {
+        log(
+          "[friday] INFO     ollama not installed (installer missing); install it from Install Manager",
+        );
+        return [{ id: "ollama", ok: false, error: "installer missing" }];
+      }
+      const signed = deps.signed ? await deps.signed(installer) : { ok: true };
+      if (!signed.ok) {
+        log(
+          `[friday] INFO     ollama installer skipped (signature: ${signed.reason || "not valid"})`,
+        );
+        return [{ id: "ollama", ok: false, error: "signature" }];
+      }
+      log("[friday] installing Ollama for this user (no administrator)");
+      const ran = await (deps.runInstaller || runInstaller)(installer);
+      if (!ran.ok) {
+        log(`[friday] INFO     ollama install did not finish (${ran.error}); use Install Manager`);
+        return [{ id: "ollama", ok: false, error: ran.error }];
+      }
+    }
+    await (deps.startOllama || startOllama)(exe);
+    for (let i = 0; i < (deps.waitTries ?? 30) && !have; i += 1) {
+      have = await ollamaUp(fetchImpl);
+      if (!have) await new Promise((resolve) => setTimeout(resolve, deps.waitMs ?? 2000));
+    }
+    if (!have) {
+      log("[friday] INFO     ollama installed but not answering yet; FRIDAY starts it on launch");
+      return [{ id: "ollama", ok: false, error: "not answering" }];
+    }
+  }
+  rows.push({ id: "ollama", ok: true });
+  for (const model of OLLAMA_MODELS) {
+    if (have.has(model.tag)) {
+      log(`[friday] ok       ${model.tag} already pulled`);
+      rows.push({ id: model.tag, ok: true, downloaded: false });
+      continue;
+    }
+    log(`[friday] pulling ${model.tag} (${model.role})`);
+    let result;
+    try {
+      result = await (deps.pull || ollamaPull)(model.tag, {
+        fetchImpl,
+        onEvent: printer(log, model.tag),
+      });
+    } catch (err) {
+      result = { ok: false, error: String((err && err.message) || err) };
+    }
+    if (result.ok) rows.push({ id: model.tag, ok: true, downloaded: true });
+    else {
+      log(
+        `[friday] INFO     ${model.tag} not pulled (${result.error}); FRIDAY pulls it on first use`,
+      );
+      rows.push({ id: model.tag, ok: false, error: result.error });
+    }
+  }
+  return rows;
+}
+
+/** The pinned Ollama installer is Inno Setup: the standard silent switches apply. */
+function runInstaller(file) {
+  return new Promise((resolve) => {
+    const { spawn } = require("node:child_process");
+    const child = spawn(file, ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    const timer = setTimeout(
+      () => {
+        child.kill();
+        resolve({ ok: false, error: "timed out after 10 minutes" });
+      },
+      10 * 60 * 1000,
+    );
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: err.message });
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? { ok: true } : { ok: false, error: `exit code ${code}` });
+    });
+  });
+}
+
+function startOllama(exe) {
+  const { spawn } = require("node:child_process");
+  try {
+    const child = spawn(fs.existsSync(exe) ? exe : "ollama", ["serve"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    /* the probe below reports it */
+  }
+}
+
+/** Authenticode must be Valid before the installer runs (the Install Manager gate). */
+function authenticodeValid(file) {
+  const { execFileSync } = require("node:child_process");
+  try {
+    const out = execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-AuthenticodeSignature -LiteralPath '${file.replace(/'/g, "''")}').Status`,
+      ],
+      { encoding: "utf8", timeout: 60_000 },
+    ).trim();
+    return { ok: out === "Valid", reason: out };
+  } catch (err) {
+    return { ok: false, reason: String((err && err.message) || err) };
+  }
+}
+
+/** Run every job; returns one row per job. Never throws. */
+async function prefetch(
+  root,
+  { env = process.env, log = console.log, download, platform = process.platform, ollama } = {},
+) {
+  const rows = [];
+  const jobs = prefetchPlan(root, env, platform);
   if (!jobs.length) {
     log("[friday] model prefetch skipped");
     return rows;
@@ -112,7 +343,7 @@ async function prefetch(root, { env = process.env, log = console.log, download }
     log(`[friday] fetching ${row.id}`);
     let result;
     try {
-      result = await fetchModel(row.job, null, undefined);
+      result = await fetchModel(row.job, printer(log, row.id), undefined);
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
     }
@@ -125,10 +356,34 @@ async function prefetch(root, { env = process.env, log = console.log, download }
       rows.push({ id: row.id, ok: false, error: why });
     }
   }
+  const installer = jobs.find((row) => row.kind === "installer");
+  if (installer && enabled(env, "FRIDAY_AUTO_INSTALL")) {
+    const found = rows.find((row) => row.id === installer.id);
+    if (found?.ok || alreadyThere(installer)) {
+      try {
+        rows.push(
+          ...(await ensureOllama(root, installer, {
+            log,
+            deps: ollama || { signed: authenticodeValid },
+          })),
+        );
+      } catch (err) {
+        log(`[friday] INFO     ollama setup skipped (${String((err && err.message) || err)})`);
+      }
+    }
+  }
   return rows;
 }
 
-module.exports = { STT_SIZES, CHAT_MODEL, prefetchPlan, prefetch };
+module.exports = {
+  STT_SIZES,
+  CHAT_MODEL,
+  OLLAMA_MODELS,
+  prefetchPlan,
+  prefetch,
+  ensureOllama,
+  ollamaPull,
+};
 
 if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
