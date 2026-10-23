@@ -582,7 +582,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                           aria-label={collapsed ? item.label : undefined}
                           aria-current={active ? "page" : undefined}
                           className={cn(
-                            "friday-nav-link relative flex items-center gap-2.5 rounded-ctl border px-2.5 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            "friday-nav-link relative flex items-center gap-2.5 rounded-ctl border px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                             collapsed && "justify-center px-0",
                             active
                               ? "border-primary/50 bg-primary/12 text-primary glow-ring"

@@ -122,10 +122,10 @@ export function TitleStrip() {
           {/* sliding neon pill */}
           <span
             className={cn(
-              "absolute top-0.5 h-5 w-[4.6rem] rounded-full transition-all duration-300 ease-out",
+              "absolute left-0.5 top-0.5 h-5 w-[4.6rem] rounded-full transition-[transform,background-color,box-shadow] duration-300 ease-out",
               auto
-                ? "left-[4.9rem] bg-accent/25 shadow-[0_0_12px_-2px_var(--color-accent)]"
-                : "left-0.5 bg-primary/20 shadow-[0_0_12px_-2px_var(--color-primary)]",
+                ? "translate-x-[4.4rem] bg-accent/25 shadow-[0_0_12px_-2px_var(--color-accent)]"
+                : "translate-x-0 bg-primary/20 shadow-[0_0_12px_-2px_var(--color-primary)]",
             )}
           />
           <span
