@@ -194,6 +194,8 @@ export const FLOW_REGISTRY = {
   missingRoutes: [],
   options: [
     "fields.accent",
+    "fields.ambientLight",
+    "fields.ambientMotion",
     "fields.archiveFormat",
     "fields.attentionWindow",
     "fields.bodyFont",
@@ -201,6 +203,7 @@ export const FLOW_REGISTRY = {
     "fields.buildOutput",
     "fields.buttonLabels",
     "fields.colorMode",
+    "fields.cornerStyle",
     "fields.cpuBudget",
     "fields.dateFormat",
     "fields.density",
@@ -8527,8 +8530,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 113,
-      total: 113,
+      mapped: 116,
+      total: 116,
     },
     capabilities: {
       mapped: 1015,

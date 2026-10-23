@@ -12,7 +12,8 @@
  * stay Orbitron while chat stays Rajdhani unless the owner changes them.
  *
  * FRIDAY Glass: Interface style (Futuristic Glass by default, or Classic, the
- * earlier look), Glass depth and Button labels are applied here too, as data
+ * earlier look), Glass depth, Corner style, Ambient light, Ambient motion and
+ * Button labels are applied here too, as data
  * attributes on <html> that src/styles.css reads. Classic adds no override,
  * so it is exactly the earlier look on the same tokens.
  *
@@ -87,6 +88,18 @@ export type UiStyle = (typeof UI_STYLES)[number]["id"];
 export const GLASS_DEPTHS = ["Subtle", "Balanced", "Rich"] as const;
 export type GlassDepth = (typeof GLASS_DEPTHS)[number];
 
+/** Corner style (glass only): how round panels, controls and bubbles are. */
+export const CORNER_STYLES = ["Round", "Medium", "Sharp"] as const;
+export type CornerStyle = (typeof CORNER_STYLES)[number];
+
+/** Ambient light (glass only): the soft colored lights behind every page. */
+export const AMBIENT_LIGHTS = ["Off", "Soft", "Vivid"] as const;
+export type AmbientLight = (typeof AMBIENT_LIGHTS)[number];
+
+/** Ambient motion (glass only): a slow drift of those lights. Off by default. */
+export const AMBIENT_MOTIONS = ["Off", "On"] as const;
+export type AmbientMotion = (typeof AMBIENT_MOTIONS)[number];
+
 /** Compact icon controls: label on hover, always shown, or icons only. */
 export const BUTTON_LABEL_MODES = [
   { id: "hover", label: "On hover" },
@@ -144,6 +157,24 @@ export function resolveGlassDepth(prefs: AppearancePrefs): GlassDepth {
   return (GLASS_DEPTHS as readonly string[]).includes(value ?? "")
     ? (value as GlassDepth)
     : "Balanced";
+}
+
+export function resolveCornerStyle(prefs: AppearancePrefs): CornerStyle {
+  const value = prefs.fields["cornerStyle"];
+  return (CORNER_STYLES as readonly string[]).includes(value ?? "")
+    ? (value as CornerStyle)
+    : "Round";
+}
+
+export function resolveAmbientLight(prefs: AppearancePrefs): AmbientLight {
+  const value = prefs.fields["ambientLight"];
+  return (AMBIENT_LIGHTS as readonly string[]).includes(value ?? "")
+    ? (value as AmbientLight)
+    : "Vivid";
+}
+
+export function resolveAmbientMotion(prefs: AppearancePrefs): AmbientMotion {
+  return prefs.fields["ambientMotion"] === "On" ? "On" : "Off";
 }
 
 export function resolveButtonLabels(prefs: AppearancePrefs): ButtonLabelMode {
@@ -208,6 +239,9 @@ export function resetAppearancePreferences(): void {
   preferences.setField("panelOpacity", "100");
   preferences.setField("uiStyle", "glass");
   preferences.setField("glassDepth", "Balanced");
+  preferences.setField("cornerStyle", "Round");
+  preferences.setField("ambientLight", "Vivid");
+  preferences.setField("ambientMotion", "Off");
   preferences.setField("buttonLabels", "hover");
   preferences.setToggle("circuit", true);
   preferences.setToggle("glow", true);
@@ -249,6 +283,9 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
       textSize: prefs.fields["textSize"] ?? "Normal",
       uiStyle: resolveUiStyle(prefs),
       glassDepth: resolveGlassDepth(prefs),
+      cornerStyle: resolveCornerStyle(prefs),
+      ambientLight: resolveAmbientLight(prefs),
+      ambientMotion: resolveAmbientMotion(prefs),
       buttonLabels: resolveButtonLabels(prefs),
     },
     vars: {
@@ -290,7 +327,7 @@ export function applyAppearance(prefs: AppearancePrefs): void {
 /* ------------------------------------------------------------- contrast */
 
 /** oklch(L C H) → linear sRGB through the published OKLab matrices. */
-function oklchToLinearRgb(l: number, c: number, h: number): [number, number, number] {
+export function oklchToLinearRgb(l: number, c: number, h: number): [number, number, number] {
   const hr = (h * Math.PI) / 180;
   const a = c * Math.cos(hr);
   const b = c * Math.sin(hr);

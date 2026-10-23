@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   Check,
+  CircleDashed,
   Layers,
   Monitor,
   Moon,
@@ -20,11 +22,17 @@ import {
   DENSITIES,
   UI_STYLES,
   GLASS_DEPTHS,
+  CORNER_STYLES,
+  AMBIENT_LIGHTS,
+  AMBIENT_MOTIONS,
   BUTTON_LABEL_MODES,
   resolveColorMode,
   resolveAccent,
   resolveUiStyle,
   resolveGlassDepth,
+  resolveCornerStyle,
+  resolveAmbientLight,
+  resolveAmbientMotion,
   resolveButtonLabels,
   activeComboId,
   persistColorMode,
@@ -33,7 +41,7 @@ import {
   resetAppearancePreferences,
   accentClassFor,
 } from "@/lib/friday/appearance";
-import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { HudPanel, SegmentedControl, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { SelectField } from "@/components/friday/settings/fields";
@@ -69,20 +77,49 @@ function Choice<T extends string>({
   return (
     <div>
       <p className="label-xs text-muted-foreground">{label}</p>
-      <div role="group" aria-label={label} className="mt-2 flex flex-wrap gap-2">
-        {options.map((item) => (
-          <Button
-            key={item.id}
-            size="sm"
-            variant={value === item.id ? "default" : "outline"}
-            aria-pressed={value === item.id}
-            onClick={() => onChange(item.id)}
-            className="min-w-24 gap-1.5"
-          >
-            {value === item.id ? <Check className="size-3.5" /> : <Icon className="size-3.5" />}
-            {item.label}
-          </Button>
-        ))}
+      <SegmentedControl
+        label={label}
+        value={value}
+        options={options.map((item) => ({
+          id: item.id,
+          label: item.label,
+          icon: value === item.id ? Check : Icon,
+        }))}
+        onChange={onChange}
+        className="mt-2"
+      />
+    </div>
+  );
+}
+
+/** A mini conversation, a switch, a segmented control, a button and a panel
+ *  built from the real classes, so every setting shows up here at once. */
+function LivePreview() {
+  const [on, setOn] = useState(true);
+  const [seg, setSeg] = useState("two");
+  return (
+    <div className="mt-4 space-y-3" aria-label="Live preview of the look">
+      <div className="space-y-2.5">
+        <div className="flex justify-end">
+          <p className="bubble-user w-fit max-w-[78%] px-3 py-2 text-sm">What changed today?</p>
+        </div>
+        <p className="bubble-friday w-fit max-w-[78%] px-3 py-2 text-sm">
+          Three things. All of them are done.
+        </p>
+      </div>
+      <SegmentedControl
+        label="Preview segmented control"
+        value={seg}
+        options={[
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+          { id: "three", label: "Three" },
+        ]}
+        onChange={setSeg}
+      />
+      <ToggleRow label="Preview switch" on={on} onToggle={() => setOn((value) => !value)} />
+      <div className="hud-panel p-3 text-sm text-foreground/90">
+        A glass panel over the ambient light.
       </div>
     </div>
   );
@@ -95,6 +132,9 @@ export function AppearanceSettings() {
   const comboId = activeComboId(prefs);
   const uiStyle = resolveUiStyle(prefs);
   const glassDepth = resolveGlassDepth(prefs);
+  const cornerStyle = resolveCornerStyle(prefs);
+  const ambientLight = resolveAmbientLight(prefs);
+  const ambientMotion = resolveAmbientMotion(prefs);
   const buttonLabels = resolveButtonLabels(prefs);
   const isOn = (k: string) => prefs.toggles[k] === true;
   const flip = (k: string) => preferences.setToggle(k, !isOn(k));
@@ -137,6 +177,7 @@ export function AppearanceSettings() {
               <StatusPill label="ready" tone="accent" />
               <StatusPill label="warning" tone="warning" />
             </div>
+            <LivePreview />
           </div>
           <Choice
             label="Color mode"
@@ -220,7 +261,33 @@ export function AppearanceSettings() {
             onChange={setField("glassDepth")}
             icon={Palette}
           />
+          <Choice
+            label="Corner style"
+            value={cornerStyle}
+            options={CORNER_STYLES.map((d) => ({ id: d, label: d }))}
+            onChange={setField("cornerStyle")}
+            icon={CircleDashed}
+          />
+          <Choice
+            label="Ambient light"
+            value={ambientLight}
+            options={AMBIENT_LIGHTS.map((d) => ({ id: d, label: d }))}
+            onChange={setField("ambientLight")}
+            icon={Sparkles}
+          />
+          <Choice
+            label="Ambient motion"
+            value={ambientMotion}
+            options={AMBIENT_MOTIONS.map((d) => ({ id: d, label: d }))}
+            onChange={setField("ambientMotion")}
+            icon={Sparkles}
+          />
         </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Corner style, Ambient light and Ambient motion apply to Futuristic Glass. Ambient motion
+          is a slow drift of the background lights and stays off with Reduce motion or GPU rendering
+          off.
+        </p>
         <div className="mt-4 space-y-3">
           <ToggleRow label="Blur effect" on={isOn("blur")} onToggle={() => flip("blur")} />
           <ToggleRow

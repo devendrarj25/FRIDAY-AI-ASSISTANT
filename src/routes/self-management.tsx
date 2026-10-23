@@ -654,7 +654,7 @@ function SelfManagementPage() {
               />
             ))}
           </div>
-          <div className="mt-3 grid max-h-[300px] gap-1.5 overflow-y-auto pr-1">
+          <div className="mt-3 grid max-h-[300px] grid-cols-[minmax(0,1fr)] gap-1.5 overflow-y-auto pr-1">
             {mapRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {mapProblemsOnly

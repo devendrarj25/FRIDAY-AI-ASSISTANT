@@ -378,6 +378,39 @@ def pcm_levels(samples, sample_rate: int = 16000) -> dict:
     }
 
 
+# Automatic gain before denoise and VAD. A laptop array often delivers speech
+# near -45 dBFS; RNNoise and Silero VAD both treat that as background, so the
+# clip is lifted toward a normal speaking level. Silence is never amplified and
+# the peak never passes GAIN_PEAK_CEILING.
+GAIN_TARGET_DBFS = -22.0
+GAIN_MAX_DB = 30.0
+GAIN_MIN_INPUT_DBFS = -62.0
+GAIN_PEAK_CEILING = 0.89
+
+
+def normalize_gain(samples, target_dbfs: float = GAIN_TARGET_DBFS, max_gain_db: float = GAIN_MAX_DB):
+    """Return ``(samples, gain_db)``. Only quiet speech is boosted; nothing is attenuated."""
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return samples, 0.0
+    audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if audio.size == 0:
+        return audio, 0.0
+    levels = pcm_levels(audio)
+    rms_db = levels["rmsDbfs"]
+    peak = float(levels["peak"])
+    if rms_db is None or rms_db <= GAIN_MIN_INPUT_DBFS or rms_db >= target_dbfs or peak <= 0:
+        return audio, 0.0
+    gain_db = min(float(max_gain_db), float(target_dbfs) - float(rms_db))
+    ceiling_db = 20.0 * math.log10(GAIN_PEAK_CEILING / peak)
+    gain_db = min(gain_db, ceiling_db)
+    if gain_db < 1.0:
+        return audio, 0.0
+    boosted = (audio * float(10.0 ** (gain_db / 20.0))).astype(np.float32)
+    return np.clip(boosted, -1.0, 1.0), round(gain_db, 1)
+
+
 def guard_denoised(original, cleaned, ratio: float = DENOISE_KEEP_RATIO):
     """Keep the original when denoise changed the loudness by more than 4x or clipped.
 

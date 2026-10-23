@@ -1126,9 +1126,7 @@ async function applyFix(ctx, id, helpers = {}) {
       if (!python)
         return {
           ok: false,
-          log: [
-            "FRIDAY's isolated Python 3.12 runtime was not found. Run Setup again, then retry.",
-          ],
+          log: ["FRIDAY's isolated Python runtime was not found. Run Setup again, then retry."],
         };
       const imports = await run(
         python.exe,

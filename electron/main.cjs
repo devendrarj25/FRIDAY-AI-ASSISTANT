@@ -941,6 +941,10 @@ function writeRegistryWorkspace(root) {
   );
 }
 
+/** Same sandboxes as scripts/friday-root.cjs THROWAWAY_ROOT (pinned by a test). */
+const THROWAWAY_ROOT =
+  /[\\/]_?(?:temp|tmp)[\\/](?:friday-installer-smoke-[0-9a-f]{32}|friday-readiness-[A-Za-z0-9]{6})(?:[\\/]|$)/i;
+
 async function resolveWorkspaceRoot() {
   const publish = (value) => {
     paths.setRoot(value || null);
@@ -959,6 +963,17 @@ async function resolveWorkspaceRoot() {
     log(`the recorded FRIDAY folder is not available: ${value} — asking for a folder`);
     return null;
   };
+  // A recorded folder inside a test sandbox under %TEMP% (installer smoke,
+  // readiness) is never this owner's FRIDAY home: an interrupted test can
+  // leave that pointer behind. Only an explicit FRIDAY_WORKSPACE_ROOT (which
+  // those tests set for their own launch) may select one.
+  const settled = (value) => {
+    if (value && THROWAWAY_ROOT.test(String(value))) {
+      log(`ignoring a FRIDAY folder left by a test run: ${value}`);
+      return null;
+    }
+    return usable(value);
+  };
   const fromEnv = usable(process.env.FRIDAY_WORKSPACE_ROOT);
   if (fromEnv) {
     // An explicitly selected folder is recorded like any other selection, so
@@ -970,12 +985,12 @@ async function resolveWorkspaceRoot() {
   // Setup is the authoritative workspace selector. This must be checked before
   // the cached renderer setting so reinstall/repair can intentionally select a
   // different existing FRIDAY folder without deleting any user data.
-  const fromRegistry = usable(await readRegistryWorkspace());
+  const fromRegistry = settled(await readRegistryWorkspace());
   if (fromRegistry) {
     writeSettings({ ...readSettings(), workspaceRoot: fromRegistry });
     return publish(fromRegistry);
   }
-  const stored = usable(readSettings().workspaceRoot);
+  const stored = settled(readSettings().workspaceRoot);
   if (stored) return publish(stored);
   // No invented default: first run must ask for a folder.
   return publish(null);
@@ -1329,8 +1344,7 @@ async function startKernel(root) {
   }
 
   if (!python) {
-    kernelFailure =
-      "FRIDAY's isolated Python 3.12 runtime was not found. Run Setup again to repair it.";
+    kernelFailure = "FRIDAY's isolated Python runtime was not found. Run Setup again to repair it.";
     boot("Starting services", "warn", kernelFailure);
     return;
   }

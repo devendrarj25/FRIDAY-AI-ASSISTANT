@@ -2,6 +2,7 @@ import {
   createElement,
   forwardRef,
   isValidElement,
+  useLayoutEffect,
   useRef,
   type ComponentProps,
   type KeyboardEvent,
@@ -74,7 +75,10 @@ export function HudPanel({
             ) : (
               <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_10px_2px_var(--color-primary)]" />
             )}
-            <h2 className="label-xs glow-text truncate text-primary" title={title}>
+            <h2
+              className="label-xs friday-panel-title glow-text truncate text-primary"
+              title={title}
+            >
               {title}
             </h2>
           </div>
@@ -135,7 +139,7 @@ export function StatusPill({ label, tone = "accent" }: { label: string; tone?: T
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "friday-chip inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
         bg[tone],
       )}
     >
@@ -197,6 +201,86 @@ function tabKeys(
   });
 }
 
+/**
+ * The sliding thumb of an iOS segmented control. The selected segment is
+ * measured once per change and on resize (no animation loop); the thumb only
+ * moves by transform. Classic hides the thumb in CSS.
+ */
+export function useSlidingThumb(active: string | number) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const thumb = thumbRef.current;
+    if (!list || !thumb) return;
+    const place = () => {
+      const el = list.querySelector<HTMLElement>(
+        '[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]',
+      );
+      if (!el) {
+        thumb.style.width = "0px";
+        return;
+      }
+      thumb.style.width = `${el.offsetWidth}px`;
+      thumb.style.transform = `translateX(${el.offsetLeft}px)`;
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [active]);
+  return { listRef, thumbRef };
+}
+
+/** One choice out of a few, as an iOS segmented control. */
+export function SegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ id: T; label: string; icon?: LucideIcon }>;
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  const { listRef, thumbRef } = useSlidingThumb(value);
+  return (
+    <div
+      ref={listRef}
+      role="group"
+      aria-label={label}
+      className={cn("friday-seg inline-flex gap-1", className)}
+    >
+      <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
+      {options.map((item) => {
+        const on = value === item.id;
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(item.id)}
+            className={cn(
+              "friday-btn inline-flex items-center justify-center gap-1.5 rounded-sm border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              on
+                ? "border-primary/50 bg-primary/15 text-primary"
+                : "border-border bg-surface text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
+            {item.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function FilterTabs({
   tabs,
   value,
@@ -206,10 +290,12 @@ export function FilterTabs({
   value: string;
   onChange: (key: string) => void;
 }) {
+  const { listRef, thumbRef } = useSlidingThumb(value);
   return (
     <div
+      ref={listRef}
       role="tablist"
-      className="flex flex-wrap gap-1.5"
+      className="friday-seg flex flex-wrap gap-1.5"
       onKeyDown={(e) =>
         tabKeys(
           e,
@@ -219,6 +305,7 @@ export function FilterTabs({
         )
       }
     >
+      <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {tabs.map((t) => (
         <button
           key={t.key}
@@ -410,13 +497,13 @@ export function ToggleRow({
         aria-label={label}
         onClick={onToggle}
         className={cn(
-          "friday-btn relative h-5 w-9 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          "friday-btn friday-switch relative h-5 w-9 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           on ? "border-accent/60 bg-accent/30" : "border-border bg-muted",
         )}
       >
         <span
           className={cn(
-            "absolute top-0.5 size-3.5 rounded-full transition-all",
+            "friday-switch-thumb absolute top-0.5 size-3.5 rounded-full transition-all",
             on
               ? "left-[1.15rem] bg-accent shadow-[0_0_8px_var(--color-accent)]"
               : "left-0.5 bg-muted-foreground",
@@ -621,11 +708,13 @@ export function SectionTabs({
   onChange: (key: string) => void;
   label?: string;
 }) {
+  const { listRef, thumbRef } = useSlidingThumb(value);
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label={label}
-      className="flex min-w-0 flex-wrap gap-1 border-b border-primary/15 pb-1"
+      className="friday-seg flex min-w-0 flex-wrap gap-1 border-b border-primary/15 pb-1"
       onKeyDown={(e) =>
         tabKeys(
           e,
@@ -635,6 +724,7 @@ export function SectionTabs({
         )
       }
     >
+      <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {tabs.map((t) => {
         const on = value === t.key;
         const Icon = t.icon;

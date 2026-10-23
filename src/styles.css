@@ -840,10 +840,6 @@ html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
 .friday-chat-full {
   backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
 }
-html.no-glow .friday-chat-full {
-  backdrop-filter: none;
-  background: var(--color-card);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .chat-hover-label,
@@ -936,11 +932,6 @@ html.no-glow .friday-chat-full {
 .voice-glass,
 .voice-glass-menu {
   backdrop-filter: blur(var(--friday-glass-blur, 12px)) saturate(1.1);
-}
-html.no-glow .voice-glass,
-html.no-glow .voice-glass-menu {
-  backdrop-filter: none;
-  background: var(--color-card);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1316,9 +1307,799 @@ button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
     background: var(--color-card);
   }
   [class*="backdrop-blur"],
+  .friday-sidebar,
+  .friday-titlestrip,
+  .friday-composer,
   .friday-chat-full,
   .voice-glass,
   .voice-glass-menu {
     backdrop-filter: none !important;
   }
+}
+
+/* ===================================================================
+   FRIDAY Glass, iOS recipe: corner scale, ambient light, glass fills,
+   blur policy and motion. Everything is under html[data-ui-style="glass"],
+   so Classic keeps the earlier look. All values are color-mix on the
+   existing tokens; no hard-coded colors.
+   Blur policy: backdrop-filter only on large chrome (sidebar, title
+   strip, menus, dialogs, sheets, Full chat, the voice bar and transcript).
+   Cards use translucency over the ambient light and never blur, so a page
+   has about six live blur layers at most. Settings, Appearance, Blur
+   effect (html.no-blur) switches every one of them off; Neon glow only
+   removes glow shadows.
+   =================================================================== */
+:root {
+  --radius-pill: 999px;
+  --radius-card: 0.5rem;
+  --radius-sheet: 0.6rem;
+  --friday-ambient: 1;
+  --friday-ambient-scale: 1;
+}
+html[data-ui-style="glass"] {
+  /* Corner scale: every rounded-sm/md/lg/xl and shadcn part inherits it */
+  --radius: 1rem;
+  --radius-card: 1.25rem;
+  --radius-sheet: 1.5rem;
+  /* Motion: spring easing, three durations, transform and opacity only */
+  --friday-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --friday-motion-fast: 120ms;
+  --friday-motion-mid: 200ms;
+  --friday-motion-slow: 320ms;
+  /* Glass depth (Subtle / Balanced / Rich) scales blur, fill and edge */
+  --friday-glass-blur: 18px;
+  --friday-fill-k: 1;
+  --friday-edge-k: 1;
+  /* Dark: a few percent of the foreground over the ambient light */
+  --friday-glass-tint: var(--color-foreground);
+  --friday-fill-top: 9%;
+  --friday-fill-bottom: 4%;
+  --friday-highlight-pct: 12%;
+  --friday-shadow-k: 1;
+  --friday-glass-top: color-mix(
+    in oklab,
+    var(--friday-glass-tint)
+      calc(var(--friday-fill-top) * var(--friday-fill-k) * var(--friday-panel-opacity, 1)),
+    transparent
+  );
+  --friday-glass-bottom: color-mix(
+    in oklab,
+    var(--friday-glass-tint)
+      calc(var(--friday-fill-bottom) * var(--friday-fill-k) * var(--friday-panel-opacity, 1)),
+    transparent
+  );
+  --friday-glass-1: var(--friday-glass-bottom);
+  --friday-glass-2: color-mix(
+    in oklab,
+    var(--friday-glass-tint)
+      calc((var(--friday-fill-bottom) + 2%) * var(--friday-fill-k) * var(--friday-panel-opacity, 1)),
+    transparent
+  );
+  --friday-glass-3: color-mix(in oklab, var(--color-popover) 74%, transparent);
+  --friday-glass-border: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--color-primary) 40%, var(--color-foreground))
+      calc(24% * var(--friday-edge-k)),
+    transparent
+  );
+  --friday-glass-highlight: color-mix(
+    in oklab,
+    var(--friday-glass-tint) var(--friday-highlight-pct),
+    transparent
+  );
+  --friday-glass-shadow:
+    inset 0 1px 0 var(--friday-glass-highlight),
+    0 14px 40px -20px
+      color-mix(
+        in oklab,
+        var(--color-primary)
+          calc(55% * var(--friday-shadow-k) * var(--friday-graphic-intensity, 0.7) / 0.7),
+        transparent
+      );
+  /* Controls: fill, hover, active and the accent edge */
+  --friday-ctl-edge: color-mix(in oklab, var(--color-primary) 20%, transparent);
+  --friday-ctl-fill: color-mix(in oklab, var(--friday-glass-tint) 5%, transparent);
+  --friday-ctl-hover: color-mix(in oklab, var(--color-primary) 18%, transparent);
+  --friday-ctl-active: color-mix(in oklab, var(--color-primary) 26%, transparent);
+  --friday-ctl-glow: 0 0 18px -4px color-mix(in oklab, var(--color-primary) 55%, transparent);
+}
+html[data-ui-style="glass"][data-glass-depth="Subtle"] {
+  --friday-glass-blur: 10px;
+  --friday-fill-k: 0.7;
+  --friday-edge-k: 0.8;
+}
+html[data-ui-style="glass"][data-glass-depth="Rich"] {
+  --friday-glass-blur: 26px;
+  --friday-fill-k: 1.3;
+  --friday-edge-k: 1.2;
+}
+html[data-ui-style="glass"][data-corner-style="Medium"] {
+  --radius: 0.65rem;
+  --radius-card: 0.9rem;
+  --radius-sheet: 1.1rem;
+}
+html[data-ui-style="glass"][data-corner-style="Sharp"] {
+  --radius: 0.4rem;
+  --radius-card: 0.5rem;
+  --radius-sheet: 0.6rem;
+}
+/* Daylight: the same recipe with light tints and dark text */
+html[data-ui-style="glass"].theme-daylight {
+  --friday-glass-tint: oklch(1 0 0);
+  --friday-fill-top: 70%;
+  --friday-fill-bottom: 55%;
+  --friday-highlight-pct: 85%;
+  --friday-shadow-k: 0.45;
+  --friday-ambient-scale: 0.62;
+  --friday-glass-border: color-mix(in oklab, var(--color-primary) calc(34% * var(--friday-edge-k)), transparent);
+  --friday-ctl-fill: color-mix(in oklab, var(--friday-glass-tint) 55%, transparent);
+  --friday-ctl-edge: color-mix(in oklab, var(--color-primary) 30%, transparent);
+}
+html[data-ambient-light="Off"] {
+  --friday-ambient: 0;
+}
+html[data-ambient-light="Soft"] {
+  --friday-ambient: 0.55;
+}
+
+/* Ambient light: one fixed layer behind the whole app with three soft
+   lights (accent, violet, amber). Static by default; the slow drift is
+   transform only and only when Ambient motion is on. Not under Classic. */
+html[data-ui-style="glass"] body {
+  background-image: none;
+}
+html[data-ui-style="glass"] body::before {
+  content: "";
+  position: fixed;
+  inset: -12%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      640px 380px at 24% 14%,
+      color-mix(
+        in oklab,
+        var(--color-primary)
+          calc(min(26% * var(--friday-graphic-intensity, 0.7) / 0.7, 30%) * var(--friday-ambient) * var(--friday-ambient-scale)),
+        transparent
+      ),
+      transparent 72%
+    ),
+    radial-gradient(
+      560px 360px at 100% 12%,
+      color-mix(
+        in oklab,
+        var(--color-magenta)
+          calc(min(20% * var(--friday-graphic-intensity, 0.7) / 0.7, 23%) * var(--friday-ambient) * var(--friday-ambient-scale)),
+        transparent
+      ),
+      transparent 72%
+    ),
+    radial-gradient(
+      500px 300px at 90% 100%,
+      color-mix(
+        in oklab,
+        var(--color-warning)
+          calc(min(10% * var(--friday-graphic-intensity, 0.7) / 0.7, 12%) * var(--friday-ambient) * var(--friday-ambient-scale)),
+        transparent
+      ),
+      transparent 72%
+    );
+}
+@keyframes friday-ambient-drift {
+  from {
+    transform: translate3d(-1.5%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(1.5%, 1%, 0) scale(1.04);
+  }
+}
+html[data-ui-style="glass"][data-ambient-motion="On"]:not(.no-motion):not(.no-gpu) body::before {
+  will-change: transform;
+  animation: friday-ambient-drift 48s ease-in-out infinite alternate;
+}
+html.friday-hidden body::before {
+  animation-play-state: paused;
+}
+html.no-motion body::before,
+html.no-gpu body::before {
+  animation: none;
+}
+/* The shell must let the ambient light through. */
+html[data-ui-style="glass"] .friday-shell {
+  background: transparent;
+}
+
+/* Glass surfaces: translucency, highlight and a large soft shadow. No
+   blur on cards. */
+html[data-ui-style="glass"] .hud-panel {
+  border-radius: var(--radius-card);
+  border-color: var(--friday-glass-border);
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  box-shadow: var(--friday-glass-shadow);
+}
+html[data-ui-style="glass"] .hud-tile {
+  border-radius: var(--radius);
+  border-color: var(--friday-glass-border);
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+}
+html[data-ui-style="glass"] .glass-menu {
+  border-radius: var(--radius-xl);
+}
+html[data-ui-style="glass"] .glass-dialog {
+  border-radius: var(--radius-sheet);
+}
+html[data-ui-style="glass"] .glass-menu.glass-backdrop-blur,
+html[data-ui-style="glass"] .glass-dialog.glass-backdrop-blur {
+  background: var(--friday-glass-3);
+  backdrop-filter: blur(calc(var(--friday-glass-blur) * 1.2)) saturate(1.4);
+}
+html[data-ui-style="glass"] .hud-panel > header {
+  border-bottom-color: color-mix(in oklab, var(--friday-glass-tint) 8%, transparent);
+}
+
+/* Chrome: sidebar and title strip float as glass over the ambient light. */
+html[data-ui-style="glass"] .friday-sidebar {
+  margin: 0 0 12px 12px;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  box-shadow: var(--friday-glass-shadow);
+  backdrop-filter: blur(var(--friday-glass-blur)) saturate(1.4);
+  overflow: hidden;
+}
+html[data-ui-style="glass"] .friday-titlestrip {
+  margin: 8px 12px 10px;
+  padding-inline: 16px;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  box-shadow: var(--friday-glass-shadow);
+  backdrop-filter: blur(var(--friday-glass-blur)) saturate(1.4);
+}
+html[data-ui-style="glass"] .friday-nav-link {
+  border-radius: var(--radius-pill);
+}
+html[data-ui-style="glass"] .friday-nav-link[aria-current="page"] {
+  border-color: color-mix(in oklab, var(--color-primary) 40%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 20%, transparent);
+  animation: friday-pill-in var(--friday-motion-mid) var(--friday-ease);
+}
+@keyframes friday-pill-in {
+  from {
+    transform: scale(0.96);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+html[data-ui-style="glass"] .friday-sidebar .label-xs {
+  letter-spacing: 0.02em;
+}
+html[data-ui-style="glass"] .nav-active-bar {
+  display: none;
+}
+
+/* Blur effect off: every blur layer goes, glow is not involved. */
+html.no-blur .friday-sidebar,
+html.no-blur .friday-titlestrip,
+html.no-blur .friday-chat-full,
+html.no-blur .friday-composer-blur,
+html.no-blur .voice-glass,
+html.no-blur .voice-glass-menu {
+  backdrop-filter: none;
+}
+/* GPU render off: no blur, no drift, solid fills. */
+html.no-gpu[data-ui-style="glass"] :is(.hud-panel, .hud-tile, .glass-menu, .glass-dialog, .friday-sidebar, .friday-titlestrip) {
+  background: var(--color-card);
+}
+
+/* Typography in glass: body 14px, labels 12px sentence case in the body
+   font. Mono stays for data and code. */
+html[data-ui-style="glass"] body {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+html[data-ui-style="glass"] .label-xs,
+html[data-ui-style="glass"] [class*="text-[10px]"][class*="uppercase"],
+html[data-ui-style="glass"] [class*="text-[11px]"][class*="uppercase"] {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+html[data-ui-style="glass"] .friday-panel-title {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* Controls */
+html[data-ui-style="glass"] .friday-btn {
+  transition-duration: var(--friday-motion-fast);
+}
+html[data-ui-style="glass"] .friday-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="default"] {
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-primary), white 16%),
+    var(--color-primary)
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+    0 6px 18px -8px color-mix(in oklab, var(--color-primary) 75%, transparent);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="default"]:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="destructive"] {
+  border-radius: var(--radius-pill);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="outline"],
+html[data-ui-style="glass"] .friday-btn[data-variant="secondary"] {
+  border: 1px solid var(--friday-ctl-edge);
+  background: var(--friday-ctl-fill);
+  color: var(--color-foreground);
+  box-shadow: inset 0 1px 0 var(--friday-glass-highlight);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="outline"]:not(:disabled):hover,
+html[data-ui-style="glass"] .friday-btn[data-variant="secondary"]:not(:disabled):hover {
+  background: var(--friday-ctl-hover);
+  box-shadow:
+    inset 0 1px 0 var(--friday-glass-highlight),
+    var(--friday-ctl-glow);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="outline"]:not(:disabled):active,
+html[data-ui-style="glass"] .friday-btn[data-variant="secondary"]:not(:disabled):active {
+  background: var(--friday-ctl-active);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="ghost"] {
+  border-radius: var(--radius-pill);
+}
+html[data-ui-style="glass"] .friday-btn[data-variant="ghost"]:not(:disabled):hover {
+  background: var(--friday-ctl-hover);
+}
+html[data-ui-style="glass"] .friday-btn[data-size="sm"],
+html[data-ui-style="glass"] .friday-btn[data-size="default"],
+html[data-ui-style="glass"] .friday-btn[data-size="lg"] {
+  min-height: 2rem;
+}
+html[data-ui-style="glass"] .friday-field {
+  min-height: 2rem;
+  border-radius: var(--radius-xl);
+  border-color: var(--friday-ctl-edge);
+  background: var(--friday-ctl-fill);
+  box-shadow: inset 0 1px 0 var(--friday-glass-highlight);
+  transition-property: border-color, background-color, box-shadow;
+  transition-duration: var(--friday-motion-fast);
+  transition-timing-function: var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-field:focus-visible {
+  border-color: var(--color-ring);
+}
+html.no-glow[data-ui-style="glass"] .friday-btn[data-variant] {
+  box-shadow: none;
+}
+html.no-glow[data-ui-style="glass"] .friday-btn[data-variant]:not(:disabled):hover {
+  box-shadow: none;
+}
+
+/* iOS segmented control: FilterTabs, SectionTabs, the level switches and
+   the Appearance choices. The thumb slides with transform only. */
+.friday-seg-thumb {
+  display: none;
+}
+html[data-ui-style="glass"] .friday-seg {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow-x: auto;
+  padding: 3px;
+  border: 0;
+  border-radius: calc(var(--radius) * 0.75);
+  background: color-mix(in oklab, var(--color-background) 55%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--color-background) 60%, transparent);
+  scrollbar-width: none;
+}
+html[data-ui-style="glass"] .friday-seg::-webkit-scrollbar {
+  display: none;
+}
+html[data-ui-style="glass"] .friday-seg-thumb {
+  display: block;
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  z-index: 0;
+  width: 0;
+  border-radius: calc(var(--radius) * 0.6);
+  background: color-mix(in oklab, var(--color-primary) 26%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--friday-glass-highlight),
+    0 2px 10px -4px color-mix(in oklab, var(--color-primary) 60%, transparent);
+  pointer-events: none;
+  transition:
+    transform var(--friday-motion-mid) var(--friday-ease),
+    width var(--friday-motion-mid) var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-seg > [role="tab"],
+html[data-ui-style="glass"] .friday-seg > [role="radio"],
+html[data-ui-style="glass"] .friday-seg > button {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: calc(var(--radius) * 0.6);
+  background: transparent;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+}
+html[data-ui-style="glass"] .friday-seg > [role="tab"][aria-selected="true"],
+html[data-ui-style="glass"] .friday-seg > [role="radio"][aria-checked="true"],
+html[data-ui-style="glass"] .friday-seg > button[aria-pressed="true"] {
+  color: var(--color-foreground);
+}
+html[data-ui-style="glass"] .friday-seg > [role="tab"]::after {
+  display: none;
+}
+html[data-ui-style="glass"] .friday-seg > [role="tab"]:not([aria-selected="true"]):hover,
+html[data-ui-style="glass"] .friday-seg > [role="radio"]:not([aria-checked="true"]):hover,
+html[data-ui-style="glass"] .friday-seg > button:not([aria-pressed="true"]):hover {
+  color: var(--color-foreground);
+}
+
+/* iOS switch: 2.75rem x 1.5rem track, white thumb, spring slide. */
+html[data-ui-style="glass"] .friday-switch {
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: var(--radius-pill);
+  border: 0;
+  background: color-mix(in oklab, var(--color-foreground) 18%, transparent);
+  transition: background-color var(--friday-motion-mid) var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-switch[aria-checked="true"],
+html[data-ui-style="glass"] .friday-switch[data-state="checked"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-accent), white 12%),
+    var(--color-accent)
+  );
+}
+html[data-ui-style="glass"] .friday-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-pill);
+  background: white;
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--color-background) 55%, transparent);
+  translate: none;
+  transform: translateX(0);
+  transition: transform var(--friday-motion-mid) var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-switch[aria-checked="true"] .friday-switch-thumb,
+html[data-ui-style="glass"] .friday-switch[data-state="checked"] .friday-switch-thumb {
+  transform: translateX(1.25rem);
+}
+
+/* Badges and status chips are capsules with a tinted fill. */
+html[data-ui-style="glass"] .friday-chip {
+  border-radius: var(--radius-pill);
+  padding-inline: 0.55rem;
+}
+
+/* Themed thin scrollbar, rounded. */
+html[data-ui-style="glass"] *::-webkit-scrollbar-track,
+html[data-ui-style="glass"] *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html[data-ui-style="glass"] *::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--color-primary) 38%, transparent);
+}
+
+/* Shared parts: tooltip, tabs, slider, progress and the translucent card
+   fills used by pages that build their own tiles. */
+html[data-ui-style="glass"] .friday-tooltip {
+  border: 1px solid var(--friday-glass-border);
+  border-radius: var(--radius-xl);
+  background: var(--friday-glass-3);
+  color: var(--color-popover-foreground);
+  box-shadow: var(--friday-glass-shadow);
+}
+html[data-ui-style="glass"] .friday-tabs-list {
+  border-radius: calc(var(--radius) * 0.75);
+  background: color-mix(in oklab, var(--color-background) 55%, transparent);
+}
+html[data-ui-style="glass"] .friday-tabs-trigger {
+  border-radius: calc(var(--radius) * 0.6);
+  transition-duration: var(--friday-motion-mid);
+  transition-timing-function: var(--friday-ease);
+}
+html[data-ui-style="glass"] .friday-tabs-trigger[data-state="active"] {
+  background: color-mix(in oklab, var(--color-primary) 26%, transparent);
+  color: var(--color-foreground);
+  box-shadow:
+    inset 0 1px 0 var(--friday-glass-highlight),
+    0 2px 10px -4px color-mix(in oklab, var(--color-primary) 60%, transparent);
+}
+html[data-ui-style="glass"] .friday-slider-track {
+  height: 0.5rem;
+  background: color-mix(in oklab, var(--color-foreground) 14%, transparent);
+}
+html[data-ui-style="glass"] .friday-slider-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+  background: white;
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--color-background) 55%, transparent);
+}
+html[data-ui-style="glass"] .friday-progress {
+  height: 0.5rem;
+  background: color-mix(in oklab, var(--color-foreground) 14%, transparent);
+}
+html[data-ui-style="glass"] :is([class*="bg-surface"], [class*="bg-card"]):not(
+    [class*="sticky"],
+    [class*="absolute"],
+    [class*="fixed"],
+    [class*="bg-card/"]
+  ) {
+  background-color: var(--friday-ctl-fill);
+}
+html.no-gpu[data-ui-style="glass"] :is([class*="bg-surface"], [class*="bg-card"]) {
+  background-color: var(--color-card);
+}
+
+/* Full chat: the saved-chats rail is a rounded glass sidebar. */
+html[data-ui-style="glass"] .friday-chat aside {
+  margin: 0.5rem 0 0.5rem 0.5rem;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: var(--radius-card);
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  overflow: hidden;
+}
+
+/* Reduced motion and no-motion: everything is instant. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-style="glass"] .friday-seg-thumb,
+  html[data-ui-style="glass"] .friday-switch,
+  html[data-ui-style="glass"] .friday-switch-thumb,
+  html[data-ui-style="glass"] .friday-nav-link[aria-current="page"] {
+    transition: none;
+    animation: none;
+  }
+  html[data-ui-style="glass"] .friday-btn:not(:disabled):active {
+    transform: none;
+  }
+  html[data-ui-style="glass"] body::before {
+    animation: none;
+  }
+}
+
+/* Conversation bubbles (chat and voice): transparent glass on both sides.
+   You: cyan-tinted glass on the right. FRIDAY: deep glass on the left.
+   Hover lifts a bubble a pixel and brightens its edge; reduced motion keeps
+   it still, no-glow drops the halo, reduced transparency makes it solid. */
+.bubble-user,
+.bubble-friday {
+  border: 1px solid var(--friday-glass-border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+  transition:
+    transform var(--friday-motion-fast, 160ms) var(--friday-ease, ease),
+    border-color var(--friday-motion-fast, 160ms) var(--friday-ease, ease),
+    box-shadow var(--friday-motion-fast, 160ms) var(--friday-ease, ease);
+  overflow-wrap: anywhere;
+}
+.bubble-user {
+  border-color: color-mix(in oklab, var(--color-primary) 42%, transparent);
+  border-bottom-right-radius: 0.35rem;
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--color-primary) 22%, transparent), color-mix(in oklab, var(--color-accent) 8%, transparent)),
+    color-mix(in oklab, var(--color-card) 55%, transparent);
+  color: var(--color-foreground);
+}
+.bubble-friday {
+  border-bottom-left-radius: 0.35rem;
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 50%),
+    color-mix(in oklab, var(--color-card) 62%, transparent);
+}
+.bubble-user:hover,
+.bubble-friday:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+  box-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 8px 22px -12px color-mix(in oklab, var(--color-primary) 55%, transparent);
+}
+html.no-glow .bubble-user:hover,
+html.no-glow .bubble-friday:hover {
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble-user,
+  .bubble-friday {
+    transition: none;
+  }
+  .bubble-user:hover,
+  .bubble-friday:hover {
+    transform: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .bubble-user,
+  .bubble-friday {
+    background: var(--color-card);
+  }
+}
+
+/* Conversation bubbles in glass: iOS shape. You on the right with an accent
+   gradient tint, FRIDAY on the left in glass. Radius 1.25rem with the
+   sender-side corner at 0.35rem, 78% of the width at most. The enter
+   animation (opacity + translateY, once per row) never runs while an
+   existing row streams. */
+html[data-ui-style="glass"] {
+  --friday-bubble-fill: 7%;
+  --friday-bubble-edge: 10%;
+}
+html[data-ui-style="glass"].theme-daylight {
+  --friday-bubble-fill: 62%;
+  --friday-bubble-edge: 55%;
+}
+html[data-ui-style="glass"] .bubble-user,
+html[data-ui-style="glass"] .bubble-friday {
+  border-radius: 1.25rem;
+  line-height: 1.45;
+}
+html[data-ui-style="glass"] .bubble-user {
+  border-color: color-mix(in oklab, var(--color-primary) 40%, transparent);
+  border-bottom-right-radius: 0.35rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-primary) 28%, transparent),
+    color-mix(in oklab, var(--color-magenta) 14%, transparent)
+  );
+}
+html[data-ui-style="glass"] .bubble-friday {
+  max-width: 78%;
+  border-color: color-mix(in oklab, var(--friday-glass-tint) var(--friday-bubble-edge), transparent);
+  border-bottom-left-radius: 0.35rem;
+  background: color-mix(
+    in oklab,
+    var(--friday-glass-tint) calc(var(--friday-bubble-fill) * var(--friday-panel-opacity, 1)),
+    transparent
+  );
+}
+html[data-ui-style="glass"] .bubble-col {
+  max-width: 78%;
+}
+html[data-ui-style="glass"] .friday-chat-messages > div > * + * {
+  margin-block: 0;
+}
+html[data-ui-style="glass"] .friday-chat-messages > div > :not(:last-child) {
+  margin-block-end: 0.625rem;
+}
+@keyframes friday-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+html[data-ui-style="glass"] .bubble-enter {
+  animation: friday-bubble-in var(--friday-motion-slow) var(--friday-ease) both;
+}
+/* Typing indicator: three dots, soft bounce, from the real busy state. */
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-muted-foreground);
+}
+html[data-ui-style="glass"] .typing-dot {
+  animation: friday-typing 1.1s var(--friday-ease) infinite;
+}
+html[data-ui-style="glass"] .typing-dot:nth-child(2) {
+  animation-delay: 0.14s;
+}
+html[data-ui-style="glass"] .typing-dot:nth-child(3) {
+  animation-delay: 0.28s;
+}
+@keyframes friday-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+html.friday-hidden .typing-dot {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-style="glass"] .bubble-enter,
+  html[data-ui-style="glass"] .typing-dot {
+    animation: none;
+  }
+}
+
+/* Capsule composer (glass): Attach on the left, the auto-grow textarea in
+   the middle (uncontrolled), a round Send or Stop on the right. Blur only
+   in Full chat, through a class the Blur setting switches off. */
+html[data-ui-style="glass"] .friday-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.375rem;
+  padding: 0.3125rem;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: 1.5rem;
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  box-shadow: var(--friday-glass-shadow);
+}
+html[data-ui-style="glass"] .friday-chat-full .friday-composer {
+  backdrop-filter: blur(var(--friday-glass-blur)) saturate(1.4);
+}
+html.no-blur .friday-chat-full .friday-composer {
+  backdrop-filter: none;
+}
+html[data-ui-style="glass"] .friday-composer textarea {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: 1.25rem;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-ui-style="glass"] .friday-composer textarea:focus-visible {
+  box-shadow: none;
+}
+html[data-ui-style="glass"] .friday-composer:focus-within {
+  border-color: var(--color-ring);
+  box-shadow: var(--friday-glass-shadow), var(--friday-ctl-glow);
+}
+html.no-glow[data-ui-style="glass"] .friday-composer:focus-within {
+  box-shadow: inset 0 1px 0 var(--friday-glass-highlight);
+}
+html[data-ui-style="glass"] .friday-composer .friday-attach,
+html[data-ui-style="glass"] .friday-composer .friday-send {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  font-size: 0;
+  gap: 0;
+}
+html[data-ui-style="glass"] .friday-composer .friday-attach .chat-btn-text,
+html[data-ui-style="glass"] .friday-composer .friday-attach > span {
+  display: none;
+}
+html[data-ui-style="glass"] .friday-composer .friday-attach svg,
+html[data-ui-style="glass"] .friday-composer .friday-send svg {
+  width: 1rem;
+  height: 1rem;
 }

@@ -507,7 +507,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
 
   return (
     <ShellPresenceContext.Provider value={true}>
-      <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+      <div className="friday-shell flex h-screen w-full flex-col overflow-hidden bg-background">
         <BootScreen />
         <FlowStudioHost />
         {/* The only FRIDAY branding: the custom top strip. */}

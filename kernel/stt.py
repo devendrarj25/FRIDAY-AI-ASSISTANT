@@ -632,17 +632,22 @@ def prepare_audio(audio_path: str) -> tuple[str, object | None, str | None, dict
         "denoisedPeakDbfs": None,
         "denoiseNote": "",
         "usedOriginal": True,
+        "gainDb": 0.0,
     }
     try:
         import numpy as np  # type: ignore
 
-        original = np.asarray(samples, dtype=np.float32).reshape(-1)
-        before = voice_runtime.pcm_levels(original, PROBE_RATE)
+        raw = np.asarray(samples, dtype=np.float32).reshape(-1)
+        before = voice_runtime.pcm_levels(raw, PROBE_RATE)
+        # Quiet microphones: lift speech to a normal level before denoise and VAD.
+        original, gain_db = voice_runtime.normalize_gain(raw)
+        original = np.asarray(original, dtype=np.float32).reshape(-1)
+        hearing["gainDb"] = gain_db
         cleaned = np.asarray(voice_runtime.denoise_pcm(original, PROBE_RATE), dtype=np.float32).reshape(-1)
         after = voice_runtime.pcm_levels(cleaned, PROBE_RATE)
         chosen, note = voice_runtime.guard_denoised(original, cleaned)
         chosen = np.asarray(chosen, dtype=np.float32).reshape(-1)
-        hearing["prosody"] = voice_runtime.voice_prosody(original, PROBE_RATE)
+        hearing["prosody"] = voice_runtime.voice_prosody(raw, PROBE_RATE)
         hearing.update(
             {
                 "durationMs": before["durationMs"],
@@ -775,6 +780,7 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
 
 
 TOO_SHORT_MS = 300
+VAD_PARAMETERS = {"threshold": 0.35, "min_silence_duration_ms": 700, "speech_pad_ms": 400}
 
 _counters: dict = {"heard": 0, "dropped": {}}
 
@@ -989,6 +995,9 @@ def _transcribe_prepared(
     kwargs: dict = {
         "language": lang,
         "vad_filter": True,
+        # Silero's 0.5 default drops soft speech from laptop arrays; the
+        # no-speech policy still removes a hallucinated line afterwards.
+        "vad_parameters": dict(VAD_PARAMETERS),
         "beam_size": 1,
         "condition_on_previous_text": False,
     }
@@ -1024,7 +1033,7 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
-    bare = {key: value for key, value in kwargs.items() if key != "initial_prompt"}
+    bare = {key: value for key, value in kwargs.items() if key not in {"initial_prompt", "vad_parameters"}}
     bare["vad_filter"] = False
 
     def again(kind: str) -> dict:

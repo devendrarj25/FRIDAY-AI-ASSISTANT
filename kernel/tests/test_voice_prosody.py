@@ -57,7 +57,9 @@ class VoiceProsody(unittest.TestCase):
     def test_the_hearing_facts_carry_the_tone(self):
         root = Path(__file__).resolve().parents[1]
         body = (root / "stt.py").read_text(encoding="utf-8")
-        self.assertIn('hearing["prosody"] = voice_runtime.voice_prosody(original, PROBE_RATE)', body)
+        self.assertIn('hearing["prosody"] = voice_runtime.voice_prosody(raw, PROBE_RATE)', body)
+        # The tone is read from the microphone's own clip, never the gain-lifted copy.
+        self.assertNotIn("voice_prosody(original", body)
 
 
 if __name__ == "__main__":

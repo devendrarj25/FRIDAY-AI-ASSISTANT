@@ -57,8 +57,16 @@ if (!/^\s*av>=17\.0\.0,<19\s*$/m.test(requirements)) {
   );
   process.exit(1);
 }
+let builtPython = "";
+try {
+  // The venv setup-python built in the selected FRIDAY folder.
+  builtPython = require("./python-runtime.cjs").resolveVenvPython() || "";
+} catch {
+  builtPython = "";
+}
 const pythons = [
   process.env.FRIDAY_PYTHON,
+  builtPython,
   path.join(root, ".venv", "bin", "python"),
   path.join(root, ".venv", "Scripts", "python.exe"),
   "python3",

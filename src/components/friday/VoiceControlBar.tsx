@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CHAT_LEVELS, VOICE_LEVEL_LABELS, type ChatLevel } from "@/lib/friday/chat-level";
+import { useSlidingThumb } from "@/components/friday/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -89,12 +90,15 @@ export function VoiceLevelSwitch({
   level: ChatLevel;
   onSelect: (level: ChatLevel) => void;
 }) {
+  const { listRef, thumbRef } = useSlidingThumb(level);
   return (
     <div
+      ref={listRef}
       role="radiogroup"
       aria-label="Voice window size"
-      className="voice-level-switch inline-flex h-6 items-stretch overflow-hidden rounded-sm border border-primary/25 font-mono text-[10px]"
+      className="voice-level-switch friday-seg inline-flex h-6 items-stretch overflow-hidden rounded-sm border border-primary/25 font-mono text-[10px]"
     >
+      <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {CHAT_LEVELS.map((value, index) => (
         <button
           key={value}

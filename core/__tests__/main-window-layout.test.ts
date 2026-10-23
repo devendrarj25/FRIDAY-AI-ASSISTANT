@@ -216,7 +216,9 @@ describe("Manual chat controls: labels, cursor, glass", () => {
     expect(css).toContain(".friday-chat-messages {\n  cursor: auto;\n  user-select: text;\n}");
     expect(css).toContain(".chat-level-switch button {\n  cursor: pointer;\n}");
     expect(css).toContain(".neural-circuit-compact {\n  cursor: default;\n  user-select: none;\n}");
-    expect(css).toContain("html.no-glow .friday-chat-full {\n  backdrop-filter: none;");
+    // Only the Blur setting switches the Full chat blur off. Neon glow never does.
+    expect(css).not.toContain("html.no-glow .friday-chat-full");
+    expect(css).toContain("html.no-blur .friday-chat-full");
     expect(css).toMatch(/\.chat-hover-label \{[\s\S]*?transition:[\s\S]*?max-width 180ms/);
     expect(css).toContain("@container friday-chat (max-width: 48rem)");
     expect(dock).toContain("friday-chat friday-interactive-region hud-panel");
@@ -280,5 +282,26 @@ describe("Manual chat transcript rows", () => {
       "whitespace-pre-wrap font-sans leading-relaxed text-sm",
     );
     expect(render({ messages: [], conversation: [] })).toContain("empty");
+  });
+
+  it("draws both sides as glass bubbles and caps the user column only once", () => {
+    const html = render();
+    expect(html).toContain("bubble-friday");
+    expect(html).toContain("flex min-w-0 max-w-[85%] flex-col items-end");
+    expect(html).toContain("w-fit max-w-full whitespace-pre-wrap text-left user-bubble");
+    const dock = readFileSync(resolve(process.cwd(), "src/components/friday/ChatDock.tsx"), "utf8");
+    expect(dock).not.toMatch(/userBubbleClass[\s\S]{0,400}max-w-\[/);
+    expect(dock).toContain('"bubble-user px-2.5 py-1.5 text-xs"');
+    const voice = readFileSync(
+      resolve(process.cwd(), "src/components/friday/VoiceTranscript.tsx"),
+      "utf8",
+    );
+    expect(voice).toContain('user ? "bubble-user" : "bubble-friday"');
+    const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    const glass = css.slice(css.indexOf("/* Conversation bubbles"));
+    expect(glass).toContain(".bubble-user:hover");
+    expect(glass).toContain("prefers-reduced-motion: reduce");
+    expect(glass).toContain("html.no-glow .bubble-user:hover");
+    expect(glass).toContain("prefers-reduced-transparency: reduce");
   });
 });

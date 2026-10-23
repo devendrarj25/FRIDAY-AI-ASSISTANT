@@ -65,7 +65,13 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         : plainLabel(children);
     const icon = label ? iconForLabel(label) : null;
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props}>
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        data-variant={variant ?? "default"}
+        data-size={size ?? "default"}
+        ref={ref}
+        {...props}
+      >
         {/* Without an icon the children pass through untouched: asChild
             (Slot) needs exactly one child element. */}
         {icon ? (

@@ -85,8 +85,11 @@ async function hfFiles(repo, signal) {
   let lastError = "unreachable";
   for (const host of HF_HOSTS) {
     try {
-      safety.assertAllowedUrl(`${host}/api/models/${repo}`);
-      const res = await fetch(`${host}/api/models/${repo}`, { signal });
+      // blobs=true makes the listing carry each LFS file's sha256 and size,
+      // so every weight is verified against the publisher's own digest.
+      const listingUrl = `${host}/api/models/${repo}?blobs=true`;
+      safety.assertAllowedUrl(listingUrl);
+      const res = await fetch(listingUrl, { signal });
       if (!res.ok) {
         lastError = `HTTP ${res.status}`;
         continue;
@@ -498,7 +501,12 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
 
         let bytes = 0;
         let lastError = null;
-        active = { dest, sourceUrl: `https://huggingface.co/${source.repo}`, sha256: "" };
+        const digest = listing.meta && listing.meta[file] ? listing.meta[file] : {};
+        active = {
+          dest,
+          sourceUrl: `https://huggingface.co/${source.repo}`,
+          sha256: digest.sha256 || "",
+        };
         remember(root, job, { status: "downloading", ...active });
         for (const host of HF_HOSTS) {
           try {
@@ -510,6 +518,8 @@ async function downloadModel(job, onEvent, signal, deps = {}) {
                 signal,
                 label: `downloading ${path.basename(file)}`,
                 control: job.control,
+                sha256: digest.sha256 || "",
+                needBytes: digest.size || 0,
               },
             );
             lastError = null;
