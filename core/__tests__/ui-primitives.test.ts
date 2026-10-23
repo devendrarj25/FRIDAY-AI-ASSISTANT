@@ -400,6 +400,9 @@ describe("Windows transparency setting", () => {
     expect(block).toContain("background: var(--color-card);");
     expect(block).toContain('[class*="backdrop-blur"],');
     expect(block).toContain("backdrop-filter: none !important;");
+    // The glass chrome blur (sidebar, title strip, composer) goes too.
+    for (const chrome of [".friday-sidebar,", ".friday-titlestrip,", ".friday-composer,"])
+      expect(block).toContain(chrome);
   });
 });
 

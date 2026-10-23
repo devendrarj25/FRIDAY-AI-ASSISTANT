@@ -1307,6 +1307,9 @@ button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
     background: var(--color-card);
   }
   [class*="backdrop-blur"],
+  .friday-sidebar,
+  .friday-titlestrip,
+  .friday-composer,
   .friday-chat-full,
   .voice-glass,
   .voice-glass-menu {
