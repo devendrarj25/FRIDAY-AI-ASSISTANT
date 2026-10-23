@@ -3,7 +3,12 @@ import { ArrowDown, Check, Copy, RotateCcw } from "lucide-react";
 import type { Message } from "@/lib/friday/brain-engine";
 import { brain } from "@/lib/friday/brain-engine";
 import { splitChatBlocks } from "@/lib/friday/chat-blocks";
-import { followsLatest, type ChatLevel, type TranscriptMark } from "@/lib/friday/chat-level";
+import {
+  followsLatest,
+  selectionHeldIn,
+  type ChatLevel,
+  type TranscriptMark,
+} from "@/lib/friday/chat-level";
 import { copyText } from "@/lib/friday/clipboard";
 import { formatOwnerDate } from "@/lib/friday/settings-runtime";
 import { cn } from "@/lib/utils";
@@ -244,7 +249,10 @@ export function ChatTranscript({
     if (followsLatest(pinned.current, seen.current, mark)) {
       pinned.current = true;
       setAway(false);
-      toBottom();
+      // Selecting text while a reply streams holds the view still.
+      const held =
+        typeof window !== "undefined" && selectionHeldIn(scrollRef.current, window.getSelection());
+      if (!held) toBottom();
     }
     seen.current = mark;
   }, [messages, conversation, newest, level, toBottom]);

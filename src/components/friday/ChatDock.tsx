@@ -159,6 +159,8 @@ const GROUP_ICONS: Record<CapabilityKind, typeof Boxes> = {
   connectors: Link2,
 };
 
+const RAIL_KEY = "friday.chat.rail";
+
 function readSessions(): Session[] {
   if (typeof window === "undefined") return [];
   return readLocalState<Session[]>(SESSION_KEY) ?? [];
@@ -248,7 +250,13 @@ export function ChatDock() {
 
   const [files, setFiles] = useState<Attachment[]>([]);
   const level = useChatLevel();
-  const [railOpen, setRailOpen] = useState(true);
+  // The saved-chats rail stays open or closed the way the owner left it.
+  const [railOpen, setRailOpen] = useState(() => readLocalState<boolean>(RAIL_KEY) !== false);
+  const toggleRail = () =>
+    setRailOpen((open) => {
+      writeState(RAIL_KEY, !open);
+      return !open;
+    });
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [sessions, setSessions] = useState<Session[]>(() => readSessions());
@@ -1046,7 +1054,7 @@ export function ChatDock() {
                 label={railOpen ? "Hide saved chats" : "Show saved chats"}
                 below
                 aria-expanded={railOpen}
-                onClick={() => setRailOpen((open) => !open)}
+                onClick={toggleRail}
               />
               {railOpen ? (
                 <>

@@ -33,6 +33,7 @@ import {
   useWorkspaceRootState,
   type CompanionRemoteState,
 } from "@/lib/friday/desktop";
+import { useNavThumb } from "@/components/friday/nav-thumb";
 import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
 import { installInteractionPause } from "@/lib/friday/interaction-pause";
@@ -267,6 +268,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   useAppearance();
   // First run: FRIDAY cannot work before it has a primary folder to scan.
   const workspaceRoot = useWorkspaceRootState();
+  // The sidebar mounts once the workspace is chosen, so that is a re-place trigger too.
+  const navThumbRef = useNavThumb(navRef, [pathname, collapsed, workspaceRoot]);
   // One version for the whole app (package.json → installed EXE version).
   const appVersion = useAppVersion();
 
@@ -543,11 +546,17 @@ function AppShellChrome({ children }: { children: ReactNode }) {
             {/* Scrollable navigation — same DOM across routes (root chrome). */}
             <nav
               ref={navRef}
-              className="min-h-0 flex-1 overflow-y-auto p-2"
+              className="relative min-h-0 flex-1 overflow-y-auto p-2"
               onScroll={(event) => {
                 savedSidebarScroll = event.currentTarget.scrollTop;
               }}
             >
+              <span
+                ref={navThumbRef}
+                aria-hidden="true"
+                data-on="false"
+                className="friday-nav-thumb"
+              />
               {NAV_GROUPS.map((group) => (
                 <div key={group.group} className="mb-3">
                   {!collapsed ? (

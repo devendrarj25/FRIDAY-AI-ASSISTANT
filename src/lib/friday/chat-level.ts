@@ -74,6 +74,20 @@ export function followsLatest(
   return next.last !== prev.last && next.lastRole === "user";
 }
 
+/**
+ * True while the owner has text selected inside the transcript. A streaming
+ * reply then stops pulling the view to the bottom, so the selection they are
+ * making (or about to copy) does not slide away; following resumes the moment
+ * the selection is released.
+ */
+export function selectionHeldIn(
+  container: { contains(node: unknown): boolean } | null,
+  selection: { isCollapsed: boolean; anchorNode: unknown; focusNode: unknown } | null,
+): boolean {
+  if (!container || !selection || selection.isCollapsed) return false;
+  return container.contains(selection.anchorNode) || container.contains(selection.focusNode);
+}
+
 /** Never take Alt+digit from someone typing in a field. */
 export function isTypingTarget(target: unknown): boolean {
   const el = target as { tagName?: unknown; isContentEditable?: unknown } | null;
