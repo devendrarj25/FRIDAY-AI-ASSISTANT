@@ -262,8 +262,7 @@ const DOCUMENTS = [
     title: "FRIDAY — Project State",
     section: "sessions",
     audience: "contributors (current facts, after the working rules)",
-    answers:
-      "Live briefing: architecture snapshot, counts, decisions, gaps, next priorities",
+    answers: "Live briefing: architecture snapshot, counts, decisions, gaps, next priorities",
     topic: "Cross-session project state briefing",
     role: "session",
   },
