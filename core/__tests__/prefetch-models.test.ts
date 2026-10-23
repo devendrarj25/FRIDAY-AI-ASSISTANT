@@ -259,7 +259,12 @@ describe("an Ollama that is already on this PC", () => {
     const pulled: string[] = [];
     const lines: string[] = [];
     const rows = await prefetch.prefetch("C:/friday", {
-      env: { ...quiet, FRIDAY_AUTO_INSTALL: "1", FRIDAY_PREFETCH_CHAT: "0" },
+      env: {
+        ...quiet,
+        FRIDAY_AUTO_INSTALL: "1",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+      },
       platform: win,
       log: (line: string) => lines.push(line),
       download: async (job: { modelId: string; dir: string }) => {
@@ -295,7 +300,12 @@ describe("an Ollama that is already on this PC", () => {
   it("downloads the newest official release, with its own digest, only when Ollama is missing", async () => {
     const jobs: { modelId: string; sources: { url: string; sha256: string }[] }[] = [];
     await prefetch.prefetch("C:/friday", {
-      env: { ...quiet, FRIDAY_AUTO_INSTALL: "0", FRIDAY_PREFETCH_CHAT: "0" },
+      env: {
+        ...quiet,
+        FRIDAY_AUTO_INSTALL: "0",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+      },
       platform: win,
       log: () => {},
       download: async (job: (typeof jobs)[number]) => {
