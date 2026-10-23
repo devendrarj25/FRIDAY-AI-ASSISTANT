@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Existing kernel entry for Cloud Agent terminals. Same FastAPI process as desktop.
+# Existing kernel entry for cloud environment terminals. Same FastAPI process as desktop.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Shared Node selection for Cloud Agent install and start.
+# Shared Node selection for cloud environment install and start.
 # Does not change FRIDAY UI, capabilities, or features.
-# Cloud Agent PATH often prefers /exec-daemon/node, which is below the 22.19 floor.
+# The cloud environment PATH often prefers /exec-daemon/node, which is below the 22.19 floor.
 
 friday_need_node() {
   local bin="${1:-node}"

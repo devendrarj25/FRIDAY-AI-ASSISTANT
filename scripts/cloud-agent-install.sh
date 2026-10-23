@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cloud Agent bootstrap only. Does not change FRIDAY UI, capabilities, or features.
+# cloud environment bootstrap only. Does not change FRIDAY UI, capabilities, or features.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
