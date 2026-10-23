@@ -80,15 +80,6 @@ These behaviours live in `src/lib/friday/self/run-receipt.ts` and are called fro
 | Control plane | A closed control plane blocks privileged work. Read-only work may continue. An unapproved privileged request does not run. |
 | System state | A lifecycle jump names an actor, a cause, and evidence. An invalid jump is refused. The task graph does not keep a second state store. |
 
-## Research (2026-10-08)
-
-| Source | Decision | Reason |
-| --- | --- | --- |
-| [OpenTelemetry logs data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/) | ADAPT | A versioned event name plus a timestamp fits the existing task log. A second telemetry backend does not. |
-| [Temporal workflow execution](https://docs.temporal.io/workflow-execution) | ADAPT | Checkpoints, idempotency, and bounded retry already live on the task graph. A hosted workflow server does not fit a local-first app. |
-| [NIST NCCoE agent identity concept paper](https://www.nccoe.nist.gov/sites/default/files/2026-02/accelerating-the-adoption-of-software-and-ai-agent-identity-and-authorization-concept-paper.pdf) | ADOPT | Least privilege: a grant is scoped, expiring, and rechecked, and a child cannot widen the parent. |
-| [NIST on agent identity](https://www.nist.gov/blogs/cybersecurity-insights/back-future-why-agentic-ai-needs-strong-identity-foundation) | ADAPT | Attenuate authority as it is delegated. Do not add a hosted identity provider. |
-
 ## Planes
 
 The live spine is the 17 layers in `src/lib/friday/flow-chart.ts`. These planes name the same owners. They are not a second map and not permission to move files.
@@ -116,69 +107,39 @@ SOURCE_READY means this checkout passes typecheck, lint, unit tests, and the doc
 
 The tool floor lives in `config/toolchain-versions.json`. A brain change re-runs brain, retrieval, and memory tests. A tool change re-runs authority, execution, and verification. A lifecycle change re-runs install, update, and recovery tests.
 
-Research checked 2026-09, freshness unverified this session: [Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) ADAPT (the context packet already drops stale and redundant lines). [MCP](https://modelcontextprotocol.io/) ADAPT (a connector stays under FRIDAY authority). [A2A v1.0](https://a2a-protocol.org/v1.0.0/) REJECT (no second agent protocol). [OWASP GenAI](https://genai.owasp.org/) ADOPT (model output and external content stay data). [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) ADOPT (the existing sandbox and preload boundary stay). [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) ADAPT (release artifacts stay integrity-checked in the existing publish path).
+## Research decisions
 
-Research checked 2026-10-08: [CALM-MAS](https://dl.acm.org/doi/10.1145/3838177.3841735) ADAPT (lower concurrency and quality before a safety break; no second serving stack). [Cognitive admission control](https://arxiv.org/abs/2609.16313) ADAPT (a privileged action with missing evidence does not run). [OpenTelemetry GenAI spans](https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/gen-ai/gen-ai-spans.md) ADAPT (model and tool faults share the existing task log; no collector). [ISACA agent change management](https://www.isaca.org/resources/white-papers/2026/cybersecurity-recommendations-for-securing-ai-agents) ADOPT (a self-change names files, tests, and rollback). The unapproved `gen_ai.repair` span proposal is REJECT (recovery already lives on `recoverFailure`).
-
-## Removed working layer
-
-The owner removed `FRIDAY-DEVELOPMENT & VISION/` and `READMEFIRST.md` on 2026-10-08. The gate, the task packet, and the route table in this file are the process that those copies repeated. The repo map lives in `AGENTS.md`.
-
-Ideas that were not done, superseded, or rejected:
-
-| Idea | Where it lives |
-| --- | --- |
-| Bedrock, Foundry, and Vertex need the owner's cloud accounts | `docs/FRIDAY_PROVIDERS_AND_SECRETS.md` |
-| MSIX stays a future channel. NSIS remains primary | `docs/FRIDAY_BUILD_AND_RELEASE.md` |
-| A generated SBOM was not added. A hash mismatch already fails closed | `docs/FRIDAY_BUILD_AND_RELEASE.md` |
-
-## Research record (2026-10-08)
-
-Checked against the tree. One line each. Long write-ups stay out.
+Recorded once, from documentation read between 2026-09 and 2026-10-20. ADOPT means it is in FRIDAY, ADAPT means the idea is used inside an existing module, and REJECT means it is not added.
 
 | Source | Decision | Reason |
 | --- | --- | --- |
-| [AGENTS.md](https://agents.md/) | ADOPT | Commands first, one root file, nest another file only when a subtree breaks a root rule. |
-| [Electron security](https://www.electronjs.org/docs/latest/tutorial/security) | ADOPT | contextIsolation, sandbox, CSP, IPC sender checks, and navigation limits stay the bar. |
-| [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADOPT | Startup and shutdown use one lifespan. Typed models and OpenAPI stay the contract. |
-| [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules. Floor `ruff>=0.15.0` in `kernel/requirements-dev.txt` (MIT, about 23 MB, not packaged). |
-| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode. Dev-only `pyright>=1.1.400` (MIT, about 6 MB, not packaged). `kernel/pyright-baseline.txt` is a ceiling. Full strict would churn. |
-| [Knip](https://knip.dev/) | ADAPT | Dev-only dead-export check. A finding is removed only when no caller remains. |
-| [Madge](https://github.com/pahen/madge) | ADAPT | Dev-only cycle check. A cycle is fixed in the existing modules. |
-| [Dependabot groups](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#groups) | ADOPT | The monthly wildcard group per ecosystem stays. Majors stay ignored. |
-| [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) | ADOPT | A clean audit is the gate. A new advisory fails the check. |
-| [pip-audit](https://pypi.org/project/pip-audit/) | ADAPT | Dev-only advisory check for kernel requirements. It does not become a runtime dependency. |
-| [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning) | ADOPT | The existing secret-scan workflow stays. A second scanner is not added. |
-| Generated SBOM | REJECT | A hash mismatch already fails closed. A new bill-of-materials generator is future work in the build doc. |
-
-## Research record (2026-10-09)
-
-| Source | Decision | Reason |
-| --- | --- | --- |
-| [OWASP SSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) | ADOPT | Resolve the host, then refuse private, loopback, and link-local. Tests inject the resolver. Production still calls `socket.getaddrinfo`. |
-| [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) | ADOPT | Least privilege, a job timeout, and a pinned third-party image stay inside the existing eleven workflows. |
-| [Actions security roadmap 2026](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/) | ADAPT | Actor and event rules are not a second CI. The existing permission blocks stay. |
-| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode stays. A missing tool fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set. A workstation may skip with a loud line. The ceiling may only shrink. |
-| [React hooks eslint](https://react.dev/reference/eslint-plugin-react-hooks) | ADOPT | The five compiler rules and `exhaustive-deps` are errors. State is derived or adjusted when an input changes. An effect subscribes. A ref is not read while rendering. |
-| [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) and [pip-audit](https://pypi.org/project/pip-audit/) | ADOPT | High, critical, and unknown severity fail unless `config/advisory-allow.json` lists the id and the expiry is still ahead of the injected clock. Moderate and low warn. |
-| [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) | ADAPT | Every window sandboxes the page, Node stays off, and navigation stays on `friday://app` or the dev origin. Re-read 2026-10-20. The checklist's CSP header is sent as `Content-Security-Policy-Report-Only` on the `friday://` document and on the dev session. Remote scripts are not allowed. Enforcing mode stays an owner decision (`FRIDAY_CSP_ENFORCE=1`). |
-| [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADAPT | Re-read 2026-10-20. One shared HTTP client already lives for the kernel lifetime in `kernel/router.py`. A second startup loader was not added. |
-| [OWASP prompt injection](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | ADAPT | Re-read 2026-10-20. Heard speech and page text stay data. Tool approval stays in application code. A second guard model was not added. |
-| [Electron webContents unresponsive](https://www.electronjs.org/docs/latest/api/web-contents) | ADAPT | Re-read 2026-10-20. The main window listens for `unresponsive` and `responsive`. After a grace period the lifecycle owner calls `reload()`. `forcefullyCrashRenderer` is not used. No owned process is killed. |
-| [AbortSignal.reason](https://nodejs.org/api/globals.html#abortsignalreason) | ADOPT | Re-read 2026-10-20. `abort(reason)` can be a string or an Error. A download pause or cancel always rejects with code `PAUSE` or `CANCEL` and message `paused` or `cancelled`. |
-| [Realtime voice activity detection](https://developers.openai.com/api/docs/guides/realtime-vad) | ADAPT | Wait longer on an unfinished utterance and drop a duplicate final transcript. Do not add the Realtime API. |
-| [Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations) | ADAPT | Barge-in keeps the text already shown, and a replaced answer is what gets spoken. One conversation item is not inserted twice. |
-
-## Research record (2026-10-13)
-
-Agent-instruction hygiene for this docs pass. One line each. No second instruction file was added.
-
-| Source | Decision | Reason |
-| --- | --- | --- |
-| [AGENTS.md](https://agents.md/) | ADOPT | One root file, with commands near the top. A nested file is for a package that breaks a root rule. This repo is one app, so the root file stays the only instruction file. |
-| [How to write a good AGENTS.md](https://docs.plannotator.ai/learn/ai-development/how-to-write-a-good-agents-md) | ADAPT | Keep the root file to rules that do not change, and move dated facts into `FRIDAY_STATE.md`. `CLAUDE.md` stays a one-line import. |
-| [One owner per rule](https://agentalk.org/guides/design-agents-md-files-across-coding-agents/) | ADAPT | State a rule once and link to it. A copied paragraph is already rejected by `npm run docs:check`. |
-| [Nested files in a monorepo](https://www.ssdnodes.com/learn/nested-agents-md-for-monorepos) | REJECT | A second instruction file would split the locked rules. No package here needs a different contract. |
+| [OpenTelemetry logs data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/) | ADAPT | A versioned event name plus a timestamp fits the existing task log. A second telemetry backend does not. |
+| [OpenTelemetry GenAI spans](https://github.com/open-telemetry/semantic-conventions/blob/v1.37.0/docs/gen-ai/gen-ai-spans.md) | ADAPT | Model and tool faults share the existing task log; no collector. |
+| [Temporal workflow execution](https://docs.temporal.io/workflow-execution) | ADAPT | Checkpoints, idempotency, and bounded retry already live on the task graph. A hosted workflow server does not fit a local-first app. |
+| [NIST NCCoE agent identity concept paper](https://www.nccoe.nist.gov/sites/default/files/2026-02/accelerating-the-adoption-of-software-and-ai-agent-identity-and-authorization-concept-paper.pdf) | ADOPT | Least privilege: a grant is scoped, expiring, and rechecked, and a child cannot widen the parent. |
+| [NIST on agent identity](https://www.nist.gov/blogs/cybersecurity-insights/back-future-why-agentic-ai-needs-strong-identity-foundation) | ADAPT | Attenuate authority as it is delegated. No hosted identity provider. |
+| [CALM-MAS](https://dl.acm.org/doi/10.1145/3838177.3841735) | ADAPT | Lower concurrency and quality before a safety break; no second serving stack. |
+| [Cognitive admission control](https://arxiv.org/abs/2609.16313) | ADAPT | A privileged action with missing evidence does not run. |
+| [MCP](https://modelcontextprotocol.io/) | ADAPT | A connector stays under FRIDAY authority. |
+| A2A v1.0 | REJECT | No second agent protocol. |
+| [OWASP GenAI](https://genai.owasp.org/) and [prompt injection prevention](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | ADOPT | Model output, heard speech, and page text stay data. Tool approval stays in application code. No second guard model. |
+| [OWASP SSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) | ADOPT | Resolve the host, then refuse private, loopback, and link-local addresses. Tests inject the resolver; production calls `socket.getaddrinfo`. |
+| [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) | ADOPT | contextIsolation, sandbox, IPC sender checks, and navigation limits stay the bar. The CSP header is sent report-only on `friday://` and the dev session; enforcing mode is the owner's decision (`FRIDAY_CSP_ENFORCE=1`). |
+| [Electron webContents unresponsive](https://www.electronjs.org/docs/latest/api/web-contents) | ADAPT | After a grace period the lifecycle owner calls `reload()`. `forcefullyCrashRenderer` is not used and no owned process is killed. |
+| [FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) | ADOPT | Startup and shutdown use one lifespan, and one shared HTTP client lives for the kernel lifetime in `kernel/router.py`. |
+| [Ruff](https://docs.astral.sh/ruff/) | ADOPT | One dev-only linter and formatter for the kernel, including bandit rules (`ruff>=0.15.0` in `kernel/requirements-dev.txt`, MIT, about 23 MB, not packaged). |
+| [Pyright](https://microsoft.github.io/pyright/) | ADAPT | Basic mode; dev-only `pyright>=1.1.400` (MIT, about 6 MB, not packaged). `kernel/pyright-baseline.txt` is a ceiling that may only shrink. A missing tool fails when `CI`, `GITHUB_ACTIONS`, or `FRIDAY_PYRIGHT_STRICT` is set; a workstation may skip with a loud line. |
+| [Knip](https://knip.dev/) and [Madge](https://github.com/pahen/madge) | ADAPT | Dev-only dead-export and cycle checks. A finding is fixed in the existing modules and removed only when no caller remains. |
+| [npm audit](https://docs.npmjs.com/cli/v10/commands/npm-audit) and [pip-audit](https://pypi.org/project/pip-audit/) | ADOPT | High, critical, and unknown severity fail unless `config/advisory-allow.json` lists the id and its expiry is still ahead of the injected clock. Moderate and low warn. pip-audit stays dev-only. |
+| [Dependabot groups](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#groups) | ADOPT | The monthly wildcard group per ecosystem stays; majors stay ignored. |
+| [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning) | ADOPT | The existing secret-scan workflow stays; no second scanner. |
+| [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use) and [security roadmap](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/) | ADOPT | Least privilege, a job timeout, and pinned third-party images stay inside the existing eleven workflows. |
+| [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) | ADAPT | Release artifacts stay integrity-checked in the existing publish path. |
+| [React hooks eslint](https://react.dev/reference/eslint-plugin-react-hooks) | ADOPT | The five compiler rules and `exhaustive-deps` are errors: state is derived, an effect subscribes, and a ref is not read while rendering. |
+| [AbortSignal.reason](https://nodejs.org/api/globals.html#abortsignalreason) | ADOPT | A download pause or cancel rejects with code `PAUSE` or `CANCEL` and message `paused` or `cancelled`. |
+| Realtime voice APIs (voice activity detection and conversation items) | ADAPT | Wait longer on an unfinished utterance, drop a duplicate final transcript, keep the text already shown on barge-in, and never insert one item twice. The hosted API is not added. |
+| Generated SBOM | REJECT | A hash mismatch already fails closed; a bill-of-materials generator is future work in `docs/FRIDAY_BUILD_AND_RELEASE.md`. |
+| MSIX, and Bedrock, Foundry, and Vertex providers | REJECT for now | MSIX stays a future channel (NSIS remains primary); the three cloud hosts need the owner's own accounts (`docs/FRIDAY_PROVIDERS_AND_SECRETS.md`). |
 
 ## Definition of done
 

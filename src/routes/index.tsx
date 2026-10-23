@@ -16,13 +16,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "FRIDAY is a local-first AI assistant desk: a live execution graphic, real action and emotion state, and a full multi-model chat console on your own PC.",
+          "FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.",
       },
       { property: "og:title", content: "FRIDAY — Personal AI Assistant Console" },
       {
         property: "og:description",
         content:
-          "Live neon console for local AI: real-time workflow visualisation and chat with models, tools, skills and plugins.",
+          "FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -36,7 +36,9 @@ export function BootScreen() {
         <p className="mt-5 font-display text-4xl font-bold tracking-[0.3em] text-primary glow-text">
           FRIDAY
         </p>
-        <p className="label-xs mt-2 text-muted-foreground">Personal AI Assistant</p>
+        <p className="mt-2 text-meta text-muted-foreground">
+          A Private, Autonomous and Self Learning OS Based on Local &amp; Cloud Models
+        </p>
         <p className="mt-1 font-mono text-xs text-accent">Initializing…</p>
 
         <ul className="mt-6 space-y-1 text-left">

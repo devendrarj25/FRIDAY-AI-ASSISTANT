@@ -86,7 +86,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "FRIDAY — Local AI Work Desk" },
       {
         name: "description",
-        content: "Local-first multi-model AI console for coding, research and PC automation.",
+        content:
+          "FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -243,7 +243,7 @@ if (fs.existsSync(packedScripts)) {
     console.error(`[friday] PACKAGING ships development-only scripts: ${banned.join(", ")}`);
     failed++;
   } else {
-    console.log("[friday] ok       Packaged scripts exclude Cloud Agent / CI helpers");
+    console.log("[friday] ok       Packaged scripts exclude cloud-environment / CI helpers");
   }
 }
 for (const extra of [

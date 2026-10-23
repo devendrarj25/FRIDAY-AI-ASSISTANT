@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Per-boot Cloud Agent start. Does not change FRIDAY UI or features.
+# Per-boot cloud environment start. Does not change FRIDAY UI or features.
 # Starts the existing Vite renderer and FastAPI kernel when they are not already up.
 set -euo pipefail
 

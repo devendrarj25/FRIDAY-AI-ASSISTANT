@@ -10,7 +10,6 @@
 </p>
 
 <p align="center">
-  A private, local-first AI work desk for Windows.<br />
   Owner and publisher: Devendra Singh Meena (devendrarj25)
 </p>
 
@@ -67,7 +66,7 @@ Each topic has one document. Open that document for the detail, and follow its l
 | Changelog of published versions | [CHANGELOG.md](CHANGELOG.md) |
 | Verification evidence and open limitations | [AUDIT.md](AUDIT.md) |
 | Cross-session project state briefing | [FRIDAY_STATE.md](FRIDAY_STATE.md) |
-| AI session protocol and landing bar | [AGENTS.md](AGENTS.md) |
+| Working rules and landing bar | [AGENTS.md](AGENTS.md) |
 
 <!-- docs-engine: end generated map -->
 

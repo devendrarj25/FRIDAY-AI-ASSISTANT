@@ -7,27 +7,28 @@ Scope: state of the codebase at version **1.1.3.4**.
 
 ## 1. Verification table (Linux check)
 
-First Lint / Types / Tests rows are what Self-Management reads. This table is filled from the command run on this tree. A later row must not put a positive error count in front of these three.
+First Lint / Types / Tests rows are what Self-Management reads. This table is filled from the commands run on this tree. A later row must not put a positive error count in front of these three.
 
 | Check | `command` | result |
 | --- | --- | --- |
-| Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `65 files already formatted`. |
+| Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `69 files already formatted`. |
 | Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.3.4`. |
-| Tests | `npm test` | 375 files passed, 3100 passed, 2 skipped, 70.99s. Exit 0 |
-| Kernel tests | `python -m pytest kernel/tests` | 207 passed in 19.36s. Exit 0 |
+| Tests | `npm test` | 406 files passed, 3439 passed, 4 skipped. Exit 0 |
+| Kernel tests | `npm run test:kernel` | 243 passed, 3 skipped in 39.60s. Exit 0 |
+| Kernel types | `npm run typecheck:py` | pass (pyright baseline) |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk, provider status stale false) |
 | Version heal | `npm run verify:version` | in sync at **1.1.3.4** (npm encoding **1.1.3**) |
 | Layout | `npm run arrange:check` | **140 folders**, missing 0, duplicates 0 |
-| Dependencies | `npm audit` | **0 vulnerabilities** on 2026-10-21. Vite is already pinned at 8.3.5. This change did not bump it. `pip-audit` was not re-run. chromadb 1.5.9 (PYSEC-2026-311, PYSEC-2026-3813, PYSEC-2026-3814, PYSEC-2026-3815) had no published fix version, so that pin was not moved. |
-| Local CI substitute | `npm run preflight -- --full` | exit 0 on Linux. `npm test` passed: 375 files, 3100 tests, 2 skipped, 70.99s. Windows pack gates were skipped on Linux. `npm run validate:local` calls the same script. `npm run build:desktop` passed in 5.50s (2980 modules). |
-| Pricing knowledge | `npm run pricing:status` | Exit 1. EXPIRED. Oldest is deepseek, checked 2026-10-07, expires 2026-10-21 (−1 day). groq, gemini, mistral, nvidia, zhipu, openai, anthropic, and perplexity are fresh (checked 2026-10-21). DeepSeek's pricing URL had no price table, so that date was not moved. |
-| Commit provenance | `npm run check:provenance` | passed for this branch. New commits use the repository owner as author. Assistant-authored commits already on `main` were not rewritten |
-| Hosted Actions | PR Validation / FRIDAY Release | The owner reported these green for public line 1.1.3.4 on 2026-10-18. This branch's hosted runs were not started |
-| Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** on this branch (needs a Windows PC). The owner verified that command for public line 1.1.2.4 on 2026-10-18 |
+| Architecture audit | `node scripts/audit-architecture.cjs --strict` | pass |
+| Commit provenance | `npm run check:provenance` | pass |
+| Renderer build | `npm run build:desktop` | pass; `src/routeTree.gen.ts` unchanged |
+| Local CI substitute | `npm run preflight -- --full` | every Linux gate passed. Windows NSIS pack, packaged verify, and installer smoke were skipped on Linux |
+| Hosted Actions | PR Validation / FRIDAY Release | **NOT VERIFIED** for this branch (no workflow was started) |
+| Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** (needs a Windows PC) |
 
 ## 2. Published 1.1.3.4
 
-GitHub release v1.1.3.4 was published 2026-10-17T04:20:37Z. The asset list read here on 2026-10-18 names Setup (321311216 bytes), Portable (320933137 bytes), `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, and `CHANGELOG.md`. The EXEs were not downloaded here, so the sums file was not recomputed. The owner verified Release build and publish for this line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+GitHub release v1.1.3.4 is the current public line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 
@@ -43,6 +44,8 @@ GitHub release v1.1.3.4 was published 2026-10-17T04:20:37Z. The asset list read 
 - LocalAI on Windows has no vendor-documented native EXE (Docker). FRIDAY will not fake a winget install or a successful start without `local-ai` on PATH.
 - llama.cpp / vLLM are not fully automatic: they need exactly one matching model file in `<FRIDAY_ROOT>/models` before `startEngine` builds a command.
 - Cloudflare Workers AI is not wired (account id in the chat URL; no OpenAI `/v1/models` on that base).
+- DeepSeek has no readable price table, so its models stay unknown until one is published.
+- `chromadb` 1.5.9 advisories have no published fix version.
 - Hands-free Auto defaults off.
 - numpy / chromadb / device extras are optional at kernel boot; missing extras must not abort FastAPI startup.
 - Physical microphone / wake word / barge-in: **NOT VERIFIED** (needs a Windows desktop with capture hardware).

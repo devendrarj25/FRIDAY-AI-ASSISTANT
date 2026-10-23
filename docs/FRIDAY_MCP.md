@@ -1,5 +1,7 @@
 # FRIDAY — Model Context Protocol
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 FRIDAY speaks MCP twice, through one module: `electron/mcp-protocol.cjs`. The desktop process is the server. The Connectors page is the client. Both use the same framing, versions, and error codes. There is no second protocol stack.
 
 The server is off until you turn it on. A fresh install does not listen. The transports are a stdio launcher (`electron/friday-mcp.cjs`) and Streamable HTTP on `127.0.0.1` only. A public tunnel is not created.
@@ -22,9 +24,9 @@ A safe tool runs. A write or exec tool waits for an approval card unless the aut
 
 Shell strings, desktop input, the clipboard, the screen, and device control stay on the desktop. They are mapped so the risk table stays complete, and they are withheld from `tools/list`. No microphone tool and no speech tool is exposed. A notify tool appends text and does not speak.
 
-## Research record (2026-10-10)
+## Research decisions
 
-Read from the current specification, the SDK pages, and each client's own setup page. Ideas only. No client source was copied.
+Read from the current specification, the SDK pages, and each client's own setup page. ADOPT means built as described, ADAPT means built in reduced form, REJECT means deliberately not built.
 
 | Idea | Source | Decision | Reason | Where |
 | --- | --- | --- | --- | --- |
@@ -41,7 +43,7 @@ Read from the current specification, the SDK pages, and each client's own setup 
 | Public tunnel | not required by the desktop clients below | REJECT | Loopback and stdio reach every listed desktop client. | not built |
 | Read-only tools while FRIDAY is closed | launcher behaviour | REJECT | A closed app must not run tools. | `electron/friday-mcp.cjs` |
 | Held `subscriptions/listen` | modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions | ADOPT | The first frame is `notifications/subscriptions/acknowledged`. The socket stays open for later change notices, each tagged with `io.modelcontextprotocol/subscriptionId`. A disconnect closes it. | `electron/mcp-server.cjs` |
-| Desktop extension bundle | [mcpb MANIFEST.md](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md), manifest 0.3, checked 2026-10-10 | ADOPT | The 2026-07-28 post did not name a file format. The mcpb repository specifies a zip named `.mcpb` with `manifest_version` `0.3`. FRIDAY packs the existing stdio launcher. Snippets stay the install path for clients that do not read `.mcpb`. | `scripts/mcp-bundle.cjs` |
+| Desktop extension bundle | [mcpb MANIFEST.md](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md), manifest 0.3 | ADOPT | The 2026-07-28 post did not name a file format. The mcpb repository specifies a zip named `.mcpb` with `manifest_version` `0.3`. FRIDAY packs the existing stdio launcher. Snippets stay the install path for clients that do not read `.mcpb`. | `scripts/mcp-bundle.cjs` |
 | A2A agent card | a2a-protocol.org v1.0 agent card | ADAPT | A local card is served on loopback only. No public host. | `GET /.well-known/agent-card.json` |
 | Claude Desktop config | code.claude.com MCP local servers page: `%APPDATA%\Claude\claude_desktop_config.json`, key `mcpServers` | ADOPT | Quit the app after saving. An MSIX install may redirect the file. | snippet `claude-desktop` |
 | Claude Code config | code.claude.com/docs/en/mcp: project `.mcp.json`, key `mcpServers`, `type` stdio | ADOPT | User scope is `%USERPROFILE%\.claude.json`, not a second path. | snippet `claude-code` |
@@ -56,7 +58,7 @@ Read from the current specification, the SDK pages, and each client's own setup 
 
 ## Limits
 
-Windows quoting in the snippets uses the launcher path the app resolves. A real Claude Desktop, Cursor, VS Code, or other client was not started in this check. That run is the owner's. Hosted Actions, the CMD pack, and a packaged boot are unverified here.
+Windows quoting in the snippets uses the launcher path the app resolves. A real MCP client (a desktop app or editor) is verified only by the owner on the Windows PC, as are hosted Actions, the CMD pack, and a packaged boot.
 
 Tool, resource, and prompt names below are generated. Edit the catalog, then run `npm run docs:sync`.
 

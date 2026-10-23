@@ -1,5 +1,7 @@
 # FRIDAY — Release Runbook
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 **Current shipping version: 1.1.3.4**
 
 🚀 How to publish. The number rules are [VERSIONING.md](VERSIONING.md). The workflow catalog is [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Pack internals are [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
@@ -25,7 +27,7 @@ Actions → **FRIDAY Test Build** (`test-build.yml`). Inputs and the separate Wi
 
 ## Official
 
-Actions → **FRIDAY Release** (`release.yml`). The default `stage` is `all`: plan, prepare, validate, merge, then publish. `stage=prepare` opens the release pull request and stops. `stage=publish` packs the version already on `main`. The workflow file on `main` is the one a manual click uses, so a fix to that file applies only after it is merged. Check names that change if a repository rule pinned the old display name: **Official Publish** becomes **FRIDAY Release**, **Release / Build** is gone, **Test EXE Build** becomes **FRIDAY Test Build**. The commit status **PR Validation** does not change. Job names `prepare-release / prepare` and `publish-release / publish` become `prepare` and `publish`.
+Actions → **FRIDAY Release** (`release.yml`). The default `stage` is `all`: plan, prepare, validate, merge, then publish. `stage=prepare` opens the release pull request and stops. `stage=publish` packs the version already on `main`. The workflow file on `main` is the one a manual click uses, so a fix to that file applies only after it is merged. The required commit status is **PR Validation**; the job checks are named `prepare` and `publish`.
 
 1. **Prepare** — tests, heals the documents, and opens or updates the release pull request. `release-engine.cjs handoff` writes the identity before the pack.
 2. Merge that pull request into `main`.
@@ -55,7 +57,7 @@ Merging a product pull request does not publish. Publish is this runbook.
 
 ## Owner acceptance
 
-Run this on the Windows PC after the draft is merged, or run step 1 on the pull request ref before merge. A Linux check does not replace it. If a step fails, send the on-screen error text and the step number.
+Run this on the Windows PC after the pull request is merged, or run step 1 on the pull request ref before merge. A Linux check does not replace it. If a step fails, send the on-screen error text and the step number.
 
 1. Actions → **FRIDAY Test Build** on the pull request ref. Download the artifact and install the test EXE.
 2. After that pull request is on `main`, Actions → **FRIDAY Release** with `stage` left at `all`. `stage=prepare` only opens the release pull request. `stage=publish` packs the version already on `main`.
@@ -66,5 +68,6 @@ Run this on the Windows PC after the draft is merged, or run step 1 on the pull 
 7. One sandbox run from the staged or bootstrapped Python.
 8. MCP pairing from Connectors, then one `friday.ask` call. Turn the server off after.
 9. Install the official Setup over the test copy, or update from Settings, then uninstall. User data under the FRIDAY folder stays.
+10. On a clean PC, first launch shows Doctor rows for Python, Node, and whisper.cpp turning Ready (version, source, hash OK, last run).
 
-Repository rules that pinned a display name: **Official Publish** is now **FRIDAY Release**, **Release / Build** is gone, **Test EXE Build** is now **FRIDAY Test Build**. The commit status **PR Validation** is unchanged. Job checks `prepare-release / prepare` and `publish-release / publish` are now `prepare` and `publish`.
+The owner publishes: PR Validation green on the pull request head, the owner merges, then FRIDAY Release `stage` `publish` runs only when the line on `main` is not already a GitHub release. It stops unless a fresh green PR Validation exists for that tree and never replaces an existing release; `mode` `rebuild` is the only input that does.

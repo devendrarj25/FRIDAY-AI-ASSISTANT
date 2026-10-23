@@ -1,8 +1,10 @@
 # FRIDAY — Architecture Baseline (v1.1.3.4)
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 📐 **baseline locked** on the 1.1.3.4 checkout.
 
-Folder and subsystem pins the architecture audit enforces. Runtime layers: [ARCHITECTURE.md](../ARCHITECTURE.md). Disk rules: [FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md).
+Folder and subsystem pins the architecture audit enforces. Runtime layers and the repository tree: [ARCHITECTURE.md](../ARCHITECTURE.md). Disk rules: [FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md).
 
 ## 1. Layout manifest
 

@@ -46,7 +46,7 @@ const SECTIONS = [
   { id: "architecture", title: "2. Architecture and data" },
   { id: "release", title: "3. Build, version, release and update" },
   { id: "governance", title: "4. Repository governance" },
-  { id: "sessions", title: "5. Working sessions (humans and AI tools)" },
+  { id: "sessions", title: "5. Working rules and state" },
 ];
 
 /**
@@ -95,7 +95,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_FEATURES.md",
     title: "FRIDAY — Feature & Capability Catalog",
     section: "start",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers: "Every shipped capability, the file that implements it, and the test that covers it",
     topic: "Feature catalog with implementation and test map",
   },
@@ -103,7 +103,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_IMPORT_FORMAT.md",
     title: "FRIDAY — Capability Import Format",
     section: "start",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers:
       "JSON manifests for importing a skill, tool, module, plugin, workflow or agent, and what Import & Build does next",
     topic: "Capability import JSON format",
@@ -112,7 +112,7 @@ const DOCUMENTS = [
     file: "ARCHITECTURE.md",
     title: "FRIDAY — Architecture Overview",
     section: "architecture",
-    audience: "developers, AI tools",
+    audience: "developers, contributors",
     answers: "Process layers, the allowlisted IPC surface, and how renderer, main, and kernel meet",
     topic: "Architecture layers and IPC",
   },
@@ -120,7 +120,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_ARCHITECTURE_BASELINE.md",
     title: "FRIDAY — Architecture Baseline",
     section: "architecture",
-    audience: "developers, AI tools",
+    audience: "developers, contributors",
     answers: "The locked folder and subsystem baseline the architecture audit enforces",
     topic: "Architecture baseline and drift detectors",
   },
@@ -128,7 +128,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_MASTER_FLOW.md",
     title: "FRIDAY — Master Operating Flow",
     section: "architecture",
-    audience: "developers, AI tools",
+    audience: "developers, contributors",
     answers: "The owner operating loop and which live module owns each stage",
     topic: "Master operating flow",
   },
@@ -136,7 +136,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_STORAGE_CONTRACT.md",
     title: "FRIDAY — Storage, Installation, Update & Uninstall Contract",
     section: "architecture",
-    audience: "developers, AI tools",
+    audience: "developers, contributors",
     answers: "The single FRIDAY root, what Setup may replace, and what uninstall may delete",
     topic: "Storage root, install, update, uninstall",
   },
@@ -171,7 +171,7 @@ const DOCUMENTS = [
     file: "VERSIONING.md",
     title: "FRIDAY — Versioning Policy",
     section: "release",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers:
       "The one public version, the npm encoding, counters that keep counting, and when a failed or auto run keeps its number",
     topic: "Version scheme and bump rules",
@@ -188,7 +188,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_GITHUB_ACTIONS.md",
     title: "FRIDAY — GitHub Actions Catalog (Repository Automation)",
     section: "release",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers: "Every repository workflow: filename, trigger, inputs, permissions, how to run it",
     topic: "GitHub Actions catalog",
   },
@@ -196,7 +196,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_MERGE_FLOW.md",
     title: "FRIDAY — Repository Workflow",
     section: "governance",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers:
       "How a change reaches main, how Safe Merge, cleanup, and Repository Control behave, and why an official release stays a separate step",
     topic: "Repository workflow: branch, merge, cleanup, and revert",
@@ -206,7 +206,7 @@ const DOCUMENTS = [
     file: "docs/FRIDAY_CHANGE_CONTROL.md",
     title: "FRIDAY — Change Control",
     section: "governance",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers:
       "How a change is classified, bounded, tested, and recorded, and which product module owns each development contract",
     topic: "Change control, task packet, and development contracts",
@@ -216,7 +216,7 @@ const DOCUMENTS = [
     file: "CONTRIBUTING.md",
     title: "Contributing to FRIDAY",
     section: "governance",
-    audience: "developers, AI tools",
+    audience: "developers, contributors",
     answers: "How a human contributor branches, verifies, and updates documents in the same PR",
     topic: "Contributor workflow and documentation contract",
     role: "developer",
@@ -252,7 +252,7 @@ const DOCUMENTS = [
     file: "AUDIT.md",
     title: "FRIDAY — Project Audit",
     section: "governance",
-    audience: "owner, AI tools",
+    audience: "owner, contributors",
     answers: "What is verified versus not, with the command or release that is the evidence",
     topic: "Verification evidence and open limitations",
     role: "developer",
@@ -261,9 +261,8 @@ const DOCUMENTS = [
     file: "FRIDAY_STATE.md",
     title: "FRIDAY — Project State",
     section: "sessions",
-    audience: "AI tools (current facts, after the session rules)",
-    answers:
-      "Live briefing for a new session: architecture snapshot, counts, decisions, next priorities",
+    audience: "contributors (current facts, after the working rules)",
+    answers: "Live briefing: architecture snapshot, counts, decisions, gaps, next priorities",
     topic: "Cross-session project state briefing",
     role: "session",
   },
@@ -271,10 +270,10 @@ const DOCUMENTS = [
     file: "AGENTS.md",
     title: "AGENTS.md — instructions for AI tools working on FRIDAY",
     section: "sessions",
-    audience: "AI tools",
+    audience: "contributors and automation",
     answers:
-      "Session rules: one pull request, the owner runs every workflow and merges, keep what works, same-change tests and docs",
-    topic: "AI session protocol and landing bar",
+      "Working rules: one pull request, the owner runs every workflow and merges, keep what works, same-change tests and docs",
+    topic: "Working rules and landing bar",
     role: "session",
   },
 ];
@@ -466,7 +465,7 @@ function indexBlock() {
         : role === "developer"
           ? "Contributor, audit, and repository-governance procedure"
           : role === "session"
-            ? "Live working briefing for humans and AI tools"
+            ? "Working rules and the live project briefing"
             : "Licence and ownership terms";
     lines.push(`| ${role} | ${meaning} | ${files.map((file) => `\`${file}\``).join(", ")} |`);
   }

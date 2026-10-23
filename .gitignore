@@ -114,8 +114,8 @@ resources/speech/**/pack.bin
 database/connectivity-graph.json
 database/architecture-index.json
 
-# Per-tool assistant config. Never commit these. `.cursor/` stays (owner-controlled).
-# CLAUDE.md and AGENTS.md stay tracked.
+# Editor and assistant config folders. Never commit these.
+# AGENTS.md and CLAUDE.md stay tracked.
 .claude/
 .windsurf/
 .codex/

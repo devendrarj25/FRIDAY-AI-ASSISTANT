@@ -1,6 +1,8 @@
 # Contributing to FRIDAY
 
-**App:** FRIDAY AI · **Owner:** Devendra Singh Meena (devendrarj25)
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
+**App:** FRIDAY · **Owner:** Devendra Singh Meena (devendrarj25)
 **Current shipping version: 1.1.3.4**
 
 This repository is the whole product. FRIDAY installs, builds, and runs from
@@ -8,7 +10,7 @@ these files. It does not need an outside assistant service to do that.
 
 The only recorded owner and the only recorded changer is **Devendra Singh Meena
 (devendrarj25)**. Do not add a contributors list, a second author, a tool name,
-or a record of who did the work. Session rules live in [AGENTS.md](AGENTS.md).
+or a record of who did the work. Working rules live in [AGENTS.md](AGENTS.md).
 Current facts live in [FRIDAY_STATE.md](FRIDAY_STATE.md). How a merged pull
 request is cleaned up lives in [docs/FRIDAY_MERGE_FLOW.md](docs/FRIDAY_MERGE_FLOW.md).
 
@@ -41,9 +43,7 @@ A new branch names the area and the purpose:
 
 `scripts/merge-engine.cjs` trusts these heads, plus the maintenance prefixes
 in the table below. `dev/` stays trusted so an already-open branch of that
-shape can stay the one open pull request. A tool prefix such as `cursor/` or
-`claude/` is not trusted. A host may add its own suffix. Do not hard-code a
-suffix from an older session.
+shape can stay the one open pull request. A prefix that names a tool is not trusted. A host may add its own suffix; do not hard-code one.
 
 ## 2. Working rule
 
