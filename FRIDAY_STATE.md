@@ -12,10 +12,10 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 | Item | Live value |
 | --- | --- |
-| Public version | `1.1.3.4` (`config/friday-version.json`) |
+| Public version | `1.1.3.5` (`config/friday-version.json`); last published release is `v1.1.3.4`, `v1.1.3.5` is not published yet |
 | npm encoding | `1.1.3` (`package.json`), never compared as an update identity |
 | Epoch | 2 / `friday-2` |
-| Next public revision | `1.1.3.5`, not bumped until the owner asks |
+| Next public revision | `1.1.3.6`, not bumped until the owner asks |
 | Stack floors | Electron ^43.7.7, electron-builder 26.15.3, Node `>=22.19.0`, Python `>=3.12.10`, Vite 8.3.5 (`package.json`, `config/toolchain-versions.json`) |
 
 ## Architecture
@@ -72,7 +72,7 @@ These look like bugs. They are not. Do not "fix" them.
 - Windows CMD pack (`scripts\build-windows.cmd` / `npm run build:win`), NSIS Setup and Portable, install, boot, uninstall, and reinstall keep today's behaviour. Do not wrap `build:win` for Linux and do not invent a second pack or installer.
 - `electron-builder.yml`: `perMachine: false`, `signExecutable: false`, `nsis.deleteAppDataOnUninstall: false`.
 - TEST uses `dev.friday.desk.test` so it can sit beside Official.
-- The version moves only in `config/friday-version.json`, and only when the owner asks. From public `1.1.3.4`, patch is `1.1.3.5`, minor is `1.1.4.4`, major is `1.2.3.4`, and extreme is `2.1.3.4`. `mode` auto with `release_type` auto does not invent a number; `stage` publish with `mode` auto publishes an unpublished line once and stops once that GitHub release exists; `mode` rebuild is the only path that replaces assets. An explicit level moves only that counter, including on a never-published line. A stable git tag and a GitHub release both consume a number. `release_type` auto on an update chooses patch, minor, or major and never extreme. The release workflow applies the number and heals the docs.
+- The version moves only in `config/friday-version.json`, and only when the owner asks. From public `1.1.3.5`, patch is `1.1.3.6`, minor is `1.1.4.5`, major is `1.2.3.5`, and extreme is `2.1.3.5`. `mode` auto with `release_type` auto does not invent a number; `stage` publish with `mode` auto publishes an unpublished line once and stops once that GitHub release exists; `mode` rebuild is the only path that replaces assets. An explicit level moves only that counter, including on a never-published line. A stable git tag and a GitHub release both consume a number. `release_type` auto on an update chooses patch, minor, or major and never extreme. The release workflow applies the number and heals the docs.
 - Session `media` is allowed at Chromium so Windows can show its own privacy prompt; it is not a silent skip of that prompt.
 - Connectors publish on the companion `live` object (`knownConnectors()`), not as `capabilityRegistry` resource rows.
 
@@ -84,7 +84,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 - The new look and page states in the packaged app, in Dark and Daylight, Glass and Classic.
 - Microphone, wake word, barge-in, speech recognition, and speaker-match on real hardware; a live speech-model download.
 - Live provider calls with real keys, including OpenRouter, and a live stream.
-- Hosted Actions for this branch (no workflow was started from this session). Two FRIDAY Release failures were fixed in code: a Windows test timeout in `managed-python.test.ts`, and the readiness RESTART launch, which exited without a report because the test-sandbox filter in `electron/main.cjs` ignored the sandbox the restart must rediscover (the filter is now off for readiness launches). Both reruns, and PR Validation on the new head, are the owner's.
+- Hosted Actions for this branch (no workflow was started from this session). Hosted Actions: after the fixes below, PR Validation and a fresh FRIDAY Release (`stage` all, `mode` auto, which publishes the unpublished 1.1.3.5 line) are the owner's to run. Two FRIDAY Release failures were fixed in code: a Windows test timeout in `managed-python.test.ts`, and the readiness RESTART launch, which exited without a report because the test-sandbox filter in `electron/main.cjs` ignored the sandbox the restart must rediscover (the filter is now off for readiness launches). Both reruns, and PR Validation on the new head, are the owner's.
 
 ## Known gaps
 

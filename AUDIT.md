@@ -13,8 +13,8 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | --- | --- | --- |
 | Lint | `npm run lint` | **0 errors**. ESLint was silent and ruff reported `All checks passed!` plus `69 files already formatted`. |
 | Types | `npm run typecheck` | clean. Printed `FRIDAY 1.1.3.5`. |
-| Tests | `npm test` | 406 files passed, 3439 passed, 4 skipped. Exit 0 |
-| Kernel tests | `npm run test:kernel` | 243 passed, 3 skipped in 39.60s. Exit 0 |
+| Tests | `npm test` | 406 files passed, 3449 passed, 4 skipped. Exit 0 |
+| Kernel tests | `npm run test:kernel` | 243 passed, 3 skipped in 34.84s. Exit 0 |
 | Kernel types | `npm run typecheck:py` | pass (pyright baseline) |
 | Docs registry | `npm run docs:check` | clean (24 documents, 0 duplicates, 0 thin, 0 mistitled, capability counts equal the disk, provider status stale false) |
 | Version heal | `npm run verify:version` | in sync at **1.1.3.5** (npm encoding **1.1.3**) |
@@ -26,9 +26,9 @@ First Lint / Types / Tests rows are what Self-Management reads. This table is fi
 | Hosted Actions | PR Validation / FRIDAY Release | **NOT VERIFIED** for this branch (no workflow was started) |
 | Windows CMD pack of this tree | `scripts\build-windows.cmd` | **NOT VERIFIED** (needs a Windows PC) |
 
-## 2. Published 1.1.3.5
+## 2. Published line
 
-GitHub release v1.1.3.5 is the current public line. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
+The last published GitHub release is v1.1.3.4. The line on `main` is 1.1.3.5 (release pull request merged); its FRIDAY Release publish has not succeeded yet, so v1.1.3.5 is **NOT PUBLISHED**. Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
 ## 3. How the tests stay green without attention
 
