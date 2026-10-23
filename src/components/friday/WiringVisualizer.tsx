@@ -6,6 +6,7 @@
  * a toggle.
  */
 
+import { livePoller } from "@/lib/friday/live-poll";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,8 +51,7 @@ export function WiringVisualizerHost() {
     if (!panel.open) return;
     const tick = () => setReport(probeWiring());
     tick();
-    const id = window.setInterval(tick, 2000);
-    return () => window.clearInterval(id);
+    return livePoller().subscribe("wiring.probe", tick, 2000, undefined, false);
   }, [panel.open, gov.lastChangeAt, panel.lastResult?.at]);
 
   const pending = useMemo(

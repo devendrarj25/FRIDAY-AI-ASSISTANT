@@ -1,3 +1,4 @@
+import { livePoller } from "@/lib/friday/live-poll";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ChevronsLeft, ChevronsRight, Power, RotateCw, Settings, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,9 @@ import {
   useWorkspaceRootState,
   type CompanionRemoteState,
 } from "@/lib/friday/desktop";
+import { OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
+import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
 import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
 import { useAppearance } from "@/lib/friday/appearance";
@@ -453,7 +456,13 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     };
     publish();
     refreshRemote();
-    const remoteTimer = window.setInterval(refreshRemote, 15000);
+    const offRemote = livePoller().subscribe(
+      "shell.companion-remote",
+      refreshRemote,
+      15000,
+      undefined,
+      false,
+    );
     const offCap = capabilityRegistry.subscribe(publish);
     const offDoc = doctor.subscribe(publish);
     const offVoice = assistantMode.subscribe(publish);
@@ -462,7 +471,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     const offLibrary = library.subscribe(publish);
     const offProjects = projectWorkspaces.subscribe(publish);
     return () => {
-      window.clearInterval(remoteTimer);
+      offRemote();
       offCap();
       offDoc();
       offVoice();
@@ -501,6 +510,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     if (lifeMode === "shutdown") await api?.shutdownApp?.("Shutdown requested from the sidebar.");
     else await (api?.restartApp ?? api?.confirmRestart)?.("Restart requested from the sidebar.");
   };
+
+  useEffect(() => installRejectionToast(), []);
 
   if (workspaceRoot === undefined) return null;
   if (workspaceRoot === null) return <WorkspaceSetup />;
@@ -660,6 +671,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
               </Link>
             </nav>
 
+            <OfflineBanner />
             {children}
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { onVisibleSecond } from "@/lib/friday/frame-clock";
 import { useEffect, useRef, useState } from "react";
 import { Minus, Mic, MicOff, Wifi, WifiOff, X } from "lucide-react";
 // Pulls in the `window.friday` global type declaration.
@@ -52,25 +53,13 @@ export function TitleStrip() {
     });
   }, []);
 
-  // Clock — a single shared interval, paused while the window is hidden.
+  // Clock — the app's one shared one-second clock, paused while the window is hidden.
   useEffect(() => {
-    let id = 0;
-    let kick = 0;
-    const start = () => {
-      window.clearInterval(id);
-      setNow(new Date());
-      id = window.setInterval(() => setNow(new Date()), 1000);
-    };
-    const onVisibility = () => {
-      if (document.hidden) window.clearInterval(id);
-      else start();
-    };
-    kick = window.setTimeout(start, 0);
-    document.addEventListener("visibilitychange", onVisibility);
+    const kick = window.setTimeout(() => setNow(new Date()), 0);
+    const off = onVisibleSecond(() => setNow(new Date()));
     return () => {
       window.clearTimeout(kick);
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisibility);
+      off();
     };
   }, []);
 

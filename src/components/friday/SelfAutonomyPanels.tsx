@@ -8,6 +8,8 @@
  * maintenance bridge reports that it needs the installed app instead of
  * pretending work happened.
  */
+import { livePoller } from "@/lib/friday/live-poll";
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Cpu, Play, RefreshCw, RotateCcw, ShieldCheck, Square } from "lucide-react";
 import { toast } from "sonner";
@@ -592,8 +594,7 @@ function MaintenancePanel() {
 
   useEffect(() => {
     mounted.current = true;
-    void refresh();
-    const poll = window.setInterval(() => void refresh(), 8_000);
+    const poll = livePoller().subscribe("self.autonomy-panel", () => refresh(), 8_000);
     const off = onSelfProgress((p) => {
       if (!mounted.current) return;
       setProgress(`${p.stage} — ${p.detail}`);
@@ -601,7 +602,7 @@ function MaintenancePanel() {
     });
     return () => {
       mounted.current = false;
-      window.clearInterval(poll);
+      poll();
       off?.();
     };
   }, [refresh]);
@@ -803,12 +804,7 @@ function MaintenancePanel() {
 }
 
 export function SelfAutonomyPanels() {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => window.clearInterval(id);
-  }, []);
-  void tick;
+  useSecondsTick(15);
 
   return (
     <>

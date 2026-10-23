@@ -1,3 +1,5 @@
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
@@ -75,21 +77,11 @@ export function MemoryConsole() {
   const [memLayer, setMemLayer] = useState<MemoryLayer>("long-term");
   const [indexPath, setIndexPath] = useState("");
   const [tier, setTier] = useState<MemoryTier | "all">("all");
-  const [tick, setTick] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, []);
-  void tick;
-
-  useEffect(() => {
-    void vectorIndex.refresh();
-    const id = window.setInterval(() => void vectorIndex.refresh(), 8_000);
-    return () => window.clearInterval(id);
-  }, []);
+  useSecondsTick(15);
+  useLivePoll("memory.vector-index", () => vectorIndex.refresh(), 8_000);
 
   useEffect(() => {
     const id = window.setTimeout(() => {

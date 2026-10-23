@@ -7,6 +7,7 @@
  * preview (no bridge) the panel explains that the companion is desktop-only
  * instead of pretending to work.
  */
+import { livePoller } from "@/lib/friday/live-poll";
 import { useCallback, useEffect, useState } from "react";
 import { Download, Loader2, RotateCw, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -79,10 +80,16 @@ export function CompanionSettings() {
       await loadHealth();
     })();
     // The overlay reports its own probe a moment after it starts.
-    const timer = window.setInterval(() => void loadHealth(), 15_000);
+    const off = livePoller().subscribe(
+      "companion.health",
+      () => loadHealth(),
+      15_000,
+      undefined,
+      false,
+    );
     return () => {
       alive = false;
-      window.clearInterval(timer);
+      off();
     };
   }, [bridge, loadHealth]);
 

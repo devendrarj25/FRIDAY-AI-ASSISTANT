@@ -2163,3 +2163,25 @@ html[data-ui-style="glass"] .friday-composer .friday-send svg {
   width: 1rem;
   height: 1rem;
 }
+
+/* Live indicator dot (LiveBadge). Colour carries the state; no animation. */
+.live-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-muted-foreground);
+}
+.live-dot[data-state="live"] {
+  background: var(--color-accent);
+  box-shadow: 0 0 6px var(--color-accent);
+}
+.live-dot[data-state="stale"] {
+  background: var(--color-warning);
+}
+.live-dot[data-state="offline"] {
+  background: var(--color-destructive);
+}
+html.no-glow .live-dot[data-state="live"] {
+  box-shadow: none;
+}

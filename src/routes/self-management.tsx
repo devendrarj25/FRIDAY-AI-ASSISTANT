@@ -1,3 +1,5 @@
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Ban,
@@ -122,25 +124,18 @@ function SelfManagementPage() {
   const abilities = useCapabilityMatrix();
   const graphState = useTaskGraph();
   const [request, setRequest] = useState("");
-  const [tick, setTick] = useState(0);
   const [diagnosing, setDiagnosing] = useState(false);
   const [mapProblemsOnly, setMapProblemsOnly] = useState(false);
 
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => window.clearInterval(id);
-  }, []);
-  void tick;
-
-  useEffect(() => {
-    self.pulse();
-    systemMap.refresh();
-    const id = window.setInterval(() => {
+  useSecondsTick(15);
+  useLivePoll(
+    "self.management",
+    () => {
       self.pulse();
       systemMap.refresh();
-    }, 8_000);
-    return () => window.clearInterval(id);
-  }, []);
+    },
+    8_000,
+  );
 
   useEffect(() => {
     self.pulse();

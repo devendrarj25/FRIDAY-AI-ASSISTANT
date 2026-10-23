@@ -1,3 +1,4 @@
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
@@ -122,15 +123,9 @@ function BrainPage() {
   const workspaceTiles = useMemo(() => workspaceTilesFromScan(scan), [scan]);
   const [tab, setTab] = useState("overview");
   const [input, setInput] = useState("");
-  const [tick, setTick] = useState(0);
-
   // Keeps "last sync / last write" labels honest without re-rendering the page
   // on every frame.
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, []);
-  void tick;
+  useSecondsTick(15);
 
   useEffect(() => {
     if (tab === "updates") brain.refreshUpdatesIfStale();
