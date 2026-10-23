@@ -91,6 +91,21 @@ function AnswerBody({ text, className }: { text: string; className: string }) {
   );
 }
 
+/** Three soft dots while a turn is running and no answer text has arrived yet. */
+export function TypingDots() {
+  return (
+    <div
+      role="status"
+      aria-label="FRIDAY is replying"
+      className="bubble-friday bubble-typing flex w-fit items-center gap-1 px-3 py-2.5"
+    >
+      <span aria-hidden="true" className="typing-dot" />
+      <span aria-hidden="true" className="typing-dot" />
+      <span aria-hidden="true" className="typing-dot" />
+    </div>
+  );
+}
+
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   userBubbleClass,
@@ -109,10 +124,10 @@ export const ChatMessageRow = memo(function ChatMessageRow({
 }) {
   if (message.role === "user") {
     return (
-      <div className="group flex items-start justify-end gap-1">
+      <div className="bubble-enter group flex items-start justify-end gap-1">
         <CopyButton text={message.text} label="Copy message" className="mt-0.5" />
         {/* The width cap lives on this column only, so a short line never wraps early. */}
-        <div className="flex min-w-0 max-w-[85%] flex-col items-end">
+        <div className="bubble-col flex min-w-0 max-w-[85%] flex-col items-end">
           <p className={cn("w-fit max-w-full whitespace-pre-wrap text-left", userBubbleClass)}>
             {message.text}
           </p>
@@ -128,7 +143,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <div
       className={cn(
-        "bubble-friday group w-fit min-w-0 max-w-[92%]",
+        "bubble-friday bubble-enter group w-fit min-w-0 max-w-[92%]",
         full ? "px-3.5 py-2.5" : "px-3 py-2",
       )}
     >
@@ -275,6 +290,7 @@ export function ChatTranscript({
               canRegenerate={!busy && m.id === regenerateId}
             />
           ))}
+          {busy && (!newest || newest.role === "user" || !newest.text) ? <TypingDots /> : null}
         </div>
       </div>
       {away ? (

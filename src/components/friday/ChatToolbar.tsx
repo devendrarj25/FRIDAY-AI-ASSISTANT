@@ -1,6 +1,7 @@
 import { forwardRef, type ComponentProps } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSlidingThumb } from "@/components/friday/ui";
 import { CHAT_LEVELS, CHAT_LEVEL_LABELS, chatLevel, type ChatLevel } from "@/lib/friday/chat-level";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +54,15 @@ export const IconAction = forwardRef<HTMLButtonElement, IconActionProps>(functio
 
 /** 1 | 2 | 3 — Compact, Expanded, Full chat. Alt+1/2/3 does the same. */
 export function LevelSwitch({ level }: { level: ChatLevel }) {
+  const { listRef, thumbRef } = useSlidingThumb(level);
   return (
     <div
+      ref={listRef}
       role="radiogroup"
       aria-label="Chat size"
-      className="chat-level-switch flex items-center rounded-md border border-primary/20 p-0.5"
+      className="chat-level-switch friday-seg flex items-center rounded-md border border-primary/20 p-0.5"
     >
+      <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {CHAT_LEVELS.map((value) => (
         <button
           key={value}

@@ -216,7 +216,9 @@ describe("Manual chat controls: labels, cursor, glass", () => {
     expect(css).toContain(".friday-chat-messages {\n  cursor: auto;\n  user-select: text;\n}");
     expect(css).toContain(".chat-level-switch button {\n  cursor: pointer;\n}");
     expect(css).toContain(".neural-circuit-compact {\n  cursor: default;\n  user-select: none;\n}");
-    expect(css).toContain("html.no-glow .friday-chat-full {\n  backdrop-filter: none;");
+    // Only the Blur setting switches the Full chat blur off. Neon glow never does.
+    expect(css).not.toContain("html.no-glow .friday-chat-full");
+    expect(css).toContain("html.no-blur .friday-chat-full");
     expect(css).toMatch(/\.chat-hover-label \{[\s\S]*?transition:[\s\S]*?max-width 180ms/);
     expect(css).toContain("@container friday-chat (max-width: 48rem)");
     expect(dock).toContain("friday-chat friday-interactive-region hud-panel");

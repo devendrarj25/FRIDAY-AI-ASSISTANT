@@ -112,6 +112,7 @@ import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/friday/clipboard";
 import { readLocalState, writeState } from "@/lib/friday/persist";
 import { usePreferences } from "@/lib/friday/use-preferences";
+import { resolveUiStyle } from "@/lib/friday/appearance";
 /**
  * Conversation + chat, docked directly under the FRIDAY graphic.
  *
@@ -782,6 +783,96 @@ export function ChatDock() {
 
   const full = level === 3;
 
+  // FRIDAY Glass moves Attach and Send into the capsule composer row;
+  // Classic keeps them in the toolbar. Each is rendered exactly once.
+  const glassComposer = resolveUiStyle(prefs) === "glass";
+  const attachControl = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="friday-attach h-7 gap-1 px-2 text-[11px]"
+          title="Attach files"
+          aria-label="Attach files"
+        >
+          <Paperclip className="size-3.5" />
+          <span className="chat-btn-text">Attach</span>
+          {files.length ? (
+            <span className="rounded-sm bg-primary/20 px-1 font-mono text-[9px] text-primary">
+              {files.length}
+            </span>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel>Attachments</DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() => fileRef.current?.click()}
+          disabled={files.length >= MAX_FILES}
+        >
+          <Paperclip className="size-4" /> Attach files…
+          <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+            {files.length}/{MAX_FILES}
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            void navigator.clipboard
+              ?.readText?.()
+              .then((text) => text && appendTranscript(text))
+              .catch(() => undefined);
+          }}
+        >
+          <Copy className="size-4" /> Paste from clipboard
+        </DropdownMenuItem>
+        {files.length ? (
+          <>
+            <DropdownMenuSeparator />
+            {files.map((f) => (
+              <DropdownMenuItem
+                key={f.id}
+                onSelect={() => setFiles((list) => list.filter((x) => x.id !== f.id))}
+              >
+                <X className="size-4" />
+                <span className="truncate">{f.name}</span>
+                <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                  {formatBytes(f.size)}
+                </span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuItem onSelect={() => setFiles([])}>
+              <Trash2 className="size-4" /> Remove all files
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const sendControl = (
+    <>
+      {busy ? (
+        <Button
+          size="sm"
+          variant="destructive"
+          className="friday-send h-7"
+          onClick={() => brain.stop()}
+        >
+          <Square className="size-3.5" /> Stop
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          className="friday-send h-7"
+          disabled={!hasInput && !files.length}
+          onClick={send}
+        >
+          <Send className="size-3.5" /> Send
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <section
       aria-label="Conversation"
@@ -1066,26 +1157,30 @@ export function ChatDock() {
           {/* Fixed input at the bottom of the main window */}
           <div className="border-t border-primary/15 p-2">
             <div className={cn(full && "mx-auto w-full max-w-[48rem]")}>
-              <Textarea
-                ref={inputRef}
-                defaultValue=""
-                onChange={(e) => {
-                  fitInput(e.currentTarget);
-                  noteDraft(e.currentTarget.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                aria-label="Message FRIDAY"
-                placeholder="Type your message…"
-                className="min-h-11 resize-none rounded-2xl border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
-              />
+              <div className="friday-composer">
+                {glassComposer ? attachControl : null}
+                <Textarea
+                  ref={inputRef}
+                  defaultValue=""
+                  onChange={(e) => {
+                    fitInput(e.currentTarget);
+                    noteDraft(e.currentTarget.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-label="Message FRIDAY"
+                  placeholder="Type your message…"
+                  className="min-h-11 resize-none rounded-2xl border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
+                />
+                {glassComposer ? sendControl : null}
+              </div>
               {visibleNotice ? (
                 <p className="mt-1 font-mono text-[10px] text-warning" role="status">
                   {visibleNotice}
@@ -1179,68 +1274,7 @@ export function ChatDock() {
                 className="chat-toolbar mt-1.5 flex min-w-0 flex-wrap items-center justify-between gap-2"
               >
                 <div className="flex min-w-0 flex-wrap items-center gap-1">
-                  {/* Attach — files only */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1 px-2 text-[11px]"
-                        title="Attach files"
-                        aria-label="Attach files"
-                      >
-                        <Paperclip className="size-3.5" />
-                        <span className="chat-btn-text">Attach</span>
-                        {files.length ? (
-                          <span className="rounded-sm bg-primary/20 px-1 font-mono text-[9px] text-primary">
-                            {files.length}
-                          </span>
-                        ) : null}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56">
-                      <DropdownMenuLabel>Attachments</DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onSelect={() => fileRef.current?.click()}
-                        disabled={files.length >= MAX_FILES}
-                      >
-                        <Paperclip className="size-4" /> Attach files…
-                        <span className="ml-auto font-mono text-[9px] text-muted-foreground">
-                          {files.length}/{MAX_FILES}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          void navigator.clipboard
-                            ?.readText?.()
-                            .then((text) => text && appendTranscript(text))
-                            .catch(() => undefined);
-                        }}
-                      >
-                        <Copy className="size-4" /> Paste from clipboard
-                      </DropdownMenuItem>
-                      {files.length ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          {files.map((f) => (
-                            <DropdownMenuItem
-                              key={f.id}
-                              onSelect={() => setFiles((list) => list.filter((x) => x.id !== f.id))}
-                            >
-                              <X className="size-4" />
-                              <span className="truncate">{f.name}</span>
-                              <span className="ml-auto font-mono text-[9px] text-muted-foreground">
-                                {formatBytes(f.size)}
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
-                          <DropdownMenuItem onSelect={() => setFiles([])}>
-                            <Trash2 className="size-4" /> Remove all files
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {!glassComposer ? attachControl : null}
 
                   {/* Models — unified selection: default brain routing + per-turn pinned overrides */}
                   <DropdownMenu
@@ -1523,25 +1557,7 @@ export function ChatDock() {
                     </span>
                   </Button>
 
-                  {busy ? (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="h-7"
-                      onClick={() => brain.stop()}
-                    >
-                      <Square className="size-3.5" /> Stop
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="h-7"
-                      disabled={!hasInput && !files.length}
-                      onClick={send}
-                    >
-                      <Send className="size-3.5" /> Send
-                    </Button>
-                  )}
+                  {!glassComposer ? sendControl : null}
                 </div>
               </div>
             </div>

@@ -206,7 +206,9 @@ describe("Auto Mode levels: Compact, Expanded, Transcript", () => {
     expect(css).toContain(".friday-voice .neural-circuit {\n  cursor: default;");
     expect(css).toContain("@container voice-bar (max-width: 48rem)");
     expect(css).toContain("content: attr(data-label);");
-    expect(css).toContain("html.no-glow .voice-glass,");
+    // Only the Blur setting switches the voice blur off. Neon glow never does.
+    expect(css).not.toContain("html.no-glow .voice-glass");
+    expect(css).toContain("html.no-blur .voice-glass,");
     // The label text is hidden by size, never removed; only the hover pill
     // of the clipped autonomy dial is switched off.
     expect(css).not.toMatch(/\.voice-btn\s*\{[^}]*display:\s*none/);
