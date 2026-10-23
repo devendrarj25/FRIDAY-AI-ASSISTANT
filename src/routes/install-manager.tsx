@@ -32,6 +32,7 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import {
   categories,
@@ -467,9 +468,7 @@ function InstallManagerPage() {
             </div>
 
             {rows.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                No catalog entries match this filter.
-              </p>
+              <EmptyState title="No catalog entries match this filter." />
             ) : (
               <DataTable
                 pinLast
@@ -666,9 +665,7 @@ function InstallManagerPage() {
             }
           >
             {activeJobs.length === 0 && finishedJobs.length === 0 ? (
-              <p className="py-6 text-center text-xs text-muted-foreground">
-                Queue idle. Install, update or repair a package to start a job.
-              </p>
+              <EmptyState title="Queue idle. Install, update or repair a package to start a job." />
             ) : (
               <ul className="space-y-3">
                 {activeJobs.map((job) => (
@@ -784,9 +781,7 @@ function InstallManagerPage() {
           >
             {showHistory ? (
               state.history.length === 0 ? (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  No install history yet.
-                </p>
+                <EmptyState title="No install history yet." />
               ) : (
                 <ul className="max-h-64 space-y-1 overflow-y-auto text-data">
                   {state.history.map((h) => (

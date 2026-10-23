@@ -12,6 +12,7 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { useLedger } from "@/lib/friday/self/use-self";
@@ -569,11 +570,15 @@ function SkillsPage() {
               ) : null}
             </>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {skills.length
-                ? "No skills match this filter."
-                : "No skills installed yet — import a skill zip or folder, clone a skill repo, or forge one below."}
-            </p>
+            <EmptyState
+              icon={Sparkles}
+              title={skills.length ? "No skills match this filter." : "No skills installed yet"}
+              {...(skills.length
+                ? {}
+                : {
+                    hint: "Import a skill zip or folder, clone a skill repo, or forge one below.",
+                  })}
+            />
           )}
         </HudPanel>
 

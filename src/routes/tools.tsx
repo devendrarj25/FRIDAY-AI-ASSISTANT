@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Download, FileArchive, FolderUp, Loader2, Plus, RefreshCw } from "lucide-react";
+import {
+  Cpu,
+  Download,
+  FileArchive,
+  FolderUp,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Wrench,
+} from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
+import { EmptyState } from "@/components/friday/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -309,11 +319,17 @@ function ToolsPage() {
               ))}
             </ul>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {supported
-                ? "No tools installed yet — import a zip or folder, clone a tool repo, or forge one below."
-                : "Tool permissions appear here in the desktop app."}
-            </p>
+            <EmptyState
+              icon={Wrench}
+              title={
+                supported
+                  ? "No tools installed yet"
+                  : "Tool permissions appear here in the desktop app."
+              }
+              {...(supported
+                ? { hint: "Import a zip or folder, clone a tool repo, or forge one below." }
+                : {})}
+            />
           )}
         </Panel>
 
@@ -355,11 +371,15 @@ function ToolsPage() {
               })}
             </ul>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {supported
-                ? "No runtimes detected yet — scan from Install Manager or Check for updates."
-                : "Installed runtimes appear here in the desktop app."}
-            </p>
+            <EmptyState
+              icon={Cpu}
+              title={
+                supported
+                  ? "No runtimes detected yet"
+                  : "Installed runtimes appear here in the desktop app."
+              }
+              {...(supported ? { hint: "Scan from Install Manager or Check for updates." } : {})}
+            />
           )}
         </Panel>
       </div>

@@ -12,16 +12,21 @@
  */
 import { useMemo } from "react";
 import { Cpu, HardDrive, Network, ShieldCheck, Thermometer } from "lucide-react";
-import { HudPanel, MetricBar, StatTile, StatusPill, toneForStatus } from "@/components/friday/ui";
+import {
+  EmptyState,
+  HudPanel,
+  MetricBar,
+  StatTile,
+  StatusPill,
+  toneForStatus,
+} from "@/components/friday/ui";
 import { useSystemSample } from "@/lib/friday/use-live-metrics";
 import { useHardware, useSystemSensors, useWindowsSecurity } from "@/lib/friday/desktop";
 import { useSystemMap } from "@/lib/friday/use-system-map";
 import { useDoctor } from "@/lib/friday/use-doctor";
 import type { MapEntry, MapStatus } from "@/lib/friday/system-map";
 
-const Empty = ({ children }: { children: React.ReactNode }) => (
-  <p className="py-6 text-center text-xs text-muted-foreground">{children}</p>
-);
+const Empty = ({ children }: { children: string }) => <EmptyState title={children} />;
 
 const barTone = (percent: number) =>
   percent >= 90 ? "warning" : percent >= 70 ? "magenta" : "accent";

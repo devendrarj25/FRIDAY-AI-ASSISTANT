@@ -10,6 +10,7 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import { useCapabilities } from "@/lib/friday/capability-trees";
 import { useStartup } from "@/lib/friday/startup";
@@ -384,9 +385,7 @@ function StatusPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  No activity recorded yet.
-                </p>
+                <EmptyState title="No activity recorded yet." />
               )}
             </HudPanel>
 
@@ -452,9 +451,7 @@ function StatusPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  Service probes run in the FRIDAY desktop app.
-                </p>
+                <EmptyState title="Service probes run in the FRIDAY desktop app." />
               )}
             </HudPanel>
           </div>

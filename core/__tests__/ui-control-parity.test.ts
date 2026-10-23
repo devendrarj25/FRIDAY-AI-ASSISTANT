@@ -20,7 +20,12 @@ import {
 const ROOT = process.cwd();
 
 /** Reviewed renames: old label → new label with the same meaning. */
-export const RENAMES: Record<string, string> = {};
+export const RENAMES: Record<string, string> = {
+  // The import run chips were a bare "· v ·" text artefact of the
+  // "{name} · v{version} · {status}" label; they are now FilterTabs whose
+  // label is built from the same three fields, above the Pipeline panel.
+  "· v ·": "Pipeline",
+};
 
 describe("UI control parity", () => {
   const now = collectLabels(ROOT);

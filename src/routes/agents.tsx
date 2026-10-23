@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Loader2, Plus, Sparkles, Users } from "lucide-react";
+import { Bot, Loader2, Plus, Sparkles, Users } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { useLedger } from "@/lib/friday/self/use-self";
@@ -459,11 +460,13 @@ function AgentsPage() {
               ) : null}
             </>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {agents.length
-                ? "No agents match this filter."
-                : "No agents installed yet — add one with “Add Agent”, import a pack, or forge one below."}
-            </p>
+            <EmptyState
+              icon={Bot}
+              title={agents.length ? "No agents match this filter." : "No agents installed yet"}
+              {...(agents.length
+                ? {}
+                : { hint: "Add one with “Add Agent”, import a pack, or forge one below." })}
+            />
           )}
         </HudPanel>
 

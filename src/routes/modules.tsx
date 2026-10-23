@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useDeferredValue } from "react";
-import { FolderPlus, Loader2, Search } from "lucide-react";
+import { Boxes, FolderPlus, Loader2, Search } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { FilterTabs, HudPanel } from "@/components/friday/ui";
+import { FilterTabs, HudPanel, EmptyState } from "@/components/friday/ui";
 import { modules as sampleModules } from "@/lib/friday/mock";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { hub } from "@/lib/friday/hub-engine";
@@ -361,13 +361,20 @@ function ModulesPage() {
               </Panel>
             ))
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground md:col-span-2">
-              {modules.length
-                ? "No modules match this filter."
-                : supported
-                  ? "No modules installed yet — load a folder or install from the marketplace."
-                  : "Installed modules appear here in the desktop app."}
-            </p>
+            <EmptyState
+              className="md:col-span-2"
+              icon={Boxes}
+              title={
+                modules.length
+                  ? "No modules match this filter."
+                  : supported
+                    ? "No modules installed yet"
+                    : "Installed modules appear here in the desktop app."
+              }
+              {...(!modules.length && supported
+                ? { hint: "Load a folder or install from the marketplace." }
+                : {})}
+            />
           )}
         </div>
 
