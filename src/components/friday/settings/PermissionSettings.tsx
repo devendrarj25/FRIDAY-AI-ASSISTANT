@@ -114,7 +114,7 @@ export function PermissionSettings() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-note"
                   onClick={() => void set(tool, "default")}
                 >
                   reset
@@ -123,7 +123,7 @@ export function PermissionSettings() {
             ))}
           </ul>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             No per-tool overrides yet — every tool follows its risk default below.
           </p>
         )}
@@ -180,7 +180,7 @@ export function PermissionSettings() {
             <p className="label-xs text-muted-foreground">Risk defaults</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {Object.entries(defaults).map(([risk, decision]) => (
-                <span key={risk} className="font-mono text-[11px] text-muted-foreground">
+                <span key={risk} className="text-meta text-muted-foreground">
                   {risk} → <span className="text-primary">{decision}</span>
                 </span>
               ))}
@@ -205,7 +205,7 @@ export function PermissionSettings() {
           on={isOn("execApproval")}
           onToggle={() => flip("execApproval")}
         />
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-note text-muted-foreground">
           Write and exec tools always ask — owner rules cannot auto-approve them. Turning safe tools
           off makes even read-only tools ask.
         </p>
@@ -258,7 +258,7 @@ export function PermissionSettings() {
             ))}
           </ul>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             Security state is reported by the FRIDAY desktop app.
           </p>
         )}

@@ -57,7 +57,7 @@ export function FlowCodePane({
   return (
     <div
       ref={host}
-      className="flow-code min-h-48 overflow-hidden rounded-md border border-border"
+      className="flow-code min-h-48 overflow-hidden rounded-surface border border-border"
     />
   );
 }

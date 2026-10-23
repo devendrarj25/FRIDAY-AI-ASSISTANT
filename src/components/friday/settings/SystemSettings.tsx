@@ -151,7 +151,7 @@ export function SystemSettings() {
             tone="warning"
           />
         </div>
-        <dl className="mt-4 space-y-1 font-mono text-[11px] text-muted-foreground">
+        <dl className="mt-4 space-y-1 text-meta text-muted-foreground">
           <Row k="cpu" v={sample ? `${sample.cpu.model} · ${sample.cpu.cores} cores` : "—"} />
           <Row k="gpu" v={sample?.gpu.name ?? sample?.gpu.reason ?? "—"} />
           <Row
@@ -188,13 +188,13 @@ export function SystemSettings() {
             }
           />
         ))}
-        <label className="mt-3 block font-mono text-[11px] text-muted-foreground">
+        <label className="mt-3 block text-meta text-muted-foreground">
           Approved folders ({approvedFolderList(prefs.fields["senseFolders"]).length})
           <input
             value={prefs.fields["senseFolders"] ?? ""}
             onChange={(event) => preferences.setField("senseFolders", event.target.value)}
             placeholder="notes, Downloads"
-            className="mt-1 h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-xs text-foreground"
+            className="mt-1 h-8 w-full rounded-ctl border border-border bg-background px-2 font-mono text-xs text-foreground"
           />
         </label>
         <div className="mt-3">
@@ -214,7 +214,7 @@ export function SystemSettings() {
             <li key={row.id} className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">{row.label}</p>
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   {row.on ? "ON" : "OFF"} · {row.detail}
                 </p>
               </div>
@@ -344,7 +344,7 @@ export function SystemSettings() {
             ))}
           </div>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             <Activity className="mr-1 inline size-3" />
             Volume readings are reported by the FRIDAY desktop app.
           </p>
@@ -373,7 +373,7 @@ function Tune({
     <div className="mt-4 space-y-1">
       <div className="flex items-center justify-between">
         <p className="label-xs text-muted-foreground">{label}</p>
-        <span className="font-mono text-[11px] text-primary">
+        <span className="text-meta text-primary">
           {value}
           {suffix}
         </span>

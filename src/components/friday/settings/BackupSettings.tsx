@@ -39,7 +39,7 @@ export function BackupSettings() {
 
   return (
     <HudPanel title="Backup & Restore" hint="local snapshots of FRIDAY state">
-      <dl className="space-y-2 font-mono text-[11px] text-muted-foreground">
+      <dl className="space-y-2 text-meta text-muted-foreground">
         <Row k="memory records" v={`${memoryTotal} across ${memoryTiers.length} tiers`} />
         <Row k="last snapshot" v={backupAt ? formatOwnerDate(backupAt) : "none yet"} />
         <Row k="workspace" v={workspaceRoot || "unknown"} />
@@ -50,7 +50,7 @@ export function BackupSettings() {
         on={isOn("autoSnapshot")}
         onToggle={() => preferences.setToggle("autoSnapshot", !isOn("autoSnapshot"))}
       />
-      <p className="mt-2 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-note text-muted-foreground">
         Memory snapshots live in FRIDAY&apos;s local store. EXE update backup/rollback stays on the
         existing update-safety path — this panel does not replace it.
       </p>

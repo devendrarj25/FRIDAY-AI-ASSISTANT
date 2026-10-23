@@ -502,7 +502,7 @@ function WorkflowsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id || importBusy !== null}
                       aria-label={`Test ${row.name}`}
                       onClick={() => void onTest(row)}
@@ -512,7 +512,7 @@ function WorkflowsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id && supported}
                       onClick={() =>
                         setOpenId((current) =>
@@ -525,7 +525,7 @@ function WorkflowsPage() {
                     <Button
                       size="sm"
                       variant={confirmId === row.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id || Boolean(busyId)}
                       onClick={() => void onRemove(row)}
                     >
@@ -539,7 +539,7 @@ function WorkflowsPage() {
             {openRow ? (
               <HudPanel title={`${openRow.name} details`} hint={openRow.id || "preview"}>
                 <div className="space-y-3">
-                  <div className="space-y-1 font-mono text-[11px]">
+                  <div className="space-y-1 text-meta">
                     <p>
                       <span className="text-muted-foreground">Category — </span>
                       {openRow.category || "—"}
@@ -644,7 +644,7 @@ function WorkflowsPage() {
                   </Button>
                 </div>
                 {forgeLog ? (
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                     {forgeLog}
                   </pre>
                 ) : (

@@ -164,7 +164,7 @@ export function NotificationCenter() {
             : "Notifications paused — right-click to resume"
         }
         className={cn(
-          "relative grid size-6 place-items-center rounded-sm transition-colors",
+          "relative grid size-6 place-items-center rounded-ctl transition-colors",
           state.enabled ? "text-muted-foreground hover:text-primary" : "text-muted-foreground/50",
           open && "bg-primary/15 text-primary",
         )}
@@ -182,7 +182,7 @@ export function NotificationCenter() {
           className={cn(
             "hud-panel glass-menu glass-backdrop-blur absolute top-8 right-0 z-50 flex flex-col",
             expanded ? "max-h-[85vh] w-[40rem]" : "max-h-[70vh] w-[22rem]",
-            " rounded-md border border-primary/25 bg-sidebar shadow-[0_10px_40px_-10px_var(--color-primary)]",
+            " rounded-surface border border-primary/25 bg-sidebar shadow-[0_10px_40px_-10px_var(--color-primary)]",
           )}
         >
           <div className="flex items-center justify-between border-b border-primary/15 px-3 py-2">
@@ -193,7 +193,7 @@ export function NotificationCenter() {
                 onClick={() => setExpanded((e) => !e)}
                 aria-label={expanded ? "Collapse notifications" : "Expand notifications"}
                 title={expanded ? "Collapse notifications" : "Expand notifications"}
-                className="friday-btn grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-primary"
+                className="friday-btn grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
               >
                 {expanded ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
               </button>
@@ -201,7 +201,7 @@ export function NotificationCenter() {
                 type="button"
                 onClick={() => notifications.toggle()}
                 title={state.enabled ? "Pause notifications" : "Resume notifications"}
-                className="friday-btn inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-primary"
+                className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-primary"
               >
                 {state.enabled ? <Pause className="size-3" /> : <Play className="size-3" />}
                 {state.enabled ? "PAUSE" : "RESUME"}
@@ -210,7 +210,7 @@ export function NotificationCenter() {
                 type="button"
                 onClick={() => notifications.clear()}
                 title="Clear all notifications"
-                className="friday-btn inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] tracking-wider text-muted-foreground hover:text-destructive"
+                className="friday-btn inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 text-note-sm tracking-wider text-muted-foreground hover:text-destructive"
               >
                 <Eraser className="size-3" />
                 CLEAR
@@ -253,14 +253,14 @@ export function NotificationCenter() {
                       {item.detail ? (
                         <p
                           className={cn(
-                            "mt-0.5 text-[11px] text-muted-foreground",
+                            "mt-0.5 text-note text-muted-foreground",
                             expanded ? "whitespace-pre-wrap" : "line-clamp-3",
                           )}
                         >
                           {item.detail}
                         </p>
                       ) : null}
-                      <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-muted-foreground/70">
+                      <div className="mt-1 flex items-center gap-2 text-meta-sm text-muted-foreground/70">
                         <span>{item.source}</span>
                         <span>·</span>
                         <span>{ago(item.at)} ago</span>
@@ -269,12 +269,12 @@ export function NotificationCenter() {
                         {item.route ? <span className="text-primary">open</span> : null}
                       </div>
                       {item.advice ? (
-                        <p className="mt-1 border-l border-accent/40 pl-2 text-[11px] whitespace-pre-wrap text-accent/90">
+                        <p className="mt-1 border-l border-accent/40 pl-2 text-note whitespace-pre-wrap text-accent/90">
                           {item.advice}
                         </p>
                       ) : null}
                       {asking === item.id ? (
-                        <p className="mt-1 text-[10px] text-muted-foreground">
+                        <p className="mt-1 text-note-sm text-muted-foreground">
                           FRIDAY is working out what this means…
                         </p>
                       ) : null}
@@ -288,7 +288,7 @@ export function NotificationCenter() {
                           disabled={asking === item.id}
                           aria-label="Ask FRIDAY to explain and fix this"
                           title="Ask FRIDAY what this means and how to fix it"
-                          className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-accent disabled:opacity-40"
+                          className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent disabled:opacity-40"
                         >
                           <Sparkles className="size-3" />
                         </button>
@@ -298,7 +298,7 @@ export function NotificationCenter() {
                         onClick={() => showOnScreen(item)}
                         aria-label="Show on main screen"
                         title="Show this on the main screen"
-                        className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-primary"
+                        className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
                       >
                         <Monitor className="size-3" />
                       </button>
@@ -308,7 +308,7 @@ export function NotificationCenter() {
                           onClick={() => notifications.markRead(item.id)}
                           aria-label="Mark as read"
                           title="Mark as read"
-                          className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-accent"
+                          className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-accent"
                         >
                           <Check className="size-3" />
                         </button>
@@ -317,7 +317,7 @@ export function NotificationCenter() {
                         type="button"
                         onClick={() => notifications.dismiss(item.id)}
                         aria-label="Dismiss"
-                        className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:text-destructive"
+                        className="grid size-5 place-items-center rounded-ctl text-muted-foreground hover:text-destructive"
                       >
                         <X className="size-3" />
                       </button>

@@ -171,11 +171,11 @@ export function NetworkPanel() {
                   <Network className="size-3.5 text-accent" />
                   {entry.name}
                 </span>
-                <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                <span className="block truncate text-meta text-muted-foreground">
                   {entry.mac ?? "—"}
                 </span>
               </span>
-              <span className="font-mono text-[11px] text-muted-foreground">{entry.address}</span>
+              <span className="text-meta text-muted-foreground">{entry.address}</span>
             </li>
           ))}
         </ul>
@@ -215,7 +215,7 @@ export function SecurityPanel() {
                   <ShieldCheck className="size-3.5 text-accent" />
                   {item.label}
                 </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
+                <span className="block truncate text-note text-muted-foreground">
                   {item.detail ?? "—"}
                 </span>
               </span>
@@ -319,7 +319,7 @@ export function SubsystemPanel() {
                     >
                       <span className="min-w-0">
                         <span className="text-foreground">{entry.label}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
+                        <span className="block truncate text-note text-muted-foreground">
                           {entry.detail || "—"}
                           {entry.version ? ` · ${entry.version}` : ""}
                         </span>
@@ -384,7 +384,7 @@ export function RuntimePanel() {
                   >
                     <span className="min-w-0">
                       <span className="text-foreground">{check.label}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
+                      <span className="block truncate text-note text-muted-foreground">
                         {check.detail || "—"}
                       </span>
                     </span>

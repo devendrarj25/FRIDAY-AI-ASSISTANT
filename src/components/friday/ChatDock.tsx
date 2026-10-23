@@ -186,7 +186,7 @@ function RouteModeControls({
 }) {
   return (
     <>
-      <DropdownMenuLabel className="text-[10px] uppercase text-muted-foreground">
+      <DropdownMenuLabel className="text-note-sm uppercase text-muted-foreground">
         Routing mode
       </DropdownMenuLabel>
       {ROUTE_MODES.map((m) => (
@@ -197,13 +197,11 @@ function RouteModeControls({
           onSelect={(e) => e.preventDefault()}
         >
           <span className="truncate">{ROUTE_MODE_LABELS[m]}</span>
-          <span className="ml-auto font-mono text-[9px] text-muted-foreground">
-            {ROUTE_MODE_HINTS[m]}
-          </span>
+          <span className="ml-auto text-meta-sm text-muted-foreground">{ROUTE_MODE_HINTS[m]}</span>
         </DropdownMenuCheckboxItem>
       ))}
       {MODES_NEEDING_PICKS.has(mode as (typeof ROUTE_MODES)[number]) && picks === 0 ? (
-        <DropdownMenuLabel className="text-[10px] font-normal text-amber-400">
+        <DropdownMenuLabel className="text-note-sm font-normal text-amber-400">
           Pick {mode === "multi" ? "one or more models" : "a model"} below — this mode runs only on
           your choice.
         </DropdownMenuLabel>
@@ -216,7 +214,7 @@ function RouteModeControls({
       >
         <span className="truncate">Show every catalog model</span>
         {hidden > 0 ? (
-          <span className="ml-auto font-mono text-[9px] text-muted-foreground">+{hidden}</span>
+          <span className="ml-auto text-meta-sm text-muted-foreground">+{hidden}</span>
         ) : null}
       </DropdownMenuCheckboxItem>
       <DropdownMenuSeparator />
@@ -610,7 +608,7 @@ export function ChatDock() {
           <DropdownMenuSub key={g.kind}>
             <DropdownMenuSubTrigger>
               <Icon className="size-4" /> {g.label}
-              <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+              <span className="ml-auto text-meta-sm text-muted-foreground">
                 {count ? `${count}/${g.items.length}` : g.items.length}
               </span>
             </DropdownMenuSubTrigger>
@@ -627,7 +625,7 @@ export function ChatDock() {
                 >
                   <span className="truncate">{item.name}</span>
                   {item.detail ? (
-                    <span className="ml-2 truncate font-mono text-[9px] text-muted-foreground">
+                    <span className="ml-2 truncate text-meta-sm text-muted-foreground">
                       {item.detail}
                     </span>
                   ) : null}
@@ -659,7 +657,7 @@ export function ChatDock() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-1.5 text-[10px]"
+          className="h-6 gap-1 px-1.5 text-note-sm"
           onClick={() => void navigate({ to: "/library" })}
         >
           Open full <ArrowRight className="size-3" />
@@ -677,7 +675,7 @@ export function ChatDock() {
             }}
           >
             <span className="truncate">{item.name}</span>
-            <span className="ml-auto font-mono text-[9px] text-muted-foreground">{item.type}</span>
+            <span className="ml-auto text-meta-sm text-muted-foreground">{item.type}</span>
           </DropdownMenuItem>
         ))
       )}
@@ -695,7 +693,7 @@ export function ChatDock() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-1.5 text-[10px]"
+          className="h-6 gap-1 px-1.5 text-note-sm"
           onClick={() => void navigate({ to: "/projects" })}
         >
           Open full <ArrowRight className="size-3" />
@@ -705,16 +703,16 @@ export function ChatDock() {
         <>
           <DropdownMenuSeparator />
           <div className="px-2 py-1">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground">
+            <div className="text-note-sm font-bold uppercase text-muted-foreground">
               Active Workspace
             </div>
             <div className="truncate text-xs font-medium text-primary">{activeProject.name}</div>
-            <div className="font-mono text-[9px] text-muted-foreground">{activeProject.kind}</div>
+            <div className="text-meta-sm text-muted-foreground">{activeProject.kind}</div>
           </div>
         </>
       ) : null}
       <DropdownMenuSeparator />
-      <DropdownMenuLabel className="text-[10px] uppercase text-muted-foreground">
+      <DropdownMenuLabel className="text-note-sm uppercase text-muted-foreground">
         Workspaces ({projectsList.length})
       </DropdownMenuLabel>
       {projectsList.length === 0 ? (
@@ -729,7 +727,7 @@ export function ChatDock() {
             }}
           >
             <span className="truncate">{p.name}</span>
-            <span className="ml-auto font-mono text-[9px] text-muted-foreground">{p.kind}</span>
+            <span className="ml-auto text-meta-sm text-muted-foreground">{p.kind}</span>
           </DropdownMenuItem>
         ))
       )}
@@ -746,7 +744,7 @@ export function ChatDock() {
       {COMMANDS.map((c) => (
         <DropdownMenuItem key={c.cmd} onSelect={() => insertCommand(c.cmd)}>
           <span className="font-mono text-xs text-primary">{c.cmd.trim()}</span>
-          <span className="ml-2 truncate text-[11px] text-muted-foreground">{c.label}</span>
+          <span className="ml-2 truncate text-note text-muted-foreground">{c.label}</span>
         </DropdownMenuItem>
       ))}
     </>
@@ -792,14 +790,14 @@ export function ChatDock() {
         <Button
           variant="outline"
           size="sm"
-          className="friday-attach h-7 gap-1 px-2 text-[11px]"
+          className="friday-attach h-7 gap-1 px-2 text-note"
           title="Attach files"
           aria-label="Attach files"
         >
           <Paperclip className="size-3.5" />
           <span className="chat-btn-text">Attach</span>
           {files.length ? (
-            <span className="rounded-sm bg-primary/20 px-1 font-mono text-[9px] text-primary">
+            <span className="rounded-ctl bg-primary/20 px-1 text-meta-sm text-primary">
               {files.length}
             </span>
           ) : null}
@@ -812,7 +810,7 @@ export function ChatDock() {
           disabled={files.length >= MAX_FILES}
         >
           <Paperclip className="size-4" /> Attach files…
-          <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+          <span className="ml-auto text-meta-sm text-muted-foreground">
             {files.length}/{MAX_FILES}
           </span>
         </DropdownMenuItem>
@@ -836,7 +834,7 @@ export function ChatDock() {
               >
                 <X className="size-4" />
                 <span className="truncate">{f.name}</span>
-                <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                <span className="ml-auto text-meta-sm text-muted-foreground">
                   {formatBytes(f.size)}
                 </span>
               </DropdownMenuItem>
@@ -911,7 +909,7 @@ export function ChatDock() {
           <span
             role="status"
             aria-live="polite"
-            className="truncate font-mono text-[10px] text-muted-foreground"
+            className="truncate text-meta-sm text-muted-foreground"
           >
             {statusLabel}
             {engineLabel ? ` · ${engineLabel}` : ""}
@@ -974,7 +972,7 @@ export function ChatDock() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 gap-1 px-2 text-[11px]"
+                className="h-7 gap-1 px-2 text-note"
                 title="Chat actions"
               >
                 Actions <ChevronDown className="size-3" />
@@ -1052,7 +1050,7 @@ export function ChatDock() {
               />
               {railOpen ? (
                 <>
-                  <span className="label-xs min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                  <span className="label-xs min-w-0 flex-1 truncate text-note-sm text-muted-foreground">
                     Saved chats
                   </span>
                   <IconAction
@@ -1069,17 +1067,17 @@ export function ChatDock() {
             {railOpen ? (
               <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
                 {sessions.length === 0 ? (
-                  <li className="px-1.5 py-2 font-mono text-[10px] text-muted-foreground">
+                  <li className="px-1.5 py-2 text-meta-sm text-muted-foreground">
                     No saved chats yet. Save one from here or Actions.
                   </li>
                 ) : (
                   sessions.map((s) => (
-                    <li key={s.id} className="group flex items-center gap-0.5 rounded-sm">
+                    <li key={s.id} className="group flex items-center gap-0.5 rounded-ctl">
                       <button
                         type="button"
                         onClick={() => switchChat(s)}
                         title={`Switch to ${s.title}`}
-                        className="min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 text-left text-[11px] text-foreground/85 transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                        className="min-w-0 flex-1 truncate rounded-ctl px-1.5 py-1 text-left text-note text-foreground/85 transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                       >
                         {s.title}
                       </button>
@@ -1088,7 +1086,7 @@ export function ChatDock() {
                         aria-label={`Rename ${s.title}`}
                         title="Rename"
                         onClick={() => renameChat(s.id)}
-                        className="chat-row-action inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                        className="chat-row-action inline-flex size-5 items-center justify-center rounded-ctl text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                       >
                         <Pencil className="size-3" />
                       </button>
@@ -1097,7 +1095,7 @@ export function ChatDock() {
                         aria-label={`Delete ${s.title}`}
                         title="Delete"
                         onClick={() => deleteChat(s.id)}
-                        className="chat-row-action inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                        className="chat-row-action inline-flex size-5 items-center justify-center rounded-ctl text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                       >
                         <Trash2 className="size-3" />
                       </button>
@@ -1129,11 +1127,11 @@ export function ChatDock() {
           {state.approval ? (
             <div
               className={cn(
-                "mx-3 mb-2 rounded-md border border-warning/40 bg-warning/8 px-2.5 py-1.5",
+                "mx-3 mb-2 rounded-surface border border-warning/40 bg-warning/8 px-2.5 py-1.5",
                 full && "w-full max-w-[48rem] self-center",
               )}
             >
-              <p className="text-[11px] text-foreground">
+              <p className="text-note text-foreground">
                 Approval needed for{" "}
                 <span className="font-mono text-warning">{state.approval.tool}</span> (
                 {state.approval.risk})
@@ -1142,12 +1140,12 @@ export function ChatDock() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-6 text-[11px]"
+                  className="h-6 text-note"
                   onClick={() => brain.approve(false)}
                 >
                   Deny
                 </Button>
-                <Button size="sm" className="h-6 text-[11px]" onClick={() => brain.approve(true)}>
+                <Button size="sm" className="h-6 text-note" onClick={() => brain.approve(true)}>
                   Allow once
                 </Button>
               </div>
@@ -1182,7 +1180,7 @@ export function ChatDock() {
                 {glassComposer ? sendControl : null}
               </div>
               {visibleNotice ? (
-                <p className="mt-1 font-mono text-[10px] text-warning" role="status">
+                <p className="mt-1 text-meta-sm text-warning" role="status">
                   {visibleNotice}
                 </p>
               ) : null}
@@ -1190,7 +1188,7 @@ export function ChatDock() {
               {/* Related capabilities FRIDAY suggests for what is being typed. */}
               {suggestions.length && !busy ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  <span className="text-meta-sm uppercase tracking-wider text-muted-foreground">
                     suggested
                   </span>
                   {suggestions.map((s) => (
@@ -1200,7 +1198,7 @@ export function ChatDock() {
                       title={s.detail ? `${s.group} · ${s.detail}` : s.group}
                       aria-label={`Attach ${s.name}`}
                       onClick={() => toggle(s.id)}
-                      className="flex items-center gap-1 rounded-sm border border-primary/25 bg-surface px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                      className="flex items-center gap-1 rounded-ctl border border-primary/25 bg-surface px-1.5 py-0.5 text-meta-sm text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                     >
                       <Plus className="size-2.5" />
                       {s.name}
@@ -1219,7 +1217,7 @@ export function ChatDock() {
                         f.error ? `${f.name} — ${f.error}` : `${f.name} · ${formatBytes(f.size)}`
                       }
                       className={cn(
-                        "flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[9px]",
+                        "flex items-center gap-1 rounded-ctl border px-1.5 py-0.5 text-meta-sm",
                         f.error
                           ? "border-destructive/40 bg-destructive/10 text-destructive"
                           : "border-primary/30 bg-primary/10 text-primary",
@@ -1242,7 +1240,7 @@ export function ChatDock() {
                     <span
                       key={cap.id}
                       title={cap.detail ? `${cap.group} · ${cap.detail}` : cap.group}
-                      className="flex items-center gap-1 rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] text-primary"
+                      className="flex items-center gap-1 rounded-ctl border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-meta-sm text-primary"
                     >
                       <span className="text-primary/60">{cap.group}</span>
                       {cap.name}
@@ -1260,7 +1258,7 @@ export function ChatDock() {
                     <button
                       type="button"
                       onClick={() => composer.clear()}
-                      className="rounded-sm px-1 font-mono text-[9px] text-muted-foreground hover:text-primary"
+                      className="rounded-ctl px-1 text-meta-sm text-muted-foreground hover:text-primary"
                     >
                       <Eraser className="size-3" aria-hidden="true" />
                       clear all
@@ -1286,14 +1284,14 @@ export function ChatDock() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 gap-1 px-2 text-[11px]"
+                        className="h-7 gap-1 px-2 text-note"
                         title="Model selection and routing"
                         aria-label="Models"
                       >
                         <Boxes className="size-3.5" />
                         <span className="chat-btn-text">Models</span>
                         {attachedModelCount || registry.selected.length ? (
-                          <span className="rounded-sm bg-primary/20 px-1 font-mono text-[9px] text-primary">
+                          <span className="rounded-ctl bg-primary/20 px-1 text-meta-sm text-primary">
                             {attachedModelCount + registry.selected.length}
                           </span>
                         ) : null}
@@ -1309,15 +1307,15 @@ export function ChatDock() {
 
                       {/* Sub-section 1: Default brain routing (persistent) */}
                       <div className="px-2 py-1">
-                        <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
+                        <div className="flex items-center justify-between text-note-sm font-bold uppercase text-muted-foreground">
                           <span>Default Brain</span>
-                          <span className="font-mono text-[9px] font-normal lowercase">
+                          <span className="text-meta-sm font-normal lowercase">
                             {registry.selected.length
                               ? `${registry.selected.length} picked`
                               : "auto"}
                           </span>
                         </div>
-                        <div className="text-[9px] text-muted-foreground">
+                        <div className="text-note-sm text-muted-foreground">
                           Persistent routing for all turns
                         </div>
                       </div>
@@ -1328,7 +1326,7 @@ export function ChatDock() {
                         onSelect={(e) => e.preventDefault()}
                       >
                         <span className="truncate">Auto</span>
-                        <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                        <span className="ml-auto text-meta-sm text-muted-foreground">
                           {registry.policy}
                         </span>
                       </DropdownMenuCheckboxItem>
@@ -1340,13 +1338,13 @@ export function ChatDock() {
                             onKeyDown={(event) => event.stopPropagation()}
                             placeholder="Search models"
                             aria-label="Search models"
-                            className="h-7 text-[11px]"
+                            className="h-7 text-note"
                           />
                         </div>
                       ) : null}
                       {registryGroups.map((group) => (
                         <div key={group.label}>
-                          <DropdownMenuLabel className="text-[10px] uppercase text-muted-foreground">
+                          <DropdownMenuLabel className="text-note-sm uppercase text-muted-foreground">
                             {group.label}
                           </DropdownMenuLabel>
                           {group.models.map((m) => (
@@ -1360,12 +1358,12 @@ export function ChatDock() {
                               onSelect={(e) => e.preventDefault()}
                             >
                               <span className="truncate">{m.choiceLabel || m.label}</span>
-                              <span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">
+                              <span className="ml-2 shrink-0 text-meta-sm text-muted-foreground">
                                 {m.badge || (m.type === "local" ? "LOCAL" : "")}
                                 {m.marks?.length ? ` · ${m.marks.join(", ")}` : ""}
                               </span>
                               {m.disabledReason ? (
-                                <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground">
+                                <span className="ml-auto shrink-0 text-meta-sm text-muted-foreground">
                                   {m.disabledReason}
                                 </span>
                               ) : null}
@@ -1374,12 +1372,12 @@ export function ChatDock() {
                         </div>
                       ))}
                       {registry.hint ? (
-                        <DropdownMenuLabel className="text-[10px] font-normal normal-case text-muted-foreground">
+                        <DropdownMenuLabel className="text-note-sm font-normal normal-case text-muted-foreground">
                           {registry.hint}
                         </DropdownMenuLabel>
                       ) : null}
                       {!registry.loading && !registryGroups.length ? (
-                        <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                        <DropdownMenuLabel className="text-note-sm font-normal text-muted-foreground">
                           {registry.error ??
                             "No models detected yet — install Ollama or add an API key."}
                         </DropdownMenuLabel>
@@ -1388,13 +1386,13 @@ export function ChatDock() {
                       {/* Sub-section 2: Just for this message (per-turn override) */}
                       <DropdownMenuSeparator />
                       <div className="px-2 py-1">
-                        <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
+                        <div className="flex items-center justify-between text-note-sm font-bold uppercase text-muted-foreground">
                           <span>Just for this message</span>
-                          <span className="font-mono text-[9px] font-normal lowercase">
+                          <span className="text-meta-sm font-normal lowercase">
                             {attachedModelCount ? `${attachedModelCount} pinned` : "none"}
                           </span>
                         </div>
-                        <div className="text-[9px] text-muted-foreground">
+                        <div className="text-note-sm text-muted-foreground">
                           Pin models to the composer for this turn only
                         </div>
                       </div>
@@ -1408,14 +1406,14 @@ export function ChatDock() {
                           >
                             <span className="truncate">{item.name}</span>
                             {item.detail ? (
-                              <span className="ml-2 truncate font-mono text-[9px] text-muted-foreground">
+                              <span className="ml-2 truncate text-meta-sm text-muted-foreground">
                                 {item.detail}
                               </span>
                             ) : null}
                           </DropdownMenuCheckboxItem>
                         ))
                       ) : (
-                        <DropdownMenuLabel className="text-[10px] font-normal text-muted-foreground">
+                        <DropdownMenuLabel className="text-note-sm font-normal text-muted-foreground">
                           No catalog models installed to pin
                         </DropdownMenuLabel>
                       )}
@@ -1454,14 +1452,14 @@ export function ChatDock() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 gap-1 px-2 text-[11px]"
+                            className="h-7 gap-1 px-2 text-note"
                             title={item.label}
                             aria-label={item.label}
                           >
                             <item.icon className="size-3.5" />
                             <span className="chat-btn-text">{item.label}</span>
                             {item.count ? (
-                              <span className="rounded-sm bg-primary/20 px-1 font-mono text-[9px] text-primary">
+                              <span className="rounded-ctl bg-primary/20 px-1 text-meta-sm text-primary">
                                 {item.count}
                               </span>
                             ) : null}
@@ -1496,7 +1494,7 @@ export function ChatDock() {
                             <DropdownMenuSubTrigger>
                               <item.icon className="size-4" /> {item.label}
                               {item.count ? (
-                                <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+                                <span className="ml-auto text-meta-sm text-muted-foreground">
                                   {item.count}
                                 </span>
                               ) : null}

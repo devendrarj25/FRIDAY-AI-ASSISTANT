@@ -340,7 +340,7 @@ function N8nPage() {
           </HudPanel>
 
           <HudPanel title="Setup checklist" hint="local n8n in three steps">
-            <ol className="space-y-2 font-mono text-[11px] text-muted-foreground">
+            <ol className="space-y-2 text-meta text-muted-foreground">
               <li>
                 1 · start n8n locally: <span className="text-primary">npx n8n start</span>
               </li>
@@ -371,11 +371,11 @@ function N8nPage() {
               {workflows.map((w) => (
                 <li
                   key={w.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-surface px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-ctl border border-border bg-surface px-3 py-2"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{w.name}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       id {w.id} · {w.source ?? "n8n"}
                       {w.nodes ? ` · ${w.nodes} nodes` : ""}
                       {w.updatedAt ? ` · ${new Date(w.updatedAt).toLocaleString()}` : ""}
@@ -425,7 +425,7 @@ function N8nPage() {
               ))}
             </ul>
           ) : (
-            <p className="font-mono text-[11px] text-muted-foreground">
+            <p className="text-meta text-muted-foreground">
               No workflows yet — connect to n8n or import workflow JSON from the Import tab.
             </p>
           )}
@@ -495,10 +495,10 @@ function N8nPage() {
                       ...local,
                     ])
                   }
-                  className="rounded-sm border border-primary/25 bg-surface px-2.5 py-2 text-left transition-colors hover:border-primary/60"
+                  className="rounded-ctl border border-primary/25 bg-surface px-2.5 py-2 text-left transition-colors hover:border-primary/60"
                 >
                   <p className="text-xs text-foreground">{t.name}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">{t.note}</p>
+                  <p className="text-meta-sm text-muted-foreground">{t.note}</p>
                 </button>
               ))}
             </div>
@@ -508,18 +508,19 @@ function N8nPage() {
             {n8nImports.length ? (
               <ul className="space-y-2">
                 {n8nImports.map((i) => (
-                  <li key={i.id} className="rounded-sm border border-border bg-surface px-2.5 py-2">
+                  <li
+                    key={i.id}
+                    className="rounded-ctl border border-border bg-surface px-2.5 py-2"
+                  >
                     <p className="truncate text-xs text-foreground">{i.name}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {i.origin} · {i.fileCount} files · {formatBytes(i.bytes)}
                     </p>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="font-mono text-[11px] text-muted-foreground">
-                Nothing imported into n8n yet.
-              </p>
+              <p className="text-meta text-muted-foreground">Nothing imported into n8n yet.</p>
             )}
           </HudPanel>
         </div>

@@ -66,7 +66,7 @@ export function WorkspaceSetup({ onDone }: { onDone?: (root: string) => void }) 
     <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-background">
       <TitleStrip />
       <div className="grid min-h-0 flex-1 place-items-center overflow-auto px-4 py-6">
-        <div className="hud-panel page-enter w-full max-w-lg rounded-md p-6">
+        <div className="hud-panel page-enter w-full max-w-lg rounded-surface p-6">
           <div className="flex items-center gap-4">
             <FridayOrb size={72} />
             <div>
@@ -97,7 +97,7 @@ export function WorkspaceSetup({ onDone }: { onDone?: (root: string) => void }) 
 
           {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
 
-          <ul className="mt-4 space-y-1.5 font-mono text-[11px] text-muted-foreground">
+          <ul className="mt-4 space-y-1.5 text-meta text-muted-foreground">
             <li>· an existing FRIDAY folder is reused — never duplicated or overwritten</li>
             <li>
               · a source checkout should stay separate. Copy my data copies and checks, and does not

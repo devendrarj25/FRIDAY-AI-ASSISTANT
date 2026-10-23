@@ -34,7 +34,7 @@ export function DisplayPanel({ display }: { display: PanelDisplay }) {
       : "border-primary/25 text-foreground/90";
 
   return (
-    <div className={cn("rounded-md border bg-surface/60 p-2.5", toneClass)}>
+    <div className={cn("rounded-surface border bg-surface/60 p-2.5", toneClass)}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="label-xs text-primary/70">{display.title ?? display.kind}</p>
         <button
@@ -48,7 +48,7 @@ export function DisplayPanel({ display }: { display: PanelDisplay }) {
         </button>
       </div>
       {display.kind === "code" ? (
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90">
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-data leading-relaxed text-foreground/90">
           {display.code}
         </pre>
       ) : display.kind === "list" ? (
@@ -80,7 +80,7 @@ export function ConfirmationCard({
       role="alertdialog"
       aria-label="Confirmation required"
       className={cn(
-        "mx-auto w-[min(560px,96%)] rounded-md border border-warning/50 bg-warning/10 p-3 backdrop-blur-sm",
+        "mx-auto w-[min(560px,96%)] rounded-surface border border-warning/50 bg-warning/10 p-3 backdrop-blur-sm",
         className,
       )}
     >
@@ -91,7 +91,7 @@ export function ConfirmationCard({
         <button
           type="button"
           onClick={() => assistantMode.confirmPending(true)}
-          className="rounded-sm border border-accent/50 bg-accent/15 px-3 py-1.5 font-mono text-[11px] text-accent hover:bg-accent/25"
+          className="rounded-ctl border border-accent/50 bg-accent/15 px-3 py-1.5 text-meta text-accent hover:bg-accent/25"
         >
           <Check className="size-3" aria-hidden="true" />
           YES · run it
@@ -99,7 +99,7 @@ export function ConfirmationCard({
         <button
           type="button"
           onClick={() => assistantMode.confirmPending(false)}
-          className="rounded-sm border border-primary/25 px-3 py-1.5 font-mono text-[11px] text-muted-foreground hover:border-destructive/60 hover:text-destructive"
+          className="rounded-ctl border border-primary/25 px-3 py-1.5 text-meta text-muted-foreground hover:border-destructive/60 hover:text-destructive"
         >
           <X className="size-3" aria-hidden="true" />
           NO · cancel
@@ -131,7 +131,7 @@ function CopyLine({ text }: { text: string }) {
           timer.current = setTimeout(() => setCopied(false), 1200);
         });
       }}
-      className="chat-row-action inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+      className="chat-row-action inline-flex size-4 shrink-0 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
     >
       {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
     </button>
@@ -141,7 +141,7 @@ function CopyLine({ text }: { text: string }) {
 function CaptionMeta({ caption }: { caption: Caption }) {
   if (!caption.tag) return null;
   return (
-    <span className="ml-2 font-mono text-[10px] uppercase text-muted-foreground">
+    <span className="ml-2 text-meta-sm uppercase text-muted-foreground">
       {caption.tag}
       {caption.language ? ` · ${caption.language}` : ""}
       {typeof caption.confidence === "number" ? ` · ${caption.confidence.toFixed(2)}` : ""}
@@ -168,7 +168,7 @@ export const CaptionRow = memo(function CaptionRow({
       <div className="flex gap-2 text-sm">
         <span
           className={cn(
-            "shrink-0 font-mono text-[10px] uppercase",
+            "shrink-0 text-meta-sm uppercase",
             caption.who === "user" ? "text-accent" : "text-primary",
           )}
         >
@@ -192,7 +192,7 @@ export const CaptionRow = memo(function CaptionRow({
       >
         <div
           className={cn(
-            "mb-0.5 flex items-center gap-1.5 font-mono text-[10px] uppercase",
+            "mb-0.5 flex items-center gap-1.5 text-meta-sm uppercase",
             user ? "flex-row-reverse text-accent" : "text-primary",
           )}
         >
@@ -221,7 +221,7 @@ export function InterimLine({ text, layout }: { text: string; layout: CaptionLay
   if (layout === "line") {
     return (
       <div className="flex gap-2 text-sm opacity-70">
-        <span className="shrink-0 font-mono text-[10px] uppercase text-accent">you</span>
+        <span className="shrink-0 text-meta-sm uppercase text-accent">you</span>
         <span className="min-w-0 italic text-foreground/70">{text}</span>
       </div>
     );

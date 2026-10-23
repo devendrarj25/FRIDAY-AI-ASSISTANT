@@ -102,11 +102,9 @@ function TaskPanel({ task, question }: { task: TaskRecord; question: string | un
               {task.status}
             </Badge>
             {running ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{task.progress}%</span>
+              <span className="text-meta text-muted-foreground">{task.progress}%</span>
             ) : null}
-            {task.error ? (
-              <span className="font-mono text-[11px] text-destructive">{task.error}</span>
-            ) : null}
+            {task.error ? <span className="text-meta text-destructive">{task.error}</span> : null}
           </div>
         </div>
         <div className="flex gap-2">
@@ -132,7 +130,7 @@ function TaskPanel({ task, question }: { task: TaskRecord; question: string | un
       </div>
 
       {question ? (
-        <p className="mt-3 rounded-sm border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+        <p className="mt-3 rounded-ctl border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
           {question}
         </p>
       ) : null}
@@ -149,7 +147,7 @@ function TaskPanel({ task, question }: { task: TaskRecord; question: string | un
             </span>
             <div className="min-w-0">
               <p className="text-sm">{log.line}</p>
-              <p className="font-mono text-[11px] text-muted-foreground">{time(log.at)}</p>
+              <p className="text-meta text-muted-foreground">{time(log.at)}</p>
             </div>
           </li>
         ))}
@@ -225,7 +223,7 @@ function GraphRow({
       <div className="flex items-start justify-between gap-3">
         <button type="button" className="min-w-0 text-left" onClick={onToggle}>
           <span className="block truncate text-sm">{graph.request}</span>
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="text-meta text-muted-foreground">
             {progress.done}/{progress.total} subtasks
             {position ? ` · #${position} in line` : ""}
             {current ? ` · next: ${current.title}` : ""}
@@ -233,12 +231,12 @@ function GraphRow({
             {graph.horizon?.deadline ? ` · ${graph.horizon.deadline}` : ""}
           </span>
           {current?.checkpoint?.nextAction ? (
-            <span className="block font-mono text-[11px] text-muted-foreground">
+            <span className="block text-meta text-muted-foreground">
               checkpoint → {current.checkpoint.nextAction}
             </span>
           ) : null}
           {graph.horizon?.blockers?.length ? (
-            <span className="block font-mono text-[11px] text-destructive">
+            <span className="block text-meta text-destructive">
               blocker: {graph.horizon.blockers.at(-1)}
             </span>
           ) : null}
@@ -306,7 +304,7 @@ function GraphRow({
       </div>
       {open ? (
         <div className="mt-2 space-y-2">
-          <ul className="space-y-1 font-mono text-[11px]">
+          <ul className="space-y-1 text-meta">
             {graph.nodes.map((node) => (
               <li key={node.id} className="flex items-start gap-2">
                 {node.state === "verified" || node.state === "completed" ? (
@@ -376,7 +374,7 @@ function GraphRow({
               </Button>
             </div>
           ) : null}
-          <pre className="max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          <pre className="max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-muted-foreground">
             {graph.logs.length
               ? graph.logs
                   .slice(-12)
@@ -630,7 +628,7 @@ function TasksPage() {
             )}
           </ul>
           {errors ? (
-            <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-destructive">
+            <pre className="mt-2 max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-destructive">
               {errors}
             </pre>
           ) : null}
@@ -649,7 +647,7 @@ function TasksPage() {
             {recent.length ? (
               recent.map((line) => (
                 <p key={line.id} className="whitespace-pre-wrap">
-                  <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                     {line.role === "user" ? "You" : "FRIDAY"}
                   </span>
                   {line.text}
@@ -721,7 +719,7 @@ function TasksPage() {
                 >
                   <span className="min-w-0">
                     <span className="block truncate">{task.title}</span>
-                    <span className="font-mono text-[11px] text-muted-foreground">
+                    <span className="text-meta text-muted-foreground">
                       {task.kind} · {time(task.startedAt)}
                       {task.error ? ` · ${task.error}` : ""}
                     </span>
@@ -747,7 +745,7 @@ function TasksPage() {
               >
                 <span className="min-w-0">
                   <span className="block text-sm">{job.label}</span>
-                  <span className="font-mono text-[11px] text-muted-foreground">
+                  <span className="text-meta text-muted-foreground">
                     every {job.everyMinutes}m
                     {job.lastAt ? ` · last ${time(job.lastAt)}` : " · not run yet"}
                     {job.enabled ? "" : " · off"}
@@ -772,7 +770,7 @@ function TasksPage() {
               </li>
             ))}
           </ul>
-          <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] text-muted-foreground">
+          <pre className="mt-2 max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data text-muted-foreground">
             {background.runs.length
               ? background.runs
                   .slice(0, 8)

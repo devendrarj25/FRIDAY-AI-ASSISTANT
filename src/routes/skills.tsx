@@ -503,7 +503,7 @@ function SkillsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
                       onClick={() => void onToggle(s)}
                     >
@@ -512,7 +512,7 @@ function SkillsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!s.id}
                       onClick={() => setOpenId((current) => (current === s.id ? null : s.id))}
                     >
@@ -521,7 +521,7 @@ function SkillsPage() {
                     <Button
                       size="sm"
                       variant={confirmId === s.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
                       onClick={() => void onRemove(s)}
                     >
@@ -531,7 +531,7 @@ function SkillsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-note"
                         onClick={() => setConfirmId(null)}
                       >
                         Cancel
@@ -541,7 +541,7 @@ function SkillsPage() {
                 ])}
               />
               {openRow ? (
-                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 font-mono text-[11px]">
+                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 text-meta">
                   <p className="label-xs text-primary">{openRow.name}</p>
                   <p>
                     <span className="text-muted-foreground">Summary — </span>
@@ -622,11 +622,11 @@ function SkillsPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-32 overflow-auto rounded-sm bg-background p-2 font-mono text-[10px] leading-relaxed">
+              <pre className="max-h-32 overflow-auto rounded-ctl bg-background p-2 text-data-sm leading-relaxed">
                 {forgeLog}
               </pre>
             ) : (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-note text-muted-foreground">
                 Zip, folder, and git clone accept only skill.json / skill.mjs packs. Incomplete
                 packs are healed into a loadable run(), then sandbox-tested before enable. Forge
                 uses the same skill-forge path as Self-management.

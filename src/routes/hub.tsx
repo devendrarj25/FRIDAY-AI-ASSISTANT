@@ -78,14 +78,12 @@ function ResourceCard({ resource }: { resource: HubResource }) {
           <Badge variant="outline" className="label-xs">
             {resource.status}
           </Badge>
-          <span className={`font-mono text-[11px] ${HEALTH_TONE[resource.health]}`}>
+          <span className={`text-meta ${HEALTH_TONE[resource.health]}`}>
             health: {resource.health}
           </span>
-          <span className="font-mono text-[11px] text-muted-foreground">
-            permission: {resource.permission}
-          </span>
+          <span className="text-meta text-muted-foreground">permission: {resource.permission}</span>
           {resource.restartRequired ? (
-            <span className="font-mono text-[11px] text-warning">restart required</span>
+            <span className="text-meta text-warning">restart required</span>
           ) : null}
         </div>
 
@@ -96,7 +94,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
             {resource.capabilities.map((cap) => (
               <span
                 key={cap}
-                className="rounded-sm border border-primary/25 bg-primary/8 px-1.5 py-0.5 font-mono text-[10px] text-primary"
+                className="rounded-ctl border border-primary/25 bg-primary/8 px-1.5 py-0.5 text-meta-sm text-primary"
               >
                 {cap}
               </span>
@@ -105,7 +103,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
         ) : null}
 
         {resource.dependencies.length ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             dependencies: {resource.dependencies.join(", ")}
           </p>
         ) : null}
@@ -113,7 +111,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
         {resource.notes.length ? (
           <ul className="space-y-0.5">
             {resource.notes.map((note) => (
-              <li key={note} className="font-mono text-[11px] text-muted-foreground">
+              <li key={note} className="text-meta text-muted-foreground">
                 · {note}
               </li>
             ))}
@@ -121,12 +119,12 @@ function ResourceCard({ resource }: { resource: HubResource }) {
         ) : null}
 
         {resource.plan.length ? (
-          <div className="rounded-sm border border-primary/20 bg-surface p-2">
+          <div className="rounded-ctl border border-primary/20 bg-surface p-2">
             <p className="label-xs mb-1 text-primary/70">
               Install plan · {resource.planFiles} file(s)
             </p>
             {resource.plan.map((entry) => (
-              <p key={entry.dir} className="font-mono text-[11px] text-muted-foreground">
+              <p key={entry.dir} className="text-meta text-muted-foreground">
                 {entry.dir} → {entry.files} file(s)
               </p>
             ))}
@@ -154,7 +152,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
               >
                 <Play className="size-3.5" /> Health test
               </Button>
-              <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+              <label className="flex items-center gap-2 text-meta text-muted-foreground">
                 <Switch
                   checked={resource.active}
                   onCheckedChange={(checked) => hub.setActive(resource.id, checked)}
@@ -181,13 +179,13 @@ function ResourceCard({ resource }: { resource: HubResource }) {
               value={configKey}
               onChange={(event) => setConfigKey(event.target.value)}
               placeholder="setting"
-              className="h-8 w-32 font-mono text-[11px]"
+              className="h-8 w-32 text-meta"
             />
             <Input
               value={configValue}
               onChange={(event) => setConfigValue(event.target.value)}
               placeholder="value"
-              className="h-8 w-40 font-mono text-[11px]"
+              className="h-8 w-40 text-meta"
             />
             <Button
               size="sm"
@@ -202,7 +200,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
               Save setting
             </Button>
             {Object.entries(resource.config).map(([key, value]) => (
-              <span key={key} className="font-mono text-[11px] text-muted-foreground">
+              <span key={key} className="text-meta text-muted-foreground">
                 {key}={value || "—"}
               </span>
             ))}
@@ -210,15 +208,12 @@ function ResourceCard({ resource }: { resource: HubResource }) {
         ) : null}
 
         <details>
-          <summary className="cursor-pointer font-mono text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer text-meta text-muted-foreground">
             Activity ({resource.log.length})
           </summary>
           <div className="mt-1 space-y-0.5">
             {resource.log.map((line, index) => (
-              <p
-                key={`${line.at}-${index}`}
-                className="font-mono text-[10px] text-muted-foreground"
-              >
+              <p key={`${line.at}-${index}`} className="text-meta-sm text-muted-foreground">
                 {time(line.at)} · {line.level} · {line.text}
               </p>
             ))}
@@ -312,8 +307,8 @@ function HubPage() {
               project folder, then proves it works by running it.
             </p>
             {state.message ? (
-              <div className="flex items-center justify-between gap-2 rounded-sm border border-warning/30 bg-warning/10 px-2.5 py-1.5">
-                <p className="font-mono text-[11px] text-warning">{state.message}</p>
+              <div className="flex items-center justify-between gap-2 rounded-ctl border border-warning/30 bg-warning/10 px-2.5 py-1.5">
+                <p className="text-meta text-warning">{state.message}</p>
                 <Button size="sm" variant="ghost" onClick={() => hub.clearMessage()}>
                   Dismiss
                 </Button>

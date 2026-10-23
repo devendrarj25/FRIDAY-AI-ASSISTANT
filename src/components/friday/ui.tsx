@@ -60,7 +60,7 @@ export function HudPanel({
   // No icon given: one from the panel-title vocabulary, else the signal dot.
   const titleIcon = !Icon && title ? iconForTitle(title) : null;
   return (
-    <section className={cn("hud-panel relative overflow-hidden rounded-md", className)}>
+    <section className={cn("hud-panel relative overflow-hidden rounded-surface", className)}>
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
       {title ? (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-[calc(1rem*var(--friday-density-scale,1))] py-[calc(0.625rem*var(--friday-density-scale,1))]">
@@ -83,9 +83,7 @@ export function HudPanel({
             </h2>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-            {hint ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{hint}</span>
-            ) : null}
+            {hint ? <span className="text-meta text-muted-foreground">{hint}</span> : null}
             {actions}
           </div>
         </header>
@@ -116,13 +114,13 @@ export function StatTile({
   tone?: Tone;
 }) {
   return (
-    <div className="hud-tile motion-friday group relative overflow-hidden rounded-md px-3 py-3 text-center transition-[border-color,transform] hover:-translate-y-px hover:border-primary/45">
+    <div className="hud-tile motion-friday group relative overflow-hidden rounded-surface px-3 py-3 text-center transition-[border-color,transform] hover:-translate-y-px hover:border-primary/45">
       <div className={cn("flex items-center justify-center gap-1.5", toneText[tone])}>
         {icon}
         <span className="label-xs">{label}</span>
       </div>
       <p className="mt-2 font-display text-2xl font-bold leading-none text-foreground">{value}</p>
-      {state ? <p className={cn("mt-1.5 font-mono text-[11px]", toneText[tone])}>{state}</p> : null}
+      {state ? <p className={cn("mt-1.5 text-meta", toneText[tone])}>{state}</p> : null}
     </div>
   );
 }
@@ -139,7 +137,7 @@ export function StatusPill({ label, tone = "accent" }: { label: string; tone?: T
   return (
     <span
       className={cn(
-        "friday-chip inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "friday-chip inline-flex items-center gap-1 rounded-ctl border px-1.5 py-0.5 text-meta-sm uppercase tracking-wider",
         bg[tone],
       )}
     >
@@ -266,7 +264,7 @@ export function SegmentedControl<T extends string>({
             aria-pressed={on}
             onClick={() => onChange(item.id)}
             className={cn(
-              "friday-btn inline-flex items-center justify-center gap-1.5 rounded-sm border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "friday-btn inline-flex items-center justify-center gap-1.5 rounded-ctl border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on
                 ? "border-primary/50 bg-primary/15 text-primary"
                 : "border-border bg-surface text-muted-foreground hover:text-foreground",
@@ -316,7 +314,7 @@ export function FilterTabs({
           data-tab-key={t.key}
           onClick={() => onChange(t.key)}
           className={cn(
-            "friday-btn rounded-sm border px-2 py-1 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "friday-btn rounded-ctl border px-2 py-1 text-meta transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             value === t.key
               ? "border-primary/50 bg-primary/15 text-primary glow-ring"
               : "border-border bg-surface text-muted-foreground hover:border-primary/30 hover:text-foreground",
@@ -374,7 +372,7 @@ export function Ring({
         </div>
       </div>
       <p className={cn("label-xs", toneText[tone])}>{label}</p>
-      {sub ? <p className="font-mono text-[10px] text-muted-foreground">{sub}</p> : null}
+      {sub ? <p className="text-meta-sm text-muted-foreground">{sub}</p> : null}
     </div>
   );
 }
@@ -403,7 +401,7 @@ export function MetricBar({
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-2">
           <span className="label-xs text-muted-foreground">{label}</span>
-          <span className={cn("font-mono text-[11px]", toneText[tone])}>{value}%</span>
+          <span className={cn("text-meta", toneText[tone])}>{value}%</span>
         </div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
           <div
@@ -412,7 +410,7 @@ export function MetricBar({
           />
         </div>
         {detail ? (
-          <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{detail}</p>
+          <p className="mt-1 truncate text-meta-sm text-muted-foreground">{detail}</p>
         ) : null}
       </div>
     </div>
@@ -486,9 +484,7 @@ export function ToggleRow({
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 py-2 last:border-0">
       <div className="min-w-0">
         <p className="truncate text-sm text-foreground">{label}</p>
-        {hint ? (
-          <p className="truncate font-mono text-[10px] text-muted-foreground">{hint}</p>
-        ) : null}
+        {hint ? <p className="truncate text-meta-sm text-muted-foreground">{hint}</p> : null}
       </div>
       <button
         type="button"
@@ -738,7 +734,7 @@ export function SectionTabs({
             data-tab-key={t.key}
             onClick={() => onChange(t.key)}
             className={cn(
-              "friday-btn relative inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "friday-btn relative inline-flex items-center gap-1.5 rounded-ctl px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on
                 ? "bg-primary/12 text-primary after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary"
                 : "text-muted-foreground hover:bg-primary/6 hover:text-foreground",
@@ -747,7 +743,7 @@ export function SectionTabs({
             {Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
             {t.label}
             {typeof t.count === "number" ? (
-              <span className="rounded-sm bg-primary/15 px-1 font-mono text-[10px] text-primary">
+              <span className="rounded-ctl bg-primary/15 px-1 text-meta-sm text-primary">
                 {t.count}
               </span>
             ) : null}
@@ -776,7 +772,7 @@ export function EmptyState({
     <div
       role="status"
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-primary/20 px-4 py-8 text-center",
+        "flex flex-col items-center justify-center gap-2 rounded-surface border border-dashed border-primary/20 px-4 py-8 text-center",
         className,
       )}
     >
@@ -803,7 +799,7 @@ export function LoadingState({
 }) {
   return (
     <div role="status" aria-busy="true" className={cn("space-y-2", className)}>
-      <p className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-2 text-meta text-muted-foreground">
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
         {label}
       </p>
@@ -811,7 +807,7 @@ export function LoadingState({
         <div
           key={i}
           aria-hidden="true"
-          className="h-3 rounded-sm bg-primary/8"
+          className="h-3 rounded-ctl bg-primary/8"
           style={{ width: `${92 - i * 14}%` }}
         />
       ))}

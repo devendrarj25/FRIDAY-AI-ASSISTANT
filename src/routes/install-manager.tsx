@@ -388,7 +388,7 @@ function InstallManagerPage() {
     >
       <div className="space-y-4">
         {!state.online && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          <div className="rounded-surface border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
             Network offline — downloads are halted. Jobs resume automatically when the connection
             returns.
           </div>
@@ -460,7 +460,7 @@ function InstallManagerPage() {
                     key={c}
                     type="button"
                     onClick={() => setCategory(c)}
-                    className={`label-xs rounded-sm border px-2 py-1 transition-colors ${
+                    className={`label-xs rounded-ctl border px-2 py-1 transition-colors ${
                       category === c
                         ? "border-primary/60 bg-primary/15 text-primary"
                         : "border-border/60 text-muted-foreground hover:text-foreground"
@@ -555,7 +555,7 @@ function InstallManagerPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 px-2 text-[11px] text-muted-foreground"
+                          className="h-6 px-2 text-note text-muted-foreground"
                           onClick={() => installer.cancel(job.id)}
                         >
                           <X className="size-3" /> Cancel
@@ -564,7 +564,7 @@ function InstallManagerPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-6 px-2 text-note"
                           onClick={() => run(e.pkg, "install")}
                         >
                           <Download className="size-3" /> Install
@@ -575,7 +575,7 @@ function InstallManagerPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-6 px-2 text-[11px]"
+                              className="h-6 px-2 text-note"
                               onClick={() => run(e.pkg, "update")}
                             >
                               <Download className="size-3" /> Update
@@ -584,7 +584,7 @@ function InstallManagerPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 px-2 text-[11px]"
+                            className="h-6 px-2 text-note"
                             title="Repair installation"
                             onClick={() => run(e.pkg, "repair")}
                           >
@@ -593,7 +593,7 @@ function InstallManagerPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 px-2 text-[11px] text-muted-foreground"
+                            className="h-6 px-2 text-note text-muted-foreground"
                             title={`Roll back to ${state.previous[e.pkg] ?? "previous build"}`}
                             disabled={!state.previous[e.pkg]}
                             onClick={() => run(e.pkg, "rollback")}
@@ -603,7 +603,7 @@ function InstallManagerPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-6 px-2 text-[11px] text-destructive"
+                            className="h-6 px-2 text-note text-destructive"
                             title="Uninstall"
                             onClick={() => run(e.pkg, "uninstall")}
                           >
@@ -614,7 +614,7 @@ function InstallManagerPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-[11px]"
+                        className="h-6 px-2 text-note"
                         title="Copy install path"
                         onClick={() => copyValue("Path", path)}
                       >
@@ -623,7 +623,7 @@ function InstallManagerPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-[11px]"
+                        className="h-6 px-2 text-note"
                         title="Ask FRIDAY about this package"
                         onClick={() => askAbout(e.pkg)}
                       >
@@ -646,7 +646,7 @@ function InstallManagerPage() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-note"
                   onClick={() => installer.setPaused(!state.paused)}
                 >
                   {state.paused ? <Play className="size-3" /> : <Pause className="size-3" />}
@@ -655,7 +655,7 @@ function InstallManagerPage() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-note"
                   onClick={() => installer.setConcurrency(state.concurrency + 1)}
                 >
                   +1
@@ -663,7 +663,7 @@ function InstallManagerPage() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-note"
                   onClick={() => installer.clearFinished()}
                 >
                   Clear
@@ -683,7 +683,7 @@ function InstallManagerPage() {
                 {finishedJobs.map((job) => (
                   <li
                     key={job.id}
-                    className="flex items-center justify-between gap-2 rounded-sm border border-border/50 px-2 py-1.5"
+                    className="flex items-center justify-between gap-2 rounded-ctl border border-border/50 px-2 py-1.5"
                   >
                     <span className="min-w-0 truncate text-xs text-foreground">
                       {job.pkg}{" "}
@@ -695,7 +695,7 @@ function InstallManagerPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-6 px-2 text-note"
                           onClick={() => installer.retry(job.id)}
                         >
                           <RefreshCw className="size-3" /> Retry
@@ -731,7 +731,7 @@ function InstallManagerPage() {
             title="Update Manager"
             hint="live counts — confirmation required to queue"
             actions={
-              <Button size="sm" className="h-6 px-2 text-[11px]" onClick={onUpdateAll}>
+              <Button size="sm" className="h-6 px-2 text-note" onClick={onUpdateAll}>
                 <Download className="size-3" /> Update all ({counts.updates})
               </Button>
             }
@@ -758,7 +758,7 @@ function InstallManagerPage() {
               {installerFunctions.map((f) => (
                 <div
                   key={f.label}
-                  className="flex items-center justify-between gap-2 rounded-sm border border-border/50 px-2 py-1.5"
+                  className="flex items-center justify-between gap-2 rounded-ctl border border-border/50 px-2 py-1.5"
                 >
                   <span className="flex items-center gap-1.5 text-xs text-foreground">
                     <CheckCircle2
@@ -781,7 +781,7 @@ function InstallManagerPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-[11px]"
+                className="h-6 px-2 text-note"
                 onClick={() => setShowHistory((v) => !v)}
               >
                 <History className="size-3" /> {showHistory ? "Show log" : "Show history"}
@@ -794,7 +794,7 @@ function InstallManagerPage() {
                   No install history yet.
                 </p>
               ) : (
-                <ul className="max-h-64 space-y-1 overflow-y-auto font-mono text-[11px]">
+                <ul className="max-h-64 space-y-1 overflow-y-auto text-data">
                   {state.history.map((h) => (
                     <li key={h.id} className="flex gap-2">
                       <span className="text-muted-foreground">
@@ -821,7 +821,7 @@ function InstallManagerPage() {
                 </ul>
               )
             ) : (
-              <ul ref={logRef} className="max-h-64 space-y-1 overflow-y-auto font-mono text-[11px]">
+              <ul ref={logRef} className="max-h-64 space-y-1 overflow-y-auto text-data">
                 {state.log.map((l) => (
                   <li key={l.id} className="flex gap-2">
                     <span className="text-muted-foreground">{l.at}</span>
@@ -906,7 +906,7 @@ function InstallManagerPage() {
             >
               <Trash2 className="size-4" /> Reset State
             </Button>
-            <p className="w-full text-[11px] text-muted-foreground">
+            <p className="w-full text-note text-muted-foreground">
               Downloads come from the vendor URLs above, are checksum- and signature-verified,
               installed silently and logged on this page (persisted with installer state). Desktop
               FRIDAY also writes telemetry under{" "}
@@ -930,7 +930,7 @@ function InstallManagerPage() {
             {recent.length ? (
               recent.map((line) => (
                 <p key={line.id} className="whitespace-pre-wrap">
-                  <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                     {line.role === "user" ? "You" : "FRIDAY"}
                   </span>
                   {line.text}
@@ -979,14 +979,14 @@ function JobRow({ job }: { job: Job }) {
           <span className="ml-2 label-xs text-muted-foreground">{job.action}</span>
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="text-meta-sm text-muted-foreground">
             {job.phase === "Downloading" ? formatEta(job.etaSeconds) : ""}
           </span>
           <StatusPill label={job.phase} tone={phaseTone(job.phase)} />
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 px-1.5 text-[11px] text-muted-foreground"
+            className="h-6 px-1.5 text-note text-muted-foreground"
             aria-label="Cancel this install"
             title="Cancel this install"
             onClick={() => installer.cancel(job.id)}

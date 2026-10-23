@@ -196,7 +196,7 @@ export function RevertCenter() {
             value={sha}
             onChange={(event) => setSha(event.target.value.trim())}
             placeholder="commit SHA"
-            className="h-8 w-56 font-mono text-[11px]"
+            className="h-8 w-56 text-meta"
           />
           <Button
             size="sm"
@@ -214,7 +214,7 @@ export function RevertCenter() {
         </div>
 
         <div className="grid gap-2 md:grid-cols-2">
-          <div className="rounded-sm border border-primary/20 bg-surface p-2">
+          <div className="rounded-ctl border border-primary/20 bg-surface p-2">
             <p className="label-xs mb-1 text-primary/70">Commits on {base}</p>
             <div className="max-h-52 space-y-1 overflow-auto">
               {commits.map((commit) => (
@@ -222,7 +222,7 @@ export function RevertCenter() {
                   key={commit.sha}
                   type="button"
                   onClick={() => void inspect(commit.sha)}
-                  className={`block w-full rounded-sm px-1.5 py-1 text-left font-mono text-[10px] hover:bg-primary/10 ${
+                  className={`block w-full rounded-ctl px-1.5 py-1 text-left text-meta-sm hover:bg-primary/10 ${
                     sha === commit.sha ? "bg-primary/15 text-primary" : "text-muted-foreground"
                   }`}
                 >
@@ -234,12 +234,12 @@ export function RevertCenter() {
                 </button>
               ))}
               {!commits.length ? (
-                <p className="font-mono text-[10px] text-muted-foreground">No commits read yet.</p>
+                <p className="text-meta-sm text-muted-foreground">No commits read yet.</p>
               ) : null}
             </div>
           </div>
 
-          <div className="rounded-sm border border-primary/20 bg-surface p-2">
+          <div className="rounded-ctl border border-primary/20 bg-surface p-2">
             <p className="label-xs mb-1 text-primary/70">Merged pull requests</p>
             <div className="max-h-52 space-y-1 overflow-auto">
               {pulls.map((pr) => (
@@ -247,7 +247,7 @@ export function RevertCenter() {
                   key={pr.number}
                   type="button"
                   onClick={() => void inspect(pr.sha)}
-                  className={`block w-full rounded-sm px-1.5 py-1 text-left font-mono text-[10px] hover:bg-primary/10 ${
+                  className={`block w-full rounded-ctl px-1.5 py-1 text-left text-meta-sm hover:bg-primary/10 ${
                     sha === pr.sha ? "bg-primary/15 text-primary" : "text-muted-foreground"
                   }`}
                 >
@@ -258,21 +258,19 @@ export function RevertCenter() {
                 </button>
               ))}
               {!pulls.length ? (
-                <p className="font-mono text-[10px] text-muted-foreground">
-                  No merged pull requests found.
-                </p>
+                <p className="text-meta-sm text-muted-foreground">No merged pull requests found.</p>
               ) : null}
             </div>
           </div>
         </div>
 
         {mode === "revert" && detail?.ok && detail.commit ? (
-          <div className="space-y-2 rounded-sm border border-primary/20 bg-surface p-2">
+          <div className="space-y-2 rounded-ctl border border-primary/20 bg-surface p-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="label-xs">
                 {detail.commit.short}
               </Badge>
-              <span className="font-mono text-[11px] text-muted-foreground">
+              <span className="text-meta text-muted-foreground">
                 {detail.commit.author} · {when(detail.commit.date)} · {detail.files?.length ?? 0}{" "}
                 file(s)
               </span>
@@ -280,16 +278,14 @@ export function RevertCenter() {
             <p className="text-xs">{detail.commit.subject}</p>
             <div className="max-h-32 space-y-0.5 overflow-auto">
               {detail.files?.map((file) => (
-                <p key={file.path} className="font-mono text-[10px] text-muted-foreground">
+                <p key={file.path} className="text-meta-sm text-muted-foreground">
                   {file.state} {file.path}
                 </p>
               ))}
             </div>
             <details>
-              <summary className="cursor-pointer font-mono text-[11px] text-muted-foreground">
-                Diff
-              </summary>
-              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer text-meta text-muted-foreground">Diff</summary>
+              <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap text-data-sm text-muted-foreground">
                 {detail.diff}
               </pre>
             </details>
@@ -297,29 +293,29 @@ export function RevertCenter() {
         ) : null}
 
         {mode === "restore" && preview?.ok ? (
-          <div className="space-y-2 rounded-sm border border-primary/20 bg-surface p-2">
-            <p className="font-mono text-[11px] text-muted-foreground">
+          <div className="space-y-2 rounded-ctl border border-primary/20 bg-surface p-2">
+            <p className="text-meta text-muted-foreground">
               {preview.base} is at {preview.currentShort} → restoring content of{" "}
               {preview.targetShort}
             </p>
-            <p className="font-mono text-[11px] text-muted-foreground">
+            <p className="text-meta text-muted-foreground">
               {preview.commitsBetween?.length ?? 0} commit(s) in between (kept in history) ·{" "}
               {preview.files?.length ?? 0} file(s) change
             </p>
             <div className="max-h-32 space-y-0.5 overflow-auto">
               {preview.files?.map((file) => (
-                <p key={file.path} className="font-mono text-[10px] text-muted-foreground">
+                <p key={file.path} className="text-meta-sm text-muted-foreground">
                   {file.state} {file.path}
                 </p>
               ))}
             </div>
             <details>
-              <summary className="cursor-pointer font-mono text-[11px] text-muted-foreground">
+              <summary className="cursor-pointer text-meta text-muted-foreground">
                 Commits that will be superseded ({preview.commitsBetween?.length ?? 0})
               </summary>
               <div className="mt-1 max-h-40 space-y-0.5 overflow-auto">
                 {preview.commitsBetween?.map((commit) => (
-                  <p key={commit.sha} className="font-mono text-[10px] text-muted-foreground">
+                  <p key={commit.sha} className="text-meta-sm text-muted-foreground">
                     {commit.short} · {commit.subject}
                   </p>
                 ))}

@@ -77,7 +77,7 @@ export function TurnTrace({ runId }: { runId: string }) {
           <button
             type="button"
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-mono transition-colors",
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-meta-sm transition-colors",
               "border border-primary/20 bg-background/80 hover:bg-primary/10 hover:border-primary/40",
               isRunning && "border-warning/40 text-warning bg-warning/5 animate-pulse",
               !isRunning && isFailed && "border-destructive/40 text-destructive bg-destructive/5",
@@ -117,13 +117,13 @@ export function TurnTrace({ runId }: { runId: string }) {
               />
               <span className="text-xs font-semibold text-primary">Working Flow & Steps</span>
             </div>
-            <span className="font-mono text-[9px] text-muted-foreground">
+            <span className="text-meta-sm text-muted-foreground">
               {isRunning ? "in progress" : `${totalMs}ms total`}
             </span>
           </div>
 
           {!lanes.length ? (
-            <div className="py-4 text-center font-mono text-[11px] text-muted-foreground">
+            <div className="py-4 text-center text-meta text-muted-foreground">
               <Loader2 className="mx-auto mb-1 size-4 animate-spin text-warning" />
               Initializing turn pipeline…
             </div>
@@ -165,12 +165,12 @@ function TraceLaneRow({
         aria-expanded={open}
         onClick={onToggle}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-left transition-colors",
+          "flex w-full items-center gap-1.5 rounded-ctl px-1 py-0.5 text-left transition-colors",
           "hover:bg-primary/8",
         )}
       >
         <StatusPill label={status} tone={tone} />
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-meta-sm font-medium uppercase tracking-wider text-muted-foreground">
           {view.lane}
         </span>
         <ChevronDown
@@ -183,10 +183,7 @@ function TraceLaneRow({
       {open ? (
         <ul className="mt-1 space-y-1 border-l border-primary/20 py-0.5 pl-2">
           {view.steps.map((step) => (
-            <li
-              key={step.id}
-              className="font-mono text-[10px] leading-relaxed text-muted-foreground"
-            >
+            <li key={step.id} className="text-data-sm leading-relaxed text-muted-foreground">
               <span className="font-medium text-primary">{step.label}</span>
               <span className="text-muted-foreground/70"> · {step.nodeId}</span>
               {typeof step.ms === "number" ? (
@@ -195,7 +192,7 @@ function TraceLaneRow({
                 <span className="font-medium text-warning"> · running</span>
               ) : null}
               {step.detail ? (
-                <p className="mt-0.5 whitespace-pre-wrap rounded border border-primary/10 bg-primary/5 p-1 text-[10px] text-foreground/80">
+                <p className="mt-0.5 whitespace-pre-wrap rounded border border-primary/10 bg-primary/5 p-1 text-note-sm text-foreground/80">
                   {step.detail}
                 </p>
               ) : null}

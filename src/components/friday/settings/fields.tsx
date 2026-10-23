@@ -7,7 +7,7 @@ export function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="label-xs text-muted-foreground">{label}</p>
-      <div className="hud-tile mt-1 truncate rounded-sm px-2.5 py-1.5 font-mono text-xs text-foreground">
+      <div className="hud-tile mt-1 truncate rounded-ctl px-2.5 py-1.5 font-mono text-xs text-foreground">
         {value}
       </div>
     </div>
@@ -32,14 +32,14 @@ export function EditField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
-        className="hud-tile mt-1 h-auto rounded-sm border-primary/25 px-2.5 py-1.5 font-mono text-xs text-foreground"
+        className="hud-tile mt-1 h-auto rounded-ctl border-primary/25 px-2.5 py-1.5 font-mono text-xs text-foreground"
       />
     </div>
   );
 }
 
 const SELECT_CLASS =
-  "hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground";
+  "hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground";
 
 export function SelectField({
   label,
@@ -102,7 +102,7 @@ export function TuneRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <p className="label-xs text-muted-foreground">{label}</p>
-        <span className="font-mono text-[11px] text-primary">{detail}</span>
+        <span className="text-meta text-primary">{detail}</span>
       </div>
       <Slider
         value={[value]}

@@ -356,7 +356,7 @@ function StatusPage() {
                       key={i}
                       className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 text-xs"
                     >
-                      <span className="font-mono text-[11px] text-muted-foreground">{e.at}</span>
+                      <span className="text-meta text-muted-foreground">{e.at}</span>
                       <span
                         className={
                           e.tone === "accent"
@@ -428,15 +428,13 @@ function StatusPage() {
                     >
                       <span className="min-w-0">
                         <span className="text-foreground">{s.name}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
+                        <span className="block truncate text-note text-muted-foreground">
                           {s.detail || "—"}
                         </span>
                       </span>
                       <span className="flex items-center gap-2">
                         {s.latencyMs !== null ? (
-                          <span className="font-mono text-[11px] text-muted-foreground">
-                            {s.latencyMs}ms
-                          </span>
+                          <span className="text-meta text-muted-foreground">{s.latencyMs}ms</span>
                         ) : null}
                         <StatusPill
                           label={serviceTone(s.state)}

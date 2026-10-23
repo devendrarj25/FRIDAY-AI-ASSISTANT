@@ -205,7 +205,7 @@ function LibraryPage() {
         }}
       >
         {dragOver ? (
-          <p className="font-mono text-[11px] text-primary">
+          <p className="text-meta text-primary">
             Drop files here — they become Library items, not Import & Build packs.
           </p>
         ) : null}
@@ -266,10 +266,10 @@ function LibraryPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, source, id"
-              className="h-8 pl-7 font-mono text-[11px]"
+              className="h-8 pl-7 text-meta"
             />
           </div>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+          <span className="ml-auto text-meta-sm text-muted-foreground">
             {desktop ? "live FRIDAY_ROOT/library" : "preview session copy"} · {visible.length}/
             {items.length}
           </span>
@@ -297,7 +297,7 @@ function LibraryPage() {
                 {visible.map((item) => (
                   <li
                     key={item.id}
-                    className="rounded-sm border border-border bg-surface px-3 py-2"
+                    className="rounded-ctl border border-border bg-surface px-3 py-2"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <label className="flex min-w-0 items-center gap-2">
@@ -317,7 +317,7 @@ function LibraryPage() {
                       </label>
                       <StatusPill label={item.type} tone={item.error ? "warning" : "accent"} />
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="mt-0.5 truncate text-meta-sm text-muted-foreground">
                       {item.origin} · {item.source} · {formatBytes(item.size)} · library:{item.id}
                       {item.truncated ? " · partial" : ""}
                       {item.pinnedForAuto ? " · pinned Auto" : ""}
@@ -372,7 +372,7 @@ function LibraryPage() {
           <div className="space-y-4">
             <HudPanel title="Details" hint={open ? open.name : "none selected"}>
               {open ? (
-                <div className="space-y-2 font-mono text-[11px] text-muted-foreground">
+                <div className="space-y-2 text-meta text-muted-foreground">
                   <p>id {open.id}</p>
                   <p>
                     {open.origin} / {open.source} / {open.type}
@@ -387,7 +387,7 @@ function LibraryPage() {
                   {libraryTypeHonesty(open) && !open.text ? (
                     <p className="text-warning">{libraryTypeHonesty(open)}</p>
                   ) : null}
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-sm border border-border bg-background p-2 text-[10px] text-foreground">
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-ctl border border-border bg-background p-2 text-note-sm text-foreground">
                     {(
                       open.text ||
                       open.error ||
@@ -424,7 +424,7 @@ function LibraryPage() {
                   value={ask}
                   onChange={(e) => setAsk(e.target.value)}
                   placeholder="Ask about these files"
-                  className="h-8 font-mono text-[11px]"
+                  className="h-8 text-meta"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") onAsk();
                   }}

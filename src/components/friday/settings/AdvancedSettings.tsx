@@ -55,7 +55,7 @@ export function AdvancedSettings() {
 
   return (
     <HudPanel title="Advanced">
-      <dl className="space-y-2 font-mono text-[11px] text-muted-foreground">
+      <dl className="space-y-2 text-meta text-muted-foreground">
         <Row k="kernel host" v={kernelStatus.host} />
         <Row k="kernel version" v={kernelStatus.version} />
         <Row k="gpu" v={kernelStatus.gpu} />
@@ -73,14 +73,12 @@ export function AdvancedSettings() {
           value={workspaceRoot || "unknown"}
           className="border-primary/25 bg-surface font-mono text-xs"
         />
-        {checkoutNote ? (
-          <p className="font-mono text-[11px] text-muted-foreground">{checkoutNote}</p>
-        ) : null}
+        {checkoutNote ? <p className="text-meta text-muted-foreground">{checkoutNote}</p> : null}
       </div>
       <div className="mt-4 space-y-1">
         <div className="flex items-center justify-between">
           <p className="label-xs text-muted-foreground">Voice attention window</p>
-          <span className="font-mono text-[11px] text-primary">{attentionWindowSeconds()} s</span>
+          <span className="text-meta text-primary">{attentionWindowSeconds()} s</span>
         </div>
         <Slider
           min={10}

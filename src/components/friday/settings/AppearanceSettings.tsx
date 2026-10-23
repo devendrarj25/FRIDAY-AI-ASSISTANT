@@ -156,13 +156,16 @@ export function AppearanceSettings() {
       {/* Live preview: the real primitives under the real settings. */}
       <HudPanel title="Appearance" hint="Changes apply immediately">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div className="hud-tile rounded-md p-3" aria-label="Preview of your current choices">
+          <div
+            className="hud-tile rounded-surface p-3"
+            aria-label="Preview of your current choices"
+          >
             <p className="label-xs text-primary glow-text">Preview</p>
             <h3 className="mt-2 font-display text-lg font-bold text-foreground">FRIDAY</h3>
             <p className="mt-1 text-sm text-foreground/90">
               {modeLabel} · {accentLabel} · {styleLabel} · {glassDepth} glass
             </p>
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            <p className="mt-1 text-meta text-muted-foreground">
               {field("font") || "Orbitron"} headings · {field("bodyFont") || "Rajdhani"} body ·{" "}
               {field("textSize") || "Normal"} text · {field("density") || "Normal"} density
             </p>
@@ -190,7 +193,7 @@ export function AppearanceSettings() {
       </HudPanel>
 
       <HudPanel title="Theme">
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-note text-muted-foreground">
           Dark and Daylight are surfaces. Match system follows Windows light / dark and still uses
           the accent below.
         </p>
@@ -204,7 +207,7 @@ export function AppearanceSettings() {
               aria-label={item.label}
               aria-pressed={accent === item.id}
               onClick={() => persistAccent(item.id)}
-              className="friday-btn flex flex-col items-center gap-1 rounded-md p-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="friday-btn flex flex-col items-center gap-1 rounded-surface p-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <span
                 className={cn(
@@ -213,7 +216,7 @@ export function AppearanceSettings() {
                   ACCENT_SWATCH[item.id],
                 )}
               />
-              <span className="font-mono text-[10px] text-muted-foreground">{item.label}</span>
+              <span className="text-meta-sm text-muted-foreground">{item.label}</span>
             </button>
           ))}
         </div>
@@ -283,7 +286,7 @@ export function AppearanceSettings() {
             icon={Sparkles}
           />
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           Corner style, Ambient light and Ambient motion apply to Futuristic Glass. Ambient motion
           is a slow drift of the background lights and stays off with Reduce motion or GPU rendering
           off.
@@ -405,7 +408,7 @@ export function AppearanceSettings() {
             onChange={setField("buttonLabels")}
             icon={MousePointerClick}
           />
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-note text-muted-foreground">
             For compact icon controls in the chat, voice and toolbars. The name always stays in the
             accessible label and the tooltip.
           </p>
@@ -454,7 +457,7 @@ export function AppearanceSettings() {
           <RotateCcw className="size-3.5" />
           Reset appearance
         </Button>
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="text-meta-sm text-muted-foreground">
           Shipped defaults: Futuristic Glass, Balanced glass, labels on hover.
         </span>
       </div>

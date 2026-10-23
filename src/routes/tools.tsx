@@ -331,7 +331,7 @@ function ToolsPage() {
                           {rt.kind}
                         </Badge>
                       </div>
-                      <p className="font-mono text-[11px] text-muted-foreground">
+                      <p className="text-meta text-muted-foreground">
                         {rt.installed ? `installed ${rt.installed}` : "not installed"} · latest{" "}
                         {rt.latest} · {rt.source} · {rt.size}
                       </p>
@@ -408,7 +408,7 @@ function ToolsPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

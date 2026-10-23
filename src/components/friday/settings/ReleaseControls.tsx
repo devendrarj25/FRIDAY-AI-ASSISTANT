@@ -287,7 +287,7 @@ export function ReleaseControls() {
       {/* Stale-source guard: GitHub builds what GitHub holds, so the exact
           difference is shown and the owner decides what happens next. */}
       {pending ? (
-        <div className="mt-4 rounded-md border border-warning/60 bg-warning/5 p-3">
+        <div className="mt-4 rounded-surface border border-warning/60 bg-warning/5 p-3">
           <p className="text-sm text-foreground">
             <TriangleAlert className="mr-1 inline size-4 text-warning" />
             This PC has {pending.dirty ?? 0} uncommitted and {pending.ahead ?? 0} unpushed change(s)
@@ -347,7 +347,7 @@ export function ReleaseControls() {
       {/* The two-stage truth, straight from GitHub: an unmerged release branch
           can never be published. */}
       {status?.pr ? (
-        <div className="mt-4 rounded-md border border-border/60 p-3 text-sm text-foreground">
+        <div className="mt-4 rounded-surface border border-border/60 p-3 text-sm text-foreground">
           <GitPullRequest className="mr-1 inline size-4 text-accent" />
           Release {status.pr.tag} — PR #{status.pr.number} is{" "}
           <span className="text-accent">{status.pr.state}</span>
@@ -368,7 +368,7 @@ export function ReleaseControls() {
       ) : null}
 
       {analysis?.ok ? (
-        <div className="mt-4 rounded-md border border-border/60 p-3">
+        <div className="mt-4 rounded-surface border border-border/60 p-3">
           <p className="text-sm text-foreground">
             <GitCommitHorizontal className="mr-1 inline size-4 text-accent" />
             {analysis.commits ?? 0} change(s) since {analysis.previous ?? "the first commit"} →{" "}

@@ -393,7 +393,7 @@ function AgentsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!a.id}
                       onClick={() => setOpenId((current) => (current === a.id ? null : a.id))}
                     >
@@ -402,7 +402,7 @@ function AgentsPage() {
                     <Button
                       size="sm"
                       variant={confirmId === a.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !a.id}
                       onClick={() => void onRemove(a)}
                     >
@@ -412,7 +412,7 @@ function AgentsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-note"
                         onClick={() => setConfirmId(null)}
                       >
                         Cancel
@@ -422,7 +422,7 @@ function AgentsPage() {
                 ])}
               />
               {openRow ? (
-                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 font-mono text-[11px]">
+                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 text-meta">
                   <p className="label-xs text-primary">{openRow.name}</p>
                   <p className="whitespace-pre-wrap">
                     <span className="text-muted-foreground">Description — </span>
@@ -514,11 +514,11 @@ function AgentsPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-32 overflow-auto rounded-sm bg-background p-2 font-mono text-[10px] leading-relaxed">
+              <pre className="max-h-32 overflow-auto rounded-ctl bg-background p-2 text-data-sm leading-relaxed">
                 {forgeLog}
               </pre>
             ) : (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-note text-muted-foreground">
                 Test selected calls plan() then run() with dryRun. Write/exec agents stay unmutated
                 until you approve. Forge uses the same agent-forge path as Self-management.
               </p>

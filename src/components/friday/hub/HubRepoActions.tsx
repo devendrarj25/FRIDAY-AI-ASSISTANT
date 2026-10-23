@@ -66,9 +66,9 @@ export function HubRepoActions() {
             value={ref}
             onChange={(event) => setRef(event.target.value)}
             placeholder="ref (branch or tag)"
-            className="h-8 w-40 font-mono text-[11px]"
+            className="h-8 w-40 text-meta"
           />
-          <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-meta text-muted-foreground">
             <input
               type="checkbox"
               checked={confirmWrite}
@@ -100,10 +100,10 @@ export function HubRepoActions() {
           workflows.map((workflow) => (
             <div
               key={workflow.id}
-              className="flex flex-wrap items-center gap-2 rounded-sm border border-border/60 p-2"
+              className="flex flex-wrap items-center gap-2 rounded-ctl border border-border/60 p-2"
             >
               <span className="text-xs text-foreground">{workflow.name}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">{workflow.path}</span>
+              <span className="text-meta text-muted-foreground">{workflow.path}</span>
               <Button
                 size="sm"
                 variant="outline"
@@ -139,7 +139,7 @@ export function HubRepoActions() {
 
         <div className="space-y-1">
           {(releases ?? []).slice(0, 8).map((release) => (
-            <p key={release.tag} className="font-mono text-[11px] text-muted-foreground">
+            <p key={release.tag} className="text-meta text-muted-foreground">
               {release.tag} · {release.name}
               {release.prerelease ? " · prerelease" : ""}
             </p>

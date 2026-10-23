@@ -360,7 +360,7 @@ function PluginsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={!p.id && supported}
                   onClick={() => setOpenId((current) => (current === p.id ? null : p.id || p.name))}
                 >
@@ -369,7 +369,7 @@ function PluginsPage() {
                 <Button
                   size="sm"
                   variant={confirmId === p.id ? "destructive" : "outline"}
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={!p.id || Boolean(busyId)}
                   onClick={() => void onRemove(p)}
                 >
@@ -382,7 +382,7 @@ function PluginsPage() {
 
         {openRow ? (
           <HudPanel title={`${openRow.name} details`} hint={openRow.id || "preview"}>
-            <div className="space-y-1 font-mono text-[11px]">
+            <div className="space-y-1 text-meta">
               <p>
                 <span className="text-muted-foreground">Category — </span>
                 {openRow.category || "—"}
@@ -441,7 +441,7 @@ function PluginsPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

@@ -110,7 +110,7 @@ function DevicesPage() {
           {state.androidNote && <p className="mb-3 text-xs text-warning">{state.androidNote}</p>}
           <ul className="space-y-3">
             {state.android.map((device) => (
-              <li key={device.serial} className="rounded-md border border-border/60 p-3">
+              <li key={device.serial} className="rounded-surface border border-border/60 p-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Smartphone className="size-4" />
                   {device.model}
@@ -118,7 +118,7 @@ function DevicesPage() {
                     {device.state}
                   </Badge>
                 </div>
-                <p className="font-mono text-[11px] text-muted-foreground">{device.serial}</p>
+                <p className="text-meta text-muted-foreground">{device.serial}</p>
                 {device.hint && <p className="mt-1 text-xs text-warning">{device.hint}</p>}
                 {device.authorized && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -184,7 +184,7 @@ function DevicesPage() {
               <li key={device.address} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm">{device.name || device.address}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     {device.address} · {device.kind}
                   </p>
                 </div>
@@ -228,7 +228,7 @@ function DevicesPage() {
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm">{device.name}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     {device.address} · {device.kind}
                   </p>
                 </div>
@@ -310,7 +310,7 @@ function DevicesPage() {
               <li key={phone.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm">{phone.name}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     paired {new Date(phone.pairedAt).toLocaleString()}
                   </p>
                 </div>

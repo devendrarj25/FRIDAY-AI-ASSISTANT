@@ -510,7 +510,7 @@ function SandboxPage() {
         >
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {runtime.tools.map((tool) => (
-              <div key={tool.id} className="hud-tile rounded-md px-3 py-2.5">
+              <div key={tool.id} className="hud-tile rounded-surface px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="label-xs text-primary">{tool.label}</span>
                   {tool.ok ? (
@@ -520,7 +520,7 @@ function SandboxPage() {
                   )}
                 </div>
                 <p
-                  className="mt-1 truncate font-mono text-[11px] text-muted-foreground"
+                  className="mt-1 truncate text-meta text-muted-foreground"
                   title={tool.path ?? ""}
                 >
                   {tool.detail}
@@ -541,7 +541,7 @@ function SandboxPage() {
             ))}
           </div>
           {runtimeLine ? (
-            <p className="mt-2 font-mono text-[11px] text-muted-foreground">{runtimeLine}</p>
+            <p className="mt-2 text-meta text-muted-foreground">{runtimeLine}</p>
           ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
             FRIDAY source: <span className="font-mono">{summary?.sourceRoot ?? "not located"}</span>
@@ -569,7 +569,7 @@ function SandboxPage() {
             FRIDAY uses this same lab in Auto Mode for checks and tests.
           </p>
           {engines.selected ? (
-            <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+            <p className="mb-2 text-meta-sm text-muted-foreground">
               Active engine: {engines.selected.label} ({engines.selected.id})
               {engines.selected.isolated ? " · isolated" : " · not OS-isolated"}
               {engines.selected.detail ? ` · ${engines.selected.detail}` : ""}
@@ -577,12 +577,10 @@ function SandboxPage() {
             </p>
           ) : null}
           {engines.selected?.warning ? (
-            <p className="mb-2 font-mono text-[10px] text-muted-foreground">
-              {engines.selected.warning}
-            </p>
+            <p className="mb-2 text-meta-sm text-muted-foreground">{engines.selected.warning}</p>
           ) : null}
           {engines.edition?.platform === "win32" && !engines.edition.windowsSandboxEligible ? (
-            <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+            <p className="mb-2 text-meta-sm text-muted-foreground">
               Windows Sandbox excluded
               {engines.edition.home
                 ? " — this PC is Windows Home (Microsoft restriction)."
@@ -600,7 +598,7 @@ function SandboxPage() {
                 <div
                   key={engine.id}
                   className={cn(
-                    "hud-tile rounded-md px-3 py-2.5",
+                    "hud-tile rounded-surface px-3 py-2.5",
                     selected && "ring-1 ring-primary/50",
                   )}
                 >
@@ -614,14 +612,14 @@ function SandboxPage() {
                       <XCircle className="size-3.5 text-destructive" />
                     )}
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{engine.summary}</p>
-                  <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-note text-muted-foreground">{engine.summary}</p>
+                  <p className="mt-1 truncate text-meta-sm text-muted-foreground">
                     {engine.kind} · {engine.isolation}
                     {engine.version ? ` · ${engine.version}` : ""}
                     {engine.detail ? ` · ${engine.detail}` : ""}
                   </p>
                   {engine.awaitingRestart ? (
-                    <p className="mt-1 text-[11px] font-medium text-warning">
+                    <p className="mt-1 text-note font-medium text-warning">
                       Restart Windows to finish enabling this engine.
                     </p>
                   ) : null}
@@ -696,7 +694,7 @@ function SandboxPage() {
             <select
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
-              className="h-8 rounded-sm border border-primary/20 bg-background px-2 text-xs"
+              className="h-8 rounded-ctl border border-primary/20 bg-background px-2 text-xs"
             >
               {SANDBOX_TEMPLATES.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -717,18 +715,16 @@ function SandboxPage() {
               <div
                 key={p.id}
                 className={cn(
-                  "flex items-center justify-between gap-3 rounded-sm border px-3 py-2 text-xs",
+                  "flex items-center justify-between gap-3 rounded-ctl border px-3 py-2 text-xs",
                   p.id === activeId ? "border-primary/50 bg-primary/5" : "border-primary/15",
                 )}
               >
                 <button className="min-w-0 flex-1 text-left" onClick={() => setActiveId(p.id)}>
                   <span className="font-medium text-foreground">{p.name}</span>
-                  <span className="ml-2 font-mono text-[11px] text-muted-foreground">
-                    {p.template}
-                  </span>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">{p.dir}</p>
+                  <span className="ml-2 text-meta text-muted-foreground">{p.template}</span>
+                  <p className="truncate text-meta text-muted-foreground">{p.dir}</p>
                 </button>
-                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-meta text-muted-foreground">
                   {time(p.updatedAt)}
                 </span>
                 <Button
@@ -812,14 +808,14 @@ function SandboxPage() {
                   </div>
                 }
               >
-                <div className="max-h-80 overflow-auto font-mono text-[11px]">
+                <div className="max-h-80 overflow-auto text-data">
                   {files.map((f) => (
                     <div key={f.path} className="group flex items-center gap-1">
                       <button
                         disabled={f.dir}
                         onClick={() => void onOpenFile(f.path)}
                         className={cn(
-                          "flex-1 truncate rounded-sm px-1.5 py-0.5 text-left",
+                          "flex-1 truncate rounded-ctl px-1.5 py-0.5 text-left",
                           f.dir ? "text-primary/70" : "text-muted-foreground hover:bg-primary/10",
                           openFile === f.path && "bg-primary/10 text-foreground",
                         )}
@@ -939,12 +935,12 @@ function SandboxPage() {
               </div>
               <pre
                 ref={consoleRef}
-                className="mt-3 max-h-72 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground"
+                className="mt-3 max-h-72 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-muted-foreground"
               >
                 {output || "Output from the isolated run appears here."}
               </pre>
               {summarizeSandboxOutput(output) ? (
-                <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-destructive">
+                <pre className="mt-2 max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-destructive">
                   {summarizeSandboxOutput(output)}
                 </pre>
               ) : null}
@@ -963,7 +959,7 @@ function SandboxPage() {
                 {brainState.messages.slice(-8).length ? (
                   brainState.messages.slice(-8).map((line) => (
                     <p key={line.id} className="whitespace-pre-wrap">
-                      <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                         {line.role === "user" ? "You" : "FRIDAY"}
                       </span>
                       {line.text}
@@ -1012,7 +1008,7 @@ function SandboxPage() {
                 </Button>
               }
             >
-              <pre className="max-h-56 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-56 overflow-auto rounded-ctl bg-background p-3 text-data text-muted-foreground">
                 {log || "No sandbox log yet."}
               </pre>
             </Panel>
@@ -1036,9 +1032,7 @@ function SandboxPage() {
                 </div>
               }
             >
-              {applying ? (
-                <p className="mb-2 font-mono text-[11px] text-primary">{applyStep}</p>
-              ) : null}
+              {applying ? <p className="mb-2 text-meta text-primary">{applyStep}</p> : null}
               {changes === null ? (
                 <p className="text-xs text-muted-foreground">
                   Compare this sandbox project against the real FRIDAY source to see the exact
@@ -1052,7 +1046,7 @@ function SandboxPage() {
                 <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
                   <div className="max-h-72 space-y-1 overflow-auto">
                     {changes.map((change) => (
-                      <div key={change.path} className="flex items-center gap-2 text-[11px]">
+                      <div key={change.path} className="flex items-center gap-2 text-note">
                         <input
                           type="checkbox"
                           checked={approved.has(change.path)}
@@ -1065,7 +1059,7 @@ function SandboxPage() {
                         />
                         <button
                           className={cn(
-                            "min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left font-mono",
+                            "min-w-0 flex-1 truncate rounded-ctl px-1.5 py-0.5 text-left font-mono",
                             previewPath === change.path
                               ? "bg-primary/10 text-foreground"
                               : "text-muted-foreground",
@@ -1095,7 +1089,7 @@ function SandboxPage() {
                       </Button>
                     </div>
                   </div>
-                  <pre className="max-h-72 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] text-muted-foreground">
+                  <pre className="max-h-72 overflow-auto rounded-ctl bg-background p-3 text-data text-muted-foreground">
                     {preview
                       ? preview.preview
                       : "Select a file to preview the exact proposed content."}
@@ -1113,7 +1107,7 @@ function SandboxPage() {
               {(summary?.applies ?? []).map((entry) => (
                 <div
                   key={entry.applyId}
-                  className="flex items-center justify-between gap-2 rounded-sm border border-primary/15 px-2.5 py-1.5 text-[11px]"
+                  className="flex items-center justify-between gap-2 rounded-ctl border border-primary/15 px-2.5 py-1.5 text-note"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-mono text-foreground">{entry.applyId}</p>
@@ -1133,7 +1127,7 @@ function SandboxPage() {
           </Panel>
 
           <Panel title="Sandbox history" hint="persisted across restarts">
-            <div className="max-h-64 space-y-1 overflow-auto font-mono text-[11px]">
+            <div className="max-h-64 space-y-1 overflow-auto text-data">
               {(summary?.history ?? []).map((entry, index) => (
                 <p key={`${entry.at}-${index}`} className="truncate text-muted-foreground">
                   <span className="text-primary">{entry.kind}</span> · {entry.projectId ?? "—"} ·{" "}

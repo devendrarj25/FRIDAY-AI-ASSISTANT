@@ -111,7 +111,7 @@ function AppShellPage({ title, subtitle, actions, fill = false, children }: AppS
             {nav ? (
               <span
                 aria-hidden="true"
-                className="glass-2 grid size-8 shrink-0 place-items-center rounded-md text-primary"
+                className="glass-2 grid size-8 shrink-0 place-items-center rounded-surface text-primary"
               >
                 <nav.icon className="size-4" />
               </span>
@@ -202,7 +202,7 @@ function HeaderChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-[11px]",
+        "inline-flex items-center gap-1.5 rounded-ctl border px-2 py-1 text-meta",
         tone === "accent"
           ? "border-accent/30 bg-accent/10 text-accent"
           : "border-primary/30 bg-primary/10 text-primary",
@@ -547,7 +547,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                           aria-label={collapsed ? item.label : undefined}
                           aria-current={active ? "page" : undefined}
                           className={cn(
-                            "friday-nav-link relative flex items-center gap-2.5 rounded-sm border px-2.5 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            "friday-nav-link relative flex items-center gap-2.5 rounded-ctl border px-2.5 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                             collapsed && "justify-center px-0",
                             active
                               ? "border-primary/50 bg-primary/12 text-primary glow-ring"
@@ -574,7 +574,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   aria-expanded={!collapsed}
-                  className="friday-btn grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  className="friday-btn grid flex-1 place-items-center rounded-ctl border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                 >
                   {collapsed ? (
                     <ChevronsRight className="size-4" />
@@ -588,7 +588,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   title="Restart FRIDAY"
                   disabled={lifeBusy}
                   onClick={() => void askLife("restart")}
-                  className="grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                  className="grid flex-1 place-items-center rounded-ctl border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
                 >
                   <RotateCw className="size-4" />
                 </button>
@@ -598,7 +598,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   title="Settings"
                   aria-current={pathname === "/settings" ? "page" : undefined}
                   className={cn(
-                    "friday-btn grid flex-1 place-items-center rounded-sm border py-2 transition-colors",
+                    "friday-btn grid flex-1 place-items-center rounded-ctl border py-2 transition-colors",
                     pathname === "/settings"
                       ? "border-primary/50 bg-primary/12 text-primary"
                       : "border-primary/20 bg-surface text-muted-foreground hover:border-primary/50 hover:text-primary",
@@ -613,20 +613,18 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 title="Shutdown FRIDAY"
                 disabled={lifeBusy}
                 onClick={() => void askLife("shutdown")}
-                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-sm border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-ctl border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
               >
                 <Power className="size-4 shrink-0" />
                 {!collapsed ? <span className="truncate text-xs">Shutdown FRIDAY</span> : null}
               </button>
               {!collapsed ? (
-                <div className="hud-tile mt-2 rounded-md px-2.5 py-2">
-                  <p className="font-mono text-[11px] text-primary">FRIDAY {appVersion.label}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">
-                    Build {appVersion.build}
-                  </p>
+                <div className="hud-tile mt-2 rounded-surface px-2.5 py-2">
+                  <p className="text-meta text-primary">FRIDAY {appVersion.label}</p>
+                  <p className="text-meta-sm text-muted-foreground">Build {appVersion.build}</p>
                 </div>
               ) : (
-                <p className="mt-2 text-center font-mono text-[9px] text-muted-foreground">
+                <p className="mt-2 text-center text-meta-sm text-muted-foreground">
                   {appVersion.label}
                 </p>
               )}
@@ -640,7 +638,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "whitespace-nowrap rounded-sm border px-2.5 py-1.5 font-mono text-[11px]",
+                    "whitespace-nowrap rounded-ctl border px-2.5 py-1.5 text-meta",
                     pathname === item.to
                       ? "border-primary/50 bg-primary/12 text-primary"
                       : "border-transparent text-muted-foreground",
@@ -652,7 +650,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
               <Link
                 to={SETTINGS_NAV.to}
                 className={cn(
-                  "whitespace-nowrap rounded-sm border px-2.5 py-1.5 font-mono text-[11px]",
+                  "whitespace-nowrap rounded-ctl border px-2.5 py-1.5 text-meta",
                   pathname === SETTINGS_NAV.to
                     ? "border-primary/50 bg-primary/12 text-primary"
                     : "border-transparent text-muted-foreground",

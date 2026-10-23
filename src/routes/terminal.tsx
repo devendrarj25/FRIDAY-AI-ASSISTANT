@@ -95,7 +95,7 @@ function TerminalPage() {
               <select
                 value={shell}
                 onChange={(e) => ops.setShell(e.target.value)}
-                className="rounded-sm border border-border bg-surface px-2 py-1 font-mono text-xs"
+                className="rounded-ctl border border-border bg-surface px-2 py-1 font-mono text-xs"
                 aria-label="Shell profile"
               >
                 {(shells.length
@@ -127,7 +127,7 @@ function TerminalPage() {
         >
           <pre
             ref={scroller}
-            className="max-h-96 overflow-auto rounded-sm bg-background p-3 font-mono text-xs leading-relaxed"
+            className="max-h-96 overflow-auto rounded-ctl bg-background p-3 font-mono text-xs leading-relaxed"
           >
             {terminal.map((line) => (
               <div key={line.id} className={TONE[line.kind]}>
@@ -184,7 +184,7 @@ function TerminalPage() {
             {recent.length ? (
               recent.map((line) => (
                 <p key={line.id} className="whitespace-pre-wrap">
-                  <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                     {line.role === "user" ? "You" : "FRIDAY"}
                   </span>
                   {line.text}
@@ -225,7 +225,7 @@ function TerminalPage() {
                   FRIDAY wants to run <span className="font-mono">{pendingCommand.command}</span> in{" "}
                   <span className="font-mono">{pendingCommand.cwd}</span>
                 </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                <p className="mt-1 text-meta text-muted-foreground">
                   risk: {pendingCommand.risk} · gated by the shell.cmd tool permission
                 </p>
               </div>

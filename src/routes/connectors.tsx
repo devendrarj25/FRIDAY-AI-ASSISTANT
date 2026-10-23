@@ -274,7 +274,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
         </div>
 
         {connector.connected && (
-          <div className="space-y-2 rounded-md border border-border/60 p-2">
+          <div className="space-y-2 rounded-surface border border-border/60 p-2">
             {connector.actions.map((action) => (
               <div key={action.id} className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -474,7 +474,7 @@ function McpServerPanel() {
           </div>
         ))}
         {(status?.approvals || []).map((row) => (
-          <div key={row.id} className="space-y-1 rounded-md border border-border p-2 text-xs">
+          <div key={row.id} className="space-y-1 rounded-surface border border-border p-2 text-xs">
             <p>
               {row.clientId} asks to run {row.tool} ({row.risk}).
             </p>
@@ -517,7 +517,7 @@ function McpServerPanel() {
             <textarea
               readOnly
               value={shown}
-              className="h-28 w-full rounded-md border border-border bg-transparent p-2 font-mono text-xs"
+              className="h-28 w-full rounded-surface border border-border bg-transparent p-2 font-mono text-xs"
             />
             <div className="flex gap-2">
               <Button

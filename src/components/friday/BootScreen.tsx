@@ -45,7 +45,7 @@ export function BootScreen() {
             return (
               <li
                 key={`${step.label}-${step.at}`}
-                className="flex items-start gap-2 font-mono text-[11px] text-muted-foreground"
+                className="flex items-start gap-2 text-meta text-muted-foreground"
               >
                 <Icon className={cn("mt-0.5 size-3.5 shrink-0", TONES[step.status])} />
                 <span className="text-foreground">{step.label}</span>

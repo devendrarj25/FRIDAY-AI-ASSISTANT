@@ -291,21 +291,21 @@ export function MemoryConsole() {
               <span key="s" className="block max-w-[26rem] truncate text-xs text-muted-foreground">
                 {m.snippet}
               </span>,
-              <span key="c" className="font-mono text-[11px] text-primary">
+              <span key="c" className="text-meta text-primary">
                 {m.score}
               </span>,
               <span key="a" className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => brain.pin(m.id)}
-                  className="font-mono text-[10px] text-primary hover:underline"
+                  className="text-meta-sm text-primary hover:underline"
                 >
                   {m.pinned ? "unpin" : "pin"}
                 </button>
                 <button
                   type="button"
                   onClick={() => brain.forget(m.id)}
-                  className="font-mono text-[10px] text-destructive hover:underline"
+                  className="text-meta-sm text-destructive hover:underline"
                 >
                   forget
                 </button>
@@ -323,7 +323,7 @@ export function MemoryConsole() {
               type="button"
               onClick={() => setTier("all")}
               className={cn(
-                "rounded-sm border px-2 py-1 font-mono text-[10px]",
+                "rounded-ctl border px-2 py-1 text-meta-sm",
                 tier === "all"
                   ? "border-primary/50 bg-primary/15 text-primary"
                   : "border-border text-muted-foreground",
@@ -337,7 +337,7 @@ export function MemoryConsole() {
                 type="button"
                 onClick={() => setTier(spec.id)}
                 className={cn(
-                  "rounded-sm border px-2 py-1 font-mono text-[10px]",
+                  "rounded-ctl border px-2 py-1 text-meta-sm",
                   tier === spec.id
                     ? "border-primary/50 bg-primary/15 text-primary"
                     : "border-border text-muted-foreground",
@@ -451,7 +451,7 @@ export function MemoryConsole() {
                   <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                     {item.text}
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+                  <p className="mt-1 text-meta text-muted-foreground/70">
                     {item.source} · used {item.uses}× · confidence{" "}
                     {Math.round(item.confidence * 100)}% · {ago(item.updatedAt)}
                   </p>
@@ -530,13 +530,11 @@ export function MemoryConsole() {
                   </p>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{r.snippet}</p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  score {r.score.toFixed(3)}
-                </p>
+                <p className="mt-1 text-meta text-muted-foreground">score {r.score.toFixed(3)}</p>
               </li>
             ))}
             {vector.results.length ? null : (
-              <li className="font-mono text-[11px] text-muted-foreground">
+              <li className="text-meta text-muted-foreground">
                 {vector.available
                   ? vector.searchedAt
                     ? "No documents match."
@@ -550,7 +548,7 @@ export function MemoryConsole() {
 
       <div className="space-y-4">
         <HudPanel title="Index" hint={`checked ${relative(vector.checkedAt)}`}>
-          <dl className="space-y-2 font-mono text-[11px] text-muted-foreground">
+          <dl className="space-y-2 text-meta text-muted-foreground">
             <div className="flex justify-between gap-3">
               <dt>backend</dt>
               <dd className={vector.available ? "text-accent" : "text-warning"}>
@@ -594,13 +592,13 @@ export function MemoryConsole() {
               <li key={spec.id} className="border-b border-border/60 pb-2 last:border-0">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-foreground">
-                    {spec.label} <span className="font-mono text-[10px] text-primary">{count}</span>
+                    {spec.label} <span className="text-meta-sm text-primary">{count}</span>
                   </p>
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                  <span className="text-meta-sm text-muted-foreground">
                     {ttlLabel(spec.ttlMs)} · {pressure}%
                   </span>
                 </div>
-                <p className="font-mono text-[10px] text-muted-foreground">{spec.note}</p>
+                <p className="text-meta-sm text-muted-foreground">{spec.note}</p>
               </li>
             ))}
           </ul>
@@ -634,7 +632,7 @@ export function MemoryConsole() {
                   type="button"
                   onClick={() => setMemLayer(l.id)}
                   className={cn(
-                    "rounded-sm border px-2 py-1 font-mono text-[10px]",
+                    "rounded-ctl border px-2 py-1 text-meta-sm",
                     memLayer === l.id
                       ? "border-primary/50 bg-primary/15 text-primary"
                       : "border-border text-muted-foreground",
@@ -719,11 +717,11 @@ export function MemoryConsole() {
               <li key={l.id}>
                 <p className="text-xs text-foreground">
                   {l.label}{" "}
-                  <span className="font-mono text-[10px] text-primary">
+                  <span className="text-meta-sm text-primary">
                     {state.memory.filter((m) => m.layer === l.id).length}
                   </span>
                 </p>
-                <p className="font-mono text-[10px] text-muted-foreground">{l.note}</p>
+                <p className="text-meta-sm text-muted-foreground">{l.note}</p>
               </li>
             ))}
           </ul>

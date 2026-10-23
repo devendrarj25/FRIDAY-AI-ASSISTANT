@@ -46,7 +46,7 @@ export function ImportBar({ target, className }: { target: string; className?: s
   };
 
   return (
-    <div className={cn("hud-tile rounded-md px-3 py-2", className)}>
+    <div className={cn("hud-tile rounded-surface px-3 py-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <p className="label-xs mr-1 text-primary/70">Import into {target}</p>
 
@@ -93,7 +93,7 @@ export function ImportBar({ target, className }: { target: string; className?: s
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
+            className="text-meta text-muted-foreground underline-offset-2 hover:text-primary hover:underline"
           >
             {mine.length} imported
           </button>
@@ -103,10 +103,7 @@ export function ImportBar({ target, className }: { target: string; className?: s
       {open && mine.length ? (
         <ul className="mt-2 space-y-1 border-t border-border/60 pt-2">
           {mine.slice(0, 6).map((i) => (
-            <li
-              key={i.id}
-              className="flex items-center justify-between gap-3 font-mono text-[11px]"
-            >
+            <li key={i.id} className="flex items-center justify-between gap-3 text-meta">
               <span className="truncate text-foreground">{i.name}</span>
               <span className="shrink-0 text-muted-foreground">
                 {i.fileCount} files · {i.status}

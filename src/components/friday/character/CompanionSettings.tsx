@@ -260,7 +260,7 @@ export function CompanionSettings() {
         />
 
         {status?.lastError ? (
-          <p className="mt-3 rounded-sm border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">
+          <p className="mt-3 rounded-ctl border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-meta text-destructive">
             {status.lastError}
             {status.recovered ? ` · recovered ${status.recovered}×` : ""}
           </p>
@@ -432,7 +432,7 @@ export function CompanionSettings() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{c.label}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {c.detail || c.location}
                     </p>
                   </div>
@@ -441,7 +441,7 @@ export function CompanionSettings() {
               ))}
             </div>
             {health.probe?.error ? (
-              <p className="font-mono text-[11px] text-destructive">{health.probe.error}</p>
+              <p className="text-meta text-destructive">{health.probe.error}</p>
             ) : null}
           </div>
         ) : (
@@ -460,7 +460,7 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-sm border px-2.5 py-1 font-mono text-[11px] capitalize transition-colors",
+        "rounded-ctl border px-2.5 py-1 text-meta capitalize transition-colors",
         active
           ? "border-primary/50 bg-primary/12 text-primary"
           : "border-primary/20 text-muted-foreground hover:border-primary/40 hover:text-foreground",
@@ -492,7 +492,7 @@ function SliderRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <p className="label-xs text-muted-foreground">{label}</p>
-        <span className="font-mono text-[11px] text-primary">{detail}</span>
+        <span className="text-meta text-primary">{detail}</span>
       </div>
       <Slider
         value={[value]}
@@ -509,7 +509,7 @@ function Fact({ k, v }: { k: string; v: string }) {
   return (
     <div>
       <p className="label-xs text-muted-foreground">{k}</p>
-      <div className="hud-tile mt-1 truncate rounded-sm px-2.5 py-1.5 font-mono text-xs text-foreground">
+      <div className="hud-tile mt-1 truncate rounded-ctl px-2.5 py-1.5 font-mono text-xs text-foreground">
         {v}
       </div>
     </div>

@@ -209,14 +209,14 @@ export function RepoSwitch({
             value={repo}
             onChange={(event) => setRepo(event.target.value)}
             placeholder="owner/name or https://github.com/owner/name"
-            className="h-8 min-w-[240px] flex-1 font-mono text-[11px]"
+            className="h-8 min-w-[240px] flex-1 text-meta"
           />
           <Input
             value={token}
             onChange={(event) => setToken(event.target.value)}
             placeholder="token (optional, private repos)"
             type="password"
-            className="h-8 min-w-[180px] font-mono text-[11px]"
+            className="h-8 min-w-[180px] text-meta"
           />
           <Button
             size="sm"
@@ -242,7 +242,7 @@ export function RepoSwitch({
             <Plus className="size-3.5" /> Add repository
           </Button>
         </div>
-        <p className="font-mono text-[11px] text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           Extra tokens are encrypted the same way as Settings → Updates. They are never shown again
           once saved. Adding FRIDAY&apos;s own repo selects it; it does not replace the Updates
           token.
@@ -253,9 +253,9 @@ export function RepoSwitch({
             value={createName}
             onChange={(event) => setCreateName(event.target.value)}
             placeholder="new-repo-name"
-            className="h-8 w-48 font-mono text-[11px]"
+            className="h-8 w-48 text-meta"
           />
-          <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-meta text-muted-foreground">
             <input
               type="checkbox"
               checked={createPrivate}
@@ -263,7 +263,7 @@ export function RepoSwitch({
             />
             private
           </label>
-          <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-meta text-muted-foreground">
             <input
               type="checkbox"
               checked={confirmWrite}
@@ -345,7 +345,7 @@ export function RepoSwitch({
             Package folder → push
           </Button>
         </div>
-        <p className="font-mono text-[11px] text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           Create / package-push need the confirmation box. Package-push only runs on a linked empty
           checkout, never on FRIDAY&apos;s own source.
         </p>

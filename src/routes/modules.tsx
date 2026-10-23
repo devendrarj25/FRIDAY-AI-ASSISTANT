@@ -284,13 +284,13 @@ function ModulesPage() {
                 <p className="text-sm text-muted-foreground">{mod.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {mod.permissions.map((p) => (
-                    <Badge key={p} variant="outline" className="font-mono text-[11px]">
+                    <Badge key={p} variant="outline" className="text-meta">
                       {p}
                     </Badge>
                   ))}
                 </div>
                 {openId === mod.key ? (
-                  <div className="mt-3 space-y-1 border-t border-border pt-3 font-mono text-[11px]">
+                  <div className="mt-3 space-y-1 border-t border-border pt-3 text-meta">
                     <p>
                       <span className="text-muted-foreground">Category — </span>
                       {mod.category || "—"}
@@ -318,9 +318,7 @@ function ModulesPage() {
                   </div>
                 ) : null}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">
-                    {mod.entry}
-                  </p>
+                  <p className="truncate text-meta text-muted-foreground">{mod.entry}</p>
                   <span className="flex items-center gap-1">
                     <Switch
                       checked={mod.enabled}
@@ -331,7 +329,7 @@ function ModulesPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!mod.id && supported}
                       onClick={() => setOpenId((current) => (current === mod.key ? null : mod.key))}
                     >
@@ -340,7 +338,7 @@ function ModulesPage() {
                     <Button
                       size="sm"
                       variant={confirmId === mod.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!mod.id || Boolean(busyId)}
                       onClick={() => void onRemove(mod)}
                     >
@@ -350,7 +348,7 @@ function ModulesPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-note"
                         onClick={() => setConfirmId(null)}
                       >
                         Cancel
@@ -405,7 +403,7 @@ function ModulesPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

@@ -76,7 +76,7 @@ export function NotificationSettings() {
           on={isOn("doNotDisturb")}
           onToggle={() => flip("doNotDisturb")}
         />
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-note text-muted-foreground">
           The hub still records alerts. Only the noise is paused.
         </p>
         <ToggleRow
@@ -146,7 +146,7 @@ export function NotificationSettings() {
             Allow desktop toasts
           </Button>
           {!state.enabled ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-note text-muted-foreground">
               <BellOff className="size-3" /> new alerts are not being recorded
             </span>
           ) : null}
@@ -162,7 +162,7 @@ export function NotificationSettings() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm text-foreground">{item.title}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
+                <p className="truncate text-note text-muted-foreground">
                   {item.source} · {formatOwnerDate(item.at)} · {item.detail}
                 </p>
               </div>
@@ -182,7 +182,7 @@ export function NotificationSettings() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="h-6 px-2 text-note"
                   onClick={() => notifications.dismiss(item.id)}
                 >
                   dismiss
@@ -191,7 +191,7 @@ export function NotificationSettings() {
             </li>
           ))}
           {!state.items.length ? (
-            <li className="text-[11px] text-muted-foreground">nothing recorded yet</li>
+            <li className="text-note text-muted-foreground">nothing recorded yet</li>
           ) : null}
         </ul>
       </HudPanel>

@@ -272,7 +272,7 @@ describe("Manual chat transcript rows", () => {
 
   it("honours timestamps, bubble style and centres the Full chat column", () => {
     const stamp =
-      /mt-0\.5 font-mono text-\[10px\] text-muted-foreground|ml-2 font-mono text-muted-foreground/g;
+      /mt-0\.5 text-meta-sm text-muted-foreground|ml-2 font-mono text-muted-foreground/g;
     expect(render().match(stamp)).toBeNull();
     expect(render({ showTimestamps: true }).match(stamp)).toHaveLength(4);
     const full = render({ level: 3, bubbleStyle: "Comfortable" });

@@ -264,6 +264,39 @@
   text-transform: uppercase;
 }
 
+/* Caption and corner tokens shared by every page. Classic resolves them to
+   the values pages used before (mono 10/11 px, rounded-sm/md); FRIDAY Glass
+   re-maps them below to 12 px sentence-case body text and the card and
+   control radii. */
+@utility text-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+@utility text-meta-sm {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+}
+@utility text-data {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+@utility text-data-sm {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+}
+@utility text-note {
+  font-size: 0.6875rem;
+}
+@utility text-note-sm {
+  font-size: 0.625rem;
+}
+@utility rounded-ctl {
+  border-radius: var(--radius-sm);
+}
+@utility rounded-surface {
+  border-radius: var(--radius-md);
+}
+
 /* Neon HUD surfaces */
 @utility hud-panel {
   border: 1px solid color-mix(in oklab, var(--color-primary) 22%, transparent);
@@ -1603,12 +1636,39 @@ html[data-ui-style="glass"] body {
   line-height: 1.5;
 }
 html[data-ui-style="glass"] .label-xs,
+html[data-ui-style="glass"] :is(.text-meta, .text-meta-sm, .text-note, .text-note-sm)[class*="uppercase"],
 html[data-ui-style="glass"] [class*="text-[10px]"][class*="uppercase"],
 html[data-ui-style="glass"] [class*="text-[11px]"][class*="uppercase"] {
   font-family: var(--font-sans);
   font-size: 0.75rem;
   letter-spacing: 0.01em;
   text-transform: none;
+}
+html[data-ui-style="glass"] .text-meta {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+}
+html[data-ui-style="glass"] .text-meta-sm {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+}
+html[data-ui-style="glass"] .text-note {
+  font-size: 0.75rem;
+}
+html[data-ui-style="glass"] .text-note-sm {
+  font-size: 0.6875rem;
+}
+html[data-ui-style="glass"] .text-data {
+  font-size: 0.75rem;
+}
+html[data-ui-style="glass"] .text-data-sm {
+  font-size: 0.6875rem;
+}
+html[data-ui-style="glass"] .rounded-ctl {
+  border-radius: var(--radius);
+}
+html[data-ui-style="glass"] .rounded-surface {
+  border-radius: var(--radius-card);
 }
 html[data-ui-style="glass"] .friday-panel-title {
   font-family: var(--font-display);

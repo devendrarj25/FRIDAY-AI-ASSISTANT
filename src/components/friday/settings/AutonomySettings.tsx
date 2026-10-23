@@ -140,13 +140,13 @@ export function AutonomySettings() {
                 type="button"
                 onClick={() => removeSource(host)}
                 title="Remove"
-                className="rounded-sm border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary hover:border-destructive/60 hover:text-destructive"
+                className="rounded-ctl border border-primary/25 bg-primary/10 px-2 py-0.5 text-meta text-primary hover:border-destructive/60 hover:text-destructive"
               >
                 {host} ×
               </button>
             ))
           ) : (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-note text-muted-foreground">
               no restriction — every host is allowed
             </span>
           )}
@@ -250,7 +250,7 @@ export function AutonomySettings() {
             label={settings.autonomyEnabled ? "autonomy active" : "autonomy paused"}
             tone={settings.autonomyEnabled ? "accent" : "warning"}
           />
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="text-meta text-muted-foreground">
             {gov.items.length} governed item(s) tracked
           </span>
         </div>
@@ -288,7 +288,7 @@ function Choice<T extends string>({
           </Button>
         ))}
       </div>
-      {note ? <p className="mt-2 text-[11px] text-muted-foreground">{note}</p> : null}
+      {note ? <p className="mt-2 text-note text-muted-foreground">{note}</p> : null}
     </div>
   );
 }
@@ -314,7 +314,7 @@ function NumberRow({
     <div className="mt-4 space-y-1">
       <div className="flex items-center justify-between">
         <p className="label-xs text-muted-foreground">{label}</p>
-        <span className="font-mono text-[11px] text-primary">
+        <span className="text-meta text-primary">
           {value}
           {suffix}
         </span>

@@ -75,7 +75,7 @@ function Toggle({
     <div className="flex items-start justify-between gap-3 hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <div className="min-w-0">
         <p className="text-sm text-foreground">{label}</p>
-        <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>
+        <p className="text-note leading-snug text-muted-foreground">{hint}</p>
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
@@ -98,7 +98,7 @@ function Choice<T extends string>({
   return (
     <div className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <p className="text-sm text-foreground">{label}</p>
-      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">{hint}</p>
+      <p className="mb-2 text-note leading-snug text-muted-foreground">{hint}</p>
       <Select value={value} onValueChange={(v) => onChange(v as T)}>
         <SelectTrigger className="h-8 text-xs">
           <SelectValue />
@@ -133,7 +133,7 @@ function NumberField({
   return (
     <div className="hud-tile motion-friday rounded-lg transition-[border-color] hover:border-primary/35 px-3 py-2">
       <p className="text-sm text-foreground">{label}</p>
-      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">{hint}</p>
+      <p className="mb-2 text-note leading-snug text-muted-foreground">{hint}</p>
       <Input
         type="number"
         className="h-8 text-xs"
@@ -307,7 +307,7 @@ function AutonomyPanel() {
           onChange={(memoryRetentionDays) => patch({ memoryRetentionDays })}
         />
       </div>
-      <p className="mt-3 text-[11px] text-muted-foreground">
+      <p className="mt-3 text-note text-muted-foreground">
         Approved research sources · {settings.researchSources.join(", ")}
       </p>
     </HudPanel>
@@ -376,7 +376,7 @@ function CorePanel() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm text-foreground">{h.label}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{h.detail}</p>
+                <p className="truncate text-note text-muted-foreground">{h.detail}</p>
               </div>
               <StatusPill label={h.ok ? "ok" : "problem"} tone={h.ok ? "accent" : "destructive"} />
             </div>
@@ -385,7 +385,7 @@ function CorePanel() {
       </div>
       <div className="mt-3 grid max-h-[200px] gap-1.5 overflow-y-auto pr-1">
         {core.cycles.map((c) => (
-          <p key={c.at} className="font-mono text-[11px] text-muted-foreground/80">
+          <p key={c.at} className="text-meta text-muted-foreground/80">
             {ago(c.at)} · {c.discovered} found · {c.researched} researched · {c.note}
           </p>
         ))}
@@ -438,7 +438,7 @@ function BackgroundPanel() {
           >
             <div className="min-w-0">
               <p className="text-sm text-foreground">{job.label}</p>
-              <p className="font-mono text-[11px] text-muted-foreground/80">
+              <p className="text-meta text-muted-foreground/80">
                 every {job.everyMinutes}m · last {ago(job.lastAt)}
               </p>
             </div>
@@ -463,10 +463,7 @@ function BackgroundPanel() {
         {bg.runs.map((r) => (
           <p
             key={r.id}
-            className={cn(
-              "font-mono text-[11px]",
-              r.ok ? "text-muted-foreground/80" : "text-destructive",
-            )}
+            className={cn("text-meta", r.ok ? "text-muted-foreground/80" : "text-destructive")}
           >
             {ago(r.at)} · {r.job} · {r.ms}ms · {r.note}
           </p>
@@ -531,14 +528,14 @@ function GovernancePanel() {
                   <p className="text-sm font-medium text-foreground">{item.title}</p>
                   <p className="text-xs text-muted-foreground">{item.rationale}</p>
                   {item.evidence.length > 0 && (
-                    <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">
+                    <p className="mt-1 truncate text-meta text-muted-foreground/70">
                       {item.evidence.join(" · ")}
                     </p>
                   )}
                   {item.dryRun && (
                     <p
                       className={cn(
-                        "mt-1 text-[11px]",
+                        "mt-1 text-note",
                         item.dryRun.ok ? "text-emerald-300" : "text-rose-300",
                       )}
                     >
@@ -561,8 +558,8 @@ function GovernancePanel() {
                   </Button>
                 </div>
               )}
-              {item.error && <p className="mt-1 text-[11px] text-destructive">{item.error}</p>}
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+              {item.error && <p className="mt-1 text-note text-destructive">{item.error}</p>}
+              <p className="mt-1 text-meta text-muted-foreground/70">
                 {item.kind} · {ago(item.updatedAt)}
                 {item.autoApproved ? " · auto-approved" : ""}
                 {item.checkpoint ? ` · checkpoint ${item.checkpoint}` : ""}
@@ -746,7 +743,7 @@ function MaintenancePanel() {
       )}
 
       {progress && (
-        <p className="mt-3 flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+        <p className="mt-3 flex items-center gap-1.5 text-meta text-muted-foreground">
           <Activity className="h-3.5 w-3.5" /> {progress}
         </p>
       )}
@@ -761,7 +758,7 @@ function MaintenancePanel() {
               <div className="min-w-0">
                 <p className="text-sm text-foreground">{entry.summary}</p>
                 <p className="text-xs text-muted-foreground">{explainVerdict(entry.verdict)}</p>
-                <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/70">
+                <p className="mt-1 truncate text-meta text-muted-foreground/70">
                   {entry.files
                     .slice(0, 4)
                     .map((f) => `${f.state} ${f.path}`)
@@ -794,7 +791,7 @@ function MaintenancePanel() {
               </div>
             </div>
             {entry.blockers.length > 0 && (
-              <p className="mt-1 text-[11px] text-destructive">
+              <p className="mt-1 text-note text-destructive">
                 {entry.blockers.map((b) => `${b.file}: ${b.reason}`).join(" · ")}
               </p>
             )}

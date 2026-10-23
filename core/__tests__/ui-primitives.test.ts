@@ -32,7 +32,7 @@ describe("panels and tiles", () => {
     const plain = html(
       createElement(HudPanel, { title: "Memory", hint: "12 records", children: "body" }),
     );
-    expect(plain).toContain('class="hud-panel relative overflow-hidden rounded-md"');
+    expect(plain).toContain('class="hud-panel relative overflow-hidden rounded-surface"');
     expect(plain).toContain('title="Memory"');
     expect(plain).toContain("12 records");
     // A known title gets its icon from the vocabulary; an unknown one keeps the dot.
