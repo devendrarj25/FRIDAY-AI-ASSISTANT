@@ -8,6 +8,7 @@ import {
   Download,
   Pencil,
   Pin,
+  PinOff,
   RefreshCw,
   Search,
   Sparkles,
@@ -18,7 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable, HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { DataTable, FilterTabs, HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
 import { memoryLayers, type MemoryLayer } from "@/lib/friday/brain-catalog";
@@ -286,23 +287,29 @@ export function MemoryConsole() {
               <span key="c" className="text-meta text-primary">
                 {m.score}
               </span>,
-              <span key="a" className="flex gap-2">
-                <button
-                  type="button"
+              <span key="a" className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title={m.pinned ? "Unpin this record" : "Pin this record"}
                   onClick={() => brain.pin(m.id)}
-                  className="text-meta-sm text-primary hover:underline"
                 >
+                  {m.pinned ? <PinOff /> : <Pin />}
                   {m.pinned ? "unpin" : "pin"}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  title="Forget this record"
                   onClick={() => brain.forget(m.id)}
-                  className="text-meta-sm text-destructive hover:underline"
                 >
+                  <Trash2 />
                   forget
-                </button>
+                </Button>
               </span>,
             ])}
+            pinLast
           />
         </HudPanel>
 
@@ -310,34 +317,18 @@ export function MemoryConsole() {
           title="Six-tier store"
           hint={`${tieredResults.length} of ${memoryState.items.length} records`}
         >
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setTier("all")}
-              className={cn(
-                "rounded-ctl border px-2 py-1 text-meta-sm",
-                tier === "all"
-                  ? "border-primary/50 bg-primary/15 text-primary"
-                  : "border-border text-muted-foreground",
-              )}
-            >
-              all
-            </button>
-            {memoryTiers.map((spec) => (
-              <button
-                key={spec.id}
-                type="button"
-                onClick={() => setTier(spec.id)}
-                className={cn(
-                  "rounded-ctl border px-2 py-1 text-meta-sm",
-                  tier === spec.id
-                    ? "border-primary/50 bg-primary/15 text-primary"
-                    : "border-border text-muted-foreground",
-                )}
-              >
-                {spec.label} {memoryState.counts[spec.id] ?? 0}
-              </button>
-            ))}
+          <div className="mb-3">
+            <FilterTabs
+              tabs={[
+                { key: "all", label: "all" },
+                ...memoryTiers.map((spec) => ({
+                  key: spec.id,
+                  label: `${spec.label} ${memoryState.counts[spec.id] ?? 0}`,
+                })),
+              ]}
+              value={tier}
+              onChange={(key) => setTier(key as MemoryTier | "all")}
+            />
           </div>
           <div className="grid max-h-[380px] gap-2 overflow-y-auto pr-1">
             {tieredResults.length === 0 ? (
@@ -617,23 +608,11 @@ export function MemoryConsole() {
 
         <HudPanel title={editingId ? "Edit memory" : "Teach FRIDAY"}>
           <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {memoryLayers.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => setMemLayer(l.id)}
-                  className={cn(
-                    "rounded-ctl border px-2 py-1 text-meta-sm",
-                    memLayer === l.id
-                      ? "border-primary/50 bg-primary/15 text-primary"
-                      : "border-border text-muted-foreground",
-                  )}
-                >
-                  {l.id}
-                </button>
-              ))}
-            </div>
+            <FilterTabs
+              tabs={memoryLayers.map((l) => ({ key: l.id, label: l.id }))}
+              value={memLayer}
+              onChange={(key) => setMemLayer(key as typeof memLayer)}
+            />
             <Input
               value={memTitle}
               onChange={(e) => setMemTitle(e.target.value)}

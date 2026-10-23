@@ -37,6 +37,7 @@ import { useNavThumb } from "@/components/friday/nav-thumb";
 import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
 import { installInteractionPause } from "@/lib/friday/interaction-pause";
+import { installTruncateTitles, titleCutLabels } from "@/lib/friday/truncate-titles";
 import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
 import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
@@ -523,6 +524,12 @@ function AppShellChrome({ children }: { children: ReactNode }) {
 
   useEffect(() => installRejectionToast(), []);
   useEffect(() => installInteractionPause(), []);
+  useEffect(() => installTruncateTitles(), []);
+  // A new page: label whatever it cut with an ellipsis once it has laid out.
+  useEffect(() => {
+    const id = window.setTimeout(() => titleCutLabels(), 600);
+    return () => window.clearTimeout(id);
+  }, [pathname]);
 
   if (workspaceRoot === undefined) return null;
   if (workspaceRoot === null) return <WorkspaceSetup />;

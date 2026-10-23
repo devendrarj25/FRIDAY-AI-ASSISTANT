@@ -456,22 +456,14 @@ function InstallManagerPage() {
                   className="h-8 pl-8 font-mono text-xs"
                 />
               </div>
-              <div className="flex flex-wrap gap-1">
-                {["all", ...allCategories].map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setCategory(c)}
-                    className={`label-xs rounded-ctl border px-2 py-1 transition-colors ${
-                      category === c
-                        ? "border-primary/60 bg-primary/15 text-primary"
-                        : "border-border/60 text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {c === "all" ? "All categories" : c}
-                  </button>
-                ))}
-              </div>
+              <FilterTabs
+                tabs={[
+                  { key: "all", label: "All categories" },
+                  ...allCategories.map((c) => ({ key: c, label: c })),
+                ]}
+                value={category}
+                onChange={setCategory}
+              />
             </div>
 
             {rows.length === 0 ? (

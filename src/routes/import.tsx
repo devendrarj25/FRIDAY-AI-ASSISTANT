@@ -589,23 +589,14 @@ function ImportPage() {
       {tab === "upgrade" ? (
         <div className="mt-4 space-y-4">
           {runs.length > 1 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {runs.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelected(r.id)}
-                  className={cn(
-                    "rounded-ctl border px-2 py-1 text-meta-sm",
-                    activeRun?.id === r.id
-                      ? "border-primary/50 bg-primary/15 text-primary"
-                      : "border-border text-muted-foreground",
-                  )}
-                >
-                  {r.name} · v{r.version} · {r.status}
-                </button>
-              ))}
-            </div>
+            <FilterTabs
+              tabs={runs.map((r) => ({
+                key: r.id,
+                label: `${r.name} · v${r.version} · ${r.status}`,
+              }))}
+              value={activeRun?.id ?? ""}
+              onChange={setSelected}
+            />
           ) : null}
 
           {activeRun ? (
