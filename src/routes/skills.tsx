@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useDeferredValue } from "react";
 import { FileArchive, FolderUp, Loader2, Plus, Puzzle, Search, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,8 @@ function SkillsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -253,7 +255,7 @@ function SkillsPage() {
   const rows = skills.filter((s) => {
     if (tab !== "all" && s.status.toLowerCase() !== tab) return false;
     if (category !== "all" && s.category !== category) return false;
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return true;
     return [s.name, s.category, s.summary].some((field) => field.toLowerCase().includes(needle));
   });

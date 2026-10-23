@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { toast } from "sonner";
 import {
   Activity,
@@ -601,6 +601,8 @@ function ModelsPage() {
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [catalogPages, setCatalogPages] = useState(1);
   const [catalogStamp, setCatalogStamp] = useState("");
   const [foundPages, setFoundPages] = useState(1);
@@ -653,7 +655,7 @@ function ModelsPage() {
   }, [state.installed, state.providerState]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return modelCatalog.filter((m) => {
       if (kind !== "all" && m.kind !== kind) return false;
       if (category !== "all" && m.category !== category) return false;
@@ -665,7 +667,7 @@ function ModelsPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [query, kind, category, tab, statuses]);
+  }, [deferredQuery, kind, category, tab, statuses]);
 
   const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}`;
   const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;

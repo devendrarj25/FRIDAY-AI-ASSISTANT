@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useDeferredValue } from "react";
 import { FolderPlus, Loader2, Search } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,8 @@ function listField(values: string[]): string {
 function ModulesPage() {
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -111,7 +113,7 @@ function ModulesPage() {
 
   const rows = modules.filter((row) => {
     if (category !== "all" && row.category !== category) return false;
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return true;
     return (
       row.name.toLowerCase().includes(needle) ||

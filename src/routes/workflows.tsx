@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { Loader2, Play, Plus, RefreshCw, Search, Workflow as WorkflowIcon } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -104,6 +104,8 @@ function WorkflowsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -165,7 +167,7 @@ function WorkflowsPage() {
     long: listed.filter((row) => row.steps.length >= 8).length,
   };
 
-  const needle = query.trim().toLowerCase();
+  const needle = deferredQuery.trim().toLowerCase();
   const rows = listed.filter((row) => {
     if (tab === "enabled") {
       if (!(row.enabled || row.status === "Enabled")) return false;

@@ -18,7 +18,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
@@ -127,6 +127,8 @@ function DoctorPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<DoctorFilter>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [ask, setAsk] = useState("");
   const [follow, setFollow] = useState(true);
   const logRef = useRef<HTMLUListElement | null>(null);
@@ -143,8 +145,8 @@ function DoctorPage() {
   );
 
   const visible = useMemo(
-    () => filterChecks(state.checks, { filter, query }),
-    [state.checks, filter, query],
+    () => filterChecks(state.checks, { filter, query: deferredQuery }),
+    [state.checks, filter, deferredQuery],
   );
 
   const groups = useMemo(() => {

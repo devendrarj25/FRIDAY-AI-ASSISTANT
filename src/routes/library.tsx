@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Download, FolderOpen, Pin, RefreshCw, Search, Trash2, Upload } from "lucide-react";
@@ -56,6 +56,8 @@ function LibraryPage() {
   const desktop = isDesktopApp();
   const [items, setItems] = useState<LibraryRecord[]>(() => library.list());
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [type, setType] = useState<LibraryType | "all">("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -117,7 +119,7 @@ function LibraryPage() {
   }, [desktop, items, openId]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     const filtered = items.filter((item) => {
       if (type !== "all" && item.type !== type) return false;
       if (!q) return true;
@@ -128,7 +130,7 @@ function LibraryPage() {
       if (sort === "size") return b.size - a.size;
       return b.updatedAt - a.updatedAt;
     });
-  }, [items, query, type, sort]);
+  }, [items, deferredQuery, type, sort]);
 
   const open = openId ? items.find((item) => item.id === openId) : undefined;
 

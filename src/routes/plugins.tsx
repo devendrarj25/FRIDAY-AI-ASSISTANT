@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useDeferredValue } from "react";
 import { Loader2, Plug, RefreshCw, Search } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,8 @@ function PluginsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -116,7 +118,7 @@ function PluginsPage() {
     updates: updates.length,
   };
 
-  const needle = query.trim().toLowerCase();
+  const needle = deferredQuery.trim().toLowerCase();
   const rows = listed.filter((p) => {
     if (tab === "updates") {
       if (!p.latest || p.version === p.latest) return false;

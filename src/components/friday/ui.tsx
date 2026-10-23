@@ -3,12 +3,15 @@ import {
   forwardRef,
   isValidElement,
   useLayoutEffect,
+  useOptimistic,
   useRef,
+  useState,
+  useTransition,
   type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Inbox, Loader2, MoreHorizontal, type LucideIcon } from "lucide-react";
+import { ChevronsDown, Inbox, List, Loader2, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -231,6 +234,23 @@ export function useSlidingThumb(active: string | number) {
   return { listRef, thumbRef };
 }
 
+/**
+ * Tab and filter changes: the chosen tab lights up at once (optimistic), while
+ * the page content it controls updates as a low-priority transition, so a
+ * heavy page never makes the click feel late.
+ */
+function useTransitionValue<T>(value: T, onChange: (next: T) => void) {
+  const [shown, setShown] = useOptimistic(value);
+  const [, startTransition] = useTransition();
+  const change = (next: T) => {
+    startTransition(() => {
+      setShown(next);
+      onChange(next);
+    });
+  };
+  return [shown, change] as const;
+}
+
 /** One choice out of a few, as an iOS segmented control. */
 export function SegmentedControl<T extends string>({
   label,
@@ -245,7 +265,8 @@ export function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
   className?: string;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
@@ -255,14 +276,14 @@ export function SegmentedControl<T extends string>({
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {options.map((item) => {
-        const on = value === item.id;
+        const on = shown === item.id;
         const Icon = item.icon;
         return (
           <button
             key={item.id}
             type="button"
             aria-pressed={on}
-            onClick={() => onChange(item.id)}
+            onClick={() => pick(item.id)}
             className={cn(
               "friday-btn inline-flex items-center justify-center gap-1.5 rounded-ctl border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on
@@ -288,7 +309,8 @@ export function FilterTabs({
   value: string;
   onChange: (key: string) => void;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
@@ -298,8 +320,8 @@ export function FilterTabs({
         tabKeys(
           e,
           tabs.map((t) => t.key),
-          value,
-          onChange,
+          shown,
+          pick,
         )
       }
     >
@@ -309,13 +331,13 @@ export function FilterTabs({
           key={t.key}
           type="button"
           role="tab"
-          aria-selected={value === t.key}
-          tabIndex={value === t.key ? 0 : -1}
+          aria-selected={shown === t.key}
+          tabIndex={shown === t.key ? 0 : -1}
           data-tab-key={t.key}
-          onClick={() => onChange(t.key)}
+          onClick={() => pick(t.key)}
           className={cn(
             "friday-btn rounded-ctl border px-2 py-1 text-meta transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            value === t.key
+            shown === t.key
               ? "border-primary/50 bg-primary/15 text-primary glow-ring"
               : "border-border bg-surface text-muted-foreground hover:border-primary/30 hover:text-foreground",
           )}
@@ -417,16 +439,26 @@ export function MetricBar({
   );
 }
 
+/** Rows drawn at first; the rest follow on request, so a long catalogue opens quickly. */
+export const TABLE_ROW_STEP = 80;
+
 export function DataTable({
   columns,
   rows,
   pinLast = false,
+  step = TABLE_ROW_STEP,
 }: {
   columns: string[];
   rows: ReactNode[][];
   /** Keep the final (action) column reachable when the table scrolls sideways. */
   pinLast?: boolean;
+  /** How many rows to draw before "Show more". */
+  step?: number;
 }) {
+  const [shownCount, setShownCount] = useState(step);
+  const total = rows.length;
+  const limit = Math.max(step, shownCount);
+  const visible = total > limit ? rows.slice(0, limit) : rows;
   const last = columns.length - 1;
   const pinCls = (isLast: boolean, head: boolean) =>
     pinLast && isLast
@@ -448,7 +480,7 @@ export function DataTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {visible.map((row, i) => (
             <tr
               key={i}
               className="border-b border-border/60 transition-colors last:border-0 hover:bg-primary/6"
@@ -465,6 +497,25 @@ export function DataTable({
           ))}
         </tbody>
       </table>
+      {total > limit ? (
+        <div className="flex flex-wrap items-center justify-center gap-2 py-3">
+          <span className="text-meta text-muted-foreground">
+            Showing {limit} of {total}
+          </span>
+          <ActionButton
+            icon={ChevronsDown}
+            label={`Show ${Math.min(step, total - limit)} more`}
+            labelMode="inline"
+            onClick={() => setShownCount(limit + step)}
+          />
+          <ActionButton
+            icon={List}
+            label={`Show all ${total}`}
+            labelMode="inline"
+            onClick={() => setShownCount(total)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -704,7 +755,8 @@ export function SectionTabs({
   onChange: (key: string) => void;
   label?: string;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
@@ -715,14 +767,14 @@ export function SectionTabs({
         tabKeys(
           e,
           tabs.map((t) => t.key),
-          value,
-          onChange,
+          shown,
+          pick,
         )
       }
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {tabs.map((t) => {
-        const on = value === t.key;
+        const on = shown === t.key;
         const Icon = t.icon;
         return (
           <button
@@ -732,7 +784,7 @@ export function SectionTabs({
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             data-tab-key={t.key}
-            onClick={() => onChange(t.key)}
+            onClick={() => pick(t.key)}
             className={cn(
               "friday-btn relative inline-flex items-center gap-1.5 rounded-ctl px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on

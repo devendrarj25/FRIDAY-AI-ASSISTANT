@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { toast } from "sonner";
 import {
   Brush,
@@ -124,6 +124,8 @@ function InstallManagerPage() {
   const [tab, setTab] = useState<InstallerFilter>("all");
   const [category, setCategory] = useState<string>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [showHistory, setShowHistory] = useState(false);
   const [follow, setFollow] = useState(true);
   const [ask, setAsk] = useState("");
@@ -183,8 +185,8 @@ function InstallManagerPage() {
         if (tab === "missing" && status !== "Not installed") return false;
         if (tab === "required" && e.requirement !== "required") return false;
         if (category !== "all" && e.category !== category) return false;
-        if (query.trim()) {
-          const q = query.toLowerCase();
+        if (deferredQuery.trim()) {
+          const q = deferredQuery.toLowerCase();
           const path = state.probe[e.pkg]?.path ?? "";
           if (
             !`${e.pkg} ${e.category} ${e.source} ${e.method} ${e.url} ${path}`
@@ -195,7 +197,7 @@ function InstallManagerPage() {
         }
         return true;
       }),
-    [entries, statuses, tab, category, query, state.probe],
+    [entries, statuses, tab, category, deferredQuery, state.probe],
   );
 
   const perCategory = useMemo(

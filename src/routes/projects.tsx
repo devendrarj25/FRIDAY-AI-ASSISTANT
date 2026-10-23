@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useDeferredValue } from "react";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
@@ -64,6 +64,8 @@ function ProjectsPage() {
   const [activeId, setActiveId] = useState<string | null>(() => projectWorkspaces.activeId());
   const [tab, setTab] = useState<(typeof PROJECT_TABS)[number]>("overview");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -171,13 +173,13 @@ function ProjectsPage() {
   }, [fileProjectId, tab, fileUpdatedAt]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return items.filter((item) => {
       if (!showArchived && item.archived) return false;
       if (!q) return true;
       return `${item.name} ${item.kind} ${item.id}`.toLowerCase().includes(q);
     });
-  }, [items, query, showArchived]);
+  }, [items, deferredQuery, showArchived]);
 
   const runtimeHealth = (active?.runtime ?? []).map((pkg) => {
     const entry = installer.entries().find((row) => row.pkg === pkg);

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,6 +78,8 @@ function LogsPage() {
   const [level, setLevel] = useState<LogLevel | "all">("all");
   const [source, setSource] = useState<string>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [ask, setAsk] = useState("");
   const streamRef = useRef<HTMLPreElement | null>(null);
 
@@ -159,8 +161,8 @@ function LogsPage() {
   }, [lines]);
 
   const visible = useMemo(
-    () => filterLogLines(lines, { level, source, query }),
-    [lines, level, source, query],
+    () => filterLogLines(lines, { level, source, query: deferredQuery }),
+    [lines, level, source, deferredQuery],
   );
 
   const errors = summarizeLogErrors(lines);

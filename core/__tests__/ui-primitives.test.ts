@@ -472,3 +472,28 @@ describe("iOS segmented control, switch and chips", () => {
     expect(read("src/components/ui/switch.tsx")).toContain("friday-switch-thumb");
   });
 });
+
+describe("long tables and tab transitions", () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => [`row-${i}`, "x"]);
+
+  it("draws the first page of a long table and offers the rest", () => {
+    const out = html(createElement(DataTable, { columns: ["A", "B"], rows: rows(200) }));
+    expect(out).toContain("row-79");
+    expect(out).not.toContain("row-80<");
+    expect(out).toContain("Showing 80 of 200");
+    expect(out).toContain('aria-label="Show 80 more"');
+    expect(out).toContain('aria-label="Show all 200"');
+  });
+
+  it("draws a short table whole with no paging controls", () => {
+    const out = html(createElement(DataTable, { columns: ["A", "B"], rows: rows(5) }));
+    expect(out).toContain("row-4");
+    expect(out).not.toContain("Show all");
+  });
+
+  it("keeps the tab primitives on the optimistic transition helper", () => {
+    const src = read("src/components/friday/ui.tsx");
+    expect(src.match(/useTransitionValue\(/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(src).toContain("useOptimistic(value)");
+  });
+});

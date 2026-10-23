@@ -8,7 +8,7 @@
  * gate as the rest of FRIDAY.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { Loader2, Plug, RefreshCw, Search, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -549,6 +549,8 @@ function McpServerPanel() {
 function ConnectorsPage() {
   const { connectors, loading, supported, refresh } = useConnectors();
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [category, setCategory] = useState("all");
   const [tab, setTab] = useState("all");
   const counts = useMemo(
@@ -565,7 +567,7 @@ function ConnectorsPage() {
     return keys;
   }, [connectors]);
   const rows = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     return connectors.filter((connector) => {
       if (tab === "connected" && !connector.connected) return false;
       if (tab === "open" && connector.connected) return false;
@@ -574,7 +576,7 @@ function ConnectorsPage() {
       const hay = `${connector.name} ${connector.id} ${connector.category} ${connector.description} ${connector.authType || ""}`;
       return hay.toLowerCase().includes(needle);
     });
-  }, [connectors, query, category, tab]);
+  }, [connectors, deferredQuery, category, tab]);
 
   return (
     <AppShell

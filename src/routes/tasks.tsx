@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -397,6 +397,8 @@ function TasksPage() {
   const [follow, setFollow] = useState(true);
   const [filter, setFilter] = useState<TasksFilter>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [ask, setAsk] = useState("");
   const [draft, setDraft] = useState("");
   const [blocker, setBlocker] = useState("");
@@ -437,12 +439,12 @@ function TasksPage() {
   }, [graphs, follow]);
 
   const visibleGraphs = useMemo(
-    () => filterGraphs(graphs, { filter, query }),
-    [graphs, filter, query],
+    () => filterGraphs(graphs, { filter, query: deferredQuery }),
+    [graphs, filter, deferredQuery],
   );
   const visibleLedger = useMemo(
-    () => filterLedger(tasks, { filter, query }),
-    [tasks, filter, query],
+    () => filterLedger(tasks, { filter, query: deferredQuery }),
+    [tasks, filter, deferredQuery],
   );
   const live = visibleLedger.filter((t) => LIVE.includes(t.status));
   const history = visibleLedger.filter((t) => !LIVE.includes(t.status)).slice(0, 40);
