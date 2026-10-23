@@ -1,6 +1,6 @@
 # FRIDAY — Feature & Capability Catalog
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
 

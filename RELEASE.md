@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-**Current shipping version: 1.1.3.4**
+**Current shipping version: 1.1.3.5**
 
 🚀 How to publish. The number rules are [VERSIONING.md](VERSIONING.md). The workflow catalog is [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md). Pack internals are [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
@@ -19,7 +19,7 @@ _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Loca
 npm run build:win
 ```
 
-Produces `FRIDAY-Setup-1.1.3.4.exe` and `FRIDAY-Portable-1.1.3.4.exe` under `release\`. It does not create a GitHub Release. Steps: [INSTALL.md](INSTALL.md).
+Produces `FRIDAY-Setup-1.1.3.5.exe` and `FRIDAY-Portable-1.1.3.5.exe` under `release\`. It does not create a GitHub Release. Steps: [INSTALL.md](INSTALL.md).
 
 ## TEST EXE
 
