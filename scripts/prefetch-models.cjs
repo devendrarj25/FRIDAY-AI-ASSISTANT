@@ -12,12 +12,19 @@
  * folders from Models and Install Manager. A failed or offline download never
  * fails the build; it is reported and the app fetches it on first use.
  *
+ * Running it again is cheap and quiet: every piece that is already on disk (and
+ * matches its pinned digest where one exists) is only verified and the next one
+ * is taken. `npm run setup` and `build:win` both run it, so nothing downloads twice.
+ *
  * On Windows the same step also sets up Ollama. An Ollama that is already on
  * this PC (running, on PATH, or in its standard folders) is reused as it is:
  * no installer is downloaded and nothing is reinstalled. Only a missing Ollama
  * is installed per user (the newest official release, SHA-256 and Authenticode
- * checked, no administrator). It is then started and the two small chat models
- * above are pulled, so chat works on the first launch.
+ * checked, no administrator). It is then started and the local chat models of
+ * config/local-runners.json are pulled: two light, fast ones for quick replies
+ * and talking, and one larger, smarter one for long, hard work. A model Ollama
+ * already holds is not pulled again, and the Qwen GGUF below is fetched only
+ * when Ollama could not provide the same small model.
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_OLLAMA=0 skips the Ollama install and pulls. Hosted CI skips it unless FRIDAY_PREFETCH=1, so a
@@ -25,19 +32,16 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const os = require("node:os");
 
 const voiceWeights = require("../electron/voice-weights.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const localLibrary = require("../electron/local-library.cjs");
 
-/** Ollama is the local engine FRIDAY starts and stops; these two are pulled through it. */
+/** Ollama is the local engine FRIDAY starts and stops; the tiered models are pulled through it. */
 const OLLAMA_API = "http://127.0.0.1:11434";
-const OLLAMA_MODELS = [
-  { tag: "qwen2.5:1.5b", role: "fast replies and voice turns" },
-  { tag: "qwen2.5:3b", role: "smarter chat, English, Hindi and Hinglish" },
-];
+const OLLAMA_MODELS = localLibrary.ollamaModels();
 
 /** Speech sizes: base starts listening fast, small is the Hindi/Hinglish default. */
 const STT_SIZES = ["base", "small"];
@@ -59,42 +63,26 @@ function enabled(env, key) {
   return String(env[key] ?? "1").trim() !== "0";
 }
 
-/** Standard places a per-user or per-machine Ollama lands on Windows. */
-function ollamaLocations(env = process.env) {
-  const exe = ["Ollama", "ollama.exe"];
-  return [
-    env.LOCALAPPDATA && path.win32.join(env.LOCALAPPDATA, "Programs", ...exe),
-    env.ProgramFiles && path.win32.join(env.ProgramFiles, ...exe),
-    env["ProgramFiles(x86)"] && path.win32.join(env["ProgramFiles(x86)"], ...exe),
-  ].filter(Boolean);
-}
+const findOllama = localLibrary.findInstalledOllama;
 
-/** The Ollama on this PC: its executable and version, or null when none is installed. */
-function findOllama({ env = process.env, exists = fs.existsSync, version } = {}) {
-  const names = process.platform === "win32" ? ["ollama.exe"] : ["ollama"];
-  const onPath = String(env.PATH || env.Path || "")
-    .split(path.delimiter)
-    .filter(Boolean)
-    .flatMap((dir) => names.map((name) => path.join(dir, name)));
-  const exe = [...onPath, ...ollamaLocations(env)].find((file) => exists(file));
-  if (!exe) return null;
-  return { exe, version: (version || ollamaVersion)(exe) };
-}
-
-/** `ollama --version` prints the client version; a running older daemon adds its own line. */
-function ollamaVersion(exe) {
-  try {
-    const out = execFileSync(exe, ["--version"], {
-      encoding: "utf8",
-      timeout: 8000,
-      windowsHide: true,
-    });
-    const client = /client version is\s+v?(\d+(?:\.\d+)+)/i.exec(out);
-    const plain = /version is\s+v?(\d+(?:\.\d+)+)/i.exec(out);
-    return (client || plain || [])[1] || null;
-  } catch {
-    return null;
+/** Whether this PC can hold a tier: a smart model needs the RAM its config row names. */
+function modelWanted(model, env = process.env, totalGb = os.totalmem() / 1024 ** 3) {
+  if (model.tier === "smart" && !enabled(env, "FRIDAY_PREFETCH_OLLAMA_SMART")) {
+    return { ok: false, why: "FRIDAY_PREFETCH_OLLAMA_SMART=0" };
   }
+  if (model.minRamGb && totalGb < model.minRamGb) {
+    return { ok: false, why: `needs ${model.minRamGb} GB RAM, this PC has ${Math.floor(totalGb)}` };
+  }
+  return { ok: true, why: "" };
+}
+
+/** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
+function ollamaServesChat(env, platform) {
+  return (
+    platform === "win32" &&
+    enabled(env, "FRIDAY_PREFETCH_OLLAMA") &&
+    enabled(env, "FRIDAY_AUTO_INSTALL")
+  );
 }
 
 /**
@@ -136,13 +124,8 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       },
     });
   }
-  if (enabled(env, "FRIDAY_PREFETCH_CHAT")) {
-    jobs.push({
-      id: CHAT_MODEL.id,
-      kind: "chat",
-      ready: "",
-      job: { modelId: CHAT_MODEL.id, sources: CHAT_MODEL.sources, dir: path.join(root, "models") },
-    });
+  if (enabled(env, "FRIDAY_PREFETCH_CHAT") && !ollamaServesChat(env, platform)) {
+    jobs.push(chatJob(root));
   }
   const release = (localRunners.runners || []).find((row) => row.id === "ollama")?.release;
   if (
@@ -181,12 +164,29 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   return jobs;
 }
 
+function chatJob(root) {
+  return {
+    id: CHAT_MODEL.id,
+    kind: "chat",
+    ready: path.join(root, "models", CHAT_MODEL.id),
+    job: { modelId: CHAT_MODEL.id, sources: CHAT_MODEL.sources, dir: path.join(root, "models") },
+  };
+}
+
+/** Is this piece already here? A pinned digest is checked; nothing is fetched to find out. */
 function alreadyThere(row) {
   if (!row.ready) return false;
   if (row.kind === "stt") return voiceWeights.weightsReady(row.ready, fs.existsSync);
+  if (row.kind === "chat") {
+    try {
+      return fs.readdirSync(row.ready).some((name) => name.toLowerCase().endsWith(".gguf"));
+    } catch {
+      return false;
+    }
+  }
   if (!fs.existsSync(row.ready)) return false;
-  // A kept installer is reused only when it is the exact bytes the publisher signed off.
-  const want = row.kind === "installer" ? row.job.sources[0]?.sha256 : "";
+  // A kept file is reused only when it is the exact bytes the publisher signed off.
+  const want = row.job.sources[0]?.sha256;
   if (!want) return true;
   try {
     return (
@@ -304,13 +304,22 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
     }
   }
   rows.push({ id: "ollama", ok: true });
-  for (const model of OLLAMA_MODELS) {
+  const models = deps.models || OLLAMA_MODELS;
+  for (const model of models) {
+    const wanted = modelWanted(model, deps.env || process.env, deps.totalGb);
+    if (!wanted.ok) {
+      log(`[friday] INFO     ${model.tag} (${model.tier}) skipped: ${wanted.why}`);
+      rows.push({ id: model.tag, ok: true, downloaded: false, skipped: wanted.why });
+      continue;
+    }
     if (have.has(model.tag)) {
-      log(`[friday] ok       ${model.tag} already pulled`);
+      log(
+        `[friday] ok       ${model.tag} (${model.tier}) already in Ollama; verified, not pulled again`,
+      );
       rows.push({ id: model.tag, ok: true, downloaded: false });
       continue;
     }
-    log(`[friday] pulling ${model.tag} (${model.role})`);
+    log(`[friday] pulling ${model.tag} (${model.tier}: ${model.role})`);
     let result;
     try {
       result = await (deps.pull || ollamaPull)(model.tag, {
@@ -453,7 +462,7 @@ async function prefetch(
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
   for (const row of jobs) {
     if (alreadyThere(row)) {
-      log(`[friday] ok       ${row.id} already on disk`);
+      log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
       rows.push({ id: row.id, ok: true, downloaded: false });
       continue;
     }
@@ -473,25 +482,51 @@ async function prefetch(
       rows.push({ id: row.id, ok: false, error: why });
     }
   }
+  let ollamaRows = [];
   if (wantOllama && enabled(env, "FRIDAY_AUTO_INSTALL")) {
     const fetched = installer ? rows.find((row) => row.id === installer.id) : null;
     if (existing.installed || fetched?.ok || (installer && alreadyThere(installer))) {
       try {
-        rows.push(
-          ...(await ensureOllama(root, installer || null, {
-            log,
-            deps: {
-              signed: async (file) =>
-                require("../electron/download-safety.cjs").authenticodeStatus(file),
-              ...(existing.exe ? { ollamaExe: existing.exe } : {}),
-              ...ollama,
-            },
-          })),
-        );
+        ollamaRows = await ensureOllama(root, installer || null, {
+          log,
+          deps: {
+            signed: async (file) =>
+              require("../electron/download-safety.cjs").authenticodeStatus(file),
+            ...(existing.exe ? { ollamaExe: existing.exe } : {}),
+            ...ollama,
+          },
+        });
+        rows.push(...ollamaRows);
       } catch (err) {
         log(`[friday] INFO     ollama setup skipped (${String((err && err.message) || err)})`);
       }
     }
+  }
+  // The Qwen GGUF is the same small model Ollama pulls; it is fetched only
+  // when Ollama is meant to provide it and could not.
+  const small = OLLAMA_MODELS.find((model) => model.tier === "fast")?.tag;
+  const provided = ollamaRows.some((row) => row.id === small && row.ok);
+  if (
+    ollamaServesChat(env, platform) &&
+    enabled(env, "FRIDAY_PREFETCH_CHAT") &&
+    !provided &&
+    !alreadyThere(chatJob(root))
+  ) {
+    log(
+      `[friday] INFO     ${small || "the small chat model"} is not in Ollama; fetching the GGUF copy`,
+    );
+    const gguf = chatJob(root);
+    let result;
+    try {
+      result = await fetchModel(gguf.job, printer(log, gguf.id), undefined);
+    } catch (err) {
+      result = { ok: false, error: String((err && err.message) || err) };
+    }
+    rows.push(
+      result && result.ok
+        ? { id: gguf.id, ok: true, downloaded: true }
+        : { id: gguf.id, ok: false, error: (result && result.error) || "download failed" },
+    );
   }
   return rows;
 }
@@ -506,7 +541,8 @@ module.exports = {
   ollamaPull,
   findOllama,
   detectOllama,
-  ollamaVersion,
+  modelWanted,
+  ollamaServesChat,
 };
 
 if (require.main === module) {

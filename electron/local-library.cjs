@@ -2,6 +2,8 @@
  * Local runners and library parsers. Catalog rows are curated where a vendor
  * publishes no machine-readable list. Parsers read official JSON only.
  */
+const fs = require("node:fs");
+const path = require("node:path");
 const resourcePaths = require("./resource-paths.cjs");
 
 const FALLBACK_CATALOG = { checked: "", runners: [], curated: [] };
@@ -246,6 +248,69 @@ function launcherCard(runner, probe = {}) {
   };
 }
 
+/** Standard places a per-user or per-machine Ollama lands on Windows. */
+function ollamaLocations(env = process.env) {
+  const exe = ["Ollama", "ollama.exe"];
+  return [
+    env.LOCALAPPDATA && path.win32.join(env.LOCALAPPDATA, "Programs", ...exe),
+    env.ProgramFiles && path.win32.join(env.ProgramFiles, ...exe),
+    env["ProgramFiles(x86)"] && path.win32.join(env["ProgramFiles(x86)"], ...exe),
+  ].filter(Boolean);
+}
+
+/**
+ * The version `ollama --version` reports for the client. A running older
+ * daemon prints its own line first and the client on a "client version is"
+ * warning, and the client is what is installed.
+ */
+function ollamaClientVersion(text) {
+  const out = String(text || "");
+  const client = /client version is\s+v?(\d+(?:\.\d+)+)/i.exec(out);
+  const plain = /version is\s+v?(\d+(?:\.\d+)+)/i.exec(out);
+  return (client || plain || [])[1] || null;
+}
+
+/** The Ollama on this PC (PATH, then its standard folders): executable and version, or null. */
+function findInstalledOllama({ env = process.env, exists = fs.existsSync, version } = {}) {
+  const names = process.platform === "win32" ? ["ollama.exe"] : ["ollama"];
+  const onPath = String(env.PATH || env.Path || "")
+    .split(path.delimiter)
+    .filter(Boolean)
+    .flatMap((dir) => names.map((name) => path.join(dir, name)));
+  const exe = [...onPath, ...ollamaLocations(env)].find((file) => exists(file));
+  if (!exe) return null;
+  const read =
+    version ||
+    ((file) => {
+      try {
+        return ollamaClientVersion(
+          require("node:child_process").execFileSync(file, ["--version"], {
+            encoding: "utf8",
+            timeout: 8000,
+            windowsHide: true,
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
+        );
+      } catch (err) {
+        return ollamaClientVersion(`${err?.stdout || ""}${err?.stderr || ""}`);
+      }
+    });
+  return { exe, version: read(exe) };
+}
+
+/** The local models setup pulls through Ollama, by tier (config/local-runners.json). */
+function ollamaModels(options = {}) {
+  const runner = options.runner || runnerById("ollama");
+  return (Array.isArray(runner?.models) ? runner.models : [])
+    .filter((row) => row && typeof row.tag === "string" && row.tag)
+    .map((row) => ({
+      tag: row.tag,
+      tier: row.tier === "smart" ? "smart" : "fast",
+      role: String(row.role || ""),
+      minRamGb: Number(row.minRamGb) > 0 ? Number(row.minRamGb) : 0,
+    }));
+}
+
 /**
  * The newest official installer for one launcher. A live GitHub release wins
  * only when it carries the asset and the sha256 GitHub itself computed for it
@@ -291,6 +356,10 @@ async function latestOfficialRelease(id, options = {}) {
 }
 
 module.exports = {
+  ollamaLocations,
+  ollamaClientVersion,
+  findInstalledOllama,
+  ollamaModels,
   latestOfficialRelease,
   runners,
   runnerById,

@@ -152,7 +152,7 @@ The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 2. `scripts\check-engines.cjs` (same `package.json` engines as CI) **before** `npm ci`.
 3. `npm ci --no-audit --no-fund`. On failure: `npm cache verify` and a second `npm ci` against `https://registry.npmjs.org/`.
 4. `scripts\ensure-electron.cjs --quiet`.
-5. `scripts\setup-python.cjs` (Python venv, then the model prefetch: speech weights, turn-taking and wake models, a small chat GGUF, and on Windows a per-user Ollama install with `qwen2.5:1.5b` and `qwen2.5:3b`, each with a progress bar; details and opt-outs in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) section 7) then `scripts\init-runtime.cjs`.
+5. `scripts\setup-python.cjs` (Python venv, then the model prefetch: speech weights, turn-taking and wake models, and on Windows an installed Ollama is reused (or a per-user one installed) with two light, fast models and one larger, smarter model, each with a progress bar and none downloaded twice; details and opt-outs in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) section 7) then `scripts\init-runtime.cjs`.
 6. `scripts\check-environment.cjs --fix` then `scripts\env-registry.cjs repair`.
 7. `scripts\release-engine.cjs heal` then `verify`.
 8. `scripts\verify-deps.cjs`.

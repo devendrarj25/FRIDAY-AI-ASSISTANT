@@ -528,12 +528,15 @@ if (win) {
 }
 
 {
-  const ollama = firstVersion(capture("ollama", ["--version"]));
+  // The installed client, on PATH or in its standard folders: a per-user
+  // install is not on the PATH of a shell opened before it was installed.
+  const installedOllama = require("../electron/local-library.cjs").findInstalledOllama();
+  const ollama = installedOllama ? installedOllama.version || "installed" : null;
   add({
     name: "Ollama (local models)",
     required: false,
     ok: !!ollama,
-    found: ollama ? `v${ollama}` : "not installed",
+    found: ollama ? (/^\d/.test(ollama) ? `v${ollama}` : ollama) : "not installed",
     want: "optional — only for local LLMs",
     fix: "winget install -e --id Ollama.Ollama",
     url: "https://ollama.com/download",

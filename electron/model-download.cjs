@@ -355,6 +355,16 @@ async function ollamaReachable(signal) {
 async function registerGguf(name, file, onEvent, signal) {
   if (!(await ollamaReachable(signal))) return { ok: false, error: "ollama not running" };
   try {
+    // Creating a tag imports the whole file into Ollama's own store, so a tag
+    // that is already there is verified by name and left alone.
+    const listed = await fetch(`${OLLAMA}/api/tags`, { signal });
+    if (listed.ok) {
+      const have = ((await listed.json()).models || []).map((row) => String(row.name || row.model));
+      if (have.some((tag) => tag === name || tag === `${name}:latest`)) {
+        onEvent?.({ status: `already registered with Ollama as ${name}` });
+        return { ok: true, already: true };
+      }
+    }
     const res = await fetch(`${OLLAMA}/api/create`, {
       method: "POST",
       headers: { "content-type": "application/json" },

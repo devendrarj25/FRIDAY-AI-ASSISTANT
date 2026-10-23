@@ -89,7 +89,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
-- The build-time downloader (progress bar, mirror fallback, `qwen2.5:1.5b` and `qwen2.5:3b` pulls) and the Ollama paths ran only against stand-ins: reuse of an installed Ollama (no installer download), the newest-official-release install with GitHub's digest, and the Install Manager Ollama install and update (live bytes, client-version read, service restart) are unverified until a Windows `build:win` and an Install Manager update run them. The Ollama docs and release API could not be fetched in the last session, so the silent switches and the `digest` field are unverified against the live pages. Ollama keeps its own models folder.
+- The build-time downloader (progress bar, mirror fallback, `qwen2.5:1.5b` and `qwen2.5:3b` pulls) and the Ollama paths ran only against stand-ins: reuse of an installed Ollama (no installer download), the newest-official-release install with GitHub's digest, the two-fast-plus-one-smart Ollama model tiers (`qwen2.5:1.5b`, `qwen2.5:3b`, `qwen2.5:7b`; the 7b needs 12 GB RAM), the skip of `npm ci` and of repeat downloads on a second `build:win`, and the Install Manager Ollama install and update (live bytes, client-version read, service restart) are unverified until a Windows `build:win` and an Install Manager update run them. The Ollama docs and release API could not be fetched in the last session, so the silent switches and the `digest` field are unverified against the live pages. Ollama keeps its own models folder.
 - Hindi and Hinglish hearing quality, the wake word, and voice-turn speed with the new local models need a real microphone on the Windows PC.
 - DeepSeek's pricing page carries no price table, so its pricing date is older than the other sources and its models stay unknown until a real table can be read (`npm run pricing:status` reports it).
 - Groq publishes no free-model list, so Groq ids stay unknown until the owner marks them free.
@@ -106,7 +106,8 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 3. Re-read a real DeepSeek price table when the vendor publishes one, and refresh pricing knowledge from the Models page.
 4. Voice and Auto: keep moving toward a calm, capable assistant (ambient awareness, anticipation, proactive and polite help, plan → act → verify → report) inside the autonomy dial; measure on the Windows PC with a real microphone.
 5. Give the other launcher rows in `config/local-runners.json` (Jan, GPT4All, KoboldCpp) the same newest-release resolver as Ollama once each publishes a per-asset digest; today only Ollama sets `release` in `electron/toolchain.cjs`.
-6. Wire the remaining unverified provider paths (live key, live stream, tool and vision flags) when the owner supplies keys.
+6. Voice: a second, larger speech-to-text size (faster-whisper `medium`) as an on-demand tier, and a measured check on a real microphone that quick spoken turns land on the fast models and long work on the smart one. Model tags are config (`config/local-runners.json`); the Ollama library page could not be fetched in this session, so newer families (Qwen3, Gemma) were not compared.
+7. Wire the remaining unverified provider paths (live key, live stream, tool and vision flags) when the owner supplies keys.
 
 ## Coming back after a gap
 

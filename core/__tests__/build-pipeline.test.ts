@@ -629,3 +629,42 @@ describe("build pipeline", () => {
 function boundsSafe(data: { budgetBytes: number; packs: unknown[] }) {
   return pipeline.installerBounds(data).floor;
 }
+
+describe("npm ci is not repeated for node_modules that setup just installed", () => {
+  const current = (
+    pipeline as unknown as {
+      nodeModulesCurrent: (root: string, env?: Record<string, string>) => boolean;
+    }
+  ).nodeModulesCurrent;
+
+  function checkout(order: { modules: number; manifest: number }) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "friday-npm-"));
+    const touch = (file: string, seconds: number) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "{}");
+      const at = new Date(Date.now() - seconds * 1000);
+      fs.utimesSync(file, at, at);
+    };
+    touch(path.join(dir, "package.json"), order.manifest);
+    touch(path.join(dir, "package-lock.json"), order.manifest);
+    touch(path.join(dir, "node_modules", ".package-lock.json"), order.modules);
+    touch(path.join(dir, "node_modules", "electron", "path.txt"), order.modules);
+    return dir;
+  }
+
+  it("skips only when node_modules is newer than both manifests and Electron is in place", () => {
+    const fresh = checkout({ modules: 10, manifest: 60 });
+    const stale = checkout({ modules: 60, manifest: 10 });
+    try {
+      expect(current(fresh)).toBe(true);
+      expect(current(stale)).toBe(false);
+      expect(current(fresh, { FRIDAY_FORCE_NPM_CI: "1" })).toBe(false);
+      fs.rmSync(path.join(fresh, "node_modules", "electron", "path.txt"));
+      expect(current(fresh)).toBe(false);
+      expect(current(path.join(fresh, "missing"))).toBe(false);
+    } finally {
+      fs.rmSync(fresh, { recursive: true, force: true });
+      fs.rmSync(stale, { recursive: true, force: true });
+    }
+  });
+});

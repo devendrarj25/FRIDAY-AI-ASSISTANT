@@ -318,7 +318,7 @@ if (!voiceImportable()) {
     // now, through the app's own verified downloader. A miss never fails setup.
     run(process.execPath, [path.join(__dirname, "prefetch-models.cjs")], {
       env: { ...process.env, FRIDAY_ROOT: picked.root },
-      timeout: 3600000,
+      timeout: 4 * 3600 * 1000,
     });
     const sttDir = ["small", "base"]
       .map((size) => path.join(picked.root, "cache", "stt", size))

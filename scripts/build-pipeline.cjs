@@ -534,7 +534,38 @@ function runNode(script, args, root) {
   }
 }
 
+/**
+ * `npm ci` wipes node_modules and installs them again, which `npm run setup`
+ * has just done. node_modules is current when npm's own hidden lockfile is
+ * newer than package.json and package-lock.json and the Electron binary is in
+ * place (npm ci does not download it, ensure-electron does); anything else (a pull, an edit, a missing piece) installs again.
+ * FRIDAY_FORCE_NPM_CI=1 always installs.
+ */
+function nodeModulesCurrent(root, env = process.env) {
+  if (String(env.FRIDAY_FORCE_NPM_CI || "") === "1") return false;
+  try {
+    const modules = path.join(root, "node_modules");
+    const installed = fs.statSync(path.join(modules, ".package-lock.json")).mtimeMs;
+    const wanted = Math.max(
+      fs.statSync(path.join(root, "package.json")).mtimeMs,
+      fs.statSync(path.join(root, "package-lock.json")).mtimeMs,
+    );
+    const electron = path.join(modules, "electron");
+    const binary = process.platform === "win32" ? "electron.exe" : "electron";
+    const present =
+      fs.existsSync(path.join(electron, "path.txt")) ||
+      fs.existsSync(path.join(electron, "dist", binary));
+    return installed >= wanted && present;
+  } catch {
+    return false;
+  }
+}
+
 function npmCi(root) {
+  if (nodeModulesCurrent(root)) {
+    console.log("[FRIDAY] node_modules already matches package-lock.json; npm ci skipped");
+    return;
+  }
   const args = ["ci", "--no-audit", "--no-fund"];
   const once = spawnNpm(args, { cwd: root, stdio: "inherit" });
   if (once.status === 0) return;
@@ -852,6 +883,7 @@ module.exports = {
   signingStatusLines,
   runPackagedSelfCheck,
   runPipeline,
+  nodeModulesCurrent,
   REMOVE_OPTIONS,
   removeTree,
 };
