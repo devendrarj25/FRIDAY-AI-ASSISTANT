@@ -464,6 +464,7 @@ function InstallManagerPage() {
                 ]}
                 value={category}
                 onChange={setCategory}
+                wrap
               />
             </div>
 

@@ -222,8 +222,13 @@ export function useSlidingThumb(active: string | number) {
         thumb.style.width = "0px";
         return;
       }
+      // Width and height follow the selected item, and the thumb moves on
+      // both axes so a wrapped tab list (FilterTabs wrap) works too.
       thumb.style.width = `${el.offsetWidth}px`;
-      thumb.style.transform = `translateX(${el.offsetLeft}px)`;
+      thumb.style.height = `${el.offsetHeight}px`;
+      thumb.style.top = "0px";
+      thumb.style.bottom = "auto";
+      thumb.style.transform = `translate(${el.offsetLeft}px, ${el.offsetTop}px)`;
     };
     place();
     if (typeof ResizeObserver === "undefined") return;
@@ -304,10 +309,13 @@ export function FilterTabs({
   tabs,
   value,
   onChange,
+  wrap = false,
 }: {
   tabs: { key: string; label: string }[];
   value: string;
   onChange: (key: string) => void;
+  /** Many tabs: wrap onto more lines instead of scrolling sideways. */
+  wrap?: boolean;
 }) {
   const [shown, pick] = useTransitionValue(value, onChange);
   const { listRef, thumbRef } = useSlidingThumb(shown);
@@ -315,7 +323,7 @@ export function FilterTabs({
     <div
       ref={listRef}
       role="tablist"
-      className="friday-seg flex flex-wrap gap-1.5"
+      className={cn("friday-seg flex flex-wrap gap-1.5", wrap && "friday-seg-wrap")}
       onKeyDown={(e) =>
         tabKeys(
           e,
