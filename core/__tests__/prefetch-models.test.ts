@@ -215,3 +215,96 @@ describe("Ollama install and lite models on Windows", () => {
     expect(events).toEqual([40, 100]);
   });
 });
+
+describe("an Ollama that is already on this PC", () => {
+  const win = "win32";
+
+  it("plans no installer when Ollama is already installed", () => {
+    const jobs = prefetch.prefetchPlan("C:/friday", quiet, win, { ollama: true });
+    expect(jobs.some((r: { id: string }) => r.id === "ollama-setup")).toBe(false);
+    expect(
+      prefetch
+        .prefetchPlan("C:/friday", quiet, win, { ollama: false })
+        .some((r: { id: string }) => r.id === "ollama-setup"),
+    ).toBe(true);
+  });
+
+  it("finds Ollama on PATH or in its standard folders and reads the client version", () => {
+    const home = "C:\\Users\\me\\AppData\\Local\\Programs\\Ollama\\ollama.exe";
+    const found = prefetch.findOllama({
+      env: { PATH: "", LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
+      exists: (file: string) => file === home,
+      version: () => "0.40.4",
+    });
+    expect(found).toEqual({ exe: home, version: "0.40.4" });
+    expect(
+      prefetch.findOllama({ env: { PATH: "" }, exists: () => false, version: () => "1" }),
+    ).toBeNull();
+  });
+
+  it("downloads no installer, reuses the installed Ollama, and still pulls the lite models", async () => {
+    const fetched: string[] = [];
+    const pulled: string[] = [];
+    const lines: string[] = [];
+    const rows = await prefetch.prefetch("C:/friday", {
+      env: { ...quiet, FRIDAY_AUTO_INSTALL: "1", FRIDAY_PREFETCH_CHAT: "0" },
+      platform: win,
+      log: (line: string) => lines.push(line),
+      download: async (job: { modelId: string; dir: string }) => {
+        fetched.push(job.modelId);
+        return { ok: true };
+      },
+      latest: async () => ({ tag: "v9.9.9", url: "x", sha256: "", source: "pinned" }),
+      ollama: {
+        find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        signed: async () => {
+          throw new Error("an installed Ollama must not be re-verified or reinstalled");
+        },
+        runInstaller: async () => {
+          throw new Error("must not reinstall");
+        },
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(fetched).not.toContain("ollama");
+    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen2.5:3b"]);
+    expect(rows.find((r: { id: string }) => r.id === "ollama")).toMatchObject({ ok: true });
+    const log = lines.join("\n");
+    expect(log).toContain("ollama 0.40.4 already installed");
+    expect(log).toContain("nothing to download");
+    expect(log).toContain("v9.9.9 is available");
+  });
+
+  it("downloads the newest official release, with its own digest, only when Ollama is missing", async () => {
+    const jobs: { modelId: string; sources: { url: string; sha256: string }[] }[] = [];
+    await prefetch.prefetch("C:/friday", {
+      env: { ...quiet, FRIDAY_AUTO_INSTALL: "0", FRIDAY_PREFETCH_CHAT: "0" },
+      platform: win,
+      log: () => {},
+      download: async (job: (typeof jobs)[number]) => {
+        jobs.push(job);
+        return { ok: true };
+      },
+      latest: async () => ({
+        tag: "v9.9.9",
+        url: "https://github.com/ollama/ollama/releases/download/v9.9.9/OllamaSetup.exe",
+        sha256: "a".repeat(64),
+        bytes: 5,
+        source: "live",
+      }),
+      ollama: {
+        find: () => null,
+        fetch: async () => ({ ok: false }),
+      },
+    });
+    const setup = jobs.find((job) => job.modelId === "ollama");
+    expect(setup?.sources[0]).toMatchObject({ sha256: "a".repeat(64) });
+    expect(setup?.sources[0]?.url).toContain("/v9.9.9/");
+    expect(setup?.sources[1]?.url).toBe("https://ollama.com/download/OllamaSetup.exe");
+    expect(setup?.sources[1]?.sha256).toBe("a".repeat(64));
+  });
+});

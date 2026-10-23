@@ -189,7 +189,7 @@ async function checkRunnerRelease(id, options = {}) {
   const safety = require("./download-safety.cjs");
   safety.assertAllowedUrl(url);
   if (!options.fetchImpl) {
-    const res = await safety.fetchAllowlisted(url, {
+    const { res } = await safety.fetchAllowlisted(url, {
       headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
     });
     if (!res.ok) {
@@ -246,7 +246,52 @@ function launcherCard(runner, probe = {}) {
   };
 }
 
+/**
+ * The newest official installer for one launcher. A live GitHub release wins
+ * only when it carries the asset and the sha256 GitHub itself computed for it
+ * (the release `digest`), so a newer build is never run unverified. Offline,
+ * a failed lookup, or a release without a digest falls back to the pin.
+ */
+async function latestOfficialRelease(id, options = {}) {
+  const runner = runnerById(id);
+  const pinned = runner?.release || null;
+  if (!pinned?.url) return null;
+  const fallback = {
+    tag: pinned.tag,
+    url: pinned.url,
+    bytes: Number(pinned.bytes) || 0,
+    sha256: pinned.sha256 || "",
+    source: "pinned",
+  };
+  if (!pinned.repo) return fallback;
+  try {
+    const url = `https://api.github.com/repos/${pinned.repo}/releases/latest`;
+    let payload;
+    if (options.fetchImpl) payload = await options.fetchImpl(url);
+    else {
+      const safety = require("./download-safety.cjs");
+      const { res } = await safety.fetchAllowlisted(url, {
+        headers: { accept: "application/vnd.github+json", "user-agent": "FRIDAY" },
+        signal: AbortSignal.timeout(options.timeoutMs || 8000),
+      });
+      if (!res.ok) return fallback;
+      payload = await res.json();
+    }
+    const exact = (Array.isArray(payload?.assets) ? payload.assets : []).some(
+      (item) => String(item?.name || "").toLowerCase() === String(pinned.asset || "").toLowerCase(),
+    );
+    const parsed = exact ? parseGithubRelease(payload, pinned.asset) : null;
+    if (parsed?.url && parsed.sha256 && newerTag(parsed.tag, pinned.tag)) {
+      return { ...parsed, source: "live" };
+    }
+  } catch {
+    /* offline or blocked: the pin below is still verified */
+  }
+  return fallback;
+}
+
 module.exports = {
+  latestOfficialRelease,
   runners,
   runnerById,
   curatedLibrary,
