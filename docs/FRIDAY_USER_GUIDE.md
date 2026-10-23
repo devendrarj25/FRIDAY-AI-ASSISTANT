@@ -107,13 +107,15 @@ Enter sends, Shift+Enter starts a new line. Chat never opens the microphone; the
 
 ## Appearance
 
-Settings, Appearance changes the whole app at once and shows a live preview of your choices.
+Settings, Appearance changes the whole app at once and shows a live preview of your choices: a small conversation, a segmented control, a switch and a glass panel.
 
 - **Theme**: Dark, Daylight or Match system; Cyan, Green, Orange or Purple; or one of the 8 combinations.
-- **Look**: Interface style (**Futuristic Glass**, the default, or **Classic**, the earlier look), Glass depth (Subtle, Balanced, Rich), Blur effect, Neon glow, Scanlines, the live circuit graphic, GPU rendering, Graphic intensity and Panel opacity.
+- **Look**: Interface style (**Futuristic Glass**, the default, or **Classic**, the earlier look), Glass depth (Subtle, Balanced, Rich), Corner style (Round, Medium, Sharp), Ambient light (Off, Soft, Vivid), Ambient motion (a slow drift of the background lights, off by default), Blur effect, Neon glow, Scanlines, the live circuit graphic, GPU rendering, Graphic intensity and Panel opacity.
 - **Motion**: Animations and Reduce motion. Either one makes every transition instant.
 - **Text and layout**: heading font, body font, Text size, Interface density, Sidebar default, Button labels (On hover, Always, Icons only) and High contrast.
 - **Chat**: bubble style and timestamps.
+
+Neon glow only removes glow shadows; the Blur effect switch is the one that turns blur off. If scrolling or typing ever feels slow on your PC, turn Blur effect or Ambient light off.
 
 **Reset appearance** puts every option back to the shipped defaults. When Windows has transparency effects turned off, glass turns solid by itself. Below 1200 pixels wide the sidebar shows as icons; your saved choice comes back on a wider window.
 
