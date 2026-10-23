@@ -82,7 +82,7 @@ const ALL_ITEMS = ALL_NAV_ITEMS;
  * the outlet once; inner calls only render the page frame so sidebar scroll
  * survives navigation. Not a second sidebar store.
  */
-const ShellPresenceContext = createContext(false);
+export const ShellPresenceContext = createContext(false);
 
 /** Restored if chrome ever remounts (workspace hydrate). Live navigation keeps the same <nav>. */
 let savedSidebarScroll = 0;
