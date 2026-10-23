@@ -12,6 +12,7 @@
  * opens and, gently, in the background. Results are cached so opening the
  * menu never costs a round of discovery.
  */
+import { livePoller } from "./live-poll";
 import { readLocalState, writeState } from "./persist";
 import {
   type ModelRoutingContract,
@@ -217,7 +218,8 @@ class ModelRegistryStore {
   private state: RegistryState = empty;
   private listeners = new Set<() => void>();
   private inFlight: Promise<void> | null = null;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  /** Stops the background refresh on the shared, visibility-aware poller. */
+  private timer: (() => void) | null = null;
   private wired = false;
 
   getSnapshot = (): RegistryState => this.state;
@@ -228,7 +230,7 @@ class ModelRegistryStore {
     return () => {
       this.listeners.delete(fn);
       if (!this.listeners.size && this.timer) {
-        clearInterval(this.timer);
+        this.timer();
         this.timer = null;
       }
     };
@@ -243,7 +245,7 @@ class ModelRegistryStore {
   private start() {
     if (this.wired) {
       if (!this.timer && typeof window !== "undefined") {
-        this.timer = setInterval(() => void this.refresh(), BACKGROUND_MS);
+        this.timer = this.keepWarm();
       }
       return;
     }
@@ -287,7 +289,17 @@ class ModelRegistryStore {
     api?.onModelHealthChanged?.(() => void this.refresh(true));
     api?.onModelPolicy?.(() => void this.refresh(true));
     void this.refresh(true);
-    this.timer = setInterval(() => void this.refresh(), BACKGROUND_MS);
+    this.timer = this.keepWarm();
+  }
+
+  private keepWarm(): () => void {
+    return livePoller().subscribe(
+      "models.registry",
+      () => this.refresh(),
+      BACKGROUND_MS,
+      undefined,
+      false,
+    );
   }
 
   /** Discovery, de-duplicated and cached. `force` skips the freshness check. */

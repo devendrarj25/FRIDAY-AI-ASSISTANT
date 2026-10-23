@@ -77,6 +77,7 @@ import { useInstaller } from "@/lib/friday/use-installer";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { ErrorState } from "@/components/friday/PageStates";
 import { sourceCount } from "@/lib/friday/model-sources";
 import { useModels } from "@/lib/friday/use-models";
 import runnersFile from "../../config/local-runners.json";
@@ -741,6 +742,13 @@ function ModelsPage() {
       }
     >
       <div className="space-y-4">
+        {registry.error ? (
+          <ErrorState
+            title="The model list could not refresh"
+            error={registry.error}
+            onRetry={() => modelRegistry.refresh(true)}
+          />
+        ) : null}
         <HudPanel
           title="Free models"
           actions={
