@@ -3,7 +3,9 @@
 **Shipping version: 1.1.3.4**  
 **Publisher:** Devendra Singh Meena (devendrarj25)
 
-🪟 This is the owner start-to-finish guide: get FRIDAY onto a Windows PC, pack the Windows EXEs from this checkout, install those EXEs, update, uninstall, and bring Chat / voice / local engines / cloud keys to a working state.
+FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
+
+This is the owner start-to-finish guide: get FRIDAY onto a Windows PC, pack the Windows EXEs from this checkout, install those EXEs, update, uninstall, and bring Chat / voice / local engines / cloud keys to a working state.
 
 Related documents (do not copy their tables here): version numbers [VERSIONING.md](VERSIONING.md); what Setup may replace on disk [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md); using each sidebar section after the app is open [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md); how CMD / TEST / Official packs differ, and how Stable vs Test updates behave, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
@@ -51,7 +53,7 @@ Packing needs a Windows PC with `cmd.exe`. Floors live in `config/toolchain-vers
 
 ```cmd
 git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
-cd friday
+cd FRIDAY-AI-ASSISTANT
 git pull origin main
 ```
 
@@ -260,7 +262,7 @@ Run from the project root in `cmd.exe`.
 | `npm run validate:local` | `scripts\validate-local.cjs` | Local substitute for PR Validation (Linux skips NSIS pack) |
 | `npm run sign:win` | `scripts\sign-windows.ps1` | Sign already-packed EXEs when a PFX is configured |
 
-Linux Cloud Agent notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run build:win` needs `cmd.exe`. Those two are Windows-only by design. `setup:python`, `setup:electron`, `init:runtime`, and `check:env` do run on Linux.
+Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run build:win` needs `cmd.exe`. Those two are Windows-only by design. `setup:python`, `setup:electron`, `init:runtime`, and `check:env` do run on Linux.
 
 ## 11. Where files land
 
@@ -319,15 +321,11 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 | SmartScreen warning | Unsigned default. See section 14 |
 | Official and TEST both installed | Different appIds — expected. Uninstall the one you meant |
 | Packed app will not take a GitHub source ZIP as an update | Intentional. Use Settings → Updates / a verified Setup EXE |
-| `kernel/requirements.txt not found` during `npm run build:win` | This Git clone is also the FRIDAY data root, so `kernel/` was renamed to `backend/`. Pull `main` and re-run; `setup-python` restores `kernel/`. Clone the repo to a folder that is not the installed FRIDAY root when you can |
-| ParserError `Unexpected token '$('` in `setup-windows.ps1` | Windows PowerShell 5.1 read a UTF-8 dash as a quote and never started setup. This checkout's `powershell.exe` scripts are ASCII. Run `npm run setup` again |
+| `kernel/requirements.txt not found` during `npm run build:win` | This Git clone is also the FRIDAY data root, so `kernel/` was treated as a data alias of `backend/`. Re-run the pack; `setup-python` restores `kernel/`. Clone the repo into a folder that is not the installed FRIDAY root |
+| ParserError `Unexpected token '$('` in `setup-windows.ps1` | Windows PowerShell 5.1 read a non-ASCII character as a quote. Every `powershell.exe` script in this tree is 7-bit ASCII, so keep it that way and run `npm run setup` again |
 | `check:env` / `doctor` report no `runtime\.venv` and no Electron binary right after a failed setup | Expected cascade: setup never reached `setup-python` / `ensure-electron`. Re-run `npm run setup`. If setup already passed, `npm run setup:electron` then `npm run setup:python` then `npm run doctor` |
-| Doctor `not ready: renderer` / `MISSING FRIDAY interface bundle` before `build:win` | Fixed on this tree: the interface is optional until pack. Pull `main` and re-run `npm run doctor`. `npm run build:win` still builds `dist-desktop` |
-| `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | Pack is good; no local LLM is loaded. This tree's `--pack` gate continues. Load a model in Ollama / LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fail-closes Chat |
-| Doctor reports `MISSING npm` right after `npm ci` added hundreds of packages | npm is present. A checkout folder with a space (`FRIDAY- AI OS`) plus a broken `cmd.exe /S /C` quote strip made `--version` fail. Pull `main` and re-run `npm run doctor`. Do not reinstall Node |
-| `The directory name is invalid` while cleaning `release` | Cosmetic when `rmdir` runs on a name that is not a folder. Pack continues (`2>nul`). Do **not** write `if exist "release\\"` — cmd.exe escapes the quote and can stop the pack |
+| `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | The pack is good; no local model is loaded, and the `--pack` gate continues past that. Load a model in Ollama or LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fails Chat |
 | `npm warn allow-scripts electron-winstaller` | The package is explicitly denied in `package.json` `allowScripts`. Its install script only copies Squirrel 7-Zip. NSIS and Portable do not use it. `electron` is explicitly allowed. Electron 43 has no install script, so `npm run setup:electron` still downloads the binary |
-| `(node:…) [DEP0190] DeprecationWarning` after `check:env` | Node 22+ warning when `shell: true` was used with an args array. This tree spawns `.cmd` via `cmd.exe /c` instead |
 
 Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.
 
@@ -337,7 +335,7 @@ From a fresh clone on a Windows PC:
 
 ```cmd
 git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
-cd friday
+cd FRIDAY-AI-ASSISTANT
 git pull origin main
 npm run setup
 npm run doctor

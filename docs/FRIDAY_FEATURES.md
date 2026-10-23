@@ -224,7 +224,7 @@ Each decision was recorded from public documentation read on the date in its hea
 | Renderer capture path | ADOPT | One `getUserMedia` graph already requests echo cancellation, noise suppression, and automatic gain. |
 | DirectML or CUDA wheel swap | ADAPT | onnxruntime already selects CUDA or DirectML when that provider is installed, and CPU remains the fallback. |
 | Ducking other applications | ADOPT | The Settings toggle uses the existing switch. |
-| Gemini Live, ChatGPT voice, Claude voice | ADAPT | Accessed 2026-10-05. Gemini Live interrupts and can switch languages (support.google.com/gemini/answer/15274899, blog.google Gemini 3.8 Live). |
+| Hosted voice assistants (interruption, language switching) | ADAPT | Barge-in and language following already exist locally; no hosted voice stack is added. |
 | Piper and Kokoro as the default speaker | REJECT | Accessed 2026-10-05. piper-tts on PyPI is GPL-3.0-or-later (github.com/OHF-Voice/piper1-gpl). |
 | WeSpeaker ECAPA ONNX | ADAPT | Accessed 2026-10-05. Code is Apache-2.0. VoxCeleb weights are CC-BY-4.0 (wenet-e2e.github.io/wespeaker/pretrained.html). |
 | Call pause | ADOPT | Teams, Zoom, Webex, and Skype names pause listening and hold briefings. |
@@ -235,10 +235,10 @@ Each decision was recorded from public documentation read on the date in its hea
 | Topic | Decision | Reason |
 | --- | --- | --- |
 | Stop keeps the words already shown | ADOPT | A streaming reply can be aborted, and the text that already arrived stays. |
-| Match the language of the last message | ADOPT | ChatGPT, Claude, and Gemini follow the language the person just used. |
+| Match the language of the last message | ADOPT | Assistants follow the language the person just used. |
 | Ollama tool loop on the existing chat path | ADOPT | `/api/chat` accepts the same function tools, streams content separately from thinking, and takes a follow-up tool message with `tool_name` and object arguments. |
-| Show a lookup beside the answer | ADAPT | Claude and ChatGPT surface tool activity next to the reply. |
-| Side canvas or artifacts | REJECT | ChatGPT Canvas, Claude Artifacts, and Gemini Canvas are a second writing surface. |
+| Show a lookup beside the answer | ADAPT | Tool activity is surfaced next to the reply. |
+| Side canvas or artifacts | REJECT | A second writing surface is not added. |
 | Import another product's account memory | REJECT | Each assistant keeps its own memory with different rules. |
 | Web search as a model tool | REJECT | The read-only model tools stay the existing file, device, and network lookups. |
 | Microphone or speech in chat | REJECT | Manual and chat stay typed. Auto still owns the microphone and spoken replies. |
@@ -380,18 +380,15 @@ Each decision was recorded from public documentation read on the date in its hea
 | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) local API, official `script_examples/websockets_api_example.py` | ADAPT | Separate GPL program over loopback HTTP, the same way FRIDAY uses Ollama. |
 | OmniVoice TTS ([model card](https://huggingface.co/SwinliQ-AI-2/OmniVoice)): code Apache-2.0, weights CC-BY-NC, voice cloning | REJECT | It needs torch, which the voice stack must not depend on, and zero-shot cloning conflicts with "no real person's voice". |
 | [Microsoft UFO2](https://www.microsoft.com/en-us/research/publication/ufo2-the-desktop-agentos/) Windows desktop agent: UIA plus vision, app agents, isolated virtual desktop | ADAPT | FRIDAY already drives Windows through UIA (`kernel/uia_tree.py`) and screen reading. |
-| ChatGPT agent mode, memory, projects, scheduled tasks ([TechCrunch](https://www.techcrunch.com/2025/07/17/openai-launches-a-general-purpose-agent-in-chatgpt)); Gemini Live camera and screen sharing ([Tom's Guide](https://tomsguide.com/ai/gemini-live-video-and-screen-sharing-is-now-free-for-android-heres-how-to-use-it)) | ADAPT | FRIDAY has each of these locally: agent runtime with tools and approval, memory, projects, reminders, screen and camera awareness. |
+| Hosted agent modes, memory, projects, scheduled tasks, and camera or screen sharing | ADAPT | FRIDAY has each of these locally: agent runtime with tools and approval, memory, projects, reminders, screen and camera awareness. |
 | Speech emotion cues from pitch and energy ([patent 9972341](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9972341), [PMC10586421](https://pmc.ncbi.nlm.nih.gov/articles/PMC10586421/)) | ADOPT | `voice_prosody` measures median pitch, pitch spread, loudness, and voiced share per utterance with numpy; `src/lib/friday/voice-tone.ts` compares them with the owner's own baseline, so a naturally loud voice… |
-| ChatGPT voice is full-duplex in 2026 and Gemini Live supports barge-in ([Apidog](https://apidog.com/vi/blog/gpt-live-vs-advanced-voice-mode), [TechCrunch](https://techcrunch.com/2024/08/13/gemini-live-googles-answer-to-chatgpts-advanced-voice-mode-launches/)) | ADAPT | FRIDAY already has barge-in and a follow-up window. |
+| Full-duplex hosted voice and barge-in | ADAPT | FRIDAY already has barge-in and a follow-up window. |
 
 ### Conversation (2026-10-09)
 
 | Topic | Decision | Reason |
 | --- | --- | --- |
-| Short replies, a reused conversation, rare humour ([Siri HIG](https://developer.apple.com/design/human-interface-guidelines/siri)) | ADOPT | Implemented in `src/lib/friday/conversation-style.ts`. |
-| Voice stays in the same chat, the transcript stays visible, interruption is normal ([OpenAI Help, Voice](https://help.openai.com/en/articles/20001274-chatgpt-voice)) | ADAPT | One thread already; a hosted full-duplex model would be a second stack. |
-| Numbered citations resolve to search-result records ([Perplexity streaming citations](https://docs.perplexity.ai/docs/cookbook/articles/streaming-citations/README)) | ADAPT | Keys stay in safeStorage and an HTML scrape stays the last resort (`electron/browser.cjs`). |
-| Code runs with the network off and a memory cap ([code interpreter guide](https://developers.openai.com/api/docs/guides/tools-code-interpreter)) | ADAPT | The bundled Python and Node are used (`electron/sandbox-engines.cjs`); a hosted container is refused. |
+| Short replies, a reused conversation, rare humour ([Apple HIG, Siri](https://developer.apple.com/design/human-interface-guidelines/siri)) | ADOPT | Implemented in `src/lib/friday/conversation-style.ts`. |
 | A container sandbox opens the plugin file at its host path ([Docker bind mounts](https://docs.docker.com/engine/containers/run/)) | ADOPT | Docker and Podman mount the workspace at that path with the network off; Windows keeps the single `/work` mount. |
 | NSIS metadata lists `files[].sha512` and the updater does not roll back ([electron-builder auto-update](https://www.electron.build/docs/features/auto-update)) | ADAPT | FRIDAY checks SHA-256 and keeps its own rollback in `electron/update-safety.cjs`. |
 | Another product's dialogue, voice, or logo | REJECT | Independence: no copied persona. |
