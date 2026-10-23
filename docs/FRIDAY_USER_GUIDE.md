@@ -119,6 +119,11 @@ Neon glow only removes glow shadows; the Blur effect switch is the one that turn
 
 **Reset appearance** puts every option back to the shipped defaults. When Windows has transparency effects turned off, glass turns solid by itself. Below 1200 pixels wide the sidebar shows as icons; your saved choice comes back on a wider window.
 
+
+### Live indicators and states
+
+Pages that show measured data (Status, Hardware, Logs, Models, Setup & Doctor) carry a small badge next to their title: a coloured dot, **Live**, **Waiting** or **Offline**, and how long ago the data last arrived. It reads real timestamps; with no desktop app it says Waiting instead of pretending. When the FRIDAY kernel or the network is down, a banner appears above the page and the page keeps what is stored on this PC; live data returns by itself when the kernel comes back. A page that is still loading shows placeholder lines, an empty list says what to do next, and a failed load shows the real error with a Retry button. A button that starts longer work shows a spinner at once and stays off until it ends; if it fails you get a notification with the reason. Long tables show the first 80 rows with Show more and Show all. Text that is cut off shows its full text when you point at it.
+
 ## Model routing checks
 
 On the owner's PC with real keys. These steps are unverified until that PC runs them.
