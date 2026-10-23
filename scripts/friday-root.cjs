@@ -1,10 +1,16 @@
 /**
  * The one place a script may discover the selected FRIDAY folder.
  *
- * Order: explicit env -> persisted settings pointer -> installer registry
- * entry. There is deliberately no C:\FRIDAY / %USERPROFILE%\FRIDAY guess: a
- * script that finds nothing uses a development-only folder inside the source
+ * Order: explicit env -> installer registry entry -> persisted settings
+ * pointer — the same order the app uses (electron/main.cjs
+ * resolveWorkspaceRoot), so Setup and the app always pick the same folder.
+ * There is deliberately no C:\FRIDAY / %USERPROFILE%\FRIDAY guess: a script
+ * that finds nothing uses a development-only folder inside the source
  * checkout and says so.
+ *
+ * A recorded folder inside a test sandbox (the installer smoke or readiness
+ * run under %TEMP%) is never a real FRIDAY home: an interrupted test can leave
+ * such a pointer behind, and Setup must not install the runtime there.
  */
 const fs = require("node:fs");
 const os = require("node:os");
@@ -12,6 +18,14 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const projectRoot = path.resolve(__dirname, "..");
+
+/** Test sandboxes created by windows-installer-smoke.ps1 and readiness-test.cjs. */
+const THROWAWAY_ROOT =
+  /[\\/]_?(?:temp|tmp)[\\/](?:friday-installer-smoke-[0-9a-f]{32}|friday-readiness-[A-Za-z0-9]{6})(?:[\\/]|$)/i;
+
+function isThrowawayRoot(value) {
+  return Boolean(value) && THROWAWAY_ROOT.test(String(value));
+}
 
 function fromSettingsPointer() {
   const appData =
@@ -23,7 +37,7 @@ function fromSettingsPointer() {
     const file = path.join(appData, name, "friday-settings.json");
     try {
       const value = JSON.parse(fs.readFileSync(file, "utf8")).workspaceRoot;
-      if (value && fs.existsSync(value)) return value;
+      if (value && !isThrowawayRoot(value) && fs.existsSync(value)) return value;
     } catch {
       /* no pointer here */
     }
@@ -43,14 +57,14 @@ function fromRegistry() {
   if (out.error || out.status !== 0) return null;
   const match = /WorkspacePath\s+REG_SZ\s+(.+)/i.exec(out.stdout || "");
   const value = match ? match[1].trim() : null;
-  return value && fs.existsSync(value) ? value : null;
+  return value && !isThrowawayRoot(value) && fs.existsSync(value) ? value : null;
 }
 
 /** The selected FRIDAY home, or null when the user has not chosen one yet. */
 function findWorkspaceRoot() {
   const explicit = process.env.FRIDAY_WORKSPACE_ROOT;
   if (explicit) return path.resolve(explicit);
-  return fromSettingsPointer() || fromRegistry();
+  return fromRegistry() || fromSettingsPointer();
 }
 
 /**
@@ -98,4 +112,6 @@ module.exports = {
   workspaceRootOrDev,
   layout,
   RUNTIME_FOLDERS,
+  THROWAWAY_ROOT,
+  isThrowawayRoot,
 };

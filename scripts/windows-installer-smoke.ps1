@@ -62,6 +62,18 @@ $registry = "HKCU:\Software\FRIDAY"
 $oldWorkspace = $null
 $oldInstall = $null
 $smokeError = $null
+# The booted app records the sandbox root in its settings pointer. Keep the
+# owner's pointer files so a later setup does not adopt the throwaway folder.
+$pointerFiles = @()
+if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+  foreach ($name in @("FRIDAY", "friday", "friday-desk")) {
+    $pointerFiles += (Join-Path (Join-Path $env:APPDATA $name) "friday-settings.json")
+  }
+}
+$pointerBackup = @{}
+foreach ($file in $pointerFiles) {
+  if (Test-Path -LiteralPath $file) { $pointerBackup[$file] = [System.IO.File]::ReadAllBytes($file) }
+}
 
 # Start a process and immediately cache its handle, so ExitCode is available
 # after it exits (PowerShell/.NET drop the handle otherwise and ExitCode
@@ -442,6 +454,10 @@ try {
       else { Remove-ItemProperty $registry WorkspacePath -ErrorAction SilentlyContinue }
       if ($null -ne $oldInstall) { Set-ItemProperty $registry InstallPath $oldInstall }
       else { Remove-ItemProperty $registry InstallPath -ErrorAction SilentlyContinue }
+    }
+    foreach ($file in $pointerFiles) {
+      if ($pointerBackup.ContainsKey($file)) { [System.IO.File]::WriteAllBytes($file, $pointerBackup[$file]) }
+      elseif (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     }
     if (-not (Test-Blank $sandbox)) {
       Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue

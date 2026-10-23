@@ -223,6 +223,14 @@ function checkoutPython() {
   if (process.env.FRIDAY_PYTHON && fs.existsSync(process.env.FRIDAY_PYTHON)) {
     return process.env.FRIDAY_PYTHON;
   }
+  // Setup builds the venv under the selected FRIDAY root, not the checkout.
+  let built = "";
+  try {
+    built = runtime.resolveVenvPython() || "";
+  } catch {
+    built = "";
+  }
+  if (built && fs.existsSync(built)) return built;
   const files = win
     ? [
         path.join(root, ".venv", "Scripts", "python.exe"),

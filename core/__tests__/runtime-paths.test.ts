@@ -77,4 +77,40 @@ describe("runtime paths", () => {
       expect(source).not.toMatch(/startsWith\(path\.resolve\(/);
     }
   });
+
+  it("never adopts a test sandbox left by the installer smoke or readiness run", () => {
+    const smoke =
+      "C:\\Users\\o\\AppData\\Local\\Temp\\friday-installer-smoke-159e554ae32c4e0988aac6b39f610efa\\FRIDAY";
+    expect(fridayRoot.isThrowawayRoot(smoke)).toBe(true);
+    expect(
+      fridayRoot.isThrowawayRoot(
+        "C:\\Users\\o\\AppData\\Local\\Temp\\friday-readiness-YBHBRt\\root",
+      ),
+    ).toBe(true);
+    expect(fridayRoot.isThrowawayRoot("/tmp/friday-readiness-abc123/root")).toBe(true);
+    expect(fridayRoot.isThrowawayRoot("D:\\FRIDAY")).toBe(false);
+    expect(fridayRoot.isThrowawayRoot("D:\\friday-readiness-notes")).toBe(false);
+    expect(fridayRoot.isThrowawayRoot("")).toBe(false);
+    // The app and the scripts must refuse exactly the same folders.
+    const main = readFileSync(join(root, "electron/main.cjs"), "utf8");
+    expect(main.replace(/=\s+\//g, "= /")).toContain(
+      `const THROWAWAY_ROOT = ${fridayRoot.THROWAWAY_ROOT.toString()};`,
+    );
+  });
+
+  it("resolves the FRIDAY root in the same order as the app: env, registry, pointer", () => {
+    const source = readFileSync(join(root, "scripts/friday-root.cjs"), "utf8");
+    expect(source).toContain("return fromRegistry() || fromSettingsPointer();");
+    expect(source).toMatch(/fromSettingsPointer[\s\S]*!isThrowawayRoot\(value\)/);
+    expect(source).toMatch(/fromRegistry[\s\S]*!isThrowawayRoot\(value\)/);
+  });
+
+  it("gives readiness the interpreter setup-python built, and the smoke restores the pointer", () => {
+    const readiness = readFileSync(join(root, "scripts/readiness-test.cjs"), "utf8");
+    const fn = readiness.slice(readiness.indexOf("function checkoutPython()"));
+    expect(fn.slice(0, 900)).toContain("runtime.resolveVenvPython()");
+    const smoke = readFileSync(join(root, "scripts/windows-installer-smoke.ps1"), "utf8");
+    expect(smoke).toContain('"friday-settings.json"');
+    expect(smoke).toContain("[System.IO.File]::WriteAllBytes($file, $pointerBackup[$file])");
+  });
 });
