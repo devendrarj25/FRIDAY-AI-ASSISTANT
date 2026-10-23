@@ -152,12 +152,12 @@ The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 2. `scripts\check-engines.cjs` (same `package.json` engines as CI) **before** `npm ci`.
 3. `npm ci --no-audit --no-fund`. On failure: `npm cache verify` and a second `npm ci` against `https://registry.npmjs.org/`.
 4. `scripts\ensure-electron.cjs --quiet`.
-5. `scripts\setup-python.cjs` then `scripts\init-runtime.cjs`.
+5. `scripts\setup-python.cjs` (Python venv, then the model prefetch: speech weights, turn-taking and wake models, a small chat GGUF, and on Windows a per-user Ollama install with `qwen2.5:1.5b` and `qwen2.5:3b`, each with a progress bar; details and opt-outs in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) section 7) then `scripts\init-runtime.cjs`.
 6. `scripts\check-environment.cjs --fix` then `scripts\env-registry.cjs repair`.
 7. `scripts\release-engine.cjs heal` then `verify`.
 8. `scripts\verify-deps.cjs`.
 9. Deletes previous `release\` and `dist-desktop\`, then `npm run build:desktop`.
-10. `scripts\electron-pack.cjs` with `electron-builder.yml`. Names use the public four-part identity, not npm `1.0.0`.
+10. `scripts\electron-pack.cjs` with `electron-builder.yml`. The pinned toolchain packs download first with a progress bar and fall back to pinned mirrors. Names use the public four-part identity, not npm `1.0.0`.
 11. Optional Authenticode if `CSC_LINK` + `CSC_KEY_PASSWORD` are set (`scripts\sign-windows.ps1`).
 12. `scripts\verify-build.cjs` (Setup and Portable must clear the toolchain size floor and stay under 2 GiB), `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack), then the installer smoke when the target includes NSIS.
 

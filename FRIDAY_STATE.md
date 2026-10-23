@@ -88,6 +88,8 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- The build-time downloader (progress bar, mirror fallback, per-user Ollama install, `qwen2.5:1.5b` and `qwen2.5:3b` pulls) ran only against stand-ins. Mirror URLs and the Ollama silent install are unverified until a Windows `build:win` runs them; Ollama keeps its own models folder.
+- Hindi and Hinglish hearing quality, the wake word, and voice-turn speed with the new local models need a real microphone on the Windows PC.
 - DeepSeek's pricing page carries no price table, so its pricing date is older than the other sources and its models stay unknown until a real table can be read (`npm run pricing:status` reports it).
 - Groq publishes no free-model list, so Groq ids stay unknown until the owner marks them free.
 - `chromadb` 1.5.9 has advisories with no published fix version; the pin is not moved.
@@ -98,7 +100,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
-1. Owner check on the Windows PC: `npm run setup`, `npm run build:win`, install, first launch, then the checks under Verification status. Send the on-screen text of any failure with the step.
+1. Owner check on the Windows PC (the build now downloads Ollama and two lite models with progress; send the console text of any step that prints `INFO`): `npm run setup`, `npm run build:win`, install, first launch, then the checks under Verification status. Send the on-screen text of any failure with the step.
 2. Decide whether the installer and uninstall display name should adopt the product tagline (locked identity change).
 3. Re-read a real DeepSeek price table when the vendor publishes one, and refresh pricing knowledge from the Models page.
 4. Voice and Auto: keep moving toward a calm, capable assistant (ambient awareness, anticipation, proactive and polite help, plan → act → verify → report) inside the autonomy dial; measure on the Windows PC with a real microphone.
