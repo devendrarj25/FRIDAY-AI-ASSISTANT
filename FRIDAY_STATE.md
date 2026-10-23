@@ -18,6 +18,7 @@ Run on 2026-10-22 on branch `fix/voice-models-catalogue` (Linux cloud container,
 
 | Check | Result |
 | --- | --- |
+| Branch `upgrade/voice-glass-runtime`, readiness root, quiet microphone, hands-free follow-ups, setup prefetch, glass bubbles (2026-10-23, Linux container) | `npm run preflight -- --full` exit 0: 400 files, 3347 passed, 4 skipped; kernel 244 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps (now finds the venv setup built: av 18.1.0), audit, renderer build pass. AppShell 3,704.27 kB (gzip 1,319.18 kB); `src/routeTree.gen.ts` unchanged. The first run failed two tests the work caused (a prosody source pin and a `.output` folder left by a manual vite build); both fixed in this change. NSIS, verify-build, installer smoke, a live model download (Hugging Face blocked here), a real microphone and the Windows EXE look were not run. |
 | Branch `upgrade/chat-window-levels`, FRIDAY Glass whole-app upgrade (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 399 files, 3337 passed, 4 skipped; kernel 242 passed, 2 skipped (no kernel file changed); lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. AppShell chunk 3,677.06 kB before and 3,704.28 kB after (gzip 1,311.37 to 1,319.19 kB); `src/routeTree.gen.ts` unchanged. Control parity: all 1520 baseline labels present, no unnamed icon-only button. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
 | Branch `upgrade/chat-window-levels`, voice window levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3284 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, microphone, mouse, or GPU check. |
 | Branch `upgrade/chat-window-levels`, chat levels (2026-10-22, Linux container) | `npm run preflight -- --full` exit 0: 396 files, 3268 passed, 4 skipped; kernel 242 passed, 2 skipped; lint, typecheck, pyright, docs, version, provenance, arrange, deps, audit, renderer build pass. NSIS, verify-build, and installer smoke skipped on Linux. No live desktop, mouse, or GPU check. |
@@ -129,6 +130,13 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Known gaps (honest)
 
+- The 2026-10-23 voice, readiness and setup fixes are covered by Linux tests only:
+  - Readiness on the owner's PC failed KERNEL because setup built the runtime inside an old installer-smoke sandbox that the smoke boot left in the settings pointer. The scripts now resolve env, registry, then pointer like the app, both refuse smoke and readiness sandboxes, the smoke restores the pointer files, and readiness passes the venv setup built. `npm run build:win` readiness on Windows is unverified until the owner reruns it. An existing stale pointer is ignored, not deleted.
+  - Quiet-microphone gain (to about -22 dBFS before denoise and VAD) and the 0.35 VAD threshold were tested with synthetic clips, not the owner's Realtek array.
+  - Hands-free follow-ups without the name, the follow-up window counted from the end of her reply, and the show-how offer after tool turns only are source and unit tested, not spoken through a live session.
+  - Setup prefetch of faster-whisper base and small, Smart Turn, Silero VAD and Qwen2.5 1.5B Instruct GGUF ran only with a stand-in downloader. The GGUF file name is picked from Qwen's listing at setup time (q4_k_m first) and was not read here. Supertonic is still not prefetched (no pinned digest).
+  - Glass bubbles in chat and voice have not been seen on the Windows EXE.
+
 - FRIDAY Glass (the whole-app look, the Appearance options, button and panel icons, the glass chrome) is covered by Linux render, source and contrast tests only. The look on the Windows EXE, the real mouse feel, GPU smoothness of blur and transitions, and the Windows transparency setting are unverified until the owner checks. Plain `<button>` list rows (names, files, tabs) intentionally get no icon; only text action buttons do.
 
 - Auto mode voice window levels (Compact, Expanded, Transcript) are covered by Linux render and source tests only. The large-graphic scale at 1080x680, hover labels, the More menu, glass, hold to talk with a real mouse, and a real microphone and speech at each level have not been checked on the Windows EXE. They are unverified until the owner checks. At the window minimum the large graphic now scales down when its boxes cannot fit, so Compact is smaller there than before (it used to overlap).
@@ -202,6 +210,8 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. Owner checks for the 2026-10-23 change, on the Windows PC: `npm run setup` prints `ok stt-small` and `speech model cached`; `npm run build:win` readiness passes KERNEL through RESTART; in Auto mode with hands-free on, a follow-up without "FRIDAY" is answered and spoken, and Diagnostics show a `gainDb` above 0 with fewer `denoise-skipped` drops; chat and voice bubbles look like glass with a hover lift in Dark and Daylight.
+   Not built yet: a Supertonic prefetch (needs a pinned digest), a search box and saved-chats rail styled from the PDF's Full chat page, a voice Skills card grid with filter chips, and an automatic switch to a newer official small chat model (the GGUF repo is fixed in `scripts/prefetch-models.cjs`).
 0. Owner checks for FRIDAY Glass, on the Windows PC after `npm run setup` and `npm run build:win`:
    1. Every sidebar page opens and looks consistent.
    2. Dark and Daylight with each of the 4 accents.
