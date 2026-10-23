@@ -207,7 +207,16 @@ function LogsPage() {
   return (
     <AppShell
       title="Logs"
-      subtitle="Kernel, main, IPC and disk logs · live"
+      subtitle="Kernel, main, IPC and disk logs"
+      live={{
+        at: lines.reduce<number | null>(
+          (m, line) => (line.atMs && (m === null || line.atMs > m) ? line.atMs : m),
+          null,
+        ),
+        everyMs: 60_000,
+        verb: "last entry",
+        offline: !desktop,
+      }}
       actions={
         <div className="flex items-center gap-2">
           {desktop ? (

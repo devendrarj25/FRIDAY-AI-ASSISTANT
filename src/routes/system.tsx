@@ -72,6 +72,7 @@ function SystemPage() {
     <AppShell
       title="Hardware"
       subtitle="Machine overview · everything measured locally"
+      live={{ at: live.live ? live.at : null, everyMs: 5000, offline: !live.live }}
       actions={
         <Button size="sm" variant="outline" onClick={openSecurity}>
           <ShieldCheck className="size-4" /> Open Windows Security

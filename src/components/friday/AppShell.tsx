@@ -17,6 +17,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  type ComponentProps,
   useLayoutEffect,
   useRef,
   useState,
@@ -32,7 +33,7 @@ import {
   useWorkspaceRootState,
   type CompanionRemoteState,
 } from "@/lib/friday/desktop";
-import { OfflineBanner } from "@/components/friday/PageStates";
+import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
 import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
@@ -87,6 +88,8 @@ type AppShellProps = {
   title?: string;
   subtitle?: string;
   actions?: ReactNode;
+  /** Live indicator for pages that show measured or polled data. */
+  live?: ComponentProps<typeof LiveBadge>;
   /** Main window mode: no scrolling, children own the full height. */
   fill?: boolean;
   children: ReactNode;
@@ -98,7 +101,7 @@ function pageNav(pathname: string) {
   return ALL_ITEMS.find((item) => item.to === pathname) ?? null;
 }
 
-function AppShellPage({ title, subtitle, actions, fill = false, children }: AppShellProps) {
+function AppShellPage({ title, subtitle, actions, live, fill = false, children }: AppShellProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const nav = pageNav(pathname);
   return (
@@ -134,6 +137,7 @@ function AppShellPage({ title, subtitle, actions, fill = false, children }: AppS
             </div>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+            {live ? <LiveBadge {...live} /> : null}
             <Button
               size="sm"
               variant="outline"

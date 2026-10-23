@@ -715,6 +715,7 @@ function ModelsPage() {
     <AppShell
       title="Models Manager"
       subtitle="Universal orchestration for local engines and cloud providers"
+      live={{ at: registry.at || null, everyMs: 120_000 }}
       actions={
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => engine.probeSystem()}>

@@ -98,12 +98,15 @@ export function LiveBadge({
   everyMs,
   offline = false,
   error = null,
+  verb = "updated",
   className,
 }: {
   at: number | null | undefined;
   everyMs: number;
   offline?: boolean;
   error?: string | null;
+  /** "updated", "scanned", "last entry": what the age is measured from. */
+  verb?: string;
   className?: string;
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
@@ -116,7 +119,7 @@ export function LiveBadge({
       textRef.current.textContent = error
         ? `last try failed`
         : at
-          ? `updated ${ageLabel(at, now)}`
+          ? `${verb} ${ageLabel(at, now)}`
           : "no data yet";
     }
     if (dotRef.current) dotRef.current.dataset["state"] = state;
@@ -125,7 +128,7 @@ export function LiveBadge({
     paint(Date.now());
     return onVisibleSecond(paint);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- paint reads the latest props
-  }, [at, everyMs, offline, error]);
+  }, [at, everyMs, offline, error, verb]);
   return (
     <span
       data-live-badge
@@ -138,7 +141,7 @@ export function LiveBadge({
       </span>
       <span aria-hidden="true">·</span>
       <span ref={textRef} suppressHydrationWarning>
-        {at ? "updated" : "no data yet"}
+        {at ? verb : "no data yet"}
       </span>
     </span>
   );

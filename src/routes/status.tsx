@@ -16,7 +16,7 @@ import { useStartup } from "@/lib/friday/startup";
 import { useModels } from "@/lib/friday/use-models";
 import { useLedger, useMemory } from "@/lib/friday/self/use-self";
 import { serviceTone, useServiceHealth } from "@/lib/friday/use-service-health";
-import { useKernelStatus } from "@/lib/friday/use-kernel-status";
+import { useKernelLive, useKernelStatus } from "@/lib/friday/use-kernel-status";
 import { statsFor } from "@/lib/friday/self/mastery";
 import { RuntimePanel, SubsystemPanel } from "@/components/friday/SystemOverviewPanels";
 import { systemMap } from "@/lib/friday/system-map";
@@ -79,6 +79,7 @@ function StatusPage() {
   const startup = useStartup();
   const services = useServiceHealth();
   const kernel = useKernelStatus();
+  const kernelLive = useKernelLive();
   const refreshCaps = caps.refresh;
 
   // Opening the board is an explicit "show me now": every owner re-reads its
@@ -277,6 +278,12 @@ function StatusPage() {
     <AppShell
       title="FRIDAY Status"
       subtitle="Subsystem board · every FRIDAY capability reporting in"
+      live={{
+        at: kernelLive.at,
+        everyMs: kernelLive.everyMs,
+        error: kernel.connected ? null : kernelLive.error,
+        offline: !kernel.connected,
+      }}
       actions={
         <>
           <Button size="sm" variant="outline" onClick={() => wiringPanel.open()}>
@@ -289,7 +296,7 @@ function StatusPage() {
       }
     >
       <div className="space-y-4">
-        <HudPanel title="System Overview" hint="live">
+        <HudPanel title="System Overview" hint="from the running app">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
             {coreOverview.map((c) => {
               const Icon = ICONS[c.icon as keyof typeof ICONS];

@@ -273,7 +273,8 @@ function DoctorPage() {
   return (
     <AppShell
       title="Setup & Doctor"
-      subtitle="Installation guide, real diagnosis and guarded repairs · live"
+      subtitle="Installation guide, real diagnosis and guarded repairs"
+      live={{ at: state.lastScanAt, everyMs: 300_000, verb: "scanned" }}
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="ghost" onClick={() => void copySession()}>
