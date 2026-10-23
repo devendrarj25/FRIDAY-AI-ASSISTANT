@@ -1,17 +1,19 @@
 # FRIDAY — Versioning Policy
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 **Current shipping version: 1.1.3.4**
 
 📦 The public version lives in one file: `config/friday-version.json`. Everything else that must show it is rewritten from that file. Click-by-click publish is [RELEASE.md](RELEASE.md). How the pack is built is [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
 ## 1. One number, two shapes
 
-| Surface | Value today | Used for |
+| Surface | Value | Used for |
 | --- | --- | --- |
-| Public FRIDAY (`releaseVersion`) | `1.1.2.4` | The version you see, the GitHub tag, EXE names, and in-app update compare |
+| Public FRIDAY (four parts from `config/friday-version.json`) | `1.1.3.4` | The version you see, the GitHub tag, EXE names, and in-app update compare |
 | npm / electron-builder (`package.json` `version`) | `1.1.3` | Tools that only accept three-part SemVer |
 
-🧭 `npm run typecheck` prints `FRIDAY 1.1.2.4` from the version file before the checker runs. npm itself still prints `friday@1.1.2` first, because that field is the three-part encoding (the first three public parts). It is not a second product version, and it is rewritten whenever the public number changes. Never compare it as an update identity.
+🧭 `npm run typecheck` prints `FRIDAY 1.1.3.4` from the version file before the checker runs. npm itself still prints `friday@1.1.3` first, because that field is the three-part encoding (the first three public parts). It is not a second product version, and it is rewritten whenever the public number changes. Never compare it as an update identity.
 
 Artifacts are `FRIDAY-Setup-1.1.3.4.exe` and `FRIDAY-Portable-1.1.3.4.exe`.
 
@@ -48,9 +50,8 @@ In that example the written steps are `1.0.0.0` (base) → `1.0.0.1` → `1.0.0.
 | An explicit patch, minor, major, or extreme | Only that counter moves, including when the declared line has never been published. Extreme happens only when you select it |
 | `revision` or `rebuild` | The same version. This is a rebuild so you can check that it works |
 
-`auto` with `release_type` auto still ships a never-published line as it stands. Naming patch, minor, major, or extreme moves that counter from the declared number. A stable git tag and a GitHub release both count as a published number.
+`auto` with `release_type` auto publishes a never-released declared number as written, so the first public line is not skipped. Naming patch, minor, major, or extreme moves that counter from the declared number. A stable git tag and a GitHub release both count as a published number. The first bump is never invented by walking the whole git history, and an empty change list stays empty.
 
-Research (2026-10-09). Sources: [SemVer](https://semver.org/), [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), and [pnpm first-release hold](https://github.com/pnpm/pnpm/pull/13207). ADOPT: `auto` publishes a never-released declared number as written, so the first public line is not skipped. ADAPT: an explicit counter still moves from that number, because the owner named the level. REJECT: walking the whole git history to invent the first bump. An empty change list stays empty.
 
 FRIDAY Release and the in-app Analyze preview both ask `scripts/release-engine.cjs`. `handoff` writes the identity into the tree before the pack. The in-app update check reads the same 100-release window.
 
@@ -84,3 +85,11 @@ Most pages only need the name FRIDAY. The number stays in:
 - the one “current shipping version” line in a document that has to name it
 
 `npm run verify:version` and `npm run release:heal` rewrite those lines from the version file. Do not add a second What's New store, and do not paste the number into a page that only needs the name.
+
+## 7. Research decisions
+
+| Topic | Source | Decision | Reason |
+| --- | --- | --- | --- |
+| Four-part public number with a three-part npm encoding | [SemVer](https://semver.org/) | ADAPT | Tools that only accept SemVer read the first three public parts; the npm field is never an update identity. |
+| Change size drives `auto` update level | [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) | ADAPT | Patch, minor, or major from the size of the change; extreme stays manual. |
+| First release hold | [pnpm first-release hold](https://github.com/pnpm/pnpm/pull/13207) | ADOPT | A never-released declared number publishes as written; an explicit counter still moves from it. |
