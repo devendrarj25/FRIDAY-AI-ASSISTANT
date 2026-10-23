@@ -358,7 +358,10 @@ describe("Classic keeps the earlier look", () => {
       .map((r) => r.selector)
       .filter((sel) => !sel.includes('[data-ui-style="glass"]') && !/^html[.:[]/.test(sel))
       .filter(
-        (sel) => !/^(:root|\.friday-seg-thumb|\.friday-nav-thumb|\.typing-dot|from|to|\d+%(, \d+%)*)$/.test(sel),
+        (sel) =>
+          !/^(:root|\.friday-seg-thumb|\.friday-nav-thumb|\.typing-dot|from|to|\d+%(, \d+%)*)$/.test(
+            sel,
+          ),
       );
     expect(JSON.stringify(bareRules)).toBe("[]");
     // Classic values are the earlier ones.

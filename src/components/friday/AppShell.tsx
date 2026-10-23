@@ -10,7 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FlowStudioLazyHost, preloadFlowStudio } from "@/components/friday/FlowStudioLazy";
+import { FlowStudioLazyHost } from "@/components/friday/FlowStudioLazy";
+import { preloadFlowStudio } from "@/components/friday/flow-studio-preload";
+import { ShellPresenceContext } from "@/components/friday/shell-presence";
 import { featureForPath } from "@/lib/friday/flow-adapters";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 import {
@@ -82,7 +84,6 @@ const ALL_ITEMS = ALL_NAV_ITEMS;
  * the outlet once; inner calls only render the page frame so sidebar scroll
  * survives navigation. Not a second sidebar store.
  */
-export const ShellPresenceContext = createContext(false);
 
 /** Restored if chrome ever remounts (workspace hydrate). Live navigation keeps the same <nav>. */
 let savedSidebarScroll = 0;

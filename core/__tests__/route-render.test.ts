@@ -11,7 +11,7 @@ import { renderToString } from "react-dom/server";
 import { createMemoryHistory, createRouter, RouterContextProvider } from "@tanstack/react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "../../src/routeTree.gen";
-import { ShellPresenceContext } from "../../src/components/friday/AppShell";
+import { ShellPresenceContext } from "../../src/components/friday/shell-presence";
 
 const PAGES = readdirSync(resolve(process.cwd(), "src/routes"))
   .filter((name) => name.endsWith(".tsx") && !name.startsWith("__"))

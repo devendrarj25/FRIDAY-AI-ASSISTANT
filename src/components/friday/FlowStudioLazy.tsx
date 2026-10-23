@@ -10,11 +10,6 @@ import { flowStudio } from "@/lib/friday/flow-studio-store";
 const load = () => import("@/components/friday/FlowStudio");
 const FlowStudioHost = lazy(() => load().then((m) => ({ default: m.FlowStudioHost })));
 
-/** Warm the chunk when the owner points at a Flow button, so opening is instant. */
-export function preloadFlowStudio(): void {
-  void load();
-}
-
 export function FlowStudioLazyHost() {
   const open = useSyncExternalStore(
     flowStudio.subscribe,
