@@ -215,6 +215,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Next priorities
 
+0. AGENTS.md was rewritten on the owner's word (2026-10-23) as one ordered rulebook: identity and independence, taking a request, how to work, upgrade flow, locked areas, safety, checks, report. The same pass must still reach the rest of the repository, and the owner asked for it next: remove every other mention of AI tools, agents, and models outside `AGENTS.md` (CONTRIBUTING, docs, comments, tests, scripts, `.gitignore`, the cloud-agent scripts' names, and the one-line `CLAUDE.md` import), then arrange, index, and de-duplicate all other documents. The tests that pin those mentions (`core/__tests__/project-independence.test.ts`, `core/__tests__/docs-registry.test.ts`, `core/__tests__/merge-engine.test.ts`) must move with them in the same change. Not started.
 0. Owner checks for the ui-complete-sync round, on the Windows PC after `npm run build:win`:
    1. Every sidebar page looks consistent (same radii, 12 px captions, panels) in Dark and Daylight with each accent, Glass and Classic.
    2. Every button shows an icon (text buttons) or a tooltip (icon buttons) and works on the first click; a button that starts longer work shows a spinner at once and stays off until it ends.
