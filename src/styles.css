@@ -1457,7 +1457,7 @@ html[data-ui-style="glass"] body::before {
       color-mix(
         in oklab,
         var(--color-primary)
-          calc(46% * var(--friday-graphic-intensity, 0.7) * var(--friday-ambient) * var(--friday-ambient-scale)),
+          calc(min(26% * var(--friday-graphic-intensity, 0.7) / 0.7, 30%) * var(--friday-ambient) * var(--friday-ambient-scale)),
         transparent
       ),
       transparent 72%
@@ -1467,7 +1467,7 @@ html[data-ui-style="glass"] body::before {
       color-mix(
         in oklab,
         var(--color-magenta)
-          calc(34% * var(--friday-graphic-intensity, 0.7) * var(--friday-ambient) * var(--friday-ambient-scale)),
+          calc(min(20% * var(--friday-graphic-intensity, 0.7) / 0.7, 23%) * var(--friday-ambient) * var(--friday-ambient-scale)),
         transparent
       ),
       transparent 72%
@@ -1477,7 +1477,7 @@ html[data-ui-style="glass"] body::before {
       color-mix(
         in oklab,
         var(--color-warning)
-          calc(18% * var(--friday-graphic-intensity, 0.7) * var(--friday-ambient) * var(--friday-ambient-scale)),
+          calc(min(10% * var(--friday-graphic-intensity, 0.7) / 0.7, 12%) * var(--friday-ambient) * var(--friday-ambient-scale)),
         transparent
       ),
       transparent 72%
@@ -1860,6 +1860,15 @@ html[data-ui-style="glass"] :is([class*="bg-surface"], [class*="bg-card"]):not(
 }
 html.no-gpu[data-ui-style="glass"] :is([class*="bg-surface"], [class*="bg-card"]) {
   background-color: var(--color-card);
+}
+
+/* Full chat: the saved-chats rail is a rounded glass sidebar. */
+html[data-ui-style="glass"] .friday-chat aside {
+  margin: 0.5rem 0 0.5rem 0.5rem;
+  border: 1px solid var(--friday-glass-border);
+  border-radius: var(--radius-card);
+  background: linear-gradient(180deg, var(--friday-glass-top), var(--friday-glass-bottom));
+  overflow: hidden;
 }
 
 /* Reduced motion and no-motion: everything is instant. */

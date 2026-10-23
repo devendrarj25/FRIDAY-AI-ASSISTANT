@@ -19,10 +19,16 @@ import {
   accentClassFor,
   legacyThemeFor,
   appearanceState,
+  AMBIENT_LIGHTS,
+  AMBIENT_MOTIONS,
   BUTTON_LABEL_MODES,
+  CORNER_STYLES,
   GLASS_DEPTHS,
   UI_STYLES,
+  resolveAmbientLight,
+  resolveAmbientMotion,
   resolveButtonLabels,
+  resolveCornerStyle,
   resolveGlassDepth,
   resolveUiStyle,
 } from "../../src/lib/friday/appearance";
@@ -205,5 +211,50 @@ describe("appearance state (what the document gets)", () => {
     expect(css).toContain('html[data-button-labels="icons"]');
     // Classic adds no override of its own.
     expect(css).not.toContain('[data-ui-style="classic"]');
+  });
+
+  it("ships Round corners, Vivid ambient light and no ambient motion, all in Reset", () => {
+    expect(CORNER_STYLES).toEqual(["Round", "Medium", "Sharp"]);
+    expect(AMBIENT_LIGHTS).toEqual(["Off", "Soft", "Vivid"]);
+    expect(AMBIENT_MOTIONS).toEqual(["Off", "On"]);
+    expect(appearanceState(snap()).dataset).toMatchObject({
+      cornerStyle: "Round",
+      ambientLight: "Vivid",
+      ambientMotion: "Off",
+    });
+    preferences.setField("cornerStyle", "Sharp");
+    preferences.setField("ambientLight", "Soft");
+    preferences.setField("ambientMotion", "On");
+    expect(appearanceState(snap()).dataset).toMatchObject({
+      cornerStyle: "Sharp",
+      ambientLight: "Soft",
+      ambientMotion: "On",
+    });
+    resetAppearancePreferences();
+    expect(appearanceState(snap()).dataset).toMatchObject({
+      cornerStyle: "Round",
+      ambientLight: "Vivid",
+      ambientMotion: "Off",
+    });
+  });
+
+  it("falls back safely on unknown corner, ambient light and motion values", () => {
+    const prefs = {
+      theme: "",
+      toggles: {},
+      fields: { cornerStyle: "pointy", ambientLight: "blazing", ambientMotion: "yes" },
+    };
+    expect(resolveCornerStyle(prefs)).toBe("Round");
+    expect(resolveAmbientLight(prefs)).toBe("Vivid");
+    expect(resolveAmbientMotion(prefs)).toBe("Off");
+  });
+
+  it("styles.css reads the corner, ambient and motion attributes", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    expect(css).toContain('[data-corner-style="Medium"]');
+    expect(css).toContain('[data-corner-style="Sharp"]');
+    expect(css).toContain('html[data-ambient-light="Off"]');
+    expect(css).toContain('html[data-ambient-light="Soft"]');
+    expect(css).toContain('[data-ambient-motion="On"]');
   });
 });

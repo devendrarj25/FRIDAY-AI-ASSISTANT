@@ -17,6 +17,7 @@ import {
   LoadingState,
   Panel,
   SectionTabs,
+  SegmentedControl,
   StatTile,
   StatusPill,
   ToggleRow,
@@ -399,5 +400,72 @@ describe("Windows transparency setting", () => {
     expect(block).toContain("background: var(--color-card);");
     expect(block).toContain('[class*="backdrop-blur"],');
     expect(block).toContain("backdrop-filter: none !important;");
+  });
+});
+
+describe("iOS segmented control, switch and chips", () => {
+  it("FilterTabs and SectionTabs keep their tab roles and gain the sliding thumb", () => {
+    const filter = html(
+      createElement(FilterTabs, {
+        tabs: [
+          { key: "a", label: "All" },
+          { key: "b", label: "Live" },
+        ],
+        value: "a",
+        onChange: () => undefined,
+      }),
+    );
+    expect(filter).toContain('role="tablist"');
+    expect(filter).toContain("friday-seg");
+    expect(filter).toContain('class="friday-seg-thumb"');
+    expect(filter.match(/role="tab"/g)?.length).toBe(2);
+    expect(filter).toContain('aria-selected="true"');
+    const section = html(
+      createElement(SectionTabs, {
+        tabs: [{ key: "x", label: "X", count: 3 }],
+        value: "x",
+        onChange: () => undefined,
+      }),
+    );
+    expect(section).toContain("friday-seg");
+    expect(section).toContain("friday-seg-thumb");
+  });
+
+  it("SegmentedControl is a named group of pressed buttons", () => {
+    const control = html(
+      createElement(SegmentedControl, {
+        label: "Corner style",
+        value: "Round",
+        options: [
+          { id: "Round", label: "Round" },
+          { id: "Sharp", label: "Sharp" },
+        ],
+        onChange: () => undefined,
+      }),
+    );
+    expect(control).toContain('role="group"');
+    expect(control).toContain('aria-label="Corner style"');
+    expect(control).toContain('aria-pressed="true"');
+    expect(control).toContain('aria-pressed="false"');
+    expect(control).toContain("friday-seg-thumb");
+  });
+
+  it("ToggleRow is an iOS switch (track and thumb hooks, same role and name)", () => {
+    const row = html(
+      createElement(ToggleRow, { label: "Auto-sync", on: true, onToggle: () => undefined }),
+    );
+    expect(row).toContain('role="switch"');
+    expect(row).toContain('aria-checked="true"');
+    expect(row).toContain('aria-label="Auto-sync"');
+    expect(row).toContain("friday-switch");
+    expect(row).toContain("friday-switch-thumb");
+  });
+
+  it("status pills are capsules in glass and the button carries its variant", () => {
+    expect(html(createElement(StatusPill, { label: "ready" }))).toContain("friday-chip");
+    const button = read("src/components/ui/button.tsx");
+    expect(button).toContain('data-variant={variant ?? "default"}');
+    expect(button).toContain('data-size={size ?? "default"}');
+    expect(read("src/components/ui/switch.tsx")).toContain("friday-switch-thumb");
   });
 });

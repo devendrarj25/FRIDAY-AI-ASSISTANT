@@ -106,6 +106,17 @@ describe("Settings section upgrade", () => {
     expect(panel).toContain('onChange={setField("uiStyle")}');
     expect(panel).toContain('label="Glass depth"');
     expect(panel).toContain('onChange={setField("glassDepth")}');
+    expect(panel).toContain('label="Corner style"');
+    expect(panel).toContain('onChange={setField("cornerStyle")}');
+    expect(panel).toContain('label="Ambient light"');
+    expect(panel).toContain('onChange={setField("ambientLight")}');
+    expect(panel).toContain('label="Ambient motion"');
+    expect(panel).toContain('onChange={setField("ambientMotion")}');
+    // The live preview uses the real bubble, switch, segmented control and panel.
+    expect(panel).toContain('aria-label="Live preview of the look"');
+    expect(panel).toContain("<SegmentedControl");
+    expect(panel).toContain("bubble-user");
+    expect(panel).toContain("bubble-friday");
     expect(panel).toContain('label="Button labels"');
     expect(panel).toContain('onChange={setField("buttonLabels")}');
     expect(panel).toContain('aria-label="Preview of your current choices"');
