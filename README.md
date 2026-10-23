@@ -10,7 +10,6 @@
 </p>
 
 <p align="center">
-  A private, local-first AI work desk for Windows.<br />
   Owner and publisher: Devendra Singh Meena (devendrarj25)
 </p>
 
