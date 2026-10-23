@@ -32,7 +32,7 @@ export function ConnectivityPanel() {
           </Link>
           <button
             type="button"
-            onClick={() => void connectivity.refresh()}
+            onClick={() => connectivity.refresh()}
             disabled={bridge !== "desktop" || loading}
             className="inline-flex items-center gap-1 rounded-surface border border-border/60 px-2 py-1 text-note text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
           >

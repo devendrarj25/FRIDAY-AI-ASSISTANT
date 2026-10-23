@@ -224,18 +224,18 @@ function LogsPage() {
               <FolderOpen className="size-3.5" /> Folder
             </Button>
           ) : null}
-          <Button size="sm" variant="ghost" onClick={() => void copyBuffer()}>
+          <Button size="sm" variant="ghost" onClick={() => copyBuffer()}>
             <Copy className="size-3.5" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
             {follow ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
             {follow ? "Pause follow" : "Follow"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void onClear()}>
+          <Button size="sm" variant="ghost" onClick={() => onClear()}>
             <Trash2 className="size-3.5" /> Clear
           </Button>
           {desktop ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void pull()}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => pull()}>
               <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> Refresh
             </Button>
           ) : null}
@@ -373,7 +373,7 @@ function LogsPage() {
             hint={fileDir || "logs/"}
             actions={
               desktop ? (
-                <Button size="sm" variant="ghost" onClick={() => void pull()}>
+                <Button size="sm" variant="ghost" onClick={() => pull()}>
                   <RefreshCw className="size-3.5" /> Reload
                 </Button>
               ) : null
@@ -389,7 +389,7 @@ function LogsPage() {
                       ? "bg-primary/10 text-foreground"
                       : "text-muted-foreground",
                   )}
-                  onClick={() => void onOpenFile(file.rel)}
+                  onClick={() => onOpenFile(file.rel)}
                   title={file.rel}
                 >
                   {file.rel} · {file.size}b

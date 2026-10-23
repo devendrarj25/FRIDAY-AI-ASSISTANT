@@ -65,7 +65,7 @@ export function AutonomySettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void navigate({ to: "/self-management" })}
+              onClick={() => navigate({ to: "/self-management" })}
             >
               Approvals →
             </Button>

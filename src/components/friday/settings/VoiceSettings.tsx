@@ -372,7 +372,7 @@ export function VoiceSettings() {
               <button
                 type="button"
                 className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-                onClick={() => void desktopApi()?.openExternalUrl?.("ms-settings:sound")}
+                onClick={() => desktopApi()?.openExternalUrl?.("ms-settings:sound")}
               >
                 <Settings2 className="size-3" aria-hidden="true" />
                 Sound input settings
@@ -695,7 +695,7 @@ function VoiceLibraryPanel() {
                 >
                   Test
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void removeVoiceModel(model.id)}>
+                <Button size="sm" variant="outline" onClick={() => removeVoiceModel(model.id)}>
                   Remove
                 </Button>
               </div>

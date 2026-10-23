@@ -602,7 +602,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   aria-label="Restart FRIDAY"
                   title="Restart FRIDAY"
                   disabled={lifeBusy}
-                  onClick={() => void askLife("restart")}
+                  onClick={() => askLife("restart")}
                   className="grid flex-1 place-items-center rounded-ctl border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
                 >
                   <RotateCw className="size-4" />
@@ -627,7 +627,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 aria-label="Shutdown FRIDAY"
                 title="Shutdown FRIDAY"
                 disabled={lifeBusy}
-                onClick={() => void askLife("shutdown")}
+                onClick={() => askLife("shutdown")}
                 className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-ctl border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
               >
                 <Power className="size-4 shrink-0" />
@@ -714,7 +714,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 type="button"
                 variant="destructive"
                 disabled={lifeBusy}
-                onClick={() => void confirmLife()}
+                onClick={() => confirmLife()}
               >
                 {lifeMode === "shutdown" ? "Shut down" : "Restart"}
               </Button>

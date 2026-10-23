@@ -90,7 +90,7 @@ export function PermissionSettings() {
         title="Tool Permissions"
         hint={desktopApi() ? "enforced by the tool authority" : "desktop app only"}
         actions={
-          <Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}>
+          <Button size="sm" variant="outline" disabled={loading} onClick={() => load()}>
             <RefreshCw className="size-4" /> Refresh
           </Button>
         }
@@ -107,7 +107,7 @@ export function PermissionSettings() {
                   type="button"
                   aria-label={`${tool}: ${decision}, change`}
                   title="Change this decision"
-                  onClick={() => void set(tool, NEXT[decision])}
+                  onClick={() => set(tool, NEXT[decision])}
                 >
                   <StatusPill label={decision} tone={TONE[decision]} />
                 </button>
@@ -115,7 +115,7 @@ export function PermissionSettings() {
                   size="sm"
                   variant="ghost"
                   className="h-6 px-2 text-note"
-                  onClick={() => void set(tool, "default")}
+                  onClick={() => set(tool, "default")}
                 >
                   reset
                 </Button>
@@ -228,7 +228,7 @@ export function PermissionSettings() {
           size="sm"
           variant="outline"
           className="mt-4"
-          onClick={() => void navigate({ to: "/tools" })}
+          onClick={() => navigate({ to: "/tools" })}
         >
           <SlidersHorizontal className="size-4" /> Open tool manager
         </Button>

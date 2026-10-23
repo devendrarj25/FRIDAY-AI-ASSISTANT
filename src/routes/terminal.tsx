@@ -111,7 +111,7 @@ function TerminalPage() {
               <Button size="sm" variant="ghost" onClick={() => ops.submitCommand("home")}>
                 <Home className="size-3.5" /> Home
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => void copyBuffer()}>
+              <Button size="sm" variant="ghost" onClick={() => copyBuffer()}>
                 <Copy className="size-3.5" /> Copy
               </Button>
               {runningCommand ? (

@@ -503,7 +503,7 @@ function SandboxPage() {
           title="Runtime"
           hint={summary?.base ?? "sandbox root"}
           actions={
-            <Button size="sm" variant="ghost" onClick={() => void detectRuntime().then(setRuntime)}>
+            <Button size="sm" variant="ghost" onClick={() => detectRuntime().then(setRuntime)}>
               <RefreshCw className="size-3.5" /> Detect
             </Button>
           }
@@ -531,7 +531,7 @@ function SandboxPage() {
                     variant="outline"
                     className="mt-2 w-full"
                     disabled={runtimeBusy === tool.id}
-                    onClick={() => void onInstall(tool.id)}
+                    onClick={() => onInstall(tool.id)}
                   >
                     <Download className="size-3.5" />
                     {runtimeBusy === tool.id ? "Installing…" : `Install from ${tool.source}`}
@@ -557,7 +557,7 @@ function SandboxPage() {
               : `${engines.engines.filter((e) => e.installed).length}/${engines.engines.length} available`
           }
           actions={
-            <Button size="sm" variant="ghost" onClick={() => void listEngines().then(setEngines)}>
+            <Button size="sm" variant="ghost" onClick={() => listEngines().then(setEngines)}>
               <RefreshCw className="size-3.5" /> Detect
             </Button>
           }
@@ -631,7 +631,7 @@ function SandboxPage() {
                         size="sm"
                         variant="outline"
                         disabled={engineBusy === engine.id}
-                        onClick={() => void onStartEngine(engine.id)}
+                        onClick={() => onStartEngine(engine.id)}
                       >
                         <Play className="size-3.5" />
                         {engineBusy === engine.id ? "Starting…" : "Start service"}
@@ -642,7 +642,7 @@ function SandboxPage() {
                         size="sm"
                         variant="outline"
                         disabled={engineBusy === engine.id || engine.awaitingRestart}
-                        onClick={() => void onInstallEngine(engine.id)}
+                        onClick={() => onInstallEngine(engine.id)}
                       >
                         <Download className="size-3.5" />
                         {engineBusy === engine.id
@@ -653,11 +653,7 @@ function SandboxPage() {
                       </Button>
                     )}
                     {engine.eligible === false || !engine.installed ? null : engine.launchOnly ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void onLaunchEngine(engine.id)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => onLaunchEngine(engine.id)}>
                         <Play className="size-3.5" /> Launch session
                       </Button>
                     ) : (
@@ -665,7 +661,7 @@ function SandboxPage() {
                         size="sm"
                         variant={selected ? "default" : "outline"}
                         disabled={!engine.ready || !activeId}
-                        onClick={() => void onPickEngine(engine.id)}
+                        onClick={() => onPickEngine(engine.id)}
                       >
                         <Boxes className="size-3.5" /> {selected ? "In use" : "Use for project"}
                       </Button>
@@ -702,10 +698,10 @@ function SandboxPage() {
                 </option>
               ))}
             </select>
-            <Button size="sm" onClick={() => void onCreate()}>
+            <Button size="sm" onClick={() => onCreate()}>
               <FilePlus2 className="size-3.5" /> Create
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => void refresh()}>
+            <Button size="sm" variant="ghost" onClick={() => refresh()}>
               <RefreshCw className="size-3.5" /> Refresh
             </Button>
           </div>
@@ -732,7 +728,7 @@ function SandboxPage() {
                   variant="ghost"
                   aria-label="Open folder"
                   title="Open folder"
-                  onClick={() => void reveal(p.dir)}
+                  onClick={() => reveal(p.dir)}
                 >
                   <FolderOpen className="size-3.5" />
                 </Button>
@@ -780,7 +776,7 @@ function SandboxPage() {
                       variant="ghost"
                       aria-label="New file"
                       title="New file"
-                      onClick={() => void onNewFile()}
+                      onClick={() => onNewFile()}
                     >
                       <FilePlus2 className="size-3.5" />
                     </Button>
@@ -813,7 +809,7 @@ function SandboxPage() {
                     <div key={f.path} className="group flex items-center gap-1">
                       <button
                         disabled={f.dir}
-                        onClick={() => void onOpenFile(f.path)}
+                        onClick={() => onOpenFile(f.path)}
                         className={cn(
                           "flex-1 truncate rounded-ctl px-1.5 py-0.5 text-left",
                           f.dir ? "text-primary/70" : "text-muted-foreground hover:bg-primary/10",
@@ -829,7 +825,7 @@ function SandboxPage() {
                           aria-label={`Delete ${f.path}`}
                           title="Delete file"
                           className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={() => void onDelete(f.path)}
+                          onClick={() => onDelete(f.path)}
                         >
                           <Trash2 className="size-3 text-destructive" />
                         </button>
@@ -847,7 +843,7 @@ function SandboxPage() {
                     size="sm"
                     variant={dirty ? "default" : "ghost"}
                     disabled={!openFile}
-                    onClick={() => void onSave()}
+                    onClick={() => onSave()}
                   >
                     <Save className="size-3.5" /> Save
                   </Button>
@@ -876,7 +872,7 @@ function SandboxPage() {
                     size="sm"
                     variant="outline"
                     disabled={Boolean(runId)}
-                    onClick={() => void onRunChecks()}
+                    onClick={() => onRunChecks()}
                   >
                     <Play className="size-3.5" /> Run checks
                   </Button>
@@ -896,7 +892,7 @@ function SandboxPage() {
                     Ask about errors
                   </Button>
                   {runId ? (
-                    <Button size="sm" variant="ghost" onClick={() => void onStop()}>
+                    <Button size="sm" variant="ghost" onClick={() => onStop()}>
                       <Square className="size-3.5" /> Stop
                     </Button>
                   ) : null}
@@ -929,7 +925,7 @@ function SandboxPage() {
                   placeholder="Command to run inside the sandbox project"
                   className="h-8 font-mono text-xs"
                 />
-                <Button size="sm" disabled={Boolean(runId)} onClick={() => void onRun()}>
+                <Button size="sm" disabled={Boolean(runId)} onClick={() => onRun()}>
                   <Play className="size-3.5" /> Run
                 </Button>
               </div>
@@ -999,11 +995,7 @@ function SandboxPage() {
               title="Logs"
               hint="persisted per project"
               actions={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void readLog(project.id).then(setLog)}
-                >
+                <Button size="sm" variant="ghost" onClick={() => readLog(project.id).then(setLog)}>
                   <RefreshCw className="size-3.5" /> Reload
                 </Button>
               }
@@ -1019,13 +1011,13 @@ function SandboxPage() {
               hint={summary?.sourceRoot ?? ""}
               actions={
                 <div className="flex gap-1.5">
-                  <Button size="sm" variant="ghost" onClick={() => void onDiff()}>
+                  <Button size="sm" variant="ghost" onClick={() => onDiff()}>
                     <RefreshCw className="size-3.5" /> Compare
                   </Button>
                   <Button
                     size="sm"
                     disabled={applying || !changes?.length}
-                    onClick={() => void onApply()}
+                    onClick={() => onApply()}
                   >
                     <Send className="size-3.5" /> Approve &amp; apply
                   </Button>
@@ -1115,7 +1107,7 @@ function SandboxPage() {
                       {entry.files?.length ?? 0} file(s) · {time(entry.at)}
                     </p>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => void onRollback(entry.applyId)}>
+                  <Button size="sm" variant="ghost" onClick={() => onRollback(entry.applyId)}>
                     <RotateCcw className="size-3.5" /> Rollback
                   </Button>
                 </div>

@@ -473,7 +473,7 @@ function ImportPage() {
                 >
                   <FolderUp className="size-4" /> Upload whole folder
                 </Button>
-                <Button variant="outline" onClick={() => void pasteClipboard()} disabled={busy}>
+                <Button variant="outline" onClick={() => pasteClipboard()} disabled={busy}>
                   <ClipboardPaste className="size-4" /> Paste clipboard
                 </Button>
               </div>
@@ -487,7 +487,7 @@ function ImportPage() {
                   placeholder="https://github.com/owner/repo · owner/repo · https://…/file.zip"
                   className="border-primary/25 bg-surface font-mono text-xs"
                 />
-                <Button onClick={() => void clone(url)} disabled={busy || !url.trim()}>
+                <Button onClick={() => clone(url)} disabled={busy || !url.trim()}>
                   {busy ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
@@ -510,7 +510,7 @@ function ImportPage() {
                   <button
                     key={r.name}
                     type="button"
-                    onClick={() => void clone(r.name)}
+                    onClick={() => clone(r.name)}
                     title={r.note}
                     className="rounded-ctl border border-primary/25 bg-surface px-2 py-1 text-meta text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
                   >
@@ -885,7 +885,7 @@ function ImportPage() {
                       </p>
                     ))
                   : null}
-                <Button size="sm" variant="outline" onClick={() => void chooseBuildRoot()}>
+                <Button size="sm" variant="outline" onClick={() => chooseBuildRoot()}>
                   <FolderUp className="size-4" /> Choose FRIDAY source
                 </Button>
                 <p className="text-meta text-muted-foreground">
@@ -923,7 +923,7 @@ function ImportPage() {
                     {w}
                   </p>
                 ))}
-                <Button size="sm" variant="outline" onClick={() => void chooseOtherSource()}>
+                <Button size="sm" variant="outline" onClick={() => chooseOtherSource()}>
                   <FolderUp className="size-4" /> Choose other project folder
                 </Button>
                 <p className="text-meta text-muted-foreground">
@@ -1208,7 +1208,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           disabled={i.verified === "pending"}
-                          onClick={() => void imports.verify(i.id)}
+                          onClick={() => imports.verify(i.id)}
                         >
                           Verify
                         </Button>
@@ -1216,7 +1216,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           disabled={i.verified === "pending"}
-                          onClick={() => void imports.verifyPacks(i.id)}
+                          onClick={() => imports.verifyPacks(i.id)}
                         >
                           Verify packs
                         </Button>
@@ -1238,11 +1238,7 @@ function ImportPage() {
                       Install
                     </Button>
                     {i.backup ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void imports.rollback(i.id)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => imports.rollback(i.id)}>
                         Rollback
                       </Button>
                     ) : null}

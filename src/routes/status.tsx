@@ -289,7 +289,7 @@ function StatusPage() {
           <Button size="sm" variant="outline" onClick={() => wiringPanel.open()}>
             System wiring
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/system" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/system" })}>
             Open Hardware →
           </Button>
         </>

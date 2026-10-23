@@ -49,7 +49,7 @@ export function MemorySettings() {
         title="Memory Tiers"
         hint={`${total} item(s) stored`}
         actions={
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/memory" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
             Open Memory →
           </Button>
         }

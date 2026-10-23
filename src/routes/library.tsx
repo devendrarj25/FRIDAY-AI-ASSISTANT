@@ -219,7 +219,7 @@ function LibraryPage() {
           >
             <Upload className="size-4" /> Upload
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void pull()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => pull()}>
             <RefreshCw className="size-4" /> Refresh / Scan
           </Button>
           <Button

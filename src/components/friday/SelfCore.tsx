@@ -202,7 +202,7 @@ export function SkillForgePanel() {
             size="sm"
             className="h-8"
             disabled={!available || busy || !goal.trim()}
-            onClick={() => void forge()}
+            onClick={() => forge()}
           >
             <Sparkles className="size-3.5" /> {busy ? "Forging…" : "Forge"}
           </Button>
@@ -414,7 +414,7 @@ export function BrowserPanel() {
             size="sm"
             className="h-8"
             disabled={!available || busy || !query.trim()}
-            onClick={() => void go()}
+            onClick={() => go()}
           >
             <Globe className="size-3.5" /> {busy ? "Reading…" : "Search"}
           </Button>

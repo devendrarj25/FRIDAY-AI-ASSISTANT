@@ -146,3 +146,27 @@ export function collectLabels(root: string): Record<string, string[]> {
       .map(([k, v]) => [k, [...v].sort()]),
   );
 }
+
+/**
+ * Controls that cannot do anything: an empty handler, or a button with no
+ * handler at all (and not a submit button, a trigger that spreads props, or
+ * permanently disabled).
+ */
+export function deadControls(source: string): ControlElement[] {
+  return controlElements(source).filter((el) => {
+    if (el.tag !== "button" && el.tag !== "Button") return false;
+    if (/\bon\w+=\{(?:\(\)|\(_\w*\)|\(\w+\)) => (?:\{\s*\}|undefined|void 0)\}/.test(el.open)) {
+      return true;
+    }
+    if (/\{\.\.\./.test(el.open)) return false;
+    if (/\b(asChild|disabled)\b|type="(?:submit|reset)"/.test(el.open)) return false;
+    // A trigger wrapper (`<XTrigger asChild>`) supplies the handler.
+    const at = source.indexOf(el.open);
+    const before = source.slice(Math.max(0, at - 600), at);
+    const trigger = before.lastIndexOf("asChild");
+    if (trigger >= 0 && !/<\/\w*(?:Trigger|Slot)>/.test(before.slice(trigger))) return false;
+    // A decorative preview is hidden from keyboards and screen readers.
+    if (/aria-hidden="true"/.test(el.open)) return false;
+    return !/\bon[A-Z]\w+=/.test(el.open);
+  });
+}

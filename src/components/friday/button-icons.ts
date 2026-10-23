@@ -108,6 +108,11 @@ import {
   Wrench,
   X,
   type LucideIcon,
+  Archive,
+  Cast,
+  CircleHelp,
+  Hammer,
+  List,
 } from "lucide-react";
 
 /** Leading verb → icon. Keys are lower case, letters only. */
@@ -251,6 +256,22 @@ const VERBS: Record<string, LucideIcon> = {
   mermaid: FileOutput,
   dot: FileOutput,
   zip: FileOutput,
+  forge: Hammer,
+  archive: Archive,
+  wiring: Cable,
+  system: Cable,
+  how: CircleHelp,
+  graph: Network,
+  list: List,
+  approvals: ShieldCheck,
+  cast: Cast,
+  tasks: ListTodo,
+  sandbox: FlaskConical,
+  folders: FolderTree,
+  always: ShieldCheck,
+  outline: List,
+  auto: Bot,
+  friday: Globe,
 };
 
 /** The leading word of a label, letters only, lower case. */

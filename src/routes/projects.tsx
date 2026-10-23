@@ -345,7 +345,7 @@ function ProjectsPage() {
           <Button size="sm" variant="outline" disabled={busy} onClick={create}>
             <Plus className="size-4" /> New project
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void openFolder()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => openFolder()}>
             <FolderOpen className="size-4" /> Open folder
           </Button>
           <Button
@@ -391,7 +391,7 @@ function ProjectsPage() {
           >
             <Trash2 className="size-4" /> Delete
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void pull()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => pull()}>
             <RefreshCw className="size-4" /> Refresh
           </Button>
           <Button size="sm" variant="outline" onClick={() => revealWorkspaceFolder("projects")}>
@@ -539,42 +539,42 @@ function ProjectsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/tasks" })}
+                          onClick={() => navigate({ to: "/tasks" })}
                         >
                           Tasks
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/logs" })}
+                          onClick={() => navigate({ to: "/logs" })}
                         >
                           Logs
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/terminal" })}
+                          onClick={() => navigate({ to: "/terminal" })}
                         >
                           Terminal
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/sandbox" })}
+                          onClick={() => navigate({ to: "/sandbox" })}
                         >
                           Sandbox lab
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/workspace" })}
+                          onClick={() => navigate({ to: "/workspace" })}
                         >
                           Folders
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/browser" })}
+                          onClick={() => navigate({ to: "/browser" })}
                         >
                           FRIDAY Browser
                         </Button>
@@ -932,7 +932,7 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void projectWorkspaces.listFiles(active.id).then(setFiles)}
+                        onClick={() => projectWorkspaces.listFiles(active.id).then(setFiles)}
                       >
                         Refresh listing
                       </Button>
@@ -948,7 +948,7 @@ function ProjectsPage() {
                             <button
                               type="button"
                               className="text-left underline decoration-dotted"
-                              onClick={() => void previewFile(file)}
+                              onClick={() => previewFile(file)}
                             >
                               {file}
                             </button>
@@ -995,11 +995,7 @@ function ProjectsPage() {
                       >
                         Summarise context
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void navigate({ to: "/" })}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => navigate({ to: "/" })}>
                         Open Friday (Main Window)
                       </Button>
                     </div>
@@ -1031,7 +1027,7 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/browser" })}
+                        onClick={() => navigate({ to: "/browser" })}
                       >
                         Open FRIDAY Browser
                       </Button>
@@ -1104,23 +1100,23 @@ function ProjectsPage() {
                       )}
                     </ul>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => void detectProject()}>
+                      <Button size="sm" variant="outline" onClick={() => detectProject()}>
                         Detect this folder
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => void openTerminalHere()}>
+                      <Button size="sm" variant="outline" onClick={() => openTerminalHere()}>
                         Open Terminal here
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/terminal" })}
+                        onClick={() => navigate({ to: "/terminal" })}
                       >
                         Open Terminal
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/sandbox" })}
+                        onClick={() => navigate({ to: "/sandbox" })}
                       >
                         Open Sandbox
                       </Button>
@@ -1130,7 +1126,7 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/doctor" })}
+                        onClick={() => navigate({ to: "/doctor" })}
                       >
                         Doctor: this project&apos;s tools
                       </Button>

@@ -83,7 +83,7 @@ export function ImportBar({ target, className }: { target: string; className?: s
             placeholder="github.com/owner/repo"
             className="h-8 border-primary/25 bg-surface font-mono text-xs"
           />
-          <Button size="sm" onClick={() => void clone()} disabled={busy || !url.trim()}>
+          <Button size="sm" onClick={() => clone()} disabled={busy || !url.trim()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Github className="size-4" />}
             Clone
           </Button>

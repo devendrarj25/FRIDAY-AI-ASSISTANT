@@ -139,7 +139,7 @@ export function DevControl() {
               size="sm"
               variant="ghost"
               disabled={busy !== null}
-              onClick={() => void run("refresh", refresh)}
+              onClick={() => run("refresh", refresh)}
             >
               <RefreshCw className={busy === "refresh" ? "size-3.5 animate-spin" : "size-3.5"} />
               Refresh

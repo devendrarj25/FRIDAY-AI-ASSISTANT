@@ -13,6 +13,7 @@ import {
   collectLabels,
   controlFiles,
   controlLabels,
+  deadControls,
   iconOnlyWithoutName,
 } from "./helpers/ui-controls";
 
@@ -53,6 +54,26 @@ describe("UI control parity", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("has no button with an empty or missing handler", () => {
+    const offenders: string[] = [];
+    for (const file of controlFiles(ROOT)) {
+      for (const el of deadControls(readFileSync(file, "utf8"))) {
+        offenders.push(`${relative(ROOT, file)}:${el.line}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("flags a dead control and keeps a live one", () => {
+    const src = `
+      <button className="x">Nothing</button>
+      <Button onClick={() => {}}>Empty</Button>
+      <Button onClick={go}>Live</Button>
+      <button type="submit">Send</button>
+      <DropdownMenuTrigger asChild><Button>Menu</Button></DropdownMenuTrigger>`;
+    expect(deadControls(src).map((el) => el.line)).toEqual([2, 3]);
   });
 
   it("reads labels the way the guard expects", () => {

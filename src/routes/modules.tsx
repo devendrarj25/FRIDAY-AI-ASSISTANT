@@ -246,7 +246,7 @@ function ModulesPage() {
             installedIds={items.map((item) => item.id)}
             onChanged={refresh}
           />
-          <Button size="sm" variant="outline" onClick={() => void loadFromFolder()}>
+          <Button size="sm" variant="outline" onClick={() => loadFromFolder()}>
             <FolderPlus className="size-4" />
             Load from folder
           </Button>
@@ -340,7 +340,7 @@ function ModulesPage() {
                       variant={confirmId === mod.id ? "destructive" : "outline"}
                       className="h-7 px-2 text-note"
                       disabled={!mod.id || Boolean(busyId)}
-                      onClick={() => void onRemove(mod)}
+                      onClick={() => onRemove(mod)}
                     >
                       {confirmId === mod.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -386,7 +386,7 @@ function ModulesPage() {
                 size="sm"
                 className="h-8"
                 disabled={!forgeGoal.trim() || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Forge
@@ -396,7 +396,7 @@ function ModulesPage() {
                 variant="outline"
                 className="h-8"
                 disabled={importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected

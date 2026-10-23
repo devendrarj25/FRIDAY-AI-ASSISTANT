@@ -222,7 +222,7 @@ function SelfManagementPage() {
           <Button size="sm" variant="outline" onClick={copyReport}>
             <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy report
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/doctor" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/doctor" })}>
             Open Doctor →
           </Button>
           <Button
@@ -234,7 +234,7 @@ function SelfManagementPage() {
           >
             Open Updates →
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
             Open Tasks →
           </Button>
         </div>
@@ -472,7 +472,7 @@ function SelfManagementPage() {
           title="Memory"
           hint={`${mem.items.length} records across ${memoryTiers.length} tiers`}
           actions={
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/memory" })}>
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
               <Database className="size-4" /> Open Memory →
             </Button>
           }
@@ -707,7 +707,7 @@ function SelfManagementPage() {
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy ledger
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+              <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
                 Open Tasks →
               </Button>
             </div>
@@ -760,7 +760,7 @@ function SelfManagementPage() {
           title="Durable work"
           hint={`${graphState.queue.length} queued · same graph as Tasks`}
           actions={
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
               Open Tasks →
             </Button>
           }

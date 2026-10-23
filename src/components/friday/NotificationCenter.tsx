@@ -284,7 +284,7 @@ export function NotificationCenter() {
                       {!item.advice ? (
                         <button
                           type="button"
-                          onClick={() => void explain(item)}
+                          onClick={() => explain(item)}
                           disabled={asking === item.id}
                           aria-label="Ask FRIDAY to explain and fix this"
                           title="Ask FRIDAY what this means and how to fix it"

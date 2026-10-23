@@ -359,7 +359,7 @@ function CorePanel() {
               </>
             )}
           </Button>
-          <Button size="sm" disabled={busy} onClick={() => void runCycle()}>
+          <Button size="sm" disabled={busy} onClick={() => runCycle()}>
             <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", busy && "animate-spin")} /> Run cycle
           </Button>
         </div>
@@ -449,7 +449,7 @@ function BackgroundPanel() {
                 size="sm"
                 variant="ghost"
                 disabled={busy === job.id}
-                onClick={() => void run(job.id)}
+                onClick={() => run(job.id)}
               >
                 <Play className="mr-1.5 h-3.5 w-3.5" /> Run now
               </Button>

@@ -243,7 +243,7 @@ function N8nPage() {
           <Button size="sm" variant="outline" onClick={exportAll} disabled={!workflows.length}>
             <Download className="size-4" /> Export
           </Button>
-          <Button size="sm" onClick={() => void connect()} disabled={status === "connecting"}>
+          <Button size="sm" onClick={() => connect()} disabled={status === "connecting"}>
             {status === "connecting" ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -324,7 +324,7 @@ function N8nPage() {
                 placeholder="http://localhost:5678/webhook/friday"
                 className="border-primary/25 bg-surface font-mono text-xs"
               />
-              <Button size="sm" onClick={() => void trigger(webhook)} disabled={!webhook.trim()}>
+              <Button size="sm" onClick={() => trigger(webhook)} disabled={!webhook.trim()}>
                 <Play className="size-4" /> Run
               </Button>
             </div>
@@ -471,7 +471,7 @@ function N8nPage() {
                 placeholder="owner/repo · https://github.com/owner/repo"
                 className="border-primary/25 bg-surface font-mono text-xs"
               />
-              <Button onClick={() => void cloneRepo()} disabled={!repo.trim()}>
+              <Button onClick={() => cloneRepo()} disabled={!repo.trim()}>
                 <Github className="size-4" /> Clone
               </Button>
             </div>

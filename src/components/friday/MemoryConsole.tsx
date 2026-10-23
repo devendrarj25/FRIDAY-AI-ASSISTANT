@@ -465,7 +465,7 @@ export function MemoryConsole() {
               size="sm"
               variant="outline"
               disabled={vector.busy || !memQuery.trim()}
-              onClick={() => void vectorIndex.search(memQuery)}
+              onClick={() => vectorIndex.search(memQuery)}
             >
               <Search className={cn("size-4", vector.busy && "animate-pulse")} /> Search index
             </Button>
@@ -595,7 +595,7 @@ export function MemoryConsole() {
             ))}
           </ul>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => void vectorIndex.syncLocalMemory()}>
+            <Button size="sm" variant="outline" onClick={() => vectorIndex.syncLocalMemory()}>
               <Sparkles className="size-4" /> Sync to index
             </Button>
             <Button
@@ -609,7 +609,7 @@ export function MemoryConsole() {
             >
               Clear working
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => void vectorIndex.refresh()}>
+            <Button size="sm" variant="ghost" onClick={() => vectorIndex.refresh()}>
               Refresh status
             </Button>
           </div>

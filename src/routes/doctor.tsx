@@ -277,7 +277,7 @@ function DoctorPage() {
       live={{ at: state.lastScanAt, everyMs: 300_000, verb: "scanned" }}
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void copySession()}>
+          <Button size="sm" variant="ghost" onClick={() => copySession()}>
             <Copy className="size-4" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
@@ -287,7 +287,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: false })}
+            onClick={() => doctor.scan({ deep: false })}
             disabled={busy}
           >
             <ScanSearch className="size-4" /> Scan Now
@@ -295,7 +295,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: false })}
+            onClick={() => doctor.scan({ deep: false })}
             disabled={busy}
           >
             <Stethoscope className="size-4" /> Quick Doctor
@@ -303,7 +303,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: true })}
+            onClick={() => doctor.scan({ deep: true })}
             disabled={busy}
           >
             <Activity className="size-4" /> Deep Doctor
@@ -315,7 +315,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: state.lastDeep })}
+            onClick={() => doctor.scan({ deep: state.lastDeep })}
             disabled={busy}
           >
             <RefreshCw className={state.scanning ? "size-4 animate-spin" : "size-4"} /> Refresh
@@ -328,11 +328,7 @@ function DoctorPage() {
           >
             <ShieldCheck className="size-4" /> Verify all packs
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void navigate({ to: "/install-manager" })}
-          >
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/install-manager" })}>
             Install Manager →
           </Button>
         </div>
@@ -443,7 +439,7 @@ function DoctorPage() {
         <Button size="sm" variant="outline" onClick={copyReport}>
           <ClipboardCopy className="size-4" /> Copy report
         </Button>
-        <Button size="sm" variant="outline" onClick={() => void doctor.exportReport()}>
+        <Button size="sm" variant="outline" onClick={() => doctor.exportReport()}>
           <Download className="size-4" /> Export report
         </Button>
         <span className="ml-auto text-meta-sm text-muted-foreground">
@@ -515,7 +511,7 @@ function DoctorPage() {
                           variant="outline"
                           className="h-6 px-2 text-note"
                           disabled={busy}
-                          onClick={() => void doctor.fix(c.id)}
+                          onClick={() => doctor.fix(c.id)}
                         >
                           <Wrench className="size-3" />
                           {state.repairing.includes(c.id) ? "Repairing…" : "Repair"}
@@ -544,7 +540,7 @@ function DoctorPage() {
                           variant="ghost"
                           className="h-6 px-2 text-note"
                           disabled={busy}
-                          onClick={() => void doctor.scan({ deep: false })}
+                          onClick={() => doctor.scan({ deep: false })}
                         >
                           <RefreshCw className="size-3" /> Re-check
                         </Button>
@@ -638,7 +634,7 @@ function DoctorPage() {
                         variant="outline"
                         className="mt-2 h-6 px-2 text-note"
                         disabled={busy}
-                        onClick={() => void doctor.scan({ deep: false })}
+                        onClick={() => doctor.scan({ deep: false })}
                       >
                         <RefreshCw className="size-3" /> Re-check
                       </Button>
@@ -687,7 +683,7 @@ function DoctorPage() {
                       size="sm"
                       variant="outline"
                       className="h-6 px-2 text-note"
-                      onClick={() => void doctor.rollback(r.id)}
+                      onClick={() => doctor.rollback(r.id)}
                     >
                       <RotateCcw className="size-3" /> Roll back
                     </Button>

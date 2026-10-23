@@ -237,7 +237,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </label>
         <button
           type="button"
-          onClick={() => void runProbes()}
+          onClick={() => runProbes()}
           disabled={busy}
           className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
@@ -246,7 +246,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </button>
         <button
           type="button"
-          onClick={() => void assistantMode.refreshWakeEngine(true)}
+          onClick={() => assistantMode.refreshWakeEngine(true)}
           className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <RefreshCw className="size-3" aria-hidden="true" />

@@ -536,7 +536,7 @@ function TasksPage() {
       subtitle="Goal → plan → tools → verification · live"
       actions={
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => void copyBuffer()}>
+          <Button size="sm" variant="ghost" onClick={() => copyBuffer()}>
             <Copy className="size-3.5" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
@@ -555,7 +555,7 @@ function TasksPage() {
           <Button size="sm" variant="ghost" onClick={onClear}>
             <Trash2 className="size-3.5" /> Clear history
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void taskGraph.pump()}>
+          <Button size="sm" variant="outline" onClick={() => taskGraph.pump()}>
             <RefreshCw className="size-3.5" /> Pump
           </Button>
         </div>
@@ -759,11 +759,7 @@ function TasksPage() {
                   >
                     {job.enabled ? "Disable" : "Enable"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void backgroundTasks.runNow(job.id)}
-                  >
+                  <Button size="sm" variant="ghost" onClick={() => backgroundTasks.runNow(job.id)}>
                     Run now
                   </Button>
                 </div>

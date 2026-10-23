@@ -120,7 +120,7 @@ export function SystemSettings() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill label={metrics.uptime} tone="accent" />
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/system" })}>
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: "/system" })}>
               Open Hardware →
             </Button>
           </div>

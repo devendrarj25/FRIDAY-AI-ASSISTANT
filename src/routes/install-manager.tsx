@@ -345,7 +345,7 @@ function InstallManagerPage() {
       subtitle="Live software management — runtimes, AI engines, GPU stacks, libraries and dev tools from official sources · live"
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void copySession()}>
+          <Button size="sm" variant="ghost" onClick={() => copySession()}>
             <Copy className="size-4" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
@@ -380,7 +380,7 @@ function InstallManagerPage() {
           <Button size="sm" variant="outline" onClick={onUpdateAll}>
             <Download className="size-4" /> Update all ({counts.updates})
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/doctor" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/doctor" })}>
             <Stethoscope className="size-4" /> Doctor →
           </Button>
         </div>

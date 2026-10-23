@@ -401,7 +401,7 @@ function SkillsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("zip")}
+            onClick={() => addFrom("zip")}
           >
             {importBusy === "zip" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -413,7 +413,7 @@ function SkillsPage() {
           <Button
             size="sm"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("folder")}
+            onClick={() => addFrom("folder")}
           >
             {importBusy === "folder" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -505,7 +505,7 @@ function SkillsPage() {
                       variant="outline"
                       className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
-                      onClick={() => void onToggle(s)}
+                      onClick={() => onToggle(s)}
                     >
                       {s.enabled ? "Disable" : "Enable"}
                     </Button>
@@ -523,7 +523,7 @@ function SkillsPage() {
                       variant={confirmId === s.id ? "destructive" : "outline"}
                       className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
-                      onClick={() => void onRemove(s)}
+                      onClick={() => onRemove(s)}
                     >
                       {confirmId === s.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -592,7 +592,7 @@ function SkillsPage() {
                 size="sm"
                 className="h-8"
                 disabled={importBusy !== null || !forgeGoal.trim()}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? (
                   <Loader2 className="size-4 animate-spin" />

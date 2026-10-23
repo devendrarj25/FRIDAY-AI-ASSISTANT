@@ -262,11 +262,7 @@ function BrainPage() {
                 title="Memory overview"
                 hint={`${memoryState.items.length} records · last write ${relative(memoryState.lastWriteAt)}`}
                 actions={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void navigate({ to: "/memory" })}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
                     Open Memory →
                   </Button>
                 }
@@ -341,7 +337,7 @@ function BrainPage() {
                     size="sm"
                     variant="outline"
                     disabled={vector.busy}
-                    onClick={() => void vectorIndex.syncLocalMemory()}
+                    onClick={() => vectorIndex.syncLocalMemory()}
                   >
                     <RefreshCw className={cn("size-4", vector.busy && "animate-spin")} /> Sync now
                   </Button>
@@ -349,11 +345,11 @@ function BrainPage() {
                     size="sm"
                     variant="outline"
                     disabled={vector.busy}
-                    onClick={() => void vectorIndex.reindex()}
+                    onClick={() => vectorIndex.reindex()}
                   >
                     Rebuild index
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void vectorIndex.refresh()}>
+                  <Button size="sm" variant="ghost" onClick={() => vectorIndex.refresh()}>
                     Refresh status
                   </Button>
                 </div>
@@ -597,7 +593,7 @@ function BrainPage() {
             title="Agent system"
             hint={`${activeAgents}/${agentSpecs.length} active`}
             actions={
-              <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/agents" })}>
+              <Button size="sm" variant="outline" onClick={() => navigate({ to: "/agents" })}>
                 Open Agents →
               </Button>
             }
@@ -744,7 +740,7 @@ function BrainPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void navigate({ to: "/self-management" })}
+                onClick={() => navigate({ to: "/self-management" })}
               >
                 Open Self-Management →
               </Button>
@@ -798,7 +794,7 @@ function BrainPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => void brain.checkUpdates()}
+                  onClick={() => brain.checkUpdates()}
                   disabled={state.checkingUpdates}
                 >
                   <RefreshCw className={cn("size-4", state.checkingUpdates && "animate-spin")} />{" "}
@@ -868,11 +864,7 @@ function BrainPage() {
                   : "one root, kept organised"
               }
               actions={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void navigate({ to: "/workspace" })}
-                >
+                <Button size="sm" variant="outline" onClick={() => navigate({ to: "/workspace" })}>
                   Open Folders →
                 </Button>
               }

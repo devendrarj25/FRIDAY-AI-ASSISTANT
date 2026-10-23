@@ -960,12 +960,7 @@ function BrowserPage() {
               <Search className="size-4" />
             </Button>
           </form>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label="Bookmark"
-            onClick={() => void toggleBookmark()}
-          >
+          <Button size="sm" variant="ghost" aria-label="Bookmark" onClick={() => toggleBookmark()}>
             {bookmarked ? (
               <BookmarkCheck className="size-4 text-primary" />
             ) : (
@@ -1154,7 +1149,7 @@ function BrowserPage() {
                         <button
                           type="button"
                           aria-label="Remove bookmark"
-                          onClick={() => void removeBookmark(item.url).then(setBookmarks)}
+                          onClick={() => removeBookmark(item.url).then(setBookmarks)}
                         >
                           <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
                         </button>
@@ -1168,11 +1163,7 @@ function BrowserPage() {
                 <Panel
                   title="History"
                   actions={
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void clearVisits().then(setVisits)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => clearVisits().then(setVisits)}>
                       Clear
                     </Button>
                   }
@@ -1203,7 +1194,7 @@ function BrowserPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => void clearDownloads().then(setDownloads)}
+                      onClick={() => clearDownloads().then(setDownloads)}
                     >
                       Clear
                     </Button>
@@ -1219,11 +1210,7 @@ function BrowserPage() {
                         <p className="truncate text-note-sm text-muted-foreground">
                           {item.state} · {Math.round(item.received / 1024)} KB
                         </p>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void revealDownload(item.file)}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => revealDownload(item.file)}>
                           Show in folder
                         </Button>
                       </div>

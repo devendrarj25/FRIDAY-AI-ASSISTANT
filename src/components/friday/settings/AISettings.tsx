@@ -332,7 +332,7 @@ export function AISettings() {
               size="sm"
               variant={registry.routeMode === mode ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setRouteMode(mode)}
+              onClick={() => modelRegistry.setRouteMode(mode)}
             >
               {ROUTE_MODE_LABELS[mode]}
             </Button>
@@ -352,7 +352,7 @@ export function AISettings() {
               size="sm"
               variant={registry.qualityTarget === target ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setQualityTarget(target)}
+              onClick={() => modelRegistry.setQualityTarget(target)}
             >
               {QUALITY_TARGET_LABELS[target]}
             </Button>
@@ -372,7 +372,7 @@ export function AISettings() {
               size="sm"
               variant={registry.strategy === strategy ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setStrategy(strategy)}
+              onClick={() => modelRegistry.setStrategy(strategy)}
             >
               {ROUTE_STRATEGY_LABELS[strategy]}
             </Button>
@@ -402,7 +402,7 @@ export function AISettings() {
               size="sm"
               variant={registry.policy === value ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setPolicy(value)}
+              onClick={() => modelRegistry.setPolicy(value)}
             >
               {label}
             </Button>
@@ -434,7 +434,7 @@ export function AISettings() {
         <Field label="Routed brain context" value={contextLabel} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/models" })}>
+        <Button size="sm" variant="outline" onClick={() => navigate({ to: "/models" })}>
           Open Models →
         </Button>
         <Button

@@ -282,7 +282,7 @@ export function CompanionSettings() {
               key={p.id}
               label={p.label}
               active={settings.placement === p.id}
-              onClick={() => void patch({ placement: p.id })}
+              onClick={() => patch({ placement: p.id })}
             />
           ))}
         </div>
@@ -296,7 +296,7 @@ export function CompanionSettings() {
                   key={c}
                   label={c.replace("-", " ")}
                   active={settings.corner === c}
-                  onClick={() => void patch({ corner: c })}
+                  onClick={() => patch({ corner: c })}
                 />
               ))}
             </div>
@@ -310,7 +310,7 @@ export function CompanionSettings() {
               key={q}
               label={q}
               active={settings.quality === q}
-              onClick={() => void patch({ quality: q })}
+              onClick={() => patch({ quality: q })}
             />
           ))}
         </div>
@@ -346,7 +346,7 @@ export function CompanionSettings() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => void bridge.characterResetPosition()}>
+          <Button size="sm" variant="outline" onClick={() => bridge.characterResetPosition()}>
             Reset position
           </Button>
         </div>
@@ -375,7 +375,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("repair", "Repair", () => bridge.characterRepair())}
+              onClick={() => maintenance("repair", "Repair", () => bridge.characterRepair())}
               disabled={busy !== null}
             >
               {busy === "repair" ? (
@@ -388,7 +388,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("update", "Update", () => bridge.characterUpdate())}
+              onClick={() => maintenance("update", "Update", () => bridge.characterUpdate())}
               disabled={busy !== null}
             >
               {busy === "update" ? (
@@ -401,7 +401,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("remove", "Remove", () => bridge.characterRemove())}
+              onClick={() => maintenance("remove", "Remove", () => bridge.characterRemove())}
               disabled={busy !== null}
             >
               {busy === "remove" ? (

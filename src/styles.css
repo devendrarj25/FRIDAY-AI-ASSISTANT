@@ -2185,3 +2185,12 @@ html[data-ui-style="glass"] .friday-composer .friday-send svg {
 html.no-glow .live-dot[data-state="live"] {
   box-shadow: none;
 }
+
+/* A button whose handler returned a promise: its own icon steps aside for the
+   spinner until the work ends. */
+button[data-pending="true"] > svg:not(.friday-pending-spinner) {
+  display: none;
+}
+button[data-pending="true"] {
+  cursor: progress;
+}

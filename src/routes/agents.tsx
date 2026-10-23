@@ -308,7 +308,7 @@ function AgentsPage() {
             installedIds={items.map((item) => item.id)}
             onChanged={refresh}
           />
-          <Button size="sm" onClick={() => void addAgent()}>
+          <Button size="sm" onClick={() => addAgent()}>
             <Plus className="size-4" /> Add Agent
           </Button>
         </div>
@@ -404,7 +404,7 @@ function AgentsPage() {
                       variant={confirmId === a.id ? "destructive" : "outline"}
                       className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !a.id}
-                      onClick={() => void onRemove(a)}
+                      onClick={() => onRemove(a)}
                     >
                       {confirmId === a.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -484,7 +484,7 @@ function AgentsPage() {
                 size="sm"
                 className="h-8"
                 disabled={importBusy !== null || !forgeGoal.trim()}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -507,7 +507,7 @@ function AgentsPage() {
                 variant="outline"
                 className="h-8"
                 disabled={importBusy !== null || !openRow?.id}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected

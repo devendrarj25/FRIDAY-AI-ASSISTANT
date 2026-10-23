@@ -1062,7 +1062,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.discover(query)}
+                  onClick={() => engine.discover(query)}
                 >
                   {state.discovering ? "Searching online…" : "Search online"}
                 </Button>
@@ -1070,7 +1070,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.discover(query, "latest")}
+                  onClick={() => engine.discover(query, "latest")}
                   title="Newest releases first, straight from the public index"
                 >
                   Latest
@@ -1079,7 +1079,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.aiRefreshCatalog(query)}
+                  onClick={() => engine.aiRefreshCatalog(query)}
                   title="Let FRIDAY's cloud model suggest current models — each one verified before it is listed"
                 >
                   <Zap className="size-3.5" />
@@ -1125,7 +1125,7 @@ function ModelsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void engine.installDiscovered(d)}
+                          onClick={() => engine.installDiscovered(d)}
                         >
                           {d.installedLocally ? "Refresh" : "Install"}
                         </Button>
@@ -2249,7 +2249,7 @@ function BillingPanel() {
           Allow paid for 1 hour
         </Button>
         {state.billing.grantScope !== "off" ? (
-          <Button size="sm" variant="ghost" onClick={() => void billing.grant("off")}>
+          <Button size="sm" variant="ghost" onClick={() => billing.grant("off")}>
             <X className="size-4" />
             Revoke grant
           </Button>

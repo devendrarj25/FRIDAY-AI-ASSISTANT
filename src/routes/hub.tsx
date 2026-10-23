@@ -133,7 +133,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
 
         <div className="flex flex-wrap items-center gap-2">
           {pending ? (
-            <Button size="sm" disabled={busy} onClick={() => void hub.approve(resource.id)}>
+            <Button size="sm" disabled={busy} onClick={() => hub.approve(resource.id)}>
               {busy ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
@@ -148,7 +148,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={() => void hub.healthTest(resource.id)}
+                onClick={() => hub.healthTest(resource.id)}
               >
                 <Play className="size-3.5" /> Health test
               </Button>
@@ -166,7 +166,7 @@ function ResourceCard({ resource }: { resource: HubResource }) {
               ) : null}
             </>
           ) : null}
-          <Button size="sm" variant="ghost" onClick={() => void hub.remove(resource.id)}>
+          <Button size="sm" variant="ghost" onClick={() => hub.remove(resource.id)}>
             <Trash2 className="size-3.5" /> {pending ? "Reject" : "Remove"}
           </Button>
         </div>
@@ -280,10 +280,10 @@ function HubPage() {
                 )}
                 Clone &amp; inspect
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void hub.inspectZip()}>
+              <Button size="sm" variant="outline" onClick={() => hub.inspectZip()}>
                 <Package className="size-3.5" /> ZIP
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void hub.inspectFolder()}>
+              <Button size="sm" variant="outline" onClick={() => hub.inspectFolder()}>
                 <FolderOpen className="size-3.5" /> Folder
               </Button>
               <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>

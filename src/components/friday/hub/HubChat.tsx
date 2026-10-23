@@ -74,7 +74,7 @@ export function HubChat() {
           type="button"
           className="hud-btn text-xs"
           disabled={busy || !draft.trim()}
-          onClick={() => void send()}
+          onClick={() => send()}
         >
           <MessageSquare className="size-3" aria-hidden="true" />
           {busy ? "…" : "Ask"}

@@ -185,7 +185,7 @@ export function RevertCenter() {
           >
             <RotateCcw className="size-3.5" /> Restore main to a commit
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void refresh()}>
+          <Button size="sm" variant="ghost" onClick={() => refresh()}>
             <RefreshCw className="size-3.5" /> Refresh
           </Button>
           <StatusPill label="no recovery branch needed" tone="muted" />
@@ -202,7 +202,7 @@ export function RevertCenter() {
             size="sm"
             variant="outline"
             disabled={!sha || busy === "inspect"}
-            onClick={() => void inspect(sha)}
+            onClick={() => inspect(sha)}
           >
             {busy === "inspect" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -221,7 +221,7 @@ export function RevertCenter() {
                 <button
                   key={commit.sha}
                   type="button"
-                  onClick={() => void inspect(commit.sha)}
+                  onClick={() => inspect(commit.sha)}
                   className={`block w-full rounded-ctl px-1.5 py-1 text-left text-meta-sm hover:bg-primary/10 ${
                     sha === commit.sha ? "bg-primary/15 text-primary" : "text-muted-foreground"
                   }`}
@@ -246,7 +246,7 @@ export function RevertCenter() {
                 <button
                   key={pr.number}
                   type="button"
-                  onClick={() => void inspect(pr.sha)}
+                  onClick={() => inspect(pr.sha)}
                   className={`block w-full rounded-ctl px-1.5 py-1 text-left text-meta-sm hover:bg-primary/10 ${
                     sha === pr.sha ? "bg-primary/15 text-primary" : "text-muted-foreground"
                   }`}
@@ -325,7 +325,7 @@ export function RevertCenter() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!ready || busy === "prepare"} onClick={() => void prepare()}>
+          <Button size="sm" disabled={!ready || busy === "prepare"} onClick={() => prepare()}>
             {busy === "prepare" ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : mode === "revert" ? (
@@ -339,7 +339,7 @@ export function RevertCenter() {
             size="sm"
             variant="outline"
             disabled={!prepared || busy === "validate"}
-            onClick={() => void validate()}
+            onClick={() => validate()}
           >
             {busy === "validate" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -352,7 +352,7 @@ export function RevertCenter() {
             size="sm"
             variant="outline"
             disabled={!prepared || busy === "pr"}
-            onClick={() => void openPr()}
+            onClick={() => openPr()}
           >
             {busy === "pr" ? (
               <Loader2 className="size-3.5 animate-spin" />

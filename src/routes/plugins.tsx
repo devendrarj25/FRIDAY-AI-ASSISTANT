@@ -371,7 +371,7 @@ function PluginsPage() {
                   variant={confirmId === p.id ? "destructive" : "outline"}
                   className="h-7 px-2 text-note"
                   disabled={!p.id || Boolean(busyId)}
-                  onClick={() => void onRemove(p)}
+                  onClick={() => onRemove(p)}
                 >
                   {confirmId === p.id ? "Confirm remove" : "Remove"}
                 </Button>
@@ -424,7 +424,7 @@ function PluginsPage() {
                 size="sm"
                 className="h-8"
                 disabled={!forgeGoal.trim() || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Forge
@@ -434,7 +434,7 @@ function PluginsPage() {
                 variant="outline"
                 className="h-8"
                 disabled={importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected

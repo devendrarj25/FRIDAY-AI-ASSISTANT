@@ -505,7 +505,7 @@ function WorkflowsPage() {
                       className="h-7 px-2 text-note"
                       disabled={!row.id || importBusy !== null}
                       aria-label={`Test ${row.name}`}
-                      onClick={() => void onTest(row)}
+                      onClick={() => onTest(row)}
                     >
                       <Play className="size-3.5" />
                     </Button>
@@ -527,7 +527,7 @@ function WorkflowsPage() {
                       variant={confirmId === row.id ? "destructive" : "outline"}
                       className="h-7 px-2 text-note"
                       disabled={!row.id || Boolean(busyId)}
-                      onClick={() => void onRemove(row)}
+                      onClick={() => onRemove(row)}
                     >
                       {confirmId === row.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -618,7 +618,7 @@ function WorkflowsPage() {
                     size="sm"
                     className="h-8"
                     disabled={!forgeGoal.trim() || importBusy !== null}
-                    onClick={() => void onForge()}
+                    onClick={() => onForge()}
                   >
                     {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                     Forge
@@ -637,7 +637,7 @@ function WorkflowsPage() {
                     variant="outline"
                     className="h-8"
                     disabled={importBusy !== null}
-                    onClick={() => void onTest()}
+                    onClick={() => onTest()}
                   >
                     {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                     Test selected

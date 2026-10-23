@@ -281,7 +281,7 @@ export function CapabilityImport({
             size="sm"
             variant="outline"
             disabled={!supported || busy !== null}
-            onClick={() => void addPackFrom("zip")}
+            onClick={() => addPackFrom("zip")}
           >
             {busy === "zip" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -293,7 +293,7 @@ export function CapabilityImport({
           <Button
             size="sm"
             disabled={!supported || busy !== null}
-            onClick={() => void addPackFrom("folder")}
+            onClick={() => addPackFrom("folder")}
           >
             {busy === "folder" ? (
               <Loader2 className="size-4 animate-spin" />

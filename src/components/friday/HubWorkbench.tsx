@@ -167,7 +167,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={Boolean(busy)} onClick={() => void analyze()}>
+          <Button size="sm" disabled={Boolean(busy)} onClick={() => analyze()}>
             {busy === "Analyse" ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
@@ -175,19 +175,14 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
             )}
             Analyse contents
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={Boolean(busy)}
-            onClick={() => void workbench()}
-          >
+          <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => workbench()}>
             <FlaskConical className="size-3.5" /> Open in sandbox
           </Button>
           <Button
             size="sm"
             variant="outline"
             disabled={Boolean(busy) || !canAsk()}
-            onClick={() => void ask()}
+            onClick={() => ask()}
           >
             {busy === "Ask FRIDAY" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -200,7 +195,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
             size="sm"
             variant="outline"
             disabled={Boolean(busy) || !picked.size}
-            onClick={() => void install()}
+            onClick={() => install()}
           >
             <Sparkles className="size-3.5" /> Install selected ({picked.size})
           </Button>
@@ -280,7 +275,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   <li key={file.path}>
                     <button
                       type="button"
-                      onClick={() => void openFile(file.path)}
+                      onClick={() => openFile(file.path)}
                       className={`block w-full truncate px-2 py-1 text-left text-meta-sm hover:text-primary ${
                         open === file.path ? "text-primary" : "text-muted-foreground"
                       }`}
@@ -301,7 +296,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   size="sm"
                   variant="outline"
                   disabled={!open || !dirty || Boolean(busy)}
-                  onClick={() => void save()}
+                  onClick={() => save()}
                 >
                   <Save className="size-3.5" /> Save
                 </Button>

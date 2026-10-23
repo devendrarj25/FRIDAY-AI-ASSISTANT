@@ -133,7 +133,7 @@ export function CapabilityMarket({
               className="pl-8"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={() => void fromFile()} disabled={!supported}>
+          <Button variant="outline" size="sm" onClick={() => fromFile()} disabled={!supported}>
             {busy === "file" ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -195,7 +195,7 @@ export function CapabilityMarket({
                     size="sm"
                     variant={isInstalled ? "outline" : "default"}
                     disabled={!supported || busy === pack.slug}
-                    onClick={() => void (isInstalled ? remove(pack) : install(pack))}
+                    onClick={() => (isInstalled ? remove(pack) : install(pack))}
                   >
                     {busy === pack.slug ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -225,7 +225,7 @@ export function CapabilityMarket({
             placeholder="https://…/pack.json"
             className="flex-1"
           />
-          <Button size="sm" onClick={() => void fromUrl()} disabled={!supported || busy === "url"}>
+          <Button size="sm" onClick={() => fromUrl()} disabled={!supported || busy === "url"}>
             {busy === "url" ? <Loader2 className="size-4 animate-spin" /> : null}
             Install from URL
           </Button>

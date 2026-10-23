@@ -247,7 +247,7 @@ function ToolsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("zip")}
+            onClick={() => addFrom("zip")}
           >
             {importBusy === "zip" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -260,7 +260,7 @@ function ToolsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("folder")}
+            onClick={() => addFrom("folder")}
           >
             {importBusy === "folder" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -382,7 +382,7 @@ function ToolsPage() {
                 size="sm"
                 className="h-8"
                 disabled={!supported || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Create tool
@@ -401,7 +401,7 @@ function ToolsPage() {
                 variant="outline"
                 className="h-8"
                 disabled={!supported || importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected

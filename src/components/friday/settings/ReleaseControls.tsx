@@ -248,7 +248,7 @@ export function ReleaseControls() {
 
         <Button
           disabled={!desktop || busy !== null}
-          onClick={() => void act("release", () => startRelease("prepare", false))}
+          onClick={() => act("release", () => startRelease("prepare", false))}
         >
           <GitPullRequest className="size-4" /> Prepare release PR
         </Button>
@@ -257,7 +257,7 @@ export function ReleaseControls() {
         <Button
           variant={status?.stage === "publish" ? "default" : "outline"}
           disabled={!desktop || busy !== null || status?.stage !== "publish"}
-          onClick={() => void act("publish", () => startRelease("publish", true))}
+          onClick={() => act("publish", () => startRelease("publish", true))}
         >
           <Rocket className="size-4" /> Publish merged release
         </Button>
@@ -333,7 +333,7 @@ export function ReleaseControls() {
               size="sm"
               variant="outline"
               disabled={busy !== null}
-              onClick={() => void act("release", () => startRelease("prepare", true))}
+              onClick={() => act("release", () => startRelease("prepare", true))}
             >
               Prepare from GitHub&apos;s current source anyway
             </Button>

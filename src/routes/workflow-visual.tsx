@@ -570,7 +570,7 @@ export function WorkflowVisualBuilder({
             variant="outline"
             className="h-7 px-2 text-note"
             disabled={!draft?.id || busy !== null}
-            onClick={() => void onTest()}
+            onClick={() => onTest()}
           >
             {busy === "test" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -583,7 +583,7 @@ export function WorkflowVisualBuilder({
             size="sm"
             className="h-7 px-2 text-note"
             disabled={!draft || busy !== null || !draft.name.trim()}
-            onClick={() => void onSave()}
+            onClick={() => onSave()}
           >
             {busy === "save" ? <Loader2 className="size-3.5 animate-spin" /> : null}
             Save

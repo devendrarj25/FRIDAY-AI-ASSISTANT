@@ -107,10 +107,10 @@ export function FirstRunSetup({ onDone }: { onDone: () => void }) {
           )}
 
           <div className="flex gap-3">
-            <Button onClick={() => void start()} disabled={busy}>
+            <Button onClick={() => start()} disabled={busy}>
               {busy ? "Setting up…" : "Set FRIDAY up"}
             </Button>
-            <Button variant="ghost" onClick={() => void skip()} disabled={busy}>
+            <Button variant="ghost" onClick={() => skip()} disabled={busy}>
               Skip for now
             </Button>
           </div>

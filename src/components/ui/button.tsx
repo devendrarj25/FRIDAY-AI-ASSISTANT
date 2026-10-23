@@ -2,7 +2,9 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
+import { Loader2 } from "lucide-react";
 import { iconForLabel } from "@/components/friday/button-icons";
+import { followPending, isThenable } from "@/lib/friday/pending-action";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -54,27 +56,65 @@ function plainLabel(children: React.ReactNode): string | null {
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, children, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, children, onClick, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    // FRIDAY Glass: every text button gets its icon from one vocabulary
-    // (button-icons.ts). Opt out with data-no-icon; links (asChild) and
-    // icon-sized buttons are left alone.
+    // A click handler that returns a promise puts the button in a pending
+    // state until it settles: spinner at once, disabled (no double submit),
+    // and a failure becomes an error toast. Handlers returning nothing, and
+    // asChild buttons (the child owns the click), are untouched.
+    const [pending, setPending] = React.useState(false);
+    const alive = React.useRef(true);
+    React.useEffect(() => {
+      alive.current = true;
+      return () => {
+        alive.current = false;
+      };
+    }, []);
     const label =
       asChild || size === "icon" || (props as Record<string, unknown>)["data-no-icon"] !== undefined
         ? null
         : plainLabel(children);
+    const handleClick =
+      onClick && !asChild
+        ? (event: React.MouseEvent<HTMLButtonElement>) => {
+            if (pending) return;
+            const result: unknown = onClick(event);
+            if (isThenable(result)) {
+              setPending(true);
+              followPending(
+                result,
+                () => {
+                  if (alive.current) setPending(false);
+                },
+                label ?? props["aria-label"] ?? props.title ?? "",
+              );
+            }
+          }
+        : onClick;
+    // FRIDAY Glass: every text button gets its icon from one vocabulary
+    // (button-icons.ts). Opt out with data-no-icon; links (asChild) and
+    // icon-sized buttons are left alone.
     const icon = label ? iconForLabel(label) : null;
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         data-variant={variant ?? "default"}
         data-size={size ?? "default"}
+        data-pending={pending ? "true" : undefined}
+        aria-busy={pending || undefined}
         ref={ref}
+        {...(handleClick ? { onClick: handleClick } : {})}
+        {...(disabled !== undefined || pending ? { disabled: Boolean(disabled) || pending } : {})}
         {...props}
       >
         {/* Without an icon the children pass through untouched: asChild
             (Slot) needs exactly one child element. */}
-        {icon ? (
+        {pending ? (
+          <>
+            <Loader2 aria-hidden="true" className="friday-pending-spinner animate-spin" />
+            {children}
+          </>
+        ) : icon ? (
           <>
             {React.createElement(icon, { "aria-hidden": true, className: "friday-auto-icon" })}
             {children}
