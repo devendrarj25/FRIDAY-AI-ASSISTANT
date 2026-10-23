@@ -1,5 +1,7 @@
 # FRIDAY — Architecture Overview
 
+_FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
+
 **Current shipping version: 1.1.3.4**
 
 🏗️ Layer map for this checkout. The locked folder baseline is [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md). The owner loop is [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md). Disk layout is [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
@@ -57,3 +59,30 @@ Sidebar, companion, and landing path share `src/lib/friday/navigation.ts`. Setti
 ## 6. Build output
 
 `electron-builder.yml` packs `dist-desktop/**`, `electron/**`, `package.json`, `scripts/release-engine.cjs` into the asar, and copies kernel + capability trees + scripts as `extraResources`. Artifact names are overridden to the public four-part version by `scripts/electron-pack.cjs`.
+
+## 7. Repository tree
+
+```text
+FRIDAY-AI-ASSISTANT/
+├── AGENTS.md CLAUDE.md          working rules for contributors
+├── README.md INSTALL.md RELEASE.md VERSIONING.md CHANGELOG.md
+├── ARCHITECTURE.md AUDIT.md SECURITY.md CONTRIBUTING.md FRIDAY_STATE.md
+├── LICENSE package.json package-lock.json requirements.txt
+├── electron-builder.yml vite.config.ts vite.electron.config.ts
+├── tsconfig.json eslint.config.js ruff.toml pyrightconfig.json components.json
+├── src/                         React UI: routes/, components/, lib/friday/ (brain, models, self)
+├── electron/                    Windows main process: windows, IPC, models, updater, credentials
+├── kernel/                      Python FastAPI kernel: tools, memory, router, devices, tests/
+├── core/                        Vitest contracts (__tests__/) — not shipped in the EXE
+├── agents/ skills/ tools/ plugins/ modules/ workflows/   capability trees (extra resources)
+├── config/                      version identity, toolchain floors, kernel.yaml, project-structure.json
+├── scripts/                     setup, pack pipeline, docs engine, release engine, git-hooks/
+├── builder/ installer/ updater/ build manager, NSIS installer and uninstall plan, update channel
+├── docs/                        registered documentation set (index: docs/README.md)
+├── memory/ database/ brain-data/ conversations/ backup/     local store layout (.gitkeep only)
+├── models/ system/ resources/ public/                        model assets, system files, icons, wake word
+├── testing/ debug/ temporary/ releases/                      fixtures, scratch layout, published notes
+└── .github/                     eleven workflows, three composite actions, CODEOWNERS, templates
+```
+
+The same folders are declared in `config/project-structure.json` (generated from `electron/friday-contract.cjs` `SOURCE_LAYOUT`) and checked by `npm run arrange:check`. Build output (`dist-desktop/`, `release/`, `.cache/`) and the local environments (`node_modules/`, `.venv/`) are ignored by Git.
