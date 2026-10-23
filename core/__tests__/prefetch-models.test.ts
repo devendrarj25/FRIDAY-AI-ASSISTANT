@@ -8,6 +8,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { BOOTSTRAP_MODEL_ID } from "../../src/lib/friday/first-run";
+import { modelByTag, modelById, registryTag } from "../../src/lib/friday/model-catalog";
 
 const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
@@ -521,5 +523,15 @@ describe("speech sizes", () => {
     expect(tight.log).toContain("stt-medium skipped: needs 8 GB RAM");
     const off = await run(16, { FRIDAY_PREFETCH_STT_LARGE: "0" });
     expect(off.fetched).not.toContain("medium");
+  });
+});
+
+describe("the app and the build agree on the one local chat model", () => {
+  it("first run asks for the same Ollama tag that setup pulls, so nothing is downloaded twice", () => {
+    const spec = modelById.get(BOOTSTRAP_MODEL_ID);
+    expect(spec).toBeTruthy();
+    expect(registryTag(spec!)).toBe(prefetch.OLLAMA_MODELS[0].tag);
+    expect(modelByTag(prefetch.OLLAMA_MODELS[0].tag)?.id).toBe(BOOTSTRAP_MODEL_ID);
+    expect(prefetch.OLLAMA_MODELS).toHaveLength(1);
   });
 });
