@@ -232,10 +232,10 @@ export function ChatDock() {
   const showTimestamps = prefs.toggles["chatTimestamps"] === true;
   const userBubbleClass =
     bubbleStyle === "Full"
-      ? "max-w-[95%] rounded-md bg-primary px-3.5 py-2.5 text-sm text-primary-foreground"
+      ? "bubble-user px-3.5 py-2.5 text-sm"
       : bubbleStyle === "Comfortable"
-        ? "max-w-[88%] rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-        : "max-w-[80%] rounded-md bg-primary px-2.5 py-1.5 text-xs text-primary-foreground";
+        ? "bubble-user px-3 py-2 text-sm"
+        : "bubble-user px-2.5 py-1.5 text-xs";
   // Keep keystrokes out of React state. This dock renders the transcript plus
   // every model/capability menu; controlling the textarea from here made each
   // character rebuild that entire tree and could stall packaged Electron on
@@ -1084,7 +1084,7 @@ export function ChatDock() {
                 spellCheck={false}
                 aria-label="Message FRIDAY"
                 placeholder="Type your message…"
-                className="min-h-11 resize-none border-primary/25 bg-surface font-mono text-sm cursor-text"
+                className="min-h-11 resize-none rounded-2xl border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
               />
               {visibleNotice ? (
                 <p className="mt-1 font-mono text-[10px] text-warning" role="status">

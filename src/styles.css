@@ -1322,3 +1322,61 @@ button:not([class*="gap-"]) > svg:first-child:not(:only-child) {
     backdrop-filter: none !important;
   }
 }
+
+/* Conversation bubbles (chat and voice): transparent glass on both sides.
+   You: cyan-tinted glass on the right. FRIDAY: deep glass on the left.
+   Hover lifts a bubble a pixel and brightens its edge; reduced motion keeps
+   it still, no-glow drops the halo, reduced transparency makes it solid. */
+.bubble-user,
+.bubble-friday {
+  border: 1px solid var(--friday-glass-border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+  transition:
+    transform var(--friday-motion-fast, 160ms) var(--friday-ease, ease),
+    border-color var(--friday-motion-fast, 160ms) var(--friday-ease, ease),
+    box-shadow var(--friday-motion-fast, 160ms) var(--friday-ease, ease);
+  overflow-wrap: anywhere;
+}
+.bubble-user {
+  border-color: color-mix(in oklab, var(--color-primary) 42%, transparent);
+  border-bottom-right-radius: 0.35rem;
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--color-primary) 22%, transparent), color-mix(in oklab, var(--color-accent) 8%, transparent)),
+    color-mix(in oklab, var(--color-card) 55%, transparent);
+  color: var(--color-foreground);
+}
+.bubble-friday {
+  border-bottom-left-radius: 0.35rem;
+  background:
+    linear-gradient(180deg, var(--friday-glass-highlight), transparent 50%),
+    color-mix(in oklab, var(--color-card) 62%, transparent);
+}
+.bubble-user:hover,
+.bubble-friday:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-primary) 60%, transparent);
+  box-shadow:
+    0 1px 0 0 var(--friday-glass-highlight) inset,
+    0 8px 22px -12px color-mix(in oklab, var(--color-primary) 55%, transparent);
+}
+html.no-glow .bubble-user:hover,
+html.no-glow .bubble-friday:hover {
+  box-shadow: 0 1px 0 0 var(--friday-glass-highlight) inset;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble-user,
+  .bubble-friday {
+    transition: none;
+  }
+  .bubble-user:hover,
+  .bubble-friday:hover {
+    transform: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .bubble-user,
+  .bubble-friday {
+    background: var(--color-card);
+  }
+}

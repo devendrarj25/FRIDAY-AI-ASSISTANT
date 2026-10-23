@@ -111,8 +111,11 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     return (
       <div className="group flex items-start justify-end gap-1">
         <CopyButton text={message.text} label="Copy message" className="mt-0.5" />
-        <div className="max-w-[95%] text-right">
-          <p className={userBubbleClass}>{message.text}</p>
+        {/* The width cap lives on this column only, so a short line never wraps early. */}
+        <div className="flex min-w-0 max-w-[85%] flex-col items-end">
+          <p className={cn("w-fit max-w-full whitespace-pre-wrap text-left", userBubbleClass)}>
+            {message.text}
+          </p>
           {showTimestamps ? (
             <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
               {formatOwnerDate(message.at)}
@@ -125,8 +128,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <div
       className={cn(
-        "group max-w-[92%]",
-        full && "rounded-md border border-primary/15 bg-primary/5 px-3 py-2",
+        "bubble-friday group w-fit min-w-0 max-w-[92%]",
+        full ? "px-3.5 py-2.5" : "px-3 py-2",
       )}
     >
       <div className="mb-0.5 flex items-center gap-1">

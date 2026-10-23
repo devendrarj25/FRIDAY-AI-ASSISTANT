@@ -186,8 +186,8 @@ export const CaptionRow = memo(function CaptionRow({
     <div className={cn("group flex", user ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-md border px-3 py-1.5",
-          user ? "border-accent/25 bg-accent/5" : "border-primary/20 bg-primary/5",
+          "w-fit min-w-0 max-w-[85%] px-3.5 py-2",
+          user ? "bubble-user" : "bubble-friday",
         )}
       >
         <div
@@ -228,7 +228,7 @@ export function InterimLine({ text, layout }: { text: string; layout: CaptionLay
   }
   return (
     <div className="flex justify-end opacity-70">
-      <p className="max-w-[85%] rounded-md border border-dashed border-accent/25 px-3 py-1.5 text-right text-sm italic text-foreground/70">
+      <p className="max-w-[85%] rounded-2xl rounded-br-md border border-dashed border-primary/35 bg-primary/5 px-3.5 py-2 text-right text-sm italic text-foreground/70">
         {text}
       </p>
     </div>
