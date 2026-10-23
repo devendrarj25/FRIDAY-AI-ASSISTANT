@@ -98,6 +98,13 @@ describe("runtime paths", () => {
     );
   });
 
+  it("lets the readiness restart rediscover its own sandbox", () => {
+    const main = readFileSync(join(root, "electron/main.cjs"), "utf8");
+    expect(main).toMatch(
+      /const settled = \(value\) => \{\s*if \(value && process\.env\.FRIDAY_READINESS !== "1" && THROWAWAY_ROOT\.test\(String\(value\)\)\)/,
+    );
+  });
+
   it("resolves the FRIDAY root in the same order as the app: env, registry, pointer", () => {
     const source = readFileSync(join(root, "scripts/friday-root.cjs"), "utf8");
     expect(source).toContain("return fromRegistry() || fromSettingsPointer();");

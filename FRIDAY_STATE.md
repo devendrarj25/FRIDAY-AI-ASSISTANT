@@ -84,7 +84,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 - The new look and page states in the packaged app, in Dark and Daylight, Glass and Classic.
 - Microphone, wake word, barge-in, speech recognition, and speaker-match on real hardware; a live speech-model download.
 - Live provider calls with real keys, including OpenRouter, and a live stream.
-- Hosted Actions for this branch (no workflow was started from this session). The owner's FRIDAY Release run failed once on a Windows test timeout (`managed-python.test.ts` building a venv with pip); the test now builds it without pip and with a longer limit, and the rerun is the owner's.
+- Hosted Actions for this branch (no workflow was started from this session). Two FRIDAY Release failures were fixed in code: a Windows test timeout in `managed-python.test.ts`, and the readiness RESTART launch, which exited without a report because the test-sandbox filter in `electron/main.cjs` ignored the sandbox the restart must rediscover (the filter is now off for readiness launches). Both reruns, and PR Validation on the new head, are the owner's.
 
 ## Known gaps
 

@@ -17,7 +17,7 @@ const quiet = { CI: "", GITHUB_ACTIONS: "" };
 
 describe("build-time model prefetch", () => {
   it("plans speech base and small, the pinned voice models, and a small chat model", () => {
-    const jobs = prefetch.prefetchPlan("/friday", quiet);
+    const jobs = prefetch.prefetchPlan("/friday", quiet, "linux");
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
       "stt-base",
       "stt-small",
@@ -41,11 +41,13 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH: "0" })).toEqual([]);
     expect(
       prefetch
-        .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_CHAT: "0" })
+        .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_CHAT: "0" }, "linux")
         .some((row: { kind: string }) => row.kind === "chat"),
     ).toBe(false);
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
-    expect(prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }).length).toBe(5);
+    expect(
+      prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
+    ).toBe(5);
     expect(prefetch.prefetchPlan("", quiet)).toEqual([]);
   });
 
@@ -59,6 +61,7 @@ describe("build-time model prefetch", () => {
       const asked: string[] = [];
       const lines: string[] = [];
       const rows = await prefetch.prefetch(dir, {
+        platform: "linux",
         env: quiet,
         log: (line: string) => lines.push(line),
         download: async (job: { modelId: string }) => {
