@@ -314,13 +314,23 @@ if (!voiceImportable()) {
     const fridayRoot = require("./friday-root.cjs");
     const picked = fridayRoot.workspaceRootOrDev();
     const stt = path.join(kernelDir, "stt.py");
+    // Speech, turn-taking and a small chat model land in the FRIDAY folder
+    // now, through the app's own verified downloader. A miss never fails setup.
+    run(process.execPath, [path.join(__dirname, "prefetch-models.cjs")], {
+      env: { ...process.env, FRIDAY_ROOT: picked.root },
+      timeout: 3600000,
+    });
+    const sttDir = ["small", "base"]
+      .map((size) => path.join(picked.root, "cache", "stt", size))
+      .find((dir) => fs.existsSync(path.join(dir, "model.bin")));
     log(
-      `probing faster-whisper model into ${path.join(picked.root, "cache", "stt")} (offline miss does not fail the build)`,
+      `probing faster-whisper model in ${sttDir || path.join(picked.root, "cache", "stt")} (offline miss does not fail the build)`,
     );
     const probe = capture(python, [stt, "--load-probe"], {
       env: {
         ...process.env,
         FRIDAY_ROOT: picked.root,
+        ...(sttDir ? { FRIDAY_STT_MODEL_PATH: sttDir } : {}),
         HF_HUB_DISABLE_SYMLINKS_WARNING: "1",
       },
       timeout: 600000,
