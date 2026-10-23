@@ -7,15 +7,15 @@
  * (no desktop bridge) it falls back to the documented sample shape so the
  * layout still renders — exactly the split the rest of the app uses.
  */
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   isDesktopApp,
   kernelCall,
-  useHardware,
   desktopApi,
   onKernelExit,
   type DetectedHardware,
 } from "./desktop";
+import { livePoller } from "./live-poll";
 import { kernelStatus as previewStatus } from "./mock";
 import type { KernelStatus } from "./types";
 
@@ -65,49 +65,108 @@ export function presentDesktopKernelStatus(
   };
 }
 
-export function useKernelStatus(): KernelStatus {
-  const hardware = useHardware();
-  const [info, setInfo] = useState<KernelInfo | null>(null);
-  const [dataDir, setDataDir] = useState<string | null>(null);
-  // First moment the kernel answered in this app session — a real uptime for
-  // the connection, never an invented one.
-  const [startedAt, setStartedAt] = useState<number | null>(null);
+/**
+ * One shared status store for the whole window. The first subscriber starts
+ * a poll on the shared poller (paused while the window is hidden, backed off
+ * while the kernel is down, refreshed the moment the kernel exits or the
+ * window regains focus); the last one stops it. Ten screens cost one probe.
+ */
+const POLL_MS = 15_000;
+type KernelState = {
+  info: KernelInfo | null;
+  hardware: DetectedHardware | null;
+  dataDir: string | null;
+  startedAt: number | null;
+  /** Last successful answer (any reply, connected or not) and last failure. */
+  at: number | null;
+  error: string | null;
+  snapshot: KernelStatus | null;
+};
+let state: KernelState = {
+  info: null,
+  hardware: null,
+  dataDir: null,
+  startedAt: null,
+  at: null,
+  error: null,
+  snapshot: null,
+};
+const listeners = new Set<() => void>();
+let stop: (() => void) | null = null;
+let hardwareAsked = false;
 
-  useEffect(() => {
-    if (!isDesktopApp()) return;
-    let active = true;
+function publish(patch: Partial<KernelState>): void {
+  state = { ...state, ...patch, snapshot: null };
+  for (const l of listeners) l();
+}
 
-    const load = async () => {
-      // The kernel answers `kernel.status` when it is up; a failure simply
-      // means "not connected", reported honestly rather than faked.
-      const [reported, paths] = await Promise.all([
-        kernelCall<KernelInfo>("kernel.status").catch(() => null),
-        desktopApi()?.paths?.() ?? Promise.resolve(null),
-      ]);
-      if (!active) return;
-      setInfo(reported ?? null);
-      setStartedAt((prev) => (reported?.connected === true ? (prev ?? Date.now()) : null));
-      if (paths) setDataDir(paths.workspace || paths.userData || null);
-    };
+async function loadKernel(): Promise<void> {
+  // The kernel answers `kernel.status` when it is up; a failure simply
+  // means "not connected", reported honestly rather than faked.
+  const [reported, paths] = await Promise.all([
+    kernelCall<KernelInfo>("kernel.status").catch(() => null),
+    desktopApi()?.paths?.() ?? Promise.resolve(null),
+  ]);
+  const connected = reported?.connected === true;
+  publish({
+    info: reported ?? null,
+    startedAt: connected ? (state.startedAt ?? Date.now()) : null,
+    dataDir: paths ? paths.workspace || paths.userData || null : state.dataDir,
+    at: Date.now(),
+    error: connected ? null : "kernel not connected",
+  });
+  // A down kernel is a failed poll: the poller backs off until it returns.
+  if (!connected) throw new Error("kernel not connected");
+}
 
-    void load();
-    const offExit = onKernelExit(() => void load());
-    const id = setInterval(() => void load(), 15_000);
-    const onVisible = () => {
-      if (!document.hidden) void load();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-    return () => {
-      active = false;
-      offExit();
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
-  }, []);
+function begin(): void {
+  if (!isDesktopApp()) return;
+  const offExit = onKernelExit(() => void livePoller().refresh("kernel.status"));
+  const offPoll = livePoller().subscribe("kernel.status", loadKernel, POLL_MS);
+  if (!hardwareAsked) {
+    hardwareAsked = true;
+    void desktopApi()
+      ?.detectHardware?.()
+      .then((hw) => {
+        if (hw) publish({ hardware: hw });
+      })
+      .catch(() => undefined);
+  }
+  stop = () => {
+    offExit();
+    offPoll();
+  };
+}
 
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  if (listeners.size === 1) begin();
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      stop?.();
+      stop = null;
+    }
+  };
+}
+
+function snapshot(): KernelStatus {
   if (!isDesktopApp()) return previewStatus;
+  state.snapshot ??= presentDesktopKernelStatus(
+    state.info,
+    state.hardware,
+    state.dataDir,
+    state.startedAt,
+  );
+  return state.snapshot;
+}
 
-  return presentDesktopKernelStatus(info, hardware, dataDir, startedAt);
+export function useKernelStatus(): KernelStatus {
+  return useSyncExternalStore(subscribe, snapshot, () => previewStatus);
+}
+
+/** When the kernel last answered and the last failure, for Live badges. */
+export function useKernelLive(): { at: number | null; error: string | null; everyMs: number } {
+  useKernelStatus();
+  return { at: state.at, error: state.error, everyMs: POLL_MS };
 }

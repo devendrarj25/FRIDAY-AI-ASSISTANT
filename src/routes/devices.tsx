@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { livePoller } from "@/lib/friday/live-poll";
 import { useEffect, useState } from "react";
 import {
   Bluetooth,
@@ -10,7 +11,8 @@ import {
   Wifi,
 } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
-import { ToggleRow, EmptyState } from "@/components/friday/ui";
+import { ToggleRow, EmptyState, LoadingState } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,20 +58,28 @@ function DevicesPage() {
     desktopApi()?.companionRemote ? undefined : null,
   );
 
+  // The phone link and its pairing change on their own, so this follows the
+  // shared poller instead of reading once.
   useEffect(() => {
     const api = desktopApi();
     if (!api?.companionRemote) return;
     let alive = true;
-    void api
-      .companionRemote()
-      .then((probe) => {
-        if (alive) setRemote(probe ?? null);
-      })
-      .catch(() => {
-        if (alive) setRemote(null);
-      });
+    const off = livePoller().subscribe(
+      "devices.companion-remote",
+      async () => {
+        try {
+          const probe = await api.companionRemote?.();
+          if (alive) setRemote(probe ?? null);
+        } catch (error) {
+          if (alive) setRemote(null);
+          throw error;
+        }
+      },
+      15_000,
+    );
     return () => {
       alive = false;
+      off();
     };
   }, []);
 
@@ -110,7 +120,7 @@ function DevicesPage() {
           {state.androidNote && <p className="mb-3 text-xs text-warning">{state.androidNote}</p>}
           <ul className="space-y-3">
             {state.android.map((device) => (
-              <li key={device.serial} className="rounded-md border border-border/60 p-3">
+              <li key={device.serial} className="rounded-surface border border-border/60 p-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Smartphone className="size-4" />
                   {device.model}
@@ -118,7 +128,7 @@ function DevicesPage() {
                     {device.state}
                   </Badge>
                 </div>
-                <p className="font-mono text-[11px] text-muted-foreground">{device.serial}</p>
+                <p className="text-meta text-muted-foreground">{device.serial}</p>
                 {device.hint && <p className="mt-1 text-xs text-warning">{device.hint}</p>}
                 {device.authorized && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -184,7 +194,7 @@ function DevicesPage() {
               <li key={device.address} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm">{device.name || device.address}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     {device.address} · {device.kind}
                   </p>
                 </div>
@@ -228,7 +238,7 @@ function DevicesPage() {
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm">{device.name}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     {device.address} · {device.kind}
                   </p>
                 </div>
@@ -246,8 +256,21 @@ function DevicesPage() {
               </li>
             ))}
             {!state.network.length && (
-              <li className="text-xs text-muted-foreground">
-                Nothing discovered yet. FRIDAY only lists devices that advertise themselves.
+              <li>
+                {state.busy ? (
+                  <LoadingState label="Looking for devices on this network…" rows={2} />
+                ) : state.error ? (
+                  <ErrorState
+                    title="The device scan failed"
+                    error={state.error}
+                    onRetry={() => store.refresh()}
+                  />
+                ) : (
+                  <EmptyState
+                    title="Nothing discovered yet"
+                    hint="FRIDAY only lists devices that advertise themselves."
+                  />
+                )}
               </li>
             )}
           </ul>
@@ -310,7 +333,7 @@ function DevicesPage() {
               <li key={phone.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm">{phone.name}</p>
-                  <p className="font-mono text-[11px] text-muted-foreground">
+                  <p className="text-meta text-muted-foreground">
                     paired {new Date(phone.pairedAt).toLocaleString()}
                   </p>
                 </div>

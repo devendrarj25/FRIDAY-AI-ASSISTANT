@@ -167,7 +167,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={Boolean(busy)} onClick={() => void analyze()}>
+          <Button size="sm" disabled={Boolean(busy)} onClick={() => analyze()}>
             {busy === "Analyse" ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
@@ -175,19 +175,14 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
             )}
             Analyse contents
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={Boolean(busy)}
-            onClick={() => void workbench()}
-          >
+          <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => workbench()}>
             <FlaskConical className="size-3.5" /> Open in sandbox
           </Button>
           <Button
             size="sm"
             variant="outline"
             disabled={Boolean(busy) || !canAsk()}
-            onClick={() => void ask()}
+            onClick={() => ask()}
           >
             {busy === "Ask FRIDAY" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -200,14 +195,14 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
             size="sm"
             variant="outline"
             disabled={Boolean(busy) || !picked.size}
-            onClick={() => void install()}
+            onClick={() => install()}
           >
             <Sparkles className="size-3.5" /> Install selected ({picked.size})
           </Button>
         </div>
 
         {analysis?.summary ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             {analysis.summary.total} files · {analysis.summary.new} new · {analysis.summary.updated}{" "}
             updated · {analysis.summary.identical} identical
             {analysis.label ? ` · ${analysis.label}` : ""}
@@ -219,7 +214,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
             {analysis.candidates.map((candidate) => (
               <li
                 key={candidate.id}
-                className="flex items-start gap-2 rounded-sm border border-border bg-surface px-2 py-1.5"
+                className="flex items-start gap-2 rounded-ctl border border-border bg-surface px-2 py-1.5"
               >
                 <input
                   type="checkbox"
@@ -234,11 +229,11 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                     <Badge variant="outline" className="label-xs">
                       {candidate.kind}
                     </Badge>
-                    <span className={`font-mono text-[10px] ${STATUS_TONE[candidate.status]}`}>
+                    <span className={`text-meta-sm ${STATUS_TONE[candidate.status]}`}>
                       {candidate.status}
                     </span>
                   </div>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground">
+                  <p className="truncate text-meta-sm text-muted-foreground">
                     {candidate.dest} · {candidate.files} files · {kb(candidate.bytes)}
                     {candidate.version ? ` · v${candidate.version}` : ""}
                   </p>
@@ -249,7 +244,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
         ) : null}
 
         {advice ? (
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-sm border border-primary/20 bg-surface p-2 font-mono text-[11px] text-muted-foreground">
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-ctl border border-primary/20 bg-surface p-2 text-data text-muted-foreground">
             {advice}
           </pre>
         ) : null}
@@ -262,7 +257,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   value={filter}
                   onChange={(event) => setFilter(event.target.value)}
                   placeholder="filter files"
-                  className="h-8 font-mono text-[11px]"
+                  className="h-8 text-meta"
                 />
                 <Button
                   size="sm"
@@ -275,13 +270,13 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   <RefreshCw className="size-3.5" />
                 </Button>
               </div>
-              <ul className="max-h-64 overflow-auto rounded-sm border border-border bg-surface">
+              <ul className="max-h-64 overflow-auto rounded-ctl border border-border bg-surface">
                 {shown.map((file) => (
                   <li key={file.path}>
                     <button
                       type="button"
-                      onClick={() => void openFile(file.path)}
-                      className={`block w-full truncate px-2 py-1 text-left font-mono text-[10px] hover:text-primary ${
+                      onClick={() => openFile(file.path)}
+                      className={`block w-full truncate px-2 py-1 text-left text-meta-sm hover:text-primary ${
                         open === file.path ? "text-primary" : "text-muted-foreground"
                       }`}
                     >
@@ -294,14 +289,14 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
 
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <p className="truncate font-mono text-[11px] text-muted-foreground">
+                <p className="truncate text-meta text-muted-foreground">
                   {open || "select a file"}
                 </p>
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={!open || !dirty || Boolean(busy)}
-                  onClick={() => void save()}
+                  onClick={() => save()}
                 >
                   <Save className="size-3.5" /> Save
                 </Button>
@@ -313,7 +308,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   setContent(event.target.value);
                   setDirty(true);
                 }}
-                className="h-64 w-full resize-none rounded-sm border border-border bg-background p-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/40"
+                className="h-64 w-full resize-none rounded-ctl border border-border bg-background p-2 text-data text-foreground outline-none focus:border-primary/40"
                 placeholder="Open a file from the staged import to preview or edit it."
               />
             </div>

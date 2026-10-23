@@ -113,27 +113,27 @@ function WorkspacePage() {
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Panel title="Recognised folders" hint={`${scan?.detected.length ?? 0} detected`}>
           {!scan ? (
-            <p className="font-mono text-[11px] text-muted-foreground">Scanning the workspace…</p>
+            <p className="text-meta text-muted-foreground">Scanning the workspace…</p>
           ) : (
             <ul className="space-y-2">
               {scan.detected.map((folder) => (
                 <li
                   key={folder.path}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-surface px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-ctl border border-border bg-surface px-3 py-2"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-mono text-xs text-foreground">{folder.path}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 text-note text-muted-foreground">
                       {folder.stack ?? folder.kind} · {folder.files.toLocaleString()} files
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <Badge variant="outline" className="font-mono text-[10px]">
+                    <Badge variant="outline" className="text-meta-sm">
                       {folder.kind}
                     </Badge>
                     <Badge
                       variant={folder.indexed ? "default" : "secondary"}
-                      className="font-mono text-[10px]"
+                      className="text-meta-sm"
                     >
                       {folder.indexed ? "indexed" : "skipped"}
                     </Badge>
@@ -154,7 +154,7 @@ function WorkspacePage() {
 
         <div className="space-y-4">
           <Panel title="Scan status">
-            <dl className="space-y-2 font-mono text-[11px] text-muted-foreground">
+            <dl className="space-y-2 text-meta text-muted-foreground">
               <div className="flex justify-between">
                 <dt>last scan</dt>
                 <dd>{scan?.scannedAt ?? "—"}</dd>
@@ -179,7 +179,7 @@ function WorkspacePage() {
           </Panel>
 
           <Panel title="How detection works">
-            <ul className="space-y-1.5 font-mono text-[11px] text-muted-foreground">
+            <ul className="space-y-1.5 text-meta text-muted-foreground">
               <li>· the canonical FRIDAY layout is mapped, legacy names included</li>
               <li>· node_modules, venv, .git and build output are skipped</li>
               <li>· cache, temp, logs, backups and downloads are not indexed</li>

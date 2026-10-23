@@ -29,7 +29,7 @@ export function WorkflowFlow({
   }
   return (
     <div className="workflow-flow space-y-2" data-testid="workflow-flow">
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="text-meta text-muted-foreground">
         Block flow — {steps.length} step{steps.length === 1 ? "" : "s"}
       </p>
       {description ? (
@@ -38,35 +38,35 @@ export function WorkflowFlow({
         </p>
       ) : null}
       <div className="flex flex-col items-stretch gap-1">
-        <div className="rounded-sm border border-primary/20 bg-surface px-2 py-1 text-center font-mono text-[10px] text-muted-foreground">
+        <div className="rounded-ctl border border-primary/20 bg-surface px-2 py-1 text-center text-meta-sm text-muted-foreground">
           START
         </div>
-        <p className="py-0.5 text-center font-mono text-[11px] text-primary" aria-hidden>
+        <p className="py-0.5 text-center text-meta text-primary" aria-hidden>
           ↓
         </p>
         {steps.map((step, index) => (
           <div key={step.id || `${step.label}-${index}`}>
-            <div className="rounded-sm border border-primary/40 bg-surface px-2 py-2">
-              <p className="font-mono text-[11px] text-primary">
+            <div className="rounded-ctl border border-primary/40 bg-surface px-2 py-2">
+              <p className="text-meta text-primary">
                 {index + 1}. {step.label}
               </p>
-              <p className="font-mono text-[10px] text-muted-foreground">
+              <p className="text-meta-sm text-muted-foreground">
                 {step.kind}
                 {step.ref ? ` · ${step.ref}` : ""}
                 {step.risk && step.risk !== "safe" ? ` · ${step.risk}` : ""}
               </p>
             </div>
             {index < steps.length - 1 ? (
-              <p className="py-0.5 text-center font-mono text-[11px] text-primary" aria-hidden>
+              <p className="py-0.5 text-center text-meta text-primary" aria-hidden>
                 ↓
               </p>
             ) : null}
           </div>
         ))}
-        <p className="py-0.5 text-center font-mono text-[11px] text-primary" aria-hidden>
+        <p className="py-0.5 text-center text-meta text-primary" aria-hidden>
           ↓
         </p>
-        <div className="rounded-sm border border-primary/20 bg-surface px-2 py-1 text-center font-mono text-[10px] text-muted-foreground">
+        <div className="rounded-ctl border border-primary/20 bg-surface px-2 py-1 text-center text-meta-sm text-muted-foreground">
           END — local result, no web post
         </div>
       </div>
@@ -162,14 +162,14 @@ export function WorkflowEditor({
           return (
             <div
               key={step.id || index}
-              className="rounded-sm border border-primary/20 bg-surface px-2 py-2"
+              className="rounded-ctl border border-primary/20 bg-surface px-2 py-2"
             >
-              <p className="mb-1 font-mono text-[11px] text-primary">
+              <p className="mb-1 text-meta text-primary">
                 {index + 1}. {step.label || "Untitled step"}
               </p>
               <div className="flex flex-wrap gap-1">
                 <select
-                  className="h-7 rounded-md border border-input bg-transparent px-1 font-mono text-[11px]"
+                  className="h-7 rounded-surface border border-input bg-transparent px-1 text-meta"
                   value={step.kind}
                   disabled={busy}
                   onChange={(event) =>
@@ -184,7 +184,7 @@ export function WorkflowEditor({
                   ))}
                 </select>
                 <select
-                  className="h-7 rounded-md border border-input bg-transparent px-1 font-mono text-[11px]"
+                  className="h-7 rounded-surface border border-input bg-transparent px-1 text-meta"
                   value={step.risk}
                   disabled={busy}
                   onChange={(event) =>
@@ -205,14 +205,14 @@ export function WorkflowEditor({
                   value={step.label}
                   onChange={(event) => onStep(index, { ...step, label: event.target.value })}
                   placeholder="Step label"
-                  className="h-7 min-w-[10rem] flex-1 font-mono text-[11px]"
+                  className="h-7 min-w-[10rem] flex-1 text-meta"
                   disabled={busy}
                 />
                 <Input
                   value={step.ref}
                   onChange={(event) => onStep(index, { ...step, ref: event.target.value })}
                   placeholder="Step ref"
-                  className="h-7 min-w-[10rem] flex-1 font-mono text-[11px]"
+                  className="h-7 min-w-[10rem] flex-1 text-meta"
                   disabled={busy}
                   list={`workflow-step-refs-${index}`}
                 />
@@ -226,7 +226,7 @@ export function WorkflowEditor({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={busy || index === 0}
                   onClick={() => onMoveStep(index, -1)}
                 >
@@ -235,7 +235,7 @@ export function WorkflowEditor({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={busy || index === steps.length - 1}
                   onClick={() => onMoveStep(index, 1)}
                 >
@@ -244,7 +244,7 @@ export function WorkflowEditor({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={busy || steps.length <= 1}
                   onClick={() => onRemoveStep(index)}
                 >

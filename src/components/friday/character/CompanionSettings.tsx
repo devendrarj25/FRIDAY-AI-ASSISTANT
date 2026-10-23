@@ -7,6 +7,7 @@
  * preview (no bridge) the panel explains that the companion is desktop-only
  * instead of pretending to work.
  */
+import { livePoller } from "@/lib/friday/live-poll";
 import { useCallback, useEffect, useState } from "react";
 import { Download, Loader2, RotateCw, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -79,10 +80,16 @@ export function CompanionSettings() {
       await loadHealth();
     })();
     // The overlay reports its own probe a moment after it starts.
-    const timer = window.setInterval(() => void loadHealth(), 15_000);
+    const off = livePoller().subscribe(
+      "companion.health",
+      () => loadHealth(),
+      15_000,
+      undefined,
+      false,
+    );
     return () => {
       alive = false;
-      window.clearInterval(timer);
+      off();
     };
   }, [bridge, loadHealth]);
 
@@ -260,7 +267,7 @@ export function CompanionSettings() {
         />
 
         {status?.lastError ? (
-          <p className="mt-3 rounded-sm border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">
+          <p className="mt-3 rounded-ctl border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-meta text-destructive">
             {status.lastError}
             {status.recovered ? ` · recovered ${status.recovered}×` : ""}
           </p>
@@ -275,7 +282,7 @@ export function CompanionSettings() {
               key={p.id}
               label={p.label}
               active={settings.placement === p.id}
-              onClick={() => void patch({ placement: p.id })}
+              onClick={() => patch({ placement: p.id })}
             />
           ))}
         </div>
@@ -289,7 +296,7 @@ export function CompanionSettings() {
                   key={c}
                   label={c.replace("-", " ")}
                   active={settings.corner === c}
-                  onClick={() => void patch({ corner: c })}
+                  onClick={() => patch({ corner: c })}
                 />
               ))}
             </div>
@@ -303,7 +310,7 @@ export function CompanionSettings() {
               key={q}
               label={q}
               active={settings.quality === q}
-              onClick={() => void patch({ quality: q })}
+              onClick={() => patch({ quality: q })}
             />
           ))}
         </div>
@@ -339,7 +346,7 @@ export function CompanionSettings() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => void bridge.characterResetPosition()}>
+          <Button size="sm" variant="outline" onClick={() => bridge.characterResetPosition()}>
             Reset position
           </Button>
         </div>
@@ -368,7 +375,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("repair", "Repair", () => bridge.characterRepair())}
+              onClick={() => maintenance("repair", "Repair", () => bridge.characterRepair())}
               disabled={busy !== null}
             >
               {busy === "repair" ? (
@@ -381,7 +388,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("update", "Update", () => bridge.characterUpdate())}
+              onClick={() => maintenance("update", "Update", () => bridge.characterUpdate())}
               disabled={busy !== null}
             >
               {busy === "update" ? (
@@ -394,7 +401,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void maintenance("remove", "Remove", () => bridge.characterRemove())}
+              onClick={() => maintenance("remove", "Remove", () => bridge.characterRemove())}
               disabled={busy !== null}
             >
               {busy === "remove" ? (
@@ -432,7 +439,7 @@ export function CompanionSettings() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{c.label}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {c.detail || c.location}
                     </p>
                   </div>
@@ -441,7 +448,7 @@ export function CompanionSettings() {
               ))}
             </div>
             {health.probe?.error ? (
-              <p className="font-mono text-[11px] text-destructive">{health.probe.error}</p>
+              <p className="text-meta text-destructive">{health.probe.error}</p>
             ) : null}
           </div>
         ) : (
@@ -460,7 +467,7 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-sm border px-2.5 py-1 font-mono text-[11px] capitalize transition-colors",
+        "rounded-ctl border px-2.5 py-1 text-meta capitalize transition-colors",
         active
           ? "border-primary/50 bg-primary/12 text-primary"
           : "border-primary/20 text-muted-foreground hover:border-primary/40 hover:text-foreground",
@@ -492,7 +499,7 @@ function SliderRow({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <p className="label-xs text-muted-foreground">{label}</p>
-        <span className="font-mono text-[11px] text-primary">{detail}</span>
+        <span className="text-meta text-primary">{detail}</span>
       </div>
       <Slider
         value={[value]}
@@ -509,7 +516,7 @@ function Fact({ k, v }: { k: string; v: string }) {
   return (
     <div>
       <p className="label-xs text-muted-foreground">{k}</p>
-      <div className="hud-tile mt-1 truncate rounded-sm px-2.5 py-1.5 font-mono text-xs text-foreground">
+      <div className="hud-tile mt-1 truncate rounded-ctl px-2.5 py-1.5 font-mono text-xs text-foreground">
         {v}
       </div>
     </div>

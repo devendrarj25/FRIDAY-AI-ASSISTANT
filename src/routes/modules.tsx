@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { FolderPlus, Loader2, Search } from "lucide-react";
+import { useMemo, useState, useDeferredValue } from "react";
+import { Boxes, FolderPlus, Loader2, Search } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { FilterTabs, HudPanel } from "@/components/friday/ui";
+import { FilterTabs, HudPanel, EmptyState } from "@/components/friday/ui";
 import { modules as sampleModules } from "@/lib/friday/mock";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { hub } from "@/lib/friday/hub-engine";
@@ -60,6 +60,8 @@ function listField(values: string[]): string {
 function ModulesPage() {
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -111,7 +113,7 @@ function ModulesPage() {
 
   const rows = modules.filter((row) => {
     if (category !== "all" && row.category !== category) return false;
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return true;
     return (
       row.name.toLowerCase().includes(needle) ||
@@ -246,7 +248,7 @@ function ModulesPage() {
             installedIds={items.map((item) => item.id)}
             onChanged={refresh}
           />
-          <Button size="sm" variant="outline" onClick={() => void loadFromFolder()}>
+          <Button size="sm" variant="outline" onClick={() => loadFromFolder()}>
             <FolderPlus className="size-4" />
             Load from folder
           </Button>
@@ -284,13 +286,13 @@ function ModulesPage() {
                 <p className="text-sm text-muted-foreground">{mod.description}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {mod.permissions.map((p) => (
-                    <Badge key={p} variant="outline" className="font-mono text-[11px]">
+                    <Badge key={p} variant="outline" className="text-meta">
                       {p}
                     </Badge>
                   ))}
                 </div>
                 {openId === mod.key ? (
-                  <div className="mt-3 space-y-1 border-t border-border pt-3 font-mono text-[11px]">
+                  <div className="mt-3 space-y-1 border-t border-border pt-3 text-meta">
                     <p>
                       <span className="text-muted-foreground">Category — </span>
                       {mod.category || "—"}
@@ -318,9 +320,7 @@ function ModulesPage() {
                   </div>
                 ) : null}
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">
-                    {mod.entry}
-                  </p>
+                  <p className="truncate text-meta text-muted-foreground">{mod.entry}</p>
                   <span className="flex items-center gap-1">
                     <Switch
                       checked={mod.enabled}
@@ -331,7 +331,7 @@ function ModulesPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!mod.id && supported}
                       onClick={() => setOpenId((current) => (current === mod.key ? null : mod.key))}
                     >
@@ -340,9 +340,9 @@ function ModulesPage() {
                     <Button
                       size="sm"
                       variant={confirmId === mod.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!mod.id || Boolean(busyId)}
-                      onClick={() => void onRemove(mod)}
+                      onClick={() => onRemove(mod)}
                     >
                       {confirmId === mod.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -350,7 +350,7 @@ function ModulesPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-note"
                         onClick={() => setConfirmId(null)}
                       >
                         Cancel
@@ -361,13 +361,20 @@ function ModulesPage() {
               </Panel>
             ))
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground md:col-span-2">
-              {modules.length
-                ? "No modules match this filter."
-                : supported
-                  ? "No modules installed yet — load a folder or install from the marketplace."
-                  : "Installed modules appear here in the desktop app."}
-            </p>
+            <EmptyState
+              className="md:col-span-2"
+              icon={Boxes}
+              title={
+                modules.length
+                  ? "No modules match this filter."
+                  : supported
+                    ? "No modules installed yet"
+                    : "Installed modules appear here in the desktop app."
+              }
+              {...(!modules.length && supported
+                ? { hint: "Load a folder or install from the marketplace." }
+                : {})}
+            />
           )}
         </div>
 
@@ -388,7 +395,7 @@ function ModulesPage() {
                 size="sm"
                 className="h-8"
                 disabled={!forgeGoal.trim() || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Forge
@@ -398,14 +405,14 @@ function ModulesPage() {
                 variant="outline"
                 className="h-8"
                 disabled={importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

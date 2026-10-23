@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { deferEffect } from "@/lib/friday/defer-effect";
 import { Copy, FolderOpen, Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,6 +78,8 @@ function LogsPage() {
   const [level, setLevel] = useState<LogLevel | "all">("all");
   const [source, setSource] = useState<string>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [ask, setAsk] = useState("");
   const streamRef = useRef<HTMLPreElement | null>(null);
 
@@ -159,8 +161,8 @@ function LogsPage() {
   }, [lines]);
 
   const visible = useMemo(
-    () => filterLogLines(lines, { level, source, query }),
-    [lines, level, source, query],
+    () => filterLogLines(lines, { level, source, query: deferredQuery }),
+    [lines, level, source, deferredQuery],
   );
 
   const errors = summarizeLogErrors(lines);
@@ -207,7 +209,16 @@ function LogsPage() {
   return (
     <AppShell
       title="Logs"
-      subtitle="Kernel, main, IPC and disk logs · live"
+      subtitle="Kernel, main, IPC and disk logs"
+      live={{
+        at: lines.reduce<number | null>(
+          (m, line) => (line.atMs && (m === null || line.atMs > m) ? line.atMs : m),
+          null,
+        ),
+        everyMs: 60_000,
+        verb: "last entry",
+        offline: !desktop,
+      }}
       actions={
         <div className="flex items-center gap-2">
           {desktop ? (
@@ -215,18 +226,18 @@ function LogsPage() {
               <FolderOpen className="size-3.5" /> Folder
             </Button>
           ) : null}
-          <Button size="sm" variant="ghost" onClick={() => void copyBuffer()}>
+          <Button size="sm" variant="ghost" onClick={() => copyBuffer()}>
             <Copy className="size-3.5" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
             {follow ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
             {follow ? "Pause follow" : "Follow"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void onClear()}>
+          <Button size="sm" variant="ghost" onClick={() => onClear()}>
             <Trash2 className="size-3.5" /> Clear
           </Button>
           {desktop ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void pull()}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => pull()}>
               <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> Refresh
             </Button>
           ) : null}
@@ -274,7 +285,7 @@ function LogsPage() {
           />
           <pre
             ref={streamRef}
-            className="max-h-[min(32rem,calc(100vh-12rem))] overflow-auto rounded-sm bg-background p-3 font-mono text-xs leading-relaxed"
+            className="max-h-[min(32rem,calc(100vh-12rem))] overflow-auto rounded-ctl bg-background p-3 font-mono text-xs leading-relaxed"
           >
             {visible.length === 0 ? (
               <div className="text-muted-foreground">no log entries yet</div>
@@ -289,7 +300,7 @@ function LogsPage() {
             )}
           </pre>
           {errors ? (
-            <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-destructive">
+            <pre className="mt-2 max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-destructive">
               {errors}
             </pre>
           ) : null}
@@ -307,7 +318,7 @@ function LogsPage() {
             {recent.length ? (
               recent.map((line) => (
                 <p key={line.id} className="whitespace-pre-wrap">
-                  <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                     {line.role === "user" ? "You" : "FRIDAY"}
                   </span>
                   {line.text}
@@ -345,7 +356,7 @@ function LogsPage() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Panel title="IPC" hint={`${ipc.length} recent calls`}>
-            <pre className="max-h-56 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed">
+            <pre className="max-h-56 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed">
               {ipc.length ? (
                 ipc.slice(-80).map((row) => (
                   <div key={row.id} className={cn(!row.ok && "text-destructive")}>
@@ -364,23 +375,23 @@ function LogsPage() {
             hint={fileDir || "logs/"}
             actions={
               desktop ? (
-                <Button size="sm" variant="ghost" onClick={() => void pull()}>
+                <Button size="sm" variant="ghost" onClick={() => pull()}>
                   <RefreshCw className="size-3.5" /> Reload
                 </Button>
               ) : null
             }
           >
-            <div className="max-h-32 space-y-1 overflow-auto font-mono text-[11px]">
+            <div className="max-h-32 space-y-1 overflow-auto text-data">
               {files.map((file) => (
                 <button
                   key={file.rel}
                   className={cn(
-                    "block w-full truncate rounded-sm px-1.5 py-0.5 text-left",
+                    "block w-full truncate rounded-ctl px-1.5 py-0.5 text-left",
                     openFile === file.rel
                       ? "bg-primary/10 text-foreground"
                       : "text-muted-foreground",
                   )}
-                  onClick={() => void onOpenFile(file.rel)}
+                  onClick={() => onOpenFile(file.rel)}
                   title={file.rel}
                 >
                   {file.rel} · {file.size}b
@@ -392,7 +403,7 @@ function LogsPage() {
                 </p>
               ) : null}
             </div>
-            <pre className="mt-2 max-h-40 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] text-muted-foreground">
+            <pre className="mt-2 max-h-40 overflow-auto rounded-ctl bg-background p-3 text-data text-muted-foreground">
               {filePreview || "Open a file to read its tail."}
             </pre>
           </Panel>

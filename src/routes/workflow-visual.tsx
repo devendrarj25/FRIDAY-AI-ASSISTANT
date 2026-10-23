@@ -297,15 +297,15 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
   const Icon = KIND_ICON[data.kind] ?? StickyNote;
   return (
     <div
-      className="min-w-[16rem] max-w-[22rem] rounded-sm border border-primary/40 bg-surface px-2 py-2 shadow-none"
+      className="min-w-[16rem] max-w-[22rem] rounded-ctl border border-primary/40 bg-surface px-2 py-2 shadow-none"
       data-kind={data.kind}
     >
       <Handle type="target" position={Position.Top} className="!size-2 !bg-primary" />
       <div className="flex items-start gap-2">
         <Icon className="mt-0.5 size-3.5 shrink-0 text-primary" />
         <div className="min-w-0 space-y-1">
-          <p className="font-mono text-[11px] text-primary">{data.label}</p>
-          <p className="truncate font-mono text-[10px] text-muted-foreground">
+          <p className="text-meta text-primary">{data.label}</p>
+          <p className="truncate text-meta-sm text-muted-foreground">
             {data.catalogName !== data.label ? `${data.catalogName} · ` : ""}
             {data.ref || "—"}
           </p>
@@ -320,7 +320,7 @@ function StepNode({ data }: NodeProps<Node<StepNodeData>>) {
             ) : null}
           </div>
           {data.agentWorkflows ? (
-            <p className="font-mono text-[10px] text-muted-foreground">
+            <p className="text-meta-sm text-muted-foreground">
               agent chain · {data.agentWorkflows}
             </p>
           ) : null}
@@ -562,15 +562,15 @@ export function WorkflowVisualBuilder({
       hint={draft ? `${steps.length} step${steps.length === 1 ? "" : "s"}` : "pick a pack"}
       actions={
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={onNew}>
+          <Button size="sm" variant="outline" className="h-7 px-2 text-note" onClick={onNew}>
             <Plus className="size-3.5" /> New workflow
           </Button>
           <Button
             size="sm"
             variant="outline"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-note"
             disabled={!draft?.id || busy !== null}
-            onClick={() => void onTest()}
+            onClick={() => onTest()}
           >
             {busy === "test" ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -581,9 +581,9 @@ export function WorkflowVisualBuilder({
           </Button>
           <Button
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-note"
             disabled={!draft || busy !== null || !draft.name.trim()}
-            onClick={() => void onSave()}
+            onClick={() => onSave()}
           >
             {busy === "save" ? <Loader2 className="size-3.5 animate-spin" /> : null}
             Save
@@ -594,7 +594,7 @@ export function WorkflowVisualBuilder({
       <div className="space-y-3" data-testid="workflow-visual-builder">
         <div className="grid gap-2 sm:grid-cols-2">
           <select
-            className="h-8 rounded-md border border-input bg-transparent px-2 font-mono text-xs"
+            className="h-8 rounded-surface border border-input bg-transparent px-2 font-mono text-xs"
             value={selected?.id || ""}
             onChange={(event) => {
               const id = event.target.value || null;
@@ -625,7 +625,7 @@ export function WorkflowVisualBuilder({
           />
         </div>
         {draft ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             Trigger — {draft.schedule || "on demand"}
             {draft.category ? ` · ${draft.category}` : ""}
             {writeExec ? " · write/exec steps still need owner approval before a real run" : ""}
@@ -636,21 +636,21 @@ export function WorkflowVisualBuilder({
             from the installed catalog.
           </p>
         )}
-        <p className="font-mono text-[11px] text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           {watchConsent
             ? "Watching is on for this page. Password and secret fields are still left out. Local only."
             : "Watching is off. Password and secret fields are never recorded."}{" "}
           <Button
             size="sm"
             variant="outline"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-note"
             onClick={() => setWatchConsent((on) => !on)}
           >
             {watchConsent ? "Stop watching" : "I consent"}
           </Button>
         </p>
         <div
-          className="workflow-visual-canvas h-[28rem] overflow-hidden rounded-sm border border-primary/20 bg-surface"
+          className="workflow-visual-canvas h-[28rem] overflow-hidden rounded-ctl border border-primary/20 bg-surface"
           data-testid="workflow-visual-canvas"
         >
           <ReactFlow
@@ -688,7 +688,7 @@ export function WorkflowVisualBuilder({
               key={`${entry.kind}:${entry.id}`}
               size="sm"
               variant="outline"
-              className="h-7 px-2 text-[11px]"
+              className="h-7 px-2 text-note"
               disabled={busy !== null}
               onClick={() => addFromCatalog(entry)}
             >
@@ -701,7 +701,7 @@ export function WorkflowVisualBuilder({
           <Button
             size="sm"
             variant="outline"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 px-2 text-note"
             disabled={busy !== null || !draft || draft.steps.length <= 1}
             onClick={() => {
               const last = nodes[nodes.length - 1];
@@ -712,7 +712,7 @@ export function WorkflowVisualBuilder({
           </Button>
         ) : null}
         {log ? (
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
             {log}
           </pre>
         ) : (

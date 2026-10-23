@@ -10,13 +10,14 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import { useCapabilities } from "@/lib/friday/capability-trees";
 import { useStartup } from "@/lib/friday/startup";
 import { useModels } from "@/lib/friday/use-models";
 import { useLedger, useMemory } from "@/lib/friday/self/use-self";
 import { serviceTone, useServiceHealth } from "@/lib/friday/use-service-health";
-import { useKernelStatus } from "@/lib/friday/use-kernel-status";
+import { useKernelLive, useKernelStatus } from "@/lib/friday/use-kernel-status";
 import { statsFor } from "@/lib/friday/self/mastery";
 import { RuntimePanel, SubsystemPanel } from "@/components/friday/SystemOverviewPanels";
 import { systemMap } from "@/lib/friday/system-map";
@@ -79,6 +80,7 @@ function StatusPage() {
   const startup = useStartup();
   const services = useServiceHealth();
   const kernel = useKernelStatus();
+  const kernelLive = useKernelLive();
   const refreshCaps = caps.refresh;
 
   // Opening the board is an explicit "show me now": every owner re-reads its
@@ -277,19 +279,25 @@ function StatusPage() {
     <AppShell
       title="FRIDAY Status"
       subtitle="Subsystem board · every FRIDAY capability reporting in"
+      live={{
+        at: kernelLive.at,
+        everyMs: kernelLive.everyMs,
+        error: kernel.connected ? null : kernelLive.error,
+        offline: !kernel.connected,
+      }}
       actions={
         <>
           <Button size="sm" variant="outline" onClick={() => wiringPanel.open()}>
             System wiring
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/system" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/system" })}>
             Open Hardware →
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <HudPanel title="System Overview" hint="live">
+        <HudPanel title="System Overview" hint="from the running app">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
             {coreOverview.map((c) => {
               const Icon = ICONS[c.icon as keyof typeof ICONS];
@@ -356,7 +364,7 @@ function StatusPage() {
                       key={i}
                       className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2 text-xs"
                     >
-                      <span className="font-mono text-[11px] text-muted-foreground">{e.at}</span>
+                      <span className="text-meta text-muted-foreground">{e.at}</span>
                       <span
                         className={
                           e.tone === "accent"
@@ -377,9 +385,7 @@ function StatusPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  No activity recorded yet.
-                </p>
+                <EmptyState title="No activity recorded yet." />
               )}
             </HudPanel>
 
@@ -428,15 +434,13 @@ function StatusPage() {
                     >
                       <span className="min-w-0">
                         <span className="text-foreground">{s.name}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
+                        <span className="block truncate text-note text-muted-foreground">
                           {s.detail || "—"}
                         </span>
                       </span>
                       <span className="flex items-center gap-2">
                         {s.latencyMs !== null ? (
-                          <span className="font-mono text-[11px] text-muted-foreground">
-                            {s.latencyMs}ms
-                          </span>
+                          <span className="text-meta text-muted-foreground">{s.latencyMs}ms</span>
                         ) : null}
                         <StatusPill
                           label={serviceTone(s.state)}
@@ -447,9 +451,7 @@ function StatusPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-6 text-center text-xs text-muted-foreground">
-                  Service probes run in the FRIDAY desktop app.
-                </p>
+                <EmptyState title="Service probes run in the FRIDAY desktop app." />
               )}
             </HudPanel>
           </div>

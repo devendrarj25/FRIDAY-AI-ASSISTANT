@@ -437,7 +437,7 @@ export function GithubUpdates() {
               ? "(stored, encrypted — never shown again)"
               : "(needed for private repos or GitHub rate limits)"}
             {config.hasToken && !changingToken ? (
-              <p className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs text-foreground">
+              <p className="rounded-surface border border-border/60 bg-background/40 px-3 py-2 text-xs text-foreground">
                 Token stored · hasToken: true
               </p>
             ) : showTokenField ? (
@@ -448,7 +448,7 @@ export function GithubUpdates() {
                 onChange={(e) => setToken(e.target.value)}
               />
             ) : (
-              <p className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs">
+              <p className="rounded-surface border border-border/60 bg-background/40 px-3 py-2 text-xs">
                 Left blank for a public repository unless a check needs a token.
               </p>
             )}
@@ -672,7 +672,7 @@ export function GithubUpdates() {
         </div>
 
         {progress || installError ? (
-          <div className="mt-3 rounded-md border border-border/60 bg-background/40 p-3 text-xs">
+          <div className="mt-3 rounded-surface border border-border/60 bg-background/40 p-3 text-xs">
             {installError ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-warning">{installError}</span>
@@ -712,7 +712,7 @@ export function GithubUpdates() {
         ) : null}
 
         {connection ? (
-          <div className="mt-3 rounded-md border border-border/60 p-3 text-xs">
+          <div className="mt-3 rounded-surface border border-border/60 p-3 text-xs">
             {connection.ok ? (
               <div className="space-y-1">
                 <p className="text-foreground">
@@ -828,7 +828,7 @@ export function GithubUpdates() {
               {unified.map((item) => (
                 <li
                   key={`${item.kind}-${item.id}-${item.available}`}
-                  className="rounded-md border border-border/60 p-3 text-xs"
+                  className="rounded-surface border border-border/60 p-3 text-xs"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -884,8 +884,8 @@ export function GithubUpdates() {
         >
           <p className="whitespace-pre-wrap text-sm text-foreground">{check.title}</p>
           {check.notes ? (
-            <div className="mt-2 max-h-72 overflow-auto rounded-md border border-border/60 bg-background/40 p-3">
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-accent">What's new</p>
+            <div className="mt-2 max-h-72 overflow-auto rounded-surface border border-border/60 bg-background/40 p-3">
+              <p className="mb-1 text-note uppercase tracking-wide text-accent">What's new</p>
               <p className="whitespace-pre-wrap text-xs text-muted-foreground">{check.notes}</p>
             </div>
           ) : (
@@ -893,7 +893,7 @@ export function GithubUpdates() {
               This build published no release notes.
             </p>
           )}
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-note text-muted-foreground">
             {check.verified
               ? "Checksum published — the download is verified before it is allowed to install."
               : "No checksum manifest was published with this build."}{" "}
@@ -901,7 +901,7 @@ export function GithubUpdates() {
             preserved and reused.
           </p>
           {check.changedFiles?.length ? (
-            <ul className="mt-2 max-h-48 space-y-1 overflow-auto font-mono text-[11px] text-muted-foreground">
+            <ul className="mt-2 max-h-48 space-y-1 overflow-auto text-data text-muted-foreground">
               {check.changedFiles.slice(0, 200).map((file) => (
                 <li key={file.path}>
                   <span className="text-accent">{file.state}</span> {file.path}
@@ -925,8 +925,8 @@ export function GithubUpdates() {
         >
           <p className="text-sm text-foreground">{check.otherChannel.title}</p>
           {check.otherChannel.notes ? (
-            <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border/60 bg-background/40 p-3">
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-accent">What's new</p>
+            <div className="mt-2 max-h-56 overflow-auto rounded-surface border border-border/60 bg-background/40 p-3">
+              <p className="mb-1 text-note uppercase tracking-wide text-accent">What's new</p>
               <p className="whitespace-pre-wrap text-xs text-muted-foreground">
                 {check.otherChannel.notes}
               </p>
@@ -953,7 +953,7 @@ export function GithubUpdates() {
                 ? "Switch to this TEST build"
                 : "Return to this Stable release"}
             </Button>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-note text-muted-foreground">
               Switches this install to the {check.otherChannel.testBuild ? "Test" : "Stable"}{" "}
               channel and keeps every FRIDAY file, model and setting in place.
             </span>
@@ -1001,7 +1001,7 @@ export function GithubUpdates() {
             {bundles.map((bundle) => (
               <li
                 key={bundle.tag}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 p-3 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-border/60 p-3 text-xs"
               >
                 <div className="min-w-0">
                   <p className="text-sm text-foreground">

@@ -12,16 +12,21 @@
  */
 import { useMemo } from "react";
 import { Cpu, HardDrive, Network, ShieldCheck, Thermometer } from "lucide-react";
-import { HudPanel, MetricBar, StatTile, StatusPill, toneForStatus } from "@/components/friday/ui";
+import {
+  EmptyState,
+  HudPanel,
+  MetricBar,
+  StatTile,
+  StatusPill,
+  toneForStatus,
+} from "@/components/friday/ui";
 import { useSystemSample } from "@/lib/friday/use-live-metrics";
 import { useHardware, useSystemSensors, useWindowsSecurity } from "@/lib/friday/desktop";
 import { useSystemMap } from "@/lib/friday/use-system-map";
 import { useDoctor } from "@/lib/friday/use-doctor";
 import type { MapEntry, MapStatus } from "@/lib/friday/system-map";
 
-const Empty = ({ children }: { children: React.ReactNode }) => (
-  <p className="py-6 text-center text-xs text-muted-foreground">{children}</p>
-);
+const Empty = ({ children }: { children: string }) => <EmptyState title={children} />;
 
 const barTone = (percent: number) =>
   percent >= 90 ? "warning" : percent >= 70 ? "magenta" : "accent";
@@ -171,11 +176,11 @@ export function NetworkPanel() {
                   <Network className="size-3.5 text-accent" />
                   {entry.name}
                 </span>
-                <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                <span className="block truncate text-meta text-muted-foreground">
                   {entry.mac ?? "—"}
                 </span>
               </span>
-              <span className="font-mono text-[11px] text-muted-foreground">{entry.address}</span>
+              <span className="text-meta text-muted-foreground">{entry.address}</span>
             </li>
           ))}
         </ul>
@@ -215,7 +220,7 @@ export function SecurityPanel() {
                   <ShieldCheck className="size-3.5 text-accent" />
                   {item.label}
                 </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
+                <span className="block truncate text-note text-muted-foreground">
                   {item.detail ?? "—"}
                 </span>
               </span>
@@ -319,7 +324,7 @@ export function SubsystemPanel() {
                     >
                       <span className="min-w-0">
                         <span className="text-foreground">{entry.label}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
+                        <span className="block truncate text-note text-muted-foreground">
                           {entry.detail || "—"}
                           {entry.version ? ` · ${entry.version}` : ""}
                         </span>
@@ -384,7 +389,7 @@ export function RuntimePanel() {
                   >
                     <span className="min-w-0">
                       <span className="text-foreground">{check.label}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
+                      <span className="block truncate text-note text-muted-foreground">
                         {check.detail || "—"}
                       </span>
                     </span>

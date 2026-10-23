@@ -53,7 +53,7 @@ export function IdentityPanel() {
       hint={`${active} active of ${state.rules.length} rules · v${state.version}`}
     >
       <div className="space-y-3">
-        <p className="font-mono text-[11px] text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           {state.profile.name} · owner {state.profile.owner} · voice {state.profile.voice}
         </p>
 
@@ -89,7 +89,7 @@ export function IdentityPanel() {
             .map((rule) => (
               <div
                 key={rule.id}
-                className="rounded-sm border border-border/60 bg-background/60 p-2 font-mono text-[11px]"
+                className="rounded-ctl border border-border/60 bg-background/60 p-2 text-data"
               >
                 <div className="flex items-start justify-between gap-2">
                   <span
@@ -202,13 +202,13 @@ export function SkillForgePanel() {
             size="sm"
             className="h-8"
             disabled={!available || busy || !goal.trim()}
-            onClick={() => void forge()}
+            onClick={() => forge()}
           >
             <Sparkles className="size-3.5" /> {busy ? "Forging…" : "Forge"}
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 text-meta-sm text-muted-foreground">
           <label className="flex items-center gap-1.5">
             <input
               type="checkbox"
@@ -223,7 +223,7 @@ export function SkillForgePanel() {
               value={publishTo}
               onChange={(event) => setPublishTo(event.target.value)}
               placeholder="owner/repo"
-              className="h-7 w-48 font-mono text-[10px]"
+              className="h-7 w-48 text-meta-sm"
               disabled={busy}
             />
           ) : (
@@ -232,7 +232,7 @@ export function SkillForgePanel() {
         </div>
 
         {run ? (
-          <pre className="max-h-32 overflow-auto rounded-sm bg-background p-2 font-mono text-[10px] leading-relaxed">
+          <pre className="max-h-32 overflow-auto rounded-ctl bg-background p-2 text-data-sm leading-relaxed">
             {run.log.map((line, index) => (
               <div
                 key={`${line.at}-${index}`}
@@ -247,11 +247,14 @@ export function SkillForgePanel() {
 
         <div className="max-h-64 space-y-1.5 overflow-auto pr-1">
           {skills.map((skill) => (
-            <div key={skill.id} className="rounded-sm border border-border/60 bg-background/60 p-2">
+            <div
+              key={skill.id}
+              className="rounded-ctl border border-border/60 bg-background/60 p-2"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-mono text-[11px]">{skill.name}</p>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground">
+                  <p className="truncate text-meta">{skill.name}</p>
+                  <p className="truncate text-meta-sm text-muted-foreground">
                     {skill.category} · v{skill.version} · {skill.runs} runs / {skill.failures}{" "}
                     failed
                   </p>
@@ -355,7 +358,7 @@ export function SkillForgePanel() {
             </div>
           ))}
           {!skills.length ? (
-            <p className="font-mono text-[11px] text-muted-foreground">
+            <p className="text-meta text-muted-foreground">
               {available
                 ? "No skills yet — forge the first one above."
                 : "Open FRIDAY on Windows to use skills."}
@@ -411,12 +414,12 @@ export function BrowserPanel() {
             size="sm"
             className="h-8"
             disabled={!available || busy || !query.trim()}
-            onClick={() => void go()}
+            onClick={() => go()}
           >
             <Globe className="size-3.5" /> {busy ? "Reading…" : "Search"}
           </Button>
         </div>
-        {error ? <p className="font-mono text-[11px] text-destructive">{error}</p> : null}
+        {error ? <p className="text-meta text-destructive">{error}</p> : null}
         <div className="max-h-40 space-y-1.5 overflow-auto pr-1">
           {results.map((result) => (
             <a
@@ -424,10 +427,10 @@ export function BrowserPanel() {
               href={result.url}
               target="_blank"
               rel="noreferrer"
-              className="block rounded-sm border border-border/60 bg-background/60 p-2 font-mono text-[11px] hover:border-primary/60"
+              className="block rounded-ctl border border-border/60 bg-background/60 p-2 text-data hover:border-primary/60"
             >
               <span className="text-primary">{result.title}</span>
-              <span className="block truncate text-[10px] text-muted-foreground">
+              <span className="block truncate text-note-sm text-muted-foreground">
                 {result.snippet}
               </span>
             </a>
@@ -437,7 +440,7 @@ export function BrowserPanel() {
           <Textarea
             readOnly
             value={reading}
-            className="h-32 resize-none font-mono text-[10px] leading-relaxed"
+            className="h-32 resize-none text-data-sm leading-relaxed"
           />
         ) : null}
       </div>

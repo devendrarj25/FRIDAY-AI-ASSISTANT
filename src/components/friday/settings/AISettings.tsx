@@ -69,7 +69,7 @@ export function AISettings() {
   return (
     <HudPanel title="AI Settings">
       <p className="label-xs text-muted-foreground">You</p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
+      <p className="mt-1 text-note text-muted-foreground">
         Saved about you — also by telling FRIDAY. Not the project owner.
       </p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -138,7 +138,7 @@ export function AISettings() {
       />
 
       <p className="label-xs mt-4 text-muted-foreground">FRIDAY</p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
+      <p className="mt-1 text-note text-muted-foreground">
         How she behaves. Same store as telling her in chat. Not your profile, not the publisher.
       </p>
       <p className="label-xs mt-3 text-muted-foreground">Personality</p>
@@ -260,7 +260,7 @@ export function AISettings() {
 
       <div className="mt-4">
         <p className="label-xs text-muted-foreground">Project identity (fixed)</p>
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-note text-muted-foreground">
           Creator, publisher and copyright. Cannot be changed here or by telling FRIDAY.
         </p>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -332,13 +332,13 @@ export function AISettings() {
               size="sm"
               variant={registry.routeMode === mode ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setRouteMode(mode)}
+              onClick={() => modelRegistry.setRouteMode(mode)}
             >
               {ROUTE_MODE_LABELS[mode]}
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           {ROUTE_MODE_HINTS[registry.routeMode]}
         </p>
       </div>
@@ -352,13 +352,13 @@ export function AISettings() {
               size="sm"
               variant={registry.qualityTarget === target ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setQualityTarget(target)}
+              onClick={() => modelRegistry.setQualityTarget(target)}
             >
               {QUALITY_TARGET_LABELS[target]}
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           Balanced keeps today's order. Private keeps the prompt on this PC.
         </p>
       </div>
@@ -372,13 +372,13 @@ export function AISettings() {
               size="sm"
               variant={registry.strategy === strategy ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setStrategy(strategy)}
+              onClick={() => modelRegistry.setStrategy(strategy)}
             >
               {ROUTE_STRATEGY_LABELS[strategy]}
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           Auto keeps one answer, and a second-opinion run stays parallel until you pick another
           shape.
         </p>
@@ -402,13 +402,13 @@ export function AISettings() {
               size="sm"
               variant={registry.policy === value ? "default" : "outline"}
               className="h-7 px-3 text-xs"
-              onClick={() => void modelRegistry.setPolicy(value)}
+              onClick={() => modelRegistry.setPolicy(value)}
             >
               {label}
             </Button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           {registry.models.filter((m) => m.eligible).length} of {registry.models.length} detected
           models are eligible under this policy. Paid models stay blocked unless “Allow paid” or
           “Paid only” is selected. “Paid only” never uses free or local models.
@@ -424,7 +424,7 @@ export function AISettings() {
           on={shouldRememberChats()}
           onToggle={() => preferences.setToggle("rememberChats", !shouldRememberChats())}
         />
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           Off pauses new memory writes (Claude-style). Existing records stay until you clear them on
           Memory.
         </p>
@@ -434,7 +434,7 @@ export function AISettings() {
         <Field label="Routed brain context" value={contextLabel} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/models" })}>
+        <Button size="sm" variant="outline" onClick={() => navigate({ to: "/models" })}>
           Open Models →
         </Button>
         <Button
@@ -516,7 +516,7 @@ function CompanionSetting() {
           });
         }}
       />
-      <p className="mt-2 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-note text-muted-foreground">
         Off means loopback only. On, a phone on the same network can open FRIDAY after entering a
         one-time pairing code from the Devices page. Nothing is relayed over the internet.
       </p>
@@ -545,7 +545,7 @@ function CompanionSetting() {
               }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-note text-muted-foreground">
             {remote.detail}
             {remote.url ? ` Open ${remote.url} on your paired phone.` : ""}
           </p>

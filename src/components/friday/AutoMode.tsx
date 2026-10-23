@@ -112,7 +112,7 @@ function StripButton({
       title={title}
       aria-pressed={pressed}
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
+        "inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
         pressed && "bg-primary/10 text-primary",
         tone === "warning" && "text-warning",
       )}
@@ -127,7 +127,7 @@ function StripButton({
 function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
   if (!voice.voiceLog.length) {
     return (
-      <p className="font-mono text-[10px] text-muted-foreground">
+      <p className="text-meta-sm text-muted-foreground">
         No pipeline step yet. Speak in Auto mode and each step shows here.
       </p>
     );
@@ -141,7 +141,7 @@ function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
           <li key={`${entry.at}-${entry.stage}-${index}`} className="flex gap-2">
             <span
               className={cn(
-                "w-20 shrink-0 font-mono text-[10px] uppercase",
+                "w-20 shrink-0 text-meta-sm uppercase",
                 entry.stage === "error" || entry.stage === "dropped"
                   ? "text-destructive"
                   : entry.stage === "transcript"
@@ -151,7 +151,7 @@ function VoicePipelineLog({ voice }: { voice: AssistantModeState }) {
             >
               {entry.stage}
             </span>
-            <span className="min-w-0 break-words font-mono text-[10px] text-muted-foreground">
+            <span className="min-w-0 break-words text-meta-sm text-muted-foreground">
               {entry.detail}
               {entry.repeat && entry.repeat > 1 ? ` x${entry.repeat}` : ""}
             </span>
@@ -337,7 +337,7 @@ export function AutoMode() {
     <div
       ref={barRef}
       className={cn(
-        "voice-bar flex max-w-full shrink-0 flex-wrap items-center gap-1.5 px-3 pt-3 font-mono text-[10px]",
+        "voice-bar flex max-w-full shrink-0 flex-wrap items-center gap-1.5 px-3 pt-3 text-meta-sm",
         full && "pb-3",
       )}
     >
@@ -350,7 +350,7 @@ export function AutoMode() {
           aria-label={`Microphone ${micState(voice)}: ${voice.status}`}
           data-mic={micState(voice)}
           className={cn(
-            "voice-mic-chip inline-flex h-6 items-center gap-1.5 rounded-sm border px-2",
+            "voice-mic-chip inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2",
             voice.error
               ? "border-destructive/40 bg-destructive/10 text-destructive"
               : voice.listening
@@ -410,7 +410,7 @@ export function AutoMode() {
           <HudDivider />
           <HudGroup label="Speak">
             {voice.speaking ? (
-              <span className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 text-primary">
+              <span className="inline-flex h-6 items-center gap-1.5 rounded-ctl border border-primary/40 bg-primary/10 px-2 text-primary">
                 <Volume2 className="size-3" /> speaking
               </span>
             ) : null}
@@ -439,18 +439,18 @@ export function AutoMode() {
       </HudGroup>
 
       {run ? (
-        <span className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-primary/30 bg-primary/5 px-2 text-primary">
+        <span className="inline-flex h-6 items-center gap-1.5 rounded-ctl border border-primary/30 bg-primary/5 px-2 text-primary">
           <Loader2 className="size-3 animate-spin" />
           {stage?.label ?? run.intentLabel}
         </span>
       ) : null}
       {voice.error ? (
-        <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-sm border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
+        <span className="inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-ctl border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-destructive">
           <span className="min-w-0 break-words">{voice.error}</span>
           <button
             type="button"
             title="Fix voice"
-            className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-destructive/40 px-1.5 py-0.5 transition-colors hover:bg-destructive/15 active:bg-destructive/25"
+            className="inline-flex shrink-0 items-center gap-1 rounded-ctl border border-destructive/40 px-1.5 py-0.5 transition-colors hover:bg-destructive/15 active:bg-destructive/25"
             onClick={() => assistantMode.fixVoice()}
           >
             <Wrench className="size-3" />
@@ -461,7 +461,7 @@ export function AutoMode() {
 
       <span
         className={cn(
-          "ml-auto inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 font-mono text-[10px]",
+          "ml-auto inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2 text-meta-sm",
           working
             ? "border-accent/40 bg-accent/10 text-accent"
             : "border-primary/25 bg-primary/8 text-muted-foreground",
@@ -481,7 +481,7 @@ export function AutoMode() {
 
   /* Real session numbers — no simulation, straight from the stores */
   const sessionNumbers = (
-    <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-muted-foreground">
+    <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-meta-sm text-muted-foreground">
       <span>
         runs <span className="text-primary">{live.session.runs}</span>
       </span>
@@ -597,7 +597,7 @@ export function AutoMode() {
               <p className="label-xs text-primary/60">
                 Live captions{voice.display ? " · showing" : ""}
               </p>
-              <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 font-mono text-[10px] text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 text-meta-sm text-muted-foreground">
                 <StripButton
                   icon={Activity}
                   label={`diagnostics · ${voice.voiceState.toLowerCase()}`}
@@ -662,7 +662,7 @@ export function AutoMode() {
                 <button
                   type="button"
                   onClick={() => setFollow(true)}
-                  className="absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/30 bg-card px-2.5 py-0.5 font-mono text-[10px] text-primary shadow-sm transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  className="absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/30 bg-card px-2.5 py-0.5 text-meta-sm text-primary shadow-sm transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                 >
                   <ArrowDown className="size-3" /> Jump to latest
                 </button>
@@ -689,7 +689,7 @@ export function AutoMode() {
 
           {full ? (
             <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 border-t border-primary/15 px-3 py-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-meta-sm text-muted-foreground">
                 {captionTools}
               </div>
               {sessionNumbers}

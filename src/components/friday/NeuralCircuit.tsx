@@ -390,7 +390,7 @@ export const NeuralCircuit = memo(function NeuralCircuit({
       </div>
 
       {/* The large FRIDAY mark — unchanged size, always breathing */}
-      <div className="relative grid size-full place-items-center">
+      <div className="pointer-events-none relative grid size-full place-items-center">
         <div className="relative grid place-items-center">
           <span
             className={cn(

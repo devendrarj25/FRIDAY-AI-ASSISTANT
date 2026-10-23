@@ -1,3 +1,4 @@
+import { livePoller } from "@/lib/friday/live-poll";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ChevronsLeft, ChevronsRight, Power, RotateCw, Settings, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,13 +10,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FlowStudioHost } from "@/components/friday/FlowStudio";
+import { FlowStudioLazyHost } from "@/components/friday/FlowStudioLazy";
+import { preloadFlowStudio } from "@/components/friday/flow-studio-preload";
+import { ShellPresenceContext } from "@/components/friday/shell-presence";
 import { featureForPath } from "@/lib/friday/flow-adapters";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 import {
   createContext,
   useContext,
   useEffect,
+  type ComponentProps,
   useLayoutEffect,
   useRef,
   useState,
@@ -31,7 +35,12 @@ import {
   useWorkspaceRootState,
   type CompanionRemoteState,
 } from "@/lib/friday/desktop";
+import { useNavThumb } from "@/components/friday/nav-thumb";
+import { LiveBadge, OfflineBanner } from "@/components/friday/PageStates";
 import { WorkspaceSetup } from "@/components/friday/WorkspaceSetup";
+import { installInteractionPause } from "@/lib/friday/interaction-pause";
+import { installTruncateTitles, titleCutLabels } from "@/lib/friday/truncate-titles";
+import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
 import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
 import { useAppearance } from "@/lib/friday/appearance";
@@ -75,7 +84,6 @@ const ALL_ITEMS = ALL_NAV_ITEMS;
  * the outlet once; inner calls only render the page frame so sidebar scroll
  * survives navigation. Not a second sidebar store.
  */
-const ShellPresenceContext = createContext(false);
 
 /** Restored if chrome ever remounts (workspace hydrate). Live navigation keeps the same <nav>. */
 let savedSidebarScroll = 0;
@@ -84,6 +92,8 @@ type AppShellProps = {
   title?: string;
   subtitle?: string;
   actions?: ReactNode;
+  /** Live indicator for pages that show measured or polled data. */
+  live?: ComponentProps<typeof LiveBadge>;
   /** Main window mode: no scrolling, children own the full height. */
   fill?: boolean;
   children: ReactNode;
@@ -95,7 +105,7 @@ function pageNav(pathname: string) {
   return ALL_ITEMS.find((item) => item.to === pathname) ?? null;
 }
 
-function AppShellPage({ title, subtitle, actions, fill = false, children }: AppShellProps) {
+function AppShellPage({ title, subtitle, actions, live, fill = false, children }: AppShellProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const nav = pageNav(pathname);
   return (
@@ -111,7 +121,7 @@ function AppShellPage({ title, subtitle, actions, fill = false, children }: AppS
             {nav ? (
               <span
                 aria-hidden="true"
-                className="glass-2 grid size-8 shrink-0 place-items-center rounded-md text-primary"
+                className="glass-2 grid size-8 shrink-0 place-items-center rounded-surface text-primary"
               >
                 <nav.icon className="size-4" />
               </span>
@@ -131,11 +141,14 @@ function AppShellPage({ title, subtitle, actions, fill = false, children }: AppS
             </div>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+            {live ? <LiveBadge {...live} /> : null}
             <Button
               size="sm"
               variant="outline"
               className="gap-1.5"
               title="Show this page as a flow chart"
+              onPointerEnter={preloadFlowStudio}
+              onFocus={preloadFlowStudio}
               onClick={() => flowStudio.open(featureForPath(pathname), "chart")}
             >
               <Workflow className="size-3.5" />
@@ -202,7 +215,7 @@ function HeaderChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-[11px]",
+        "inline-flex items-center gap-1.5 rounded-ctl border px-2 py-1 text-meta",
         tone === "accent"
           ? "border-accent/30 bg-accent/10 text-accent"
           : "border-primary/30 bg-primary/10 text-primary",
@@ -257,6 +270,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   useAppearance();
   // First run: FRIDAY cannot work before it has a primary folder to scan.
   const workspaceRoot = useWorkspaceRootState();
+  // The sidebar mounts once the workspace is chosen, so that is a re-place trigger too.
+  const navThumbRef = useNavThumb(navRef, [pathname, collapsed, workspaceRoot]);
   // One version for the whole app (package.json → installed EXE version).
   const appVersion = useAppVersion();
 
@@ -453,7 +468,13 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     };
     publish();
     refreshRemote();
-    const remoteTimer = window.setInterval(refreshRemote, 15000);
+    const offRemote = livePoller().subscribe(
+      "shell.companion-remote",
+      refreshRemote,
+      15000,
+      undefined,
+      false,
+    );
     const offCap = capabilityRegistry.subscribe(publish);
     const offDoc = doctor.subscribe(publish);
     const offVoice = assistantMode.subscribe(publish);
@@ -462,7 +483,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     const offLibrary = library.subscribe(publish);
     const offProjects = projectWorkspaces.subscribe(publish);
     return () => {
-      window.clearInterval(remoteTimer);
+      offRemote();
       offCap();
       offDoc();
       offVoice();
@@ -502,6 +523,15 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     else await (api?.restartApp ?? api?.confirmRestart)?.("Restart requested from the sidebar.");
   };
 
+  useEffect(() => installRejectionToast(), []);
+  useEffect(() => installInteractionPause(), []);
+  useEffect(() => installTruncateTitles(), []);
+  // A new page: label whatever it cut with an ellipsis once it has laid out.
+  useEffect(() => {
+    const id = window.setTimeout(() => titleCutLabels(), 600);
+    return () => window.clearTimeout(id);
+  }, [pathname]);
+
   if (workspaceRoot === undefined) return null;
   if (workspaceRoot === null) return <WorkspaceSetup />;
 
@@ -509,7 +539,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
     <ShellPresenceContext.Provider value={true}>
       <div className="friday-shell flex h-screen w-full flex-col overflow-hidden bg-background">
         <BootScreen />
-        <FlowStudioHost />
+        <FlowStudioLazyHost />
         {/* The only FRIDAY branding: the custom top strip. */}
         <TitleStrip />
         <div className="friday-interactive-region flex min-h-0 flex-1">
@@ -524,11 +554,17 @@ function AppShellChrome({ children }: { children: ReactNode }) {
             {/* Scrollable navigation — same DOM across routes (root chrome). */}
             <nav
               ref={navRef}
-              className="min-h-0 flex-1 overflow-y-auto p-2"
+              className="relative min-h-0 flex-1 overflow-y-auto p-2"
               onScroll={(event) => {
                 savedSidebarScroll = event.currentTarget.scrollTop;
               }}
             >
+              <span
+                ref={navThumbRef}
+                aria-hidden="true"
+                data-on="false"
+                className="friday-nav-thumb"
+              />
               {NAV_GROUPS.map((group) => (
                 <div key={group.group} className="mb-3">
                   {!collapsed ? (
@@ -547,7 +583,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                           aria-label={collapsed ? item.label : undefined}
                           aria-current={active ? "page" : undefined}
                           className={cn(
-                            "friday-nav-link relative flex items-center gap-2.5 rounded-sm border px-2.5 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            "friday-nav-link relative flex items-center gap-2.5 rounded-ctl border px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                             collapsed && "justify-center px-0",
                             active
                               ? "border-primary/50 bg-primary/12 text-primary glow-ring"
@@ -574,7 +610,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   aria-expanded={!collapsed}
-                  className="friday-btn grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                  className="friday-btn grid flex-1 place-items-center rounded-ctl border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
                 >
                   {collapsed ? (
                     <ChevronsRight className="size-4" />
@@ -587,8 +623,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   aria-label="Restart FRIDAY"
                   title="Restart FRIDAY"
                   disabled={lifeBusy}
-                  onClick={() => void askLife("restart")}
-                  className="grid flex-1 place-items-center rounded-sm border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
+                  onClick={() => askLife("restart")}
+                  className="grid flex-1 place-items-center rounded-ctl border border-primary/20 bg-surface py-2 text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-50"
                 >
                   <RotateCw className="size-4" />
                 </button>
@@ -598,7 +634,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   title="Settings"
                   aria-current={pathname === "/settings" ? "page" : undefined}
                   className={cn(
-                    "friday-btn grid flex-1 place-items-center rounded-sm border py-2 transition-colors",
+                    "friday-btn grid flex-1 place-items-center rounded-ctl border py-2 transition-colors",
                     pathname === "/settings"
                       ? "border-primary/50 bg-primary/12 text-primary"
                       : "border-primary/20 bg-surface text-muted-foreground hover:border-primary/50 hover:text-primary",
@@ -612,21 +648,19 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 aria-label="Shutdown FRIDAY"
                 title="Shutdown FRIDAY"
                 disabled={lifeBusy}
-                onClick={() => void askLife("shutdown")}
-                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-sm border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+                onClick={() => askLife("shutdown")}
+                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-ctl border border-destructive/40 bg-surface py-2 text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
               >
                 <Power className="size-4 shrink-0" />
                 {!collapsed ? <span className="truncate text-xs">Shutdown FRIDAY</span> : null}
               </button>
               {!collapsed ? (
-                <div className="hud-tile mt-2 rounded-md px-2.5 py-2">
-                  <p className="font-mono text-[11px] text-primary">FRIDAY {appVersion.label}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">
-                    Build {appVersion.build}
-                  </p>
+                <div className="hud-tile mt-2 rounded-surface px-2.5 py-2">
+                  <p className="text-meta text-primary">FRIDAY {appVersion.label}</p>
+                  <p className="text-meta-sm text-muted-foreground">Build {appVersion.build}</p>
                 </div>
               ) : (
-                <p className="mt-2 text-center font-mono text-[9px] text-muted-foreground">
+                <p className="mt-2 text-center text-meta-sm text-muted-foreground">
                   {appVersion.label}
                 </p>
               )}
@@ -640,7 +674,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "whitespace-nowrap rounded-sm border px-2.5 py-1.5 font-mono text-[11px]",
+                    "whitespace-nowrap rounded-ctl border px-2.5 py-1.5 text-meta",
                     pathname === item.to
                       ? "border-primary/50 bg-primary/12 text-primary"
                       : "border-transparent text-muted-foreground",
@@ -652,7 +686,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
               <Link
                 to={SETTINGS_NAV.to}
                 className={cn(
-                  "whitespace-nowrap rounded-sm border px-2.5 py-1.5 font-mono text-[11px]",
+                  "whitespace-nowrap rounded-ctl border px-2.5 py-1.5 text-meta",
                   pathname === SETTINGS_NAV.to
                     ? "border-primary/50 bg-primary/12 text-primary"
                     : "border-transparent text-muted-foreground",
@@ -662,6 +696,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
               </Link>
             </nav>
 
+            <OfflineBanner />
             {children}
           </div>
         </div>
@@ -700,7 +735,7 @@ function AppShellChrome({ children }: { children: ReactNode }) {
                 type="button"
                 variant="destructive"
                 disabled={lifeBusy}
-                onClick={() => void confirmLife()}
+                onClick={() => confirmLife()}
               >
                 {lifeMode === "shutdown" ? "Shut down" : "Restart"}
               </Button>

@@ -1,3 +1,5 @@
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Ban,
@@ -122,25 +124,18 @@ function SelfManagementPage() {
   const abilities = useCapabilityMatrix();
   const graphState = useTaskGraph();
   const [request, setRequest] = useState("");
-  const [tick, setTick] = useState(0);
   const [diagnosing, setDiagnosing] = useState(false);
   const [mapProblemsOnly, setMapProblemsOnly] = useState(false);
 
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => window.clearInterval(id);
-  }, []);
-  void tick;
-
-  useEffect(() => {
-    self.pulse();
-    systemMap.refresh();
-    const id = window.setInterval(() => {
+  useSecondsTick(15);
+  useLivePoll(
+    "self.management",
+    () => {
       self.pulse();
       systemMap.refresh();
-    }, 8_000);
-    return () => window.clearInterval(id);
-  }, []);
+    },
+    8_000,
+  );
 
   useEffect(() => {
     self.pulse();
@@ -227,7 +222,7 @@ function SelfManagementPage() {
           <Button size="sm" variant="outline" onClick={copyReport}>
             <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy report
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/doctor" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/doctor" })}>
             Open Doctor →
           </Button>
           <Button
@@ -239,7 +234,7 @@ function SelfManagementPage() {
           >
             Open Updates →
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
             Open Tasks →
           </Button>
         </div>
@@ -361,7 +356,7 @@ function SelfManagementPage() {
                       <div>
                         <p className="text-sm font-medium text-foreground">{p.title}</p>
                         <p className="mt-1 text-xs text-muted-foreground">{p.rationale}</p>
-                        <p className="mt-1 font-mono text-[11px] text-muted-foreground/80">
+                        <p className="mt-1 text-meta text-muted-foreground/80">
                           evidence · {p.evidence}
                         </p>
                       </div>
@@ -429,7 +424,7 @@ function SelfManagementPage() {
                       <p className="text-sm font-medium text-foreground">{lc.title}</p>
                       <StatusPill label={lc.state} tone={stateTone[lc.state] ?? "muted"} />
                     </div>
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-meta text-muted-foreground">
                       {lc.taskId} · {ago(lc.startedAt)}
                     </p>
                     <ol className="mt-2 grid gap-1">
@@ -477,7 +472,7 @@ function SelfManagementPage() {
           title="Memory"
           hint={`${mem.items.length} records across ${memoryTiers.length} tiers`}
           actions={
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/memory" })}>
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
               <Database className="size-4" /> Open Memory →
             </Button>
           }
@@ -490,7 +485,7 @@ function SelfManagementPage() {
               >
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.label}</p>
                 <p className="text-xl font-semibold text-foreground">{mem.counts[t.id]}</p>
-                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{t.note}</p>
+                <p className="mt-1 text-note leading-snug text-muted-foreground">{t.note}</p>
               </div>
             ))}
           </div>
@@ -583,7 +578,7 @@ function SelfManagementPage() {
                       key={s.id}
                       title={s.detail}
                       className={cn(
-                        "rounded border px-1.5 py-0.5 font-mono text-[10px]",
+                        "rounded border px-1.5 py-0.5 text-meta-sm",
                         s.state === "done"
                           ? "border-emerald-500/40 text-emerald-300"
                           : s.state === "running"
@@ -598,13 +593,13 @@ function SelfManagementPage() {
                   ))}
                 </div>
                 {run.plan.length > 0 && (
-                  <ul className="mt-2 grid gap-0.5 text-[11px] text-muted-foreground">
+                  <ul className="mt-2 grid gap-0.5 text-note text-muted-foreground">
                     {run.plan.map((step, i) => (
                       <li key={i}>· {step}</li>
                     ))}
                   </ul>
                 )}
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+                <p className="mt-1 text-meta text-muted-foreground/70">
                   {run.id} · {ago(run.createdAt)}
                   {run.areas.length ? ` · ${run.areas.join(", ")}` : ""}
                 </p>
@@ -669,7 +664,7 @@ function SelfManagementPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{entry.label}</p>
-                    <p className="truncate font-mono text-[11px] text-muted-foreground/70">
+                    <p className="truncate text-meta text-muted-foreground/70">
                       {entry.id}
                       {entry.version ? ` · ${entry.version}` : ""} · {entry.detail}
                     </p>
@@ -712,7 +707,7 @@ function SelfManagementPage() {
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy ledger
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+              <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
                 Open Tasks →
               </Button>
             </div>
@@ -751,7 +746,7 @@ function SelfManagementPage() {
                       )}
                     </div>
                   </div>
-                  <p className="font-mono text-[11px] text-muted-foreground/70">
+                  <p className="text-meta text-muted-foreground/70">
                     {t.id} · {ago(t.startedAt)}
                     {t.error ? ` · ${t.error}` : ""}
                   </p>
@@ -765,7 +760,7 @@ function SelfManagementPage() {
           title="Durable work"
           hint={`${graphState.queue.length} queued · same graph as Tasks`}
           actions={
-            <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/tasks" })}>
+            <Button size="sm" variant="outline" onClick={() => navigate({ to: "/tasks" })}>
               Open Tasks →
             </Button>
           }
@@ -791,7 +786,7 @@ function SelfManagementPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm text-foreground">{graph.request}</p>
-                      <p className="font-mono text-[11px] text-muted-foreground/70">
+                      <p className="text-meta text-muted-foreground/70">
                         {done.length}/{graph.nodes.length} subtasks
                         {current ? ` · next: ${current.title}` : ""}
                         {graph.priority === "idle" ? " · idle self-work" : ""}

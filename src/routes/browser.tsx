@@ -854,10 +854,10 @@ function BrowserPage() {
       fill
       actions={
         <div className="flex items-center gap-1.5">
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="text-meta-sm">
             {desktop ? "live session" : "desktop only"}
           </Badge>
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="text-meta-sm">
             {cookies} cookies
           </Badge>
         </div>
@@ -870,7 +870,7 @@ function BrowserPage() {
             <div
               key={tab.id}
               className={cn(
-                "group flex max-w-[220px] shrink-0 items-center gap-2 rounded-sm border px-2.5 py-1.5 text-xs",
+                "group flex max-w-[220px] shrink-0 items-center gap-2 rounded-ctl border px-2.5 py-1.5 text-xs",
                 tab.id === activeId
                   ? "border-primary/50 bg-primary/12 text-primary"
                   : "border-transparent bg-surface text-muted-foreground hover:border-primary/25",
@@ -960,12 +960,7 @@ function BrowserPage() {
               <Search className="size-4" />
             </Button>
           </form>
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label="Bookmark"
-            onClick={() => void toggleBookmark()}
-          >
+          <Button size="sm" variant="ghost" aria-label="Bookmark" onClick={() => toggleBookmark()}>
             {bookmarked ? (
               <BookmarkCheck className="size-4 text-primary" />
             ) : (
@@ -975,7 +970,7 @@ function BrowserPage() {
           <Button size="sm" variant="ghost" aria-label="Zoom out" onClick={() => zoomBy(-0.1)}>
             <ZoomOut className="size-4" />
           </Button>
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="text-meta-sm text-muted-foreground">
             {Math.round((active?.zoom ?? 1) * 100)}%
           </span>
           <Button size="sm" variant="ghost" aria-label="Zoom in" onClick={() => zoomBy(0.1)}>
@@ -1058,7 +1053,7 @@ function BrowserPage() {
         </div>
 
         {findOpen ? (
-          <div className="flex shrink-0 items-center gap-2 rounded-sm border border-primary/20 bg-surface px-2 py-1.5">
+          <div className="flex shrink-0 items-center gap-2 rounded-ctl border border-primary/20 bg-surface px-2 py-1.5">
             <Input
               autoFocus
               value={findText}
@@ -1066,7 +1061,7 @@ function BrowserPage() {
               onChange={(event) => runFind(event.target.value)}
               className="h-7 max-w-xs font-mono text-xs"
             />
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="text-meta-sm text-muted-foreground">
               {findMatches === null ? "" : `${findMatches} matches`}
             </span>
             <Button
@@ -1101,7 +1096,7 @@ function BrowserPage() {
           {/* Page stage */}
           <div
             ref={stageRef}
-            className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-primary/20 bg-black/40"
+            className="relative min-h-0 flex-1 overflow-hidden rounded-surface border border-primary/20 bg-black/40"
           >
             {!desktop ? (
               <div className="grid h-full place-items-center p-6 text-center text-sm text-muted-foreground">
@@ -1154,7 +1149,7 @@ function BrowserPage() {
                         <button
                           type="button"
                           aria-label="Remove bookmark"
-                          onClick={() => void removeBookmark(item.url).then(setBookmarks)}
+                          onClick={() => removeBookmark(item.url).then(setBookmarks)}
                         >
                           <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
                         </button>
@@ -1168,11 +1163,7 @@ function BrowserPage() {
                 <Panel
                   title="History"
                   actions={
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void clearVisits().then(setVisits)}
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => clearVisits().then(setVisits)}>
                       Clear
                     </Button>
                   }
@@ -1203,7 +1194,7 @@ function BrowserPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => void clearDownloads().then(setDownloads)}
+                      onClick={() => clearDownloads().then(setDownloads)}
                     >
                       Clear
                     </Button>
@@ -1214,16 +1205,12 @@ function BrowserPage() {
                       <p className="text-xs text-muted-foreground">Nothing downloaded yet.</p>
                     ) : null}
                     {downloads.map((item) => (
-                      <div key={item.id} className="rounded-sm border border-primary/15 p-2">
-                        <p className="truncate font-mono text-[11px] text-primary">{item.name}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">
+                      <div key={item.id} className="rounded-ctl border border-primary/15 p-2">
+                        <p className="truncate text-meta text-primary">{item.name}</p>
+                        <p className="truncate text-note-sm text-muted-foreground">
                           {item.state} · {Math.round(item.received / 1024)} KB
                         </p>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void revealDownload(item.file)}
-                        >
+                        <Button size="sm" variant="ghost" onClick={() => revealDownload(item.file)}>
                           Show in folder
                         </Button>
                       </div>
@@ -1245,7 +1232,7 @@ function BrowserPage() {
                     {brainState.messages.slice(-8).length ? (
                       brainState.messages.slice(-8).map((line) => (
                         <p key={line.id} className="whitespace-pre-wrap">
-                          <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                          <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                             {line.role === "user" ? "You" : "FRIDAY"}
                           </span>
                           {line.text}
@@ -1289,7 +1276,7 @@ function BrowserPage() {
                       <span className="text-muted-foreground">Homepage</span>
                       <Input
                         value={settings.homepage}
-                        className="h-7 font-mono text-[11px]"
+                        className="h-7 text-meta"
                         onChange={(event) =>
                           setSettings({ ...settings, homepage: event.target.value })
                         }
@@ -1303,7 +1290,7 @@ function BrowserPage() {
                         onChange={(event) =>
                           void updateSettings({ searchEngine: event.target.value })
                         }
-                        className="h-7 w-full rounded-sm border border-primary/20 bg-surface px-2 font-mono text-[11px]"
+                        className="h-7 w-full rounded-ctl border border-primary/20 bg-surface px-2 text-meta"
                       >
                         {SEARCH_ENGINES.map((engine) => (
                           <option key={engine.id} value={engine.id}>
@@ -1326,7 +1313,7 @@ function BrowserPage() {
                             proxyMode: event.target.value as BrowserSettings["proxyMode"],
                           })
                         }
-                        className="h-7 w-full rounded-sm border border-primary/20 bg-surface px-2 font-mono text-[11px]"
+                        className="h-7 w-full rounded-ctl border border-primary/20 bg-surface px-2 text-meta"
                       >
                         <option value="direct">This PC (Windows VPN still applies)</option>
                         <option value="system">System proxy</option>
@@ -1339,7 +1326,7 @@ function BrowserPage() {
                         <Input
                           value={settings.proxyRules}
                           placeholder="socks5://127.0.0.1:1080"
-                          className="h-7 font-mono text-[11px]"
+                          className="h-7 text-meta"
                           onChange={(event) =>
                             setSettings({ ...settings, proxyRules: event.target.value })
                           }
@@ -1349,7 +1336,7 @@ function BrowserPage() {
                         />
                       </label>
                     ) : null}
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-note text-muted-foreground">
                       FRIDAY does not ship a VPN tunnel. Use this PC&apos;s VPN, or point the proxy
                       at yours. This is real Chromium — sites can still show CAPTCHAs. Login and
                       purchase wait for your approval.
@@ -1373,7 +1360,7 @@ function BrowserPage() {
                       <p className="text-muted-foreground">Site permissions</p>
                       {Object.entries(settings.permissions).map(([key, value]) => (
                         <div key={key} className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-[11px]">{key}</span>
+                          <span className="text-meta">{key}</span>
                           <select
                             value={value}
                             onChange={(event) =>
@@ -1384,7 +1371,7 @@ function BrowserPage() {
                                 },
                               })
                             }
-                            className="h-6 rounded-sm border border-primary/20 bg-surface px-1 font-mono text-[10px]"
+                            className="h-6 rounded-ctl border border-primary/20 bg-surface px-1 text-meta-sm"
                           >
                             <option value="allow">allow</option>
                             <option value="ask">ask</option>
@@ -1439,7 +1426,7 @@ function BrowserPage() {
           ) : null}
         </div>
 
-        <p className="h-4 shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+        <p className="h-4 shrink-0 truncate text-meta-sm text-muted-foreground">
           {status || active?.url || ""}
         </p>
       </div>

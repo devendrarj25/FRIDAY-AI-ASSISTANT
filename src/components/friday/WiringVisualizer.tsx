@@ -6,6 +6,7 @@
  * a toggle.
  */
 
+import { livePoller } from "@/lib/friday/live-poll";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,8 +51,7 @@ export function WiringVisualizerHost() {
     if (!panel.open) return;
     const tick = () => setReport(probeWiring());
     tick();
-    const id = window.setInterval(tick, 2000);
-    return () => window.clearInterval(id);
+    return livePoller().subscribe("wiring.probe", tick, 2000, undefined, false);
   }, [panel.open, gov.lastChangeAt, panel.lastResult?.at]);
 
   const pending = useMemo(
@@ -96,7 +96,7 @@ export function WiringVisualizerHost() {
         </div>
 
         {panel.lastResult ? (
-          <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 font-mono text-[11px] text-foreground">
+          <p className="rounded-surface border border-primary/20 bg-primary/5 px-3 py-2 text-meta text-foreground">
             Last switch: {panel.lastResult.stage} — {panel.lastResult.detail}
           </p>
         ) : null}
@@ -105,11 +105,11 @@ export function WiringVisualizerHost() {
           <HudPanel title="Waiting approval" hint={`${pending.length} wiring change(s)`}>
             <div className="grid gap-2">
               {pending.map((item) => (
-                <div key={item.id} className="hud-tile rounded-md p-3">
+                <div key={item.id} className="hud-tile rounded-surface p-3">
                   <p className="text-sm font-medium text-foreground">{item.title}</p>
                   <p className="text-xs text-muted-foreground">{item.rationale}</p>
                   {item.dryRun ? (
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-meta text-muted-foreground">
                       dry-run · {item.dryRun.detail}
                     </p>
                   ) : null}
@@ -145,7 +145,7 @@ export function WiringVisualizerHost() {
               {layer.nodes.map((node) => (
                 <div
                   key={node.id}
-                  className="grid gap-1 rounded-md border border-border/60 bg-card/30 px-3 py-2"
+                  className="grid gap-1 rounded-surface border border-border/60 bg-card/30 px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm text-foreground">{node.label}</p>
@@ -154,7 +154,7 @@ export function WiringVisualizerHost() {
                       {node.locked ? <StatusPill label="locked" tone="warning" /> : null}
                     </div>
                   </div>
-                  <p className="font-mono text-[10px] text-muted-foreground">{node.module}</p>
+                  <p className="text-meta-sm text-muted-foreground">{node.module}</p>
                   <p className="text-xs text-muted-foreground">{node.status}</p>
                   {node.switchable ? (
                     <ToggleRow

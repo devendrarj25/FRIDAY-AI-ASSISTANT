@@ -49,7 +49,7 @@ export function MemorySettings() {
         title="Memory Tiers"
         hint={`${total} item(s) stored`}
         actions={
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/memory" })}>
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
             Open Memory →
           </Button>
         }
@@ -65,7 +65,7 @@ export function MemorySettings() {
                   detail={`${count} of ${tier.cap} items`}
                   tone={count >= tier.cap ? "warning" : "primary"}
                 />
-                <p className="mt-1 truncate text-[11px] text-muted-foreground">{tier.note}</p>
+                <p className="mt-1 truncate text-note text-muted-foreground">{tier.note}</p>
               </div>
             );
           })}

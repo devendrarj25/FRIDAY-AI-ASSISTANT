@@ -133,7 +133,7 @@ export function CapabilityMarket({
               className="pl-8"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={() => void fromFile()} disabled={!supported}>
+          <Button variant="outline" size="sm" onClick={() => fromFile()} disabled={!supported}>
             {busy === "file" ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
@@ -177,16 +177,14 @@ export function CapabilityMarket({
                         {pack.category}
                       </Badge>
                       <span className={`label-xs ${riskTone[pack.risk]}`}>{pack.risk}</span>
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        v{pack.version}
-                      </span>
+                      <span className="text-meta text-muted-foreground">v{pack.version}</span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{pack.description}</p>
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {pack.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                          className="rounded bg-muted px-1.5 py-0.5 text-meta-sm text-muted-foreground"
                         >
                           {tag}
                         </span>
@@ -197,7 +195,7 @@ export function CapabilityMarket({
                     size="sm"
                     variant={isInstalled ? "outline" : "default"}
                     disabled={!supported || busy === pack.slug}
-                    onClick={() => void (isInstalled ? remove(pack) : install(pack))}
+                    onClick={() => (isInstalled ? remove(pack) : install(pack))}
                   >
                     {busy === pack.slug ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -227,14 +225,14 @@ export function CapabilityMarket({
             placeholder="https://…/pack.json"
             className="flex-1"
           />
-          <Button size="sm" onClick={() => void fromUrl()} disabled={!supported || busy === "url"}>
+          <Button size="sm" onClick={() => fromUrl()} disabled={!supported || busy === "url"}>
             {busy === "url" ? <Loader2 className="size-4 animate-spin" /> : null}
             Install from URL
           </Button>
         </div>
 
         {!supported && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             Installing writes real folders into your workspace — available in the FRIDAY desktop
             app.
           </p>

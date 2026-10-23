@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useDeferredValue } from "react";
 import { FileArchive, FolderUp, Loader2, Plus, Puzzle, Search, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   StatTile,
   StatusPill,
   toneForStatus,
+  EmptyState,
 } from "@/components/friday/ui";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { useLedger } from "@/lib/friday/self/use-self";
@@ -81,6 +82,8 @@ function SkillsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -253,7 +256,7 @@ function SkillsPage() {
   const rows = skills.filter((s) => {
     if (tab !== "all" && s.status.toLowerCase() !== tab) return false;
     if (category !== "all" && s.category !== category) return false;
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return true;
     return [s.name, s.category, s.summary].some((field) => field.toLowerCase().includes(needle));
   });
@@ -401,7 +404,7 @@ function SkillsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("zip")}
+            onClick={() => addFrom("zip")}
           >
             {importBusy === "zip" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -413,7 +416,7 @@ function SkillsPage() {
           <Button
             size="sm"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("folder")}
+            onClick={() => addFrom("folder")}
           >
             {importBusy === "folder" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -503,16 +506,16 @@ function SkillsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
-                      onClick={() => void onToggle(s)}
+                      onClick={() => onToggle(s)}
                     >
                       {s.enabled ? "Disable" : "Enable"}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!s.id}
                       onClick={() => setOpenId((current) => (current === s.id ? null : s.id))}
                     >
@@ -521,9 +524,9 @@ function SkillsPage() {
                     <Button
                       size="sm"
                       variant={confirmId === s.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={Boolean(busyId) || !s.id}
-                      onClick={() => void onRemove(s)}
+                      onClick={() => onRemove(s)}
                     >
                       {confirmId === s.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -531,7 +534,7 @@ function SkillsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-note"
                         onClick={() => setConfirmId(null)}
                       >
                         Cancel
@@ -541,7 +544,7 @@ function SkillsPage() {
                 ])}
               />
               {openRow ? (
-                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 font-mono text-[11px]">
+                <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 text-meta">
                   <p className="label-xs text-primary">{openRow.name}</p>
                   <p>
                     <span className="text-muted-foreground">Summary — </span>
@@ -567,11 +570,15 @@ function SkillsPage() {
               ) : null}
             </>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {skills.length
-                ? "No skills match this filter."
-                : "No skills installed yet — import a skill zip or folder, clone a skill repo, or forge one below."}
-            </p>
+            <EmptyState
+              icon={Sparkles}
+              title={skills.length ? "No skills match this filter." : "No skills installed yet"}
+              {...(skills.length
+                ? {}
+                : {
+                    hint: "Import a skill zip or folder, clone a skill repo, or forge one below.",
+                  })}
+            />
           )}
         </HudPanel>
 
@@ -592,7 +599,7 @@ function SkillsPage() {
                 size="sm"
                 className="h-8"
                 disabled={importBusy !== null || !forgeGoal.trim()}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -622,11 +629,11 @@ function SkillsPage() {
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-32 overflow-auto rounded-sm bg-background p-2 font-mono text-[10px] leading-relaxed">
+              <pre className="max-h-32 overflow-auto rounded-ctl bg-background p-2 text-data-sm leading-relaxed">
                 {forgeLog}
               </pre>
             ) : (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-note text-muted-foreground">
                 Zip, folder, and git clone accept only skill.json / skill.mjs packs. Incomplete
                 packs are healed into a loadable run(), then sandbox-tested before enable. Forge
                 uses the same skill-forge path as Self-management.

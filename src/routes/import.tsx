@@ -349,7 +349,7 @@ function ImportPage() {
         >
           <ul className="max-h-32 space-y-1 overflow-auto">
             {activity.slice(0, 8).map((line, i) => (
-              <li key={`${line.at}-${i}`} className="font-mono text-[11px] text-muted-foreground">
+              <li key={`${line.at}-${i}`} className="text-meta text-muted-foreground">
                 <span className="text-primary">{line.actor}</span> · {line.text}
               </li>
             ))}
@@ -361,7 +361,7 @@ function ImportPage() {
           title="What happened here"
           hint="owner and FRIDAY — same functions"
         >
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             Nothing yet. Buttons and the page chat both log here so you can watch FRIDAY work.
           </p>
         </HudPanel>
@@ -383,7 +383,7 @@ function ImportPage() {
           }}
         >
           {dragOver ? (
-            <p className="mb-2 font-mono text-[11px] text-primary">
+            <p className="mb-2 text-meta text-primary">
               Drop files, zips or a folder — each item uses the same classify pipeline
             </p>
           ) : null}
@@ -473,7 +473,7 @@ function ImportPage() {
                 >
                   <FolderUp className="size-4" /> Upload whole folder
                 </Button>
-                <Button variant="outline" onClick={() => void pasteClipboard()} disabled={busy}>
+                <Button variant="outline" onClick={() => pasteClipboard()} disabled={busy}>
                   <ClipboardPaste className="size-4" /> Paste clipboard
                 </Button>
               </div>
@@ -487,7 +487,7 @@ function ImportPage() {
                   placeholder="https://github.com/owner/repo · owner/repo · https://…/file.zip"
                   className="border-primary/25 bg-surface font-mono text-xs"
                 />
-                <Button onClick={() => void clone(url)} disabled={busy || !url.trim()}>
+                <Button onClick={() => clone(url)} disabled={busy || !url.trim()}>
                   {busy ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
@@ -510,9 +510,9 @@ function ImportPage() {
                   <button
                     key={r.name}
                     type="button"
-                    onClick={() => void clone(r.name)}
+                    onClick={() => clone(r.name)}
                     title={r.note}
-                    className="rounded-sm border border-primary/25 bg-surface px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
+                    className="rounded-ctl border border-primary/25 bg-surface px-2 py-1 text-meta text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
                   >
                     {r.name}
                   </button>
@@ -556,7 +556,7 @@ function ImportPage() {
                 id="src"
                 value={pickItem?.id ?? ""}
                 onChange={(e) => setSelected(e.target.value)}
-                className="mt-1 w-full rounded-sm border border-primary/25 bg-surface px-2 py-1.5 font-mono text-xs text-foreground"
+                className="mt-1 w-full rounded-ctl border border-primary/25 bg-surface px-2 py-1.5 font-mono text-xs text-foreground"
               >
                 {items.length ? (
                   items.map((i) => (
@@ -589,23 +589,14 @@ function ImportPage() {
       {tab === "upgrade" ? (
         <div className="mt-4 space-y-4">
           {runs.length > 1 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {runs.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setSelected(r.id)}
-                  className={cn(
-                    "rounded-sm border px-2 py-1 font-mono text-[10px]",
-                    activeRun?.id === r.id
-                      ? "border-primary/50 bg-primary/15 text-primary"
-                      : "border-border text-muted-foreground",
-                  )}
-                >
-                  {r.name} · v{r.version} · {r.status}
-                </button>
-              ))}
-            </div>
+            <FilterTabs
+              tabs={runs.map((r) => ({
+                key: r.id,
+                label: `${r.name} · v${r.version} · ${r.status}`,
+              }))}
+              value={activeRun?.id ?? ""}
+              onChange={setSelected}
+            />
           ) : null}
 
           {activeRun ? (
@@ -630,9 +621,7 @@ function ImportPage() {
                         />
                         <div className="min-w-0">
                           <p className="text-xs text-foreground">{s.label}</p>
-                          <p className="truncate font-mono text-[10px] text-muted-foreground">
-                            {s.detail}
-                          </p>
+                          <p className="truncate text-meta-sm text-muted-foreground">{s.detail}</p>
                         </div>
                         <StatusPill label={s.state} tone={STAGE_TONE[s.state]} />
                       </li>
@@ -683,7 +672,7 @@ function ImportPage() {
                       <Package className="size-4" /> ZIP this version
                     </Button>
                   </div>
-                  <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+                  <p className="mt-2 text-meta text-muted-foreground">
                     Analyse, test and fix stay on this page. FRIDAY's GitHub repository is not
                     pushed or edited here — use Friday Hub for that.
                   </p>
@@ -726,7 +715,7 @@ function ImportPage() {
                           />
                           <div className="min-w-0">
                             <p className="text-xs text-foreground">{f.message}</p>
-                            <p className="truncate font-mono text-[10px] text-muted-foreground">
+                            <p className="truncate text-meta-sm text-muted-foreground">
                               {f.file} — {f.fix}
                             </p>
                           </div>
@@ -736,7 +725,7 @@ function ImportPage() {
                             <button
                               type="button"
                               onClick={() => upgrades.fix(activeRun.id, f.id)}
-                              className="font-mono text-[10px] text-primary hover:underline"
+                              className="text-meta-sm text-primary hover:underline"
                             >
                               <Wrench className="size-3" aria-hidden="true" />
                               fix now
@@ -756,10 +745,10 @@ function ImportPage() {
                 <DataTable
                   columns={["From", "Into FRIDAY project", "Why", "Kind"]}
                   rows={activeRun.placements.slice(0, 40).map((p) => [
-                    <span key="f" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="f" className="text-meta text-muted-foreground">
                       {p.from}
                     </span>,
-                    <span key="t" className="font-mono text-[11px] text-primary">
+                    <span key="t" className="text-meta text-primary">
                       {p.to}
                     </span>,
                     <span key="r" className="text-xs text-muted-foreground">
@@ -775,14 +764,14 @@ function ImportPage() {
               </HudPanel>
 
               <HudPanel title="Upgrade log" hint={`${activeRun.log.length} lines`}>
-                <pre className="max-h-56 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                <pre className="max-h-56 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-muted-foreground">
                   {activeRun.log.join("\n")}
                 </pre>
               </HudPanel>
             </>
           ) : (
             <HudPanel title="Self-upgrade">
-              <p className="font-mono text-[11px] text-muted-foreground">
+              <p className="text-meta text-muted-foreground">
                 Import files, a folder or a GitHub repo, then start an upgrade run from the Import
                 tab.
               </p>
@@ -835,7 +824,7 @@ function ImportPage() {
               className="mt-1 border-primary/25 bg-surface font-mono text-xs"
             />
             {identity === "friday" ? (
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+              <p className="mt-1 text-meta text-muted-foreground">
                 FRIDAY&apos;s public version stays {appVersion.version}{" "}
                 (config/friday-version.json). This page does not change it.
               </p>
@@ -870,27 +859,27 @@ function ImportPage() {
                     tone={buildable ? "accent" : buildRoot ? "destructive" : "muted"}
                   />
                 </div>
-                <p className="break-all font-mono text-[11px] text-muted-foreground">
+                <p className="break-all text-data text-muted-foreground">
                   {buildRoot?.root ??
                     buildRoot?.error ??
                     "Looking for the FRIDAY source project on this PC…"}
                 </p>
                 {buildRoot?.missing?.length ? (
-                  <p className="font-mono text-[11px] text-destructive">
+                  <p className="text-meta text-destructive">
                     missing: {buildRoot.missing.join(", ")}
                   </p>
                 ) : null}
                 {buildRoot?.warnings?.length
                   ? buildRoot.warnings.map((w) => (
-                      <p key={w} className="font-mono text-[11px] text-muted-foreground">
+                      <p key={w} className="text-meta text-muted-foreground">
                         {w}
                       </p>
                     ))
                   : null}
-                <Button size="sm" variant="outline" onClick={() => void chooseBuildRoot()}>
+                <Button size="sm" variant="outline" onClick={() => chooseBuildRoot()}>
                   <FolderUp className="size-4" /> Choose FRIDAY source
                 </Button>
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   FRIDAY EXE / portable still uses scripts\build-windows.cmd. ZIP of other apps
                   never uses that packager.
                 </p>
@@ -899,7 +888,7 @@ function ImportPage() {
               <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
                 <p className="label-xs text-primary/70">Other project source</p>
                 <select
-                  className="w-full rounded-sm border border-border bg-surface px-2 py-1.5 font-mono text-[11px]"
+                  className="w-full rounded-ctl border border-border bg-surface px-2 py-1.5 text-meta"
                   value={otherItemId}
                   onChange={(e) => {
                     setOtherItemId(e.target.value);
@@ -917,18 +906,18 @@ function ImportPage() {
                     </option>
                   ))}
                 </select>
-                <p className="break-all font-mono text-[11px] text-muted-foreground">
+                <p className="break-all text-data text-muted-foreground">
                   {otherRoot || "Pick a folder on this PC, or choose an imported scan above."}
                 </p>
                 {otherWarnings.map((w) => (
-                  <p key={w} className="font-mono text-[11px] text-muted-foreground">
+                  <p key={w} className="text-meta text-muted-foreground">
                     {w}
                   </p>
                 ))}
-                <Button size="sm" variant="outline" onClick={() => void chooseOtherSource()}>
+                <Button size="sm" variant="outline" onClick={() => chooseOtherSource()}>
                   <FolderUp className="size-4" /> Choose other project folder
                 </Button>
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   Other EXE needs Windows plus that project&apos;s own electron-builder.yml. ZIP
                   always works. FRIDAY&apos;s GitHub repo is never the target.
                 </p>
@@ -945,7 +934,10 @@ function ImportPage() {
             <ul className="space-y-2">
               {builds.length ? (
                 builds.slice(0, 8).map((b) => (
-                  <li key={b.id} className="rounded-sm border border-border bg-surface px-2.5 py-2">
+                  <li
+                    key={b.id}
+                    className="rounded-ctl border border-border bg-surface px-2.5 py-2"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-xs text-foreground">{b.label}</p>
                       <div className="flex items-center gap-1.5">
@@ -974,9 +966,7 @@ function ImportPage() {
                     <MetricBar label={b.step} value={b.progress} detail={`${b.progress}%`} />
                     {b.artifact ? (
                       <>
-                        <p className="mt-1 truncate font-mono text-[10px] text-accent">
-                          {b.artifact}
-                        </p>
+                        <p className="mt-1 truncate text-meta-sm text-accent">{b.artifact}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Button
                             size="sm"
@@ -1049,9 +1039,7 @@ function ImportPage() {
                   </li>
                 ))
               ) : (
-                <li className="font-mono text-[11px] text-muted-foreground">
-                  No builds yet — queue one.
-                </li>
+                <li className="text-meta text-muted-foreground">No builds yet — queue one.</li>
               )}
             </ul>
           </HudPanel>
@@ -1066,11 +1054,11 @@ function ImportPage() {
                 {kept.slice(0, 12).map((file) => (
                   <li
                     key={file.path}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-surface px-2.5 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-ctl border border-border bg-surface px-2.5 py-2"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-xs text-foreground">{file.name}</p>
-                      <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      <p className="truncate text-meta-sm text-muted-foreground">
                         {formatBytes(file.bytes)} · {file.path}
                       </p>
                     </div>
@@ -1127,7 +1115,7 @@ function ImportPage() {
                 ))}
               </ul>
             ) : (
-              <p className="font-mono text-[11px] text-muted-foreground">
+              <p className="text-meta text-muted-foreground">
                 Nothing kept yet. After a successful build, Keep copies the file into
                 downloads/kept-builds so you can download it or install it later.
               </p>
@@ -1143,17 +1131,17 @@ function ImportPage() {
               {items.map((i) => (
                 <li
                   key={i.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-surface px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-ctl border border-border bg-surface px-3 py-2"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground">{i.name}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {i.origin} · {i.fileCount} files · {formatBytes(i.bytes)}
                       {i.branch ? ` · ${i.branch}` : ""}
                       {i.message ? ` · ${i.message}` : ""}
                     </p>
                     {i.destinations?.length ? (
-                      <p className="truncate font-mono text-[10px] text-primary/70">
+                      <p className="truncate text-meta-sm text-primary/70">
                         →{" "}
                         {i.destinations
                           .slice(0, 4)
@@ -1162,12 +1150,12 @@ function ImportPage() {
                       </p>
                     ) : null}
                     {i.verifyMessage ? (
-                      <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      <p className="truncate text-meta-sm text-muted-foreground">
                         sandbox · {i.verifyMessage}
                       </p>
                     ) : null}
                     {i.packVerify ? (
-                      <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      <p className="truncate text-meta-sm text-muted-foreground">
                         packs · {i.packVerify.ok ? "pass" : "fail"} ·{" "}
                         {i.packVerify.packs
                           .map((p) => `${p.kind}:${p.ok ? "ok" : p.skipped ? "skip" : "fail"}`)
@@ -1176,11 +1164,11 @@ function ImportPage() {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant="outline" className="font-mono text-[10px]">
+                    <Badge variant="outline" className="text-meta-sm">
                       {i.kind ?? i.target}
                     </Badge>
                     {i.stack.map((s) => (
-                      <Badge key={s} className="font-mono text-[10px]">
+                      <Badge key={s} className="text-meta-sm">
                         {s}
                       </Badge>
                     ))}
@@ -1211,7 +1199,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           disabled={i.verified === "pending"}
-                          onClick={() => void imports.verify(i.id)}
+                          onClick={() => imports.verify(i.id)}
                         >
                           Verify
                         </Button>
@@ -1219,7 +1207,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           disabled={i.verified === "pending"}
-                          onClick={() => void imports.verifyPacks(i.id)}
+                          onClick={() => imports.verifyPacks(i.id)}
                         >
                           Verify packs
                         </Button>
@@ -1241,11 +1229,7 @@ function ImportPage() {
                       Install
                     </Button>
                     {i.backup ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void imports.rollback(i.id)}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => imports.rollback(i.id)}>
                         Rollback
                       </Button>
                     ) : null}
@@ -1263,7 +1247,7 @@ function ImportPage() {
               ))}
             </ul>
           ) : (
-            <p className="font-mono text-[11px] text-muted-foreground">
+            <p className="text-meta text-muted-foreground">
               Nothing imported yet. Upload files, drop them here, paste a clipboard snippet, or
               import a URL / repository from the Import tab.
             </p>

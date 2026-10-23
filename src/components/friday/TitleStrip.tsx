@@ -1,3 +1,4 @@
+import { onVisibleSecond } from "@/lib/friday/frame-clock";
 import { useEffect, useRef, useState } from "react";
 import { Minus, Mic, MicOff, Wifi, WifiOff, X } from "lucide-react";
 // Pulls in the `window.friday` global type declaration.
@@ -52,25 +53,13 @@ export function TitleStrip() {
     });
   }, []);
 
-  // Clock — a single shared interval, paused while the window is hidden.
+  // Clock — the app's one shared one-second clock, paused while the window is hidden.
   useEffect(() => {
-    let id = 0;
-    let kick = 0;
-    const start = () => {
-      window.clearInterval(id);
-      setNow(new Date());
-      id = window.setInterval(() => setNow(new Date()), 1000);
-    };
-    const onVisibility = () => {
-      if (document.hidden) window.clearInterval(id);
-      else start();
-    };
-    kick = window.setTimeout(start, 0);
-    document.addEventListener("visibilitychange", onVisibility);
+    const kick = window.setTimeout(() => setNow(new Date()), 0);
+    const off = onVisibleSecond(() => setNow(new Date()));
     return () => {
       window.clearTimeout(kick);
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisibility);
+      off();
     };
   }, []);
 
@@ -107,7 +96,7 @@ export function TitleStrip() {
       </div>
 
       <div
-        className="flex min-w-0 shrink items-center gap-2 overflow-hidden font-mono text-[11px] text-muted-foreground"
+        className="flex min-w-0 shrink items-center gap-2 overflow-hidden text-meta text-muted-foreground"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <button
@@ -133,15 +122,15 @@ export function TitleStrip() {
           {/* sliding neon pill */}
           <span
             className={cn(
-              "absolute top-0.5 h-5 w-[4.6rem] rounded-full transition-all duration-300 ease-out",
+              "absolute left-0.5 top-0.5 h-5 w-[4.6rem] rounded-full transition-[transform,background-color,box-shadow] duration-300 ease-out",
               auto
-                ? "left-[4.9rem] bg-accent/25 shadow-[0_0_12px_-2px_var(--color-accent)]"
-                : "left-0.5 bg-primary/20 shadow-[0_0_12px_-2px_var(--color-primary)]",
+                ? "translate-x-[4.4rem] bg-accent/25 shadow-[0_0_12px_-2px_var(--color-accent)]"
+                : "translate-x-0 bg-primary/20 shadow-[0_0_12px_-2px_var(--color-primary)]",
             )}
           />
           <span
             className={cn(
-              "relative z-10 flex w-[4.6rem] items-center justify-center gap-1 text-[10px] tracking-[0.12em] transition-colors duration-300",
+              "relative z-10 flex w-[4.6rem] items-center justify-center gap-1 text-note-sm tracking-[0.12em] transition-colors duration-300",
               auto ? "text-muted-foreground" : "text-primary",
             )}
           >
@@ -150,7 +139,7 @@ export function TitleStrip() {
           </span>
           <span
             className={cn(
-              "relative z-10 flex w-[4.6rem] items-center justify-center gap-1 text-[10px] tracking-[0.12em] transition-colors duration-300",
+              "relative z-10 flex w-[4.6rem] items-center justify-center gap-1 text-note-sm tracking-[0.12em] transition-colors duration-300",
               auto ? "text-accent" : "text-muted-foreground",
             )}
           >
@@ -160,7 +149,7 @@ export function TitleStrip() {
         </button>
         <span className="hidden text-primary/25 sm:inline">|</span>
         <span
-          className={`title-chip hidden rounded-sm px-1.5 sm:inline ${fpsTone}`}
+          className={`title-chip hidden rounded-ctl px-1.5 sm:inline ${fpsTone}`}
           title="Live frames per second"
         >
           {fps} FPS
@@ -169,8 +158,8 @@ export function TitleStrip() {
         <span
           className={
             net.online
-              ? "title-chip flex items-center gap-1 rounded-sm px-1.5"
-              : "title-chip flex items-center gap-1 rounded-sm px-1.5 text-destructive"
+              ? "title-chip flex items-center gap-1 rounded-ctl px-1.5"
+              : "title-chip flex items-center gap-1 rounded-ctl px-1.5 text-destructive"
           }
           title={
             net.online
@@ -214,7 +203,7 @@ export function TitleStrip() {
             onClick={minimize}
             aria-label="Minimize FRIDAY"
             title="Minimize"
-            className="friday-btn grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="friday-btn grid size-6 place-items-center rounded-ctl text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <Minus className="size-3.5" />
           </button>
@@ -223,7 +212,7 @@ export function TitleStrip() {
             onClick={close}
             aria-label="Close FRIDAY"
             title="Close"
-            className="friday-btn grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="friday-btn grid size-6 place-items-center rounded-ctl text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <X className="size-3.5" />
           </button>

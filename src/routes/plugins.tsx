@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useDeferredValue } from "react";
 import { Loader2, Plug, RefreshCw, Search } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,8 @@ function PluginsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -116,7 +118,7 @@ function PluginsPage() {
     updates: updates.length,
   };
 
-  const needle = query.trim().toLowerCase();
+  const needle = deferredQuery.trim().toLowerCase();
   const rows = listed.filter((p) => {
     if (tab === "updates") {
       if (!p.latest || p.version === p.latest) return false;
@@ -360,7 +362,7 @@ function PluginsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={!p.id && supported}
                   onClick={() => setOpenId((current) => (current === p.id ? null : p.id || p.name))}
                 >
@@ -369,9 +371,9 @@ function PluginsPage() {
                 <Button
                   size="sm"
                   variant={confirmId === p.id ? "destructive" : "outline"}
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-note"
                   disabled={!p.id || Boolean(busyId)}
-                  onClick={() => void onRemove(p)}
+                  onClick={() => onRemove(p)}
                 >
                   {confirmId === p.id ? "Confirm remove" : "Remove"}
                 </Button>
@@ -382,7 +384,7 @@ function PluginsPage() {
 
         {openRow ? (
           <HudPanel title={`${openRow.name} details`} hint={openRow.id || "preview"}>
-            <div className="space-y-1 font-mono text-[11px]">
+            <div className="space-y-1 text-meta">
               <p>
                 <span className="text-muted-foreground">Category — </span>
                 {openRow.category || "—"}
@@ -424,7 +426,7 @@ function PluginsPage() {
                 size="sm"
                 className="h-8"
                 disabled={!forgeGoal.trim() || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Forge
@@ -434,14 +436,14 @@ function PluginsPage() {
                 variant="outline"
                 className="h-8"
                 disabled={importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

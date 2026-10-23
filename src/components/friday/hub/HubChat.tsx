@@ -40,7 +40,7 @@ export function HubChat() {
 
   return (
     <HudPanel title="FRIDAY · this repo" className="mt-4" hint="same Core Brain as Chat">
-      <p className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+      <p className="mb-2 text-note-sm uppercase tracking-widest text-muted-foreground">
         Grounded in the selected Hub checkout. Clone from GitHub below stays capability import.
       </p>
       <div className="mb-2 max-h-48 space-y-2 overflow-y-auto text-sm">
@@ -49,7 +49,7 @@ export function HubChat() {
             key={`${line.role}-${i}`}
             className={line.role === "user" ? "text-foreground" : "text-muted-foreground"}
           >
-            <span className="mr-2 text-[10px] uppercase tracking-widest">
+            <span className="mr-2 text-note-sm uppercase tracking-widest">
               {line.role === "user" ? "You" : "FRIDAY"}
             </span>
             <span className="whitespace-pre-wrap">{line.text}</span>
@@ -74,7 +74,7 @@ export function HubChat() {
           type="button"
           className="hud-btn text-xs"
           disabled={busy || !draft.trim()}
-          onClick={() => void send()}
+          onClick={() => send()}
         >
           <MessageSquare className="size-3" aria-hidden="true" />
           {busy ? "…" : "Ask"}

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { Loader2, Play, Plus, RefreshCw, Search, Workflow as WorkflowIcon } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -104,6 +104,8 @@ function WorkflowsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -165,7 +167,7 @@ function WorkflowsPage() {
     long: listed.filter((row) => row.steps.length >= 8).length,
   };
 
-  const needle = query.trim().toLowerCase();
+  const needle = deferredQuery.trim().toLowerCase();
   const rows = listed.filter((row) => {
     if (tab === "enabled") {
       if (!(row.enabled || row.status === "Enabled")) return false;
@@ -502,17 +504,17 @@ function WorkflowsPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id || importBusy !== null}
                       aria-label={`Test ${row.name}`}
-                      onClick={() => void onTest(row)}
+                      onClick={() => onTest(row)}
                     >
                       <Play className="size-3.5" />
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id && supported}
                       onClick={() =>
                         setOpenId((current) =>
@@ -525,9 +527,9 @@ function WorkflowsPage() {
                     <Button
                       size="sm"
                       variant={confirmId === row.id ? "destructive" : "outline"}
-                      className="h-7 px-2 text-[11px]"
+                      className="h-7 px-2 text-note"
                       disabled={!row.id || Boolean(busyId)}
-                      onClick={() => void onRemove(row)}
+                      onClick={() => onRemove(row)}
                     >
                       {confirmId === row.id ? "Confirm remove" : "Remove"}
                     </Button>
@@ -539,7 +541,7 @@ function WorkflowsPage() {
             {openRow ? (
               <HudPanel title={`${openRow.name} details`} hint={openRow.id || "preview"}>
                 <div className="space-y-3">
-                  <div className="space-y-1 font-mono text-[11px]">
+                  <div className="space-y-1 text-meta">
                     <p>
                       <span className="text-muted-foreground">Category — </span>
                       {openRow.category || "—"}
@@ -618,7 +620,7 @@ function WorkflowsPage() {
                     size="sm"
                     className="h-8"
                     disabled={!forgeGoal.trim() || importBusy !== null}
-                    onClick={() => void onForge()}
+                    onClick={() => onForge()}
                   >
                     {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                     Forge
@@ -637,14 +639,14 @@ function WorkflowsPage() {
                     variant="outline"
                     className="h-8"
                     disabled={importBusy !== null}
-                    onClick={() => void onTest()}
+                    onClick={() => onTest()}
                   >
                     {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                     Test selected
                   </Button>
                 </div>
                 {forgeLog ? (
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                     {forgeLog}
                   </pre>
                 ) : (

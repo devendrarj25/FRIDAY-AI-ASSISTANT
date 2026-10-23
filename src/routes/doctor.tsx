@@ -18,7 +18,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
@@ -127,6 +127,8 @@ function DoctorPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<DoctorFilter>("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [ask, setAsk] = useState("");
   const [follow, setFollow] = useState(true);
   const logRef = useRef<HTMLUListElement | null>(null);
@@ -143,8 +145,8 @@ function DoctorPage() {
   );
 
   const visible = useMemo(
-    () => filterChecks(state.checks, { filter, query }),
-    [state.checks, filter, query],
+    () => filterChecks(state.checks, { filter, query: deferredQuery }),
+    [state.checks, filter, deferredQuery],
   );
 
   const groups = useMemo(() => {
@@ -273,10 +275,11 @@ function DoctorPage() {
   return (
     <AppShell
       title="Setup & Doctor"
-      subtitle="Installation guide, real diagnosis and guarded repairs · live"
+      subtitle="Installation guide, real diagnosis and guarded repairs"
+      live={{ at: state.lastScanAt, everyMs: 300_000, verb: "scanned" }}
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={() => void copySession()}>
+          <Button size="sm" variant="ghost" onClick={() => copySession()}>
             <Copy className="size-4" /> Copy
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setFollow((value) => !value)}>
@@ -286,7 +289,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: false })}
+            onClick={() => doctor.scan({ deep: false })}
             disabled={busy}
           >
             <ScanSearch className="size-4" /> Scan Now
@@ -294,7 +297,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: false })}
+            onClick={() => doctor.scan({ deep: false })}
             disabled={busy}
           >
             <Stethoscope className="size-4" /> Quick Doctor
@@ -302,7 +305,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: true })}
+            onClick={() => doctor.scan({ deep: true })}
             disabled={busy}
           >
             <Activity className="size-4" /> Deep Doctor
@@ -314,7 +317,7 @@ function DoctorPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void doctor.scan({ deep: state.lastDeep })}
+            onClick={() => doctor.scan({ deep: state.lastDeep })}
             disabled={busy}
           >
             <RefreshCw className={state.scanning ? "size-4 animate-spin" : "size-4"} /> Refresh
@@ -327,17 +330,13 @@ function DoctorPage() {
           >
             <ShieldCheck className="size-4" /> Verify all packs
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void navigate({ to: "/install-manager" })}
-          >
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: "/install-manager" })}>
             Install Manager →
           </Button>
         </div>
       }
     >
-      <details className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
+      <details className="rounded-surface border border-border/60 bg-muted/20 p-2 text-xs">
         <summary>Windows voice and free-model check</summary>
         <ol className="mt-2 list-decimal space-y-1 pl-4">
           {ownerWave7Steps().map((step) => (
@@ -442,10 +441,10 @@ function DoctorPage() {
         <Button size="sm" variant="outline" onClick={copyReport}>
           <ClipboardCopy className="size-4" /> Copy report
         </Button>
-        <Button size="sm" variant="outline" onClick={() => void doctor.exportReport()}>
+        <Button size="sm" variant="outline" onClick={() => doctor.exportReport()}>
           <Download className="size-4" /> Export report
         </Button>
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+        <span className="ml-auto text-meta-sm text-muted-foreground">
           {state.lastScanAt
             ? `last ${state.lastDeep ? "deep" : "quick"} scan ${new Date(state.lastScanAt).toLocaleTimeString()} · ${state.durationMs} ms · ${state.desktop ? "live system" : "preview"} · ${visible.length}/${state.checks.length} shown`
             : "no scan yet"}
@@ -458,7 +457,7 @@ function DoctorPage() {
             <HudPanel key={group} title={group} hint={`${items.length} checks`}>
               <ul className="space-y-2">
                 {items.map((c) => (
-                  <li key={c.id} className="rounded-sm border border-border bg-surface px-3 py-2">
+                  <li key={c.id} className="rounded-ctl border border-border bg-surface px-3 py-2">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2">
                         <Checkbox
@@ -471,9 +470,7 @@ function DoctorPage() {
                       </div>
                       <StatusPill label={c.status.toLowerCase()} tone={statusTone(c.status)} />
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                      {c.detail}
-                    </p>
+                    <p className="mt-0.5 truncate text-meta-sm text-muted-foreground">{c.detail}</p>
                     {c.cause ? (
                       <p className="mt-1.5 text-xs text-muted-foreground">
                         <span className="text-warning">Cause · </span>
@@ -496,7 +493,7 @@ function DoctorPage() {
                       </p>
                     ) : null}
                     {c.before && c.before !== c.status ? (
-                      <p className="mt-1 font-mono text-[10px] text-primary">
+                      <p className="mt-1 text-meta-sm text-primary">
                         before → after: {c.before} → {c.status}
                       </p>
                     ) : null}
@@ -505,7 +502,7 @@ function DoctorPage() {
                         <button
                           type="button"
                           onClick={() => copyCommand(c.command as string)}
-                          className="flex items-center gap-1.5 rounded-sm border border-primary/25 bg-background px-2 py-1 font-mono text-[10px] text-primary hover:border-primary/60"
+                          className="flex items-center gap-1.5 rounded-ctl border border-primary/25 bg-background px-2 py-1 text-data-sm text-primary hover:border-primary/60"
                         >
                           <ClipboardCopy className="size-3" /> {c.command}
                         </button>
@@ -514,9 +511,9 @@ function DoctorPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-6 px-2 text-note"
                           disabled={busy}
-                          onClick={() => void doctor.fix(c.id)}
+                          onClick={() => doctor.fix(c.id)}
                         >
                           <Wrench className="size-3" />
                           {state.repairing.includes(c.id) ? "Repairing…" : "Repair"}
@@ -525,7 +522,7 @@ function DoctorPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-[11px]"
+                        className="h-6 px-2 text-note"
                         onClick={() => copyCheck(c)}
                       >
                         <Copy className="size-3" /> Copy
@@ -533,7 +530,7 @@ function DoctorPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-[11px]"
+                        className="h-6 px-2 text-note"
                         disabled={Boolean(brainState.activeRunId)}
                         onClick={() => askAbout(c)}
                       >
@@ -543,9 +540,9 @@ function DoctorPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 px-2 text-[11px]"
+                          className="h-6 px-2 text-note"
                           disabled={busy}
-                          onClick={() => void doctor.scan({ deep: false })}
+                          onClick={() => doctor.scan({ deep: false })}
                         >
                           <RefreshCw className="size-3" /> Re-check
                         </Button>
@@ -579,7 +576,7 @@ function DoctorPage() {
               {recent.length ? (
                 recent.map((line) => (
                   <p key={line.id} className="whitespace-pre-wrap">
-                    <span className="mr-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                    <span className="mr-2 text-note-sm uppercase tracking-widest text-muted-foreground">
                       {line.role === "user" ? "You" : "FRIDAY"}
                     </span>
                     {line.text}
@@ -621,7 +618,7 @@ function DoctorPage() {
                 {ownerSteps.map((g) => (
                   <li
                     key={g.checkId}
-                    className="rounded-sm border border-border bg-surface px-3 py-2"
+                    className="rounded-ctl border border-border bg-surface px-3 py-2"
                   >
                     <p className="text-sm text-foreground">{g.title}</p>
                     <p className="mt-1 text-xs text-warning">{g.reason}</p>
@@ -637,9 +634,9 @@ function DoctorPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="mt-2 h-6 px-2 text-[11px]"
+                        className="mt-2 h-6 px-2 text-note"
                         disabled={busy}
-                        onClick={() => void doctor.scan({ deep: false })}
+                        onClick={() => doctor.scan({ deep: false })}
                       >
                         <RefreshCw className="size-3" /> Re-check
                       </Button>
@@ -659,7 +656,7 @@ function DoctorPage() {
               </Button>
             }
           >
-            <ul ref={logRef} className="max-h-64 space-y-1 overflow-auto font-mono text-[10px]">
+            <ul ref={logRef} className="max-h-64 space-y-1 overflow-auto text-data-sm">
               {state.log.map((l) => (
                 <li key={l.id} className={logTone[l.level]}>
                   <span className="text-muted-foreground">{l.at}</span> {l.line}
@@ -667,7 +664,7 @@ function DoctorPage() {
               ))}
             </ul>
             {problems ? (
-              <pre className="mt-2 max-h-32 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed text-destructive">
+              <pre className="mt-2 max-h-32 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed text-destructive">
                 {problems}
               </pre>
             ) : null}
@@ -679,16 +676,16 @@ function DoctorPage() {
                 {state.rollbacks.map((r) => (
                   <li
                     key={r.id}
-                    className="flex items-center justify-between gap-2 rounded-sm border border-border bg-surface px-2 py-1.5"
+                    className="flex items-center justify-between gap-2 rounded-ctl border border-border bg-surface px-2 py-1.5"
                   >
-                    <span className="truncate font-mono text-[10px] text-muted-foreground">
+                    <span className="truncate text-meta-sm text-muted-foreground">
                       {r.checkId} · {new Date(r.at).toLocaleTimeString()}
                     </span>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={() => void doctor.rollback(r.id)}
+                      className="h-6 px-2 text-note"
+                      onClick={() => doctor.rollback(r.id)}
                     >
                       <RotateCcw className="size-3" /> Roll back
                     </Button>
@@ -701,10 +698,10 @@ function DoctorPage() {
           <HudPanel title="Installation guide" hint="Windows · step by step">
             <ol className="space-y-3">
               {INSTALL_STEPS.map((s) => (
-                <li key={s.title} className="rounded-sm border border-border bg-surface px-3 py-2">
+                <li key={s.title} className="rounded-ctl border border-border bg-surface px-3 py-2">
                   <p className="text-sm text-primary">{s.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{s.body}</p>
-                  <p className="mt-1.5 flex gap-1.5 text-[11px] text-warning">
+                  <p className="mt-1.5 flex gap-1.5 text-note text-warning">
                     <Wrench className="mt-0.5 size-3 shrink-0" />
                     {s.issue}
                   </p>

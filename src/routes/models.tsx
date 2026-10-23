@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { toast } from "sonner";
 import {
   Activity,
@@ -76,6 +76,8 @@ import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/insta
 import { useInstaller } from "@/lib/friday/use-installer";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { ErrorState } from "@/components/friday/PageStates";
 import { sourceCount } from "@/lib/friday/model-sources";
 import { useModels } from "@/lib/friday/use-models";
 import runnersFile from "../../config/local-runners.json";
@@ -152,27 +154,26 @@ function ComfyPanel() {
   const [graph, setGraph] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-  const check = () => {
-    void desktopApi()
-      ?.comfyuiStatus?.()
-      .then((row) =>
-        setLine(
-          row.online
-            ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
-            : row.reason,
-        ),
-      );
+  const check = async () => {
+    const row = await desktopApi()?.comfyuiStatus?.();
+    if (!row) return;
+    setLine(
+      row.online
+        ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
+        : row.reason,
+    );
   };
-  useEffect(check, []);
+  // ComfyUI is a separate program: follow it starting and stopping.
+  useLivePoll("models.comfyui", check, 20_000, Boolean(desktopApi()?.comfyuiStatus));
   return (
     <HudPanel title="ComfyUI" hint="image graphs on this PC, through its local API">
-      <p className="text-[11px] text-muted-foreground">{line}</p>
+      <p className="text-note text-muted-foreground">{line}</p>
       <textarea
         aria-label="ComfyUI workflow in API format"
         value={graph}
         onChange={(event) => setGraph(event.target.value)}
         placeholder="Paste a workflow saved with ComfyUI's Save (API)."
-        className="hud-tile mt-2 h-24 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-[11px] text-foreground"
+        className="hud-tile mt-2 h-24 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 text-meta text-foreground"
       />
       <div className="mt-2 flex flex-wrap gap-1">
         <Button size="sm" variant="outline" onClick={check}>
@@ -212,11 +213,7 @@ function ComfyPanel() {
       {files.length ? (
         <ul className="mt-2 space-y-1" aria-label="ComfyUI outputs">
           {files.map((file) => (
-            <li
-              key={file}
-              className="truncate font-mono text-[10px] text-muted-foreground"
-              title={file}
-            >
+            <li key={file} className="truncate text-meta-sm text-muted-foreground" title={file}>
               {file}
             </li>
           ))}
@@ -253,7 +250,7 @@ function LocalRunners() {
           {runnersFile.runners.map((runner) => {
             const lines = launcherLines(runner, clicked[runner.id] === true);
             return (
-              <div key={runner.id} className="hud-tile min-w-0 rounded-md px-3 py-2.5">
+              <div key={runner.id} className="hud-tile min-w-0 rounded-surface px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="truncate text-sm font-medium" title={runner.name}>
                     {runner.name}
@@ -263,22 +260,19 @@ function LocalRunners() {
                   </Badge>
                 </div>
                 <p
-                  className="mt-1 truncate font-mono text-[10px] text-muted-foreground"
+                  className="mt-1 truncate text-meta-sm text-muted-foreground"
                   title={lines.source}
                 >
                   {lines.source}
                 </p>
-                <p
-                  className="truncate text-[11px] text-muted-foreground"
-                  title={runner.catalogNote}
-                >
+                <p className="truncate text-note text-muted-foreground" title={runner.catalogNote}>
                   {runner.catalogNote}
                 </p>
                 {(() => {
                   const live = status?.runners.find((row) => row.id === runner.id);
                   return live ? (
                     <p
-                      className="mt-1 text-[11px] text-foreground/80"
+                      className="mt-1 text-note text-foreground/80"
                       title={live.line}
                       data-runner-state={live.state}
                     >
@@ -287,13 +281,13 @@ function LocalRunners() {
                   ) : null;
                 })()}
                 <p
-                  className="mt-1 text-[11px] text-muted-foreground"
+                  className="mt-1 text-note text-muted-foreground"
                   title={note[runner.id] || lines.check}
                 >
                   {note[runner.id] || lines.check}
                 </p>
                 <p
-                  className="mt-1 text-[11px] text-muted-foreground"
+                  className="mt-1 text-note text-muted-foreground"
                   title={releaseNote[runner.id] || pinLine}
                 >
                   {releaseNote[runner.id] || pinLine}
@@ -451,7 +445,7 @@ function LocalRunners() {
             {status.models.map((row) => (
               <li
                 key={row.id}
-                className="text-[11px] text-muted-foreground"
+                className="text-note text-muted-foreground"
                 data-model-state={row.state}
               >
                 {row.line}
@@ -510,7 +504,7 @@ function CloudSelection({
   };
   return (
     <HudPanel title="Cloud models" hint="selected models are the allowlist">
-      <p className="mb-2 text-[11px] text-muted-foreground">{note}</p>
+      <p className="mb-2 text-note text-muted-foreground">{note}</p>
       <div className="mb-2 flex flex-wrap gap-1">
         <Button size="sm" variant="outline" onClick={() => apply("free")}>
           Select all free
@@ -561,7 +555,7 @@ function CloudSelection({
                   <p className="truncate text-sm" title={label}>
                     {label}
                   </p>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground">
+                  <p className="truncate text-meta-sm text-muted-foreground">
                     {model.access || "unknown"}
                   </p>
                 </div>
@@ -608,6 +602,8 @@ function ModelsPage() {
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [catalogPages, setCatalogPages] = useState(1);
   const [catalogStamp, setCatalogStamp] = useState("");
   const [foundPages, setFoundPages] = useState(1);
@@ -660,7 +656,7 @@ function ModelsPage() {
   }, [state.installed, state.providerState]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return modelCatalog.filter((m) => {
       if (kind !== "all" && m.kind !== kind) return false;
       if (category !== "all" && m.category !== category) return false;
@@ -672,7 +668,7 @@ function ModelsPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [query, kind, category, tab, statuses]);
+  }, [deferredQuery, kind, category, tab, statuses]);
 
   const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}`;
   const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;
@@ -722,6 +718,7 @@ function ModelsPage() {
     <AppShell
       title="Models Manager"
       subtitle="Universal orchestration for local engines and cloud providers"
+      live={{ at: registry.at || null, everyMs: 120_000 }}
       actions={
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => engine.probeSystem()}>
@@ -745,9 +742,16 @@ function ModelsPage() {
       }
     >
       <div className="space-y-4">
-        <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">Free models</h2>
+        {registry.error ? (
+          <ErrorState
+            title="The model list could not refresh"
+            error={registry.error}
+            onRetry={() => modelRegistry.refresh(true)}
+          />
+        ) : null}
+        <HudPanel
+          title="Free models"
+          actions={
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
                 Refresh free list
@@ -756,7 +760,8 @@ function ModelsPage() {
                 Test my free models
               </Button>
             </div>
-          </div>
+          }
+        >
           <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {signupGuide().map((row) => (
@@ -768,10 +773,10 @@ function ModelsPage() {
               </li>
             ))}
           </ul>
-        </div>
-        <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">Catalogue</h2>
+        </HudPanel>
+        <HudPanel
+          title="Catalogue"
+          actions={
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -814,7 +819,8 @@ function ModelsPage() {
                 Verify capabilities
               </Button>
             </div>
-          </div>
+          }
+        >
           <p className="text-xs text-muted-foreground">{catalogueNote}</p>
           {knowledgeLines.length > 0 ? (
             <ul
@@ -833,7 +839,7 @@ function ModelsPage() {
               ))}
             </ul>
           ) : null}
-        </div>
+        </HudPanel>
         {/* -------------------------------------------------------- overview */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile
@@ -927,9 +933,9 @@ function ModelsPage() {
                 ],
                 ["Execution device", state.device],
               ].map(([k, v]) => (
-                <div key={k} className="hud-tile rounded-md px-3 py-2">
+                <div key={k} className="hud-tile rounded-surface px-3 py-2">
                   <p className="label-xs text-muted-foreground">{k}</p>
-                  <p className="truncate font-mono text-[12px] text-foreground">{v}</p>
+                  <p className="truncate text-meta text-foreground">{v}</p>
                 </div>
               ))}
             </div>
@@ -1001,9 +1007,7 @@ function ModelsPage() {
                         style={{ width: `${job.progress}%`, boxShadow: "0 0 8px currentColor" }}
                       />
                     </div>
-                    <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                      {job.detail}
-                    </p>
+                    <p className="mt-1 truncate text-meta-sm text-muted-foreground">{job.detail}</p>
                   </div>
                   <Button
                     size="sm"
@@ -1070,7 +1074,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.discover(query)}
+                  onClick={() => engine.discover(query)}
                 >
                   {state.discovering ? "Searching online…" : "Search online"}
                 </Button>
@@ -1078,7 +1082,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.discover(query, "latest")}
+                  onClick={() => engine.discover(query, "latest")}
                   title="Newest releases first, straight from the public index"
                 >
                   Latest
@@ -1087,7 +1091,7 @@ function ModelsPage() {
                   size="sm"
                   variant="outline"
                   disabled={state.discovering}
-                  onClick={() => void engine.aiRefreshCatalog(query)}
+                  onClick={() => engine.aiRefreshCatalog(query)}
                   title="Let FRIDAY's cloud model suggest current models — each one verified before it is listed"
                 >
                   <Zap className="size-3.5" />
@@ -1097,7 +1101,7 @@ function ModelsPage() {
             }
           >
             {state.discovered.length > 0 || state.discoveryError ? (
-              <div className="mb-3 rounded-md border border-border/60 bg-muted/20 p-2">
+              <div className="mb-3 rounded-surface border border-border/60 bg-muted/20 p-2">
                 <div className="mb-1.5 flex items-center justify-between">
                   <span className="label-xs text-muted-foreground">
                     {state.discoveryError
@@ -1122,7 +1126,7 @@ function ModelsPage() {
                     >
                       <div className="min-w-0">
                         <div className="truncate font-medium">{d.name}</div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground">
+                        <div className="truncate text-meta text-muted-foreground">
                           {d.vendor} · {d.format} · {d.params} · {d.source}
                         </div>
                       </div>
@@ -1133,7 +1137,7 @@ function ModelsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void engine.installDiscovered(d)}
+                          onClick={() => engine.installDiscovered(d)}
                         >
                           {d.installedLocally ? "Refresh" : "Install"}
                         </Button>
@@ -1157,7 +1161,7 @@ function ModelsPage() {
             ) : null}
             {tab === "catalog" && (recommended.length > 0 || stretch.length > 0) ? (
               <div className="mb-3 grid gap-2 lg:grid-cols-2">
-                <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+                <div className="rounded-surface border border-border/60 bg-muted/20 p-2">
                   <p className="label-xs mb-1.5 text-muted-foreground">
                     Recommended for this PC · {state.system.gpu || "CPU"} · {state.system.vramGb} GB
                     VRAM · {state.system.ramGb} GB RAM
@@ -1170,7 +1174,7 @@ function ModelsPage() {
                       >
                         <div className="min-w-0">
                           <div className="truncate font-medium">{m.name}</div>
-                          <div className="truncate font-mono text-[10px] text-muted-foreground">
+                          <div className="truncate text-meta-sm text-muted-foreground">
                             {m.category} · {formatGb(m.sizeGb)} · {sourceCount(m.id)} source(s)
                           </div>
                         </div>
@@ -1191,7 +1195,7 @@ function ModelsPage() {
                     ) : null}
                   </div>
                 </div>
-                <div className="rounded-md border border-border/60 bg-muted/20 p-2">
+                <div className="rounded-surface border border-border/60 bg-muted/20 p-2">
                   <p className="label-xs mb-1.5 text-muted-foreground">
                     Bigger rigs · downloadable, needs more VRAM/RAM
                   </p>
@@ -1203,7 +1207,7 @@ function ModelsPage() {
                       >
                         <div className="min-w-0">
                           <div className="truncate font-medium">{m.name}</div>
-                          <div className="truncate font-mono text-[10px] text-muted-foreground">
+                          <div className="truncate text-meta-sm text-muted-foreground">
                             {m.category} · {formatGb(m.sizeGb)} · wants {m.vramGb} GB VRAM
                           </div>
                         </div>
@@ -1264,21 +1268,21 @@ function ModelsPage() {
                         </Badge>
                       ) : null}
                     </div>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {m.params} · {m.quant} · {m.format} · {m.license}
                       {m.kind === "local" ? ` · ${sourceCount(m.id)} download source(s)` : ""}
                     </p>
-                    <p className="truncate text-[10px] text-muted-foreground">
+                    <p className="truncate text-note-sm text-muted-foreground">
                       {modelSourceLine(m, modelsPageClock)}
                     </p>
                   </div>,
-                  <span key="p" className="font-mono text-[11px] text-muted-foreground">
+                  <span key="p" className="text-meta text-muted-foreground">
                     {providerById.get(m.provider)?.name}
                   </span>,
-                  <span key="c" className="font-mono text-[11px] text-muted-foreground">
+                  <span key="c" className="text-meta text-muted-foreground">
                     {m.category}
                   </span>,
-                  <span key="s" className="font-mono text-[11px] text-muted-foreground">
+                  <span key="s" className="text-meta text-muted-foreground">
                     {m.kind === "cloud" ? "hosted" : formatGb(m.sizeGb)} · {m.ctxK}k
                   </span>,
                   <span key="sup" title={support.reason}>
@@ -1349,7 +1353,7 @@ function ModelsPage() {
                       href={m.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:text-primary"
+                      className="grid size-8 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
                       title="Official source"
                     >
                       <ExternalLink className="size-3.5" />
@@ -1389,7 +1393,7 @@ function ModelsPage() {
                 Heal
               </Button>
               {registry.hint ? (
-                <p className="font-mono text-[10px] text-muted-foreground">{registry.hint}</p>
+                <p className="text-meta-sm text-muted-foreground">{registry.hint}</p>
               ) : null}
             </div>
             {(["local", "cloud"] as const).map((group) => (
@@ -1404,7 +1408,7 @@ function ModelsPage() {
                     .map((p) => {
                       const ps = state.providerState[p.id]!;
                       return (
-                        <li key={p.id} className="hud-tile rounded-md px-3 py-2.5">
+                        <li key={p.id} className="hud-tile rounded-surface px-3 py-2.5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
@@ -1415,14 +1419,14 @@ function ModelsPage() {
                                 />
                                 {ps.apiKey ? <StatusPill label="key set" tone="magenta" /> : null}
                               </div>
-                              <p className="truncate font-mono text-[10px] text-muted-foreground">
+                              <p className="truncate text-meta-sm text-muted-foreground">
                                 {ps.endpoint}
                               </p>
-                              <p className="truncate font-mono text-[10px] text-muted-foreground">
+                              <p className="truncate text-meta-sm text-muted-foreground">
                                 {p.detect} · {ps.models} model(s) ·{" "}
                                 {ps.latencyMs != null ? `${ps.latencyMs} ms` : ps.error}
                               </p>
-                              <p className="truncate text-[10px] text-muted-foreground">
+                              <p className="truncate text-note-sm text-muted-foreground">
                                 {providerKnowledgeLine(
                                   PROVIDER_KNOWLEDGE_VIEW[p.id],
                                   modelsPageClock,
@@ -1443,14 +1447,14 @@ function ModelsPage() {
                                   href={p.docs}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="grid size-8 place-items-center rounded-sm text-muted-foreground hover:text-primary"
+                                  className="grid size-8 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
                                 >
                                   <ExternalLink className="size-3.5" />
                                 </a>
                               ) : null}
                             </div>
                           </div>
-                          <p className="mt-1 text-[11px] text-muted-foreground">{p.notes}</p>
+                          <p className="mt-1 text-note text-muted-foreground">{p.notes}</p>
                           <ProviderUse
                             providerId={p.id}
                             name={p.name}
@@ -1484,20 +1488,18 @@ function ModelsPage() {
                   return (
                     <div
                       key={task.key}
-                      className="hud-tile grid grid-cols-[minmax(0,1fr)_minmax(0,14rem)] items-center gap-3 rounded-md px-3 py-2"
+                      className="hud-tile grid grid-cols-[minmax(0,1fr)_minmax(0,14rem)] items-center gap-3 rounded-surface px-3 py-2"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm">{task.label}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">
-                          {task.hint}
-                        </p>
+                        <p className="truncate text-meta-sm text-muted-foreground">{task.hint}</p>
                       </div>
                       <select
                         value={current ?? ""}
                         onChange={(e) =>
                           engine.assign(task.key as RoutingTask, e.target.value || null)
                         }
-                        className="h-8 w-full rounded-sm border border-border bg-surface px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/50"
+                        className="h-8 w-full rounded-ctl border border-border bg-surface px-2 text-meta text-foreground outline-none focus:border-primary/50"
                       >
                         <option value="">— unassigned —</option>
                         {options.map((m) => (
@@ -1529,7 +1531,7 @@ function ModelsPage() {
                     onChange={(event) =>
                       engine.setLocalAnswer(normaliseLocalAnswer(event.target.value))
                     }
-                    className="h-8 rounded-sm border border-border bg-surface px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary/50"
+                    className="h-8 rounded-ctl border border-border bg-surface px-2 text-meta text-foreground outline-none focus:border-primary/50"
                   >
                     <option value="show-all">Show all</option>
                     <option value="first-good">First good</option>
@@ -1539,7 +1541,7 @@ function ModelsPage() {
                 </div>
               }
             >
-              <p className="mb-2 text-[11px] text-muted-foreground">
+              <p className="mb-2 text-note text-muted-foreground">
                 Selected models answer the same prompt together in the chat panel —{" "}
                 {state.parallel ? "fanned out in parallel" : "run one after another"}.
               </p>
@@ -1555,7 +1557,7 @@ function ModelsPage() {
                     <li key={m.id} className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm">{m.name}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">
+                        <p className="truncate text-meta-sm text-muted-foreground">
                           {providerById.get(m.provider)?.name} · {m.category}
                         </p>
                       </div>
@@ -1575,7 +1577,7 @@ function ModelsPage() {
                     value={routeDraft}
                     onChange={(event) => setRouteDraft(event.target.value)}
                     placeholder="Ask something. This only builds a route plan."
-                    className="h-20 w-full rounded-sm border border-border bg-surface px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/50"
+                    className="h-20 w-full rounded-ctl border border-border bg-surface px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/50"
                   />
                   <Button
                     size="sm"
@@ -1586,7 +1588,7 @@ function ModelsPage() {
                   >
                     Dry run
                   </Button>
-                  <p className="font-mono text-[11px] text-muted-foreground">{routePreview}</p>
+                  <p className="text-meta text-muted-foreground">{routePreview}</p>
                 </div>
               </HudPanel>
             </div>
@@ -1618,7 +1620,7 @@ function ModelsPage() {
                   return [
                     <div key="n" className="min-w-0">
                       <p className="truncate font-medium">{m.name}</p>
-                      <p className="font-mono text-[10px] text-muted-foreground">
+                      <p className="text-meta-sm text-muted-foreground">
                         {providerById.get(m.provider)?.name} · ctx {m.ctxK}k
                       </p>
                     </div>,
@@ -1627,19 +1629,19 @@ function ModelsPage() {
                       label={rt.state}
                       tone={rt.state === "Running" ? "accent" : "primary"}
                     />,
-                    <span key="t" className="font-mono text-[11px] text-accent">
+                    <span key="t" className="text-meta text-accent">
                       {rt.tokensPerSec.toFixed(1)}
                     </span>,
-                    <span key="l" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="l" className="text-meta text-muted-foreground">
                       {rt.latencyMs} ms
                     </span>,
-                    <span key="v" className="font-mono text-[11px] text-warning">
+                    <span key="v" className="text-meta text-warning">
                       {rt.vramGb.toFixed(1)} GB
                     </span>,
-                    <span key="c" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="c" className="text-meta text-muted-foreground">
                       {rt.cpuPct}% / {rt.gpuPct}%
                     </span>,
-                    <span key="r" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="r" className="text-meta text-muted-foreground">
                       {rt.requests}
                     </span>,
                     <Button
@@ -1688,22 +1690,22 @@ function ModelsPage() {
                       <span key="n" className="font-medium">
                         {m.name}
                       </span>,
-                      <span key="t" className="font-mono text-[11px] text-accent">
+                      <span key="t" className="text-meta text-accent">
                         {b.tokensPerSec}
                       </span>,
-                      <span key="f" className="font-mono text-[11px] text-muted-foreground">
+                      <span key="f" className="text-meta text-muted-foreground">
                         {b.firstTokenMs} ms
                       </span>,
-                      <span key="p" className="font-mono text-[11px] text-muted-foreground">
+                      <span key="p" className="text-meta text-muted-foreground">
                         {b.promptTokensPerSec}
                       </span>,
-                      <span key="q" className="font-mono text-[11px] text-primary">
+                      <span key="q" className="text-meta text-primary">
                         {b.scoreQuality}
                       </span>,
-                      <span key="v" className="font-mono text-[11px] text-warning">
+                      <span key="v" className="text-meta text-warning">
                         {b.peakVramGb} GB
                       </span>,
-                      <span key="a" className="font-mono text-[10px] text-muted-foreground">
+                      <span key="a" className="text-meta-sm text-muted-foreground">
                         {new Date(b.at).toLocaleTimeString()}
                       </span>,
                     ];
@@ -1737,7 +1739,7 @@ function ModelsPage() {
               />
             }
           >
-            <ul className="max-h-[28rem] space-y-1 overflow-y-auto font-mono text-[11px]">
+            <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-data">
               {state.log.map((l) => (
                 <li key={l.id} className="flex gap-2">
                   <span className="shrink-0 text-muted-foreground/70">{l.at}</span>
@@ -1787,7 +1789,7 @@ function ProviderUse({
   const pick = usable[0];
   return (
     <div className="mt-2 space-y-1.5">
-      <p className="font-mono text-[10px] text-muted-foreground">
+      <p className="text-meta-sm text-muted-foreground">
         {connected ? "connected" : "not connected"} · {found} found · USABLE NOW {usable.length} ·
         HIDDEN {hidden.length}
         {cooling.length ? ` · limited ${cooling.length}` : ""}
@@ -1795,7 +1797,7 @@ function ProviderUse({
         {localWhy ? ` · ${localWhy}` : ""}
       </p>
       {providerId === "groq" ? (
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="text-meta-sm text-muted-foreground">
           Groq publishes Developer prices, not a free-model list. Treat this key as the free tier
           only when the account is the free plan. A priced id stays paid until you mark that model
           free.
@@ -1816,9 +1818,7 @@ function ProviderUse({
             Treat key as free tier
           </Button>
           {rows.some((model) => model.reason === "pricing-stale") ? (
-            <p className="font-mono text-[10px] text-muted-foreground">
-              pricing info is stale, refresh now
-            </p>
+            <p className="text-meta-sm text-muted-foreground">pricing info is stale, refresh now</p>
           ) : null}
           <Button
             size="sm"
@@ -1915,7 +1915,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
               setEndpoint("");
               setKey("");
             }}
-            className="h-9 w-full rounded-sm border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+            className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
           >
             {cloud.map((p) => (
               <option key={p.id} value={p.id}>
@@ -1960,13 +1960,13 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
                     : `${selected.name} — automatic free/paid detection`,
               );
             }}
-            className="h-9 w-full rounded-sm border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+            className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
           >
             <option value="auto">Auto — detect free and paid models</option>
             <option value="free">Free models only</option>
             <option value="paid">Paid models only</option>
           </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-note text-muted-foreground">
             A stored key never authorises spending on its own — paid models stay blocked until paid
             AI access is turned on below.
           </p>
@@ -1998,7 +1998,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
             </Button>
           ) : null}
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-note text-muted-foreground">
           {selected.notes} Auth: {selected.auth}. Health check:{" "}
           <span className="font-mono">{selected.detect}</span>.
         </p>
@@ -2012,7 +2012,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
                 <StatusPill key={p.id} label={p.name} tone="magenta" />
               ))}
             {cloud.every((p) => !state.providerState[p.id]?.apiKey) ? (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-note text-muted-foreground">
                 No cloud provider connected yet.
               </span>
             ) : null}
@@ -2066,7 +2066,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value as ProviderId)}
-              className="h-9 w-full rounded-sm border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+              className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
             >
               {providers
                 .filter((p) => p.kind === "local")
@@ -2116,7 +2116,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
             <select
               value={format}
               onChange={(e) => setFormat(e.target.value)}
-              className="h-9 w-full rounded-sm border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+              className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
             >
               {supportedFormats.map((f) => (
                 <option key={f.format} value={f.format}>
@@ -2143,14 +2143,14 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
         <div className="border-t border-border pt-3">
           <p className="label-xs mb-2 text-muted-foreground">Imported ({state.imported.length})</p>
           {state.imported.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">Nothing imported yet.</p>
+            <p className="text-note text-muted-foreground">Nothing imported yet.</p>
           ) : (
             <ul className="space-y-1.5">
               {state.imported.map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm">{m.name}</p>
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                    <p className="truncate text-meta-sm text-muted-foreground">
                       {m.format} · {formatGb(m.sizeGb)} · {providerById.get(m.provider)?.name} ·{" "}
                       {m.path}
                     </p>
@@ -2185,10 +2185,10 @@ function BillingPanel() {
   return (
     <HudPanel title="Billing safety" hint={state.summary}>
       <div className="grid gap-3 md:grid-cols-3">
-        <label className="hud-tile flex items-start justify-between gap-3 rounded-md px-3 py-2.5">
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
           <span className="min-w-0">
             <span className="block text-sm font-medium">Paid AI access</span>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-note text-muted-foreground">
               Off by default. While off, only free and local models can answer.
             </span>
           </span>
@@ -2204,10 +2204,10 @@ function BillingPanel() {
           />
         </label>
 
-        <label className="hud-tile flex items-start justify-between gap-3 rounded-md px-3 py-2.5">
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
           <span className="min-w-0">
             <span className="block text-sm font-medium">Automatic paid routing</span>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-note text-muted-foreground">
               Let Auto mode pick a paid model. Off = only models you pick explicitly may bill.
             </span>
           </span>
@@ -2218,10 +2218,10 @@ function BillingPanel() {
           />
         </label>
 
-        <label className="hud-tile flex items-start justify-between gap-3 rounded-md px-3 py-2.5">
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
           <span className="min-w-0">
             <span className="block text-sm font-medium">Emergency kill switch</span>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-note text-muted-foreground">
               Blocks every paid model instantly, whatever else is set.
             </span>
           </span>
@@ -2261,18 +2261,18 @@ function BillingPanel() {
           Allow paid for 1 hour
         </Button>
         {state.billing.grantScope !== "off" ? (
-          <Button size="sm" variant="ghost" onClick={() => void billing.grant("off")}>
+          <Button size="sm" variant="ghost" onClick={() => billing.grant("off")}>
             <X className="size-4" />
             Revoke grant
           </Button>
         ) : null}
         {!desktop ? (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-note text-muted-foreground">
             Preview mode — paid access can only be changed in the desktop app.
           </span>
         ) : null}
         {state.billing.killSwitch ? (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-note text-muted-foreground">
             Kill switch is on, so paid access stays locked.
           </span>
         ) : null}

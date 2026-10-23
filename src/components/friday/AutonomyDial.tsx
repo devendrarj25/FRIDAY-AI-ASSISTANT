@@ -39,7 +39,7 @@ export function AutonomyDial({ compact = false }: { compact?: boolean }) {
         <div
           role="group"
           aria-label="Autonomy"
-          className="inline-flex h-6 items-stretch overflow-hidden rounded-sm border border-primary/25"
+          className="inline-flex h-6 items-stretch overflow-hidden rounded-ctl border border-primary/25"
         >
           {LEVELS.map((level, index) => {
             const on = settings.approvalLevel === level.id;
@@ -73,7 +73,7 @@ export function AutonomyDial({ compact = false }: { compact?: boolean }) {
           aria-label={settings.halted ? "Resume" : "Stop everything"}
           title={settings.halted ? "Resume FRIDAY" : "Stop every run and every action now"}
           className={cn(
-            "inline-flex h-6 items-center gap-1 rounded-sm border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
+            "inline-flex h-6 items-center gap-1 rounded-ctl border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
             settings.halted
               ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
               : "border-destructive/40 text-destructive hover:bg-destructive/10 active:bg-destructive/20",

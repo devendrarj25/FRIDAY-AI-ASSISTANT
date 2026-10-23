@@ -139,7 +139,7 @@ export function DevControl() {
               size="sm"
               variant="ghost"
               disabled={busy !== null}
-              onClick={() => void run("refresh", refresh)}
+              onClick={() => run("refresh", refresh)}
             >
               <RefreshCw className={busy === "refresh" ? "size-3.5 animate-spin" : "size-3.5"} />
               Refresh
@@ -147,7 +147,7 @@ export function DevControl() {
           </div>
 
           {space?.onProtectedBranch ? (
-            <p className="flex items-center gap-2 rounded-sm border border-warning/30 bg-warning/10 px-2.5 py-1.5 font-mono text-[11px] text-warning">
+            <p className="flex items-center gap-2 rounded-ctl border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-meta text-warning">
               <ShieldAlert className="size-3.5" /> You are on {space.branch}. FRIDAY will not commit
               here — create a feature branch below; main only changes through a merged pull request.
             </p>
@@ -160,13 +160,13 @@ export function DevControl() {
             </p>
           ) : (
             <>
-              <div className="max-h-40 overflow-auto rounded-sm border border-border/60">
+              <div className="max-h-40 overflow-auto rounded-ctl border border-border/60">
                 {(space.changes ?? []).length ? (
                   (space.changes ?? []).map((change) => (
                     <button
                       key={change.path}
                       type="button"
-                      className="flex w-full items-center gap-2 px-2 py-1 text-left font-mono text-[11px] text-muted-foreground hover:bg-primary/10"
+                      className="flex w-full items-center gap-2 px-2 py-1 text-left text-meta text-muted-foreground hover:bg-primary/10"
                       onClick={() =>
                         void run("diff", async () => {
                           const result = await devDiff(change.path);
@@ -184,21 +184,21 @@ export function DevControl() {
                     </button>
                   ))
                 ) : (
-                  <p className="px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                  <p className="px-2 py-1 text-meta text-muted-foreground">
                     Working tree is clean.
                   </p>
                 )}
               </div>
 
               {diffText ? (
-                <div className="rounded-sm border border-primary/20 bg-surface p-2">
+                <div className="rounded-ctl border border-primary/20 bg-surface p-2">
                   <div className="mb-1 flex items-center justify-between">
                     <p className="label-xs text-primary/70">{diffText.file}</p>
                     <Button size="sm" variant="ghost" onClick={() => setDiffText(null)}>
                       Close
                     </Button>
                   </div>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[10px] text-muted-foreground">
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-data-sm text-muted-foreground">
                     {diffText.text}
                   </pre>
                 </div>
@@ -206,7 +206,7 @@ export function DevControl() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  className="h-8 min-w-[160px] border border-border bg-background px-2 font-mono text-[11px]"
+                  className="h-8 min-w-[160px] border border-border bg-background px-2 text-data"
                   value={switchTo || space?.branch || ""}
                   onChange={(event) => setSwitchTo(event.target.value)}
                 >
@@ -237,14 +237,14 @@ export function DevControl() {
                 </Button>
               </div>
 
-              <div className="space-y-2 rounded-sm border border-border/60 p-2">
+              <div className="space-y-2 rounded-ctl border border-border/60 p-2">
                 <p className="label-xs text-primary/70">Working-tree file</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
                     value={filePath}
                     onChange={(event) => setFilePath(event.target.value)}
                     placeholder="relative/path.txt"
-                    className="h-8 min-w-[200px] flex-1 font-mono text-[11px]"
+                    className="h-8 min-w-[200px] flex-1 text-meta"
                   />
                   <Button
                     size="sm"
@@ -287,7 +287,7 @@ export function DevControl() {
                       <button
                         key={file}
                         type="button"
-                        className="block w-full px-1 py-0.5 text-left font-mono text-[10px] text-muted-foreground hover:bg-primary/10"
+                        className="block w-full px-1 py-0.5 text-left text-meta-sm text-muted-foreground hover:bg-primary/10"
                         onClick={() =>
                           void run("read", async () => {
                             setFilePath(file);
@@ -308,10 +308,10 @@ export function DevControl() {
                 <textarea
                   value={fileText}
                   onChange={(event) => setFileText(event.target.value)}
-                  className="min-h-24 w-full border border-border bg-background p-2 font-mono text-[11px] text-muted-foreground"
+                  className="min-h-24 w-full border border-border bg-background p-2 text-data text-muted-foreground"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                  <label className="flex items-center gap-2 text-meta text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={confirmWrite}
@@ -391,14 +391,14 @@ export function DevControl() {
               Validate (audit · typecheck · tests)
             </Button>
             {validation ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{validation}</span>
+              <span className="text-meta text-muted-foreground">{validation}</span>
             ) : null}
           </div>
 
           {steps.length ? (
             <div className="space-y-0.5">
               {steps.map((step) => (
-                <p key={step.id} className="font-mono text-[11px] text-muted-foreground">
+                <p key={step.id} className="text-meta text-muted-foreground">
                   {step.state === "passed" ? "✓" : step.state === "failed" ? "✕" : "·"} {step.label}{" "}
                   — {step.state}
                 </p>
@@ -414,7 +414,7 @@ export function DevControl() {
             sets.map((item) => (
               <div
                 key={item.id}
-                className={`rounded-sm border p-2 ${
+                className={`rounded-ctl border p-2 ${
                   active === item.id ? "border-primary/50 bg-primary/5" : "border-border/60"
                 }`}
               >
@@ -433,13 +433,13 @@ export function DevControl() {
                     label={item.status}
                     tone={item.status === "queued" ? "muted" : "primary"}
                   />
-                  <span className="font-mono text-[11px] text-muted-foreground">
+                  <span className="text-meta text-muted-foreground">
                     {item.fileCount} file(s) · {item.origin}
                     {item.tested ? " · tested" : ""}
                   </span>
                   {item.pullRequest?.url ? (
                     <a
-                      className="font-mono text-[11px] text-primary underline"
+                      className="text-meta text-primary underline"
                       href={item.pullRequest.url}
                       target="_blank"
                       rel="noreferrer"
@@ -464,12 +464,12 @@ export function DevControl() {
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground">{item.summary}</p>
                     {item.files.slice(0, 20).map((file) => (
-                      <p key={file} className="font-mono text-[10px] text-muted-foreground">
+                      <p key={file} className="text-meta-sm text-muted-foreground">
                         · {file}
                       </p>
                     ))}
                     {item.problems.length ? (
-                      <p className="font-mono text-[10px] text-warning">
+                      <p className="text-meta-sm text-warning">
                         problems: {item.problems.slice(0, 5).join(" · ")}
                       </p>
                     ) : null}
@@ -493,7 +493,7 @@ export function DevControl() {
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder={selected ? selected.title : "what this change does"}
-              className="h-8 min-w-[220px] flex-1 font-mono text-[11px]"
+              className="h-8 min-w-[220px] flex-1 text-meta"
             />
             <Button
               size="sm"
@@ -628,7 +628,7 @@ export function DevControl() {
               <RefreshCw className={busy === "pulls" ? "size-3.5 animate-spin" : "size-3.5"} />{" "}
               Check PR status
             </Button>
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="text-meta text-muted-foreground">
               Merging a green PR into main is what makes an Official Release possible — start that
               from Friday Hub Build &amp; Release. Push requires a passing Validate on this
               checkout.
@@ -636,7 +636,7 @@ export function DevControl() {
           </div>
 
           {pulls.map((pr) => (
-            <div key={pr.number} className="rounded-sm border border-border/60 p-2">
+            <div key={pr.number} className="rounded-ctl border border-border/60 p-2">
               <div className="flex flex-wrap items-center gap-2">
                 <a
                   className="text-xs text-primary underline"
@@ -646,7 +646,7 @@ export function DevControl() {
                 >
                   #{pr.number} {pr.title}
                 </a>
-                <span className="font-mono text-[11px] text-muted-foreground">
+                <span className="text-meta text-muted-foreground">
                   {pr.branch} → {pr.base}
                 </span>
                 <StatusPill

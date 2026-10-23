@@ -13,13 +13,19 @@ import {
   collectLabels,
   controlFiles,
   controlLabels,
+  deadControls,
   iconOnlyWithoutName,
 } from "./helpers/ui-controls";
 
 const ROOT = process.cwd();
 
 /** Reviewed renames: old label → new label with the same meaning. */
-export const RENAMES: Record<string, string> = {};
+export const RENAMES: Record<string, string> = {
+  // The import run chips were a bare "· v ·" text artefact of the
+  // "{name} · v{version} · {status}" label; they are now FilterTabs whose
+  // label is built from the same three fields, above the Pipeline panel.
+  "· v ·": "Pipeline",
+};
 
 describe("UI control parity", () => {
   const now = collectLabels(ROOT);
@@ -53,6 +59,26 @@ describe("UI control parity", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("has no button with an empty or missing handler", () => {
+    const offenders: string[] = [];
+    for (const file of controlFiles(ROOT)) {
+      for (const el of deadControls(readFileSync(file, "utf8"))) {
+        offenders.push(`${relative(ROOT, file)}:${el.line}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("flags a dead control and keeps a live one", () => {
+    const src = `
+      <button className="x">Nothing</button>
+      <Button onClick={() => {}}>Empty</Button>
+      <Button onClick={go}>Live</Button>
+      <button type="submit">Send</button>
+      <DropdownMenuTrigger asChild><Button>Menu</Button></DropdownMenuTrigger>`;
+    expect(deadControls(src).map((el) => el.line)).toEqual([2, 3]);
   });
 
   it("reads labels the way the guard expects", () => {

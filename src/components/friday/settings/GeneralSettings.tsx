@@ -110,7 +110,7 @@ export function GeneralSettings() {
           on={isOn("launchMinimized")}
           onToggle={() => flip("launchMinimized")}
         />
-        <p className="mb-2 text-[11px] text-muted-foreground">
+        <p className="mb-2 text-note text-muted-foreground">
           Needs Minimize to system tray. The tray icon still opens FRIDAY.
         </p>
         <ToggleRow
@@ -219,7 +219,7 @@ export function GeneralSettings() {
           on={isOn("autoBuild")}
           onToggle={() => flip("autoBuild")}
         />
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-note text-muted-foreground">
           Rebuilds stay on Friday Hub → Build &amp; Release. This switch records the owner
           preference; FRIDAY does not run NSIS by herself.
         </p>

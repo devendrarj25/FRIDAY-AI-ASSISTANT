@@ -1,3 +1,4 @@
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
@@ -122,15 +123,9 @@ function BrainPage() {
   const workspaceTiles = useMemo(() => workspaceTilesFromScan(scan), [scan]);
   const [tab, setTab] = useState("overview");
   const [input, setInput] = useState("");
-  const [tick, setTick] = useState(0);
-
   // Keeps "last sync / last write" labels honest without re-rendering the page
   // on every frame.
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, []);
-  void tick;
+  useSecondsTick(15);
 
   useEffect(() => {
     if (tab === "updates") brain.refreshUpdatesIfStale();
@@ -242,7 +237,7 @@ function BrainPage() {
                   {identity.name} wants to run{" "}
                   <span className="font-mono text-primary">{state.approval.tool}</span>
                 </p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                <p className="mt-1 text-meta text-muted-foreground">
                   risk: {state.approval.risk} · {state.approval.reason}
                 </p>
               </div>
@@ -267,11 +262,7 @@ function BrainPage() {
                 title="Memory overview"
                 hint={`${memoryState.items.length} records · last write ${relative(memoryState.lastWriteAt)}`}
                 actions={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void navigate({ to: "/memory" })}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => navigate({ to: "/memory" })}>
                     Open Memory →
                   </Button>
                 }
@@ -282,13 +273,13 @@ function BrainPage() {
                     <span key="t" className="text-foreground">
                       {spec.label}
                     </span>,
-                    <span key="c" className="font-mono text-[11px] text-primary">
+                    <span key="c" className="text-meta text-primary">
                       {count}
                     </span>,
-                    <span key="p" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="p" className="text-meta text-muted-foreground">
                       {spec.cap}
                     </span>,
-                    <span key="r" className="font-mono text-[11px] text-muted-foreground">
+                    <span key="r" className="text-meta text-muted-foreground">
                       {ttlLabel(spec.ttlMs)}
                     </span>,
                     <span key="g" className="flex items-center gap-2">
@@ -301,13 +292,11 @@ function BrainPage() {
                           style={{ width: `${pressure}%` }}
                         />
                       </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {pressure}%
-                      </span>
+                      <span className="text-meta-sm text-muted-foreground">{pressure}%</span>
                     </span>,
                   ])}
                 />
-                <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+                <p className="mt-2 text-meta-sm text-muted-foreground">
                   Tiers expire and consolidate on their own — pinned records are never swept.
                 </p>
               </HudPanel>
@@ -348,7 +337,7 @@ function BrainPage() {
                     size="sm"
                     variant="outline"
                     disabled={vector.busy}
-                    onClick={() => void vectorIndex.syncLocalMemory()}
+                    onClick={() => vectorIndex.syncLocalMemory()}
                   >
                     <RefreshCw className={cn("size-4", vector.busy && "animate-spin")} /> Sync now
                   </Button>
@@ -356,15 +345,15 @@ function BrainPage() {
                     size="sm"
                     variant="outline"
                     disabled={vector.busy}
-                    onClick={() => void vectorIndex.reindex()}
+                    onClick={() => vectorIndex.reindex()}
                   >
                     Rebuild index
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void vectorIndex.refresh()}>
+                  <Button size="sm" variant="ghost" onClick={() => vectorIndex.refresh()}>
                     Refresh status
                   </Button>
                 </div>
-                <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+                <p className="mt-2 text-meta-sm text-muted-foreground">
                   checked {relative(vector.checkedAt)}
                   {vector.reason ? ` · ${vector.reason}` : ""}
                 </p>
@@ -413,9 +402,7 @@ function BrainPage() {
                     </li>
                   ))}
                   {learning.recent.length ? null : (
-                    <li className="font-mono text-[11px] text-muted-foreground">
-                      No tasks recorded yet.
-                    </li>
+                    <li className="text-meta text-muted-foreground">No tasks recorded yet.</li>
                   )}
                 </ul>
               </HudPanel>
@@ -450,7 +437,7 @@ function BrainPage() {
                     <StatusPill key={kind} label={`${kind} ${count}`} tone="muted" />
                   ))}
                   {Object.keys(kbStats.byKind).length ? null : (
-                    <p className="font-mono text-[11px] text-muted-foreground">
+                    <p className="text-meta text-muted-foreground">
                       Nothing learned yet — knowledge is written from real runs.
                     </p>
                   )}
@@ -470,11 +457,11 @@ function BrainPage() {
                     className={cn(m.role === "user" ? "ml-auto max-w-[85%]" : "max-w-[92%]")}
                   >
                     {m.role === "user" ? (
-                      <p className="rounded-md bg-primary px-3 py-2 text-primary-foreground">
+                      <p className="rounded-surface bg-primary px-3 py-2 text-primary-foreground">
                         {m.text}
                       </p>
                     ) : (
-                      <div className="hud-tile rounded-md px-3 py-2">
+                      <div className="hud-tile rounded-surface px-3 py-2">
                         <p className="label-xs mb-1 text-primary">{identity.name}</p>
                         <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground">
                           {m.text}
@@ -537,9 +524,7 @@ function BrainPage() {
                         />
                         <div className="min-w-0">
                           <p className="text-xs text-foreground">{s.label}</p>
-                          <p className="truncate font-mono text-[10px] text-muted-foreground">
-                            {s.detail}
-                          </p>
+                          <p className="truncate text-meta-sm text-muted-foreground">{s.detail}</p>
                         </div>
                         <StatusPill label={s.state} tone={STAGE_TONE[s.state]} />
                       </li>
@@ -560,14 +545,14 @@ function BrainPage() {
                       <span key="n" className="text-foreground">
                         {a.name}
                       </span>,
-                      <span key="t" className="font-mono text-[11px] text-muted-foreground">
+                      <span key="t" className="text-meta text-muted-foreground">
                         {a.task}
                       </span>,
-                      <span key="m" className="font-mono text-[11px] text-primary">
+                      <span key="m" className="text-meta text-primary">
                         {a.modelLabel}
                       </span>,
                       <StatusPill key="s" label={a.state} tone={toneForStatus(a.state)} />,
-                      <span key="k" className="font-mono text-[11px] text-muted-foreground">
+                      <span key="k" className="text-meta text-muted-foreground">
                         {a.tokens || "—"}
                       </span>,
                     ])}
@@ -587,11 +572,9 @@ function BrainPage() {
                   <ul className="space-y-1.5">
                     {run.recalled.map((r) => (
                       <li key={r.id} className="text-xs">
-                        <span className="font-mono text-[10px] text-primary">[{r.layer}]</span>{" "}
+                        <span className="text-meta-sm text-primary">[{r.layer}]</span>{" "}
                         <span className="text-foreground">{r.title}</span>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">
-                          {r.snippet}
-                        </p>
+                        <p className="truncate text-meta-sm text-muted-foreground">{r.snippet}</p>
                       </li>
                     ))}
                   </ul>
@@ -610,7 +593,7 @@ function BrainPage() {
             title="Agent system"
             hint={`${activeAgents}/${agentSpecs.length} active`}
             actions={
-              <Button size="sm" variant="outline" onClick={() => void navigate({ to: "/agents" })}>
+              <Button size="sm" variant="outline" onClick={() => navigate({ to: "/agents" })}>
                 Open Agents →
               </Button>
             }
@@ -624,10 +607,10 @@ function BrainPage() {
                 <span key="d" className="text-xs text-muted-foreground">
                   {a.duty}
                 </span>,
-                <span key="t" className="font-mono text-[11px] text-primary">
+                <span key="t" className="text-meta text-primary">
                   {a.task}
                 </span>,
-                <span key="o" className="font-mono text-[10px] text-muted-foreground">
+                <span key="o" className="text-meta-sm text-muted-foreground">
                   {a.tools.join(", ")}
                 </span>,
                 <StatusPill
@@ -641,7 +624,7 @@ function BrainPage() {
                   key="s"
                   type="button"
                   onClick={() => brain.toggleAgent(a.id as AgentId)}
-                  className="font-mono text-[11px] text-primary underline-offset-2 hover:underline"
+                  className="text-meta text-primary underline-offset-2 hover:underline"
                 >
                   {state.agentsEnabled[a.id] ? "Active — pause" : "Paused — activate"}
                 </button>,
@@ -663,32 +646,32 @@ function BrainPage() {
                   <span key="t" className="text-foreground">
                     {entry.title}
                     {entry.permanent ? (
-                      <span className="ml-2 font-mono text-[10px] text-accent">permanent</span>
+                      <span className="ml-2 text-meta-sm text-accent">permanent</span>
                     ) : null}
                     {knowledgeStatus(entry) !== "known" ? (
-                      <span className="ml-2 font-mono text-[10px] text-warning">
+                      <span className="ml-2 text-meta-sm text-warning">
                         {knowledgeStatus(entry)}
                       </span>
                     ) : null}
                   </span>,
-                  <span key="s" className="font-mono text-[11px] text-muted-foreground">
+                  <span key="s" className="text-meta text-muted-foreground">
                     {entry.source}
                   </span>,
-                  <span key="c" className="font-mono text-[11px] text-primary">
+                  <span key="c" className="text-meta text-primary">
                     {Math.round(entry.confidence * 100)}%
                   </span>,
                   <button
                     key="f"
                     type="button"
                     onClick={() => brainKnowledge.forget(entry.id)}
-                    className="font-mono text-[10px] text-destructive hover:underline"
+                    className="text-meta-sm text-destructive hover:underline"
                   >
                     forget
                   </button>,
                 ])}
               />
               {knowledge.entries.length ? null : (
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   Nothing learned yet — entries are written from real runs, never seeded.
                 </p>
               )}
@@ -700,7 +683,7 @@ function BrainPage() {
                     <li key={req.id} className="border-b border-border/60 pb-3 last:border-0">
                       <p className="text-sm text-foreground">{req.title}</p>
                       <p className="mt-1 text-xs text-muted-foreground">{req.body}</p>
-                      <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                      <p className="mt-1 text-meta-sm text-muted-foreground">
                         {req.reason} · {relative(req.at)}
                       </p>
                       <div className="mt-2 flex gap-2">
@@ -721,7 +704,7 @@ function BrainPage() {
                     </li>
                   ))}
                   {knowledge.consent.length ? null : (
-                    <li className="font-mono text-[11px] text-muted-foreground">
+                    <li className="text-meta text-muted-foreground">
                       Nothing is waiting for approval.
                     </li>
                   )}
@@ -739,7 +722,7 @@ function BrainPage() {
                       </li>
                     ))}
                   {kbStats.unfinishedTasks ? null : (
-                    <li className="font-mono text-[11px] text-muted-foreground">
+                    <li className="text-meta text-muted-foreground">
                       Everything FRIDAY started is finished.
                     </li>
                   )}
@@ -757,7 +740,7 @@ function BrainPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void navigate({ to: "/self-management" })}
+                onClick={() => navigate({ to: "/self-management" })}
               >
                 Open Self-Management →
               </Button>
@@ -811,7 +794,7 @@ function BrainPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => void brain.checkUpdates()}
+                  onClick={() => brain.checkUpdates()}
                   disabled={state.checkingUpdates}
                 >
                   <RefreshCw className={cn("size-4", state.checkingUpdates && "animate-spin")} />{" "}
@@ -838,13 +821,13 @@ function BrainPage() {
                 <span key="t" className="text-foreground">
                   {u.label}
                 </span>,
-                <span key="c" className="font-mono text-[10px] text-muted-foreground">
+                <span key="c" className="text-meta-sm text-muted-foreground">
                   {u.channel}
                 </span>,
-                <span key="i" className="font-mono text-[11px] text-muted-foreground">
+                <span key="i" className="text-meta text-muted-foreground">
                   {u.installed}
                 </span>,
-                <span key="l" className="font-mono text-[11px] text-primary">
+                <span key="l" className="text-meta text-primary">
                   {u.latest}
                 </span>,
                 <span
@@ -881,20 +864,16 @@ function BrainPage() {
                   : "one root, kept organised"
               }
               actions={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void navigate({ to: "/workspace" })}
-                >
+                <Button size="sm" variant="outline" onClick={() => navigate({ to: "/workspace" })}>
                   Open Folders →
                 </Button>
               }
             >
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {workspaceTiles.map((f) => (
-                  <div key={f.name} className="hud-tile rounded-md px-2.5 py-2">
+                  <div key={f.name} className="hud-tile rounded-surface px-2.5 py-2">
                     <p className="font-mono text-xs text-primary">FRIDAY/{f.name}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground">{f.note}</p>
+                    <p className="text-meta-sm text-muted-foreground">{f.note}</p>
                   </div>
                 ))}
               </div>
@@ -908,14 +887,14 @@ function BrainPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm text-foreground">{j.title}</p>
-                      <p className="font-mono text-[10px] text-muted-foreground">
+                      <p className="text-meta-sm text-muted-foreground">
                         {j.when} · {j.agent} · last {j.lastRun}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => brain.toggleJob(j.id)}
-                      className="font-mono text-[10px] text-primary hover:underline"
+                      className="text-meta-sm text-primary hover:underline"
                     >
                       {j.enabled ? "enabled" : "paused"}
                     </button>
@@ -934,7 +913,7 @@ function BrainPage() {
                 {identity.name}
               </p>
               <p className="label-xs mt-1 text-accent">{identity.role}</p>
-              <p className="mt-2 text-center font-mono text-[11px] text-muted-foreground">
+              <p className="mt-2 text-center text-meta text-muted-foreground">
                 Creator {identity.owner} · {identity.handle}
               </p>
               <p className="mt-2 text-center text-xs text-muted-foreground">{identity.voice}</p>
@@ -1012,7 +991,7 @@ function BrainPage() {
         <SelfCoreSection />
 
         <HudPanel title="Brain log" hint={`${state.log.length} lines`}>
-          <pre className="max-h-56 overflow-auto rounded-sm bg-background p-3 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-56 overflow-auto rounded-ctl bg-background p-3 text-data leading-relaxed">
             {state.log.map((l) => (
               <div
                 key={l.id}
@@ -1032,7 +1011,7 @@ function BrainPage() {
           </pre>
         </HudPanel>
 
-        <p className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 text-meta-sm text-muted-foreground">
           <CheckCircle2 className="size-3 text-accent" /> FRIDAY orchestrates models — she never
           retrains or claims ownership of them.
         </p>

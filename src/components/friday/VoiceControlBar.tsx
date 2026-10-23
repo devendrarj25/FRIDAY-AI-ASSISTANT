@@ -52,7 +52,7 @@ export function HudButton({
       onClick={onClick}
       {...pointer}
       className={cn(
-        "voice-btn friday-btn inline-flex h-6 items-center gap-1.5 rounded-sm border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
+        "voice-btn friday-btn inline-flex h-6 items-center gap-1.5 rounded-ctl border px-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
         active
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-primary/20 text-muted-foreground hover:border-primary/35 hover:text-primary active:bg-primary/15",
@@ -96,7 +96,7 @@ export function VoiceLevelSwitch({
       ref={listRef}
       role="radiogroup"
       aria-label="Voice window size"
-      className="voice-level-switch friday-seg inline-flex h-6 items-stretch overflow-hidden rounded-sm border border-primary/25 font-mono text-[10px]"
+      className="voice-level-switch friday-seg inline-flex h-6 items-stretch overflow-hidden rounded-ctl border border-primary/25 text-meta-sm"
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {CHAT_LEVELS.map((value, index) => (
@@ -152,7 +152,7 @@ export function VoiceTools({ tools, shown }: { tools: VoiceTool[]; shown: number
               type="button"
               aria-label="More voice tools"
               title="More voice tools"
-              className="inline-flex h-6 items-center rounded-sm border border-primary/20 px-2 text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+              className="inline-flex h-6 items-center rounded-ctl border border-primary/20 px-2 text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
             >
               <MoreHorizontal className="size-3" />
             </button>

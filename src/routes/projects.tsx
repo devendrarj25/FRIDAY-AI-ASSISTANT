@@ -1,13 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useDeferredValue } from "react";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
-import { Copy, FolderOpen, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, FolderTree, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FilterTabs, HudPanel, StatusPill } from "@/components/friday/ui";
+import { EmptyState, FilterTabs, HudPanel, LoadingState, StatusPill } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
 import { brain } from "@/lib/friday/brain-engine";
 import { installer } from "@/lib/friday/installer-engine";
 import { isDesktopApp, pickProjectFolder, revealWorkspaceFolder } from "@/lib/friday/desktop";
@@ -63,6 +65,8 @@ function ProjectsPage() {
   const [activeId, setActiveId] = useState<string | null>(() => projectWorkspaces.activeId());
   const [tab, setTab] = useState<(typeof PROJECT_TABS)[number]>("overview");
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [showArchived, setShowArchived] = useState(false);
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
@@ -112,6 +116,19 @@ function ProjectsPage() {
     };
   }, [pull]);
 
+  // Projects changed on disk or by FRIDAY elsewhere show up on their own.
+  const projectsPoll = useLivePoll(
+    "projects.refresh",
+    async () => {
+      if (!desktop) return;
+      await projectWorkspaces.refreshFromDesktop();
+      setItems(projectWorkspaces.list(true));
+      setActiveId(projectWorkspaces.activeId());
+    },
+    30_000,
+    desktop,
+  );
+
   useEffect(() => {
     return brain.subscribe(() => {
       setThread(brain.getSnapshot().messages.slice(-8));
@@ -157,13 +174,13 @@ function ProjectsPage() {
   }, [fileProjectId, tab, fileUpdatedAt]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return items.filter((item) => {
       if (!showArchived && item.archived) return false;
       if (!q) return true;
       return `${item.name} ${item.kind} ${item.id}`.toLowerCase().includes(q);
     });
-  }, [items, query, showArchived]);
+  }, [items, deferredQuery, showArchived]);
 
   const runtimeHealth = (active?.runtime ?? []).map((pkg) => {
     const entry = installer.entries().find((row) => row.pkg === pkg);
@@ -340,12 +357,12 @@ function ProjectsPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Labour app, Site, Notes…"
-            className="h-8 max-w-[220px] font-mono text-[11px]"
+            className="h-8 max-w-[220px] text-meta"
           />
           <Button size="sm" variant="outline" disabled={busy} onClick={create}>
             <Plus className="size-4" /> New project
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void openFolder()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => openFolder()}>
             <FolderOpen className="size-4" /> Open folder
           </Button>
           <Button
@@ -391,7 +408,7 @@ function ProjectsPage() {
           >
             <Trash2 className="size-4" /> Delete
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void pull()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => pull()}>
             <RefreshCw className="size-4" /> Refresh
           </Button>
           <Button size="sm" variant="outline" onClick={() => revealWorkspaceFolder("projects")}>
@@ -401,7 +418,7 @@ function ProjectsPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search projects"
-            className="h-8 min-w-[140px] flex-1 font-mono text-[11px]"
+            className="h-8 min-w-[140px] flex-1 text-meta"
           />
           <Button
             size="sm"
@@ -410,14 +427,14 @@ function ProjectsPage() {
           >
             {showArchived ? "Hiding archived off" : "Show archived"}
           </Button>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+          <span className="ml-auto text-meta-sm text-muted-foreground">
             {desktop ? "live FRIDAY_ROOT/projects" : "preview session copy"} · {visible.length}/
             {items.length}
           </span>
         </div>
 
         {!desktop ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             Browser preview: session copy only. Persist, Open folder, reveal, and in-app file writes
             are desktop-only — same honesty as Sandbox.
           </p>
@@ -425,18 +442,27 @@ function ProjectsPage() {
 
         <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
           <HudPanel title="Projects" hint="one active for Chat + Auto pin">
-            {visible.length === 0 ? (
-              <p className="font-mono text-[11px] text-muted-foreground">
-                No projects yet. Create “Labour app”, “Site”, or “Notes”. This is not Folders and
-                not Sandbox.
-              </p>
+            {visible.length === 0 && busy ? (
+              <LoadingState label="Reading projects…" rows={2} />
+            ) : visible.length === 0 && projectsPoll.error ? (
+              <ErrorState
+                title="Projects could not be read"
+                error={projectsPoll.error}
+                onRetry={() => void pull()}
+              />
+            ) : visible.length === 0 ? (
+              <EmptyState
+                icon={FolderTree}
+                title={items.length ? "No project matches" : "No projects yet"}
+                hint="Create “Labour app”, “Site”, or “Notes”. This is not Folders and not Sandbox."
+              />
             ) : (
               <ul className="space-y-1">
                 {visible.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
-                      className={`w-full rounded-sm border px-2 py-1.5 text-left font-mono text-[11px] ${
+                      className={`w-full rounded-ctl border px-2 py-1.5 text-left text-meta ${
                         item.id === activeId
                           ? "border-primary/50 bg-primary/15 text-primary"
                           : "border-border bg-surface text-muted-foreground hover:text-foreground"
@@ -447,7 +473,7 @@ function ProjectsPage() {
                       }}
                     >
                       <span className="block truncate">{item.name}</span>
-                      <span className="text-[10px] opacity-80">
+                      <span className="text-note-sm opacity-80">
                         {item.kind}
                         {item.archived ? " · archived" : ""}
                         {item.handsOffAuto || item.preferences.handsOffAuto ? " · hands-off" : ""}
@@ -462,7 +488,7 @@ function ProjectsPage() {
           <div className="space-y-3">
             {!active ? (
               <HudPanel title="Select a project">
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   Create or select a workspace. Chat in this section is project-bound. Main Chat
                   only uses a project when you say so (@project / use project).
                 </p>
@@ -491,7 +517,7 @@ function ProjectsPage() {
                     Auto Mode hands-off this project
                   </Button>
                 </div>
-                <p className="font-mono text-[11px] text-muted-foreground">
+                <p className="text-meta text-muted-foreground">
                   {handsOff
                     ? "ON: Auto Mode, background agents, and idle schedulers will not write, exec, forge, or import into this folder until you turn this off or instruct in Manual. Chat here still works when you ask."
                     : "OFF: Auto may help this project when you ask, still through governance / tool-authority. Turn ON if you will do the work yourself."}
@@ -505,7 +531,7 @@ function ProjectsPage() {
 
                 {tab === "overview" ? (
                   <HudPanel title="Overview" hint="what FRIDAY is doing">
-                    <div className="space-y-2 font-mono text-[11px]">
+                    <div className="space-y-2 text-meta">
                       <p>
                         Root:{" "}
                         {active.rootPath ||
@@ -539,42 +565,42 @@ function ProjectsPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/tasks" })}
+                          onClick={() => navigate({ to: "/tasks" })}
                         >
                           Tasks
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/logs" })}
+                          onClick={() => navigate({ to: "/logs" })}
                         >
                           Logs
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/terminal" })}
+                          onClick={() => navigate({ to: "/terminal" })}
                         >
                           Terminal
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/sandbox" })}
+                          onClick={() => navigate({ to: "/sandbox" })}
                         >
                           Sandbox lab
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/workspace" })}
+                          onClick={() => navigate({ to: "/workspace" })}
                         >
                           Folders
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void navigate({ to: "/browser" })}
+                          onClick={() => navigate({ to: "/browser" })}
                         >
                           FRIDAY Browser
                         </Button>
@@ -589,7 +615,7 @@ function ProjectsPage() {
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
                       placeholder="What to do / what not to do in this project…"
-                      className="min-h-[220px] font-mono text-[11px]"
+                      className="min-h-[220px] text-meta"
                     />
                     <div className="mt-2">
                       <Button size="sm" onClick={saveActive}>
@@ -606,13 +632,13 @@ function ProjectsPage() {
                         value={knowTitle}
                         onChange={(e) => setKnowTitle(e.target.value)}
                         placeholder="Title"
-                        className="h-8 max-w-[160px] font-mono text-[11px]"
+                        className="h-8 max-w-[160px] text-meta"
                       />
                       <Input
                         value={knowText}
                         onChange={(e) => setKnowText(e.target.value)}
                         placeholder="Fact for this project only"
-                        className="h-8 min-w-[200px] flex-1 font-mono text-[11px]"
+                        className="h-8 min-w-[200px] flex-1 text-meta"
                       />
                       <Button
                         size="sm"
@@ -633,13 +659,11 @@ function ProjectsPage() {
                       </Button>
                     </div>
                     {active.knowledge.length === 0 ? (
-                      <p className="font-mono text-[11px] text-muted-foreground">
-                        No scoped facts yet.
-                      </p>
+                      <p className="text-meta text-muted-foreground">No scoped facts yet.</p>
                     ) : (
-                      <ul className="space-y-2 font-mono text-[11px]">
+                      <ul className="space-y-2 text-meta">
                         {active.knowledge.map((row) => (
-                          <li key={row.id} className="rounded-sm border border-border px-2 py-1">
+                          <li key={row.id} className="rounded-ctl border border-border px-2 py-1">
                             <label className="flex items-start gap-2">
                               <input
                                 type="checkbox"
@@ -661,7 +685,7 @@ function ProjectsPage() {
                             </label>
                             <button
                               type="button"
-                              className="ml-6 text-[10px] text-muted-foreground underline"
+                              className="ml-6 text-note-sm text-muted-foreground underline"
                               onClick={() => {
                                 projectWorkspaces.save({
                                   id: active.id,
@@ -684,10 +708,10 @@ function ProjectsPage() {
                 {tab === "preferences" ? (
                   <HudPanel title="Preferences" hint="project-scoped, not a second user profile">
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <label className="font-mono text-[11px]">
+                      <label className="text-meta">
                         Kind
                         <select
-                          className="mt-1 h-8 w-full rounded-sm border border-border bg-surface px-2"
+                          className="mt-1 h-8 w-full rounded-ctl border border-border bg-surface px-2"
                           value={kind}
                           onChange={(e) => {
                             const next = e.target.value as ProjectKind;
@@ -707,7 +731,7 @@ function ProjectsPage() {
                           ))}
                         </select>
                       </label>
-                      <label className="font-mono text-[11px]">
+                      <label className="text-meta">
                         Language
                         <Input
                           value={language}
@@ -715,7 +739,7 @@ function ProjectsPage() {
                           className="mt-1 h-8"
                         />
                       </label>
-                      <label className="font-mono text-[11px]">
+                      <label className="text-meta">
                         Stack
                         <Input
                           value={stack}
@@ -723,7 +747,7 @@ function ProjectsPage() {
                           className="mt-1 h-8"
                         />
                       </label>
-                      <label className="font-mono text-[11px]">
+                      <label className="text-meta">
                         Format
                         <Input
                           value={format}
@@ -731,7 +755,7 @@ function ProjectsPage() {
                           className="mt-1 h-8"
                         />
                       </label>
-                      <label className="font-mono text-[11px] sm:col-span-2">
+                      <label className="text-meta sm:col-span-2">
                         Model hint
                         <Input
                           value={modelHint}
@@ -739,10 +763,10 @@ function ProjectsPage() {
                           className="mt-1 h-8"
                         />
                       </label>
-                      <label className="font-mono text-[11px]">
+                      <label className="text-meta">
                         Isolation engine (existing sandbox catalog)
                         <select
-                          className="mt-1 h-8 w-full rounded-sm border border-border bg-surface px-2"
+                          className="mt-1 h-8 w-full rounded-ctl border border-border bg-surface px-2"
                           value={active.isolation || ""}
                           onChange={(e) => {
                             const value = e.target.value;
@@ -781,19 +805,19 @@ function ProjectsPage() {
                         value={sourceLabel}
                         onChange={(e) => setSourceLabel(e.target.value)}
                         placeholder="Label"
-                        className="h-8 max-w-[140px] font-mono text-[11px]"
+                        className="h-8 max-w-[140px] text-meta"
                       />
                       <Input
                         value={sourcePath}
                         onChange={(e) => setSourcePath(e.target.value)}
                         placeholder="Disk path"
-                        className="h-8 min-w-[140px] flex-1 font-mono text-[11px]"
+                        className="h-8 min-w-[140px] flex-1 text-meta"
                       />
                       <Input
                         value={sourceUrl}
                         onChange={(e) => setSourceUrl(e.target.value)}
                         placeholder="URL"
-                        className="h-8 min-w-[140px] flex-1 font-mono text-[11px]"
+                        className="h-8 min-w-[140px] flex-1 text-meta"
                       />
                       <Button
                         size="sm"
@@ -872,7 +896,7 @@ function ProjectsPage() {
                       </Button>
                       {libItems.length ? (
                         <select
-                          className="h-8 max-w-[220px] rounded-sm border border-border bg-surface px-2 font-mono text-[11px]"
+                          className="h-8 max-w-[220px] rounded-ctl border border-border bg-surface px-2 text-meta"
                           value={libPick}
                           onChange={(e) => setLibPick(e.target.value)}
                         >
@@ -887,11 +911,11 @@ function ProjectsPage() {
                       ) : null}
                     </div>
                     {active.sources.length === 0 ? (
-                      <p className="font-mono text-[11px] text-muted-foreground">
+                      <p className="text-meta text-muted-foreground">
                         No sources. Add a path, URL, or Library item.
                       </p>
                     ) : (
-                      <ul className="space-y-1 font-mono text-[11px]">
+                      <ul className="space-y-1 text-meta">
                         {active.sources.map((row) => (
                           <li key={row.id}>
                             <label className="flex items-center gap-2">
@@ -926,7 +950,7 @@ function ProjectsPage() {
                     title="Files"
                     hint="FRIDAY writes in this project — not an external IDE"
                   >
-                    <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+                    <p className="mb-2 text-meta text-muted-foreground">
                       Last generate: {active.activity.lastGenerate || "none"}. Click a text file to
                       preview source (2 MB cap). HTML is not executed. Not a code-editor clone.
                     </p>
@@ -934,23 +958,23 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void projectWorkspaces.listFiles(active.id).then(setFiles)}
+                        onClick={() => projectWorkspaces.listFiles(active.id).then(setFiles)}
                       >
                         Refresh listing
                       </Button>
                     </div>
                     {(files.length ? files : active.activity.lastFiles).length === 0 ? (
-                      <p className="font-mono text-[11px] text-muted-foreground">
+                      <p className="text-meta text-muted-foreground">
                         No files recorded yet. Ask FRIDAY in Chat to create one here.
                       </p>
                     ) : (
-                      <ul className="font-mono text-[11px]">
+                      <ul className="text-meta">
                         {(files.length ? files : active.activity.lastFiles).map((file) => (
                           <li key={file}>
                             <button
                               type="button"
                               className="text-left underline decoration-dotted"
-                              onClick={() => void previewFile(file)}
+                              onClick={() => previewFile(file)}
                             >
                               {file}
                             </button>
@@ -960,14 +984,12 @@ function ProjectsPage() {
                     )}
                     {preview ? (
                       <div className="mt-3">
-                        <p className="font-mono text-[10px] text-muted-foreground">
-                          {preview.name}
-                        </p>
+                        <p className="text-meta-sm text-muted-foreground">{preview.name}</p>
                         {preview.error ? (
-                          <p className="font-mono text-[11px] text-warning">{preview.error}</p>
+                          <p className="text-meta text-warning">{preview.error}</p>
                         ) : null}
                         {preview.content ? (
-                          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-sm border border-border bg-background p-2 text-[10px]">
+                          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-ctl border border-border bg-background p-2 text-note-sm">
                             {preview.content.slice(0, 20_000)}
                           </pre>
                         ) : null}
@@ -982,7 +1004,7 @@ function ProjectsPage() {
                       value={ask}
                       onChange={(e) => setAsk(e.target.value)}
                       placeholder="Ask FRIDAY to build or edit in this project…"
-                      className="min-h-[90px] font-mono text-[11px]"
+                      className="min-h-[90px] text-meta"
                     />
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button size="sm" onClick={onAsk}>
@@ -999,15 +1021,11 @@ function ProjectsPage() {
                       >
                         Summarise context
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void navigate({ to: "/" })}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => navigate({ to: "/" })}>
                         Open Friday (Main Window)
                       </Button>
                     </div>
-                    <ul className="mt-3 space-y-2 font-mono text-[11px]">
+                    <ul className="mt-3 space-y-2 text-meta">
                       {thread.length === 0 ? (
                         <li className="text-muted-foreground">
                           Same Chat store as the main window. Replies appear here after you Ask
@@ -1015,7 +1033,7 @@ function ProjectsPage() {
                         </li>
                       ) : (
                         thread.map((msg) => (
-                          <li key={msg.id} className="rounded-sm border border-border px-2 py-1">
+                          <li key={msg.id} className="rounded-ctl border border-border px-2 py-1">
                             <strong>{msg.role}</strong> — {msg.text.slice(0, 400)}
                           </li>
                         ))
@@ -1026,7 +1044,7 @@ function ProjectsPage() {
 
                 {tab === "preview" ? (
                   <HudPanel title="Preview" hint="reuse FRIDAY Browser — no second Chromium">
-                    <p className="font-mono text-[11px] text-muted-foreground">
+                    <p className="text-meta text-muted-foreground">
                       In-panel Chromium iframe and APK emulator are not built (Phase 2 refused).
                       Local text/HTML is source-only in Files. A selected http(s) source opens in
                       FRIDAY Browser.
@@ -1035,7 +1053,7 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/browser" })}
+                        onClick={() => navigate({ to: "/browser" })}
                       >
                         Open FRIDAY Browser
                       </Button>
@@ -1086,17 +1104,17 @@ function ProjectsPage() {
 
                 {tab === "runs" ? (
                   <HudPanel title="Runs" hint="Terminal / kernel detect — not a second runner">
-                    <p className="font-mono text-[11px] text-muted-foreground">
+                    <p className="text-meta text-muted-foreground">
                       Detect uses the file listing plus kernel project.detect (FRIDAY_ROOT
                       children). Run stays Terminal after you ask. APK/EXE: missing SDK → Install
                       Manager; no unsigned EXE auto-exec; no pretend emulator.
                     </p>
                     {detectNote || active.activity.lastRunLog ? (
-                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-sm border border-border bg-background p-2 font-mono text-[10px]">
+                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-ctl border border-border bg-background p-2 text-data-sm">
                         {detectNote || active.activity.lastRunLog}
                       </pre>
                     ) : null}
-                    <ul className="mt-2 space-y-1 font-mono text-[11px]">
+                    <ul className="mt-2 space-y-1 text-meta">
                       {runtimeHealth.length === 0 ? (
                         <li>Runtimes: none listed</li>
                       ) : (
@@ -1108,23 +1126,23 @@ function ProjectsPage() {
                       )}
                     </ul>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => void detectProject()}>
+                      <Button size="sm" variant="outline" onClick={() => detectProject()}>
                         Detect this folder
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => void openTerminalHere()}>
+                      <Button size="sm" variant="outline" onClick={() => openTerminalHere()}>
                         Open Terminal here
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/terminal" })}
+                        onClick={() => navigate({ to: "/terminal" })}
                       >
                         Open Terminal
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/sandbox" })}
+                        onClick={() => navigate({ to: "/sandbox" })}
                       >
                         Open Sandbox
                       </Button>
@@ -1134,7 +1152,7 @@ function ProjectsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void navigate({ to: "/doctor" })}
+                        onClick={() => navigate({ to: "/doctor" })}
                       >
                         Doctor: this project&apos;s tools
                       </Button>

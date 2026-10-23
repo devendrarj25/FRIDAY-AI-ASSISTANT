@@ -43,7 +43,7 @@ export function SecuritySettings() {
           tone={encryption?.available ? "accent" : "warning"}
         />
       </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">
+      <p className="mb-3 text-note text-muted-foreground">
         Secrets are always stored with Electron safeStorage when this PC provides it. The toggle
         below does not turn OS encryption off — it refuses to keep new secrets if encryption is
         missing.
@@ -53,7 +53,7 @@ export function SecuritySettings() {
         on={isOn("encryption")}
         onToggle={() => flip("encryption")}
       />
-      <p className="mb-2 text-[11px] text-muted-foreground">
+      <p className="mb-2 text-note text-muted-foreground">
         Outbound calls always use TLS. FRIDAY will not send secrets over plain HTTP.
       </p>
       <ToggleRow
@@ -81,7 +81,7 @@ export function SecuritySettings() {
         on={isOn("blockUnknownHosts")}
         onToggle={() => flip("blockUnknownHosts")}
       />
-      <p className="mt-1 text-[11px] text-muted-foreground">
+      <p className="mt-1 text-note text-muted-foreground">
         Off keeps the two-tier privacy firewall (sensitive always stops; connected providers send
         ordinary chat). On, destinations that are not already connected are denied instead of asked.
       </p>

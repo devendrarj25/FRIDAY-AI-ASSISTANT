@@ -26,15 +26,15 @@ export function ConnectivityPanel() {
         <div className="flex items-center gap-2">
           <Link
             to="/system"
-            className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-surface border border-border/60 px-2 py-1 text-note text-muted-foreground transition-colors hover:text-foreground"
           >
             <MonitorCog className="size-3" /> System
           </Link>
           <button
             type="button"
-            onClick={() => void connectivity.refresh()}
+            onClick={() => connectivity.refresh()}
             disabled={bridge !== "desktop" || loading}
-            className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-surface border border-border/60 px-2 py-1 text-note text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
           >
             <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} /> Rescan
           </button>
@@ -72,8 +72,8 @@ export function ConnectivityPanel() {
             ].map((c) => (
               <div key={c.label} className="rounded-lg border border-border/50 bg-card/40 p-2">
                 <div className="font-mono text-sm text-foreground">{c.value}</div>
-                <div className="text-[11px] text-muted-foreground">{c.label}</div>
-                <div className="text-[10px] text-muted-foreground/70">{c.sub}</div>
+                <div className="text-note text-muted-foreground">{c.label}</div>
+                <div className="text-note-sm text-muted-foreground/70">{c.sub}</div>
               </div>
             ))}
           </div>
@@ -84,12 +84,12 @@ export function ConnectivityPanel() {
             ) : (
               <StatusPill label="fully connected" tone="accent" />
             )}
-            <span className="ml-auto font-mono text-[11px]">
+            <span className="ml-auto text-meta">
               {new Date(graph.at).toLocaleTimeString([], { hour12: false })}
             </span>
           </div>
           {issues.length > 0 && (
-            <ul className="max-h-40 space-y-1 overflow-auto text-[11px]">
+            <ul className="max-h-40 space-y-1 overflow-auto text-note">
               {issues.slice(0, 12).map((issue) => (
                 <li key={`${issue.kind}:${issue.id}`} className="flex items-start gap-2">
                   <span

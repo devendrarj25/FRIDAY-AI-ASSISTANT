@@ -278,7 +278,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
         </Button>
         <AutonomyDial />
       </div>
-      <p className="font-mono text-[10px] text-muted-foreground" aria-label="Flow legend">
+      <p className="text-meta-sm text-muted-foreground" aria-label="Flow legend">
         Shapes follow the kind. Solid control, dashed data, dotted event, double approval. Status is
         written on the box.
       </p>
@@ -333,7 +333,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
             <Button size="sm" variant="outline" onClick={() => flowStudio.clearEvents()}>
               Delete recording
             </Button>
-            <label className="font-mono text-[11px] text-muted-foreground">
+            <label className="text-meta text-muted-foreground">
               scrub
               <input
                 className="ml-2 align-middle"
@@ -345,7 +345,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
                 onChange={(event) => setCursor(Number(event.target.value))}
               />
             </label>
-            <span className="font-mono text-[11px] text-muted-foreground">cost {cost}</span>
+            <span className="text-meta text-muted-foreground">cost {cost}</span>
             <Button
               size="sm"
               variant="outline"
@@ -386,7 +386,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
               <li key={item.id}>
                 <button
                   type="button"
-                  className="w-full rounded-md border border-border bg-card px-2 py-1 text-left text-xs text-foreground"
+                  className="w-full rounded-surface border border-border bg-card px-2 py-1 text-left text-xs text-foreground"
                   onClick={() => setSelected(item.id)}
                 >
                   {item.data.label} · {item.data.status} · {item.data.risk}
@@ -402,10 +402,10 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
           {shown.nodes.map((item) => (
             <li
               key={item.id}
-              className="flow-box rounded-md border border-border bg-card p-2 text-xs"
+              className="flow-box rounded-surface border border-border bg-card p-2 text-xs"
             >
               <p>{item.label}</p>
-              <p className="font-mono text-[10px] text-muted-foreground">
+              <p className="text-meta-sm text-muted-foreground">
                 {item.kind} · in{" "}
                 {item.ports
                   .filter((port) => port.direction === "in")
@@ -439,15 +439,13 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
               stage(parsed.graph);
             }}
           />
-          {codeIssue ? (
-            <span className="font-mono text-[11px] text-muted-foreground">{codeIssue}</span>
-          ) : null}
+          {codeIssue ? <span className="text-meta text-muted-foreground">{codeIssue}</span> : null}
         </div>
       ) : null}
       {node ? (
         <HudPanel title={node.label} hint={node.module || "unwired"}>
           <p className="text-xs text-muted-foreground">{node.detail || "unknown"}</p>
-          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+          <p className="mt-1 text-meta text-muted-foreground">
             {node.status} · {node.risk} · lineage {lineage.join(", ") || "none"} · ports{" "}
             {node.ports.map((port) => `${port.direction}:${port.type}`).join(", ")}
           </p>
@@ -460,18 +458,15 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
             )
             .slice(0, 3)
             .map((edge) => (
-              <p key={edge.id} className="mt-1 font-mono text-[11px] text-muted-foreground">
+              <p key={edge.id} className="mt-1 text-meta text-muted-foreground">
                 {edge.binding?.reason}
               </p>
             ))}
           {fields.map((field) => (
-            <label
-              key={field.key}
-              className="mt-1 grid font-mono text-[11px] text-muted-foreground"
-            >
+            <label key={field.key} className="mt-1 grid text-meta text-muted-foreground">
               {field.label}
               <input
-                className="rounded-md border border-border bg-background px-2 py-1 text-foreground"
+                className="rounded-surface border border-border bg-background px-2 py-1 text-foreground"
                 aria-label={field.label}
                 value={field.value}
                 onChange={(event) => {
@@ -484,7 +479,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
             </label>
           ))}
           {fromHere ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            <p className="mt-1 text-meta text-muted-foreground">
               Run from here stays a dry run
               {fromHere.needsApproval
                 ? " and waits for approval before a write or exec."
@@ -572,9 +567,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
               Open internals
             </Button>
           </div>
-          {forgeNote ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">{forgeNote}</p>
-          ) : null}
+          {forgeNote ? <p className="mt-1 text-meta text-muted-foreground">{forgeNote}</p> : null}
           {node.locked ? (
             <p className="mt-2 text-xs text-foreground">Locked. No switch.</p>
           ) : (
@@ -596,14 +589,14 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
             </div>
           )}
           {switchDetail ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">{switchDetail}</p>
+            <p className="mt-1 text-meta text-muted-foreground">{switchDetail}</p>
           ) : null}
           {probeWiringNode(node.id)?.status ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            <p className="mt-1 text-meta text-muted-foreground">
               probe {probeWiringNode(node.id)?.state} · {probeWiringNode(node.id)?.status}
             </p>
           ) : (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">probe unknown</p>
+            <p className="mt-1 text-meta text-muted-foreground">probe unknown</p>
           )}
         </HudPanel>
       ) : null}
@@ -819,7 +812,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
         >
           Speak
         </Button>
-        <label className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+        <label className="flex items-center gap-1 text-meta text-muted-foreground">
           <input
             type="checkbox"
             checked={traceOn}
@@ -838,10 +831,10 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
           </Button>
         ) : null}
       </div>
-      {tour ? <p className="font-mono text-[11px] text-muted-foreground">{tour}</p> : null}
+      {tour ? <p className="text-meta text-muted-foreground">{tour}</p> : null}
       {findings.length ? (
         <ul
-          className="max-h-24 overflow-y-auto font-mono text-[11px] text-muted-foreground"
+          className="max-h-24 overflow-y-auto text-data text-muted-foreground"
           aria-label="Wiring findings"
         >
           {findings.map((line) => (
@@ -849,21 +842,21 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
           ))}
         </ul>
       ) : null}
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="text-meta text-muted-foreground">
         Phone snapshot: {phone.reason}. Mutations {phone.mutations ? "on" : "off"}.
       </p>
       {mermaid ? (
         <textarea
-          className="h-24 rounded-md border border-border bg-background p-2 font-mono text-[11px] text-foreground"
+          className="h-24 rounded-surface border border-border bg-background p-2 text-data text-foreground"
           readOnly
           value={mermaid}
           aria-label="Flow export"
         />
       ) : null}
-      <label className="grid gap-1 font-mono text-[11px] text-muted-foreground">
+      <label className="grid gap-1 text-meta text-muted-foreground">
         Import Mermaid, DOT, or a pack (stays off until you accept it)
         <textarea
-          className="h-20 rounded-md border border-border bg-background p-2 text-foreground"
+          className="h-20 rounded-surface border border-border bg-background p-2 text-foreground"
           value=""
           placeholder="flowchart, digraph, or JSON"
           onChange={(event) => {
@@ -894,7 +887,7 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
       </label>
       {pendingImport ? (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             Import is off. {pendingImport.nodes.length} boxes. Accept to place it on the canvas.
           </p>
           <Button
@@ -910,11 +903,11 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
         </div>
       ) : null}
       {inside ? (
-        <p className="font-mono text-[11px] text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           Internals: {inside.title}. {inside.nodes.length} boxes. {inside.edges.length} wires.
         </p>
       ) : null}
-      <p className="flow-legend font-mono text-[11px] text-muted-foreground">
+      <p className="flow-legend text-meta text-muted-foreground">
         <span>
           <i data-kind="trigger" /> trigger
         </span>
@@ -935,10 +928,10 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
           {flowLine("legend")} {flowLine("legend", "hi")}
         </span>
       </p>
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="text-meta text-muted-foreground">
         {explainGraph(shown, "explain this flow").split("\n").slice(0, 4).join(" ")}
       </p>
-      <p className="font-mono text-[11px] text-muted-foreground">
+      <p className="text-meta text-muted-foreground">
         diff {JSON.stringify(diffGraphs(draft.base, graph))}
       </p>
     </>

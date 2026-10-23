@@ -67,7 +67,7 @@ export function VoiceSettings() {
             <select
               value={prefs.voice.recognitionLang}
               onChange={(e) => preferences.setVoice({ recognitionLang: e.target.value })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               {RECOGNITION_LANGS.map((lang) => (
                 <option key={lang.value} value={lang.value} className="bg-background">
@@ -95,7 +95,7 @@ export function VoiceSettings() {
                   addressMode: e.target.value as "name-only" | "conversation" | "meant-for-me",
                 })
               }
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="name-only" className="bg-background">
                 Only when I say FRIDAY
@@ -117,7 +117,7 @@ export function VoiceSettings() {
                   listenStyle: e.target.value === "push-to-talk" ? "push-to-talk" : "always",
                 })
               }
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="always" className="bg-background">
                 Always listening (wake word and follow-ups)
@@ -132,7 +132,7 @@ export function VoiceSettings() {
             <select
               value={String(prefs.voice.heardKeepMin ?? 10)}
               onChange={(e) => preferences.setVoice({ heardKeepMin: Number(e.target.value) })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="0" className="bg-background">
                 Off
@@ -153,7 +153,7 @@ export function VoiceSettings() {
             <select
               value={String(prefs.voice.heardKeepRows ?? 40)}
               onChange={(e) => preferences.setVoice({ heardKeepRows: Number(e.target.value) })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="0" className="bg-background">
                 Off
@@ -174,7 +174,7 @@ export function VoiceSettings() {
             <select
               value={prefs.voice.inputDeviceId}
               onChange={(e) => preferences.setVoice({ inputDeviceId: e.target.value })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="" className="bg-background">
                 System default
@@ -213,7 +213,7 @@ export function VoiceSettings() {
             value={prefs.fields["speakerThreshold"] ?? "0.75"}
             onChange={(value) => preferences.setField("speakerThreshold", value)}
           />
-          <p className="font-mono text-[11px] text-muted-foreground">
+          <p className="text-meta text-muted-foreground">
             WeSpeaker ECAPA is CC-BY-4.0 and is not bundled. A match never approves an action. Enrol
             waits until that file is on this PC.
           </p>
@@ -284,7 +284,7 @@ export function VoiceSettings() {
                   sttSize: e.target.value as typeof prefs.voice.sttSize,
                 })
               }
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="auto" className="bg-background">
                 Auto
@@ -311,7 +311,7 @@ export function VoiceSettings() {
             <select
               value={prefs.fields["talk"] || "balanced"}
               onChange={(e) => preferences.update({ fields: { talk: e.target.value } })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="reserved" className="bg-background">
                 Reserved
@@ -329,7 +329,7 @@ export function VoiceSettings() {
             <select
               value={prefs.fields["warmth"] || "steady"}
               onChange={(e) => preferences.update({ fields: { warmth: e.target.value } })}
-              className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+              className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
             >
               <option value="plain" className="bg-background">
                 Plain
@@ -344,16 +344,16 @@ export function VoiceSettings() {
           </label>
           <div className="block sm:col-span-2">
             <p className="label-xs text-muted-foreground">Voice check</p>
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            <p className="mt-1 text-meta text-muted-foreground">
               {voiceSelfTestPlan().join(" → ")}. This page does not open the microphone. The live
               check runs in Auto mode.
             </p>
-            <ol className="mt-2 list-decimal space-y-1 pl-4 font-mono text-[11px] text-muted-foreground">
+            <ol className="mt-2 list-decimal space-y-1 pl-4 text-meta text-muted-foreground">
               {ownerAcceptanceSteps().map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>
-            <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+            <p className="mt-2 text-meta text-muted-foreground">
               {voiceReadinessNote("").includes("Flow resume")
                 ? "A simulated clean PC reaches listening again. This page still does not open the microphone."
                 : "The simulated voice flow did not finish. Doctor has the detail."}
@@ -361,7 +361,7 @@ export function VoiceSettings() {
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+                className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
                 onClick={() =>
                   void desktopApi()?.openExternalUrl?.("ms-settings:privacy-microphone")
                 }
@@ -371,8 +371,8 @@ export function VoiceSettings() {
               </button>
               <button
                 type="button"
-                className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
-                onClick={() => void desktopApi()?.openExternalUrl?.("ms-settings:sound")}
+                className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+                onClick={() => desktopApi()?.openExternalUrl?.("ms-settings:sound")}
               >
                 <Settings2 className="size-3" aria-hidden="true" />
                 Sound input settings
@@ -386,7 +386,7 @@ export function VoiceSettings() {
           />
           <button
             type="button"
-            className="hud-tile rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 text-left font-mono text-xs text-foreground"
+            className="hud-tile rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 text-left font-mono text-xs text-foreground"
             onClick={() => {
               const api = (window as unknown as { friday?: { clearVoiceprint?: () => void } })
                 .friday;
@@ -399,9 +399,7 @@ export function VoiceSettings() {
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <p className="label-xs text-muted-foreground">Attention window after wake</p>
-              <span className="font-mono text-[11px] text-primary">
-                {attentionWindowSeconds()} s
-              </span>
+              <span className="text-meta text-primary">{attentionWindowSeconds()} s</span>
             </div>
             <Slider
               min={10}
@@ -555,7 +553,7 @@ function VoiceLibraryPanel() {
           <select
             value={picked}
             onChange={(e) => setPicked(e.target.value)}
-            className="hud-tile mt-1 w-full rounded-sm border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
+            className="hud-tile mt-1 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 font-mono text-xs text-foreground"
           >
             {neural.length ? (
               <optgroup label="Neural (free · natural)">
@@ -650,14 +648,14 @@ function VoiceLibraryPanel() {
           <div
             key={model.id}
             className={cn(
-              "hud-tile rounded-sm border p-3",
+              "hud-tile rounded-ctl border p-3",
               model.id === activeId ? "border-primary/60" : "border-primary/20",
             )}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="truncate font-mono text-xs text-foreground">{model.label}</p>
-                <p className="truncate font-mono text-[11px] text-muted-foreground">
+                <p className="truncate text-meta text-muted-foreground">
                   {model.kind === "file"
                     ? (model.filePath ?? "imported file")
                     : model.kind === "neural"
@@ -697,7 +695,7 @@ function VoiceLibraryPanel() {
                 >
                   Test
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => void removeVoiceModel(model.id)}>
+                <Button size="sm" variant="outline" onClick={() => removeVoiceModel(model.id)}>
                   Remove
                 </Button>
               </div>

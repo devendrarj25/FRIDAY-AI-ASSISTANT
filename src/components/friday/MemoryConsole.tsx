@@ -1,3 +1,5 @@
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
@@ -6,6 +8,7 @@ import {
   Download,
   Pencil,
   Pin,
+  PinOff,
   RefreshCw,
   Search,
   Sparkles,
@@ -16,7 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable, HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { DataTable, FilterTabs, HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
 import { memoryLayers, type MemoryLayer } from "@/lib/friday/brain-catalog";
@@ -75,21 +78,11 @@ export function MemoryConsole() {
   const [memLayer, setMemLayer] = useState<MemoryLayer>("long-term");
   const [indexPath, setIndexPath] = useState("");
   const [tier, setTier] = useState<MemoryTier | "all">("all");
-  const [tick, setTick] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, []);
-  void tick;
-
-  useEffect(() => {
-    void vectorIndex.refresh();
-    const id = window.setInterval(() => void vectorIndex.refresh(), 8_000);
-    return () => window.clearInterval(id);
-  }, []);
+  useSecondsTick(15);
+  useLivePoll("memory.vector-index", () => vectorIndex.refresh(), 8_000);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -291,26 +284,32 @@ export function MemoryConsole() {
               <span key="s" className="block max-w-[26rem] truncate text-xs text-muted-foreground">
                 {m.snippet}
               </span>,
-              <span key="c" className="font-mono text-[11px] text-primary">
+              <span key="c" className="text-meta text-primary">
                 {m.score}
               </span>,
-              <span key="a" className="flex gap-2">
-                <button
-                  type="button"
+              <span key="a" className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title={m.pinned ? "Unpin this record" : "Pin this record"}
                   onClick={() => brain.pin(m.id)}
-                  className="font-mono text-[10px] text-primary hover:underline"
                 >
+                  {m.pinned ? <PinOff /> : <Pin />}
                   {m.pinned ? "unpin" : "pin"}
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  title="Forget this record"
                   onClick={() => brain.forget(m.id)}
-                  className="font-mono text-[10px] text-destructive hover:underline"
                 >
+                  <Trash2 />
                   forget
-                </button>
+                </Button>
               </span>,
             ])}
+            pinLast
           />
         </HudPanel>
 
@@ -318,34 +317,18 @@ export function MemoryConsole() {
           title="Six-tier store"
           hint={`${tieredResults.length} of ${memoryState.items.length} records`}
         >
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setTier("all")}
-              className={cn(
-                "rounded-sm border px-2 py-1 font-mono text-[10px]",
-                tier === "all"
-                  ? "border-primary/50 bg-primary/15 text-primary"
-                  : "border-border text-muted-foreground",
-              )}
-            >
-              all
-            </button>
-            {memoryTiers.map((spec) => (
-              <button
-                key={spec.id}
-                type="button"
-                onClick={() => setTier(spec.id)}
-                className={cn(
-                  "rounded-sm border px-2 py-1 font-mono text-[10px]",
-                  tier === spec.id
-                    ? "border-primary/50 bg-primary/15 text-primary"
-                    : "border-border text-muted-foreground",
-                )}
-              >
-                {spec.label} {memoryState.counts[spec.id] ?? 0}
-              </button>
-            ))}
+          <div className="mb-3">
+            <FilterTabs
+              tabs={[
+                { key: "all", label: "all" },
+                ...memoryTiers.map((spec) => ({
+                  key: spec.id,
+                  label: `${spec.label} ${memoryState.counts[spec.id] ?? 0}`,
+                })),
+              ]}
+              value={tier}
+              onChange={(key) => setTier(key as MemoryTier | "all")}
+            />
           </div>
           <div className="grid max-h-[380px] gap-2 overflow-y-auto pr-1">
             {tieredResults.length === 0 ? (
@@ -451,7 +434,7 @@ export function MemoryConsole() {
                   <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                     {item.text}
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
+                  <p className="mt-1 text-meta text-muted-foreground/70">
                     {item.source} · used {item.uses}× · confidence{" "}
                     {Math.round(item.confidence * 100)}% · {ago(item.updatedAt)}
                   </p>
@@ -473,7 +456,7 @@ export function MemoryConsole() {
               size="sm"
               variant="outline"
               disabled={vector.busy || !memQuery.trim()}
-              onClick={() => void vectorIndex.search(memQuery)}
+              onClick={() => vectorIndex.search(memQuery)}
             >
               <Search className={cn("size-4", vector.busy && "animate-pulse")} /> Search index
             </Button>
@@ -530,13 +513,11 @@ export function MemoryConsole() {
                   </p>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{r.snippet}</p>
-                <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                  score {r.score.toFixed(3)}
-                </p>
+                <p className="mt-1 text-meta text-muted-foreground">score {r.score.toFixed(3)}</p>
               </li>
             ))}
             {vector.results.length ? null : (
-              <li className="font-mono text-[11px] text-muted-foreground">
+              <li className="text-meta text-muted-foreground">
                 {vector.available
                   ? vector.searchedAt
                     ? "No documents match."
@@ -550,7 +531,7 @@ export function MemoryConsole() {
 
       <div className="space-y-4">
         <HudPanel title="Index" hint={`checked ${relative(vector.checkedAt)}`}>
-          <dl className="space-y-2 font-mono text-[11px] text-muted-foreground">
+          <dl className="space-y-2 text-meta text-muted-foreground">
             <div className="flex justify-between gap-3">
               <dt>backend</dt>
               <dd className={vector.available ? "text-accent" : "text-warning"}>
@@ -594,18 +575,18 @@ export function MemoryConsole() {
               <li key={spec.id} className="border-b border-border/60 pb-2 last:border-0">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-foreground">
-                    {spec.label} <span className="font-mono text-[10px] text-primary">{count}</span>
+                    {spec.label} <span className="text-meta-sm text-primary">{count}</span>
                   </p>
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                  <span className="text-meta-sm text-muted-foreground">
                     {ttlLabel(spec.ttlMs)} · {pressure}%
                   </span>
                 </div>
-                <p className="font-mono text-[10px] text-muted-foreground">{spec.note}</p>
+                <p className="text-meta-sm text-muted-foreground">{spec.note}</p>
               </li>
             ))}
           </ul>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => void vectorIndex.syncLocalMemory()}>
+            <Button size="sm" variant="outline" onClick={() => vectorIndex.syncLocalMemory()}>
               <Sparkles className="size-4" /> Sync to index
             </Button>
             <Button
@@ -619,7 +600,7 @@ export function MemoryConsole() {
             >
               Clear working
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => void vectorIndex.refresh()}>
+            <Button size="sm" variant="ghost" onClick={() => vectorIndex.refresh()}>
               Refresh status
             </Button>
           </div>
@@ -627,23 +608,11 @@ export function MemoryConsole() {
 
         <HudPanel title={editingId ? "Edit memory" : "Teach FRIDAY"}>
           <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {memoryLayers.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => setMemLayer(l.id)}
-                  className={cn(
-                    "rounded-sm border px-2 py-1 font-mono text-[10px]",
-                    memLayer === l.id
-                      ? "border-primary/50 bg-primary/15 text-primary"
-                      : "border-border text-muted-foreground",
-                  )}
-                >
-                  {l.id}
-                </button>
-              ))}
-            </div>
+            <FilterTabs
+              tabs={memoryLayers.map((l) => ({ key: l.id, label: l.id }))}
+              value={memLayer}
+              onChange={(key) => setMemLayer(key as typeof memLayer)}
+            />
             <Input
               value={memTitle}
               onChange={(e) => setMemTitle(e.target.value)}
@@ -719,11 +688,11 @@ export function MemoryConsole() {
               <li key={l.id}>
                 <p className="text-xs text-foreground">
                   {l.label}{" "}
-                  <span className="font-mono text-[10px] text-primary">
+                  <span className="text-meta-sm text-primary">
                     {state.memory.filter((m) => m.layer === l.id).length}
                   </span>
                 </p>
-                <p className="font-mono text-[10px] text-muted-foreground">{l.note}</p>
+                <p className="text-meta-sm text-muted-foreground">{l.note}</p>
               </li>
             ))}
           </ul>

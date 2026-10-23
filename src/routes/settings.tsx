@@ -123,7 +123,7 @@ function SettingsPage() {
                   });
                 }}
                 className={cn(
-                  "friday-btn friday-nav-link relative flex w-full items-center gap-2 rounded-sm border px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "friday-btn friday-nav-link relative flex w-full items-center gap-2 rounded-ctl border px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   section === s.key
                     ? "border-primary/50 bg-primary/12 text-primary"
                     : "border-transparent text-muted-foreground hover:border-primary/25 hover:text-foreground",

@@ -60,7 +60,7 @@ export function LevelSwitch({ level }: { level: ChatLevel }) {
       ref={listRef}
       role="radiogroup"
       aria-label="Chat size"
-      className="chat-level-switch friday-seg flex items-center rounded-md border border-primary/20 p-0.5"
+      className="chat-level-switch friday-seg flex items-center rounded-surface border border-primary/20 p-0.5"
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {CHAT_LEVELS.map((value) => (
@@ -73,7 +73,7 @@ export function LevelSwitch({ level }: { level: ChatLevel }) {
           title={`${CHAT_LEVEL_LABELS[value]} (Alt+${value})`}
           onClick={() => chatLevel.set(value)}
           className={cn(
-            "friday-btn h-6 min-w-6 rounded-sm px-1.5 font-mono text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+            "friday-btn h-6 min-w-6 rounded-ctl px-1.5 text-meta-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
             level === value
               ? "bg-primary/20 text-primary"
               : "text-muted-foreground hover:bg-primary/10 hover:text-primary",

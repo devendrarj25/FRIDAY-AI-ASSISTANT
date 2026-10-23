@@ -3,7 +3,12 @@ import { ArrowDown, Check, Copy, RotateCcw } from "lucide-react";
 import type { Message } from "@/lib/friday/brain-engine";
 import { brain } from "@/lib/friday/brain-engine";
 import { splitChatBlocks } from "@/lib/friday/chat-blocks";
-import { followsLatest, type ChatLevel, type TranscriptMark } from "@/lib/friday/chat-level";
+import {
+  followsLatest,
+  selectionHeldIn,
+  type ChatLevel,
+  type TranscriptMark,
+} from "@/lib/friday/chat-level";
 import { copyText } from "@/lib/friday/clipboard";
 import { formatOwnerDate } from "@/lib/friday/settings-runtime";
 import { cn } from "@/lib/utils";
@@ -51,7 +56,7 @@ function CopyButton({
         });
       }}
       className={cn(
-        "chat-row-action inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
+        "chat-row-action inline-flex size-4 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary",
         className,
       )}
     >
@@ -74,14 +79,17 @@ function AnswerBody({ text, className }: { text: string; className: string }) {
             {block.text}
           </pre>
         ) : (
-          <div key={i} className="overflow-hidden rounded-md border border-primary/20 bg-surface">
+          <div
+            key={i}
+            className="overflow-hidden rounded-surface border border-primary/20 bg-surface"
+          >
             <div className="flex items-center justify-between border-b border-primary/10 px-2 py-0.5">
-              <span className="label-xs text-[9px] text-muted-foreground">
+              <span className="label-xs text-note-sm text-muted-foreground">
                 {block.lang || "code"}
               </span>
               <CopyButton text={block.code} label="Copy code" />
             </div>
-            <pre className="overflow-x-auto p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
+            <pre className="overflow-x-auto p-2 text-data leading-relaxed text-foreground/90">
               <code>{block.code}</code>
             </pre>
           </div>
@@ -132,7 +140,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             {message.text}
           </p>
           {showTimestamps ? (
-            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            <p className="mt-0.5 text-meta-sm text-muted-foreground">
               {formatOwnerDate(message.at)}
             </p>
           ) : null}
@@ -148,7 +156,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       )}
     >
       <div className="mb-0.5 flex items-center gap-1">
-        <p className="label-xs text-[9px] text-primary">
+        <p className="label-xs text-note-sm text-primary">
           FRIDAY
           {showTimestamps ? (
             <span className="ml-2 font-mono text-muted-foreground">
@@ -165,7 +173,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                 aria-label="Regenerate this answer"
                 title="Regenerate this answer"
                 onClick={regenerate}
-                className="chat-row-action chat-row-keep inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                className="chat-row-action chat-row-keep inline-flex size-4 items-center justify-center rounded-ctl text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
               >
                 <RotateCcw className="size-3" />
               </button>
@@ -241,7 +249,10 @@ export function ChatTranscript({
     if (followsLatest(pinned.current, seen.current, mark)) {
       pinned.current = true;
       setAway(false);
-      toBottom();
+      // Selecting text while a reply streams holds the view still.
+      const held =
+        typeof window !== "undefined" && selectionHeldIn(scrollRef.current, window.getSelection());
+      if (!held) toBottom();
     }
     seen.current = mark;
   }, [messages, conversation, newest, level, toBottom]);
@@ -277,7 +288,7 @@ export function ChatTranscript({
       >
         <div className={cn("space-y-2", full && "mx-auto w-full max-w-[48rem]")}>
           {messages.length === 0 ? (
-            <p className="py-3 text-center font-mono text-[11px] text-muted-foreground">{empty}</p>
+            <p className="py-3 text-center text-meta text-muted-foreground">{empty}</p>
           ) : null}
           {messages.map((m) => (
             <ChatMessageRow
@@ -301,7 +312,7 @@ export function ChatTranscript({
             setAway(false);
             toBottom();
           }}
-          className="absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/30 bg-card px-2.5 py-0.5 font-mono text-[10px] text-primary shadow-sm transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          className="absolute bottom-2 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/30 bg-card px-2.5 py-0.5 text-meta-sm text-primary shadow-sm transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
         >
           <ArrowDown className="size-3" /> Jump to latest
         </button>

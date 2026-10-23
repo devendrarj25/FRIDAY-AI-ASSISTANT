@@ -90,7 +90,7 @@ export function PermissionSettings() {
         title="Tool Permissions"
         hint={desktopApi() ? "enforced by the tool authority" : "desktop app only"}
         actions={
-          <Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}>
+          <Button size="sm" variant="outline" disabled={loading} onClick={() => load()}>
             <RefreshCw className="size-4" /> Refresh
           </Button>
         }
@@ -107,15 +107,15 @@ export function PermissionSettings() {
                   type="button"
                   aria-label={`${tool}: ${decision}, change`}
                   title="Change this decision"
-                  onClick={() => void set(tool, NEXT[decision])}
+                  onClick={() => set(tool, NEXT[decision])}
                 >
                   <StatusPill label={decision} tone={TONE[decision]} />
                 </button>
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => void set(tool, "default")}
+                  className="h-6 px-2 text-note"
+                  onClick={() => set(tool, "default")}
                 >
                   reset
                 </Button>
@@ -123,7 +123,7 @@ export function PermissionSettings() {
             ))}
           </ul>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             No per-tool overrides yet — every tool follows its risk default below.
           </p>
         )}
@@ -180,7 +180,7 @@ export function PermissionSettings() {
             <p className="label-xs text-muted-foreground">Risk defaults</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {Object.entries(defaults).map(([risk, decision]) => (
-                <span key={risk} className="font-mono text-[11px] text-muted-foreground">
+                <span key={risk} className="text-meta text-muted-foreground">
                   {risk} → <span className="text-primary">{decision}</span>
                 </span>
               ))}
@@ -205,7 +205,7 @@ export function PermissionSettings() {
           on={isOn("execApproval")}
           onToggle={() => flip("execApproval")}
         />
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-note text-muted-foreground">
           Write and exec tools always ask — owner rules cannot auto-approve them. Turning safe tools
           off makes even read-only tools ask.
         </p>
@@ -228,7 +228,7 @@ export function PermissionSettings() {
           size="sm"
           variant="outline"
           className="mt-4"
-          onClick={() => void navigate({ to: "/tools" })}
+          onClick={() => navigate({ to: "/tools" })}
         >
           <SlidersHorizontal className="size-4" /> Open tool manager
         </Button>
@@ -258,7 +258,7 @@ export function PermissionSettings() {
             ))}
           </ul>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-note text-muted-foreground">
             Security state is reported by the FRIDAY desktop app.
           </p>
         )}

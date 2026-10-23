@@ -329,7 +329,12 @@ describe("flow studio wiring", () => {
     const brain = read("src/lib/friday/brain-engine.ts");
     expect(read("docs/FRIDAY_MASTER_FLOW.md")).toContain("Flow Studio");
     expect(read("docs/FRIDAY_USER_GUIDE.md")).toContain("How to watch, edit, and build flows");
-    expect(shell).toContain("FlowStudioHost");
+    expect(shell).toContain("<FlowStudioLazyHost />");
+    // The dialog and its heavy engines load on first open, not with the shell.
+    const lazy = read("src/components/friday/FlowStudioLazy.tsx");
+    expect(lazy).toContain('import("@/components/friday/FlowStudio")');
+    expect(lazy).toContain("FlowStudioHost");
+    expect(shell).not.toContain('from "@/components/friday/FlowStudio"');
     expect(shell).toContain('flowStudio.open(featureForPath(pathname), "chart")');
     expect(shell).toContain("Flow");
     expect(wiring).toContain("locked");

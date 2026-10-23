@@ -8,7 +8,8 @@
  * gate as the rest of FRIDAY.
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { Loader2, Plug, RefreshCw, Search, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
@@ -207,7 +208,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
 
         <div className="flex flex-wrap gap-2">
           {authType === "oauth" && (
-            <Button size="sm" disabled={busy !== null} onClick={() => void oauth()}>
+            <Button size="sm" disabled={busy !== null} onClick={() => oauth()}>
               {busy === "oauth" ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
@@ -218,7 +219,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
           )}
           {authType === "phone" && (
             <>
-              <Button size="sm" disabled={busy !== null} onClick={() => void sendCode()}>
+              <Button size="sm" disabled={busy !== null} onClick={() => sendCode()}>
                 {busy === "phone-send" ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
@@ -230,7 +231,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
                 size="sm"
                 variant="outline"
                 disabled={busy !== null || !smsCode.trim()}
-                onClick={() => void confirmCode()}
+                onClick={() => confirmCode()}
               >
                 {busy === "phone-confirm" ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -274,7 +275,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
         </div>
 
         {connector.connected && (
-          <div className="space-y-2 rounded-md border border-border/60 p-2">
+          <div className="space-y-2 rounded-surface border border-border/60 p-2">
             {connector.actions.map((action) => (
               <div key={action.id} className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -282,7 +283,7 @@ function ConnectorCard({ connector, refresh }: { connector: Connector; refresh: 
                     size="sm"
                     variant="ghost"
                     disabled={busy !== null}
-                    onClick={() => void run(action)}
+                    onClick={() => run(action)}
                   >
                     {busy === action.id ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -370,14 +371,11 @@ function McpServerPanel() {
     if (row) setStatus(row);
   }
 
+  // Pairing requests and the on/off state change outside this page, so the
+  // status follows the shared poller (paused while the window is hidden).
+  useLivePoll("connectors.mcp-status", refresh, 10_000);
+
   useEffect(() => {
-    void safeCall<McpStatus>(
-      "mcp-desk:status",
-      () => desktopApi()?.mcpDesk?.({ action: "status" }) as Promise<McpStatus>,
-      { fallback: { ok: false, error: "Desktop bridge is not available." } },
-    ).then((row) => {
-      if (row) setStatus(row);
-    });
     void safeCall<{ ok?: boolean; clients?: McpSnippet[] }>(
       "mcp-desk:snippet",
       () => desktopApi()?.mcpDesk?.({ action: "snippet" }) as Promise<{ clients?: McpSnippet[] }>,
@@ -414,16 +412,16 @@ function McpServerPanel() {
           scope is read. Write and exec still wait for you, and Stop everything halts every call.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => void run("enable")}>
+          <Button size="sm" variant="outline" onClick={() => run("enable")}>
             Turn on
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void run("disable")}>
+          <Button size="sm" variant="outline" onClick={() => run("disable")}>
             Turn off
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void run("pair")}>
+          <Button size="sm" variant="outline" onClick={() => run("pair")}>
             New code
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void run("panic")}>
+          <Button size="sm" variant="outline" onClick={() => run("panic")}>
             Panic
           </Button>
         </div>
@@ -445,7 +443,7 @@ function McpServerPanel() {
               {scope}
             </Button>
           ))}
-          <Button size="sm" variant="outline" onClick={() => void run("approve", { code, scopes })}>
+          <Button size="sm" variant="outline" onClick={() => run("approve", { code, scopes })}>
             Approve code
           </Button>
         </div>
@@ -467,14 +465,14 @@ function McpServerPanel() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void run("revoke", { clientId: client.id })}
+              onClick={() => run("revoke", { clientId: client.id })}
             >
               Revoke
             </Button>
           </div>
         ))}
         {(status?.approvals || []).map((row) => (
-          <div key={row.id} className="space-y-1 rounded-md border border-border p-2 text-xs">
+          <div key={row.id} className="space-y-1 rounded-surface border border-border p-2 text-xs">
             <p>
               {row.clientId} asks to run {row.tool} ({row.risk}).
             </p>
@@ -482,14 +480,14 @@ function McpServerPanel() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void run("decide", { approvalId: row.id, allow: true })}
+                onClick={() => run("decide", { approvalId: row.id, allow: true })}
               >
                 Allow
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void run("decide", { approvalId: row.id, allow: false })}
+                onClick={() => run("decide", { approvalId: row.id, allow: false })}
               >
                 Deny
               </Button>
@@ -497,7 +495,7 @@ function McpServerPanel() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => void run("always", { clientId: row.clientId, tool: row.tool })}
+                  onClick={() => run("always", { clientId: row.clientId, tool: row.tool })}
                 >
                   Always allow this tool
                 </Button>
@@ -517,7 +515,7 @@ function McpServerPanel() {
             <textarea
               readOnly
               value={shown}
-              className="h-28 w-full rounded-md border border-border bg-transparent p-2 font-mono text-xs"
+              className="h-28 w-full rounded-surface border border-border bg-transparent p-2 font-mono text-xs"
             />
             <div className="flex gap-2">
               <Button
@@ -534,7 +532,7 @@ function McpServerPanel() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => void run("write-config", { id: picked })}
+                  onClick={() => run("write-config", { id: picked })}
                 >
                   Write it for me
                 </Button>
@@ -551,6 +549,8 @@ function McpServerPanel() {
 function ConnectorsPage() {
   const { connectors, loading, supported, refresh } = useConnectors();
   const [query, setQuery] = useState("");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
   const [category, setCategory] = useState("all");
   const [tab, setTab] = useState("all");
   const counts = useMemo(
@@ -567,7 +567,7 @@ function ConnectorsPage() {
     return keys;
   }, [connectors]);
   const rows = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
     return connectors.filter((connector) => {
       if (tab === "connected" && !connector.connected) return false;
       if (tab === "open" && connector.connected) return false;
@@ -576,14 +576,14 @@ function ConnectorsPage() {
       const hay = `${connector.name} ${connector.id} ${connector.category} ${connector.description} ${connector.authType || ""}`;
       return hay.toLowerCase().includes(needle);
     });
-  }, [connectors, query, category, tab]);
+  }, [connectors, deferredQuery, category, tab]);
 
   return (
     <AppShell
       title="Connectors"
       subtitle="Verified links to the outside services you use"
       actions={
-        <Button size="sm" variant="outline" onClick={() => void refresh()}>
+        <Button size="sm" variant="outline" onClick={() => refresh()}>
           <RefreshCw className="size-4" /> Refresh
         </Button>
       }

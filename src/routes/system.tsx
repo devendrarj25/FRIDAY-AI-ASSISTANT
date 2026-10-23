@@ -72,6 +72,7 @@ function SystemPage() {
     <AppShell
       title="Hardware"
       subtitle="Machine overview · everything measured locally"
+      live={{ at: live.live ? live.at : null, everyMs: 5000, offline: !live.live }}
       actions={
         <Button size="sm" variant="outline" onClick={openSecurity}>
           <ShieldCheck className="size-4" /> Open Windows Security
@@ -171,8 +172,8 @@ function SystemPage() {
                   ],
                 ] as [string, string][]
               ).map(([label, value]) => (
-                <div key={label} className="rounded-sm border border-border bg-surface px-3 py-2">
-                  <p className="text-[11px] text-muted-foreground">{label}</p>
+                <div key={label} className="rounded-ctl border border-border bg-surface px-3 py-2">
+                  <p className="text-note text-muted-foreground">{label}</p>
                   <p className="mt-0.5 truncate font-mono text-xs text-foreground">{value}</p>
                 </div>
               ))}

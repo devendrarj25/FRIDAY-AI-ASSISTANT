@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Download, FileArchive, FolderUp, Loader2, Plus, RefreshCw } from "lucide-react";
+import {
+  Cpu,
+  Download,
+  FileArchive,
+  FolderUp,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Wrench,
+} from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
+import { EmptyState } from "@/components/friday/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -247,7 +257,7 @@ function ToolsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("zip")}
+            onClick={() => addFrom("zip")}
           >
             {importBusy === "zip" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -260,7 +270,7 @@ function ToolsPage() {
             size="sm"
             variant="outline"
             disabled={!supported || importBusy !== null}
-            onClick={() => void addFrom("folder")}
+            onClick={() => addFrom("folder")}
           >
             {importBusy === "folder" ? (
               <Loader2 className="size-4 animate-spin" />
@@ -309,11 +319,17 @@ function ToolsPage() {
               ))}
             </ul>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {supported
-                ? "No tools installed yet — import a zip or folder, clone a tool repo, or forge one below."
-                : "Tool permissions appear here in the desktop app."}
-            </p>
+            <EmptyState
+              icon={Wrench}
+              title={
+                supported
+                  ? "No tools installed yet"
+                  : "Tool permissions appear here in the desktop app."
+              }
+              {...(supported
+                ? { hint: "Import a zip or folder, clone a tool repo, or forge one below." }
+                : {})}
+            />
           )}
         </Panel>
 
@@ -331,7 +347,7 @@ function ToolsPage() {
                           {rt.kind}
                         </Badge>
                       </div>
-                      <p className="font-mono text-[11px] text-muted-foreground">
+                      <p className="text-meta text-muted-foreground">
                         {rt.installed ? `installed ${rt.installed}` : "not installed"} · latest{" "}
                         {rt.latest} · {rt.source} · {rt.size}
                       </p>
@@ -355,11 +371,15 @@ function ToolsPage() {
               })}
             </ul>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              {supported
-                ? "No runtimes detected yet — scan from Install Manager or Check for updates."
-                : "Installed runtimes appear here in the desktop app."}
-            </p>
+            <EmptyState
+              icon={Cpu}
+              title={
+                supported
+                  ? "No runtimes detected yet"
+                  : "Installed runtimes appear here in the desktop app."
+              }
+              {...(supported ? { hint: "Scan from Install Manager or Check for updates." } : {})}
+            />
           )}
         </Panel>
       </div>
@@ -382,7 +402,7 @@ function ToolsPage() {
                 size="sm"
                 className="h-8"
                 disabled={!supported || importBusy !== null}
-                onClick={() => void onForge()}
+                onClick={() => onForge()}
               >
                 {importBusy === "forge" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Create tool
@@ -401,14 +421,14 @@ function ToolsPage() {
                 variant="outline"
                 className="h-8"
                 disabled={!supported || importBusy !== null}
-                onClick={() => void onTest()}
+                onClick={() => onTest()}
               >
                 {importBusy === "test" ? <Loader2 className="size-4 animate-spin" /> : null}
                 Test selected
               </Button>
             </div>
             {forgeLog ? (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-data text-muted-foreground">
                 {forgeLog}
               </pre>
             ) : (

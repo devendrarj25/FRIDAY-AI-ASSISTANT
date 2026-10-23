@@ -155,18 +155,18 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
     // Opened from the "diagnostics" button on the Live captions strip, so it
     // renders open: the strip button is the only open/close.
     <section aria-label="Voice diagnostics">
-      <p className="mb-1 font-mono text-[10px] uppercase text-primary/70">
+      <p className="mb-1 text-meta-sm uppercase text-primary/70">
         voice diagnostics · {voice.voiceState.toLowerCase()}
       </p>
       <ul className="mt-1 space-y-0.5">
         {rows.map((row) => (
           <li key={row.label} className="flex gap-2">
-            <span className="w-24 shrink-0 font-mono text-[10px] uppercase text-muted-foreground">
+            <span className="w-24 shrink-0 text-meta-sm uppercase text-muted-foreground">
               {row.label}
             </span>
             <span
               className={cn(
-                "min-w-0 font-mono text-[10px]",
+                "min-w-0 text-meta-sm",
                 row.bad ? "text-destructive" : "text-foreground/80",
               )}
             >
@@ -202,7 +202,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               .finally(() => setMicBusy(false));
           }}
           disabled={micBusy}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <Mic className="size-3" aria-hidden="true" />
           {micBusy ? "listening…" : "mic test"}
@@ -218,12 +218,12 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               .finally(() => setSpeakBusy(false));
           }}
           disabled={speakBusy}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <Volume2 className="size-3" aria-hidden="true" />
           {speakBusy ? "speaking…" : "speak test"}
         </button>
-        <label className="flex items-center gap-1 font-mono text-[10px] uppercase text-muted-foreground">
+        <label className="flex items-center gap-1 text-meta-sm uppercase text-muted-foreground">
           <input
             type="checkbox"
             checked={keepWav}
@@ -237,17 +237,17 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         </label>
         <button
           type="button"
-          onClick={() => void runProbes()}
+          onClick={() => runProbes()}
           disabled={busy}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20 disabled:opacity-50"
         >
           <ShieldCheck className="size-3" aria-hidden="true" />
           {busy ? "probing…" : "run voice self-test"}
         </button>
         <button
           type="button"
-          onClick={() => void assistantMode.refreshWakeEngine(true)}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+          onClick={() => assistantMode.refreshWakeEngine(true)}
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <RefreshCw className="size-3" aria-hidden="true" />
           recheck wake engine
@@ -255,7 +255,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         <button
           type="button"
           onClick={() => assistantMode.fixVoice()}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <Wrench className="size-3" aria-hidden="true" />
           fix voice
@@ -263,7 +263,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         <button
           type="button"
           onClick={() => assistantMode.resetMicrophone()}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <RotateCcw className="size-3" aria-hidden="true" />
           reset microphone
@@ -281,41 +281,37 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
               [probes.diagnostics, live].filter(Boolean).join("\n"),
             );
           }}
-          className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+          className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
         >
           <ClipboardCopy className="size-3" aria-hidden="true" />
           copy diagnostics
         </button>
       </div>
       {micBusy ? (
-        <p className="mt-1 font-mono text-[10px] text-foreground/80">
-          mic level {micLevel.toFixed(3)}
-        </p>
+        <p className="mt-1 text-meta-sm text-foreground/80">mic level {micLevel.toFixed(3)}</p>
       ) : null}
-      {micLine ? <p className="mt-1 font-mono text-[10px] text-foreground/80">{micLine}</p> : null}
-      {speakLine ? (
-        <p className="mt-1 font-mono text-[10px] text-foreground/80">{speakLine}</p>
-      ) : null}
+      {micLine ? <p className="mt-1 text-meta-sm text-foreground/80">{micLine}</p> : null}
+      {speakLine ? <p className="mt-1 text-meta-sm text-foreground/80">{speakLine}</p> : null}
       {checks.length ? (
         <ul className="mt-1 space-y-0.5">
           {checks.map((check) => (
             <li key={check.id} className="flex gap-2">
               <span
                 className={cn(
-                  "w-24 shrink-0 font-mono text-[10px] uppercase",
+                  "w-24 shrink-0 text-meta-sm uppercase",
                   check.optional || check.ok ? "text-accent" : "text-destructive",
                 )}
               >
                 {check.optional ? "optional" : check.ok ? "pass" : "fail"}
               </span>
-              <span className="min-w-0 font-mono text-[10px] text-muted-foreground">
+              <span className="min-w-0 text-meta-sm text-muted-foreground">
                 {check.label} — {check.detail}
               </span>
               {check.optional && check.installId ? (
                 <button
                   type="button"
                   onClick={() => models.install(check.installId || "")}
-                  className="rounded-sm px-1 font-mono text-[10px] uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
+                  className="rounded-ctl px-1 text-meta-sm uppercase text-accent transition-colors hover:bg-accent/10 active:bg-accent/20"
                 >
                   <Download className="size-3" aria-hidden="true" />
                   Install

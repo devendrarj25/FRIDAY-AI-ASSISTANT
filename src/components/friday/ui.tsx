@@ -3,12 +3,15 @@ import {
   forwardRef,
   isValidElement,
   useLayoutEffect,
+  useOptimistic,
   useRef,
+  useState,
+  useTransition,
   type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Inbox, Loader2, MoreHorizontal, type LucideIcon } from "lucide-react";
+import { ChevronsDown, Inbox, List, Loader2, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -60,7 +63,7 @@ export function HudPanel({
   // No icon given: one from the panel-title vocabulary, else the signal dot.
   const titleIcon = !Icon && title ? iconForTitle(title) : null;
   return (
-    <section className={cn("hud-panel relative overflow-hidden rounded-md", className)}>
+    <section className={cn("hud-panel relative overflow-hidden rounded-surface", className)}>
       <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
       {title ? (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-[calc(1rem*var(--friday-density-scale,1))] py-[calc(0.625rem*var(--friday-density-scale,1))]">
@@ -83,9 +86,7 @@ export function HudPanel({
             </h2>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-            {hint ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{hint}</span>
-            ) : null}
+            {hint ? <span className="text-meta text-muted-foreground">{hint}</span> : null}
             {actions}
           </div>
         </header>
@@ -116,13 +117,13 @@ export function StatTile({
   tone?: Tone;
 }) {
   return (
-    <div className="hud-tile motion-friday group relative overflow-hidden rounded-md px-3 py-3 text-center transition-[border-color,transform] hover:-translate-y-px hover:border-primary/45">
+    <div className="hud-tile motion-friday group relative overflow-hidden rounded-surface px-3 py-3 text-center transition-[border-color,transform] hover:-translate-y-px hover:border-primary/45">
       <div className={cn("flex items-center justify-center gap-1.5", toneText[tone])}>
         {icon}
         <span className="label-xs">{label}</span>
       </div>
       <p className="mt-2 font-display text-2xl font-bold leading-none text-foreground">{value}</p>
-      {state ? <p className={cn("mt-1.5 font-mono text-[11px]", toneText[tone])}>{state}</p> : null}
+      {state ? <p className={cn("mt-1.5 text-meta", toneText[tone])}>{state}</p> : null}
     </div>
   );
 }
@@ -139,7 +140,7 @@ export function StatusPill({ label, tone = "accent" }: { label: string; tone?: T
   return (
     <span
       className={cn(
-        "friday-chip inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+        "friday-chip inline-flex items-center gap-1 rounded-ctl border px-1.5 py-0.5 text-meta-sm uppercase tracking-wider",
         bg[tone],
       )}
     >
@@ -221,8 +222,13 @@ export function useSlidingThumb(active: string | number) {
         thumb.style.width = "0px";
         return;
       }
+      // Width and height follow the selected item, and the thumb moves on
+      // both axes so a wrapped tab list (FilterTabs wrap) works too.
       thumb.style.width = `${el.offsetWidth}px`;
-      thumb.style.transform = `translateX(${el.offsetLeft}px)`;
+      thumb.style.height = `${el.offsetHeight}px`;
+      thumb.style.top = "0px";
+      thumb.style.bottom = "auto";
+      thumb.style.transform = `translate(${el.offsetLeft}px, ${el.offsetTop}px)`;
     };
     place();
     if (typeof ResizeObserver === "undefined") return;
@@ -231,6 +237,23 @@ export function useSlidingThumb(active: string | number) {
     return () => observer.disconnect();
   }, [active]);
   return { listRef, thumbRef };
+}
+
+/**
+ * Tab and filter changes: the chosen tab lights up at once (optimistic), while
+ * the page content it controls updates as a low-priority transition, so a
+ * heavy page never makes the click feel late.
+ */
+function useTransitionValue<T>(value: T, onChange: (next: T) => void) {
+  const [shown, setShown] = useOptimistic(value);
+  const [, startTransition] = useTransition();
+  const change = (next: T) => {
+    startTransition(() => {
+      setShown(next);
+      onChange(next);
+    });
+  };
+  return [shown, change] as const;
 }
 
 /** One choice out of a few, as an iOS segmented control. */
@@ -247,7 +270,8 @@ export function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
   className?: string;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
@@ -257,16 +281,16 @@ export function SegmentedControl<T extends string>({
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {options.map((item) => {
-        const on = value === item.id;
+        const on = shown === item.id;
         const Icon = item.icon;
         return (
           <button
             key={item.id}
             type="button"
             aria-pressed={on}
-            onClick={() => onChange(item.id)}
+            onClick={() => pick(item.id)}
             className={cn(
-              "friday-btn inline-flex items-center justify-center gap-1.5 rounded-sm border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "friday-btn inline-flex items-center justify-center gap-1.5 rounded-ctl border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on
                 ? "border-primary/50 bg-primary/15 text-primary"
                 : "border-border bg-surface text-muted-foreground hover:text-foreground",
@@ -285,23 +309,27 @@ export function FilterTabs({
   tabs,
   value,
   onChange,
+  wrap = false,
 }: {
   tabs: { key: string; label: string }[];
   value: string;
   onChange: (key: string) => void;
+  /** Many tabs: wrap onto more lines instead of scrolling sideways. */
+  wrap?: boolean;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
       role="tablist"
-      className="friday-seg flex flex-wrap gap-1.5"
+      className={cn("friday-seg flex flex-wrap gap-1.5", wrap && "friday-seg-wrap")}
       onKeyDown={(e) =>
         tabKeys(
           e,
           tabs.map((t) => t.key),
-          value,
-          onChange,
+          shown,
+          pick,
         )
       }
     >
@@ -311,13 +339,13 @@ export function FilterTabs({
           key={t.key}
           type="button"
           role="tab"
-          aria-selected={value === t.key}
-          tabIndex={value === t.key ? 0 : -1}
+          aria-selected={shown === t.key}
+          tabIndex={shown === t.key ? 0 : -1}
           data-tab-key={t.key}
-          onClick={() => onChange(t.key)}
+          onClick={() => pick(t.key)}
           className={cn(
-            "friday-btn rounded-sm border px-2 py-1 font-mono text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-            value === t.key
+            "friday-btn rounded-ctl border px-2 py-1 text-meta transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            shown === t.key
               ? "border-primary/50 bg-primary/15 text-primary glow-ring"
               : "border-border bg-surface text-muted-foreground hover:border-primary/30 hover:text-foreground",
           )}
@@ -374,7 +402,7 @@ export function Ring({
         </div>
       </div>
       <p className={cn("label-xs", toneText[tone])}>{label}</p>
-      {sub ? <p className="font-mono text-[10px] text-muted-foreground">{sub}</p> : null}
+      {sub ? <p className="text-meta-sm text-muted-foreground">{sub}</p> : null}
     </div>
   );
 }
@@ -403,7 +431,7 @@ export function MetricBar({
       <div className="min-w-0">
         <div className="flex items-baseline justify-between gap-2">
           <span className="label-xs text-muted-foreground">{label}</span>
-          <span className={cn("font-mono text-[11px]", toneText[tone])}>{value}%</span>
+          <span className={cn("text-meta", toneText[tone])}>{value}%</span>
         </div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
           <div
@@ -412,23 +440,33 @@ export function MetricBar({
           />
         </div>
         {detail ? (
-          <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{detail}</p>
+          <p className="mt-1 truncate text-meta-sm text-muted-foreground">{detail}</p>
         ) : null}
       </div>
     </div>
   );
 }
 
+/** Rows drawn at first; the rest follow on request, so a long catalogue opens quickly. */
+export const TABLE_ROW_STEP = 80;
+
 export function DataTable({
   columns,
   rows,
   pinLast = false,
+  step = TABLE_ROW_STEP,
 }: {
   columns: string[];
   rows: ReactNode[][];
   /** Keep the final (action) column reachable when the table scrolls sideways. */
   pinLast?: boolean;
+  /** How many rows to draw before "Show more". */
+  step?: number;
 }) {
+  const [shownCount, setShownCount] = useState(step);
+  const total = rows.length;
+  const limit = Math.max(step, shownCount);
+  const visible = total > limit ? rows.slice(0, limit) : rows;
   const last = columns.length - 1;
   const pinCls = (isLast: boolean, head: boolean) =>
     pinLast && isLast
@@ -450,7 +488,7 @@ export function DataTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
+          {visible.map((row, i) => (
             <tr
               key={i}
               className="border-b border-border/60 transition-colors last:border-0 hover:bg-primary/6"
@@ -467,6 +505,25 @@ export function DataTable({
           ))}
         </tbody>
       </table>
+      {total > limit ? (
+        <div className="flex flex-wrap items-center justify-center gap-2 py-3">
+          <span className="text-meta text-muted-foreground">
+            Showing {limit} of {total}
+          </span>
+          <ActionButton
+            icon={ChevronsDown}
+            label={`Show ${Math.min(step, total - limit)} more`}
+            labelMode="inline"
+            onClick={() => setShownCount(limit + step)}
+          />
+          <ActionButton
+            icon={List}
+            label={`Show all ${total}`}
+            labelMode="inline"
+            onClick={() => setShownCount(total)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -486,9 +543,7 @@ export function ToggleRow({
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 py-2 last:border-0">
       <div className="min-w-0">
         <p className="truncate text-sm text-foreground">{label}</p>
-        {hint ? (
-          <p className="truncate font-mono text-[10px] text-muted-foreground">{hint}</p>
-        ) : null}
+        {hint ? <p className="truncate text-meta-sm text-muted-foreground">{hint}</p> : null}
       </div>
       <button
         type="button"
@@ -708,7 +763,8 @@ export function SectionTabs({
   onChange: (key: string) => void;
   label?: string;
 }) {
-  const { listRef, thumbRef } = useSlidingThumb(value);
+  const [shown, pick] = useTransitionValue(value, onChange);
+  const { listRef, thumbRef } = useSlidingThumb(shown);
   return (
     <div
       ref={listRef}
@@ -719,14 +775,14 @@ export function SectionTabs({
         tabKeys(
           e,
           tabs.map((t) => t.key),
-          value,
-          onChange,
+          shown,
+          pick,
         )
       }
     >
       <span ref={thumbRef} aria-hidden="true" className="friday-seg-thumb" />
       {tabs.map((t) => {
-        const on = value === t.key;
+        const on = shown === t.key;
         const Icon = t.icon;
         return (
           <button
@@ -736,9 +792,9 @@ export function SectionTabs({
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             data-tab-key={t.key}
-            onClick={() => onChange(t.key)}
+            onClick={() => pick(t.key)}
             className={cn(
-              "friday-btn relative inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "friday-btn relative inline-flex items-center gap-1.5 rounded-ctl px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               on
                 ? "bg-primary/12 text-primary after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary"
                 : "text-muted-foreground hover:bg-primary/6 hover:text-foreground",
@@ -747,7 +803,7 @@ export function SectionTabs({
             {Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
             {t.label}
             {typeof t.count === "number" ? (
-              <span className="rounded-sm bg-primary/15 px-1 font-mono text-[10px] text-primary">
+              <span className="rounded-ctl bg-primary/15 px-1 text-meta-sm text-primary">
                 {t.count}
               </span>
             ) : null}
@@ -776,7 +832,7 @@ export function EmptyState({
     <div
       role="status"
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-primary/20 px-4 py-8 text-center",
+        "flex flex-col items-center justify-center gap-2 rounded-surface border border-dashed border-primary/20 px-4 py-8 text-center",
         className,
       )}
     >
@@ -803,7 +859,7 @@ export function LoadingState({
 }) {
   return (
     <div role="status" aria-busy="true" className={cn("space-y-2", className)}>
-      <p className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-2 text-meta text-muted-foreground">
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
         {label}
       </p>
@@ -811,7 +867,7 @@ export function LoadingState({
         <div
           key={i}
           aria-hidden="true"
-          className="h-3 rounded-sm bg-primary/8"
+          className="h-3 rounded-ctl bg-primary/8"
           style={{ width: `${92 - i * 14}%` }}
         />
       ))}

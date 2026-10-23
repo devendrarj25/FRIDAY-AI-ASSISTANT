@@ -240,14 +240,14 @@ export function CharacterStage() {
                 <button
                   type="button"
                   className="rounded-sm bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground"
-                  onClick={() => void bridge?.characterCommand({ command: "approve" })}
+                  onClick={() => bridge?.characterCommand({ command: "approve" })}
                 >
                   Allow
                 </button>
                 <button
                   type="button"
                   className="rounded-sm border border-border px-2 py-1 text-[10px]"
-                  onClick={() => void bridge?.characterCommand({ command: "deny" })}
+                  onClick={() => bridge?.characterCommand({ command: "deny" })}
                 >
                   Deny
                 </button>
