@@ -11,7 +11,8 @@ import {
   Wifi,
 } from "lucide-react";
 import { AppShell, Panel } from "@/components/friday/AppShell";
-import { ToggleRow, EmptyState } from "@/components/friday/ui";
+import { ToggleRow, EmptyState, LoadingState } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -255,8 +256,21 @@ function DevicesPage() {
               </li>
             ))}
             {!state.network.length && (
-              <li className="text-xs text-muted-foreground">
-                Nothing discovered yet. FRIDAY only lists devices that advertise themselves.
+              <li>
+                {state.busy ? (
+                  <LoadingState label="Looking for devices on this network…" rows={2} />
+                ) : state.error ? (
+                  <ErrorState
+                    title="The device scan failed"
+                    error={state.error}
+                    onRetry={() => store.refresh()}
+                  />
+                ) : (
+                  <EmptyState
+                    title="Nothing discovered yet"
+                    hint="FRIDAY only lists devices that advertise themselves."
+                  />
+                )}
               </li>
             )}
           </ul>

@@ -2,12 +2,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
-import { Download, FolderOpen, Pin, RefreshCw, Search, Trash2, Upload } from "lucide-react";
+import {
+  Download,
+  FolderOpen,
+  Library as LibraryIcon,
+  Pin,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FilterTabs, HudPanel, StatusPill } from "@/components/friday/ui";
+import { EmptyState, FilterTabs, HudPanel, LoadingState, StatusPill } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
 import { brain } from "@/lib/friday/brain-engine";
 import { isDesktopApp, libraryReveal, revealWorkspaceFolder } from "@/lib/friday/desktop";
 import { formatBytes, readAttachments } from "@/lib/friday/attachments";
@@ -89,7 +99,7 @@ function LibraryPage() {
   }, [pull]);
 
   // Files added or removed on disk show up without a manual rescan.
-  useLivePoll(
+  const scanPoll = useLivePoll(
     "library.scan",
     async () => {
       if (!desktop) return;
@@ -376,11 +386,20 @@ function LibraryPage() {
                   </li>
                 ))}
               </ul>
+            ) : busy ? (
+              <LoadingState label="Reading the Library folder…" />
+            ) : scanPoll.error ? (
+              <ErrorState
+                title="The Library could not be read"
+                error={scanPoll.error}
+                onRetry={() => void pull()}
+              />
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Library is empty. Upload or drop files here, or attach them in Chat — both write the
-                same index. Image generate, audio-file STT, and AI video edit are not built yet.
-              </p>
+              <EmptyState
+                icon={LibraryIcon}
+                title="Library is empty"
+                hint="Upload or drop files here, or attach them in Chat — both write the same index. Image generate, audio-file STT, and AI video edit are not built yet."
+              />
             )}
           </HudPanel>
 

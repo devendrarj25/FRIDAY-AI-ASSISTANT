@@ -741,9 +741,9 @@ function ModelsPage() {
       }
     >
       <div className="space-y-4">
-        <div className="rounded-surface border border-border/60 bg-muted/20 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">Free models</h2>
+        <HudPanel
+          title="Free models"
+          actions={
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
                 Refresh free list
@@ -752,7 +752,8 @@ function ModelsPage() {
                 Test my free models
               </Button>
             </div>
-          </div>
+          }
+        >
           <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {signupGuide().map((row) => (
@@ -764,10 +765,10 @@ function ModelsPage() {
               </li>
             ))}
           </ul>
-        </div>
-        <div className="rounded-surface border border-border/60 bg-muted/20 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium">Catalogue</h2>
+        </HudPanel>
+        <HudPanel
+          title="Catalogue"
+          actions={
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -810,7 +811,8 @@ function ModelsPage() {
                 Verify capabilities
               </Button>
             </div>
-          </div>
+          }
+        >
           <p className="text-xs text-muted-foreground">{catalogueNote}</p>
           {knowledgeLines.length > 0 ? (
             <ul
@@ -829,7 +831,7 @@ function ModelsPage() {
               ))}
             </ul>
           ) : null}
-        </div>
+        </HudPanel>
         {/* -------------------------------------------------------- overview */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile

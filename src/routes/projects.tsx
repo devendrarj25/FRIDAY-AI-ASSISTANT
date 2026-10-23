@@ -2,13 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useDeferredValue } from "react";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { deferEffect } from "@/lib/friday/defer-effect";
-import { Copy, FolderOpen, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, FolderOpen, FolderTree, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FilterTabs, HudPanel, StatusPill } from "@/components/friday/ui";
+import { EmptyState, FilterTabs, HudPanel, LoadingState, StatusPill } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
 import { brain } from "@/lib/friday/brain-engine";
 import { installer } from "@/lib/friday/installer-engine";
 import { isDesktopApp, pickProjectFolder, revealWorkspaceFolder } from "@/lib/friday/desktop";
@@ -116,7 +117,7 @@ function ProjectsPage() {
   }, [pull]);
 
   // Projects changed on disk or by FRIDAY elsewhere show up on their own.
-  useLivePoll(
+  const projectsPoll = useLivePoll(
     "projects.refresh",
     async () => {
       if (!desktop) return;
@@ -441,11 +442,20 @@ function ProjectsPage() {
 
         <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
           <HudPanel title="Projects" hint="one active for Chat + Auto pin">
-            {visible.length === 0 ? (
-              <p className="text-meta text-muted-foreground">
-                No projects yet. Create “Labour app”, “Site”, or “Notes”. This is not Folders and
-                not Sandbox.
-              </p>
+            {visible.length === 0 && busy ? (
+              <LoadingState label="Reading projects…" rows={2} />
+            ) : visible.length === 0 && projectsPoll.error ? (
+              <ErrorState
+                title="Projects could not be read"
+                error={projectsPoll.error}
+                onRetry={() => void pull()}
+              />
+            ) : visible.length === 0 ? (
+              <EmptyState
+                icon={FolderTree}
+                title={items.length ? "No project matches" : "No projects yet"}
+                hint="Create “Labour app”, “Site”, or “Notes”. This is not Folders and not Sandbox."
+              />
             ) : (
               <ul className="space-y-1">
                 {visible.map((item) => (
