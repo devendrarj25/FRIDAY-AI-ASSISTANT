@@ -1,4 +1,4 @@
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { lazy, Suspense, useState, useSyncExternalStore } from "react";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 
 /**
@@ -7,11 +7,13 @@ import { flowStudio } from "@/lib/friday/flow-studio-store";
  * flow, so it loads then, not with the app shell. Once opened it stays
  * mounted, so reopening and closing behave exactly as before.
  */
-const FlowStudioHost = lazy(() =>
-  import("@/components/friday/FlowStudio").then((m) => ({ default: m.FlowStudioHost })),
-);
+const load = () => import("@/components/friday/FlowStudio");
+const FlowStudioHost = lazy(() => load().then((m) => ({ default: m.FlowStudioHost })));
 
-let opened = false;
+/** Warm the chunk when the owner points at a Flow button, so opening is instant. */
+export function preloadFlowStudio(): void {
+  void load();
+}
 
 export function FlowStudioLazyHost() {
   const open = useSyncExternalStore(
@@ -19,8 +21,9 @@ export function FlowStudioLazyHost() {
     () => flowStudio.getSnapshot().open,
     () => false,
   );
-  if (open) opened = true;
-  if (!opened) return null;
+  const [wanted, setWanted] = useState(false);
+  if (open && !wanted) setWanted(true);
+  if (!open && !wanted) return null;
   return (
     <Suspense fallback={null}>
       <FlowStudioHost />

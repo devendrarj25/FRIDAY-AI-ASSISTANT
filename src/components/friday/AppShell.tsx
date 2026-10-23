@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FlowStudioLazyHost } from "@/components/friday/FlowStudioLazy";
+import { FlowStudioLazyHost, preloadFlowStudio } from "@/components/friday/FlowStudioLazy";
 import { featureForPath } from "@/lib/friday/flow-adapters";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 import {
@@ -144,6 +144,8 @@ function AppShellPage({ title, subtitle, actions, live, fill = false, children }
               variant="outline"
               className="gap-1.5"
               title="Show this page as a flow chart"
+              onPointerEnter={preloadFlowStudio}
+              onFocus={preloadFlowStudio}
               onClick={() => flowStudio.open(featureForPath(pathname), "chart")}
             >
               <Workflow className="size-3.5" />
