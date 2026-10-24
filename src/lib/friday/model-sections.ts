@@ -4,6 +4,15 @@
  * stay in electron/local-library.cjs.
  */
 
+import {
+  SUPPORT_RANK,
+  checkSupport,
+  estimateFit,
+  type SupportCheck,
+  type SupportLevel,
+  type SystemProfile,
+} from "./model-catalog";
+
 export const MODEL_SECTIONS = [
   { key: "local", label: "LOCAL AI" },
   { key: "cloud", label: "CLOUD AI" },
@@ -156,4 +165,52 @@ const RUNNER_PACKAGE: Record<string, string> = {
 
 export function runnerPackage(runnerId: string): string {
   return RUNNER_PACKAGE[runnerId] ?? "";
+}
+
+/** "7B", "1.5b", "135M" -> billions of parameters, or null when the text names none. */
+export function paramsBillions(text: string): number | null {
+  const hit = /(\d+(?:\.\d+)?)\s*([bm])\b/i.exec(String(text || ""));
+  if (!hit) return null;
+  const value = Number(hit[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return /m/i.test(hit[2] || "") ? value / 1000 : value;
+}
+
+/** Whether a model found online runs on this PC, from the size its name states. */
+export function onlineFit(
+  item: { params: string; kind?: string },
+  system: SystemProfile,
+): SupportCheck {
+  if (item.kind === "cloud") return checkSupport({ ...estimateFit(1), kind: "cloud" }, system);
+  const billions = paramsBillions(item.params);
+  if (billions == null) {
+    return {
+      level: "Unknown",
+      reason: "its size is not stated, so fit is not known",
+      tone: "muted",
+    };
+  }
+  return checkSupport(estimateFit(billions), system);
+}
+
+export type FitFilter = "runs" | "all";
+
+/**
+ * Order rows by how well they run on this PC, installed ones first, and (for
+ * "runs") leave out what is too big. Nothing is hidden before the PC has been
+ * measured, and the number left out is returned so the page can say so.
+ */
+export function arrangeByFit<T>(
+  rows: readonly T[],
+  levelOf: (row: T) => SupportLevel,
+  options: { fit: FitFilter; measured: boolean; installed?: (row: T) => boolean },
+): { shown: T[]; hidden: number } {
+  const hide = options.fit === "runs" && options.measured;
+  const kept = hide ? rows.filter((row) => levelOf(row) !== "Unsupported") : [...rows];
+  const rank = (row: T) => (options.installed?.(row) ? -10 : 0) + SUPPORT_RANK[levelOf(row)];
+  const shown = kept
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map((entry) => entry.row);
+  return { shown, hidden: rows.length - kept.length };
 }

@@ -60,6 +60,8 @@ describe("provider handlers", () => {
       "vllm",
       "localai",
       "jan",
+      "koboldcpp",
+      "gpt4all",
       "mlx",
       "local",
     ]);

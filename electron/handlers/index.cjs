@@ -35,6 +35,8 @@ const LOCAL = {
   vllm: require("./vllm.cjs"),
   localai: require("./localai.cjs"),
   jan: require("./jan.cjs"),
+  koboldcpp: require("./koboldcpp.cjs"),
+  gpt4all: require("./gpt4all.cjs"),
   mlx: require("./mlx.cjs"),
   local: require("./local.cjs"),
 };

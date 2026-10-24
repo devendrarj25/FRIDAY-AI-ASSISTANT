@@ -25,6 +25,12 @@ export const RENAMES: Record<string, string> = {
   // "{name} · v{version} · {status}" label; they are now FilterTabs whose
   // label is built from the same three fields, above the Pipeline panel.
   "· v ·": "Pipeline",
+  // The Models import panel became a real picker with drop, retry and a test
+  // answer; it is the same control under a plainer name, with a neutral example path.
+  "Import a local model": "Add your own model",
+  "C:\\FRIDAY\\models\\my-model.gguf": "C:\\Models\\my-model.gguf",
+  // The search box now also searches online on Enter.
+  "Search models…": "Search models… (Enter searches online)",
 };
 
 describe("UI control parity", () => {

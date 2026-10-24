@@ -372,6 +372,23 @@ if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("before-subsystem
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
 const providerHealth = new modelRouter.ProviderHealthManager();
+const modelUsage = require("./model-usage.cjs");
+let usageSaveTimer = null;
+const usageLedger = modelUsage.createUsageLedger({
+  onChange: () => {
+    send("models:usage-changed", { at: Date.now() });
+    if (usageSaveTimer) return;
+    usageSaveTimer = setTimeout(() => {
+      usageSaveTimer = null;
+      try {
+        writeSettings({ ...readSettings(), modelUsage: usageLedger.snapshot() });
+      } catch (error) {
+        log(`model usage could not be saved: ${error?.message || error}`);
+      }
+    }, 1500);
+    if (usageSaveTimer.unref) usageSaveTimer.unref();
+  },
+});
 // The temp fallback in friday-paths stands until the app is ready. userData
 // is applied in the whenReady handler below, never on this turn.
 if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
@@ -436,6 +453,7 @@ const plugins = loadNamed("plugins", () => require("./plugins.cjs"));
 const telemetry = loadNamed("telemetry", () => require("./telemetry.cjs"));
 const modelsApi = loadNamed("models", () => require("./models.cjs"));
 const modelDownload = loadNamed("model-download", () => require("./model-download.cjs"));
+const modelImport = loadNamed("model-import", () => require("./model-import.cjs"));
 const { resolvePython, invalidatePython } = loadNamed("python", () => require("./python.cjs"));
 const tray = loadNamed("tray", () => require("./tray.cjs"));
 const startupTasks = loadNamed("startup-tasks", () =>
@@ -1995,6 +2013,7 @@ function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
   try {
     providerHealth.importState(readSettings().routerHealth);
+    usageLedger.load(readSettings().modelUsage);
   } catch {
     /* a missing settings file is a fresh install */
   }
@@ -2257,11 +2276,15 @@ function modelAllowlist() {
 }
 
 function setModelAllowlist(value) {
-  const next = modelRouter.normaliseAllowlist(value) || {
-    saved: true,
-    ids: [],
-    paidEnabled: false,
-  };
+  const next = modelRouter.normaliseAllowlist(value);
+  // An empty list would silently block every cloud model, which nobody means by
+  // "save". Nothing selected removes the restriction; local-only mode is how to
+  // keep a turn off the cloud.
+  if (!next || next.ids.length === 0) {
+    const { modelAllowlist: _removed, ...rest } = readSettings();
+    writeSettings(rest);
+    return { ids: [], paidEnabled: false, cleared: true };
+  }
   writeSettings({
     ...readSettings(),
     modelAllowlist: { ids: next.ids, paidEnabled: next.paidEnabled },
@@ -2648,6 +2671,8 @@ function kernelChatModel(payload) {
     "llama.cpp",
     "localai",
     "jan",
+    "koboldcpp",
+    "gpt4all",
     "mlx",
   ]);
   if (localKinds.has(prefix) || localKinds.has(first.toLowerCase())) {
@@ -2726,7 +2751,27 @@ async function authoriseProviderRequest({
  * instead — that is what the Brain's multi-model collaboration path uses so
  * two or three concurrent candidates do not interleave into one bubble.
  */
-async function streamOnce({
+/** Every provider request goes through here once, so the usage ledger sees all of them. */
+async function streamOnce(args) {
+  const result = await streamOnceRaw(args);
+  try {
+    usageLedger.record({
+      modelId: args.model?.id,
+      providerId: args.model?.meta?.providerId || args.model?.providerId,
+      type: args.model?.type,
+      prompt: args.prompt,
+      text: result?.text,
+      ok: Boolean(result?.ok),
+      cancelled: Boolean(result?.cancelled),
+      blocked: Boolean(result?.blocked),
+    });
+  } catch (error) {
+    log(`model usage was not recorded: ${error?.message || error}`);
+  }
+  return result;
+}
+
+async function streamOnceRaw({
   requestId,
   request,
   prompt,
@@ -3202,6 +3247,7 @@ async function startChat(request) {
     mode: routeMode,
     policy,
     preferred,
+    providers: selectedProviderIds,
     unlocked,
     checked,
     failures: failures.length
@@ -5326,6 +5372,8 @@ const modelsContext = () => ({
   // Provider keys are read from the same place they are written.
   userData: keyStoreRoot(),
   workspace: getWorkspaceRoot(),
+  // The speech worker and the kernel read voice weights from the FRIDAY root.
+  voiceRoot: paths.root(),
 });
 
 ipcMain.handle("models:inventory", () => modelsApi.inventory(modelsContext()));
@@ -5645,6 +5693,52 @@ ipcMain.handle("models:registry", async (_e, force) => {
   };
 });
 ipcMain.handle("models:health-state", () => providerHealth.snapshot());
+// One live record per model: usage so far, plus the router's own health for it.
+ipcMain.handle("models:live-status", () => {
+  const now = Date.now();
+  const usage = usageLedger.snapshot();
+  const health = new Map(providerHealth.snapshot(now).map((row) => [row.modelId, row]));
+  const ids = new Set([...usage.models.map((row) => row.modelId), ...health.keys()]);
+  const used = new Map(usage.models.map((row) => [row.modelId, row]));
+  return {
+    at: now,
+    totals: usage.totals,
+    models: [...ids].map((modelId) => {
+      const u = used.get(modelId) || null;
+      const h = health.get(modelId) || null;
+      return {
+        modelId,
+        providerId: u?.providerId || null,
+        requests: u?.requests || 0,
+        answered: u?.answered || 0,
+        failed: u?.failed || 0,
+        blocked: u?.blocked || 0,
+        promptTokens: u?.promptTokens || 0,
+        completionTokens: u?.completionTokens || 0,
+        todayTokens: u?.todayTokens || 0,
+        estimated: Boolean(u?.estimated),
+        lastAt: u?.lastAt || 0,
+        lastOutcome: u?.lastOutcome || null,
+        status: h?.status || "available",
+        category: h?.category || null,
+        coolingDown: Boolean(h?.coolingDown),
+        cooldownUntil: h?.cooldownUntil || 0,
+        quarantined: Boolean(h?.quarantined),
+        breaker: h?.breaker || "CLOSED",
+        failures: h?.failures || 0,
+        lastError: h?.lastError || null,
+        nextStep: h?.nextStep || "",
+        latencyMs: h?.latencyMs ?? null,
+        lastOkAt: h?.lastOkAt || 0,
+      };
+    }),
+    decisions: Array.isArray(providerHealth.decisions) ? providerHealth.decisions.slice(-8) : [],
+  };
+});
+ipcMain.handle("models:usage-reset", (_e, modelId) => {
+  usageLedger.reset(modelId || undefined);
+  return { ok: true };
+});
 
 // The authoritative provider registry — System Status, Models, Diagnostics and
 // routing all read this one record so no screen can drift from another.
@@ -5805,17 +5899,41 @@ ipcMain.handle("models:download", async (_e, payload) => {
   const controller = new AbortController();
   modelJobs.set(id, controller);
   const ctx = modelsContext();
-  const dir = paths.ensureDir("models");
+  // A speech size goes where the speech worker opens it (<root>\cache\stt\<size>);
+  // every other model lands in <root>\models\<id>.
+  const target = require("./voice-weights.cjs").downloadTarget(modelId, paths.root());
+  const dir = target ? target.dir : paths.ensureDir("models");
+  const folderId = target ? target.folderId : modelId;
   send("models:pull-progress", { jobId: id, model: modelId, status: "starting", progress: 0 });
   try {
     const pump = { paused: false };
     modelPumps.set(id, pump);
     const result = await modelDownload.downloadModel(
-      { modelId, sources, dir, control: pump, transferId: id },
+      { modelId: folderId, sources, dir, control: pump, transferId: id },
       (event) => send("models:pull-progress", { jobId: id, model: modelId, ...event }),
       controller.signal,
       { ollamaPull: modelsApi.ollamaPull },
     );
+    // A finished GGUF that the engine could not take because it was not running
+    // is not left as a loose file: the engine is started and the model registered.
+    if (
+      result.ok &&
+      result.via !== "ollama" &&
+      !result.registered &&
+      /\.gguf$/i.test(String(result.path || ""))
+    ) {
+      send("models:pull-progress", {
+        jobId: id,
+        model: modelId,
+        status: "starting the local engine to register it",
+        progress: 98,
+      });
+      const started = await modelsApi.startEngine("ollama", {}).catch(() => null);
+      if (started?.ok) {
+        const registered = await modelDownload.registerGguf(modelId, result.path, () => {});
+        result.registered = Boolean(registered?.ok);
+      }
+    }
     // Only a model Ollama can actually serve can be test-prompted; a raw file
     // download that was not registered is reported exactly as what it is.
     const runnable =
@@ -5834,6 +5952,50 @@ ipcMain.handle("models:download", async (_e, payload) => {
     modelJobs.delete(id);
     modelPumps.delete(id);
   }
+});
+
+/** Pick model files (or a model folder) to import. A file picker, not the workspace folder picker. */
+ipcMain.handle("models:pick-files", async (_e, mode) => {
+  const folder = mode === "folder";
+  const result = await dialog.showOpenDialog(liveWin(), {
+    title: folder ? "Select a model folder" : "Select model files",
+    properties: folder ? ["openDirectory"] : ["openFile", "multiSelections"],
+    ...(folder ? {} : { filters: modelImport.PICK_FILTERS }),
+    defaultPath: app.getPath("downloads"),
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true, paths: [] };
+  return { ok: true, paths: result.filePaths };
+});
+
+/**
+ * Import one model the owner already has. The file is checked and stored under
+ * the FRIDAY folder, a GGUF is registered with the local engine (started if it
+ * is not running) and must answer a test prompt before it is called ready.
+ */
+ipcMain.handle("models:import", async (_e, payload) => {
+  const id = String(payload?.id || `import-${Date.now()}`);
+  const emit = (event) => send("models:import-progress", { id, ...event });
+  const result = await modelImport.importModel(
+    { path: payload?.path, name: payload?.name },
+    {
+      root: getWorkspaceRoot(),
+      emit,
+      ensureEngine: async () => {
+        const started = await modelsApi.startEngine("ollama", {});
+        return Boolean(started?.ok);
+      },
+      register: (name, file) => modelDownload.registerGguf(name, file, () => {}),
+      verify: async (name) => {
+        const probe = await modelsApi.ollamaProbeRun(name);
+        return probe.ok && String(probe.response || "").trim()
+          ? { ok: true }
+          : { ok: false, error: probe.error || "the model returned an empty response" };
+      },
+    },
+  );
+  emit({ status: result.ok ? "done" : "failed", progress: 100, done: true, result });
+  if (result.ok && result.registered) announceModelInstalled("ollama");
+  return { id, ...result };
 });
 
 ipcMain.handle("models:check-launcher", (_e, id) => {
@@ -5882,7 +6044,7 @@ let hardwareAt = 0;
 let hardwareJob = null;
 ipcMain.handle("hardware:detect", async (_e, force = false) => {
   if (!force && lastHardware && Date.now() - hardwareAt < 30000) return lastHardware;
-  hardwareJob ??= detectHardware()
+  hardwareJob ??= detectHardware({ root: getWorkspaceRoot() })
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();

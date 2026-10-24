@@ -20,6 +20,7 @@ export type ProviderId =
   | "transformers"
   | "onnx"
   | "gpt4all"
+  | "koboldcpp"
   | "jan"
   | "localai"
   | "mlx"
@@ -201,6 +202,17 @@ export const providers: Provider[] = [
     "none",
     "GET /v1/models",
     "Desktop app with a local API server toggle.",
+  ),
+  P(
+    "koboldcpp",
+    "KoboldCpp",
+    "local",
+    "openai",
+    "http://127.0.0.1:5001/v1",
+    "https://github.com/LostRuins/koboldcpp/wiki",
+    "none",
+    "GET /v1/models",
+    "Single-file GGUF runner with an OpenAI-compatible API on port 5001.",
   ),
   P(
     "jan",
@@ -1340,6 +1352,66 @@ export const modelCatalog: ModelSpec[] = [
     "3.0",
     ["audio"],
     { format: "ONNX", quant: "INT8" },
+  ),
+  M(
+    "faster-whisper-tiny",
+    "Faster Whisper tiny",
+    "onnx",
+    "Speech to Text",
+    "39M",
+    0.08,
+    0,
+    0,
+    "MIT",
+    HF("Systran/faster-whisper-tiny"),
+    "tiny",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 1 },
+  ),
+  M(
+    "faster-whisper-base",
+    "Faster Whisper base",
+    "onnx",
+    "Speech to Text",
+    "74M",
+    0.15,
+    0,
+    0,
+    "MIT",
+    HF("Systran/faster-whisper-base"),
+    "base",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 1 },
+  ),
+  M(
+    "faster-whisper-small",
+    "Faster Whisper small",
+    "onnx",
+    "Speech to Text",
+    "244M",
+    0.48,
+    0,
+    0,
+    "MIT",
+    HF("Systran/faster-whisper-small"),
+    "small",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 2 },
+  ),
+  M(
+    "faster-whisper-medium",
+    "Faster Whisper medium",
+    "onnx",
+    "Speech to Text",
+    "769M",
+    1.5,
+    0,
+    0,
+    "MIT",
+    HF("Systran/faster-whisper-medium"),
+    "medium",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 3 },
   ),
   M(
     "vosk-en",
@@ -2601,7 +2673,32 @@ export type SystemProfile = {
   probedAt: number | null;
 };
 
-export type SupportLevel = "Optimal" | "Supported" | "Tight" | "CPU only" | "Unsupported";
+export type SupportLevel =
+  "Optimal" | "Supported" | "Tight" | "CPU only" | "Unsupported" | "Unknown";
+
+/** Everything the fit check reads, so a model that is not in the catalog (a found or imported one) can be checked too. */
+export type FitInput = Pick<ModelSpec, "kind" | "sizeGb" | "ramGb" | "vramGb">;
+
+/** Rough weights for a GGUF at 4-bit: what a found model costs before its real size is known. */
+export function estimateFit(paramsB: number): FitInput {
+  const size = Math.max(0.1, Math.round(paramsB * 0.62 * 10) / 10);
+  return {
+    kind: "local",
+    sizeGb: size,
+    ramGb: Math.round((size * 1.25 + 1) * 10) / 10,
+    vramGb: Math.round(size * 1.15 * 10) / 10,
+  };
+}
+
+/** Best first when a list is ordered by how well a model runs here. */
+export const SUPPORT_RANK: Record<SupportLevel, number> = {
+  Optimal: 0,
+  Supported: 1,
+  Tight: 2,
+  "CPU only": 3,
+  Unknown: 4,
+  Unsupported: 5,
+};
 
 export type SupportCheck = {
   level: SupportLevel;
@@ -2609,20 +2706,28 @@ export type SupportCheck = {
   tone: "accent" | "primary" | "warning" | "destructive" | "muted";
 };
 
-export function checkSupport(model: ModelSpec, sys: SystemProfile): SupportCheck {
+export function checkSupport(model: FitInput, sys: SystemProfile): SupportCheck {
   if (model.kind === "cloud")
     return {
       level: "Supported",
       reason: "hosted — runs on the provider, only needs a key and network",
       tone: "primary",
     };
-  if (model.sizeGb > sys.diskFreeGb)
+  // A machine that has not been measured is "not known yet", never "too small":
+  // reading zero RAM or zero free disk as real is what marked every model unsupported.
+  if (!sys.probedAt)
+    return {
+      level: "Unknown",
+      reason: "this PC has not been checked yet — press Check system",
+      tone: "muted",
+    };
+  if (sys.diskFreeGb > 0 && model.sizeGb > sys.diskFreeGb)
     return {
       level: "Unsupported",
       reason: `needs ${model.sizeGb} GB free disk, ${sys.diskFreeGb} GB available`,
       tone: "destructive",
     };
-  if (model.ramGb > sys.ramGb)
+  if (sys.ramGb > 0 && model.ramGb > sys.ramGb)
     return {
       level: "Unsupported",
       reason: `needs ~${model.ramGb} GB RAM, system has ${sys.ramGb} GB`,
@@ -2687,16 +2792,46 @@ export function registryTag(model: ModelSpec): string | null {
   return null;
 }
 
-/** Match a real installed tag (`llama3.1:8b`) back to a catalog entry. */
+/**
+ * Does an installed tag (`qwen2.5:1.5b`, `qwen2.5:latest`, `qwen2.5`) mean this
+ * exact catalog tag? Sizes never match each other: `qwen2.5:latest` is the
+ * engine's default build, which is a catalog row only when that row's tag has no
+ * size, so one installed model can never mark every size of its family.
+ */
+export function tagMatches(installedTag: string, specTag: string): boolean {
+  const have = installedTag.trim().toLowerCase();
+  const want = specTag.trim().toLowerCase();
+  if (!have || !want) return false;
+  if (have === want) return true;
+  const haveBare = have.replace(/:latest$/, "");
+  const wantBare = want.replace(/:latest$/, "");
+  return !haveBare.includes(":") && !wantBare.includes(":") && haveBare === wantBare;
+}
+
+/**
+ * Every catalog entry an installed tag stands for. Two entries can name the same
+ * engine tag (an alias row), and then one install is both. A `:latest` tag is the
+ * engine's own default build, so it names a family row only when the catalog has
+ * exactly one size of that family; with several it names none of them.
+ */
+export function modelsByTag(tag: string): ModelSpec[] {
+  const exact = modelCatalog.filter((model) => {
+    const t = registryTag(model);
+    return Boolean(t) && tagMatches(tag, t!);
+  });
+  if (exact.length) return exact;
+  const wanted = tag.trim().toLowerCase();
+  if (!wanted.endsWith(":latest")) return [];
+  const family = wanted.slice(0, -":latest".length);
+  const sizes = modelCatalog.filter(
+    (model) => registryTag(model)?.toLowerCase().split(":")[0] === family,
+  );
+  return sizes.length === 1 ? sizes : [];
+}
+
+/** The first catalog entry an installed tag (`llama3.1:8b`) stands for. */
 export function modelByTag(tag: string): ModelSpec | null {
-  const normalized = tag.trim().toLowerCase();
-  const bare = normalized.replace(/:latest$/, "");
-  for (const model of modelCatalog) {
-    const t = registryTag(model)?.toLowerCase();
-    if (!t) continue;
-    if (t === normalized || t === bare || t.split(":")[0] === bare) return model;
-  }
-  return null;
+  return modelsByTag(tag)[0] ?? null;
 }
 
 /* ------------------------------------------------------- provider API ids */

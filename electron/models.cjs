@@ -38,6 +38,10 @@ const LOCAL_ENGINES = {
     alternates: ["http://127.0.0.1:6767"],
     env: "FRIDAY_JAN_ENDPOINT",
   },
+  // KoboldCpp serves its OpenAI-compatible API on its documented default port.
+  koboldcpp: { name: "KoboldCpp", endpoint: "http://127.0.0.1:5001" },
+  // GPT4All desktop: Settings -> Application -> Enable Local API Server.
+  gpt4all: { name: "GPT4All", endpoint: "http://127.0.0.1:4891" },
 };
 if (process.platform === "darwin") {
   // mlx_lm.server is Apple silicon only. Never listed as a live engine on Windows.
@@ -69,6 +73,9 @@ const CLOUD = {
     wire: "anthropic",
     headers: (k) => ({ "x-api-key": k, "anthropic-version": "2023-06-01" }),
     list: (j) => (j.data || []).map((m) => m.id),
+    // A page holds 20 rows by default; has_more + last_id -> after_id (docs: List Models).
+    nextPage: (j, url) =>
+      j?.has_more && j?.last_id ? withParam(url, "after_id", j.last_id) : null,
   },
   gemini: {
     name: "Google Gemini",
@@ -112,6 +119,9 @@ const CLOUD = {
     // `endpoint=chat` asks the API itself which models can answer a chat turn,
     // so embed/rerank models never reach the router.
     url: "https://api.cohere.com/v1/models?endpoint=chat&page_size=100",
+    // next_page_token -> page_token (docs.cohere.com/reference/list-models).
+    nextPage: (j, url) =>
+      j?.next_page_token ? withParam(url, "page_token", j.next_page_token) : null,
     // Cohere's documented OpenAI-compatible surface (Compatibility API), which
     // is the wire the kernel router already speaks for every other provider.
     chat: "https://api.cohere.ai/compatibility/v1",
@@ -1156,6 +1166,37 @@ function listModelIds(spec, body, custom) {
   return native.length ? native : openAiShape;
 }
 
+function withParam(url, key, value) {
+  const next = new URL(url);
+  next.searchParams.set(key, String(value));
+  return next.toString();
+}
+
+const MAX_LIST_PAGES = 10;
+
+/**
+ * Follow a provider's documented next-page cursor so a long catalogue is read
+ * whole. Rows from every page are merged into the first page's shape; a page
+ * that fails keeps the rows already read.
+ */
+async function followPages(spec, first, url, headers, fetchPage = request) {
+  if (typeof spec.nextPage !== "function" || !first?.ok) return first;
+  const key = Array.isArray(first.body?.data) ? "data" : "models";
+  const rows = Array.isArray(first.body?.[key]) ? [...first.body[key]] : [];
+  let body = first.body || {};
+  let next = spec.nextPage(body, url);
+  const seen = new Set([url]);
+  for (let page = 1; next && page < MAX_LIST_PAGES && !seen.has(next); page += 1) {
+    seen.add(next);
+    const res = await fetchPage(next, { headers, timeout: 8000 });
+    if (!res?.ok || !Array.isArray(res.body?.[key])) break;
+    rows.push(...res.body[key]);
+    body = res.body;
+    next = spec.nextPage(body, next);
+  }
+  return { ...first, body: { ...first.body, [key]: rows } };
+}
+
 function listModelEntries(spec, body, custom) {
   const ids = listModelIds(spec, body, custom);
   const rows = Array.isArray(body?.data)
@@ -1311,6 +1352,7 @@ async function cloudProvider(id, userData, { apiKey = null, force = false } = {}
       : spec.headers(key);
 
     res = await request(listUrl, { headers, timeout: 8000 });
+    if (!urls.custom) res = await followPages(spec, res, listUrl, headers);
     // Self-healing: when the configured host cannot answer for a reason that is
     // not the key, the provider's own alternate official host is tried in place
     // so the list still loads. Nothing is written to disk here — the Doctor's
@@ -1556,7 +1598,7 @@ function localFolders({ workspace = null, userData = null } = {}) {
 
 // ------------------------------------------------------------------ facade
 /** One real inventory of everything FRIDAY can run right now. */
-async function inventory({ userData = null, workspace = null } = {}) {
+async function inventory({ userData = null, workspace = null, voiceRoot = null } = {}) {
   const localIds = Object.keys(LOCAL_ENGINES);
   const [ollama, running, ...rest] = await Promise.all([
     ollamaModels(),
@@ -1567,6 +1609,9 @@ async function inventory({ userData = null, workspace = null } = {}) {
   const locals = rest.slice(0, localIds.length);
   const cloud = rest.slice(localIds.length);
   const folders = localFolders({ workspace, userData });
+  const voice = require("./voice-weights.cjs").voiceModelsOnDisk(voiceRoot || workspace, (file) =>
+    fs.existsSync(file),
+  );
 
   const providers = [
     {
@@ -1597,6 +1642,7 @@ async function inventory({ userData = null, workspace = null } = {}) {
     at: Date.now(),
     providers,
     running: running.models,
+    voice,
     roots: folders.roots,
     totals: {
       providersOnline: providers.filter((p) => p.online).length,
@@ -1857,6 +1903,15 @@ const ENGINE_CONTROL = {
       "Jan has no zero-argument headless start. Open Jan → Settings → Local API Server → Start Server (127.0.0.1:1337), or run `jan serve <MODEL_ID>` (omitting the model id is interactive).",
     probe: () => localEngine("jan").then((r) => r.online),
   },
+  koboldcpp: {
+    stopHint:
+      "KoboldCpp needs a model file to start. Run koboldcpp.exe with your GGUF (port 5001), or load one from its launcher.",
+    probe: () => localEngine("koboldcpp").then((r) => r.online),
+  },
+  gpt4all: {
+    stopHint: "Open GPT4All → Settings → Application → Enable Local API Server (127.0.0.1:4891).",
+    probe: () => localEngine("gpt4all").then((r) => r.online),
+  },
 };
 if (process.platform === "darwin") {
   ENGINE_CONTROL.mlx = {
@@ -2035,7 +2090,12 @@ async function startEngine(id, options = {}) {
 
   engineJobs.add(id);
   try {
-    const [cmd, args] = resolved.start;
+    const [named, args] = resolved.start;
+    // A per-user Ollama is not always on this process's PATH: use the install
+    // that is actually on this PC, wherever it is.
+    const installed =
+      id === "ollama" ? require("./local-library.cjs").findInstalledOllama()?.exe : null;
+    const cmd = installed || named;
     if (!(await commandAvailable(cmd))) {
       return {
         ok: false,
@@ -2733,7 +2793,9 @@ async function searchOnlineModels(
   });
   const search = String(query || "").trim();
   if (search) params.set("search", search);
-  else params.set("filter", "gguf");
+  // FRIDAY's local engines run GGUF. A search for text must not return a
+  // multi-gigabyte safetensors repo that "Install" would then pull whole.
+  params.set("filter", "gguf");
 
   const res = await request(`https://huggingface.co/api/models?${params.toString()}`, {
     timeout: 12_000,
@@ -2913,6 +2975,7 @@ async function aiModelSuggestions({ userData = null, system = null, query = "" }
 }
 
 module.exports = {
+  followPages,
   OLLAMA,
   request,
   ollamaListError,

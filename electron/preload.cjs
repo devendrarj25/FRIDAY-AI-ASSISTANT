@@ -1,6 +1,6 @@
 // Minimal, explicit bridge surface exposed to the renderer.
 // The renderer can never run arbitrary system commands — only these calls.
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const on = (channel) => (cb) => {
   const handler = (_e, payload) => cb(payload);
@@ -191,6 +191,17 @@ contextBridge.exposeInMainWorld("friday", {
   runningModels: () => ipcRenderer.invoke("models:running"),
   pullModel: (model, jobId) => ipcRenderer.invoke("models:pull", model, jobId || null),
   downloadModel: (payload) => ipcRenderer.invoke("models:download", payload || {}),
+  pickModelFiles: (mode) => ipcRenderer.invoke("models:pick-files", mode || "file"),
+  importModel: (payload) => ipcRenderer.invoke("models:import", payload || {}),
+  onModelImportProgress: on("models:import-progress"),
+  // A dropped file's real path (the File object carries none inside the page).
+  pathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file) || "";
+    } catch {
+      return "";
+    }
+  },
   listTransfers: () => ipcRenderer.invoke("models:transfers"),
   checkLauncherRelease: (id) => ipcRenderer.invoke("models:check-launcher", id || ""),
   transferModel: (jobId, action) => ipcRenderer.invoke("models:transfer", jobId, action),
@@ -234,6 +245,8 @@ contextBridge.exposeInMainWorld("friday", {
   onConnectivityChanged: on("connectivity:changed"),
 
   modelHealthState: () => ipcRenderer.invoke("models:health-state"),
+  modelLiveStatus: () => ipcRenderer.invoke("models:live-status"),
+  resetModelUsage: (modelId) => ipcRenderer.invoke("models:usage-reset", modelId || null),
   syncKernelModels: (force) => ipcRenderer.invoke("models:sync-kernel", Boolean(force)),
   selectModels: (task, preferred) =>
     ipcRenderer.invoke("models:select", task || "chat", preferred || []),
@@ -684,6 +697,7 @@ contextBridge.exposeInMainWorld("friday", {
   onProvidersDetected: on("providers:detected"),
   onModelRegistryChanged: on("models:registry-changed"),
   onModelHealthChanged: on("models:health-changed"),
+  onModelUsageChanged: on("models:usage-changed"),
   onModelPolicy: on("models:policy"),
   onNetworkStatus: on("system:network"),
 

@@ -18,6 +18,7 @@ import {
   checkSupport,
   modelById,
   modelByTag,
+  modelsByTag,
   registryTag,
   modelCatalog,
   providerById,
@@ -29,6 +30,7 @@ import {
   type SystemProfile,
 } from "./model-catalog";
 import { downloadSources } from "./model-sources";
+import { livePoller } from "./live-poll";
 import { modelIdleMs, shouldKeepModelsWarm, shouldUnloadIdleModels } from "./settings-runtime";
 
 export type JobKind = "download" | "update" | "remove" | "benchmark" | "import";
@@ -58,7 +60,13 @@ export type Job = {
   startedAt: number;
   /** True when a real desktop operation drives this job (never the ticker). */
   remote?: boolean;
+  /** Shown for a model that is not in the catalog (one found online). */
+  label?: string;
 };
+
+/** The name to show for a transfer, catalog or found. */
+export const jobName = (job: Pick<Job, "modelId" | "label">): string =>
+  job.label ?? modelById.get(job.modelId)?.name ?? job.modelId;
 
 export type RunState = "Idle" | "Loading" | "Running" | "Unloading" | "Error";
 
@@ -109,6 +117,12 @@ export type ImportedModel = {
   sizeGb: number;
   provider: ProviderId;
   at: number;
+  /** Where the import stands. Models saved before this field existed read as stored. */
+  state?: "importing" | "ready" | "stored" | "not-responding" | "failed";
+  progress?: number;
+  status?: string;
+  note?: string;
+  registeredAs?: string;
 };
 
 export type ModelsState = {
@@ -141,6 +155,7 @@ export type ModelsState = {
 
 const STORAGE_KEY = "friday.models.v1";
 const TICK_MS = 400;
+const INVENTORY_POLL_MS = 20_000;
 const MAX_LOG = 200;
 
 const clock = (at = Date.now()) =>
@@ -205,6 +220,18 @@ const baseProviders = (): Record<string, ProviderState> =>
     ]),
   );
 
+/** Voice models FRIDAY's own speech stack loads; installed only when on disk. */
+export const VOICE_MODEL_IDS = [
+  "faster-whisper-tiny",
+  "faster-whisper-base",
+  "faster-whisper-small",
+  "faster-whisper-medium",
+  "faster-whisper",
+  "silero-vad",
+  "smart-turn",
+  "supertonic-3",
+] as const;
+
 const baseRouting = (): Record<RoutingTask, string | null> => ({
   brain: "qwen2.5-32b",
   coding: "deepseek-coder-v2",
@@ -212,8 +239,8 @@ const baseRouting = (): Record<RoutingTask, string | null> => ({
   reasoning: "deepseek-r1-32b",
   vision: null,
   fast: "qwen2.5-1.5b",
-  speech: "whispercpp-base",
-  voice: "piper-en",
+  speech: "faster-whisper-small",
+  voice: "supertonic-3",
   image: null,
   embedding: "bge-m3",
   rerank: null,
@@ -277,11 +304,31 @@ class ModelsStore {
     if (!this.hydrated && typeof window !== "undefined") {
       window.setTimeout(() => this.hydrate(), 0);
     }
+    // While a view is open the inventory is re-read on the shared poller, so an
+    // install or delete made outside FRIDAY (the engine's own CLI) shows up here.
+    if (!this.offInventory && typeof window !== "undefined") {
+      this.offInventory = livePoller().subscribe(
+        "models.inventory",
+        async () => {
+          if (this.state.bridge !== "desktop" || this.state.scanning) return;
+          if (await this.refreshFromDesktop()) this.emit(false);
+        },
+        INVENTORY_POLL_MS,
+        undefined,
+        false,
+      );
+    }
     return () => {
       this.listeners.delete(l);
-      if (this.listeners.size === 0) this.stopTimer();
+      if (this.listeners.size === 0) {
+        this.stopTimer();
+        this.offInventory?.();
+        this.offInventory = null;
+      }
     };
   };
+
+  private offInventory: (() => void) | null = null;
 
   getSnapshot = () => this.snapshot;
 
@@ -303,6 +350,10 @@ class ModelsStore {
     }
     this.state.installed = installed;
     this.state.routing = { ...baseRouting(), ...(saved.routing ?? {}) };
+    // Older builds defaulted speech and voice to engines FRIDAY does not ship.
+    if (this.state.routing.voice === "piper-en") this.state.routing.voice = baseRouting().voice;
+    if (this.state.routing.speech === "whispercpp-base")
+      this.state.routing.speech = baseRouting().speech;
     this.state.benchmarks = saved.benchmarks ?? {};
     this.state.imported = saved.imported ?? [];
     this.state.active = saved.active ?? this.state.active;
@@ -338,9 +389,9 @@ class ModelsStore {
       this.applySaved(disk);
       this.emit(false);
     });
-    // Hardware probing creates a WebGL context and can stall focus/hit-testing
-    // on some Windows GPU drivers. Run it only from the Models page's explicit
-    // probe control (desktop hardware detection uses the main process).
+    // The browser preview probe creates a WebGL context, which can stall focus on
+    // some Windows GPU drivers, so it only runs from the page's probe control.
+    // The desktop reads the hardware in the main process and does it at start.
     if (this.state.log.length === 0) {
       this.push(
         "info",
@@ -360,6 +411,9 @@ class ModelsStore {
           this.emit();
           this.restoreActive();
         });
+        // What fits this PC is measured by the main process, so it is read at
+        // once. Waiting for a button left every model reading "unsupported".
+        this.probeSystem();
       }, 0);
     } else {
       window.setTimeout(() => this.restoreActive(), 0);
@@ -433,8 +487,7 @@ class ModelsStore {
       if (provider.kind !== "local") continue;
       for (const model of provider.models) {
         installedTags.add(model.id);
-        const spec = modelByTag(model.id);
-        if (spec) this.state.installed[spec.id] = spec.version;
+        for (const spec of modelsByTag(model.id)) this.state.installed[spec.id] = spec.version;
       }
     }
 
@@ -448,10 +501,19 @@ class ModelsStore {
       if (spec.kind !== "local" || !scannedProviders.has(spec.provider)) continue;
       const tag = registryTag(spec);
       const present = [...installedTags].some(
-        (t) =>
-          t === spec.id || (tag && (t === tag || t.replace(/:latest$/, "") === tag.split(":")[0])),
+        (t) => t === spec.id || (tag !== null && modelsByTag(t).some((hit) => hit.id === spec.id)),
       );
       if (!present && this.state.installed[spec.id]) this.state.installed[spec.id] = null;
+    }
+
+    // Voice weights are files, not an engine: the disk scan is the proof.
+    if (Array.isArray(inventory.voice)) {
+      const onDisk = new Set(inventory.voice.map((row) => row.catalogId));
+      for (const id of VOICE_MODEL_IDS) {
+        const spec = modelById.get(id);
+        if (!spec) continue;
+        this.state.installed[id] = onDisk.has(id) ? spec.version : null;
+      }
     }
 
     // Resident models reported by /api/ps are the only real runtimes.
@@ -598,7 +660,13 @@ class ModelsStore {
     // system metrics). The WebGL/navigator path below stays as the browser
     // preview fallback only.
     if (this.state.bridge === "desktop") {
-      void this.probeSystemDesktop().catch(() => this.probeSystemBrowser());
+      void this.probeSystemDesktop().catch((err: Error) => {
+        // No WebGL guess on the desktop: the profile stays "not checked" and
+        // models read Unknown, never Unsupported, until a real probe answers.
+        this.state.probing = false;
+        this.push("warn", `hardware probe failed — ${err.message}`);
+        this.emit();
+      });
       return;
     }
     this.probeSystemBrowser();
@@ -616,9 +684,12 @@ class ModelsStore {
     const cores = hw.cpu?.cores || 1;
     const gpu = hw.gpus?.[0] ?? null;
     const vramMb = Number(gpu?.vramTotalMb ?? 0);
-    const diskFreeGb = Math.round(
-      (metrics?.disks ?? []).reduce((sum, d) => sum + (Number(d.freeGb) || 0), 0),
-    );
+    // The drive the models are stored on, read from the file system. Summing
+    // every drive from the live metrics came back empty whenever that sample was
+    // still pending, which left "0 GB free" and marked every model unsupported.
+    const diskFreeGb =
+      Math.round(Number(hw.disk?.freeGb) || 0) ||
+      Math.round(Math.max(0, ...(metrics?.disks ?? []).map((d) => Number(d.freeGb) || 0)));
     this.state.system = {
       os: `${hw.platform} · ${cores} threads`,
       cpu: hw.cpu?.model || `${cores}-thread host CPU`,
@@ -796,7 +867,7 @@ class ModelsStore {
           ps.checkedAt = Date.now();
           this.push(
             probe.online ? "ok" : "error",
-            `${p.name} — ${probe.online ? `key accepted · ${probe.models} model(s)` : probe.error}`,
+            `${p.name} — ${probe.online ? `key accepted · ${probe.models} model(s) ready to use` : probe.error}`,
           );
           this.emit();
         })
@@ -1152,27 +1223,46 @@ class ModelsStore {
   remove(modelId: string) {
     const model = modelById.get(modelId);
     if (!model) return;
+    if ((VOICE_MODEL_IDS as readonly string[]).includes(modelId) && this.state.installed[modelId]) {
+      // Voice weights belong to the speech stack; deleting them here would leave
+      // the voice broken while this page claimed space was reclaimed.
+      this.log("warn", `${model.name} is part of the voice stack — manage it in Install Manager`);
+      return;
+    }
     const api = desktopApi();
     const tag = registryTag(model);
+    const forget = () => {
+      this.unload(modelId, true);
+      this.state.installed[modelId] = null;
+      for (const [task, id] of Object.entries(this.state.routing)) {
+        if (id === modelId) this.state.routing[task as RoutingTask] = null;
+      }
+      this.state.multiModel = this.state.multiModel.filter((id) => id !== modelId);
+    };
     if (this.state.bridge === "desktop" && api?.removeModel && tag) {
+      // The row stays installed until the engine confirms the delete, so the page
+      // never says a model is gone while its files are still on disk.
       void api
         .removeModel(tag)
-        .then((r) => {
-          this.push(
-            r.ok ? "warn" : "error",
-            r.ok ? `${model.name} deleted from disk` : `${model.name} — ${r.error}`,
-          );
-          return this.refreshFromDesktop();
+        .then(async (r) => {
+          if (r.ok) {
+            forget();
+            this.push("warn", `${model.name} deleted from disk — ${formatGb(model.sizeGb)} freed`);
+          } else {
+            this.push(
+              "error",
+              `${model.name} was not deleted — ${r.error ?? "the engine refused"}`,
+            );
+          }
+          await this.refreshFromDesktop();
+          this.emit();
         })
-        .then(() => this.emit())
-        .catch((err: Error) => this.log("error", `${model.name} — ${err.message}`));
+        .catch((err: Error) => {
+          this.log("error", `${model.name} was not deleted — ${err.message}`);
+        });
+      return;
     }
-    this.unload(modelId, true);
-    this.state.installed[modelId] = null;
-    for (const [task, id] of Object.entries(this.state.routing)) {
-      if (id === modelId) this.state.routing[task as RoutingTask] = null;
-    }
-    this.state.multiModel = this.state.multiModel.filter((id) => id !== modelId);
+    forget();
     this.push("warn", `${model.name} removed — ${formatGb(model.sizeGb)} reclaimed`);
     this.emit();
   }
@@ -1183,7 +1273,7 @@ class ModelsStore {
     if (job.remote) void desktopApi()?.cancelModelJob?.(job.id);
     job.phase = "Cancelled";
     job.detail = "cancelled by operator";
-    this.push("warn", `${modelById.get(job.modelId)?.name ?? job.modelId} — job cancelled`);
+    this.push("warn", `${jobName(job)} — job cancelled`);
     this.emit();
   }
 
@@ -1321,21 +1411,47 @@ class ModelsStore {
             ]
           : [];
 
+    // A found model gets a transfer row like a catalogue one: progress, pause,
+    // cancel, and a verified "ready" at the end, instead of an invisible download.
+    const track = (gb: number, detail: string): Job => {
+      const job: Job = {
+        id: nextId("job"),
+        modelId: item.id,
+        label: item.name,
+        kind: "download",
+        phase: "Downloading",
+        progress: 0,
+        detail,
+        gbTotal: gb,
+        gbDone: 0,
+        speedMbps: 0,
+        etaSeconds: 0,
+        startedAt: Date.now(),
+        remote: true,
+      };
+      this.state.jobs = [job, ...this.state.jobs].slice(0, 40);
+      return job;
+    };
+    const fail = (job: Job, error: string) => {
+      job.phase = "Failed";
+      job.error = error;
+      job.detail = error;
+      this.push("error", `${ref} — ${error}`);
+    };
+
     if (api?.downloadModel && sources.length) {
       this.bindDesktopEvents();
-      const jobId = nextId("job");
+      const job = track(
+        0.05,
+        `${sources.length} source(s) available · trying ${sources[0]?.label ?? "first source"}`,
+      );
       this.push("info", `installing ${ref} — ${sources.length} source(s)`);
       this.emit();
       try {
-        const res = await api.downloadModel({ modelId: item.id, sources, jobId });
-        if (res?.ok) {
-          this.push("ok", `${ref} installed from ${res.source ?? "source"}`);
-          await this.refreshFromDesktop();
-        } else {
-          this.push("error", `${ref} — ${res?.error ?? "download failed"}`);
-        }
+        const res = await api.downloadModel({ modelId: item.id, sources, jobId: job.id });
+        if (!res?.ok) fail(job, res?.error ?? "download failed");
       } catch (err) {
-        this.push("error", `${ref} — ${(err as Error).message}`);
+        fail(job, (err as Error).message);
       }
       this.emit();
       return;
@@ -1345,14 +1461,15 @@ class ModelsStore {
       this.log("error", "installing discovered models needs the desktop app");
       return;
     }
+    this.bindDesktopEvents();
+    const job = track(0.05, `pulling ${ref} from ${item.source}`);
     this.push("info", `pulling ${ref} from ${item.source}`);
     this.emit();
     try {
-      await api.pullModel(ref, nextId("job"));
-      this.push("ok", `${ref} pulled`);
-      await this.refreshFromDesktop();
+      const res = await api.pullModel(ref, job.id);
+      if (!res?.ok) fail(job, res?.error ?? "pull failed");
     } catch (err) {
-      this.push("error", `${ref} — ${(err as Error).message}`);
+      fail(job, (err as Error).message);
     }
     this.emit();
   }
@@ -1533,20 +1650,82 @@ class ModelsStore {
 
   /* ---------------------------------------------------------------- import */
 
-  importModel(input: {
-    name: string;
-    path: string;
-    format: string;
-    sizeGb: number;
-    provider: ProviderId;
-  }) {
-    const entry: ImportedModel = { id: nextId("imported"), at: Date.now(), ...input };
+  /**
+   * Import one model file or folder. On the desktop the main process checks
+   * it, keeps it under the FRIDAY folder, registers a GGUF with the local
+   * engine and asks it one question: only an answer makes it ready, and it
+   * then appears in the model list on its own.
+   */
+  async importModel(input: { path: string; name?: string; provider?: ProviderId }) {
+    const source = input.path.trim();
+    const base = source.split(/[\\/]/).filter(Boolean).pop() || source;
+    const entry: ImportedModel = {
+      id: nextId("imported"),
+      at: Date.now(),
+      name: input.name?.trim() || base.replace(/\.[a-z0-9]{1,12}$/i, ""),
+      path: source,
+      format: "—",
+      sizeGb: 0,
+      provider: input.provider ?? "ollama",
+      state: "importing",
+      progress: 0,
+      status: "starting",
+    };
     this.state.imported = [entry, ...this.state.imported].slice(0, 50);
-    this.push(
-      "ok",
-      `imported ${entry.name} (${entry.format}, ${formatGb(entry.sizeGb)}) from ${entry.path}`,
-    );
+    const api = desktopApi();
+    if (this.state.bridge !== "desktop" || !api?.importModel) {
+      entry.state = "failed";
+      entry.note = "importing a model needs the desktop app";
+      this.push("error", `${entry.name} — ${entry.note}`);
+      this.emit();
+      return entry;
+    }
+    this.bindImportEvents();
+    this.push("info", `importing ${entry.name} from ${source}`);
     this.emit();
+    try {
+      const res = await api.importModel({
+        id: entry.id,
+        path: source,
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+      });
+      entry.format = res.format ?? entry.format;
+      entry.sizeGb = res.bytes ? Math.round((res.bytes / 1024 ** 3) * 100) / 100 : entry.sizeGb;
+      entry.path = res.path ?? entry.path;
+      entry.state = res.ok ? res.state : "failed";
+      if (res.registeredAs) entry.registeredAs = res.registeredAs;
+      const note = res.ok ? res.note : res.error;
+      if (note) entry.note = note;
+      entry.progress = 100;
+      this.push(
+        res.ok && res.state === "ready" ? "ok" : res.ok ? "warn" : "error",
+        res.ok
+          ? `${entry.name} imported — ${res.state === "ready" ? "ready, it answered the test prompt" : (res.note ?? res.state)}`
+          : `${entry.name} — ${res.error ?? "import failed"}`,
+      );
+      if (res.ok && res.registered) await this.refreshFromDesktop();
+    } catch (err) {
+      entry.state = "failed";
+      entry.note = (err as Error).message;
+      this.push("error", `${entry.name} — ${entry.note}`);
+    }
+    this.emit();
+    return entry;
+  }
+
+  private importBound = false;
+
+  private bindImportEvents() {
+    const api = desktopApi();
+    if (!api?.onModelImportProgress || this.importBound) return;
+    this.importBound = true;
+    api.onModelImportProgress((event) => {
+      const entry = this.state.imported.find((row) => row.id === event.id);
+      if (!entry || entry.state !== "importing") return;
+      if (typeof event.progress === "number") entry.progress = event.progress;
+      entry.status = event.status;
+      this.emit(false);
+    });
   }
 
   removeImport(id: string) {
@@ -1557,11 +1736,14 @@ class ModelsStore {
 
   /* ---------------------------------------------------------------- status */
 
-  statusOf(modelId: string): "Installed" | "Update available" | "Not installed" | "Available" {
+  statusOf(
+    modelId: string,
+  ): "Installed" | "Connected" | "Update available" | "Not installed" | "Available" {
     const model = modelById.get(modelId);
     if (!model) return "Not installed";
+    // A hosted model is never "installed": it is connected when its provider answers with a key.
     if (model.kind === "cloud")
-      return this.state.providerState[model.provider]?.apiKey ? "Installed" : "Available";
+      return this.state.providerState[model.provider]?.apiKey ? "Connected" : "Available";
     const installed = this.state.installed[modelId];
     if (!installed) return "Not installed";
     return installed === model.version ? "Installed" : "Update available";

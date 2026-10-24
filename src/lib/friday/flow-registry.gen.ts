@@ -1340,6 +1340,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:import",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:inventory",
       file: "electron/main.cjs",
     },
@@ -1352,7 +1356,15 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:live-status",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:local-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:pick-files",
       file: "electron/main.cjs",
     },
     {
@@ -1477,6 +1489,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "models:unload",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:usage-reset",
       file: "electron/main.cjs",
     },
     {
@@ -3708,6 +3724,30 @@ export const FLOW_REGISTRY = {
       id: "faster-whisper",
       kind: "model",
       name: "Faster Whisper large-v3",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-base",
+      kind: "model",
+      name: "Faster Whisper base",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-medium",
+      kind: "model",
+      name: "Faster Whisper medium",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-small",
+      kind: "model",
+      name: "Faster Whisper small",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-tiny",
+      kind: "model",
+      name: "Faster Whisper tiny",
       file: "src/lib/friday/model-catalog.ts",
     },
     {
@@ -8540,12 +8580,12 @@ export const FLOW_REGISTRY = {
       total: 116,
     },
     capabilities: {
-      mapped: 1016,
-      total: 1016,
+      mapped: 1020,
+      total: 1020,
     },
     ipc: {
-      mapped: 460,
-      total: 460,
+      mapped: 464,
+      total: 464,
     },
     kernel: {
       mapped: 14,

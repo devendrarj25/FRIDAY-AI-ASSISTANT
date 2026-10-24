@@ -8,6 +8,7 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  FolderOpen,
   Gauge,
   KeyRound,
   Link2,
@@ -66,6 +67,7 @@ import {
   formatEta,
   formatGb,
   isJobActive,
+  jobName,
   models as engine,
   type Job,
 } from "@/lib/friday/models-engine";
@@ -74,6 +76,7 @@ import { useBilling } from "@/lib/friday/use-billing";
 import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
 import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/installer-engine";
 import { useInstaller } from "@/lib/friday/use-installer";
+import { ModelsLivePanel } from "@/components/friday/ModelsLivePanel";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
@@ -83,6 +86,7 @@ import { useModels } from "@/lib/friday/use-models";
 import runnersFile from "../../config/local-runners.json";
 import {
   MODEL_SECTIONS,
+  arrangeByFit,
   firstPage,
   isModelSection,
   knowledgeLine,
@@ -90,8 +94,10 @@ import {
   runnerPackage,
   pinAgeLabel,
   normaliseLocalAnswer,
+  onlineFit,
   selectCloud,
   tabsForSection,
+  type FitFilter,
   type ModelSection,
 } from "@/lib/friday/model-sections";
 
@@ -123,6 +129,7 @@ const TABS = [
   { key: "catalog", label: "Catalog" },
   { key: "installed", label: "Installed" },
   { key: "providers", label: "Providers" },
+  { key: "live", label: "Live Status" },
   { key: "routing", label: "Routing & Modes" },
   { key: "runtime", label: "Live Runtime" },
   { key: "benchmarks", label: "Benchmarks" },
@@ -493,7 +500,25 @@ function CloudSelection({
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [paidOn, setPaidOn] = useState(false);
-  const [note, setNote] = useState("Only the selected models are ever used.");
+  const [note, setNote] = useState(
+    "No selection saved: every connected model your cost policy allows can be used.",
+  );
+  // Show what is really saved, so Save never replaces it with an empty page.
+  useEffect(() => {
+    let live = true;
+    void desktopApi()
+      ?.modelAllowlist?.()
+      .then((saved) => {
+        if (!live || !saved?.saved) return;
+        setPicked(saved.ids);
+        setPaidOn(saved.paidEnabled);
+        setNote("Only the selected models are ever used.");
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   const [shown, setShown] = useState(24);
   const cloud = models.filter((model) => model.type === "cloud");
   const visible = cloud.slice(0, shown);
@@ -530,12 +555,18 @@ function CloudSelection({
           size="sm"
           variant="outline"
           onClick={() => {
-            void desktopApi()?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn });
-            setNote(
-              paidOn
-                ? "Saved. Paid models you selected still need a budget."
-                : "Saved. Only the selected models are ever used.",
-            );
+            void desktopApi()
+              ?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn })
+              .then((saved) =>
+                setNote(
+                  saved.cleared
+                    ? "Nothing selected, so no restriction is saved: every connected model your cost policy allows can be used."
+                    : paidOn
+                      ? "Saved. Paid models you selected still need a budget."
+                      : "Saved. Only the selected models are ever used.",
+                ),
+              )
+              .catch((err: Error) => setNote(`Not saved — ${err.message}`));
           }}
         >
           Save selection
@@ -602,6 +633,8 @@ function ModelsPage() {
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
   const [query, setQuery] = useState("");
+  // Local models that cannot run on this PC stay out of the list until asked for.
+  const [fit, setFit] = useState<FitFilter>("runs");
   // Filtering a long list follows typing at low priority, so the field never lags.
   const deferredQuery = useDeferredValue(query);
   const [catalogPages, setCatalogPages] = useState(1);
@@ -639,7 +672,7 @@ function ModelsPage() {
     const fresh = state.jobs.filter((j) => !isJobActive(j.phase) && !notified.includes(j.id));
     if (fresh.length === 0) return;
     fresh.forEach((j) => {
-      const name = modelById.get(j.modelId)?.name ?? j.modelId;
+      const name = jobName(j);
       if (j.phase === "Done") toast.success(`${name} — ${j.detail}`);
       else if (j.phase === "Failed") toast.error(`${name} failed`, { description: j.error });
       else toast(`${name} cancelled`);
@@ -655,9 +688,9 @@ function ModelsPage() {
     return new Map(modelCatalog.map((m) => [m.id, engine.statusOf(m.id)] as const));
   }, [state.installed, state.providerState]);
 
-  const filtered = useMemo(() => {
+  const { filtered, tooBig } = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase();
-    return modelCatalog.filter((m) => {
+    const matching = modelCatalog.filter((m) => {
       if (kind !== "all" && m.kind !== kind) return false;
       if (category !== "all" && m.category !== category) return false;
       if (tab === "installed" && statuses.get(m.id) === "Not installed") return false;
@@ -668,12 +701,40 @@ function ModelsPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [deferredQuery, kind, category, tab, statuses]);
+    // What is installed always stays; the rest is ordered by how well it runs here.
+    const arranged = arrangeByFit(matching, (m) => checkSupport(m, state.system).level, {
+      fit: tab === "installed" ? "all" : fit,
+      measured: Boolean(state.system.probedAt),
+      installed: (m) => Boolean(state.installed[m.id]) && m.kind === "local",
+    });
+    return { filtered: arranged.shown, tooBig: arranged.hidden };
+  }, [deferredQuery, kind, category, tab, statuses, fit, state.system, state.installed]);
 
-  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}`;
+  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}\u001f${fit}`;
   const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;
   const catalogWindow = firstPage(filtered, (catalogStamp === catalogKey ? catalogPages : 1) * 40);
-  const foundWindow = firstPage(state.discovered, (foundStamp === foundKey ? foundPages : 1) * 40);
+  const foundArranged = useMemo(
+    () =>
+      arrangeByFit(state.discovered, (d) => onlineFit(d, state.system).level, {
+        fit,
+        measured: Boolean(state.system.probedAt),
+        installed: (d) => Boolean(d.installedLocally),
+      }),
+    [state.discovered, state.system, fit],
+  );
+  const foundWindow = firstPage(
+    foundArranged.shown,
+    (foundStamp === foundKey ? foundPages : 1) * 40,
+  );
+
+  // Nothing in the catalogue matches what was typed: look online without another click.
+  useEffect(() => {
+    const text = deferredQuery.trim();
+    if (text.length < 3 || filtered.length > 0 || state.discovering) return;
+    if (!desktopApi()?.searchModels) return;
+    const timer = window.setTimeout(() => void engine.discover(text), 700);
+    return () => window.clearTimeout(timer);
+  }, [deferredQuery, filtered.length, state.discovering]);
 
   /**
    * What this exact PC can run well today — measured against the detected
@@ -749,97 +810,6 @@ function ModelsPage() {
             onRetry={() => modelRegistry.refresh(true)}
           />
         ) : null}
-        <HudPanel
-          title="Free models"
-          actions={
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
-                Refresh free list
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => toast(probeOwnerMessage())}>
-                Test my free models
-              </Button>
-            </div>
-          }
-        >
-          <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
-          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-            {signupGuide().map((row) => (
-              <li key={row.id}>
-                <a className="underline" href={row.href} target="_blank" rel="noreferrer">
-                  {row.label}
-                </a>
-                <span> — {row.dataUse}</span>
-              </li>
-            ))}
-          </ul>
-        </HudPanel>
-        <HudPanel
-          title="Catalogue"
-          actions={
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  void (async () => {
-                    const api = desktopApi();
-                    const refreshed = await api?.catalogueRefresh?.();
-                    const row = await api?.catalogueStatus?.();
-                    const summary =
-                      row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
-                    const knowledge = refreshed?.knowledge;
-                    const pricing = knowledge?.skipped
-                      ? ` Pricing sources kept as cached (${knowledge.skipped}).`
-                      : knowledge?.applied?.length
-                        ? ` Pricing re-read for ${knowledge.applied.join(", ")}.`
-                        : knowledge?.kept?.length
-                          ? ` Pricing sources kept as cached (${knowledge.kept[0]?.reason || "no change"}).`
-                          : "";
-                    setCatalogueNote(`${summary}${pricing}`);
-                    setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
-                    loadKnowledge();
-                    toast(`${summary}${pricing}`);
-                  })();
-                }}
-              >
-                Refresh now
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  void desktopApi()
-                    ?.verifyCapabilities?.("")
-                    .then((row) => {
-                      toast(row?.reason || "Capability checks stay on a free-verified model.");
-                    });
-                }}
-              >
-                Verify capabilities
-              </Button>
-            </div>
-          }
-        >
-          <p className="text-xs text-muted-foreground">{catalogueNote}</p>
-          {knowledgeLines.length > 0 ? (
-            <ul
-              className="mt-2 space-y-1 text-xs text-muted-foreground"
-              aria-label="Pricing evidence"
-            >
-              {knowledgeLines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          ) : null}
-          {catalogueChanges.length > 0 ? (
-            <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-              {catalogueChanges.slice(0, 8).map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          ) : null}
-        </HudPanel>
         {/* -------------------------------------------------------- overview */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatTile
@@ -885,108 +855,6 @@ function ModelsPage() {
           />
         </div>
 
-        <HudPanel
-          title="System support"
-          hint={
-            state.system.probedAt
-              ? `probed ${new Date(state.system.probedAt).toLocaleTimeString()}`
-              : "not probed"
-          }
-          actions={
-            <StatusPill
-              label={state.bridge === "desktop" ? "kernel bridge" : "preview mode"}
-              tone={state.bridge === "desktop" ? "accent" : "muted"}
-            />
-          }
-        >
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[
-                ["Operating system", state.system.os],
-                [
-                  "CPU",
-                  state.system.probedAt
-                    ? `${state.system.cpu} · ${state.system.cores} threads`
-                    : "unknown",
-                ],
-                [
-                  "System RAM",
-                  state.system.probedAt && state.system.ramGb
-                    ? `${state.system.ramGb} GB`
-                    : "unknown",
-                ],
-                ["GPU", state.system.gpu],
-                [
-                  "VRAM",
-                  state.system.probedAt
-                    ? state.system.vramGb
-                      ? `${state.system.vramGb} GB`
-                      : "unknown"
-                    : "unknown",
-                ],
-                ["Accelerator", state.system.cuda ?? "unknown"],
-                [
-                  "Free disk",
-                  state.system.probedAt && state.system.diskFreeGb
-                    ? `${state.system.diskFreeGb} GB`
-                    : "unknown",
-                ],
-                ["Execution device", state.device],
-              ].map(([k, v]) => (
-                <div key={k} className="hud-tile rounded-surface px-3 py-2">
-                  <p className="label-xs text-muted-foreground">{k}</p>
-                  <p className="truncate text-meta text-foreground">{v}</p>
-                </div>
-              ))}
-            </div>
-            <div className="space-y-3">
-              <MetricBar
-                label="VRAM in use"
-                value={
-                  state.system.vramGb
-                    ? Math.min(100, Math.round((vramUsed / state.system.vramGb) * 100))
-                    : 0
-                }
-                detail={`${vramUsed.toFixed(1)} GB resident across ${counts.running} loaded model(s)`}
-                tone="warning"
-              />
-              <MetricBar
-                label="Model storage"
-                value={
-                  state.system.diskFreeGb > 0
-                    ? Math.min(100, Math.round((counts.diskGb / state.system.diskFreeGb) * 100))
-                    : 0
-                }
-                detail={
-                  state.system.diskFreeGb > 0
-                    ? `${formatGb(counts.diskGb)} of ${state.system.diskFreeGb} GB free disk`
-                    : "free disk unknown"
-                }
-                tone="primary"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="label-xs text-muted-foreground">Device</span>
-                <FilterTabs
-                  tabs={[
-                    { key: "auto", label: "Auto" },
-                    { key: "gpu", label: "GPU" },
-                    { key: "cpu", label: "CPU" },
-                  ]}
-                  value={state.device}
-                  onChange={(k) => engine.setDevice(k as typeof state.device)}
-                />
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {supportedFormats.map((f) => (
-                  <Badge key={f.format} variant="outline" className="label-xs" title={f.note}>
-                    {f.format}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </div>
-        </HudPanel>
-
         {/* ------------------------------------------------------ active jobs */}
         {activeJobs.length > 0 ? (
           <HudPanel title="Transfer queue" hint={`${activeJobs.length} active`}>
@@ -999,7 +867,7 @@ function ModelsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <StatusPill label={job.phase} tone={phaseTone(job.phase)} />
-                      <span className="truncate text-sm">{modelById.get(job.modelId)?.name}</span>
+                      <span className="truncate text-sm">{jobName(job)}</span>
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                       <div
@@ -1045,8 +913,209 @@ function ModelsPage() {
             if (!next.includes(tab)) setTab(next[0] || "catalog");
           }}
         />
-        {section === "local" ? <LocalRunners /> : null}
-        {section === "cloud" ? <CloudSelection models={registry.models} /> : null}
+        {section === "local" ? (
+          <>
+            <HudPanel
+              title="System support"
+              hint={
+                state.system.probedAt
+                  ? `probed ${new Date(state.system.probedAt).toLocaleTimeString()}`
+                  : "not probed"
+              }
+              actions={
+                <StatusPill
+                  label={state.bridge === "desktop" ? "kernel bridge" : "preview mode"}
+                  tone={state.bridge === "desktop" ? "accent" : "muted"}
+                />
+              }
+            >
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["Operating system", state.system.os],
+                    [
+                      "CPU",
+                      state.system.probedAt
+                        ? `${state.system.cpu} · ${state.system.cores} threads`
+                        : "unknown",
+                    ],
+                    [
+                      "System RAM",
+                      state.system.probedAt && state.system.ramGb
+                        ? `${state.system.ramGb} GB`
+                        : "unknown",
+                    ],
+                    ["GPU", state.system.gpu],
+                    [
+                      "VRAM",
+                      state.system.probedAt
+                        ? state.system.vramGb
+                          ? `${state.system.vramGb} GB`
+                          : "unknown"
+                        : "unknown",
+                    ],
+                    ["Accelerator", state.system.cuda ?? "unknown"],
+                    [
+                      "Free disk",
+                      state.system.probedAt && state.system.diskFreeGb
+                        ? `${state.system.diskFreeGb} GB`
+                        : "unknown",
+                    ],
+                    ["Execution device", state.device],
+                  ].map(([k, v]) => (
+                    <div key={k} className="hud-tile rounded-surface px-3 py-2">
+                      <p className="label-xs text-muted-foreground">{k}</p>
+                      <p className="truncate text-meta text-foreground">{v}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  <MetricBar
+                    label="VRAM in use"
+                    value={
+                      state.system.vramGb
+                        ? Math.min(100, Math.round((vramUsed / state.system.vramGb) * 100))
+                        : 0
+                    }
+                    detail={`${vramUsed.toFixed(1)} GB resident across ${counts.running} loaded model(s)`}
+                    tone="warning"
+                  />
+                  <MetricBar
+                    label="Model storage"
+                    value={
+                      state.system.diskFreeGb > 0
+                        ? Math.min(100, Math.round((counts.diskGb / state.system.diskFreeGb) * 100))
+                        : 0
+                    }
+                    detail={
+                      state.system.diskFreeGb > 0
+                        ? `${formatGb(counts.diskGb)} of ${state.system.diskFreeGb} GB free disk`
+                        : "free disk unknown"
+                    }
+                    tone="primary"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="label-xs text-muted-foreground">Device</span>
+                    <FilterTabs
+                      tabs={[
+                        { key: "auto", label: "Auto" },
+                        { key: "gpu", label: "GPU" },
+                        { key: "cpu", label: "CPU" },
+                      ]}
+                      value={state.device}
+                      onChange={(k) => engine.setDevice(k as typeof state.device)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {supportedFormats.map((f) => (
+                      <Badge key={f.format} variant="outline" className="label-xs" title={f.note}>
+                        {f.format}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </HudPanel>
+
+            <LocalRunners />
+          </>
+        ) : null}
+        {section === "cloud" ? (
+          <>
+            <HudPanel
+              title="Free models"
+              actions={
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
+                    Refresh free list
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => toast(probeOwnerMessage())}>
+                    Test my free models
+                  </Button>
+                </div>
+              }
+            >
+              <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {signupGuide().map((row) => (
+                  <li key={row.id}>
+                    <a className="underline" href={row.href} target="_blank" rel="noreferrer">
+                      {row.label}
+                    </a>
+                    <span> — {row.dataUse}</span>
+                  </li>
+                ))}
+              </ul>
+            </HudPanel>
+            <HudPanel
+              title="Catalogue"
+              actions={
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void (async () => {
+                        const api = desktopApi();
+                        const refreshed = await api?.catalogueRefresh?.();
+                        const row = await api?.catalogueStatus?.();
+                        const summary =
+                          row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
+                        const knowledge = refreshed?.knowledge;
+                        const pricing = knowledge?.skipped
+                          ? ` Pricing sources kept as cached (${knowledge.skipped}).`
+                          : knowledge?.applied?.length
+                            ? ` Pricing re-read for ${knowledge.applied.join(", ")}.`
+                            : knowledge?.kept?.length
+                              ? ` Pricing sources kept as cached (${knowledge.kept[0]?.reason || "no change"}).`
+                              : "";
+                        setCatalogueNote(`${summary}${pricing}`);
+                        setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
+                        loadKnowledge();
+                        toast(`${summary}${pricing}`);
+                      })();
+                    }}
+                  >
+                    Refresh now
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void desktopApi()
+                        ?.verifyCapabilities?.("")
+                        .then((row) => {
+                          toast(row?.reason || "Capability checks stay on a free-verified model.");
+                        });
+                    }}
+                  >
+                    Verify capabilities
+                  </Button>
+                </div>
+              }
+            >
+              <p className="text-xs text-muted-foreground">{catalogueNote}</p>
+              {knowledgeLines.length > 0 ? (
+                <ul
+                  className="mt-2 space-y-1 text-xs text-muted-foreground"
+                  aria-label="Pricing evidence"
+                >
+                  {knowledgeLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {catalogueChanges.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {catalogueChanges.slice(0, 8).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </HudPanel>
+            <CloudSelection models={registry.models} />
+          </>
+        ) : null}
 
         <FilterTabs
           tabs={TABS.filter((item) => tabsForSection(section).includes(item.key))}
@@ -1058,16 +1127,22 @@ function ModelsPage() {
         {(tab === "catalog" || tab === "installed") && (
           <HudPanel
             title={tab === "installed" ? "Installed models" : "Master catalog"}
-            hint={`${filtered.length} of ${modelCatalog.length}`}
+            hint={`${filtered.length} of ${modelCatalog.length}${
+              tooBig ? ` · ${tooBig} too big for this PC hidden` : ""
+            }`}
             actions={
-              <div className="flex items-center gap-2">
-                <div className="relative hidden sm:block">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-40 flex-1 sm:flex-none">
                   <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search models…"
-                    className="h-8 w-52 pl-7 font-mono text-xs"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void engine.discover(query);
+                    }}
+                    placeholder="Search models… (Enter searches online)"
+                    aria-label="Search models"
+                    className="h-8 w-full pl-7 font-mono text-xs sm:w-72"
                   />
                 </div>
                 <Button
@@ -1106,7 +1181,11 @@ function ModelsPage() {
                   <span className="label-xs text-muted-foreground">
                     {state.discoveryError
                       ? state.discoveryError
-                      : `${state.discovered.length} models found online${
+                      : `${foundArranged.shown.length} models found online${
+                          foundArranged.hidden
+                            ? ` (${foundArranged.hidden} too big for this PC hidden)`
+                            : ""
+                        }${
                           state.discoveryAt
                             ? ` · ${new Date(state.discoveryAt).toLocaleTimeString()}`
                             : ""
@@ -1131,6 +1210,12 @@ function ModelsPage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
+                        <span title={onlineFit(d, state.system).reason}>
+                          <StatusPill
+                            label={onlineFit(d, state.system).level}
+                            tone={onlineFit(d, state.system).tone}
+                          />
+                        </span>
                         <Badge variant="outline" className="label-xs">
                           {d.category}
                         </Badge>
@@ -1229,6 +1314,14 @@ function ModelsPage() {
             <div className="mb-3 space-y-2">
               <FilterTabs
                 tabs={[
+                  { key: "runs", label: "Runs on this PC" },
+                  { key: "all", label: "Everything" },
+                ]}
+                value={fit}
+                onChange={(k) => setFit(k as FitFilter)}
+              />
+              <FilterTabs
+                tabs={[
                   { key: "all", label: "All sources" },
                   { key: "local", label: "Local" },
                   { key: "cloud", label: "Cloud" },
@@ -1291,7 +1384,9 @@ function ModelsPage() {
                   <span key="st" className="flex items-center gap-1.5">
                     <StatusPill
                       label={status}
-                      tone={toneForStatus(status === "Installed" ? "ready" : status)}
+                      tone={toneForStatus(
+                        status === "Installed" || status === "Connected" ? "ready" : status,
+                      )}
                     />
                     {runtime ? (
                       <StatusPill
@@ -1594,6 +1689,9 @@ function ModelsPage() {
             </div>
           </div>
         )}
+
+        {/* ------------------------------------------------------ live status */}
+        {tab === "live" && <ModelsLivePanel />}
 
         {/* ---------------------------------------------------------- runtime */}
         {tab === "runtime" && (
@@ -2026,34 +2124,106 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
 function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
-  const [format, setFormat] = useState("GGUF");
-  const [sizeGb, setSizeGb] = useState("4");
-  const [provider, setProvider] = useState<ProviderId>("llamacpp");
-  const [browsing, setBrowsing] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [over, setOver] = useState(false);
+  const desktop = state.bridge === "desktop" && Boolean(desktopApi()?.importModel);
 
-  const submit = () => {
-    if (!name.trim() || !path.trim()) {
-      toast.error("Name and file path are required");
-      return;
-    }
-    engine.importModel({
-      name: name.trim(),
-      path: path.trim(),
-      format,
-      sizeGb: Number(sizeGb) || 0,
-      provider,
-    });
-    toast.success(`${name} imported`);
-    setName("");
-    setPath("");
+  const addAll = (paths: string[], displayName?: string) => {
+    const clean = paths.map((p) => p.trim()).filter(Boolean);
+    if (!clean.length) return;
+    clean.forEach(
+      (file) =>
+        void engine.importModel({
+          path: file,
+          ...(clean.length === 1 && displayName ? { name: displayName } : {}),
+        }),
+    );
+    toast(`${clean.length} model${clean.length > 1 ? "s" : ""} importing…`);
   };
 
+  const pick = async (mode: "file" | "folder") => {
+    const api = desktopApi();
+    if (!api?.pickModelFiles) {
+      toast("Choosing files needs the desktop app — paste the path below.");
+      return;
+    }
+    setPicking(true);
+    try {
+      const picked = await api.pickModelFiles(mode);
+      if (picked?.ok) addAll(picked.paths, name.trim());
+      if (picked?.ok) setName("");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setOver(false);
+    const api = desktopApi();
+    const paths = Array.from(event.dataTransfer.files)
+      .map((file) => api?.pathForFile?.(file) || "")
+      .filter(Boolean);
+    if (!paths.length) {
+      toast.error("Could not read the dropped file — use Choose model files instead.");
+      return;
+    }
+    addAll(paths, name.trim());
+    setName("");
+  };
+
+  const tone = (m: (typeof state.imported)[number]) =>
+    m.state === "ready"
+      ? "accent"
+      : m.state === "importing"
+        ? "primary"
+        : m.state === "failed" || m.state === "not-responding"
+          ? "destructive"
+          : "muted";
+
   return (
-    <HudPanel title="Import a local model" hint="GGUF · Safetensors · ONNX · PyTorch">
+    <HudPanel title="Add your own model" hint="GGUF · Safetensors · ONNX · PyTorch">
       <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={onDrop}
+          className={`rounded-surface border border-dashed p-4 text-center ${
+            over ? "border-primary bg-primary/5" : "border-border/70"
+          }`}
+        >
+          <p className="text-sm">Drop model files here, or choose them</p>
+          <p className="mt-1 text-note text-muted-foreground">
+            A GGUF is stored in your FRIDAY folder, registered with the local engine and tested; it
+            then shows up in the model list ready to use.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <Button size="sm" disabled={picking || !desktop} onClick={() => void pick("file")}>
+              <Upload className="size-4" />
+              Choose model files
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={picking || !desktop}
+              onClick={() => void pick("folder")}
+            >
+              <FolderOpen className="size-4" />
+              Choose a model folder
+            </Button>
+          </div>
+          {!desktop ? (
+            <p className="mt-2 text-note text-muted-foreground">
+              Importing needs the desktop app; this preview cannot read files.
+            </p>
+          ) : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
           <div>
-            <p className="label-xs mb-1 text-muted-foreground">Display name</p>
+            <p className="label-xs mb-1 text-muted-foreground">Display name (optional)</p>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -2062,108 +2232,91 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
             />
           </div>
           <div>
-            <p className="label-xs mb-1 text-muted-foreground">Runtime</p>
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as ProviderId)}
-              className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
-            >
-              {providers
-                .filter((p) => p.kind === "local")
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-        <div>
-          <p className="label-xs mb-1 text-muted-foreground">Model file or folder</p>
-          <div className="flex gap-2">
+            <p className="label-xs mb-1 text-muted-foreground">Or paste a file or folder path</p>
             <Input
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              placeholder="C:\FRIDAY\models\my-model.gguf"
-              className="h-9 font-mono text-xs"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={browsing}
-              onClick={async () => {
-                setBrowsing(true);
-                try {
-                  const picked = await window.friday?.pickFolder?.();
-                  if (picked) setPath(picked);
-                  else
-                    toast(
-                      "Folder picker is available in the desktop app — type the path here in preview.",
-                    );
-                } finally {
-                  setBrowsing(false);
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && path.trim()) {
+                  addAll([path], name.trim());
+                  setPath("");
+                  setName("");
                 }
               }}
+              placeholder="C:\Models\my-model.gguf"
+              className="h-9 font-mono text-xs"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              size="sm"
+              disabled={!path.trim() || !desktop}
+              onClick={() => {
+                addAll([path], name.trim());
+                setPath("");
+                setName("");
+              }}
             >
-              <Upload className="size-4" />
-              Browse
+              <Plus className="size-4" />
+              Import model
             </Button>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <p className="label-xs mb-1 text-muted-foreground">Format</p>
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value)}
-              className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
-            >
-              {supportedFormats.map((f) => (
-                <option key={f.format} value={f.format}>
-                  {f.format} — {f.note}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <p className="label-xs mb-1 text-muted-foreground">Size (GB)</p>
-            <Input
-              value={sizeGb}
-              onChange={(e) => setSizeGb(e.target.value)}
-              inputMode="decimal"
-              className="h-9 font-mono text-xs"
-            />
-          </div>
-        </div>
-        <Button size="sm" onClick={submit}>
-          <Plus className="size-4" />
-          Import model
-        </Button>
 
         <div className="border-t border-border pt-3">
           <p className="label-xs mb-2 text-muted-foreground">Imported ({state.imported.length})</p>
           {state.imported.length === 0 ? (
             <p className="text-note text-muted-foreground">Nothing imported yet.</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {state.imported.map((m) => (
-                <li key={m.id} className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm">{m.name}</p>
-                    <p className="truncate text-meta-sm text-muted-foreground">
-                      {m.format} · {formatGb(m.sizeGb)} · {providerById.get(m.provider)?.name} ·{" "}
-                      {m.path}
-                    </p>
+                <li key={m.id} className="rounded-surface border border-border/60 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm">{m.name}</p>
+                        <StatusPill label={m.state ?? "stored"} tone={tone(m)} />
+                      </div>
+                      <p className="truncate text-meta-sm text-muted-foreground">
+                        {m.format} · {m.sizeGb ? formatGb(m.sizeGb) : "size unknown"} · {m.path}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {m.state && m.state !== "ready" && m.state !== "importing" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Try ${m.name} again`}
+                          title="Try again"
+                          onClick={() => void engine.importModel({ path: m.path, name: m.name })}
+                        >
+                          <RefreshCw className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Remove imported model"
+                        title="Remove imported model"
+                        onClick={() => engine.removeImport(m.id)}
+                      >
+                        <Trash2 className="size-3.5 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Remove imported model"
-                    title="Remove imported model"
-                    onClick={() => engine.removeImport(m.id)}
-                  >
-                    <Trash2 className="size-3.5 text-destructive" />
-                  </Button>
+                  {m.state === "importing" ? (
+                    <div className="mt-1.5">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${m.progress ?? 0}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 truncate text-meta-sm text-muted-foreground">{m.status}</p>
+                    </div>
+                  ) : m.note ? (
+                    <p className="mt-1 text-note text-muted-foreground">{m.note}</p>
+                  ) : null}
                 </li>
               ))}
             </ul>

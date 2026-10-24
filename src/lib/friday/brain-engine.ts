@@ -24,7 +24,13 @@ import {
   type StageId,
   type SuggestionKind,
 } from "./brain-catalog";
-import { modelById, routeRefs, type RoutingTask } from "./model-catalog";
+import {
+  modelById,
+  providers as catalogProviders,
+  routeRefs,
+  type RoutingTask,
+} from "./model-catalog";
+import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { modelRegistry as usageRegistry } from "./model-registry";
 import {
   createRoutingContract,
@@ -81,9 +87,53 @@ function ownerShape(prompt: string, text: string) {
   return shapeReply({ prompt, text, talk, warmth });
 }
 
+/**
+ * A model or provider the owner named in this prompt ("use qwen", "gemini se
+ * pucho") pins the turn to it. A caller that already pinned models wins.
+ */
+export function promptRouting(
+  prompt: string,
+  options: { modelIds?: string[]; routeMode?: string; routingContract?: ModelRoutingContract },
+): { modelIds?: string[]; providerIds?: string[]; routeMode?: string } | null {
+  if (options.modelIds?.length || options.routingContract) return null;
+  let rows: ReturnType<typeof usageRegistry.getSnapshot>["models"];
+  try {
+    rows = usageRegistry.getSnapshot().models;
+  } catch {
+    rows = [];
+  }
+  const named: NamedModel[] = rows.map((row) => ({
+    id: row.id,
+    providerId: row.providerId,
+    names: [row.modelName, row.displayName, row.label, row.providerModelId, row.id].filter(
+      (name): name is string => Boolean(name),
+    ),
+  }));
+  const seen = new Map<string, NamedProvider>();
+  for (const provider of catalogProviders) {
+    seen.set(provider.id, { id: provider.id, names: [provider.id, provider.name] });
+  }
+  for (const row of rows) {
+    if (!seen.has(row.providerId)) {
+      seen.set(row.providerId, {
+        id: row.providerId,
+        names: [row.providerId, row.providerName ?? row.provider].filter(Boolean),
+      });
+    }
+  }
+  const request = parseModelRequest(prompt, named, [...seen.values()]);
+  if (!request) return null;
+  // A named model is the owner's manual pick for this turn; a named provider
+  // keeps the router's choice inside that provider. Firewalls still decide.
+  return request.kind === "model"
+    ? { modelIds: [request.modelId], routeMode: "manual" }
+    : { providerIds: [request.providerId], routeMode: "auto" };
+}
+
 export function withRoutingDefaults(options: {
   extra?: string;
   modelIds?: string[];
+  providerIds?: string[];
   routeMode?: string;
   routingContract?: ModelRoutingContract;
   routingSurface?: "voice" | "chat";
@@ -100,11 +150,14 @@ export function withRoutingDefaults(options: {
   try {
     const snapshot = usageRegistry.getSnapshot();
     if (!routeMode) routeMode = snapshot.routeMode;
-    if (!modelIds?.length && snapshot.selected.length) modelIds = [...snapshot.selected];
+    // A provider named in the prompt replaces the picker's picks for this turn.
+    if (!modelIds?.length && !options.providerIds?.length && snapshot.selected.length)
+      modelIds = [...snapshot.selected];
     if (!routingContract) {
       routingContract = createRoutingContract({
         routeMode: normaliseRouteMode(routeMode),
         selectedModelIds: modelIds || [],
+        selectedProviderIds: options.providerIds || [],
         costPolicy: normaliseCostPolicy(snapshot.policy),
         task: "chat",
         qualityTarget: snapshot.qualityTarget,
@@ -132,6 +185,7 @@ import {
 } from "./self/task-runners";
 import { handleDoctorCommand } from "./doctor-engine";
 import { handleInstallerCommand } from "./installer-engine";
+import { handleModelsCommand } from "./models-command";
 import {
   kernelCall,
   checkForUpdates,
@@ -1416,7 +1470,8 @@ class BrainStore {
     // question could reach a different model depending on how it was asked.
     // The registry is the single source of truth, filled in here for callers
     // that do not carry it.
-    const options = withRoutingDefaults(rawOptions);
+    const named = promptRouting(prompt, rawOptions);
+    const options = withRoutingDefaults(named ? { ...rawOptions, ...named } : rawOptions);
     const text = prompt.trim();
     if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
     if (this.state.activeRunId) {
@@ -1685,6 +1740,18 @@ class BrainStore {
         handled: true,
         kind: "action",
         text: doctorReply,
+        confidence: 1,
+      });
+      return;
+    }
+
+    const modelsReply = handleModelsCommand(work);
+    if (modelsReply) {
+      stampUnderstanding("models question — no model");
+      void this.answerFromBaseline(run, {
+        handled: true,
+        kind: "action",
+        text: modelsReply,
         confidence: 1,
       });
       return;
