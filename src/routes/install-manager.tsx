@@ -406,6 +406,25 @@ function InstallManagerPage() {
           </div>
         )}
 
+        {state.scanError && !state.scanning && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+            <span>The scan failed — {state.scanError}. Versions below may be out of date.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void installer.refreshFromSystem(true)}
+            >
+              <RefreshCw className="size-3" /> Retry
+            </Button>
+          </div>
+        )}
+        {state.latestFailed && !state.scanError && !state.scanning && (
+          <div className="rounded-surface border border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
+            The newest versions could not be read just now, so "Latest" may be old. The next scan
+            tries again.
+          </div>
+        )}
+
         <HudPanel
           title="Environment Summary"
           hint={

@@ -183,3 +183,14 @@ describe("image kill", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("use on demand", () => {
+  it("starts or touches the local engine before every model call", async () => {
+    const { readFileSync } = await import("node:fs");
+    const main = readFileSync(new URL("../../electron/main.cjs", import.meta.url), "utf8");
+    expect(main).toMatch(
+      /async function streamOnce\(args\) \{\s*await ensureLocalService\(args\.model\);/,
+    );
+    expect(main).toContain('const LOCAL_SERVICE = { ollama: "Ollama", lmstudio: "LM Studio" }');
+  });
+});

@@ -50,3 +50,46 @@ describe("desktop queue order", () => {
     expect(order.indexOf("Node.js LTS")).toBeLessThan(order.indexOf("pnpm"));
   });
 });
+
+describe("a scan that fails", () => {
+  it("is shown with its reason instead of silently keeping old data", async () => {
+    vi.stubGlobal("window", {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      friday: {
+        isDesktop: true,
+        detectTools: async () => {
+          throw new Error("the probe timed out");
+        },
+        latestToolVersions: async () => ({}),
+        providerKeys: async () => ({}),
+      },
+    });
+    const { installer } = await import("../../src/lib/friday/installer-engine");
+    installer.state.bridge = "desktop";
+    await installer.refreshFromSystem(true);
+    expect(installer.getSnapshot().scanError).toBe("the probe timed out");
+    expect(installer.getSnapshot().scanning).toBe(false);
+  });
+
+  it("flags that the newest versions could not be read", async () => {
+    vi.stubGlobal("window", {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      friday: {
+        isDesktop: true,
+        detectTools: async () => ({ tools: [] }),
+        latestToolVersions: async () => {
+          throw new Error("offline");
+        },
+        providerKeys: async () => ({}),
+        toolServices: async () => ({ services: [], idleMinutes: 20 }),
+      },
+    });
+    const { installer } = await import("../../src/lib/friday/installer-engine");
+    installer.state.bridge = "desktop";
+    await installer.refreshFromSystem(true);
+    expect(installer.getSnapshot().latestFailed).toBe(true);
+    expect(installer.getSnapshot().scanError).toBeNull();
+  });
+});

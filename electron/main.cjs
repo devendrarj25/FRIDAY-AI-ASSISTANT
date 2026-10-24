@@ -2757,7 +2757,24 @@ async function authoriseProviderRequest({
  * two or three concurrent candidates do not interleave into one bubble.
  */
 /** Every provider request goes through here once, so the usage ledger sees all of them. */
+/**
+ * A turn that routes to a local engine FRIDAY stopped for being idle brings it
+ * back first, and a running one counts the turn as use so it stays up.
+ */
+const LOCAL_SERVICE = { ollama: "Ollama", lmstudio: "LM Studio" };
+async function ensureLocalService(model) {
+  if (model?.type !== "local") return;
+  const id = LOCAL_SERVICE[model?.meta?.providerId || model?.providerId];
+  if (!id) return;
+  try {
+    await toolServices.start(id);
+  } catch {
+    /* the engine stays down; the turn falls back like any failed candidate */
+  }
+}
+
 async function streamOnce(args) {
+  await ensureLocalService(args.model);
   const result = await streamOnceRaw(args);
   try {
     usageLedger.record({

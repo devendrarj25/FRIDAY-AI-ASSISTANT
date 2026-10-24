@@ -181,6 +181,10 @@ export type InstallerState = {
   log: LogLine[];
   history: HistoryEntry[];
   scanning: boolean;
+  /** Why the last scan failed, or null. The page shows it with a Retry. */
+  scanError: string | null;
+  /** The last scan could not read the newest versions, so "latest" may be old. */
+  latestFailed: boolean;
   scanProgress: number;
   lastScanAt: number | null;
   verifying: boolean;
@@ -370,6 +374,8 @@ class InstallerStore {
     log: [],
     history: [],
     scanning: false,
+    scanError: null,
+    latestFailed: false,
     scanProgress: 0,
     lastScanAt: null,
     verifying: false,
@@ -658,9 +664,13 @@ class InstallerStore {
 
     this.detectInflight = (async () => {
       try {
+        let latestFailed = false;
         const [detected, latest, keys] = await Promise.all([
           desktop.detectTools!(force),
-          desktop.latestToolVersions?.().catch(() => ({})) ?? Promise.resolve({}),
+          desktop.latestToolVersions?.().catch(() => {
+            latestFailed = true;
+            return {};
+          }) ?? Promise.resolve({}),
           desktop.providerKeys?.().catch(() => ({})) ?? Promise.resolve({}),
         ]);
         const installed: InstalledMap = {};
@@ -725,6 +735,8 @@ class InstallerStore {
         this.state.latest = { ...this.state.latest, ...(latest as Record<string, string>) };
 
         this.state.lastScanAt = Date.now();
+        this.state.scanError = null;
+        this.state.latestFailed = latestFailed;
         void this.refreshServices();
         const found = Object.values(installed).filter(Boolean).length;
         const updates = this.entries().filter(
@@ -735,7 +747,8 @@ class InstallerStore {
           `detection complete — ${found}/${this.state.probed.length} probed tools installed, ${updates} update(s) available`,
         );
       } catch (err) {
-        this.push("error", `detection failed: ${(err as Error).message}`);
+        this.state.scanError = (err as Error).message || "the scan did not finish";
+        this.push("error", `detection failed: ${this.state.scanError}`);
       } finally {
         this.state.scanning = false;
         this.state.scanProgress = 100;
