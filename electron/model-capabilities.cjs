@@ -92,6 +92,43 @@ const REGISTRY = [
       /(^|[-_/])tts($|[-_])|text-to-speech|elevenlabs|eleven[-_]|kokoro|orpheus|bark|parler|xtts|piper|playht|speech-0|chatterbox|dia-|f5-tts|supertonic|audio-gen/,
     caps: { ...NON_CHAT, audio: true, textToSpeech: true },
   },
+  // ------------------------------------------- Never chat, whoever makes them
+  {
+    id: "deepseek-reasoner",
+    match: /deepseek-(r1|reasoner)|^r1(-|$)/,
+    caps: { reasoning: true, coding: true, tools: false, longContext: true },
+  },
+  { id: "deepseek-coder", match: /deepseek.*cod/, caps: { coding: true, tools: true } },
+  { id: "deepseek", match: /deepseek/, caps: { coding: true, tools: true, reasoning: true } },
+  // ----------------------------------------------------------------- Qwen
+  { id: "qwen-vl", match: /qwen.*(vl|vision)/, caps: { vision: true, tools: true } },
+  { id: "qwen-coder", match: /qwen.*cod/, caps: { coding: true, tools: true } },
+  { id: "qwq", match: /qwq|qwen.*think/, caps: { reasoning: true, tools: true } },
+  { id: "qwen", match: /qwen/, caps: { tools: true, coding: true, longContext: true } },
+  // -------------------------------------------------------------- Mistral
+  { id: "pixtral", match: /pixtral/, caps: { vision: true, tools: true } },
+  {
+    id: "non-chat-safety",
+    match:
+      /moderation|moderator|prompt-guard|llama-guard|shieldgemma|nemoguard|safeguard|content-safety|safety-guard/,
+    caps: { chat: false, tools: false, streaming: false },
+  },
+  {
+    id: "research",
+    match: /research|search|sonar|perplex|compound/,
+    caps: { research: true, tools: true, longContext: true },
+  },
+  {
+    id: "embeddings",
+    match: /bge|e5-|gte-|nomic-embed|all-minilm|mxbai-embed|rerank/,
+    caps: { chat: false, tools: false, streaming: false, embeddings: true },
+  },
+  {
+    id: "vision-by-name",
+    match:
+      /(^|[/_-])(neva|nvlm|vila|cosmos-nemotron|paligemma|florence|molmo|internvl|glm-4\.?\d*v|kosmos|fuyu|idefics|smolvlm|phi-3(\.5)?-vision|llama-3\.2-\d+b-vision|llama-4)/,
+    caps: { vision: true, tools: true },
+  },
   // ---------------------------------------------------------------- OpenAI
   {
     id: "openai-o-series",
@@ -139,25 +176,6 @@ const REGISTRY = [
   { id: "meta-llama", match: /llama/, caps: { tools: true } },
   // ------------------------------------------------------------- DeepSeek
   {
-    id: "deepseek-reasoner",
-    match: /deepseek-(r1|reasoner)|^r1(-|$)/,
-    caps: { reasoning: true, coding: true, tools: false, longContext: true },
-  },
-  { id: "deepseek-coder", match: /deepseek.*cod/, caps: { coding: true, tools: true } },
-  { id: "deepseek", match: /deepseek/, caps: { coding: true, tools: true, reasoning: true } },
-  // ----------------------------------------------------------------- Qwen
-  { id: "qwen-vl", match: /qwen.*(vl|vision)/, caps: { vision: true, tools: true } },
-  { id: "qwen-coder", match: /qwen.*cod/, caps: { coding: true, tools: true } },
-  { id: "qwq", match: /qwq|qwen.*think/, caps: { reasoning: true, tools: true } },
-  { id: "qwen", match: /qwen/, caps: { tools: true, coding: true, longContext: true } },
-  // -------------------------------------------------------------- Mistral
-  { id: "pixtral", match: /pixtral/, caps: { vision: true, tools: true } },
-  {
-    id: "non-chat-safety",
-    match: /moderation|moderator|prompt-guard|safeguard|content-safety/,
-    caps: { chat: false, tools: false, streaming: false },
-  },
-  {
     id: "mistral",
     match: /mistral|mixtral|devstral|codestral/,
     caps: { tools: true, coding: true },
@@ -170,16 +188,6 @@ const REGISTRY = [
   },
   { id: "phi", match: /phi-?[34]/, caps: { tools: true, coding: true, reasoning: true } },
   { id: "starcoder", match: /starcoder|granite-code|codegemma/, caps: { coding: true } },
-  {
-    id: "research",
-    match: /research|search|sonar|perplex/,
-    caps: { research: true, tools: true, longContext: true },
-  },
-  {
-    id: "embeddings",
-    match: /bge|e5-|gte-|nomic-embed|all-minilm|mxbai-embed|rerank/,
-    caps: { chat: false, tools: false, streaming: false, embeddings: true },
-  },
   {
     id: "audio",
     match:
@@ -364,7 +372,7 @@ function inferredCapabilities(name) {
       /whisper|tts|piper|xtts|bark|orpheus|kokoro|silero|supertonic|moonshine|smart-turn|rnnoise/.test(
         name,
       ),
-    research: /research|search|sonar|perplex/.test(name),
+    research: /research|search|sonar|perplex|compound/.test(name),
     imageGeneration: /dall-?e|gpt-image|imagen|flux|stable-?diffusion|sdxl/.test(name),
     speechToText: /whisper|transcribe/.test(name),
     textToSpeech: /(^|[-_/])tts($|[-_])|text-to-speech/.test(name),

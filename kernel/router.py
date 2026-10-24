@@ -592,7 +592,10 @@ async def _raise_with_body(resp) -> None:
     except Exception:  # noqa: BLE001,S110 — a non-JSON error body falls through to the status
         pass
     hint = http_error_hint(resp.status_code, str(detail or ""))
-    raise RuntimeError(f"HTTP {resp.status_code}{hint}: {str(detail)[:400]}")
+    # The provider's own wait travels with the error, so the cooldown is exact.
+    wait = _header_get(resp.headers, "retry-after")
+    suffix = f" (retry-after {wait})" if wait not in (None, "") and resp.status_code == 429 else ""
+    raise RuntimeError(f"HTTP {resp.status_code}{hint}: {str(detail)[:400]}{suffix}")
 
 
 #: One shared HTTP client for every provider call. Creating a client per

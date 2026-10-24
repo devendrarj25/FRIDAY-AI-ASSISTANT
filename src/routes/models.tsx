@@ -1971,9 +1971,10 @@ function ProviderUse({
       </p>
       {providerId === "groq" ? (
         <p className="text-meta-sm text-muted-foreground">
-          Groq publishes Developer prices, not a free-model list. Treat this key as the free tier
-          only when the account is the free plan. A priced id stays paid until you mark that model
-          free.
+          Groq publishes Developer prices, not a free-model list. If this account is on the Free
+          plan (no payment method added), press Treat key as free tier: FRIDAY then uses every Groq
+          model inside its free limits, and a model that hits a limit rests only for the wait Groq
+          names before another one answers. Do not press it on a paid account.
         </p>
       ) : null}
       {cloud ? (

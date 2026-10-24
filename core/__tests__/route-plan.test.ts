@@ -364,7 +364,8 @@ describe("route plan", () => {
     expect(
       router.classifyError({ status: 429, message: "rate limit", retryAfter: 2 }).cooldownMs,
     ).toBe(2000);
-    expect(router.classifyError("HTTP 429: rate limit exceeded").cooldownMs).toBe(60_000);
+    // A per-minute limit with no stated wait rests a model for 20 s, not a minute.
+    expect(router.classifyError("HTTP 429: rate limit exceeded").cooldownMs).toBe(20_000);
   });
 
   it("plans a parallel run only for multi with at least two candidates", () => {

@@ -2798,9 +2798,32 @@ async function ensureLocalService(model) {
   }
 }
 
+/**
+ * A rate limit whose own message says "try again in 1.2s" is waited out on the
+ * same model, once, instead of cooling a good free model and switching away.
+ * Longer waits go to the next candidate as before.
+ */
+function shortRateWaitMs(result) {
+  if (!result || result.ok || result.cancelled || result.blocked || result.received) return 0;
+  const message = String(result.error || "");
+  if (!/http 429|rate limit|too many requests/i.test(message)) return 0;
+  const verdict = modelRouter.classifyError({ message, status: 429 });
+  return verdict.category === "rate_limited" && verdict.exact && verdict.cooldownMs <= 3000
+    ? verdict.cooldownMs + 150
+    : 0;
+}
+
 async function streamOnce(args) {
   await ensureLocalService(args.model);
-  const result = await streamOnceRaw(args);
+  let result = await streamOnceRaw(args);
+  const pause = shortRateWaitMs(result);
+  if (pause) {
+    log(
+      `${args.model?.id || "model"}: rate limited for ${pause} ms, waiting then trying once more`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, pause));
+    result = await streamOnceRaw(args);
+  }
   try {
     usageLedger.record({
       modelId: args.model?.id,
@@ -3099,6 +3122,12 @@ async function startChat(request) {
     let index = 0;
     while (index < candidates.length) {
       const model = candidates[index];
+      // A model that rested during this very turn (an account-wide limit hit
+      // through a sibling) is not asked again; the next provider answers.
+      if (index > 0 && providerHealth.isCoolingDown(model.id)) {
+        index += 1;
+        continue;
+      }
       log(
         `chat ${requestId}: trying ${model.id} (${model.type}/${model.access}, score-ordered, policy=${policy})`,
       );
@@ -3183,6 +3212,26 @@ async function startChat(request) {
         outcome: noted.category,
         latencyMs: result.latencyMs,
       });
+      // OpenRouter's free-model daily cap belongs to the account, not to one
+      // model: the others on it would fail the same way, so they rest too and the
+      // turn goes to another provider at once instead of trying each in turn.
+      if (noted.category === "daily_limit" && /free-models-per-day/i.test(String(result.error))) {
+        for (const sibling of candidates) {
+          if (
+            sibling.id !== model.id &&
+            sibling.providerId === model.providerId &&
+            sibling.access === "free"
+          ) {
+            providerHealth.noteFailure(sibling.id, {
+              message: result.error,
+              modelId: sibling.id,
+              provider: sibling.providerId || "",
+              kind: "cloud",
+              path: "/chat",
+            });
+          }
+        }
+      }
       if (noted.delist) {
         model.status = "unavailable";
         if (model.meta) model.meta.loaded = false;
