@@ -33,6 +33,7 @@ import {
   githubCheck,
   githubConfig,
   githubConnection,
+  githubCancelDownload,
   githubDownloadInstaller,
   githubInstallUpdate,
   githubInstallerBundles,
@@ -296,7 +297,11 @@ export function GithubUpdates() {
     setProgress({ phase: "Starting download", percent: 0 });
     const got = await githubDownloadInstaller({ ...asset, testBuild: Boolean(build.testBuild) });
     if (!got.ok || !got.file) {
-      fail(got.error || "The installer could not be downloaded.");
+      fail(
+        got.cancelled
+          ? "Download stopped — Retry continues from what already arrived."
+          : got.error || "The installer could not be downloaded.",
+      );
       return;
     }
     setPipeline("installing");
@@ -613,7 +618,30 @@ export function GithubUpdates() {
           </Button>
           {/* Source "Download & apply" is a DEVELOPER action. An installed
               FRIDAY updates only through a verified release installer. */}
-          {check?.packaged ? null : (
+          {check?.packaged ? (
+            <Button
+              variant="outline"
+              disabled={!desktop || busy !== null || !check?.ok || !check?.ref}
+              title="Merge the new skills, agents, plugins, modules, workflows and docs of this release into your FRIDAY folder. The program itself updates through the installer."
+              onClick={() =>
+                void run("content", async () => {
+                  const result = await githubUpdateNow(check?.ref, { contentOnly: true });
+                  if (!result.ok) {
+                    toast.error(result.error || "Update failed — nothing was changed.");
+                    return;
+                  }
+                  await reload();
+                  toast.success(
+                    result.applied
+                      ? `Merged ${result.applied} file(s) of content${result.restartRequired ? " — restart FRIDAY to load them" : ""}`
+                      : "Your skills, agents, plugins, modules and workflows already match this release.",
+                  );
+                })
+              }
+            >
+              <Download className="size-4" /> Update content
+            </Button>
+          ) : (
             <Button
               disabled={!desktop || busy !== null || !check?.updateAvailable}
               onClick={() =>
@@ -725,6 +753,21 @@ export function GithubUpdates() {
                     style={{ width: `${Math.max(2, progress?.percent ?? 2)}%` }}
                   />
                 </div>
+                {pipeline === "downloading" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="mt-2"
+                    onClick={() => {
+                      void githubCancelDownload();
+                      toast.message(
+                        "Download stopped. What arrived is kept; Retry continues from it.",
+                      );
+                    }}
+                  >
+                    Cancel download
+                  </Button>
+                ) : null}
               </>
             )}
           </div>

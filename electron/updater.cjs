@@ -14,31 +14,39 @@ const readJson = (p) => {
 
 // Manifests may declare { updateUrl } returning { version, notes, download }.
 async function checkManifestUpdates(items, kind) {
-  const updates = [];
-  for (const item of items) {
-    const manifest = item.manifestFile ? readJson(item.manifestFile) : null;
-    const url = manifest?.updateUrl;
-    if (!url) continue;
-    try {
-      const res = await fetch(url, { headers: { accept: "application/json" } });
-      if (!res.ok) continue;
-      const remote = await res.json();
-      if (remote?.version && remote.version !== item.version) {
-        updates.push({
-          kind,
-          id: item.id,
-          name: item.name,
-          current: item.version,
-          available: remote.version,
-          notes: remote.notes || "",
-          download: remote.download || null,
+  // Every item is asked at the same time, each with its own short limit, so one
+  // slow or dead feed can neither stall the rest nor run into the 30 s budget.
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const asked = await Promise.all(
+    items.map(async (item) => {
+      const manifest = item.manifestFile ? readJson(item.manifestFile) : null;
+      const url = manifest?.updateUrl;
+      if (!url) return null;
+      try {
+        const res = await fetchCompat(url, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(10_000),
         });
+        if (!res.ok) return null;
+        const remote = await res.json();
+        if (remote?.version && remote.version !== item.version) {
+          return {
+            kind,
+            id: item.id,
+            name: item.name,
+            current: item.version,
+            available: remote.version,
+            notes: remote.notes || "",
+            download: remote.download || null,
+          };
+        }
+      } catch {
+        /* offline or unreachable feed — silently skipped */
       }
-    } catch {
-      /* offline or unreachable feed — silently skipped */
-    }
-  }
-  return updates;
+      return null;
+    }),
+  );
+  return asked.filter(Boolean);
 }
 
 /**
@@ -122,14 +130,19 @@ function folderFor(root, kind, id) {
   return folder ? path.join(root, folder, id) : null;
 }
 
-async function download(url, target) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Download failed (${res.status})`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (!buffer.length) throw new Error("Download was empty");
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, buffer);
-  return { file: target, bytes: buffer.length };
+async function download(url, target, onProgress = () => {}) {
+  const resilient = require("./resilient-download.cjs");
+  const got = await resilient.downloadToFile({
+    url,
+    dest: target,
+    resume: false,
+    onProgress,
+    phase: "Downloading",
+    headers: { accept: "*/*" },
+    validate: async (file) => resilient.archiveProblem(file),
+  });
+  if (!got.ok) throw new Error(got.error || "Download failed");
+  return { file: got.file, bytes: got.bytes };
 }
 
 async function extract(archive, targetDir) {
@@ -177,7 +190,7 @@ async function applyUpdate({ root, update, onProgress = () => {}, installApp = n
   onProgress({ id: update.id, phase: "Downloading" });
   let downloaded;
   try {
-    downloaded = await download(update.download, file);
+    downloaded = await download(update.download, file, (p) => onProgress({ id: update.id, ...p }));
   } catch (error) {
     return { ok: false, error: String(error.message || error) };
   }

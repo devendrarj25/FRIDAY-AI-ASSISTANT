@@ -70,10 +70,12 @@ export function UpdateGuide() {
         <li>
           <span className="font-medium text-foreground">5. Install or apply.</span> The installer is
           downloaded, checked against its published SHA-256, your data is backed up, then FRIDAY
-          closes, the new version installs and she reopens. That is how an installed app updates.
+          closes, the new version installs and she reopens. A dropped connection continues from the
+          same place, and Cancel then Retry resumes. That is how an installed app updates. Update
+          content merges only new skills, agents, plugins, modules and workflows from the release.
           The source zip is for a source checkout: it is scanned, the changes are shown, a backup is
-          taken, and the files are merged into the folder when you apply them. Content packs
-          (plugins, modules, workflows, themes) update from the list under Check for updates.
+          taken, and the files are merged into the folder when you apply them. Packs (plugins,
+          modules, workflows, themes) update from the list under Check for updates.
         </li>
         <li>
           <span className="font-medium text-foreground">6. What is never touched.</span> Your chats,

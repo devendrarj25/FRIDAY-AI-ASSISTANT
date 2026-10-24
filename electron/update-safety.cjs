@@ -191,6 +191,36 @@ function installerLaunch({ file, appExe = "", platform = process.platform } = {}
   };
 }
 
+/**
+ * Keep the newest few downloaded installers and delete the rest. Each one is
+ * about 200 MB and an update leaves it behind; the previous one stays for a
+ * rollback. Only files in <root>/updates/installers are touched.
+ */
+function pruneInstallers({ root, keep = 2 } = {}) {
+  if (!root) return { ok: false, removed: [] };
+  const dir = path.join(root, "updates", "installers");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((name) => /\.exe$/i.test(name));
+  } catch {
+    return { ok: true, removed: [] };
+  }
+  const rows = names
+    .map((name) => ({ name, at: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  const removed = [];
+  for (const row of rows.slice(Math.max(1, keep))) {
+    try {
+      fs.rmSync(path.join(dir, row.name), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.part`), { force: true });
+      removed.push(row.name);
+    } catch {
+      /* a file the OS still holds is left for next time */
+    }
+  }
+  return { ok: true, removed };
+}
+
 /** The last version that started up healthy — FRIDAY's stable anchor. */
 const stable = (root) => readJson(stableFile(root));
 
@@ -269,6 +299,7 @@ module.exports = {
   PROTECTED,
   MUST_PRESERVE,
   SILENT_UPDATE_ARGS,
+  pruneInstallers,
   installerLaunch,
   verifyArtifact,
   backupState,

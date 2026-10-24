@@ -110,14 +110,36 @@ describe("downloading a release installer", () => {
       "fetch",
       vi.fn(async () => respond(bad)),
     );
+    // A fresh copy was asked for (force) and the server sent bad bytes.
     const second = await sync.downloadInstaller({
       root,
       url: "https://example.invalid/FRIDAY-Setup-9.9.9.exe",
       name: "FRIDAY-Setup-9.9.9.exe",
       sha256: digest,
+      force: true,
     });
     expect(second.ok).toBe(false);
     expect(fs.readFileSync(destPath()).equals(original)).toBe(true);
+  });
+
+  it("does not download an installer again when the one on disk already matches its checksum", async () => {
+    const first = await sync.downloadInstaller({
+      root,
+      url: "https://example.invalid/FRIDAY-Setup-9.9.9.exe",
+      name: "FRIDAY-Setup-9.9.9.exe",
+      sha256: digest,
+    });
+    expect(first.ok).toBe(true);
+    const fetchSpy = vi.fn(async () => respond(Buffer.alloc(2 * 1024 * 1024, 3)));
+    vi.stubGlobal("fetch", fetchSpy);
+    const again = await sync.downloadInstaller({
+      root,
+      url: "https://example.invalid/FRIDAY-Setup-9.9.9.exe",
+      name: "FRIDAY-Setup-9.9.9.exe",
+      sha256: digest,
+    });
+    expect(again).toMatchObject({ ok: true, reused: true, verified: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("refuses a GitHub HTML response instead of treating it as an EXE", async () => {

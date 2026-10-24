@@ -326,7 +326,10 @@ type Bridge = {
   githubConnection?: (refresh?: boolean) => Promise<GithubConnection>;
 
   githubCheck?: (override?: Record<string, unknown>) => Promise<GithubCheck>;
-  githubPull?: (ref?: string | null) => Promise<Record<string, unknown>>;
+  githubPull?: (
+    ref?: string | null,
+    options?: { contentOnly?: boolean },
+  ) => Promise<Record<string, unknown>>;
   githubRecord?: (payload: Record<string, unknown>) => Promise<{ ok: boolean }>;
   githubDownloadInstaller?: (asset?: {
     url?: string | undefined;
@@ -343,7 +346,11 @@ type Bridge = {
     bytes?: number;
     sha256?: string;
     verified?: boolean;
+    cancelled?: boolean;
+    resumable?: boolean;
+    reused?: boolean;
   }>;
+  githubCancelDownload?: () => Promise<{ ok: boolean; cancelled?: boolean }>;
   githubRunInstaller?: (file: string) => Promise<{ ok: boolean; error?: string }>;
   githubInstallUpdate?: (payload: Record<string, unknown>) => Promise<{
     ok: boolean;
@@ -504,6 +511,7 @@ export const connectionLabel = (state?: GithubConnectionState): string =>
  */
 export async function githubUpdateNow(
   ref?: string | null,
+  options: { contentOnly?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string; applied?: number; restartRequired?: boolean }> {
   const api = bridge();
   if (!api?.githubPull) return { ok: false, error: DESKTOP_ONLY };
@@ -514,7 +522,7 @@ export async function githubUpdateNow(
       /* snapshot is best-effort — the update still proceeds */
     }
   }
-  const scan = (await api.githubPull(ref ?? null)) as {
+  const scan = (await api.githubPull(ref ?? null, options)) as {
     ok?: boolean;
     error?: string;
     id?: string;
@@ -535,6 +543,7 @@ export async function githubUpdateNow(
     applied: result.applied ?? 0,
     areas: result.areas ?? [],
     backup: result.backup ?? null,
+    contentOnly: Boolean(options.contentOnly),
   });
   return {
     ok: true,
@@ -578,6 +587,10 @@ export const githubDownloadInstaller = async (
     ok: false,
     error: DESKTOP_ONLY,
   };
+
+/** Stop the installer download in progress; what arrived is kept for the next try. */
+export const githubCancelDownload = async () =>
+  (await bridge()?.githubCancelDownload?.()) ?? { ok: false, cancelled: false };
 
 /** Launch a downloaded installer and close FRIDAY so the EXE is not locked. */
 export const githubRunInstaller = async (file: string) =>

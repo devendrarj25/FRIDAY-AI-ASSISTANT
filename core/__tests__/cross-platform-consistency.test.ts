@@ -52,9 +52,10 @@ describe("packaged update path", () => {
   it("blocks raw source ZIP updates for a packaged app", () => {
     const handler = main.slice(
       main.indexOf('ipcMain.handle("github:pull"'),
-      main.indexOf('ipcMain.handle("github:pull"') + 900,
+      main.indexOf('ipcMain.handle("github:pull"') + 1400,
     );
-    expect(handler).toContain("if (app.isPackaged)");
+    // Only the content-pack merge (contentOnly) is allowed in a packaged app.
+    expect(handler).toContain("if (app.isPackaged && options?.contentOnly !== true)");
     expect(handler).toContain("sourceUpdateBlocked");
   });
 
@@ -64,7 +65,8 @@ describe("packaged update path", () => {
 
   it("hides the source Download & apply action in a packaged app", () => {
     const ui = read("src/components/friday/settings/GithubUpdates.tsx");
-    expect(ui).toContain("check?.packaged ? null : (");
+    expect(ui).toContain("check?.packaged ? (");
+    expect(ui).toContain("contentOnly: true");
     expect(ui).toContain("Download & apply");
   });
 });

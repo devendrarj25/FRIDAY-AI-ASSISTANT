@@ -6757,7 +6757,22 @@ ipcMain.handle("import:scan", async (_e, source) => {
 ipcMain.handle("import:apply", async (_e, scanOrId, options) => {
   const scan = importScan(scanOrId);
   if (!scan) return { ok: false, error: "This import is no longer staged — scan it again." };
-  const areas = Array.isArray(options?.areas) ? options.areas : null;
+  let areas = Array.isArray(options?.areas) ? options.areas : null;
+  // A GitHub scan applied by an installed app may only touch content packs.
+  if (app.isPackaged && scan.githubRef) {
+    areas = (areas || githubSync.CONTENT_AREAS).filter((area) =>
+      githubSync.CONTENT_AREAS.includes(String(area)),
+    );
+    // An empty list means "everything" to the importer, so nothing left to
+    // merge must stop here instead of widening to the whole package.
+    if (!areas.length) {
+      return {
+        ok: false,
+        error:
+          "An installed FRIDAY merges only skills, agents, plugins, modules, workflows, resources and docs from GitHub. Pick one of those areas.",
+      };
+    }
+  }
   const result = await importer.applyImport({
     root: getWorkspaceRoot(),
     scan,
@@ -6837,14 +6852,16 @@ ipcMain.handle("github:check", async (_e, override) => {
 
 ipcMain.handle("github:pull", async (_e, ref, options = {}) => {
   // Source ZIPs are a DEVELOPER channel (Import & Build). An installed,
-  // packaged FRIDAY is only ever updated by a verified release installer
-  // (github:download-build → github:install-update), never by source.
-  if (app.isPackaged) {
+  // packaged FRIDAY replaces its program only through a verified release
+  // installer (github:download-installer -> github:install-update). It may still
+  // merge a release's content packs (skills, agents, plugins, modules,
+  // workflows, docs): import:apply restricts such a scan to those areas.
+  if (app.isPackaged && options?.contentOnly !== true) {
     return {
       ok: false,
       sourceUpdateBlocked: true,
       error:
-        "An installed FRIDAY updates from published release installers only. Use Import & Build for source packages.",
+        "An installed FRIDAY installs new versions from the release installer. Use Update content to merge new skills, agents, plugins, modules and workflows, or Import & Build for source packages.",
     };
   }
   const scan = await githubSync.pullUpdate({
@@ -6919,6 +6936,8 @@ ipcMain.handle("github:release-runs", (_e, override) =>
 const updateSafety = require("./update-safety.cjs");
 const githubPush = require("./github-push.cjs");
 
+let installerDownload = null;
+
 ipcMain.handle("github:download-installer", async (_e, payload) => {
   // A TEST build downloads updates too (TEST → newer TEST, TEST → Stable).
   // Verification, backup, channel confirmation and rollback are enforced by
@@ -6964,16 +6983,32 @@ ipcMain.handle("github:download-installer", async (_e, payload) => {
     send("import:progress", info);
     send("github:download-progress", info);
   };
-  return githubSync.downloadInstaller({
-    root,
-    url: asset.url,
-    apiUrl: asset.apiUrl,
-    assetId: asset.id,
-    name: asset.name,
-    bytes: asset.bytes,
-    sha256: expected,
-    onProgress: progress,
-  });
+  // One installer download at a time; "Cancel" aborts it and keeps the part so
+  // the next try continues from where it stopped.
+  installerDownload?.abort();
+  const controller = new AbortController();
+  installerDownload = controller;
+  try {
+    return await githubSync.downloadInstaller({
+      root,
+      url: asset.url,
+      apiUrl: asset.apiUrl,
+      assetId: asset.id,
+      name: asset.name,
+      bytes: asset.bytes,
+      sha256: expected,
+      onProgress: progress,
+      signal: controller.signal,
+    });
+  } finally {
+    if (installerDownload === controller) installerDownload = null;
+  }
+});
+
+ipcMain.handle("github:cancel-download", () => {
+  const running = installerDownload !== null;
+  installerDownload?.abort();
+  return { ok: true, cancelled: running };
 });
 
 /**
@@ -7239,6 +7274,7 @@ function checkUpdateHealth() {
   if (!root) return null;
   try {
     const health = updateSafety.healthCheck({ root, version: productVersion() });
+    if (health.state === "updated") updateSafety.pruneInstallers({ root, keep: 2 });
     if (health.state === "updated" || health.state === "failed")
       send("github:update-health", health);
     return health;

@@ -16,8 +16,26 @@ const path = require("path");
 const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
 
 const credentials = require("./credentials.cjs");
+// Loaded up front so net-fetch notes the global fetch before anything replaces it.
+const { fetchCompat } = require("./net-fetch.cjs");
 
 const API = "https://api.github.com";
+
+/**
+ * What a release's source zip may change inside an INSTALLED app: capability
+ * packs and docs. The program itself (electron, kernel, src, scripts) comes from
+ * the installer, and memory, brain data and settings are the owner's and are
+ * never part of an update.
+ */
+const CONTENT_AREAS = Object.freeze([
+  "modules",
+  "plugins",
+  "agents",
+  "skills",
+  "workflows",
+  "resources",
+  "docs",
+]);
 
 /** The one credential id used by the whole GitHub release/update system. */
 const TOKEN_ID = "github.token";
@@ -207,23 +225,39 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
   };
   if (cfg.token) headers.authorization = `Bearer ${cfg.token}`;
   if (body) headers["content-type"] = "application/json";
+  const isRead = String(method).toUpperCase() === "GET";
   let res;
-  try {
-    res = await fetch(`${API}${endpoint}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (error) {
-    // No network, DNS or proxy failure — this is not an auth problem, so the
-    // stored credential must never be discarded because of it.
-    return {
-      ok: false,
-      status: 0,
-      offline: true,
-      error: "GitHub is unreachable — FRIDAY is offline or blocked by the network.",
-      detail: String(error?.message || error),
-    };
+  for (let attempt = 1; attempt <= (isRead ? 2 : 1); attempt += 1) {
+    try {
+      res = await fetchCompat(`${API}${endpoint}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15_000),
+      });
+      // A rate limit or a server hiccup on a read is worth one more try.
+      if (isRead && attempt === 1 && (res.status === 429 || res.status >= 502)) {
+        const wait = Math.min(Number(res.headers.get("retry-after")) || 1, 5) * 1000;
+        await res.body?.cancel?.().catch?.(() => {});
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        continue;
+      }
+      break;
+    } catch (error) {
+      if (isRead && attempt === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        continue;
+      }
+      // No network, DNS or proxy failure — this is not an auth problem, so the
+      // stored credential must never be discarded because of it.
+      return {
+        ok: false,
+        status: 0,
+        offline: true,
+        error: "GitHub is unreachable — FRIDAY is offline or blocked by the network.",
+        detail: String(error?.message || error),
+      };
+    }
   }
   const text = await res.text();
   let parsed = null;
@@ -599,23 +633,6 @@ async function cancelBody(res) {
   }
 }
 
-async function fetchFollowRedirects(url, { token = "", extraHeaders = {}, range = "" } = {}) {
-  let current = url;
-  for (let hop = 0; hop < 12; hop++) {
-    const headers = downloadHeaders(current, token, extraHeaders);
-    if (range) headers.range = range;
-    const res = await fetch(current, { method: "GET", headers, redirect: "manual" });
-    const location = res.headers.get("location");
-    if (location && res.status >= 300 && res.status < 400) {
-      await cancelBody(res);
-      current = new URL(location, current).href;
-      continue;
-    }
-    return res;
-  }
-  throw new Error("GitHub redirected too many times while downloading the installer.");
-}
-
 function sha256File(file) {
   const crypto = require("crypto");
   const hash = crypto.createHash("sha256");
@@ -645,53 +662,6 @@ function looksLikeHtmlFile(file) {
   return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<?xml");
 }
 
-function downloadStatusError(status) {
-  if (status === 404) {
-    return "GitHub could not find that installer (404). If the repository is private, add a token with Contents: Read.";
-  }
-  if (status === 401 || status === 403) {
-    return "GitHub rejected the download. Check the stored token has Contents: Read on this repository.";
-  }
-  return `Installer download failed (${status})`;
-}
-
-async function streamResponseToFile(res, file, { append = false, onChunk = () => {} } = {}) {
-  const startSize = append && fs.existsSync(file) ? fs.statSync(file).size : 0;
-  const fd = fs.openSync(file, append ? "a" : "w");
-  let received = startSize;
-  const addLength = Number(res.headers.get("content-length") || 0);
-  const total = append && addLength ? startSize + addLength : addLength;
-  try {
-    if (res.body && typeof res.body.getReader === "function") {
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = Buffer.from(value);
-        fs.writeSync(fd, chunk);
-        received += chunk.length;
-        onChunk(received, total);
-      }
-    } else {
-      const chunk = Buffer.from(await res.arrayBuffer());
-      fs.writeSync(fd, chunk);
-      received += chunk.length;
-      onChunk(received, total);
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-  return { received, total };
-}
-
-function commitPartFile(part, dest) {
-  const verified = `${dest}.verified`;
-  fs.rmSync(verified, { force: true });
-  fs.renameSync(part, verified);
-  fs.rmSync(dest, { force: true });
-  fs.renameSync(verified, dest);
-}
-
 /**
  * The release manifest published beside the EXE (friday-update.json). It holds
  * the SHA-256 of every artifact, so an installed FRIDAY can prove the file it
@@ -705,7 +675,11 @@ async function releaseManifest(cfgIn, assets = []) {
   const url = assetDownloadUrl(asset, cfg.repo);
   if (!url) return null;
   try {
-    const res = await fetchFollowRedirects(url, { token: cfg.token || "" });
+    const res = await require("./resilient-download.cjs").followRedirects(url, {
+      headers: { "user-agent": "FRIDAY", accept: "application/octet-stream" },
+      auth: cfg.token ? { authorization: `Bearer ${cfg.token}` } : null,
+      signal: AbortSignal.timeout(20_000),
+    });
     if (!res.ok) {
       await cancelBody(res);
       return null;
@@ -806,7 +780,11 @@ async function checkUpdate(root, override = {}) {
         requiresChannelSwitch: true,
       };
     };
-    const otherChannel = await describe(otherRaw, !wantTest);
+    // Both channels' manifests are read at once, not one after the other.
+    const [otherChannel, mainManifest] = await Promise.all([
+      describe(otherRaw, !wantTest),
+      body ? releaseManifest(cfg, (body.assets || []).map(mapReleaseAsset)) : Promise.resolve(null),
+    ]);
 
     if (!body) {
       writeConfig(root, { lastCheck: Date.now() });
@@ -846,7 +824,7 @@ async function checkUpdate(root, override = {}) {
     // The release manifest (scripts/release-manifest.cjs) carries the SHA-256
     // of every published artifact. Without it an update is "unverified" and the
     // installer is never run without the owner accepting that explicitly.
-    const manifest = await releaseManifest(cfg, assets);
+    const manifest = mainManifest;
     const result = {
       ok: true,
       channel: "release",
@@ -930,6 +908,7 @@ async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
     url,
     name: `github-${cfg.repo.replace("/", "-")}-${String(target).slice(0, 12)}`,
     token: cfg.token || undefined,
+    onProgress,
   });
   if (!download.ok) return download;
 
@@ -945,11 +924,29 @@ async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
  * be the installed stable version (and switching channels restores the right
  * baseline instead of mixing the two).
  */
-function recordApplied(root, { ref, applied = 0, areas = [], backup = null, notes = "", channel }) {
+function recordApplied(
+  root,
+  { ref, applied = 0, areas = [], backup = null, notes = "", channel, contentOnly = false },
+) {
   const cfg = readConfig(root);
   const target = normalizeUpdateChannel(channel ?? cfg.updateChannel);
-  const entry = { ref, at: Date.now(), applied, areas, backup, notes, channel: target };
+  const entry = {
+    ref,
+    at: Date.now(),
+    applied,
+    areas,
+    backup,
+    notes,
+    channel: target,
+    contentOnly,
+  };
   const history = [entry, ...(cfg.history || [])].slice(0, 40);
+  // Merging a release's content packs is not installing that release: the
+  // installed ref stays, so the new EXE is still offered.
+  if (contentOnly) {
+    writeConfig(root, { history });
+    return { ok: true, entry };
+  }
   writeConfig(
     root,
     target === "test"
@@ -984,9 +981,12 @@ function installerAsset(assets = []) {
  * Download a release asset (normally FRIDAY-Setup-<version>.exe) into
  * <root>/updates/installers, then check it against the published SHA-256.
  *
- * Bytes go to a .part file and only become the destination after size +
- * checksum checks. A failure never replaces an already-valid installer.
- * Authorization is attached only for api.github.com; CDN redirects are anonymous.
+ * The transfer itself is electron/resilient-download.cjs: it resumes after a
+ * dropped or stalled connection, retries rate limits, sends the token only to
+ * GitHub's API host and refuses a web page where the file should be. Bytes go to
+ * a .part file and only become the destination after size + checksum checks, so
+ * a failure never replaces an already-valid installer. An installer already on
+ * disk that matches its published checksum is reused, not downloaded again.
  */
 async function downloadInstaller({
   root,
@@ -998,6 +998,9 @@ async function downloadInstaller({
   bytes: expectedBytes,
   repo,
   onProgress = () => {},
+  signal,
+  downloader,
+  force = false,
 } = {}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   const cfg = updateCfg(readConfig(root));
@@ -1010,7 +1013,6 @@ async function downloadInstaller({
   const dir = path.join(root, "updates", "installers");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, String(name || "FRIDAY-Setup.exe").replace(/[^\w.\-]+/g, "-"));
-  const part = `${file}.part`;
   const verified = `${file}.verified`;
   if (!fs.existsSync(file) && fs.existsSync(verified)) {
     try {
@@ -1020,106 +1022,65 @@ async function downloadInstaller({
     }
   }
 
-  const discardPart = () => {
-    fs.rmSync(part, { force: true });
-    fs.rmSync(verified, { force: true });
-  };
-
   try {
-    onProgress({ phase: "Downloading installer", percent: 0, state: "DOWNLOADING" });
-    let existing = 0;
-    if (fs.existsSync(part)) {
-      existing = fs.statSync(part).size;
-      if (!expectedBytes || existing <= 0 || existing >= expectedBytes) {
-        fs.rmSync(part, { force: true });
-        existing = 0;
-      }
-    }
-
-    let res = await fetchFollowRedirects(downloadUrl, {
-      token: cfg.token || "",
-      range: existing > 0 ? `bytes=${existing}-` : "",
-    });
-    if (existing > 0 && (res.status === 200 || res.status === 416)) {
-      await cancelBody(res);
-      fs.rmSync(part, { force: true });
-      existing = 0;
-      res = await fetchFollowRedirects(downloadUrl, { token: cfg.token || "" });
-    }
-    if (!res.ok && res.status !== 206) {
-      const status = res.status;
-      await cancelBody(res);
-      return { ok: false, error: downloadStatusError(status), status };
-    }
-
-    const contentType = String(res.headers.get("content-type") || "").toLowerCase();
-    if (contentType.includes("text/html")) {
-      await cancelBody(res);
-      discardPart();
-      return {
-        ok: false,
-        error:
-          "GitHub returned a web page instead of the installer. Add a repository token if this repo is private.",
-      };
-    }
-
-    let announced = 0;
-    const append = existing > 0 && res.status === 206;
-    await streamResponseToFile(res, part, {
-      append,
-      onChunk: (received, total) => {
-        const percent = total ? Math.min(99, Math.round((received / total) * 100)) : 0;
-        if (percent >= announced + 2 || !total) {
-          announced = percent;
-          onProgress({
-            phase: "Downloading installer",
-            percent,
-            received,
-            total,
-            state: "DOWNLOADING",
-          });
+    // Already here and proven: nothing to fetch (unless a fresh copy is asked for).
+    if (!force && fs.existsSync(file)) {
+      const size = fs.statSync(file).size;
+      const sizeOk = !expectedBytes || size === Number(expectedBytes);
+      if (sizeOk && size >= 1024 && !looksLikeHtmlFile(file)) {
+        const digest = sha256File(file);
+        if (!expected || digest.toLowerCase() === String(expected).toLowerCase()) {
+          onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
+          return {
+            ok: true,
+            file,
+            bytes: size,
+            sha256: digest,
+            verified: Boolean(expected),
+            reused: true,
+          };
         }
+      }
+      fs.rmSync(file, { force: true });
+    }
+
+    onProgress({ phase: "Downloading installer", percent: 0, state: "DOWNLOADING" });
+    const run = downloader || require("./resilient-download.cjs").downloadToFile;
+    const got = await run({
+      url: downloadUrl,
+      dest: file,
+      token: cfg.token || "",
+      expectedBytes: Number(expectedBytes) || 0,
+      signal,
+      phase: "Downloading installer",
+      onProgress,
+      validate: async (part) => {
+        onProgress({ phase: "Verifying download", percent: 100, state: "VERIFYING" });
+        if (expected && sha256File(part).toLowerCase() !== String(expected).toLowerCase()) {
+          return "Checksum mismatch — the download does not match the published release.";
+        }
+        return "";
       },
     });
-
-    const size = fs.existsSync(part) ? fs.statSync(part).size : 0;
-    if (size < 1024) {
-      discardPart();
-      return { ok: false, error: "The downloaded installer was empty." };
-    }
-    if (expectedBytes && size !== Number(expectedBytes)) {
-      discardPart();
+    if (!got.ok) {
       return {
         ok: false,
-        error: `Incomplete download (${size} bytes, expected ${expectedBytes}).`,
+        error: got.error || "The installer could not be downloaded.",
+        ...(got.status ? { status: got.status } : {}),
+        ...(got.cancelled ? { cancelled: true } : {}),
+        ...(got.resumable ? { resumable: true } : {}),
       };
     }
-    if (looksLikeHtmlFile(part)) {
-      discardPart();
-      return {
-        ok: false,
-        error:
-          "GitHub returned a web page instead of the installer. Add a repository token if this repo is private.",
-      };
-    }
-
-    onProgress({ phase: "Verifying download", percent: 100, state: "VERIFYING" });
-    const digest = sha256File(part);
-    if (expected && digest.toLowerCase() !== String(expected).toLowerCase()) {
-      discardPart();
-      return {
-        ok: false,
-        error: "Checksum mismatch — the download does not match the published release.",
-      };
-    }
-    commitPartFile(part, file);
+    const digest = sha256File(got.file);
     onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
     return {
       ok: true,
-      file,
-      bytes: size,
+      file: got.file,
+      bytes: got.bytes,
       sha256: digest,
       verified: Boolean(expected),
+      attempts: got.attempts,
+      resumed: Boolean(got.resumed),
     };
   } catch (error) {
     return { ok: false, error: String(error.message || error) };
@@ -1374,6 +1335,7 @@ module.exports = {
   checkUpdate,
   pullUpdate,
   recordApplied,
+  CONTENT_AREAS,
   releaseManifest,
   expectedChecksum,
   isTestRelease,

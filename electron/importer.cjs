@@ -278,20 +278,42 @@ function stageFile({ root, id, relative, bytes }) {
 }
 
 /** Download a remote archive or file (GitHub codeload, release asset, …) to updates/. */
-async function downloadArchive({ root, url, name, token }) {
+async function downloadArchive({
+  root,
+  url,
+  name,
+  token,
+  onProgress = () => {},
+  signal,
+  downloader,
+}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   try {
-    const headers = { "User-Agent": "FRIDAY" };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const response = await fetch(url, { headers, redirect: "follow" });
-    if (!response.ok) return { ok: false, error: `Download failed (${response.status})` };
-    const buffer = Buffer.from(await response.arrayBuffer());
     const dir = path.join(root, "updates");
     fs.mkdirSync(dir, { recursive: true });
-    const hinted = filenameFromDownload(url, name, response);
-    const file = path.join(dir, `${Date.now()}-${hinted}`);
-    fs.writeFileSync(file, buffer);
-    return { ok: true, file, bytes: buffer.length };
+    const resilient = require("./resilient-download.cjs");
+    // A source archive has no announced length and GitHub cannot resume it, so a
+    // dropped connection starts it again; the archive is checked for its end.
+    const got = await (downloader || resilient.downloadToFile)({
+      url,
+      token: token || "",
+      part: path.join(dir, `.download-${process.pid}.part`),
+      dest: (response) =>
+        path.join(dir, `${Date.now()}-${filenameFromDownload(url, name, response)}`),
+      resume: false,
+      signal,
+      onProgress,
+      phase: "Downloading from GitHub",
+      headers: { accept: "*/*" },
+      validate: async (file) => resilient.archiveProblem(file),
+    });
+    if (!got.ok)
+      return {
+        ok: false,
+        error: got.error || "The download failed.",
+        ...(got.cancelled ? { cancelled: true } : {}),
+      };
+    return { ok: true, file: got.file, bytes: got.bytes, attempts: got.attempts };
   } catch (error) {
     return { ok: false, error: String(error.message || error) };
   }

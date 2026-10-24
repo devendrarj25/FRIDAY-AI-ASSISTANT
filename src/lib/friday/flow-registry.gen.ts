@@ -1024,6 +1024,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "github:cancel-download",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "github:check",
       file: "electron/main.cjs",
     },
@@ -8644,8 +8648,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 468,
-      total: 468,
+      mapped: 469,
+      total: 469,
     },
     kernel: {
       mapped: 14,

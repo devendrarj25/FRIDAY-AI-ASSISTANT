@@ -56,7 +56,13 @@ describe("Settings → Updates stays read-only toward GitHub", () => {
   });
 
   it("keeps the packaged-app source apply gate and channel switch", () => {
-    expect(panel).toContain("check?.packaged ? null : (");
+    // An installed app has no source "Download & apply", only the content merge.
+    expect(panel).toContain("check?.packaged ? (");
+    expect(panel).toContain("Update content");
+    expect(panel).toContain("contentOnly: true");
+    expect(panel.indexOf("check?.packaged ? (")).toBeLessThan(
+      panel.lastIndexOf("Download & apply"),
+    );
     expect(panel).toContain("Download & apply");
     expect(panel).toContain("updateChannel");
     expect(panel).toContain("Include test builds");
