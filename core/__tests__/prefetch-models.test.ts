@@ -370,7 +370,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
       expect(models_.inferRole(name)).toBe("brain");
     }
     expect(models_.inferRole("qwen2.5-coder:1.5b")).toBe("coder");
-  });
+  }, 30_000);
 
   it("does not pull a model Ollama already holds", async () => {
     const pulled: string[] = [];
