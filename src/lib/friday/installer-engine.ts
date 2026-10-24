@@ -446,7 +446,22 @@ class InstallerStore {
 
   /** Published version: the live registry lookup wins over the catalog value. */
   latestOf(entry: CatalogEntry): string {
-    return this.state.latest[entry.pkg] || entry.latest;
+    const live = this.state.latest[entry.pkg];
+    if (live) return live;
+    // On the desktop the bundled catalog version is history, not a fact about
+    // today. An installed tool no source reports a newer version for is current
+    // (its own version); anything else has no known latest and says so.
+    if (this.state.bridge === "desktop") {
+      const installed = this.state.installed[entry.pkg];
+      if (installed && !["installed", "configured"].includes(installed)) return installed;
+      return "—";
+    }
+    return entry.latest;
+  }
+
+  /** True when a live source (not the bundled catalog) named the newest version. */
+  latestKnown(entry: CatalogEntry): boolean {
+    return Boolean(this.state.latest[entry.pkg]);
   }
 
   statusOf(entry: CatalogEntry): CatalogStatus {
@@ -939,6 +954,8 @@ class InstallerStore {
           : action === "repair" || action === "verify"
             ? (this.state.installed[pkg] ?? this.latestOf(entry))
             : this.latestOf(entry);
+    // "—" (no source named a version) is not a version to show as the target.
+    const targetVersion = target === "—" ? "latest" : target;
 
     const mb = sizeToMb(entry.size) * (action === "repair" ? 0.35 : 1);
     const job: Job = {
@@ -952,7 +969,7 @@ class InstallerStore {
       bytesDone: 0,
       speedMbps: 0,
       etaSeconds: 0,
-      targetVersion: target,
+      targetVersion,
       startedAt: Date.now(),
     };
     this.state.jobs = [...this.state.jobs, job];

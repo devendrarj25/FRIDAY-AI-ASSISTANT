@@ -1174,6 +1174,7 @@ const TOOLS = [
     pip: "PyYAML",
     url: "https://pyyaml.org/",
     source: "FRIDAY kernel",
+    latest: { kind: "pypi", ref: "PyYAML" },
   }),
   T("Cron scheduler", "Automation", {
     // FRIDAY schedules work through the operating system scheduler, which is
@@ -1924,6 +1925,40 @@ for (const [shown, real] of CATALOG_ALIAS) {
   DISPLAY_IDS.set(real, [...(DISPLAY_IDS.get(real) || []), shown]);
 }
 
+/**
+ * Tools FRIDAY unpacks from a pinned archive are the packs of
+ * config/toolchain-manifest.json. The pack carries the pinned version and the
+ * extra download hosts, so the tool row knows both without a second copy.
+ */
+const PACK_OF_TOOL = {
+  "FRIDAY Python": "python-standalone",
+  "FRIDAY Python embed": "python-embed",
+  "FRIDAY pip bootstrap": "get-pip",
+  "FRIDAY Node": "node-win",
+  "whisper.cpp": "whisper-cpp",
+  "ggml-base": "ggml-base",
+  "ggml-tiny": "ggml-tiny",
+  MinGit: "mingit",
+  "Temurin JDK zip": "temurin-jdk",
+  "FRIDAY GitHub CLI": "gh-cli",
+  w64devkit: "w64devkit",
+};
+try {
+  const packs = require("./toolchain-pack.cjs").readManifest().packs || [];
+  for (const tool of TOOLS) {
+    const pack = packs.find((p) => p.id === PACK_OF_TOOL[tool.id]);
+    if (!pack) continue;
+    tool.packId = pack.id;
+    tool.pinVersion = pack.version;
+    const mirrors = (pack.mirrors || []).filter((url) => url && url !== tool.installerUrl);
+    if (mirrors.length) {
+      tool.installerMirrors = [...new Set([...(tool.installerMirrors || []), ...mirrors])];
+    }
+  }
+} catch {
+  /* a missing manifest leaves the pins written on the tools themselves */
+}
+
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 
 /** Resolve either the real component id or the catalog display name. */
@@ -2111,14 +2146,14 @@ async function probeTool(tool, freeze, installedPackages = "", root = "") {
     };
   }
   if (tool.archiveBin && root) {
-    const candidate = path.join(root, "runtime", safeToolDir(tool.id), tool.archiveBin);
-    if (fs.existsSync(candidate)) {
+    const found = require("./managed-install.cjs").installedBin(root, tool);
+    if (found) {
       return {
         id: tool.id,
         category: tool.category,
         installed: true,
-        version: null,
-        path: candidate,
+        version: found.version,
+        path: found.bin,
         source: tool.source,
         url: tool.url,
         manager: "vendor",
@@ -2205,10 +2240,14 @@ async function pool(items, size, worker) {
 }
 
 let detectInflight = null;
-let lastDetect = { at: 0, tools: [] };
+let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
-async function detectTools({ force = false } = {}) {
+async function detectTools({ force = false, root: rootArg } = {}) {
+  // FRIDAY's own installs live under <root>\runtime; without the root a tool she
+  // unpacked there read "Missing" on every scan and was downloaded again.
+  const root = rootArg ?? fridayPaths.root() ?? "";
+  if (lastDetect.root !== root) force = true;
   if (!force && Date.now() - lastDetect.at < 15_000) return lastDetect;
   if (detectInflight) {
     // A forced scan (after an install or update) must not adopt a scan that
@@ -2223,7 +2262,7 @@ async function detectTools({ force = false } = {}) {
       loadPipFreeze(force),
       loadWingetList(force),
     ]);
-    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages));
+    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages, root));
     // A component that several catalog rows share is reported once per row, so
     // every row carries the same real machine state instead of "Unknown".
     const tools = probed.flatMap((p) => {
@@ -2232,7 +2271,12 @@ async function detectTools({ force = false } = {}) {
       return [{ ...p, alsoKnownAs: shown }, ...aliases];
     });
 
-    lastDetect = { at: Date.now(), tools };
+    lastDetect = { at: Date.now(), tools, root };
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
     return lastDetect;
   })().finally(() => {
     detectInflight = null;
@@ -2245,29 +2289,78 @@ async function detectTools({ force = false } = {}) {
 const latestCache = new Map(); // id -> { at, version }
 const LATEST_TTL = 30 * 60 * 1000;
 
-async function latestFor(tool) {
-  const spec = tool.latest;
-  if (!spec) return null;
+/** JSON through the app's network stack (system proxy, Windows certificates). */
+async function jsonFrom(url, headers = {}) {
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetchCompat(url, {
+      signal: c.signal,
+      headers: { "user-agent": "FRIDAY-InstallManager", ...headers },
+    });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** One registry lookup, each with a second official host when the first does not answer. */
+async function latestFromSpec(spec) {
+  if (spec.kind === "npm") {
+    const hosts = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
+    for (const host of hosts) {
+      const version = (await jsonFrom(`${host}/${spec.ref}/latest`))?.version;
+      if (version) return version;
+    }
+    return null;
+  }
+  if (spec.kind === "pypi") {
+    return (await jsonFrom(`https://pypi.org/pypi/${spec.ref}/json`))?.info?.version || null;
+  }
+  if (spec.kind === "github") {
+    const release = await require("./vendor-sources.cjs").githubRelease(spec.ref);
+    return release?.tag ? semver(release.tag) : null;
+  }
+  return null;
+}
+
+/**
+ * Installed packages that winget says have a newer version: Id -> available.
+ * One `winget upgrade` answers for every winget-managed tool at once, and it is
+ * the version `winget upgrade --id` would install, so "update available" and the
+ * Update button agree.
+ */
+let wingetUpgradeCache = { at: 0, table: {} };
+async function wingetUpgrades(force = false) {
+  if (!WIN) return {};
+  if (!force && Date.now() - wingetUpgradeCache.at < LATEST_TTL) return wingetUpgradeCache.table;
+  const text = await run(
+    "winget",
+    ["upgrade", "--accept-source-agreements", "--disable-interactivity"],
+    60_000,
+  );
+  const table = text ? require("./vendor-sources.cjs").parseWingetUpgrade(text) : {};
+  wingetUpgradeCache = { at: Date.now(), table };
+  return table;
+}
+
+/**
+ * The newest version of one tool, from the first source that answers: its own
+ * registry (npm, PyPI, GitHub), the vendor's release feed, then winget.
+ */
+async function latestFor(tool, context = {}) {
   const hit = latestCache.get(tool.id);
   if (hit && Date.now() - hit.at < LATEST_TTL) return hit.version;
   let version = null;
   try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 6000);
-    if (spec.kind === "npm") {
-      const r = await fetch(`https://registry.npmjs.org/${spec.ref}/latest`, { signal: c.signal });
-      if (r.ok) version = (await r.json()).version || null;
-    } else if (spec.kind === "pypi") {
-      const r = await fetch(`https://pypi.org/pypi/${spec.ref}/json`, { signal: c.signal });
-      if (r.ok) version = (await r.json())?.info?.version || null;
-    } else if (spec.kind === "github") {
-      const r = await fetch(`https://api.github.com/repos/${spec.ref}/releases/latest`, {
-        signal: c.signal,
-        headers: { "user-agent": "FRIDAY-InstallManager" },
-      });
-      if (r.ok) version = semver((await r.json()).tag_name || "");
-    }
-    clearTimeout(t);
+    if (tool.latest) version = await latestFromSpec(tool.latest);
+    const vendor = require("./vendor-sources.cjs");
+    if (!version && vendor.hasFeed(tool.id))
+      version = (await vendor.resolveFeed(tool.id))?.version || null;
+    if (!version && tool.winget) version = (context.wingetTable || {})[tool.winget] || null;
   } catch {
     version = null;
   }
@@ -2276,8 +2369,13 @@ async function latestFor(tool) {
 }
 
 async function latestVersions() {
-  const withSpec = TOOLS.filter((t) => t.latest);
-  const results = await pool(withSpec, 5, async (t) => [t.id, await latestFor(t)]);
+  const vendor = require("./vendor-sources.cjs");
+  const wingetTable = await wingetUpgrades().catch(() => ({}));
+  const withSource = TOOLS.filter((t) => t.latest || vendor.hasFeed(t.id) || t.winget);
+  const results = await pool(withSource, 5, async (t) => [
+    t.id,
+    await latestFor(t, { wingetTable }),
+  ]);
   const map = Object.fromEntries(results.filter(([, v]) => v));
   // Shared components publish their version under every catalog row name too.
   for (const [real, shown] of DISPLAY_IDS) {
@@ -2840,6 +2938,15 @@ function runJob({ id, action, root }, emit) {
       const freeze = await loadPipFreeze(true);
       let probe = await probeTool(tool, freeze, await loadWingetList(true), root);
       let ok = jobSucceeded(code, action, probe);
+      // A tool just unpacked under <root>\runtime is on PATH from now on, for
+      // FRIDAY's own terminal, agents and the kernel, without a restart.
+      if (ok && action !== "uninstall") {
+        try {
+          require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+        } catch {
+          /* convenience only */
+        }
+      }
       // A service that was answering before the job (Ollama) is started again
       // by the same install, so it comes back on the version just installed.
       if (ok && wasRunning && tool.startAfter && probe.status !== "Running") {
@@ -3036,6 +3143,11 @@ function runJob({ id, action, root }, emit) {
         const target = path.join(destDir, tool.archiveBin || path.basename(file));
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(file, target);
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.archiveBin || path.basename(file),
+          url: usedUrl,
+        });
         emit({
           id,
           action,
@@ -3050,6 +3162,15 @@ function runJob({ id, action, root }, emit) {
       last = await attempt("vendor installer", installerCommand(file, tool, root));
       tried.push(`vendor installer (exit ${last.code})`);
       if (!last.ok) return null;
+      // An unpacked archive records what it is, so the next scan finds it, knows
+      // its version and can tell when a newer one exists.
+      if (tool.archiveBin && /\.(zip|gz)$/i.test(file)) {
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.feedBin || tool.archiveBin,
+          url: usedUrl,
+        });
+      }
       emit({
         id,
         action,
@@ -3134,12 +3255,15 @@ function installerDir(root) {
 }
 
 module.exports = {
+  applyManagedPath: (root) => require("./managed-path.cjs").applyManagedPath(root, TOOLS),
   anyReachable,
   TOOLS,
   toolById,
   CATALOG_ALIAS,
   detectTools,
   latestVersions,
+  latestFor,
+  wingetUpgrades,
   runJob,
   cancelJob,
   activeJobs,
