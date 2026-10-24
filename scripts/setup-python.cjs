@@ -313,12 +313,17 @@ if (!voiceImportable()) {
   if (win) {
     const fridayRoot = require("./friday-root.cjs");
     const picked = fridayRoot.workspaceRootOrDev();
+    if (picked.development) {
+      log(
+        `NOTE no FRIDAY folder is selected, so speech, voice and chat models go to ${picked.root}, not to the folder you will choose when you install. To download straight into your real FRIDAY folder, set FRIDAY_WORKSPACE_ROOT=<that folder> before npm run setup and build:win (details: INSTALL.md section 8).`,
+      );
+    }
     const stt = path.join(kernelDir, "stt.py");
     // Speech, turn-taking and a small chat model land in the FRIDAY folder
     // now, through the app's own verified downloader. A miss never fails setup.
     run(process.execPath, [path.join(__dirname, "prefetch-models.cjs")], {
       env: { ...process.env, FRIDAY_ROOT: picked.root },
-      timeout: 3600000,
+      timeout: 4 * 3600 * 1000,
     });
     const sttDir = ["small", "base"]
       .map((size) => path.join(picked.root, "cache", "stt", size))

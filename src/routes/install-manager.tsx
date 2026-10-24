@@ -49,6 +49,7 @@ import {
   type JobPhase,
 } from "@/lib/friday/installer-engine";
 import { useInstaller } from "@/lib/friday/use-installer";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
 import { copyText } from "@/lib/friday/clipboard";
 import { brain } from "@/lib/friday/brain-engine";
 import { useBrain } from "@/lib/friday/use-brain";
@@ -239,6 +240,19 @@ function InstallManagerPage() {
     .filter((j) => !isJobActive(j.phase))
     .slice(-6)
     .reverse();
+
+  // Versions and states follow the machine: the shared poller re-reads it while
+  // this page is open and visible, and never while a job is running (the job
+  // ends with its own forced scan).
+  const hasActiveJob = activeJobs.length > 0;
+  useLivePoll(
+    "install-manager.scan",
+    () => {
+      if (!hasActiveJob) void installer.refreshFromSystem(false);
+    },
+    120_000,
+    state.bridge === "desktop",
+  );
 
   const jobFor = (pkg: string) => activeJobs.find((j) => j.pkg === pkg);
   const recent = brainState.messages.slice(-8);

@@ -259,7 +259,27 @@ function admitJobs(jobs, concurrency = 1) {
   return { running: active.length, starting: next.map((job) => job.id) };
 }
 
+/** Windows Authenticode must read Valid before a downloaded installer runs. */
+function authenticodeStatus(file) {
+  const { execFileSync } = require("node:child_process");
+  try {
+    const out = execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-AuthenticodeSignature -LiteralPath '${String(file).replace(/'/g, "''")}').Status`,
+      ],
+      { encoding: "utf8", timeout: 60_000, windowsHide: true },
+    ).trim();
+    return { ok: out === "Valid", reason: out };
+  } catch (err) {
+    return { ok: false, reason: String((err && err.message) || err) };
+  }
+}
+
 module.exports = {
+  authenticodeStatus,
   get HOSTS() {
     return hostPolicy();
   },

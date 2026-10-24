@@ -211,7 +211,7 @@ const baseRouting = (): Record<RoutingTask, string | null> => ({
   research: null,
   reasoning: "deepseek-r1-32b",
   vision: null,
-  fast: "llama3.2-3b",
+  fast: "qwen2.5-1.5b",
   speech: "whispercpp-base",
   voice: "piper-en",
   image: null,

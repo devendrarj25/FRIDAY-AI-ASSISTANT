@@ -22,7 +22,13 @@
       },
       "start": ["ollama", ["serve"]],
       "stopHint": "Quit the Ollama tray app.",
-      "uninstallHint": "Windows Settings, Add or remove programs, Ollama. A custom OLLAMA_MODELS folder is left in place."
+      "uninstallHint": "Windows Settings, Add or remove programs, Ollama. A custom OLLAMA_MODELS folder is left in place.",
+      "models": [
+        {
+          "tag": "qwen2.5:1.5b",
+          "role": "fast replies and voice turns"
+        }
+      ]
     },
     {
       "id": "lmstudio",

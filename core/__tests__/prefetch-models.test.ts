@@ -4,10 +4,12 @@
  * No network here: the downloader is a stand-in.
  */
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { BOOTSTRAP_MODEL_ID } from "../../src/lib/friday/first-run";
+import { modelByTag, modelById, registryTag } from "../../src/lib/friday/model-catalog";
 
 const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
@@ -21,20 +23,28 @@ describe("build-time model prefetch", () => {
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
       "stt-base",
       "stt-small",
+      "stt-medium",
       "smart-turn",
       "silero-vad",
+      "supertonic-3",
       "qwen2.5-1.5b-instruct",
     ]);
     const small = jobs[1];
+    expect(jobs[2]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "Systran/faster-whisper-small",
     });
-    const vad = jobs[3];
+    const vad = jobs[4];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
-    expect(jobs[4].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
+    expect(jobs[5].job.sources[0]).toMatchObject({
+      kind: "hf-repo",
+      repo: "Supertone/supertonic-3",
+    });
+    expect(jobs[5].job.dir).toBe(path.join("/friday", "models"));
+    expect(jobs[6].job.sources[0].repo).toBe("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
   });
 
   it("honours the opt-outs and stays off on hosted CI unless asked", () => {
@@ -47,7 +57,12 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(5);
+    ).toBe(7);
+    expect(
+      prefetch
+        .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_TTS: "0" }, "linux")
+        .some((row: { kind: string }) => row.kind === "tts"),
+    ).toBe(false);
     expect(prefetch.prefetchPlan("", quiet)).toEqual([]);
   });
 
@@ -119,7 +134,7 @@ describe("Ollama install and lite models on Windows", () => {
     ready: "C:/friday/runtime/installers/ollama/OllamaSetup.exe",
   };
 
-  it("installs once, starts the daemon, and pulls both lite models", async () => {
+  it("installs once, starts the daemon, and pulls the one light chat model", async () => {
     let up = false;
     const installs: string[] = [];
     const pulled: string[] = [];
@@ -146,11 +161,12 @@ describe("Ollama install and lite models on Windows", () => {
           return { ok: true };
         },
         waitMs: 1,
+        totalGb: 32,
         ollamaExe: "C:/nowhere/ollama.exe",
       },
     });
     expect(installs).toEqual([row.ready]);
-    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen2.5:3b"]);
+    expect(pulled).toEqual(["qwen2.5:1.5b"]);
     expect(rows.every((r: { ok: boolean }) => r.ok)).toBe(true);
   });
 
@@ -173,22 +189,37 @@ describe("Ollama install and lite models on Windows", () => {
     expect(rows[0]).toMatchObject({ id: "ollama", ok: false, error: "signature" });
   });
 
-  it("skips pulls for models already present and reports a failed pull without failing", async () => {
-    const lines: string[] = [];
+  it("skips a pull for a model already present", async () => {
+    const pulled: string[] = [];
     const rows = await prefetch.ensureOllama("C:/friday", row, {
-      log: (line: string) => lines.push(line),
+      log: () => {},
       deps: {
         fetch: async () => ({
           ok: true,
           json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
         }),
-        pull: async () => ({ ok: false, error: "network" }),
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
       },
     });
+    expect(pulled).toEqual([]);
     expect(rows.find((r: { id: string }) => r.id === "qwen2.5:1.5b")).toMatchObject({
       downloaded: false,
     });
-    expect(rows.find((r: { id: string }) => r.id === "qwen2.5:3b")).toMatchObject({ ok: false });
+  });
+
+  it("reports a failed pull without failing the build", async () => {
+    const lines: string[] = [];
+    const rows = await prefetch.ensureOllama("C:/friday", row, {
+      log: (line: string) => lines.push(line),
+      deps: {
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        pull: async () => ({ ok: false, error: "network" }),
+      },
+    });
+    expect(rows.find((r: { id: string }) => r.id === "qwen2.5:1.5b")).toMatchObject({ ok: false });
     expect(lines.join("\n")).toContain("FRIDAY pulls it on first use");
   });
 
@@ -213,5 +244,294 @@ describe("Ollama install and lite models on Windows", () => {
     });
     expect(result).toEqual({ ok: true });
     expect(events).toEqual([40, 100]);
+  });
+});
+
+describe("an Ollama that is already on this PC", () => {
+  const win = "win32";
+
+  it("plans no installer when Ollama is already installed", () => {
+    const jobs = prefetch.prefetchPlan("C:/friday", quiet, win, { ollama: true });
+    expect(jobs.some((r: { id: string }) => r.id === "ollama-setup")).toBe(false);
+    expect(
+      prefetch
+        .prefetchPlan("C:/friday", quiet, win, { ollama: false })
+        .some((r: { id: string }) => r.id === "ollama-setup"),
+    ).toBe(true);
+  });
+
+  it("finds Ollama on PATH or in its standard folders and reads the client version", () => {
+    const home = "C:\\Users\\me\\AppData\\Local\\Programs\\Ollama\\ollama.exe";
+    const found = prefetch.findOllama({
+      env: { PATH: "", LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
+      exists: (file: string) => file === home,
+      version: () => "0.40.4",
+    });
+    expect(found).toEqual({ exe: home, version: "0.40.4" });
+    expect(
+      prefetch.findOllama({ env: { PATH: "" }, exists: () => false, version: () => "1" }),
+    ).toBeNull();
+  });
+
+  it("downloads no installer, reuses the installed Ollama, and still pulls the missing models", async () => {
+    const fetched: string[] = [];
+    const pulled: string[] = [];
+    const lines: string[] = [];
+    const rows = await prefetch.prefetch("C:/friday", {
+      env: {
+        ...quiet,
+        FRIDAY_AUTO_INSTALL: "1",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+      },
+      platform: win,
+      log: (line: string) => lines.push(line),
+      download: async (job: { modelId: string; dir: string }) => {
+        fetched.push(job.modelId);
+        return { ok: true };
+      },
+      latest: async () => ({ tag: "v9.9.9", url: "x", sha256: "", source: "pinned" }),
+      ollama: {
+        find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        signed: async () => {
+          throw new Error("an installed Ollama must not be re-verified or reinstalled");
+        },
+        runInstaller: async () => {
+          throw new Error("must not reinstall");
+        },
+        totalGb: 32,
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(fetched).not.toContain("ollama");
+    expect(pulled).toEqual(["qwen2.5:1.5b"]);
+    expect(rows.find((r: { id: string }) => r.id === "ollama")).toMatchObject({ ok: true });
+    const log = lines.join("\n");
+    expect(log).toContain("ollama 0.40.4 already installed");
+    expect(log).toContain("nothing to download");
+    expect(log).toContain("v9.9.9 is available");
+  });
+
+  it("downloads the newest official release, with its own digest, only when Ollama is missing", async () => {
+    const jobs: { modelId: string; sources: { url: string; sha256: string }[] }[] = [];
+    await prefetch.prefetch("C:/friday", {
+      env: {
+        ...quiet,
+        FRIDAY_AUTO_INSTALL: "0",
+        FRIDAY_PREFETCH_CHAT: "0",
+        FRIDAY_PREFETCH_TTS: "0",
+      },
+      platform: win,
+      log: () => {},
+      download: async (job: (typeof jobs)[number]) => {
+        jobs.push(job);
+        return { ok: true };
+      },
+      latest: async () => ({
+        tag: "v9.9.9",
+        url: "https://github.com/ollama/ollama/releases/download/v9.9.9/OllamaSetup.exe",
+        sha256: "a".repeat(64),
+        bytes: 5,
+        source: "live",
+      }),
+      ollama: {
+        find: () => null,
+        fetch: async () => ({ ok: false }),
+      },
+    });
+    const setup = jobs.find((job) => job.modelId === "ollama");
+    expect(setup?.sources[0]).toMatchObject({ sha256: "a".repeat(64) });
+    expect(setup?.sources[0]?.url).toContain("/v9.9.9/");
+    expect(setup?.sources[1]?.url).toBe("https://ollama.com/download/OllamaSetup.exe");
+    expect(setup?.sources[1]?.sha256).toBe("a".repeat(64));
+  });
+});
+
+describe("one local chat model, and nothing downloaded twice", () => {
+  const library = require_(path.join(root, "electron/local-library.cjs"));
+  const win = "win32";
+
+  it("keeps exactly one light local chat model in the runner config", () => {
+    const models = library.ollamaModels();
+    expect(models.map((m: { tag: string }) => m.tag)).toEqual(["qwen2.5:1.5b"]);
+    expect(prefetch.OLLAMA_MODELS.map((m: { tag: string }) => m.tag)).toEqual(["qwen2.5:1.5b"]);
+  });
+
+  it("routes by size: a small model is a fast-role model, a large one is a brain", () => {
+    const models_ = require_(path.join(root, "electron/models.cjs"));
+    for (const name of ["qwen2.5:1.5b", "qwen2.5:0.5b", "llama3.2:1b", "phi3:3.8b", "gemma3:4b"]) {
+      expect(models_.inferRole(name)).toBe("fast");
+    }
+    for (const name of ["llama3.1:8b", "qwen3:14b", "qwen2.5:72b", "gpt-5"]) {
+      expect(models_.inferRole(name)).toBe("brain");
+    }
+    expect(models_.inferRole("qwen2.5-coder:1.5b")).toBe("coder");
+  }, 30_000);
+
+  it("does not pull a model Ollama already holds", async () => {
+    const pulled: string[] = [];
+    const lines: string[] = [];
+    await prefetch.ensureOllama("C:/friday", null, {
+      log: (l: string) => lines.push(l),
+      deps: {
+        totalGb: 64,
+        fetch: async () => ({
+          ok: true,
+          json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+        }),
+        pull: async (tag: string) => {
+          pulled.push(tag);
+          return { ok: true };
+        },
+      },
+    });
+    expect(pulled).toEqual([]);
+    expect(lines.join("\n")).toContain("verified, not pulled again");
+  });
+
+  it("plans the separate Qwen GGUF only where Ollama will not provide the same model", () => {
+    const has = (env: Record<string, string>, platform: string) =>
+      prefetch
+        .prefetchPlan("C:/friday", { ...quiet, ...env }, platform)
+        .some((r: { kind: string }) => r.kind === "chat");
+    expect(has({}, win)).toBe(false);
+    expect(has({ FRIDAY_AUTO_INSTALL: "0" }, win)).toBe(true);
+    expect(has({ FRIDAY_PREFETCH_OLLAMA: "0" }, win)).toBe(true);
+    expect(has({}, "linux")).toBe(true);
+  });
+
+  it("fetches the GGUF as a fallback only when Ollama could not provide the small model", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+    try {
+      const fetched: string[] = [];
+      const baseOptions = {
+        env: { ...quiet, FRIDAY_AUTO_INSTALL: "1", FRIDAY_PREFETCH: "1" },
+        platform: win,
+        log: () => {},
+        download: async (job: { modelId: string }) => {
+          fetched.push(job.modelId);
+          return { ok: true };
+        },
+        latest: async () => null,
+      };
+      const ollama = (pullOk: boolean) => ({
+        find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+        totalGb: 64,
+        pull: async () => (pullOk ? { ok: true } : { ok: false, error: "network" }),
+      });
+      await prefetch.prefetch(dir, { ...baseOptions, ollama: ollama(true) });
+      expect(fetched).not.toContain("qwen2.5-1.5b-instruct");
+      await prefetch.prefetch(dir, { ...baseOptions, ollama: ollama(false) });
+      expect(fetched).toContain("qwen2.5-1.5b-instruct");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a second run downloads nothing that is already on disk and verified", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+    try {
+      for (const size of ["base", "small"]) {
+        const stt = path.join(dir, "cache", "stt", size);
+        mkdirSync(stt, { recursive: true });
+        writeFileSync(path.join(stt, "config.json"), "{}");
+        writeFileSync(path.join(stt, "model.bin"), "x");
+      }
+      const voice = path.join(dir, "models", "supertonic-3");
+      mkdirSync(voice, { recursive: true });
+      writeFileSync(path.join(voice, ".friday-complete"), "done");
+      const chat = path.join(dir, "models", "qwen2.5-1.5b-instruct");
+      mkdirSync(chat, { recursive: true });
+      writeFileSync(path.join(chat, "qwen2.5-1.5b-instruct-q4_k_m.gguf"), "x");
+      const fetched: string[] = [];
+      const lines: string[] = [];
+      const rows = await prefetch.prefetch(dir, {
+        env: quiet,
+        platform: "linux",
+        totalGb: 4,
+        log: (l: string) => lines.push(l),
+        download: async (job: { modelId: string }) => {
+          fetched.push(job.modelId);
+          return { ok: true };
+        },
+      });
+      // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
+      expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
+      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(5);
+      expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the offline voice", () => {
+  it("writes its completion marker only after the whole voice downloaded", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+    try {
+      const marker = path.join(dir, "models", "supertonic-3", ".friday-complete");
+      const run = (ok: boolean) =>
+        prefetch.prefetch(dir, {
+          env: { ...quiet, FRIDAY_PREFETCH_CHAT: "0" },
+          platform: "linux",
+          log: () => {},
+          download: async (job: { modelId: string }) =>
+            job.modelId === "supertonic-3" && !ok ? { ok: false, error: "network" } : { ok: true },
+        });
+      await run(false);
+      expect(existsSync(marker)).toBe(false);
+      await run(true);
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("speech sizes", () => {
+  it("keeps two light sizes for live talk and a larger one for long or hard speech, RAM permitting", async () => {
+    const run = async (totalGb: number, env: Record<string, string> = {}) => {
+      const fetched: string[] = [];
+      const lines: string[] = [];
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        await prefetch.prefetch(dir, {
+          env: { ...quiet, FRIDAY_PREFETCH_CHAT: "0", FRIDAY_PREFETCH_TTS: "0", ...env },
+          platform: "linux",
+          totalGb,
+          log: (l: string) => lines.push(l),
+          download: async (job: { modelId: string }) => {
+            fetched.push(job.modelId);
+            return { ok: true };
+          },
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      return { fetched, log: lines.join("\n") };
+    };
+    const roomy = await run(16);
+    expect(roomy.fetched).toEqual(expect.arrayContaining(["base", "small", "medium"]));
+    const tight = await run(4);
+    expect(tight.fetched).toEqual(expect.arrayContaining(["base", "small"]));
+    expect(tight.fetched).not.toContain("medium");
+    expect(tight.log).toContain("stt-medium skipped: needs 8 GB RAM");
+    const off = await run(16, { FRIDAY_PREFETCH_STT_LARGE: "0" });
+    expect(off.fetched).not.toContain("medium");
+  });
+});
+
+describe("the app and the build agree on the one local chat model", () => {
+  it("first run asks for the same Ollama tag that setup pulls, so nothing is downloaded twice", () => {
+    const spec = modelById.get(BOOTSTRAP_MODEL_ID);
+    expect(spec).toBeTruthy();
+    expect(registryTag(spec!)).toBe(prefetch.OLLAMA_MODELS[0].tag);
+    expect(modelByTag(prefetch.OLLAMA_MODELS[0].tag)?.id).toBe(BOOTSTRAP_MODEL_ID);
+    expect(prefetch.OLLAMA_MODELS).toHaveLength(1);
   });
 });

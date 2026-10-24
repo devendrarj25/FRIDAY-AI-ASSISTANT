@@ -2136,7 +2136,10 @@ function inferRole(name = "") {
   const n = String(name).toLowerCase();
   if (/embed|bge|e5|nomic/.test(n)) return "embed";
   if (/cod(er|e)|starcoder|devstral|codestral/.test(n)) return "coder";
-  if (/(^|[^0-9])([0-3])b|mini|flash|haiku|small|tiny|phi/.test(n)) return "fast";
+  // A small parameter count is a fast model: 0.5b, 1.5b, 3b and 3.8b alike.
+  const sized = /(?:^|[^0-9.])(\d+(?:\.\d+)?)b(?![a-z])/.exec(n);
+  if (sized && Number(sized[1]) <= 4) return "fast";
+  if (/mini|flash|haiku|small|tiny|phi/.test(n)) return "fast";
   if (/research|search|sonar|perplex/.test(n)) return "researcher";
   return "brain";
 }

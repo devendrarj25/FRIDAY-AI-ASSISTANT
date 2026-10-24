@@ -89,7 +89,15 @@ export type ProbeInfo = {
 export type ToolProgress = {
   id: string;
   action: JobAction;
-  phase: "Running" | "Done" | "Failed" | "Manual";
+  phase: "Running" | "Downloading" | "Verifying" | "Installing" | "Done" | "Failed" | "Manual";
+  /** Live transfer numbers while an installer downloads. */
+  percent?: number | null;
+  gbDone?: number;
+  gbTotal?: number;
+  speedMbps?: number;
+  etaSeconds?: number;
+  /** Host the bytes are coming from (an official source or its mirror). */
+  source?: string;
   manual?: boolean;
   line?: string;
   error?: string;
@@ -266,6 +274,25 @@ function sameVersion(a: string | null, b: string | null): boolean {
   return x.startsWith(`${y}.`);
 }
 
+/** True only when `installed` is really older than `published`. A newer or equal build is current. */
+export function isOlderVersion(installed: string | null, published: string | null): boolean {
+  if (!installed || !published) return false;
+  if (sameVersion(installed, published)) return false;
+  const parts = (v: string) => {
+    const m = /(\d+(?:\.\d+)*)/.exec(v);
+    return m ? m[1]!.split(".").map(Number) : null;
+  };
+  const a = parts(installed);
+  const b = parts(published);
+  // A label such as "configured" has no number to compare, so it never claims an update.
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const delta = (a[i] ?? 0) - (b[i] ?? 0);
+    if (delta !== 0) return delta < 0;
+  }
+  return false;
+}
+
 const baseInstalled = (): InstalledMap =>
   Object.fromEntries(catalog.map((e) => [e.pkg, e.installed])) as InstalledMap;
 
@@ -431,7 +458,7 @@ class InstallerStore {
       const live = this.state.latest[entry.pkg];
       if (this.state.bridge === "desktop" && !live) return "Up to date";
       const target = live || entry.latest;
-      return sameVersion(installed, target) ? "Up to date" : "Update available";
+      return isOlderVersion(installed, target) ? "Update available" : "Up to date";
     }
     // On the desktop we only claim "not installed" for packages we actually
     // probed. Anything else is honestly reported as unknown.
@@ -476,9 +503,35 @@ class InstallerStore {
       this.emit();
       return;
     }
-    if (event.phase === "Running") {
+    if (event.phase === "Downloading") {
+      // Real bytes from the downloader: the bar tracks the transfer itself.
+      job.phase = "Downloading";
+      const totalMb = (event.gbTotal ?? 0) * 1024;
+      const doneMb = (event.gbDone ?? 0) * 1024;
+      if (totalMb > 0) {
+        job.bytesTotal = totalMb;
+        job.bytesDone = doneMb;
+      }
+      job.speedMbps = event.speedMbps ?? job.speedMbps;
+      job.etaSeconds = event.etaSeconds ?? job.etaSeconds;
+      if (typeof event.percent === "number") {
+        job.progress = Math.max(job.progress, W_RESOLVE * 100 + W_DOWNLOAD * event.percent);
+      }
+      const from = event.source ? ` from ${event.source}` : "";
+      job.detail =
+        totalMb > 0
+          ? `${formatMb(doneMb)} / ${formatMb(totalMb)} · ${(event.speedMbps ?? 0).toFixed(1)} MB/s · ETA ${formatEta(event.etaSeconds ?? 0)}${from}`
+          : `downloading${from}`;
+    } else if (event.phase === "Verifying") {
+      job.phase = "Verifying";
+      job.progress = Math.max(job.progress, (W_RESOLVE + W_DOWNLOAD) * 100);
+      if (event.line) job.detail = event.line.slice(0, 160);
+    } else if (event.phase === "Running" || event.phase === "Installing") {
       job.phase = "Installing";
-      job.progress = Math.min(92, job.progress + 6);
+      job.progress = Math.min(
+        92,
+        Math.max(job.progress, (W_RESOLVE + W_DOWNLOAD + W_VERIFY) * 100) + 3,
+      );
       if (event.line) job.detail = event.line.slice(0, 160);
     }
     this.emit();
@@ -490,7 +543,8 @@ class InstallerStore {
     if (!desktop) return false;
     if (this.detectInflight) {
       await this.detectInflight;
-      return true;
+      // A scan that began before an install or update cannot show its result.
+      if (!force) return true;
     }
     this.state.scanning = true;
     this.state.scanProgress = 12;

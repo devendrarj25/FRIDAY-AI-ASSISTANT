@@ -89,7 +89,9 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
-- The build-time downloader (progress bar, mirror fallback, per-user Ollama install, `qwen2.5:1.5b` and `qwen2.5:3b` pulls) ran only against stand-ins. Mirror URLs and the Ollama silent install are unverified until a Windows `build:win` runs them; Ollama keeps its own models folder.
+- The build-time downloader (progress bar, mirror fallback, the `qwen2.5:1.5b` pull) and the Ollama paths ran only against stand-ins: reuse of an installed Ollama (no installer download), the newest-official-release install with GitHub's digest, the single light Ollama chat model (`qwen2.5:1.5b`) and the larger `medium` speech size (8 GB RAM), the skip of `npm ci` and of repeat downloads on a second `build:win`, the range-exact resumable downloader (a Windows run with a real slow link), the offline Supertonic voice prefetch, and the Install Manager Ollama install and update (live bytes, client-version read, service restart) are unverified until a Windows `build:win` and an Install Manager update run them. The Ollama docs and release API could not be fetched in the last session, so the silent switches and the `digest` field are unverified against the live pages. Ollama keeps its own models folder.
+- Expected noise in the packaged boot self-test and installer smoke: the self-test registers only `workspace:get`, so the renderer's other IPC calls print `No handler registered`; `taskkill` may print `process not found`; the Node `DEP0180` warning comes from a dependency. The packaged `stt-self-test` is skipped because the embedded Python has no faster-whisper, and readiness runs in a fresh root, so its voice row skips speech recognition (`model-missing`); speech recognition is proven only by the load probe in `npm run setup`.
+- Build-time downloads go to the FRIDAY folder `HKCU\Software\FRIDAY\WorkspacePath` or `FRIDAY_WORKSPACE_ROOT` names, else to `.friday-dev` in the checkout (the log says so); the installed app then fetches them again into the folder the owner picks. English Moonshine streaming weights (`models/moonshine-en`) have no downloader anywhere; English speech uses faster-whisper.
 - Hindi and Hinglish hearing quality, the wake word, and voice-turn speed with the new local models need a real microphone on the Windows PC.
 - DeepSeek's pricing page carries no price table, so its pricing date is older than the other sources and its models stay unknown until a real table can be read (`npm run pricing:status` reports it).
 - Groq publishes no free-model list, so Groq ids stay unknown until the owner marks them free.
@@ -101,11 +103,13 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
-1. Owner check on the Windows PC (the build now downloads Ollama and two lite models with progress; send the console text of any step that prints `INFO`): `npm run setup`, `npm run build:win`, install, first launch, then the checks under Verification status. Send the on-screen text of any failure with the step.
+1. Owner check on the Windows PC (the build reuses an installed Ollama and only pulls the two lite models; Install Manager Update on Ollama must end on "Up to date"; send the console text of any step that prints `INFO`): `npm run setup`, `npm run build:win`, install, first launch, then the checks under Verification status. Send the on-screen text of any failure with the step.
 2. Decide whether the installer and uninstall display name should adopt the product tagline (locked identity change).
 3. Re-read a real DeepSeek price table when the vendor publishes one, and refresh pricing knowledge from the Models page.
 4. Voice and Auto: keep moving toward a calm, capable assistant (ambient awareness, anticipation, proactive and polite help, plan → act → verify → report) inside the autonomy dial; measure on the Windows PC with a real microphone.
-5. Wire the remaining unverified provider paths (live key, live stream, tool and vision flags) when the owner supplies keys.
+5. Give the other launcher rows in `config/local-runners.json` (Jan, GPT4All, KoboldCpp) the same newest-release resolver as Ollama once each publishes a per-asset digest; today only Ollama sets `release` in `electron/toolchain.cjs`.
+6. Voice: nothing yet picks the larger speech size by itself (a long recording or a repeated low-confidence turn); it is chosen in Settings. The single STT worker also refuses a second transcription while one runs, so a long file would block live turns until it has its own worker. The new in-place replies (status question, thanks) and the hold lines are measured only by tests: tune the 2.5 s and 14 s hold times and the wording on a real microphone. A second concurrent lane on the fast model that answers a real new question while a long task runs is not built (the brain runs one turn at a time).
+7. Wire the remaining unverified provider paths (live key, live stream, tool and vision flags) when the owner supplies keys.
 
 ## Coming back after a gap
 

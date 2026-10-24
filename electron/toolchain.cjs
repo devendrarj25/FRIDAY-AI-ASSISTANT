@@ -6,8 +6,9 @@
  *  - latest versions: official registries only (npm, PyPI, GitHub releases)
  *  - install/update/repair/uninstall: winget / npm / pip / cargo, streamed
  *
- * Nothing here downloads from a mirror, and every job is de-duplicated so the
- * same package can never be installed twice at the same time.
+ * Every job is de-duplicated so the same package can never be installed twice
+ * at the same time. A vendor installer comes only from the official release
+ * (and the vendor's own mirrors), over the app's one verified downloader.
  */
 const { execFile, execFileSync, spawn } = require("child_process");
 const { killProcessTree } = require("./app-lifecycle.cjs");
@@ -909,6 +910,24 @@ const TOOLS = [
     source: "ollama.com",
     latest: { kind: "github", ref: "ollama/ollama" },
     service: "http://127.0.0.1:11434/api/tags",
+    // The client version, not a still-running older daemon's: right after an
+    // update the daemon line is stale until it restarts and would keep the row
+    // on "Update available".
+    versionPattern: /client version is\s+v?(\d+(?:\.\d+)+)/i,
+    // A per-user install is not always on this process's PATH yet.
+    fallbackBins: WIN
+      ? [
+          process.env.LOCALAPPDATA &&
+            path.join(process.env.LOCALAPPDATA, "Programs", "Ollama", "ollama.exe"),
+          process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Ollama", "ollama.exe"),
+        ].filter(Boolean)
+      : [],
+    // The newest official release (config/local-runners.json, sha256 from the
+    // release itself), downloaded in parallel ranges before winget is tried.
+    release: "ollama",
+    installerArgs: ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"],
+    installerMirrors: ["https://ollama.com/download/OllamaSetup.exe"],
+    startAfter: ["ollama", ["serve"]],
   }),
   T("llama.cpp", "AI Runtimes", {
     cmd: "llama-server",
@@ -2109,14 +2128,22 @@ async function probeTool(tool, freeze, installedPackages = "", root = "") {
       };
     }
   }
-  const bin = tool.cmd ? await which(tool.cmd) : null;
+  let bin = tool.cmd ? await which(tool.cmd) : null;
+  let command = tool.cmd;
+  if (!bin && Array.isArray(tool.fallbackBins)) {
+    const found = tool.fallbackBins.find((file) => fs.existsSync(file));
+    if (found) {
+      bin = found;
+      command = found;
+    }
+  }
   const packageHit = !bin ? wingetPackage(tool, installedPackages) : null;
   let version = packageHit?.version || null;
   let status = bin || packageHit ? "Ready" : "Missing";
 
   if (bin && !tool.noVersionProbe) {
-    const out = await run(tool.cmd, tool.args || ["--version"], 8000);
-    version = semver(out);
+    const out = await run(command, tool.args || ["--version"], 8000);
+    version = (tool.versionPattern && tool.versionPattern.exec(out || "")?.[1]) || semver(out);
     if (!version && !out) status = "Error";
   }
 
@@ -2183,7 +2210,14 @@ let lastDetect = { at: 0, tools: [] };
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
 async function detectTools({ force = false } = {}) {
   if (!force && Date.now() - lastDetect.at < 15_000) return lastDetect;
-  if (detectInflight) return detectInflight;
+  if (detectInflight) {
+    // A forced scan (after an install or update) must not adopt a scan that
+    // began before the change: wait for it, then read the machine again.
+    const running = detectInflight;
+    if (!force) return running;
+    await running.catch(() => {});
+    if (detectInflight) return detectInflight;
+  }
   detectInflight = (async () => {
     const [freeze, installedPackages] = await Promise.all([
       loadPipFreeze(force),
@@ -2250,6 +2284,27 @@ async function latestVersions() {
     if (map[real]) shown.forEach((id) => (map[id] = map[real]));
   }
   return map;
+}
+
+/** Start a tool's background service detached and wait briefly for it to answer. */
+async function startService(tool, exe) {
+  const [cmd, args] = tool.startAfter;
+  try {
+    const child = spawn(exe && fs.existsSync(exe) ? exe : cmd, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    return false;
+  }
+  for (let i = 0; i < 10; i += 1) {
+    if (await ping(tool.service, 1500)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
 }
 
 /**
@@ -2495,46 +2550,47 @@ function cachedInstaller(url, root) {
   return path.join(installerDir(root), name);
 }
 
-/** Download an installer into the FRIDAY root's downloads folder. */
-function downloadInstaller(url, root, log, depth = 0) {
-  const https = require("https");
-  const dir = installerDir(root);
+/**
+ * Download an installer into the FRIDAY root's downloads folder through the
+ * app's one verified downloader (electron/model-download.cjs): allowlisted
+ * HTTPS hosts only, parallel range connections for big files, resume of a
+ * partial file, and the SHA-256 check when the tool pins one. `report` gets
+ * the downloader's progress events (percent, speed, ETA).
+ */
+async function downloadInstaller(url, root, report, { sha256, needBytes, label, signal } = {}) {
   const name = decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
-  const target = path.join(dir, name);
-  return new Promise((resolve, reject) => {
-    if (depth > 5) return reject(new Error("too many redirects"));
-    https
-      .get(url, { headers: { "user-agent": "FRIDAY-installer" } }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          res.resume();
-          const next = new URL(res.headers.location, url).toString();
-          downloadInstaller(next, root, log, depth + 1).then(resolve, reject);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-          return;
-        }
-        const total = Number(res.headers["content-length"] || 0);
-        let done = 0;
-        let lastPct = -1;
-        const out = fs.createWriteStream(target);
-        res.on("data", (chunk) => {
-          done += chunk.length;
-          if (!total || !log) return;
-          const pct = Math.floor((done / total) * 100);
-          if (pct >= lastPct + 10) {
-            lastPct = pct;
-            log(`downloading ${name} — ${pct}%`);
-          }
-        });
-        res.pipe(out);
-        out.on("finish", () => out.close(() => resolve(target)));
-        out.on("error", reject);
-      })
-      .on("error", reject);
+  const target = path.join(installerDir(root), name);
+  await require("./model-download.cjs").downloadUrl(url, target, {
+    onEvent: report,
+    signal,
+    sha256,
+    needBytes,
+    label: label || name,
   });
+  return target;
+}
+
+/**
+ * A tool that names a launcher in config/local-runners.json installs the
+ * newest official release: its URL, size and sha256 replace the pin, and the
+ * pin is used when the lookup fails or is offline.
+ */
+async function withLatestRelease(tool) {
+  if (!tool.release) return tool;
+  let latest = null;
+  try {
+    latest = await require("./local-library.cjs").latestOfficialRelease(tool.release);
+  } catch {
+    latest = null;
+  }
+  if (!latest?.url) return tool;
+  return {
+    ...tool,
+    installerUrl: latest.url,
+    sha256: latest.sha256 || tool.sha256,
+    needBytes: latest.bytes || tool.needBytes,
+    releaseTag: latest.tag,
+  };
 }
 
 /** Silent-run command for a downloaded installer. A zip is unpacked, not executed. */
@@ -2566,7 +2622,7 @@ function installerCommand(file, tool, root) {
 }
 
 function runJob({ id, action, root }, emit) {
-  const tool = toolById(id);
+  let tool = toolById(id);
   const key = `${id}:${action}`;
   if (!tool) {
     emit({ id, action, phase: "Failed", error: `unknown package "${id}"` });
@@ -2669,6 +2725,8 @@ function runJob({ id, action, root }, emit) {
       return { ok: probe.installed, manual: !probe.installed };
     }
 
+    if (action !== "uninstall") tool = await withLatestRelease(tool);
+
     // Packages whose installability depends on the real machine (Python
     // version, GPU, available wheels) decide their strategy before we spend a
     // download on an install that cannot succeed.
@@ -2726,6 +2784,9 @@ function runJob({ id, action, root }, emit) {
       return { ok: false, manual: outcome.manual, error: outcome.error, cause: outcome.cause };
     }
 
+    const wasRunning =
+      Boolean(tool.service) && action !== "uninstall" ? await ping(tool.service) : false;
+
     /** Run one attempt to completion and report its raw exit code. */
     const attempt = async (label, cmd) => {
       let command = cmd;
@@ -2777,8 +2838,20 @@ function runJob({ id, action, root }, emit) {
         emit({ id, action, phase: "Running", line: `[${label}] PATH refreshed` });
       }
       const freeze = await loadPipFreeze(true);
-      const probe = await probeTool(tool, freeze, await loadWingetList(true), root);
+      let probe = await probeTool(tool, freeze, await loadWingetList(true), root);
       let ok = jobSucceeded(code, action, probe);
+      // A service that was answering before the job (Ollama) is started again
+      // by the same install, so it comes back on the version just installed.
+      if (ok && wasRunning && tool.startAfter && probe.status !== "Running") {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `[${label}] starting ${tool.name || id} again`,
+        });
+        await startService(tool, probe.path);
+        probe = await probeTool(tool, freeze, await loadWingetList(false), root);
+      }
       // A pip exit code of 0 is not proof: import the module with the SAME
       // interpreter pip installed into before calling it installed.
       if (ok && tool.pipImport && action !== "uninstall") {
@@ -2819,8 +2892,13 @@ function runJob({ id, action, root }, emit) {
 
     const tried = [];
     let last = null;
+    // The official release installer is tried first when the tool names one:
+    // it downloads in parallel from the vendor and is checked against the
+    // digest GitHub published. The package manager stays as the fallback.
+    const vendorFirst = Boolean(tool.release && fallback);
 
-    if (pmCmd) {
+    const tryPackageManager = async () => {
+      if (!pmCmd) return null;
       last = await attempt(pmMethodLabel(tool), pmCmd);
       tried.push(`${pmMethodLabel(tool)} (exit ${last.code})`);
       // A refused/stale WinGet source is a package-manager problem FRIDAY can
@@ -2833,66 +2911,122 @@ function runJob({ id, action, root }, emit) {
           tried.push(`${pmMethodLabel(tool)} retry (exit ${last.code})`);
         }
       }
-      if (last.ok) {
-        emit({
-          id,
-          action,
-          ok: true,
-          phase: "Done",
-          version: last.probe.version,
-          line: `exit code ${last.code} · health check: ${last.probe.status}`,
-        });
-        return { ok: true, code: last.code, version: last.probe.version };
-      }
-    }
+      if (!last.ok) return null;
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: last.probe.version,
+        line: `exit code ${last.code} · health check: ${last.probe.status}`,
+      });
+      return { ok: true, code: last.code, version: last.probe.version };
+    };
 
-    // Fallback: download the vendor's own installer and run it silently.
-    if (fallback) {
+    const tryVendorInstaller = async () => {
+      if (!fallback) return null;
+      const sources = [fallback.url, ...(tool.installerMirrors || [])];
       emit({
         id,
         action,
         phase: "Running",
-        line: pmCmd
-          ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${fallback.url}`
-          : `downloading the vendor installer from ${fallback.url}`,
+        line:
+          pmCmd && !vendorFirst
+            ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${fallback.url}`
+            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${fallback.url}`,
       });
       let file = null;
-      const cached = cachedInstaller(fallback.url, root);
-      if (tool.sha256 && cached && fs.existsSync(cached)) {
-        const ready = acceptPinnedFile(cached, tool, { checkDisk: false });
-        if (ready.ok) file = cached;
-      }
-      if (!file && tool.sha256) {
-        const room = diskRoom(installerDir(root));
-        const need = Number(tool.needBytes || 0);
-        if (room === null || (need > 0 && room < need + 64 * 1024 * 1024)) {
+      let usedUrl = fallback.url;
+      for (const url of sources) {
+        usedUrl = url;
+        const cached = cachedInstaller(url, root);
+        if (tool.sha256 && cached && fs.existsSync(cached)) {
+          const ready = acceptPinnedFile(cached, tool, { checkDisk: false });
+          if (ready.ok) {
+            file = cached;
+            break;
+          }
+        }
+        if (tool.sha256) {
+          const room = diskRoom(installerDir(root));
+          const need = Number(tool.needBytes || 0);
+          if (room === null || (need > 0 && room < need + 64 * 1024 * 1024)) {
+            emit({
+              id,
+              action,
+              phase: "Running",
+              line:
+                room === null
+                  ? "Disk space is unknown. The download did not start."
+                  : "Not enough free disk for this installer.",
+            });
+            tried.push("disk check (failed)");
+            break;
+          }
+        }
+        try {
+          file = await downloadInstaller(
+            url,
+            root,
+            (event) =>
+              emit({
+                id,
+                action,
+                phase: "Downloading",
+                line: `${event.status || "downloading"}${event.percent != null ? ` ${event.percent}%` : ""}`,
+                percent: event.percent,
+                gbDone: event.gbDone,
+                gbTotal: event.gbTotal,
+                speedMbps: event.speedMbps,
+                etaSeconds: event.etaSeconds,
+                source: new URL(url).hostname,
+              }),
+            {
+              sha256: tool.sha256,
+              needBytes: tool.needBytes,
+              label: `Downloading ${tool.name || id}`,
+            },
+          );
+          break;
+        } catch (err) {
+          const why = String((err && err.message) || err);
           emit({
             id,
             action,
             phase: "Running",
-            line:
-              room === null
-                ? "Disk space is unknown. The download did not start."
-                : "Not enough free disk for this installer.",
+            line: `download from ${new URL(url).hostname} failed: ${why}`,
           });
-          tried.push("disk check (failed)");
-        }
-      }
-      if (!file && !tried.includes("disk check (failed)")) {
-        try {
-          file = await downloadInstaller(fallback.url, root, (line) =>
-            emit({ id, action, phase: "Running", line }),
-          );
-        } catch (err) {
-          emit({ id, action, phase: "Running", line: `download failed: ${String(err.message)}` });
-          tried.push(`download from ${fallback.url} (failed)`);
+          tried.push(`download from ${url} (failed)`);
+          file = null;
+          if (err && err.code === "ENOSPC") break;
         }
       }
       if (file && tool.sha256) {
+        emit({
+          id,
+          action,
+          phase: "Verifying",
+          line: "checking the SHA-256 against the official release",
+        });
         const pinned = acceptPinnedFile(file, tool, { checkDisk: false });
         if (!pinned.ok) {
           emit({ id, action, phase: "Running", line: pinned.reason });
           tried.push("sha256 (failed)");
+          file = null;
+        }
+      }
+      if (file && WIN && tool.release) {
+        const signed = require("./download-safety.cjs").authenticodeStatus(file);
+        emit({
+          id,
+          action,
+          phase: "Verifying",
+          line: signed.ok
+            ? "Windows signature is valid"
+            : `Windows signature check: ${signed.reason}`,
+        });
+        if (!signed.ok) {
+          tried.push("signature (failed)");
           file = null;
         }
       }
@@ -2911,22 +3045,27 @@ function runJob({ id, action, root }, emit) {
         });
         return { ok: true, via: "store" };
       }
-      if (file) {
-        const cmd = installerCommand(file, tool, root);
-        last = await attempt("vendor installer", cmd);
-        tried.push(`vendor installer (exit ${last.code})`);
-        if (last.ok) {
-          emit({
-            id,
-            action,
-            ok: true,
-            phase: "Done",
-            version: last.probe.version,
-            line: `installed from ${fallback.url} · health check: ${last.probe.status}`,
-          });
-          return { ok: true, code: last.code, version: last.probe.version, via: "url" };
-        }
-      }
+      if (!file) return null;
+      emit({ id, action, phase: "Installing", line: `running ${path.basename(file)}` });
+      last = await attempt("vendor installer", installerCommand(file, tool, root));
+      tried.push(`vendor installer (exit ${last.code})`);
+      if (!last.ok) return null;
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: last.probe.version,
+        line: `installed from ${usedUrl} · health check: ${last.probe.status}`,
+      });
+      return { ok: true, code: last.code, version: last.probe.version, via: "url" };
+    };
+
+    for (const step of vendorFirst
+      ? [tryVendorInstaller, tryPackageManager]
+      : [tryPackageManager, tryVendorInstaller]) {
+      const done = await step();
+      if (done) return done;
     }
 
     // Everything failed: name the tool and give the owner a real next step.

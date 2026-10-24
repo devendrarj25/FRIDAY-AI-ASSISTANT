@@ -528,8 +528,9 @@ function probeInstalledApp() {
 }
 
 function probeModelRuntimes() {
-  const ollama = locate(win ? "ollama.exe" : "ollama");
-  const ollamaVersion = ollama ? firstVersion(capture(ollama, ["--version"])) : null;
+  const installedOllama = require("../electron/local-library.cjs").findInstalledOllama();
+  const ollama = locate(win ? "ollama.exe" : "ollama") || installedOllama?.exe || null;
+  const ollamaVersion = installedOllama?.version || null;
   const entries = [
     record("ollama", {
       label: "Ollama (local models)",

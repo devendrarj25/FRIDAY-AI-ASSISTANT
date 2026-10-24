@@ -83,6 +83,7 @@ import {
   approvalFresh,
   backchannel,
   bindVoiceSurface,
+  busyReply,
   clarifyPrompt,
   endpointSilenceMs,
   foreignAssistant,
@@ -90,6 +91,7 @@ import {
   duplicateFinalUtterance,
   nextSpokenCursor,
   isBoundConfirmation,
+  holdLines,
   isHoldSound,
   microphoneAllowed,
   pushVoiceAudit,
@@ -414,6 +416,7 @@ class AssistantModeStore {
   private draining = false;
   /** How much of the live answer has already been handed to speech. */
   private voicedRunId = "";
+  private holdTimers: ReturnType<typeof setTimeout>[] = [];
   private voicedChars = 0;
   /** A failed turn speaks its short line once. The partial answer is not restarted. */
   private voicedFaultFor = "";
@@ -2339,6 +2342,28 @@ class AssistantModeStore {
 
   /** Run a command through the existing brain pipeline. */
   private dispatch(command: string) {
+    // A light remark while a turn is running (how is it going, are you there)
+    // is answered at once and the turn keeps going. A real request falls
+    // through and still interrupts, as before.
+    const live = brain.getSnapshot();
+    const running = live.activeRunId
+      ? live.runs.find((run) => run.id === live.activeRunId)
+      : undefined;
+    if (running && this.state.mode === "auto") {
+      const quick = busyReply(command, {
+        task: running.prompt,
+        elapsedMs: Date.now() - running.startedAt,
+      });
+      if (quick) {
+        this.remember("busy-reply", command, "answered while the turn keeps running");
+        this.caption("friday", quick);
+        this.state.status = "Working — still on it";
+        this.emit();
+        this.speak(quick);
+        return;
+      }
+    }
+    this.clearHoldLines();
     this.dropPlayback();
     this.voicedRunId = "";
     this.voicedChars = 0;
@@ -2384,7 +2409,36 @@ class AssistantModeStore {
         result.message || "I couldn't start that request.",
         result.reason === "busy" ? "Still working on the last request" : "Nothing to run",
       );
+      return;
     }
+    this.armHoldLines(command);
+  }
+
+  /**
+   * A turn that takes a while does not leave the owner in silence: a short
+   * line after a couple of seconds, one more if it is still running, and
+   * neither once the real answer is being spoken.
+   */
+  private armHoldLines(command: string) {
+    this.clearHoldLines();
+    if (this.state.mode !== "auto") return;
+    const lines = holdLines(command);
+    const say = (line: string) => {
+      const active = brain.getSnapshot().activeRunId;
+      if (this.state.mode !== "auto" || !active) return;
+      if (this.voicedChars > 0 || this.state.speaking || this.speechQueue.length) return;
+      this.caption("friday", line);
+      this.speak(line);
+    };
+    this.holdTimers = [
+      setTimeout(() => say(lines.first), 2500),
+      setTimeout(() => say(lines.later), 14000),
+    ];
+  }
+
+  private clearHoldLines() {
+    for (const timer of this.holdTimers) clearTimeout(timer);
+    this.holdTimers = [];
   }
 
   /** Confirm / cancel from the Auto Mode screen (same path as speech). */
@@ -2428,6 +2482,7 @@ class AssistantModeStore {
   }
 
   private cancelSpeech() {
+    this.clearHoldLines();
     this.dropPlayback();
     brain.stop();
     this.to("barge-in");
