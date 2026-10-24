@@ -58,7 +58,7 @@ export function AISettings() {
   const registry = useModelRegistry();
   const routedLabel = (task: RoutingTask) => {
     const id = modelsState.routing[task];
-    if (!id) return "not routed";
+    if (!id) return task === "speech" ? "auto" : "not routed";
     return modelById.get(id)?.name ?? id;
   };
   const brainModel = modelById.get(modelsState.routing.brain ?? "");

@@ -19,6 +19,9 @@ import {
   modelById,
   modelByTag,
   modelsByTag,
+  STT_SIZE_MODEL,
+  UNSUPPORTED_CLOUD,
+  sttSizeOf,
   registryTag,
   modelCatalog,
   providerById,
@@ -31,6 +34,7 @@ import {
 } from "./model-catalog";
 import { downloadSources } from "./model-sources";
 import { livePoller } from "./live-poll";
+import { preferences, type VoicePreferences } from "./preferences";
 import { modelIdleMs, shouldKeepModelsWarm, shouldUnloadIdleModels } from "./settings-runtime";
 
 export type JobKind = "download" | "update" | "remove" | "benchmark" | "import";
@@ -124,6 +128,8 @@ export type ImportedModel = {
   note?: string;
   registeredAs?: string;
 };
+
+export type ConnectResult = { ok: boolean; models: number; error: string | null };
 
 export type ModelsState = {
   system: SystemProfile;
@@ -239,7 +245,7 @@ const baseRouting = (): Record<RoutingTask, string | null> => ({
   reasoning: "deepseek-r1-32b",
   vision: null,
   fast: "qwen2.5-1.5b",
-  speech: "faster-whisper-small",
+  speech: null,
   voice: "supertonic-3",
   image: null,
   embedding: "bge-m3",
@@ -304,6 +310,10 @@ class ModelsStore {
     if (!this.hydrated && typeof window !== "undefined") {
       window.setTimeout(() => this.hydrate(), 0);
     }
+    if (!this.offPrefs && typeof window !== "undefined") {
+      this.offPrefs = preferences.subscribe(this.syncSpeechFromPrefs);
+      this.syncSpeechFromPrefs();
+    }
     // While a view is open the inventory is re-read on the shared poller, so an
     // install or delete made outside FRIDAY (the engine's own CLI) shows up here.
     if (!this.offInventory && typeof window !== "undefined") {
@@ -324,11 +334,27 @@ class ModelsStore {
         this.stopTimer();
         this.offInventory?.();
         this.offInventory = null;
+        this.offPrefs?.();
+        this.offPrefs = null;
       }
     };
   };
 
   private offInventory: (() => void) | null = null;
+  private offPrefs: (() => void) | null = null;
+
+  /** Settings → Voice → Speech model size is the same choice as Task routing → Speech. */
+  private speechFromPrefs(): string | null {
+    const size = preferences.getSnapshot().voice.sttSize;
+    return size && size !== "auto" ? (STT_SIZE_MODEL[size] ?? null) : null;
+  }
+
+  private syncSpeechFromPrefs = () => {
+    const id = this.speechFromPrefs();
+    if (this.state.routing.speech === id) return;
+    this.state.routing.speech = id;
+    this.emit(false);
+  };
 
   getSnapshot = () => this.snapshot;
 
@@ -352,8 +378,8 @@ class ModelsStore {
     this.state.routing = { ...baseRouting(), ...(saved.routing ?? {}) };
     // Older builds defaulted speech and voice to engines FRIDAY does not ship.
     if (this.state.routing.voice === "piper-en") this.state.routing.voice = baseRouting().voice;
-    if (this.state.routing.speech === "whispercpp-base")
-      this.state.routing.speech = baseRouting().speech;
+    // The speech size lives in Settings → Voice; the saved copy must not disagree.
+    this.state.routing.speech = this.speechFromPrefs();
     this.state.benchmarks = saved.benchmarks ?? {};
     this.state.imported = saved.imported ?? [];
     this.state.active = saved.active ?? this.state.active;
@@ -834,10 +860,15 @@ class ModelsStore {
 
   /* ------------------------------------------------------------- providers */
 
-  connectProvider(id: ProviderId, apiKey: string, endpoint?: string) {
+  connectProvider(id: ProviderId, apiKey: string, endpoint?: string): Promise<ConnectResult> {
     const ps = this.state.providerState[id];
     const p = providerById.get(id);
-    if (!ps || !p) return;
+    if (!ps || !p) return Promise.resolve({ ok: false, models: 0, error: "unknown provider" });
+    if (UNSUPPORTED_CLOUD.has(id)) {
+      const error = `${p.name} has no connector in FRIDAY yet`;
+      this.push("warn", error);
+      return Promise.resolve({ ok: false, models: 0, error });
+    }
     ps.apiKey = apiKey.trim() || null;
     const customEndpoint = endpoint?.trim() ? endpoint.trim() : null;
     if (customEndpoint) ps.endpoint = customEndpoint;
@@ -854,11 +885,13 @@ class ModelsStore {
       ps.checkedAt = Date.now();
       this.push("info", `${p.name} — validating key against ${ps.endpoint}`);
       this.emit();
-      void bridge
+      return bridge
         .setProviderKey(id, ps.apiKey)
         .then(() => bridge.testModelProvider?.(id, ps.apiKey))
-        .then((probe) => {
-          if (!probe || !("online" in probe)) return;
+        .then((probe): ConnectResult => {
+          if (!probe || !("online" in probe)) {
+            return { ok: false, models: 0, error: "the provider check returned nothing" };
+          }
           ps.online = probe.online;
           ps.detected = probe.online;
           ps.latencyMs = probe.latencyMs;
@@ -870,9 +903,15 @@ class ModelsStore {
             `${p.name} — ${probe.online ? `key accepted · ${probe.models} model(s) ready to use` : probe.error}`,
           );
           this.emit();
+          return { ok: probe.online, models: probe.models, error: probe.error };
         })
-        .catch((err: Error) => this.log("error", `${p.name} — ${err.message}`));
-      return;
+        .catch((err: Error): ConnectResult => {
+          ps.online = false;
+          ps.error = err.message;
+          this.log("error", `${p.name} — ${err.message}`);
+          this.emit();
+          return { ok: false, models: 0, error: err.message };
+        });
     }
     // Browser preview only — the desktop path above returns before this.
     ps.detected = Boolean(ps.apiKey) || p.kind === "local";
@@ -886,6 +925,7 @@ class ModelsStore {
       `${p.name} ${ps.detected ? "connected" : "disconnected"} — ${ps.endpoint}`,
     );
     this.emit();
+    return Promise.resolve({ ok: ps.detected, models: ps.models, error: ps.error });
   }
 
   disconnectProvider(id: ProviderId) {
@@ -998,6 +1038,13 @@ class ModelsStore {
     const ps = this.state.providerState[id];
     const p = providerById.get(id);
     if (!ps || !p) return;
+    if (UNSUPPORTED_CLOUD.has(id)) {
+      ps.online = false;
+      ps.error = "no connector in FRIDAY yet";
+      this.push("warn", `${p.name} — ${ps.error}, so there is nothing to check`);
+      this.emit();
+      return;
+    }
     const api = desktopApi();
     if (this.state.bridge === "desktop" && api?.testModelProvider) {
       this.push("info", `${p.name} health check — contacting ${ps.endpoint}`);
@@ -1615,6 +1662,14 @@ class ModelsStore {
 
   assign(task: RoutingTask, modelId: string | null) {
     this.state.routing[task] = modelId;
+    // Speech is the one task with a real switch behind it: the size voice mode
+    // loads. Unassigned is Auto. Settings → Voice writes the same preference.
+    if (task === "speech") {
+      const size = sttSizeOf(modelId) ?? "auto";
+      if (preferences.getSnapshot().voice.sttSize !== size) {
+        preferences.setVoice({ sttSize: size as VoicePreferences["sttSize"] });
+      }
+    }
     const label = routingTasks.find((t) => t.key === task)?.label ?? task;
     this.push(
       "ok",
@@ -1742,8 +1797,10 @@ class ModelsStore {
     const model = modelById.get(modelId);
     if (!model) return "Not installed";
     // A hosted model is never "installed": it is connected when its provider answers with a key.
-    if (model.kind === "cloud")
-      return this.state.providerState[model.provider]?.apiKey ? "Connected" : "Available";
+    if (model.kind === "cloud") {
+      const ps = this.state.providerState[model.provider];
+      return ps?.apiKey && ps.online ? "Connected" : "Available";
+    }
     const installed = this.state.installed[modelId];
     if (!installed) return "Not installed";
     return installed === model.version ? "Installed" : "Update available";
