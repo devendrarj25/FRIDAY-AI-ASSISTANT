@@ -349,3 +349,28 @@ describe("toolkit scan", () => {
     expect(toolchain.lastDetected().tools ?? []).not.toHaveLength(2);
   }, 60_000);
 });
+
+describe("toolkit in every command", () => {
+  it("gives each tool a probe, so doctor can tell whether it is there", () => {
+    for (const entry of manifest.prefetch) {
+      const probe = entry.probe;
+      expect(probe, entry.id).toBeTruthy();
+      expect(Boolean(probe.file) !== Boolean(probe.cmd?.length), entry.id).toBe(true);
+      if (probe.cmd) expect(Array.isArray(probe.args), entry.id).toBe(true);
+    }
+  });
+
+  it("is reported by npm run doctor as warnings and installed by npm run setup:toolkit", () => {
+    const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts["setup:toolkit"]).toBe("node scripts/prefetch-toolkit.cjs");
+    expect(pkg.scripts["doctor"]).toContain("scripts/check-environment.cjs");
+    const check = readFileSync(path.join(root, "scripts/check-environment.cjs"), "utf8");
+    expect(check).toContain('group: "agent-toolkit"');
+    expect(check).toContain("required: false");
+    expect(check).toContain("npm run setup:toolkit");
+    // --fix repairs Electron and Python only, so a build never asks for an administrator prompt twice.
+    expect(check).not.toMatch(/--fix[^\n]*prefetch-toolkit/);
+  });
+});
