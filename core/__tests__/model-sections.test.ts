@@ -20,16 +20,13 @@ import {
 const require_ = createRequire(import.meta.url);
 const library = require_("../../electron/local-library.cjs");
 
+// Read from the page itself, so a tab added there but left out of every section fails here.
 const TABS = [
-  "catalog",
-  "installed",
-  "providers",
-  "routing",
-  "runtime",
-  "benchmarks",
-  "connect",
-  "activity",
-];
+  ...readFileSync(path.resolve("src/routes/models.tsx"), "utf8")
+    .slice(readFileSync(path.resolve("src/routes/models.tsx"), "utf8").indexOf("const TABS = ["))
+    .split("];")[0]!
+    .matchAll(/key: "([a-z]+)"/g),
+].map((hit) => hit[1]!);
 
 describe("model sections", () => {
   it("puts every current Models tab under Local, Cloud, or Routing", () => {
@@ -39,7 +36,8 @@ describe("model sections", () => {
       "ROUTING",
     ]);
     expect(sectionCovers(TABS)).toEqual([]);
-    expect(SECTION_TABS.routing).toEqual(["routing"]);
+    expect(TABS).toContain("live");
+    expect(SECTION_TABS.routing).toEqual(["routing", "live"]);
     const page = readFileSync(path.resolve("src/routes/models.tsx"), "utf8");
     expect(page).toContain("MODEL_SECTIONS");
     expect(page).toContain("firstPage");

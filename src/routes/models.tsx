@@ -58,6 +58,7 @@ import {
   providers,
   routingTasks,
   supportedFormats,
+  UNSUPPORTED_CLOUD,
   type ModelCategory,
   type ModelSpec,
   type ProviderId,
@@ -97,6 +98,8 @@ import {
   onlineFit,
   selectCloud,
   tabsForSection,
+  modalityOf,
+  MODALITY_FILTERS,
   type FitFilter,
   type ModelSection,
 } from "@/lib/friday/model-sections";
@@ -632,6 +635,7 @@ function ModelsPage() {
   const [tab, setTab] = useState("catalog");
   const [category, setCategory] = useState<"all" | ModelCategory>("all");
   const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
+  const [modality, setModality] = useState("all");
   const [query, setQuery] = useState("");
   // Local models that cannot run on this PC stay out of the list until asked for.
   const [fit, setFit] = useState<FitFilter>("runs");
@@ -693,6 +697,7 @@ function ModelsPage() {
     const matching = modelCatalog.filter((m) => {
       if (kind !== "all" && m.kind !== kind) return false;
       if (category !== "all" && m.category !== category) return false;
+      if (modality !== "all" && modalityOf(m).key !== modality) return false;
       if (tab === "installed" && statuses.get(m.id) === "Not installed") return false;
       if (tab === "installed" && m.kind === "cloud" && statuses.get(m.id) === "Available")
         return false;
@@ -708,9 +713,9 @@ function ModelsPage() {
       installed: (m) => Boolean(state.installed[m.id]) && m.kind === "local",
     });
     return { filtered: arranged.shown, tooBig: arranged.hidden };
-  }, [deferredQuery, kind, category, tab, statuses, fit, state.system, state.installed]);
+  }, [deferredQuery, kind, category, modality, tab, statuses, fit, state.system, state.installed]);
 
-  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${tab}\u001f${fit}`;
+  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${modality}\u001f${tab}\u001f${fit}`;
   const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;
   const catalogWindow = firstPage(filtered, (catalogStamp === catalogKey ? catalogPages : 1) * 40);
   const foundArranged = useMemo(
@@ -1337,6 +1342,14 @@ function ModelsPage() {
                 value={category}
                 onChange={(k) => setCategory(k as typeof category)}
               />
+              <FilterTabs
+                tabs={[
+                  { key: "all", label: "Any input → output" },
+                  ...MODALITY_FILTERS.map((f) => ({ key: f.key, label: f.label })),
+                ]}
+                value={modality}
+                onChange={setModality}
+              />
             </div>
 
             <DataTable
@@ -1374,6 +1387,9 @@ function ModelsPage() {
                   </span>,
                   <span key="c" className="text-meta text-muted-foreground">
                     {m.category}
+                    <span className="block text-meta-sm" title="input → output">
+                      {modalityOf(m).label}
+                    </span>
                   </span>,
                   <span key="s" className="text-meta text-muted-foreground">
                     {m.kind === "cloud" ? "hosted" : formatGb(m.sizeGb)} · {m.ctxK}k
@@ -1576,6 +1592,7 @@ function ModelsPage() {
                   const options = modelCatalog.filter(
                     (m) =>
                       task.accepts.includes(m.category) &&
+                      (!task.only || task.only.includes(m.id)) &&
                       engine.statusOf(m.id) !== "Not installed" &&
                       engine.statusOf(m.id) !== "Available",
                   );
@@ -1586,8 +1603,20 @@ function ModelsPage() {
                       className="hud-tile grid grid-cols-[minmax(0,1fr)_minmax(0,14rem)] items-center gap-3 rounded-surface px-3 py-2"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm">{task.label}</p>
-                        <p className="truncate text-meta-sm text-muted-foreground">{task.hint}</p>
+                        <p className="flex items-center gap-2 truncate text-sm">
+                          {task.label}
+                          <StatusPill
+                            label={
+                              task.effect === "turns"
+                                ? "chat + voice turns"
+                                : task.effect === "voice"
+                                  ? "voice mode"
+                                  : "not used yet"
+                            }
+                            tone={task.effect === "none" ? "muted" : "primary"}
+                          />
+                        </p>
+                        <p className="text-meta-sm text-muted-foreground">{task.hint}</p>
                       </div>
                       <select
                         value={current ?? ""}
@@ -1596,7 +1625,9 @@ function ModelsPage() {
                         }
                         className="h-8 w-full rounded-ctl border border-border bg-surface px-2 text-meta text-foreground outline-none focus:border-primary/50"
                       >
-                        <option value="">— unassigned —</option>
+                        <option value="">
+                          {task.key === "speech" ? "— Auto —" : "— unassigned —"}
+                        </option>
                         {options.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.name} ({providerById.get(m.provider)?.name})
@@ -1999,6 +2030,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
   const selected = providerById.get(provider)!;
   const ps = state.providerState[provider]!;
   const tier = useBilling().tiers[provider] || "auto";
+  const unsupported = UNSUPPORTED_CLOUD.has(provider);
 
   return (
     <HudPanel title="Connect a cloud provider" hint="your key, stored locally">
@@ -2018,6 +2050,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
             {cloud.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
+                {UNSUPPORTED_CLOUD.has(p.id) ? " (no connector yet)" : ""}
               </option>
             ))}
           </select>
@@ -2072,20 +2105,30 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            disabled={unsupported}
+            title={unsupported ? `${selected.name} has no connector in FRIDAY yet` : undefined}
             onClick={() => {
               if (!key.trim()) {
                 toast.error("Enter a key first");
                 return;
               }
-              engine.connectProvider(provider, key, endpoint);
+              const name = selected.name;
               setKey("");
-              toast.success(`${selected.name} connected`);
+              void engine.connectProvider(provider, key, endpoint).then((result) => {
+                if (result.ok) toast.success(`${name} connected — ${result.models} model(s) ready`);
+                else toast.error(`${name} did not connect`, { description: result.error ?? "" });
+              });
             }}
           >
             <Link2 className="size-4" />
             Connect
           </Button>
-          <Button size="sm" variant="outline" onClick={() => engine.testProvider(provider)}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={unsupported}
+            onClick={() => engine.testProvider(provider)}
+          >
             <RadioTower className="size-4" />
             Test
           </Button>
@@ -2106,9 +2149,20 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
           <div className="flex flex-wrap gap-1.5">
             {cloud
               .filter((p) => state.providerState[p.id]?.apiKey)
-              .map((p) => (
-                <StatusPill key={p.id} label={p.name} tone="magenta" />
-              ))}
+              .map((p) => {
+                const live = state.providerState[p.id]!;
+                return (
+                  <span
+                    key={p.id}
+                    title={live.online ? "key accepted" : (live.error ?? "checking…")}
+                  >
+                    <StatusPill
+                      label={live.online ? p.name : `${p.name} · not accepted`}
+                      tone={live.online ? "magenta" : "warning"}
+                    />
+                  </span>
+                );
+              })}
             {cloud.every((p) => !state.providerState[p.id]?.apiKey) ? (
               <span className="text-note text-muted-foreground">
                 No cloud provider connected yet.

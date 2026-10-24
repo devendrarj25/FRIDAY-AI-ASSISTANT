@@ -5,11 +5,17 @@ import { HudPanel, StatusPill } from "@/components/friday/ui";
 import { desktopApi } from "@/lib/friday/desktop";
 import {
   formatTokens,
+  modelLive,
   modelLiveState,
   useModelLive,
   type LiveState,
 } from "@/lib/friday/model-live";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
+import { useModels } from "@/lib/friday/use-models";
+import { currentVoiceHealth } from "@/lib/friday/voice-health";
+import { modelById } from "@/lib/friday/model-catalog";
+import { VOICE_MODEL_IDS } from "@/lib/friday/models-engine";
+import { voiceStackLines } from "@/lib/friday/voice-stack";
 
 /** Worst first, so a model that needs attention is never below the fold. */
 const SEVERITY: Record<LiveState, number> = {
@@ -39,6 +45,24 @@ export function ModelsLivePanel() {
   const live = useModelLive();
   const registry = useModelRegistry();
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [voiceTick, setVoiceTick] = useState(0);
+  const modelsState = useModels();
+  const voice = useMemo(
+    () =>
+      voiceStackLines({
+        health: currentVoiceHealth(),
+        speechAssigned: modelsState.routing.speech,
+        installed: Object.fromEntries(
+          VOICE_MODEL_IDS.map((id) => [
+            modelById.get(id)?.name ?? id,
+            Boolean(modelsState.installed[id]),
+          ]),
+        ),
+      }),
+    // voiceTick forces a re-read of the session's live state; the stores do the rest.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [modelsState.installed, modelsState.routing.speech, live.at, voiceTick],
+  );
   const now = live.now || live.at;
 
   const names = useMemo(
@@ -148,7 +172,7 @@ export function ModelsLivePanel() {
             size="sm"
             variant="ghost"
             title="Reset all usage counts"
-            onClick={() => void import("@/lib/friday/model-live").then((m) => m.modelLive.reset())}
+            onClick={() => void modelLive.reset()}
           >
             <RotateCcw className="size-3.5" />
           </Button>
@@ -162,6 +186,38 @@ export function ModelsLivePanel() {
           reports its own number.
         </p>
       </HudPanel>
+
+      <div className="lg:col-span-3">
+        <HudPanel
+          title="Voice stack"
+          hint="Auto mode's ears and voice, next to the files they use"
+          actions={
+            <Button
+              size="sm"
+              variant="ghost"
+              title="Re-read the voice state"
+              onClick={() => {
+                setVoiceTick((n) => n + 1);
+                void modelLive.refresh();
+              }}
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+          }
+        >
+          <ul className="space-y-1 text-sm">
+            {voice.map((line) => (
+              <li key={line.label} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <span className="text-muted-foreground">{line.label}: </span>
+                  {line.value}
+                </span>
+                <StatusPill label={line.status} tone={line.tone} />
+              </li>
+            ))}
+          </ul>
+        </HudPanel>
+      </div>
 
       <div className="lg:col-span-3">
         <HudPanel title="Model status" hint={`${rows.length} model(s) the router has touched`}>

@@ -31,6 +31,7 @@ import {
   type RoutingTask,
 } from "./model-catalog";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
+import { taskPreference } from "./brain/task-routing";
 import { modelRegistry as usageRegistry } from "./model-registry";
 import {
   createRoutingContract,
@@ -128,6 +129,34 @@ export function promptRouting(
   return request.kind === "model"
     ? { modelIds: [request.modelId], routeMode: "manual" }
     : { providerIds: [request.providerId], routeMode: "auto" };
+}
+
+/**
+ * The Models page Task routing as a preference for this turn. It applies only
+ * when nothing else chose: no caller pick, no model named in the prompt, nothing
+ * pinned in the chat picker. The router keeps every rule and may still skip it.
+ */
+export function taskRoutingFor(
+  prompt: string,
+  options: { modelIds?: string[]; routingContract?: ModelRoutingContract },
+  surface: "voice" | "chat",
+): { modelIds: string[] } | null {
+  if (options.modelIds?.length || options.routingContract) return null;
+  try {
+    const snapshot = usageRegistry.getSnapshot();
+    if (snapshot.selected.length) return null;
+    // Manual and Multi treat a list as the whole pool; a preference must not become that.
+    if (snapshot.routeMode === "manual" || snapshot.routeMode === "multi") return null;
+    const ids = taskPreference({
+      prompt,
+      surface,
+      routing: models.getSnapshot().routing,
+      rows: snapshot.models,
+    });
+    return ids.length ? { modelIds: ids } : null;
+  } catch {
+    return null;
+  }
 }
 
 export function withRoutingDefaults(options: {
@@ -1471,7 +1500,9 @@ class BrainStore {
     // The registry is the single source of truth, filled in here for callers
     // that do not carry it.
     const named = promptRouting(prompt, rawOptions);
-    const options = withRoutingDefaults(named ? { ...rawOptions, ...named } : rawOptions);
+    const surface = rawOptions.routingSurface || (this.autoMode ? "voice" : "chat");
+    const withTask = named ?? taskRoutingFor(prompt, rawOptions, surface);
+    const options = withRoutingDefaults(withTask ? { ...rawOptions, ...withTask } : rawOptions);
     const text = prompt.trim();
     if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
     if (this.state.activeRunId) {

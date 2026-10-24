@@ -18,6 +18,7 @@
 import { identity } from "./brain/identity";
 import { manualChatGuide } from "./chat-turn";
 import { looksLikeCorrection } from "./brain/intent-engine";
+import { CODE_RE, REASON_RE, VISION_RE, taskOfPrompt } from "./brain/task-routing";
 import { affect } from "./brain/affect";
 import { classifyPriority } from "./brain/priority";
 import { systemContextPrompt } from "./system-context";
@@ -124,9 +125,9 @@ export type TurnOutcome = {
   correction?: string;
 };
 
-const CODE = /\b(code|bug|error|refactor|compile|build|typescript|python|script|function)\b/i;
-const REASON = /\b(why|plan|design|compare|analyse|analyze|decide|strategy|architecture)\b/i;
-const VISION = /\b(image|screenshot|picture|photo|diagram)\b/i;
+const CODE = CODE_RE;
+const REASON = REASON_RE;
+const VISION = VISION_RE;
 
 /** Memory + knowledge worth putting in front of the model for this prompt. */
 function recallContext(prompt: string, depth: number, vectorHits?: VectorSnippet[]): string[] {
@@ -255,13 +256,7 @@ function routeModels(
   //    plan and the status page name a model that was never called.
   const routable = new Set(modelRegistry.available().map((record) => record.id));
   const routing = models.getSnapshot().routing;
-  const task: RoutingTask = CODE.test(prompt)
-    ? "coding"
-    : REASON.test(prompt)
-      ? "reasoning"
-      : VISION.test(prompt)
-        ? "vision"
-        : "brain";
+  const task: RoutingTask = taskOfPrompt(prompt);
   const pinned = routing[task] ?? routing.brain ?? routing.fast ?? null;
   if (pinned && (routable.size === 0 || routable.has(pinned))) add(pinned);
 

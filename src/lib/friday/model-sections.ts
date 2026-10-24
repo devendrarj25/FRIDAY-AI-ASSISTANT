@@ -24,7 +24,7 @@ export type ModelSection = (typeof MODEL_SECTIONS)[number]["key"];
 export const SECTION_TABS: Record<ModelSection, readonly string[]> = {
   local: ["catalog", "installed", "runtime", "benchmarks", "connect", "activity"],
   cloud: ["providers", "catalog", "connect", "activity"],
-  routing: ["routing"],
+  routing: ["routing", "live"],
 };
 
 export const LOCAL_ANSWER_STRATEGIES = ["show-all", "first-good", "majority", "judged"] as const;
@@ -213,4 +213,59 @@ export function arrangeByFit<T>(
     .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
     .map((entry) => entry.row);
   return { shown, hidden: rows.length - kept.length };
+}
+
+/** What goes in and what comes out of a model, in the words the page uses. */
+export type Modality = { input: string[]; output: string[]; label: string; key: string };
+
+export const MODALITY_FILTERS = [
+  { key: "text>text", label: "Text → Text" },
+  { key: "image>text", label: "Image → Text" },
+  { key: "audio>text", label: "Audio → Text" },
+  { key: "text>audio", label: "Text → Audio" },
+  { key: "text>image", label: "Text → Image" },
+  { key: "text>vector", label: "Text → Vector" },
+] as const;
+
+/**
+ * Input → output of a model from its category and capabilities. A chat model that
+ * also reads images is "Image → Text" for the filter but still lists Text as an input.
+ */
+export function modalityOf(model: {
+  category: string;
+  caps?: readonly string[] | undefined;
+}): Modality {
+  const caps = model.caps ?? [];
+  let input = ["Text"];
+  let output = ["Text"];
+  switch (model.category) {
+    case "Vision":
+    case "Multimodal":
+      input = ["Text", "Image", ...(caps.includes("audio") ? ["Audio"] : [])];
+      break;
+    case "Image":
+      output = ["Image"];
+      break;
+    case "Speech to Text":
+      input = ["Audio"];
+      break;
+    case "Text to Speech":
+      output = ["Audio"];
+      break;
+    case "Embedding":
+      output = ["Vector"];
+      break;
+    case "Reranking":
+      output = ["Score"];
+      break;
+    default:
+      if (caps.includes("vision")) input = ["Text", "Image"];
+  }
+  const main = input.includes("Image") ? "Image" : (input.find((x) => x !== "Text") ?? "Text");
+  return {
+    input,
+    output,
+    label: `${input.join(" + ")} → ${output.join(" + ")}`,
+    key: `${main.toLowerCase()}>${output[0]!.toLowerCase()}`,
+  };
 }

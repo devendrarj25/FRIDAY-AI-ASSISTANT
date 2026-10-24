@@ -311,7 +311,8 @@ describe("voice models on the Models page", () => {
     const { modelById } = await import("../../src/lib/friday/model-catalog");
     for (const id of VOICE_MODEL_IDS) expect(modelById.get(id), id).toBeTruthy();
     const engine = read("src/lib/friday/models-engine.ts");
-    expect(engine).toContain('speech: "faster-whisper-small"');
+    expect(engine).toContain("speech: null,");
+    expect(engine).toContain("this.speechFromPrefs()");
     expect(engine).toContain('voice: "supertonic-3"');
     expect(read("electron/models.cjs")).toContain("voiceModelsOnDisk(voiceRoot || workspace");
   });

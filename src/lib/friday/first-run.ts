@@ -202,7 +202,7 @@ export async function connectFreeProvider(
 ): Promise<{ ok: boolean; detail: string }> {
   const key = apiKey.trim();
   if (!key) return { ok: false, detail: "no key entered" };
-  models.connectProvider(id, key);
+  void models.connectProvider(id, key);
   return until(() => {
     const state = models.getSnapshot().providerState[id];
     if (!state) return { done: true, ok: false, detail: "unknown provider" };

@@ -300,3 +300,98 @@ describe("FRIDAY answers about her own models", () => {
     expect(modelNamed("the quarterly report")).toBeNull();
   });
 });
+
+describe("speech and voice routing are the voice stack's real choices", () => {
+  const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+
+  it("lists exactly the sizes the speech worker can open", async () => {
+    const { STT_SIZE_MODEL, sttSizeOf, routingTasks, NEURAL_VOICE_MODEL } =
+      await import("../../src/lib/friday/model-catalog");
+    expect(STT_SIZE_MODEL).toEqual(weights.STT_CATALOG);
+    expect(sttSizeOf("faster-whisper")).toBe("large-v3");
+    expect(sttSizeOf("silero-vad")).toBeNull();
+    const speech = routingTasks.find((t) => t.key === "speech")!;
+    const voice = routingTasks.find((t) => t.key === "voice")!;
+    expect(speech.only).toEqual(Object.values(STT_SIZE_MODEL));
+    expect(voice.only).toEqual([NEURAL_VOICE_MODEL]);
+    expect(read_("src/routes/models.tsx")).toContain("(!task.only || task.only.includes(m.id))");
+  });
+
+  it("assigning a speech model sets the Settings size, and the Settings size sets the assignment", async () => {
+    const { models } = await import("../../src/lib/friday/models-engine");
+    const { preferences } = await import("../../src/lib/friday/preferences");
+    models.assign("speech", "faster-whisper-base");
+    expect(preferences.getSnapshot().voice.sttSize).toBe("base");
+    models.assign("speech", null);
+    expect(preferences.getSnapshot().voice.sttSize).toBe("auto");
+    models.assign("speech", "faster-whisper");
+    expect(preferences.getSnapshot().voice.sttSize).toBe("large-v3");
+    const engine = read_("src/lib/friday/models-engine.ts");
+    expect(engine).toContain("preferences.subscribe(this.syncSpeechFromPrefs)");
+    expect(engine).toContain("this.state.routing.speech = this.speechFromPrefs();");
+  });
+});
+
+function read_(file: string) {
+  return readFileSync(path.join(root, file), "utf8");
+}
+
+describe("voice stack on the Models page", () => {
+  it("shows the running session next to the files it uses", async () => {
+    const { voiceStackLines } = await import("../../src/lib/friday/voice-stack");
+    const idle = voiceStackLines({
+      health: null,
+      speechAssigned: null,
+      installed: { A: true, B: false },
+    });
+    expect(idle[0]).toMatchObject({ label: "Auto mode", status: "Idle" });
+    expect(idle.at(-1)).toMatchObject({
+      label: "Voice files on this PC",
+      status: "1 of 2",
+      tone: "warning",
+    });
+    expect(idle.find((l) => l.label.startsWith("Task routing"))?.status).toBe("Auto");
+
+    const live = voiceStackLines({
+      health: {
+        mode: "auto",
+        listening: true,
+        paused: false,
+        micReady: true,
+        micDetail: "Realtek array",
+        sttReady: false,
+        sttModel: "small",
+        sttError: "model-missing",
+        heard: 4,
+        dropped: {},
+        droppedTotal: 1,
+        ttsEngine: "supertonic-3",
+        ttsError: "",
+        turnLine: "",
+        stoppedAt: null,
+      },
+      speechAssigned: "faster-whisper-small",
+      installed: { A: true },
+    });
+    expect(live.find((l) => l.label === "Speech to text")).toMatchObject({
+      status: "Not ready",
+      tone: "destructive",
+      value: "model-missing",
+    });
+    expect(live.find((l) => l.label === "Speaks with")?.value).toBe("supertonic-3");
+    expect(live.find((l) => l.label.startsWith("Task routing"))?.status).toBe("Pinned");
+    expect(read_("src/components/friday/ModelsLivePanel.tsx")).toContain("voiceStackLines(");
+  });
+});
+
+describe("a speech size downloaded from the Models page is the folder the worker opens", () => {
+  it("fetches the whole faster-whisper repo, which holds the files the worker checks", async () => {
+    const { sourcesFor } = await import("../../src/lib/friday/model-sources");
+    const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+    for (const [size, id] of Object.entries(weights.STT_CATALOG as Record<string, string>)) {
+      const source = sourcesFor(id)[0] as { kind: string; repo?: string } | undefined;
+      expect(source?.kind, id).toBe("hf-repo");
+      expect(source?.repo, id).toBe(weights.STT_REPOS[size]);
+    }
+  });
+});

@@ -2595,68 +2595,118 @@ export type RoutingTask =
   | "embedding"
   | "rerank";
 
+/**
+ * The speech sizes voice mode can load, by the Models-page id. The speech worker
+ * opens these folders (electron/voice-weights.cjs STT_CATALOG says the same);
+ * any other Speech to Text row (Silero VAD, Smart Turn, Vosk) is a helper or not
+ * shipped, and is never offered as "the" speech model.
+ */
+export const STT_SIZE_MODEL: Record<string, string> = {
+  tiny: "faster-whisper-tiny",
+  base: "faster-whisper-base",
+  small: "faster-whisper-small",
+  medium: "faster-whisper-medium",
+  "large-v3": "faster-whisper",
+};
+
+/** The size a speech model id means, or null when voice mode cannot run it. */
+export function sttSizeOf(modelId: string | null | undefined): string | null {
+  if (!modelId) return null;
+  return Object.entries(STT_SIZE_MODEL).find(([, id]) => id === modelId)?.[0] ?? null;
+}
+
+/** The only text-to-speech model FRIDAY's own voice stack loads (the neural voice). */
+export const NEURAL_VOICE_MODEL = "supertonic-3";
+
 export const routingTasks: {
   key: RoutingTask;
   label: string;
   accepts: ModelCategory[];
   hint: string;
+  /** When set, only these ids can do the job; the category alone is not enough. */
+  only?: string[];
+  /** Who reads the assignment: chat and voice turns, voice mode alone, or nobody yet. */
+  effect: "turns" | "voice" | "none";
 }[] = [
   {
     key: "brain",
+    effect: "turns",
     label: "Brain (default)",
     accepts: ["Chat", "Reasoning", "Multimodal"],
     hint: "Primary conversation and orchestration model",
   },
   {
     key: "coding",
+    effect: "turns",
     label: "Coding",
     accepts: ["Coding", "Chat"],
     hint: "Code generation, refactors, reviews",
   },
   {
     key: "research",
+    effect: "turns",
     label: "Research",
     accepts: ["Chat", "Multimodal", "Reasoning"],
     hint: "Long-context reading and synthesis",
   },
   {
     key: "reasoning",
+    effect: "turns",
     label: "Reasoning",
     accepts: ["Reasoning", "Chat"],
     hint: "Step-by-step planning and hard problems",
   },
   {
     key: "vision",
+    effect: "turns",
     label: "Vision",
     accepts: ["Vision", "Multimodal"],
     hint: "Screenshots, documents, image understanding",
   },
   {
     key: "fast",
+    effect: "turns",
     label: "Fast / cheap",
     accepts: ["Chat", "Coding"],
     hint: "Classification, routing, short replies",
   },
   {
     key: "speech",
+    effect: "voice",
     label: "Speech to text",
     accepts: ["Speech to Text"],
-    hint: "Microphone and audio file transcription",
+    hint: "Microphone and audio file transcription. Unassigned means Auto: voice mode picks the size.",
+    only: Object.values(STT_SIZE_MODEL),
   },
   {
     key: "voice",
+    effect: "voice",
     label: "Text to speech",
     accepts: ["Text to Speech"],
-    hint: "FRIDAY's spoken voice",
+    hint: "FRIDAY's spoken voice. Supertonic 3 speaks when installed; otherwise Edge or the system voice does.",
+    only: [NEURAL_VOICE_MODEL],
   },
-  { key: "image", label: "Image generation", accepts: ["Image"], hint: "Diffusion pipelines" },
+  {
+    key: "image",
+    effect: "none",
+    label: "Image generation",
+    accepts: ["Image"],
+    hint: "Diffusion pipelines. Saved as your preference; FRIDAY draws through ComfyUI and does not read this yet.",
+  },
   {
     key: "embedding",
+    effect: "none",
     label: "Embeddings",
     accepts: ["Embedding"],
-    hint: "Memory indexing and semantic search",
+    hint: "Saved as your preference. Memory indexes on its own today; FRIDAY does not read this yet.",
   },
-  { key: "rerank", label: "Reranking", accepts: ["Reranking"], hint: "RAG result reordering" },
+  {
+    key: "rerank",
+    effect: "none",
+    label: "Reranking",
+    accepts: ["Reranking"],
+    hint: "Saved as your preference; FRIDAY does not rerank with a model yet.",
+  },
 ];
 
 /* ------------------------------------------------------- system capability */
@@ -2832,6 +2882,43 @@ export function modelsByTag(tag: string): ModelSpec[] {
 /** The first catalog entry an installed tag (`llama3.1:8b`) stands for. */
 export function modelByTag(tag: string): ModelSpec | null {
   return modelsByTag(tag)[0] ?? null;
+}
+
+/**
+ * Cloud providers listed in the catalog that FRIDAY has no connector for. They
+ * stay visible (the docs say why) but cannot be "connected"; the dispatch list in
+ * electron/models.cjs and this set together cover every cloud provider.
+ */
+export const UNSUPPORTED_CLOUD: ReadonlySet<string> = new Set([
+  "azure-openai",
+  "bedrock",
+  "vertex",
+  "openai-compatible",
+  "custom",
+]);
+
+/** The parts of a live router row needed to tell which catalog entry it is. */
+export type RegistryRowRef = {
+  id: string;
+  modelName?: string | undefined;
+  providerModelId?: string | undefined;
+  providerId?: string | undefined;
+};
+
+/**
+ * Is this live router row (`ollama:qwen2.5:1.5b`, `groq:llama-3.3-70b-versatile`)
+ * the catalog entry (`qwen2.5-1.5b`, a short UI handle)? The Models page and the
+ * router name models differently, so anything that carries a catalog id into the
+ * router goes through here.
+ */
+export function registryRowMatches(spec: ModelSpec, row: RegistryRowRef): boolean {
+  if (row.id === spec.id || row.modelName === spec.id) return true;
+  const names = [row.modelName, row.providerModelId].filter((n): n is string => Boolean(n));
+  if (spec.kind === "local") {
+    const tag = registryTag(spec);
+    return tag !== null && names.some((name) => tagMatches(name, tag));
+  }
+  return row.providerId === spec.provider && names.includes(apiIdFor(spec));
 }
 
 /* ------------------------------------------------------- provider API ids */
