@@ -436,6 +436,7 @@ const plugins = loadNamed("plugins", () => require("./plugins.cjs"));
 const telemetry = loadNamed("telemetry", () => require("./telemetry.cjs"));
 const modelsApi = loadNamed("models", () => require("./models.cjs"));
 const modelDownload = loadNamed("model-download", () => require("./model-download.cjs"));
+const modelImport = loadNamed("model-import", () => require("./model-import.cjs"));
 const { resolvePython, invalidatePython } = loadNamed("python", () => require("./python.cjs"));
 const tray = loadNamed("tray", () => require("./tray.cjs"));
 const startupTasks = loadNamed("startup-tasks", () =>
@@ -5816,6 +5817,26 @@ ipcMain.handle("models:download", async (_e, payload) => {
       controller.signal,
       { ollamaPull: modelsApi.ollamaPull },
     );
+    // A finished GGUF that the engine could not take because it was not running
+    // is not left as a loose file: the engine is started and the model registered.
+    if (
+      result.ok &&
+      result.via !== "ollama" &&
+      !result.registered &&
+      /\.gguf$/i.test(String(result.path || ""))
+    ) {
+      send("models:pull-progress", {
+        jobId: id,
+        model: modelId,
+        status: "starting the local engine to register it",
+        progress: 98,
+      });
+      const started = await modelsApi.startEngine("ollama", {}).catch(() => null);
+      if (started?.ok) {
+        const registered = await modelDownload.registerGguf(modelId, result.path, () => {});
+        result.registered = Boolean(registered?.ok);
+      }
+    }
     // Only a model Ollama can actually serve can be test-prompted; a raw file
     // download that was not registered is reported exactly as what it is.
     const runnable =
@@ -5834,6 +5855,50 @@ ipcMain.handle("models:download", async (_e, payload) => {
     modelJobs.delete(id);
     modelPumps.delete(id);
   }
+});
+
+/** Pick model files (or a model folder) to import. A file picker, not the workspace folder picker. */
+ipcMain.handle("models:pick-files", async (_e, mode) => {
+  const folder = mode === "folder";
+  const result = await dialog.showOpenDialog(liveWin(), {
+    title: folder ? "Select a model folder" : "Select model files",
+    properties: folder ? ["openDirectory"] : ["openFile", "multiSelections"],
+    ...(folder ? {} : { filters: modelImport.PICK_FILTERS }),
+    defaultPath: app.getPath("downloads"),
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, cancelled: true, paths: [] };
+  return { ok: true, paths: result.filePaths };
+});
+
+/**
+ * Import one model the owner already has. The file is checked and stored under
+ * the FRIDAY folder, a GGUF is registered with the local engine (started if it
+ * is not running) and must answer a test prompt before it is called ready.
+ */
+ipcMain.handle("models:import", async (_e, payload) => {
+  const id = String(payload?.id || `import-${Date.now()}`);
+  const emit = (event) => send("models:import-progress", { id, ...event });
+  const result = await modelImport.importModel(
+    { path: payload?.path, name: payload?.name },
+    {
+      root: getWorkspaceRoot(),
+      emit,
+      ensureEngine: async () => {
+        const started = await modelsApi.startEngine("ollama", {});
+        return Boolean(started?.ok);
+      },
+      register: (name, file) => modelDownload.registerGguf(name, file, () => {}),
+      verify: async (name) => {
+        const probe = await modelsApi.ollamaProbeRun(name);
+        return probe.ok && String(probe.response || "").trim()
+          ? { ok: true }
+          : { ok: false, error: probe.error || "the model returned an empty response" };
+      },
+    },
+  );
+  emit({ status: result.ok ? "done" : "failed", progress: 100, done: true, result });
+  if (result.ok && result.registered) announceModelInstalled("ollama");
+  return { id, ...result };
 });
 
 ipcMain.handle("models:check-launcher", (_e, id) => {
@@ -5882,7 +5947,7 @@ let hardwareAt = 0;
 let hardwareJob = null;
 ipcMain.handle("hardware:detect", async (_e, force = false) => {
   if (!force && lastHardware && Date.now() - hardwareAt < 30000) return lastHardware;
-  hardwareJob ??= detectHardware()
+  hardwareJob ??= detectHardware({ root: getWorkspaceRoot() })
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();

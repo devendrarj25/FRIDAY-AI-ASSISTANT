@@ -2035,7 +2035,12 @@ async function startEngine(id, options = {}) {
 
   engineJobs.add(id);
   try {
-    const [cmd, args] = resolved.start;
+    const [named, args] = resolved.start;
+    // A per-user Ollama is not always on this process's PATH: use the install
+    // that is actually on this PC, wherever it is.
+    const installed =
+      id === "ollama" ? require("./local-library.cjs").findInstalledOllama()?.exe : null;
+    const cmd = installed || named;
     if (!(await commandAvailable(cmd))) {
       return {
         ok: false,
@@ -2733,7 +2738,9 @@ async function searchOnlineModels(
   });
   const search = String(query || "").trim();
   if (search) params.set("search", search);
-  else params.set("filter", "gguf");
+  // FRIDAY's local engines run GGUF. A search for text must not return a
+  // multi-gigabyte safetensors repo that "Install" would then pull whole.
+  params.set("filter", "gguf");
 
   const res = await request(`https://huggingface.co/api/models?${params.toString()}`, {
     timeout: 12_000,

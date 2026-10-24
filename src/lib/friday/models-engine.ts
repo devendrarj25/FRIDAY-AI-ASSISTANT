@@ -58,7 +58,13 @@ export type Job = {
   startedAt: number;
   /** True when a real desktop operation drives this job (never the ticker). */
   remote?: boolean;
+  /** Shown for a model that is not in the catalog (one found online). */
+  label?: string;
 };
+
+/** The name to show for a transfer, catalog or found. */
+export const jobName = (job: Pick<Job, "modelId" | "label">): string =>
+  job.label ?? modelById.get(job.modelId)?.name ?? job.modelId;
 
 export type RunState = "Idle" | "Loading" | "Running" | "Unloading" | "Error";
 
@@ -109,6 +115,12 @@ export type ImportedModel = {
   sizeGb: number;
   provider: ProviderId;
   at: number;
+  /** Where the import stands. Models saved before this field existed read as stored. */
+  state?: "importing" | "ready" | "stored" | "not-responding" | "failed";
+  progress?: number;
+  status?: string;
+  note?: string;
+  registeredAs?: string;
 };
 
 export type ModelsState = {
@@ -338,9 +350,9 @@ class ModelsStore {
       this.applySaved(disk);
       this.emit(false);
     });
-    // Hardware probing creates a WebGL context and can stall focus/hit-testing
-    // on some Windows GPU drivers. Run it only from the Models page's explicit
-    // probe control (desktop hardware detection uses the main process).
+    // The browser preview probe creates a WebGL context, which can stall focus on
+    // some Windows GPU drivers, so it only runs from the page's probe control.
+    // The desktop reads the hardware in the main process and does it at start.
     if (this.state.log.length === 0) {
       this.push(
         "info",
@@ -360,6 +372,9 @@ class ModelsStore {
           this.emit();
           this.restoreActive();
         });
+        // What fits this PC is measured by the main process, so it is read at
+        // once. Waiting for a button left every model reading "unsupported".
+        this.probeSystem();
       }, 0);
     } else {
       window.setTimeout(() => this.restoreActive(), 0);
@@ -598,7 +613,13 @@ class ModelsStore {
     // system metrics). The WebGL/navigator path below stays as the browser
     // preview fallback only.
     if (this.state.bridge === "desktop") {
-      void this.probeSystemDesktop().catch(() => this.probeSystemBrowser());
+      void this.probeSystemDesktop().catch((err: Error) => {
+        // No WebGL guess on the desktop: the profile stays "not checked" and
+        // models read Unknown, never Unsupported, until a real probe answers.
+        this.state.probing = false;
+        this.push("warn", `hardware probe failed — ${err.message}`);
+        this.emit();
+      });
       return;
     }
     this.probeSystemBrowser();
@@ -616,9 +637,12 @@ class ModelsStore {
     const cores = hw.cpu?.cores || 1;
     const gpu = hw.gpus?.[0] ?? null;
     const vramMb = Number(gpu?.vramTotalMb ?? 0);
-    const diskFreeGb = Math.round(
-      (metrics?.disks ?? []).reduce((sum, d) => sum + (Number(d.freeGb) || 0), 0),
-    );
+    // The drive the models are stored on, read from the file system. Summing
+    // every drive from the live metrics came back empty whenever that sample was
+    // still pending, which left "0 GB free" and marked every model unsupported.
+    const diskFreeGb =
+      Math.round(Number(hw.disk?.freeGb) || 0) ||
+      Math.round(Math.max(0, ...(metrics?.disks ?? []).map((d) => Number(d.freeGb) || 0)));
     this.state.system = {
       os: `${hw.platform} · ${cores} threads`,
       cpu: hw.cpu?.model || `${cores}-thread host CPU`,
@@ -796,7 +820,7 @@ class ModelsStore {
           ps.checkedAt = Date.now();
           this.push(
             probe.online ? "ok" : "error",
-            `${p.name} — ${probe.online ? `key accepted · ${probe.models} model(s)` : probe.error}`,
+            `${p.name} — ${probe.online ? `key accepted · ${probe.models} model(s) ready to use` : probe.error}`,
           );
           this.emit();
         })
@@ -1183,7 +1207,7 @@ class ModelsStore {
     if (job.remote) void desktopApi()?.cancelModelJob?.(job.id);
     job.phase = "Cancelled";
     job.detail = "cancelled by operator";
-    this.push("warn", `${modelById.get(job.modelId)?.name ?? job.modelId} — job cancelled`);
+    this.push("warn", `${jobName(job)} — job cancelled`);
     this.emit();
   }
 
@@ -1321,21 +1345,47 @@ class ModelsStore {
             ]
           : [];
 
+    // A found model gets a transfer row like a catalogue one: progress, pause,
+    // cancel, and a verified "ready" at the end, instead of an invisible download.
+    const track = (gb: number, detail: string): Job => {
+      const job: Job = {
+        id: nextId("job"),
+        modelId: item.id,
+        label: item.name,
+        kind: "download",
+        phase: "Downloading",
+        progress: 0,
+        detail,
+        gbTotal: gb,
+        gbDone: 0,
+        speedMbps: 0,
+        etaSeconds: 0,
+        startedAt: Date.now(),
+        remote: true,
+      };
+      this.state.jobs = [job, ...this.state.jobs].slice(0, 40);
+      return job;
+    };
+    const fail = (job: Job, error: string) => {
+      job.phase = "Failed";
+      job.error = error;
+      job.detail = error;
+      this.push("error", `${ref} — ${error}`);
+    };
+
     if (api?.downloadModel && sources.length) {
       this.bindDesktopEvents();
-      const jobId = nextId("job");
+      const job = track(
+        0.05,
+        `${sources.length} source(s) available · trying ${sources[0]?.label ?? "first source"}`,
+      );
       this.push("info", `installing ${ref} — ${sources.length} source(s)`);
       this.emit();
       try {
-        const res = await api.downloadModel({ modelId: item.id, sources, jobId });
-        if (res?.ok) {
-          this.push("ok", `${ref} installed from ${res.source ?? "source"}`);
-          await this.refreshFromDesktop();
-        } else {
-          this.push("error", `${ref} — ${res?.error ?? "download failed"}`);
-        }
+        const res = await api.downloadModel({ modelId: item.id, sources, jobId: job.id });
+        if (!res?.ok) fail(job, res?.error ?? "download failed");
       } catch (err) {
-        this.push("error", `${ref} — ${(err as Error).message}`);
+        fail(job, (err as Error).message);
       }
       this.emit();
       return;
@@ -1345,14 +1395,15 @@ class ModelsStore {
       this.log("error", "installing discovered models needs the desktop app");
       return;
     }
+    this.bindDesktopEvents();
+    const job = track(0.05, `pulling ${ref} from ${item.source}`);
     this.push("info", `pulling ${ref} from ${item.source}`);
     this.emit();
     try {
-      await api.pullModel(ref, nextId("job"));
-      this.push("ok", `${ref} pulled`);
-      await this.refreshFromDesktop();
+      const res = await api.pullModel(ref, job.id);
+      if (!res?.ok) fail(job, res?.error ?? "pull failed");
     } catch (err) {
-      this.push("error", `${ref} — ${(err as Error).message}`);
+      fail(job, (err as Error).message);
     }
     this.emit();
   }
@@ -1533,20 +1584,82 @@ class ModelsStore {
 
   /* ---------------------------------------------------------------- import */
 
-  importModel(input: {
-    name: string;
-    path: string;
-    format: string;
-    sizeGb: number;
-    provider: ProviderId;
-  }) {
-    const entry: ImportedModel = { id: nextId("imported"), at: Date.now(), ...input };
+  /**
+   * Import one model file or folder. On the desktop the main process checks
+   * it, keeps it under the FRIDAY folder, registers a GGUF with the local
+   * engine and asks it one question: only an answer makes it ready, and it
+   * then appears in the model list on its own.
+   */
+  async importModel(input: { path: string; name?: string; provider?: ProviderId }) {
+    const source = input.path.trim();
+    const base = source.split(/[\\/]/).filter(Boolean).pop() || source;
+    const entry: ImportedModel = {
+      id: nextId("imported"),
+      at: Date.now(),
+      name: input.name?.trim() || base.replace(/\.[a-z0-9]{1,12}$/i, ""),
+      path: source,
+      format: "—",
+      sizeGb: 0,
+      provider: input.provider ?? "ollama",
+      state: "importing",
+      progress: 0,
+      status: "starting",
+    };
     this.state.imported = [entry, ...this.state.imported].slice(0, 50);
-    this.push(
-      "ok",
-      `imported ${entry.name} (${entry.format}, ${formatGb(entry.sizeGb)}) from ${entry.path}`,
-    );
+    const api = desktopApi();
+    if (this.state.bridge !== "desktop" || !api?.importModel) {
+      entry.state = "failed";
+      entry.note = "importing a model needs the desktop app";
+      this.push("error", `${entry.name} — ${entry.note}`);
+      this.emit();
+      return entry;
+    }
+    this.bindImportEvents();
+    this.push("info", `importing ${entry.name} from ${source}`);
     this.emit();
+    try {
+      const res = await api.importModel({
+        id: entry.id,
+        path: source,
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+      });
+      entry.format = res.format ?? entry.format;
+      entry.sizeGb = res.bytes ? Math.round((res.bytes / 1024 ** 3) * 100) / 100 : entry.sizeGb;
+      entry.path = res.path ?? entry.path;
+      entry.state = res.ok ? res.state : "failed";
+      if (res.registeredAs) entry.registeredAs = res.registeredAs;
+      const note = res.ok ? res.note : res.error;
+      if (note) entry.note = note;
+      entry.progress = 100;
+      this.push(
+        res.ok && res.state === "ready" ? "ok" : res.ok ? "warn" : "error",
+        res.ok
+          ? `${entry.name} imported — ${res.state === "ready" ? "ready, it answered the test prompt" : (res.note ?? res.state)}`
+          : `${entry.name} — ${res.error ?? "import failed"}`,
+      );
+      if (res.ok && res.registered) await this.refreshFromDesktop();
+    } catch (err) {
+      entry.state = "failed";
+      entry.note = (err as Error).message;
+      this.push("error", `${entry.name} — ${entry.note}`);
+    }
+    this.emit();
+    return entry;
+  }
+
+  private importBound = false;
+
+  private bindImportEvents() {
+    const api = desktopApi();
+    if (!api?.onModelImportProgress || this.importBound) return;
+    this.importBound = true;
+    api.onModelImportProgress((event) => {
+      const entry = this.state.imported.find((row) => row.id === event.id);
+      if (!entry || entry.state !== "importing") return;
+      if (typeof event.progress === "number") entry.progress = event.progress;
+      entry.status = event.status;
+      this.emit(false);
+    });
   }
 
   removeImport(id: string) {

@@ -2,6 +2,7 @@
 // Detection only: nothing here changes system settings or reserves resources.
 // The plan deliberately leaves headroom so FRIDAY stays responsive in the
 // foreground and never pins the machine at 100%.
+const fs = require("fs");
 const os = require("os");
 const path = require("path");
 // Shared, packaged-app-safe execution context: absolute interpreter paths,
@@ -124,10 +125,38 @@ function buildPlan({ cpuCount, totalMemGb, gpus, gpuAcceleration }) {
   };
 }
 
-async function detectHardware() {
+/**
+ * Free space on the drive models are stored on, read straight from the file
+ * system. This is what a download needs, and unlike a drive-by-drive WMI query
+ * it answers at once, on every platform, and never comes back empty.
+ */
+function diskFor(root) {
+  const target = root && fs.existsSync(root) ? root : os.homedir();
+  try {
+    const stat = fs.statfsSync(target);
+    return {
+      path: target,
+      freeGb: toGb(Number(stat.bavail) * Number(stat.bsize)),
+      totalGb: toGb(Number(stat.blocks) * Number(stat.bsize)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The GPU that will actually run a model: a discrete NVIDIA card first, then the most video memory. */
+function bestGpuFirst(gpus) {
+  const rank = (gpu) => (gpu.vendor === "nvidia" ? 2 : gpu.vendor === "amd" ? 1 : 0);
+  return [...gpus].sort(
+    (a, b) => rank(b) - rank(a) || (Number(b.vramTotalMb) || 0) - (Number(a.vramTotalMb) || 0),
+  );
+}
+
+async function detectHardware({ root = null } = {}) {
   const cpus = os.cpus() || [];
   const nvidia = await detectNvidia();
-  const gpus = nvidia.length || process.platform !== "win32" ? nvidia : await detectWindowsGpus();
+  const found = nvidia.length || process.platform !== "win32" ? nvidia : await detectWindowsGpus();
+  const gpus = bestGpuFirst(found);
   // `nvcc` is resolved through CUDA_PATH and the versioned toolkit folders as
   // well as PATH — an elevated process started before a re-login never sees
   // the user PATH entry the CUDA installer adds.
@@ -156,6 +185,7 @@ async function detectHardware() {
       speedMhz: cpus[0]?.speed || null,
     },
     memory: { totalGb: totalMemGb, freeGb: toGb(os.freemem()) },
+    disk: diskFor(root),
     gpus,
     cuda: {
       // `nvcc` proves the toolkit is installed. An NVIDIA display driver alone
@@ -384,4 +414,11 @@ function openWindowsSecurity() {
   return true;
 }
 
-module.exports = { detectHardware, detectSensors, detectSecurity, openWindowsSecurity };
+module.exports = {
+  detectHardware,
+  diskFor,
+  bestGpuFirst,
+  detectSensors,
+  detectSecurity,
+  openWindowsSecurity,
+};

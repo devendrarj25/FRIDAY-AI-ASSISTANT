@@ -2601,7 +2601,32 @@ export type SystemProfile = {
   probedAt: number | null;
 };
 
-export type SupportLevel = "Optimal" | "Supported" | "Tight" | "CPU only" | "Unsupported";
+export type SupportLevel =
+  "Optimal" | "Supported" | "Tight" | "CPU only" | "Unsupported" | "Unknown";
+
+/** Everything the fit check reads, so a model that is not in the catalog (a found or imported one) can be checked too. */
+export type FitInput = Pick<ModelSpec, "kind" | "sizeGb" | "ramGb" | "vramGb">;
+
+/** Rough weights for a GGUF at 4-bit: what a found model costs before its real size is known. */
+export function estimateFit(paramsB: number): FitInput {
+  const size = Math.max(0.1, Math.round(paramsB * 0.62 * 10) / 10);
+  return {
+    kind: "local",
+    sizeGb: size,
+    ramGb: Math.round((size * 1.25 + 1) * 10) / 10,
+    vramGb: Math.round(size * 1.15 * 10) / 10,
+  };
+}
+
+/** Best first when a list is ordered by how well a model runs here. */
+export const SUPPORT_RANK: Record<SupportLevel, number> = {
+  Optimal: 0,
+  Supported: 1,
+  Tight: 2,
+  "CPU only": 3,
+  Unknown: 4,
+  Unsupported: 5,
+};
 
 export type SupportCheck = {
   level: SupportLevel;
@@ -2609,20 +2634,28 @@ export type SupportCheck = {
   tone: "accent" | "primary" | "warning" | "destructive" | "muted";
 };
 
-export function checkSupport(model: ModelSpec, sys: SystemProfile): SupportCheck {
+export function checkSupport(model: FitInput, sys: SystemProfile): SupportCheck {
   if (model.kind === "cloud")
     return {
       level: "Supported",
       reason: "hosted — runs on the provider, only needs a key and network",
       tone: "primary",
     };
-  if (model.sizeGb > sys.diskFreeGb)
+  // A machine that has not been measured is "not known yet", never "too small":
+  // reading zero RAM or zero free disk as real is what marked every model unsupported.
+  if (!sys.probedAt)
+    return {
+      level: "Unknown",
+      reason: "this PC has not been checked yet — press Check system",
+      tone: "muted",
+    };
+  if (sys.diskFreeGb > 0 && model.sizeGb > sys.diskFreeGb)
     return {
       level: "Unsupported",
       reason: `needs ${model.sizeGb} GB free disk, ${sys.diskFreeGb} GB available`,
       tone: "destructive",
     };
-  if (model.ramGb > sys.ramGb)
+  if (sys.ramGb > 0 && model.ramGb > sys.ramGb)
     return {
       level: "Unsupported",
       reason: `needs ~${model.ramGb} GB RAM, system has ${sys.ramGb} GB`,

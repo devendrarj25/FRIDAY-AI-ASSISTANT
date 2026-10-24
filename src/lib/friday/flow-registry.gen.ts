@@ -1340,6 +1340,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "models:import",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "models:inventory",
       file: "electron/main.cjs",
     },
@@ -1353,6 +1357,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "models:local-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "models:pick-files",
       file: "electron/main.cjs",
     },
     {
@@ -8544,8 +8552,8 @@ export const FLOW_REGISTRY = {
       total: 1016,
     },
     ipc: {
-      mapped: 460,
-      total: 460,
+      mapped: 462,
+      total: 462,
     },
     kernel: {
       mapped: 14,

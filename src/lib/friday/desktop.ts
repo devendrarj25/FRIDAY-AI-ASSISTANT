@@ -160,6 +160,8 @@ export type DetectedHardware = {
   arch: string;
   cpu: { model: string; cores: number; speedMhz: number | null };
   memory: { totalGb: number; freeGb: number };
+  /** Free space on the drive models are stored on; null when it could not be read. */
+  disk?: { path: string; freeGb: number; totalGb: number } | null;
   gpus: {
     vendor: string;
     name: string;
@@ -404,6 +406,21 @@ type DesktopApi = {
     model: string,
     jobId?: string,
   ) => Promise<{ jobId: string; ok: boolean; error?: string }>;
+  /** A file picker for model files (or a folder of them), not the workspace folder picker. */
+  pickModelFiles?: (mode?: "file" | "folder") => Promise<{
+    ok: boolean;
+    cancelled?: boolean;
+    paths: string[];
+  }>;
+  /** Check, store and register a model the owner already has; ready only after a test answer. */
+  importModel?: (payload: {
+    id: string;
+    path: string;
+    name?: string;
+  }) => Promise<ModelImportResult>;
+  onModelImportProgress?: (cb: (event: ModelImportProgress) => void) => () => void;
+  /** The real disk path of a dropped File. */
+  pathForFile?: (file: File) => string;
   /** Multi-source download: tries each real source until one delivers. */
   downloadModel?: (payload: {
     modelId: string;
@@ -908,6 +925,31 @@ export type ModelProbeRun = {
   tokensPerSec?: number | null;
   promptTokensPerSec?: number | null;
   response?: string;
+};
+
+export type ModelImportState = "ready" | "stored" | "not-responding" | "failed";
+
+export type ModelImportResult = {
+  id?: string;
+  ok: boolean;
+  state: ModelImportState;
+  error?: string;
+  note?: string;
+  name?: string;
+  format?: string;
+  bytes?: number;
+  path?: string;
+  linked?: boolean;
+  registered?: boolean;
+  registeredAs?: string;
+};
+
+export type ModelImportProgress = {
+  id: string;
+  status: string;
+  progress?: number;
+  done?: boolean;
+  result?: ModelImportResult;
 };
 
 export type ModelPullProgress = {
