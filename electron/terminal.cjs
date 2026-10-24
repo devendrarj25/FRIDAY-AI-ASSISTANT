@@ -328,6 +328,8 @@ function runCommand(root, options = {}, emit = () => {}) {
     }
 
     trackOwned("terminal", child, shell);
+    // A command that exits while a line is still being written must not raise EPIPE.
+    child.stdin?.on("error", () => {});
     running.set(runId, { child, command: line, cwd: workdir, shell: profile.id, started });
     emit({ runId, phase: "start", command: line, cwd: workdir, shell: profile.id });
 

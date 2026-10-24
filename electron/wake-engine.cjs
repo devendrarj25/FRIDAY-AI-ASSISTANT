@@ -66,6 +66,9 @@ let cached = null;
 let worker = null;
 let workerSeq = 0;
 let workerGeneration = 0;
+let earlyDeathAt = 0;
+const EARLY_DEATH_MS = 5000;
+const RESPAWN_PAUSE_MS = 60000;
 
 function bundledWakeDir() {
   const dirs = [
@@ -155,15 +158,20 @@ function attachWorker(child, generation) {
       }
     }
   });
+  const startedAt = Date.now();
   const fail = () => {
     if (!session.alive) return;
     session.alive = false;
+    // A worker that dies right after it starts is not respawned in a loop.
+    if (!session.intentional && Date.now() - startedAt < EARLY_DEATH_MS) earlyDeathAt = Date.now();
     rejectPending(session, new Error("wake worker exited"));
     if (worker && worker.generation === generation) worker = null;
     if (!session.intentional) cached = null;
   };
   child.on("error", fail);
   child.on("close", fail);
+  // A worker that dies mid-write reports EPIPE on its stdin, asynchronously.
+  child.stdin?.on("error", fail);
   return session;
 }
 
@@ -200,6 +208,9 @@ function workerRequest(session, payload, timeoutMs) {
 
 async function ensureWorker() {
   if (worker?.alive) return worker;
+  if (earlyDeathAt && Date.now() - earlyDeathAt < RESPAWN_PAUSE_MS) {
+    throw new Error("the wake worker keeps exiting right after it starts; paused for a minute");
+  }
   const py = await python();
   if (!py) throw new Error("Python 3.12+ was not found — install it from Install Manager.");
   const generation = ++workerGeneration;

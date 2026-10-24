@@ -113,6 +113,9 @@ function spawnJson(executable, args, input, timeoutMs) {
         error: stderr.trim() || stdout.trim() || `python exited ${code}`,
       });
     });
+    child.stdin.on("error", (error) =>
+      finish({ ok: false, error: String(error.message || error) }),
+    );
     try {
       child.stdin.write(JSON.stringify(input));
       child.stdin.end();

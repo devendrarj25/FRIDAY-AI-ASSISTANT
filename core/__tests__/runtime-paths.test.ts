@@ -107,7 +107,11 @@ describe("runtime paths", () => {
 
   it("resolves the FRIDAY root in the same order as the app: env, registry, pointer", () => {
     const source = readFileSync(join(root, "scripts/friday-root.cjs"), "utf8");
-    expect(source).toContain("return fromRegistry() || fromSettingsPointer();");
+    // The app's own two sources keep their order; the checkout that holds its
+    // own installed app is only the last resort, never ahead of either.
+    expect(source).toContain(
+      "return fromRegistry() || fromSettingsPointer() || fromOwnCheckout();",
+    );
     expect(source).toMatch(/fromSettingsPointer[\s\S]*!isThrowawayRoot\(value\)/);
     expect(source).toMatch(/fromRegistry[\s\S]*!isThrowawayRoot\(value\)/);
   });

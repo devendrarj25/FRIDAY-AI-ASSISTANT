@@ -282,6 +282,7 @@ function attachWorker(child, generation) {
   };
   child.on("error", (error) => fail(String(error?.message || error)));
   child.on("close", () => fail("STT worker exited"));
+  child.stdin?.on("error", (error) => fail(String(error?.message || error)));
   return session;
 }
 

@@ -107,6 +107,9 @@ function writeFatalArtifacts(kind, err) {
 // still writes the report and leaves with process.exit.
 let exitNow = null;
 let fatalUiReady = false;
+// True once the real interface has loaded. A later stray error is logged and the
+// working window stays; the load-failure page is only for an interface that never came up.
+let interfaceLoaded = false;
 let fatalHandling = false;
 
 function onFatal(kind, error) {
@@ -114,7 +117,13 @@ function onFatal(kind, error) {
   fatalHandling = true;
   const err = error instanceof Error ? error : new Error(String(error));
   const text = String(err.stack || err);
+  // A helper process that exits while FRIDAY is still writing to it raises
+  // EPIPE on its pipe. That is that helper's death, never the interface's.
+  const brokenPipe =
+    /^(EPIPE|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END)$/.test(String(err.code || "")) ||
+    /^(write EPIPE|Cannot call write after a stream was destroyed)/.test(String(err.message || ""));
   const ignored =
+    brokenPipe ||
     /Object has been destroyed|Render frame was disposed|closed or released|WebContents is not available/i.test(
       text,
     );
@@ -122,7 +131,9 @@ function onFatal(kind, error) {
     fatalHandling = false;
     if (kind === "uncaughtException") {
       try {
-        log(`ignored late shutdown exception: ${text.split("\n")[0]}`);
+        log(
+          `ignored ${brokenPipe ? "broken helper pipe" : "late shutdown exception"}: ${text.split("\n")[0]}`,
+        );
       } catch {
         /* telemetry is not ready yet */
       }
@@ -145,6 +156,15 @@ function onFatal(kind, error) {
     return;
   }
   if (kind === "unhandledRejection") {
+    fatalHandling = false;
+    return;
+  }
+  if (interfaceLoaded && !process.env.FRIDAY_BOOT_SELFTEST && !process.env.FRIDAY_READINESS) {
+    try {
+      log(`${kind} after the interface loaded — the window stays up: ${text.split("\n")[0]}`);
+    } catch {
+      /* the log is not writable; the window still stays up */
+    }
     fatalHandling = false;
     return;
   }
@@ -3950,6 +3970,7 @@ function createWindow() {
 
   // Replay the boot log and push the first full scan once the UI is ready.
   win.webContents.on("did-finish-load", () => {
+    interfaceLoaded = !String(win.webContents.getURL()).startsWith("data:");
     readinessTrace.trace("did-finish-load");
     noteStartup("renderer-loaded");
     reveal();
@@ -4005,6 +4026,7 @@ function liveWin() {
 /** Renders a plain, readable failure screen inside the FRIDAY window. */
 function showLoadFailure(detail) {
   if (!win || win.isDestroyed()) return;
+  interfaceLoaded = false;
   forceVisible = true;
   stayHiddenOnLaunch = false;
   const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#141821;color:#e6ecff;font:14px/1.6 Segoe UI,system-ui,sans-serif;padding:48px">
