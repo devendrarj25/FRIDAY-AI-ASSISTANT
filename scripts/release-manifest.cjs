@@ -26,7 +26,18 @@ const RELEASE = path.join(ROOT, "release");
 
 const sha256 = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
-function build({ version, notes = "", channel = "stable", releaseType: requested = "" } = {}) {
+function build({
+  version,
+  notes = "",
+  channel = "stable",
+  releaseType: requested = "",
+  // Where the artifacts are, where the two files are written, and whether
+  // latest.yml is rewritten. The defaults are the real release; a verification
+  // pass points them at a scratch folder so it changes nothing.
+  releaseDir = RELEASE,
+  outDir = releaseDir,
+  syncLatest = true,
+} = {}) {
   const clean = String(version || "").replace(/^v/i, "");
   const test = channel === "test";
   const parsed = engine.parseFridayVersion(clean);
@@ -39,7 +50,7 @@ function build({ version, notes = "", channel = "stable", releaseType: requested
       : null);
   // Rewrite latest.yml to the public identity BEFORE hashing, otherwise the
   // checksum in friday-update.json would describe the npm-encoding file.
-  if (identity) engine.syncLatestYml(identity, { root: ROOT });
+  if (identity && syncLatest) engine.syncLatestYml(identity, { root: ROOT });
   // A TEST build publishes the same two Windows deliverables as an official
   // release, under the separate "FRIDAY Test" identity so it installs beside —
   // never over — the production FRIDAY.
@@ -47,20 +58,25 @@ function build({ version, notes = "", channel = "stable", releaseType: requested
     `FRIDAY-Setup-${clean}.exe`,
     `FRIDAY-Test-Setup-${clean}.exe`,
     `FRIDAY-Portable-${clean}.exe`,
+    // The installer's block map: lets the next update download only what changed.
+    `FRIDAY-Setup-${clean}.exe.blockmap`,
+    `FRIDAY-Test-Setup-${clean}.exe.blockmap`,
     "latest.yml",
   ];
   const assets = candidates
-    .map((name) => ({ name, file: path.join(RELEASE, name) }))
+    .map((name) => ({ name, file: path.join(releaseDir, name) }))
     .filter((a) => fs.existsSync(a.file))
     .map((a) => ({
       name: a.name,
       bytes: fs.statSync(a.file).size,
       sha256: sha256(a.file),
-      kind: /setup/i.test(a.name)
-        ? "installer"
-        : /portable/i.test(a.name)
-          ? "portable"
-          : "metadata",
+      kind: /\.blockmap$/i.test(a.name)
+        ? "metadata"
+        : /setup/i.test(a.name)
+          ? "installer"
+          : /portable/i.test(a.name)
+            ? "portable"
+            : "metadata",
     }));
 
   // Stable always ships an installer. A test run may be portable-only, so it
@@ -97,12 +113,13 @@ function build({ version, notes = "", channel = "stable", releaseType: requested
     manifest.releaseLabel = engine.releaseTypeLabel(releaseType);
   }
 
+  fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(
-    path.join(RELEASE, "SHA256SUMS.txt"),
+    path.join(outDir, "SHA256SUMS.txt"),
     `${assets.map((a) => `${a.sha256}  ${a.name}`).join("\n")}\n`,
   );
   fs.writeFileSync(
-    path.join(RELEASE, "friday-update.json"),
+    path.join(outDir, "friday-update.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
   return manifest;

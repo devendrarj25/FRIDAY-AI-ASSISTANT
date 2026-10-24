@@ -291,6 +291,68 @@ describe("inside the installer download", () => {
     expect(fs.existsSync(`${out.file}.blockmap`)).toBe(true);
   });
 
+  it("reads the earlier installer's block map from its own release when none was saved beside it", async () => {
+    const t = await setup();
+    const oldExe = path.join(t.installers, "FRIDAY-Setup-1.0.0.0.exe");
+    const oldMap = fs.readFileSync(`${oldExe}.blockmap`);
+    fs.rmSync(`${oldExe}.blockmap`);
+    const inner = globalThis.fetch as unknown as (u: string, i?: unknown) => Promise<Response>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: unknown) => {
+        const u = String(url);
+        if (u === "https://api.github.com/repos/o/r/releases/tags/v1.0.0.0") {
+          return new Response(
+            JSON.stringify({
+              assets: [
+                {
+                  id: 7,
+                  name: "FRIDAY-Setup-1.0.0.0.exe.blockmap",
+                  size: oldMap.length,
+                  url: asset("7"),
+                  browser_download_url: "https://github.com/o/r/releases/download/v1.0.0.0/x",
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (u === asset("7")) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://cdn.example/old.blockmap" },
+          });
+        }
+        if (u === "https://cdn.example/old.blockmap")
+          return new Response(new Uint8Array(oldMap), { status: 200 });
+        return inner(url, init);
+      }),
+    );
+    const out = await sync.downloadInstaller(t.input);
+    expect(out).toMatchObject({ ok: true, verified: true, differential: true });
+    expect(sha(fs.readFileSync(out.file))).toBe(sha(t.next));
+    // It is remembered for the next time.
+    expect(fs.existsSync(`${oldExe}.blockmap`)).toBe(true);
+  });
+
+  it("downloads in full when the earlier release has no block map either", async () => {
+    const t = await setup();
+    const oldExe = path.join(t.installers, "FRIDAY-Setup-1.0.0.0.exe");
+    fs.rmSync(`${oldExe}.blockmap`);
+    const inner = globalThis.fetch as unknown as (u: string, i?: unknown) => Promise<Response>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: unknown) =>
+        String(url).includes("/releases/tags/")
+          ? new Response(JSON.stringify({ assets: [] }), { status: 200 })
+          : inner(url, init),
+      ),
+    );
+    const out = await sync.downloadInstaller(t.input);
+    expect(out.ok).toBe(true);
+    expect(out.differential).toBeUndefined();
+  });
+
   it("works without any block map at all (older releases)", async () => {
     const t = await setup();
     const { blockmap: _unused, ...plain } = t.input;
