@@ -99,6 +99,10 @@ import {
   selectCloud,
   tabsForSection,
   modalityOf,
+  CLOUD_KINDS,
+  capabilityLine,
+  cloudKindOf,
+  countKinds,
   MODALITY_FILTERS,
   type FitFilter,
   type ModelSection,
@@ -499,9 +503,11 @@ function CloudSelection({
     access?: string;
     displayName?: string;
     modelName?: string;
+    capabilities?: Record<string, unknown>;
   }[];
 }) {
   const [picked, setPicked] = useState<string[]>([]);
+  const [kindFilter, setKindFilter] = useState("all");
   const [paidOn, setPaidOn] = useState(false);
   const [note, setNote] = useState(
     "No selection saved: every connected model your cost policy allows can be used.",
@@ -523,7 +529,10 @@ function CloudSelection({
     };
   }, []);
   const [shown, setShown] = useState(24);
-  const cloud = models.filter((model) => model.type === "cloud");
+  const cloud = models
+    .filter((model) => model.type === "cloud")
+    .filter((model) => kindFilter === "all" || cloudKindOf(model.capabilities) === kindFilter);
+  const kinds = countKinds(models);
   const visible = cloud.slice(0, shown);
   const apply = (mode: "free" | "paid" | "both") => {
     const next = selectCloud(models, mode, paidOn);
@@ -533,6 +542,27 @@ function CloudSelection({
   return (
     <HudPanel title="Cloud models" hint="selected models are the allowlist">
       <p className="mb-2 text-note text-muted-foreground">{note}</p>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label className="text-note text-muted-foreground" htmlFor="cloud-kind">
+          Show
+        </label>
+        <select
+          id="cloud-kind"
+          className="rounded-surface border border-input bg-background px-2 py-1 text-sm"
+          value={kindFilter}
+          onChange={(event) => {
+            setKindFilter(event.target.value);
+            setShown(24);
+          }}
+        >
+          <option value="all">All kinds ({[...kinds.values()].reduce((a, b) => a + b, 0)})</option>
+          {CLOUD_KINDS.filter((kind) => kinds.get(kind)).map((kind) => (
+            <option key={kind} value={kind}>
+              {kind} ({kinds.get(kind)})
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="mb-2 flex flex-wrap gap-1">
         <Button size="sm" variant="outline" onClick={() => apply("free")}>
           Select all free
@@ -589,8 +619,17 @@ function CloudSelection({
                   <p className="truncate text-sm" title={label}>
                     {label}
                   </p>
-                  <p className="truncate text-meta-sm text-muted-foreground">
-                    {model.access || "unknown"}
+                  <p
+                    className="truncate text-meta-sm text-muted-foreground"
+                    title={capabilityLine(model.capabilities)}
+                  >
+                    {[
+                      model.access || "unknown",
+                      cloudKindOf(model.capabilities),
+                      capabilityLine(model.capabilities),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <Switch

@@ -620,6 +620,21 @@ class ModelsStore {
     }
   }
 
+  /**
+   * A model that needs a runner FRIDAY does not have yet gets that runner
+   * installed through the Install Manager, so one click is enough.
+   */
+  private async installRunner(tool: string, model: string) {
+    try {
+      const { installer } = await import("./installer-engine");
+      this.push("info", `${model} needs the ${tool} — installing it from the Install Manager`);
+      installer.enqueue(tool, "install");
+    } catch (err) {
+      this.push("warn", `could not queue the ${tool} — ${String((err as Error).message ?? err)}`);
+    }
+    this.emit();
+  }
+
   /** Live progress for a real `ollama pull`, straight from the daemon. */
   private applyPullProgress(event: ModelPullProgress) {
     const job = this.state.jobs.find((j) => j.id === event.jobId);
@@ -672,6 +687,8 @@ class ModelsStore {
             : `${event.model} — ${event.error}`,
       );
 
+      if (event.ok && event.needsRunner)
+        void this.installRunner(String(event.needsRunner), event.model);
       void this.refreshFromDesktop().then(() => this.emit());
     });
     // A key, endpoint or access-tier change rewrites what is routable, so the
@@ -1786,6 +1803,7 @@ class ModelsStore {
           ? `${entry.name} imported — ${res.state === "ready" ? "ready, it answered the test prompt" : (res.note ?? res.state)}`
           : `${entry.name} — ${res.error ?? "import failed"}`,
       );
+      if (res.ok && res.needsRunner) await this.installRunner(String(res.needsRunner), entry.name);
       if (res.ok && res.registered) await this.refreshFromDesktop();
     } catch (err) {
       entry.state = "failed";

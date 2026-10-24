@@ -2697,6 +2697,7 @@ function kernelChatModel(payload) {
     "localai",
     "jan",
     "koboldcpp",
+    "transformers",
     "gpt4all",
     "mlx",
   ]);
@@ -2781,7 +2782,11 @@ async function authoriseProviderRequest({
  * A turn that routes to a local engine FRIDAY stopped for being idle brings it
  * back first, and a running one counts the turn as use so it stays up.
  */
-const LOCAL_SERVICE = { ollama: "Ollama", lmstudio: "LM Studio" };
+const LOCAL_SERVICE = {
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  transformers: "Hugging Face runner",
+};
 async function ensureLocalService(model) {
   if (model?.type !== "local") return;
   const id = LOCAL_SERVICE[model?.meta?.providerId || model?.providerId];
@@ -5801,6 +5806,7 @@ ipcMain.handle("providers:mode-readiness", async (_e, mode) =>
   providerRegistry.modeReadiness(await providerRegistrySnapshot(), mode),
 );
 ipcMain.handle("models:engines", () => modelsApi.engineStatus());
+const ENGINE_SERVICE = { transformers: "Hugging Face runner" };
 ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
   const selected =
     selectedModel ||
@@ -5813,7 +5819,11 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
       );
     }) ||
     null;
-  const result = await modelsApi.startEngine(id, { selectedModel: selected });
+  // An engine FRIDAY installed herself is started through the shared service
+  // layer, so it is owned, kept alive while used and stopped when idle.
+  const result = ENGINE_SERVICE[id]
+    ? { ...(await toolServices.start(ENGINE_SERVICE[id])), id }
+    : await modelsApi.startEngine(id, { selectedModel: selected });
   if (result.ok) {
     announceModelInstalled(id);
     // Auto-use: a runner that just came up is routable on the next turn.
@@ -5825,6 +5835,68 @@ ipcMain.handle("models:engine-start", async (_e, id, selectedModel = null) => {
     }
   }
   return result;
+});
+/**
+ * Draw a picture with a connected cloud provider. The same two gates as a chat
+ * turn run first (privacy, then billing), so a picture request cannot leave this
+ * PC or spend money any more easily than a message can.
+ */
+ipcMain.handle("image:generate", async (_e, payload) => {
+  const prompt = String(payload?.prompt || "").trim();
+  if (!prompt) return { ok: false, error: "describe the picture you want" };
+  const wanted = payload?.modelId ? String(payload.modelId) : null;
+  const images = require("./image-generation.cjs");
+  const { models } = await refreshRoutable(false);
+  const policy = modelUsagePolicy();
+  const now = Date.now();
+  let list = images.candidates(
+    models,
+    (model) => modelRouter.modelAvailability(model, policy, now, "image").visibility === "show",
+  );
+  if (wanted) {
+    list = list.filter((model) => model.id === wanted || model.providerModelId === wanted);
+  }
+  if (!list.length) {
+    return {
+      ok: false,
+      error: wanted
+        ? "that model cannot draw right now (not connected, hidden by the cost setting, or not an image model)"
+        : "no connected provider has an image model I may use. Connect OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face in Models, or turn paid access on.",
+    };
+  }
+  const problems = [];
+  for (const model of list.slice(0, 3)) {
+    const auth = await authoriseProviderRequest({
+      model,
+      explicitPaid: Boolean(wanted),
+      label: "image",
+      content: prompt,
+    });
+    if (!auth.allowed) {
+      problems.push(`${model.displayName || model.id}: ${auth.message}`);
+      continue;
+    }
+    const picture = await images.draw({
+      providerId: model.providerId,
+      model: model.providerModelId,
+      prompt,
+      key: model.api_key,
+      size: payload?.size ? String(payload.size) : undefined,
+    });
+    if (!picture.ok) {
+      problems.push(`${model.displayName || model.id}: ${picture.error}`);
+      continue;
+    }
+    const file = images.save(path.join(paths.ensureDir("assets"), "images"), prompt, picture);
+    return {
+      ok: true,
+      file,
+      dataUrl: `data:${picture.type};base64,${picture.buffer.toString("base64")}`,
+      model: model.displayName || model.id,
+      access: model.access,
+    };
+  }
+  return { ok: false, error: problems.join(" · ") || "no picture was made" };
 });
 ipcMain.handle("comfyui:status", () => require("./comfyui-client.cjs").status());
 ipcMain.handle("comfyui:run", (_e, workflow) =>
@@ -5839,7 +5911,9 @@ ipcMain.handle("models:local-status", async () =>
   }),
 );
 ipcMain.handle("models:engine-stop", async (_e, id) => {
-  const result = await modelsApi.stopEngine(id);
+  const result = ENGINE_SERVICE[id]
+    ? { ...(await toolServices.stop(ENGINE_SERVICE[id])), id }
+    : await modelsApi.stopEngine(id);
   if (result.ok) announceModelInstalled(id);
   return result;
 });
@@ -5956,7 +6030,11 @@ ipcMain.handle("models:download", async (_e, payload) => {
       { modelId: folderId, sources, dir, control: pump, transferId: id },
       (event) => send("models:pull-progress", { jobId: id, model: modelId, ...event }),
       controller.signal,
-      { ollamaPull: modelsApi.ollamaPull },
+      {
+        ollamaPull: modelsApi.ollamaPull,
+        // Gated and private repositories open with the owner's own account.
+        hfToken: modelsApi.readKeys(keyStoreRoot())?.huggingface || null,
+      },
     );
     // A finished GGUF that the engine could not take because it was not running
     // is not left as a loose file: the engine is started and the model registered.
@@ -5976,6 +6054,24 @@ ipcMain.handle("models:download", async (_e, payload) => {
       if (started?.ok) {
         const registered = await modelDownload.registerGguf(modelId, result.path, () => {});
         result.registered = Boolean(registered?.ok);
+      }
+    }
+    // A Hugging Face repo snapshot is served by the Hugging Face runner: it is linked
+    // into the runner's offline cache under its repo id, and the runner is brought
+    // up when it is installed. A missing runner is reported so it can be installed.
+    if (result.ok && result.via === "hf-repo" && paths.root()) {
+      const repo = sources.find((entry) => entry?.kind === "hf-repo")?.repo;
+      const runner = require("./hf-runner.cjs");
+      const linked = repo ? runner.registerSnapshot(paths.root(), repo, result.path) : null;
+      if (linked?.ok) {
+        result.registered = true;
+        result.registeredAs = linked.id;
+        result.engine = "transformers";
+        if (!runner.detect(paths.root()).installed) result.needsRunner = runner.TOOL_ID;
+        else void toolServices.start(runner.TOOL_ID).catch(() => null);
+      } else if (linked) {
+        result.registered = false;
+        result.registerError = linked.error;
       }
     }
     // Only a model Ollama can actually serve can be test-prompted; a raw file
@@ -6027,6 +6123,14 @@ ipcMain.handle("models:import", async (_e, payload) => {
       ensureEngine: async () => {
         const started = await modelsApi.startEngine("ollama", {});
         return Boolean(started?.ok);
+      },
+      serve: {
+        repoId: (slug) => require("./hf-runner.cjs").importedRepoId(slug),
+        register: (repoId, dir) =>
+          require("./hf-runner.cjs").registerSnapshot(paths.root(), repoId, dir),
+        installed: () => require("./hf-runner.cjs").detect(paths.root()).installed,
+        ensure: async () => Boolean((await toolServices.start("Hugging Face runner"))?.ok),
+        verify: (repoId) => modelsApi.engineProbeRun("transformers", repoId),
       },
       register: (name, file) => modelDownload.registerGguf(name, file, () => {}),
       verify: async (name) => {
@@ -6388,7 +6492,7 @@ const toolServices = require("./tool-services.cjs").createServices({
       socket.once("connect", () => done(true));
       socket.once("error", () => done(false));
     }),
-  spawnDetached: (cmd, args) =>
+  spawnDetached: (cmd, args, env) =>
     new Promise((resolve) => {
       let child;
       try {
@@ -6396,6 +6500,7 @@ const toolServices = require("./tool-services.cjs").createServices({
           detached: true,
           stdio: "ignore",
           windowsHide: true,
+          ...(env ? { env } : {}),
         });
       } catch {
         resolve(null);
@@ -6413,7 +6518,15 @@ const toolServices = require("./tool-services.cjs").createServices({
   },
 
   exeFor: (id) =>
-    id === "Ollama" ? require("./local-library.cjs").findInstalledOllama()?.exe : null,
+    id === "Ollama"
+      ? require("./local-library.cjs").findInstalledOllama()?.exe
+      : id === "Hugging Face runner" && paths.root()
+        ? (require("./hf-runner.cjs").detect(paths.root()).path ?? null)
+        : null,
+  envFor: (id) =>
+    id === "Hugging Face runner" && paths.root()
+      ? require("./hf-runner.cjs").serveEnv(paths.root())
+      : undefined,
   installed: (id) =>
     Boolean(toolchain.lastDetected().tools.find((t) => t.id === id && t.installed)),
   elevated: (cmd, args) => toolchain.runElevated(cmd, args),
@@ -6424,7 +6537,14 @@ const toolServices = require("./tool-services.cjs").createServices({
   },
   // A local model that answered recently keeps its server alive.
   lastUsed: (id) => {
-    const provider = id === "Ollama" ? "ollama" : id === "LM Studio" ? "lmstudio" : null;
+    const provider =
+      id === "Ollama"
+        ? "ollama"
+        : id === "LM Studio"
+          ? "lmstudio"
+          : id === "Hugging Face runner"
+            ? "transformers"
+            : null;
     if (!provider) return 0;
     return Math.max(
       0,

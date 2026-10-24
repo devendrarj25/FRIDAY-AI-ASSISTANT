@@ -33,6 +33,19 @@ const SERVICES = {
     images: ["ollama app.exe", "ollama.exe", "ollama_llama_server.exe"],
     note: "the local model server",
   },
+  "Hugging Face runner": {
+    kind: "process",
+    health: { url: "http://127.0.0.1:8083/v1/models" },
+    // exe is the runner's `transformers` command; the environment keeps every
+    // cache inside the FRIDAY folder and the server offline.
+    start: (ctx) => [
+      ctx.exe,
+      ["serve", "--host", "127.0.0.1", "--port", "8083", "--model-timeout", "600"],
+    ],
+    images: ["transformers.exe"],
+    needsExe: true,
+    note: "the Safetensors / PyTorch model server",
+  },
   "LM Studio": {
     kind: "cli",
     health: { url: "http://127.0.0.1:1234/v1/models" },
@@ -89,7 +102,8 @@ const hasService = (id) => Boolean(SERVICES[id]);
 /**
  * @param {object} deps
  *  run(cmd,args,timeout) -> stdout|null     capture a command
- *  spawnDetached(cmd,args) -> {pid}|null    start a process that outlives the call
+ *  spawnDetached(cmd,args,env?) -> {pid}|null  start a process that outlives the call
+ *  envFor(id) -> env|undefined              the environment a service must run in
  *  killTree(pid)                            stop a process tree
  *  killImages(names)                        stop processes by image name
  *  ping(url) -> bool, tcp(port) -> bool     reachability
@@ -216,12 +230,16 @@ function createServices(deps) {
           };
     }
     const exe = d.exeFor(id) || null;
+    // A tool FRIDAY installs herself has no command until it is installed.
+    if (spec.needsExe && !exe) {
+      return { ok: false, id, running: false, error: `${id} is not installed yet` };
+    }
     const [cmd, args] = spec.start({ exe });
     // A CLI service starts with a command that returns once the server is up.
     const child =
       spec.kind === "cli"
         ? (await d.run(cmd, args, 60_000)) !== null && { pid: 0 }
-        : await d.spawnDetached(cmd, args);
+        : await d.spawnDetached(cmd, args, d.envFor ? d.envFor(id) : undefined);
     if (!child) return { ok: false, id, running: false, error: `${cmd} could not be started` };
     const up = await waitUp(spec);
     if (!up)

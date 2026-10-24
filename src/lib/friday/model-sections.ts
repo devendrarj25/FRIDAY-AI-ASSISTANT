@@ -121,6 +121,62 @@ export function selectCloud(
   return { ids: [...free, ...paid], refused: "" };
 }
 
+/** What a cloud model is for, as the main process resolved it (model-capabilities.cjs). */
+export const CLOUD_KINDS = [
+  "Chat",
+  "Vision",
+  "Coding",
+  "Reasoning",
+  "Research",
+  "Image",
+  "Video",
+  "Speech to Text",
+  "Text to Speech",
+  "Embedding",
+  "Other",
+] as const;
+
+type Capabilities = Record<string, unknown> | undefined;
+
+export function cloudKindOf(capabilities: Capabilities): string {
+  const stated = capabilities?.["kind"];
+  if (typeof stated === "string" && stated) return stated;
+  return capabilities?.["chat"] === false ? "Other" : "Chat";
+}
+
+/** The short facts about a model: what it can do, and its measured context. */
+export function capabilityLine(capabilities: Capabilities): string {
+  if (!capabilities) return "";
+  const on = (key: string) => capabilities[key] === true;
+  const parts = [
+    on("vision") ? "sees images" : "",
+    on("imageGeneration") ? "makes images" : "",
+    on("video") ? "makes video" : "",
+    on("speechToText") ? "hears speech" : "",
+    on("textToSpeech") ? "speaks" : "",
+    on("tools") ? "tools" : "",
+    on("reasoning") ? "reasoning" : "",
+    on("coding") ? "code" : "",
+    on("research") ? "web research" : "",
+    on("embeddings") ? "vectors" : "",
+  ].filter(Boolean);
+  const k = Number(capabilities["contextK"] || 0);
+  if (k >= 1)
+    parts.push(k >= 1000 ? `${Math.round(k / 1000)}M context` : `${Math.round(k)}K context`);
+  return parts.join(" · ");
+}
+
+/** Count of cloud models per kind, for the filter that narrows the list. */
+export function countKinds(models: { type?: string; capabilities?: Capabilities }[]) {
+  const counts = new Map<string, number>();
+  for (const model of models) {
+    if (model.type !== "cloud") continue;
+    const kind = cloudKindOf(model.capabilities);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function firstPage<T>(rows: T[], count: number) {
   const take = Math.max(0, count);
   return { rows: rows.slice(0, take), more: rows.length > take };

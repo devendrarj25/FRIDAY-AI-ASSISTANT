@@ -188,6 +188,7 @@ class LocalModelsAreNeverBlocked(unittest.TestCase):
             "localai",
             "jan",
             "koboldcpp",
+            "transformers",
             "gpt4all",
             "mlx",
         ):

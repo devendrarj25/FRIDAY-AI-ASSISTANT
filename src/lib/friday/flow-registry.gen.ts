@@ -1184,6 +1184,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "image:generate",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "import:apply",
       file: "electron/main.cjs",
     },
@@ -8596,8 +8600,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 467,
-      total: 467,
+      mapped: 468,
+      total: 468,
     },
     kernel: {
       mapped: 14,

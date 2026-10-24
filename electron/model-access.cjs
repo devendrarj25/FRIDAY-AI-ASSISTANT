@@ -51,6 +51,7 @@ const LOCAL_KINDS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
 ]);
@@ -63,6 +64,7 @@ const LOCAL_PROVIDERS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
   "local",

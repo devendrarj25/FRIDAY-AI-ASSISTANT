@@ -191,6 +191,8 @@ describe("use on demand", () => {
     expect(main).toMatch(
       /async function streamOnce\(args\) \{\s*await ensureLocalService\(args\.model\);/,
     );
-    expect(main).toContain('const LOCAL_SERVICE = { ollama: "Ollama", lmstudio: "LM Studio" }');
+    expect(main).toMatch(
+      /const LOCAL_SERVICE = \{\s*ollama: "Ollama",\s*lmstudio: "LM Studio",\s*transformers: "Hugging Face runner",\s*\};/,
+    );
   });
 });

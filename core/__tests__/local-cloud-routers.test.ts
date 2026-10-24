@@ -61,6 +61,7 @@ describe("provider handlers", () => {
       "localai",
       "jan",
       "koboldcpp",
+      "transformers",
       "gpt4all",
       "mlx",
       "local",

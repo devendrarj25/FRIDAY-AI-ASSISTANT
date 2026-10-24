@@ -36,6 +36,7 @@ const LOCAL = {
   localai: require("./localai.cjs"),
   jan: require("./jan.cjs"),
   koboldcpp: require("./koboldcpp.cjs"),
+  transformers: require("./transformers.cjs"),
   gpt4all: require("./gpt4all.cjs"),
   mlx: require("./mlx.cjs"),
   local: require("./local.cjs"),

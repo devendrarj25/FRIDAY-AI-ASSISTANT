@@ -543,6 +543,18 @@ export const catalog: CatalogEntry[] = [
     "Single-file GGUF runner with an OpenAI-compatible API on port 5001. Needs a model file to start.",
   ),
   E(
+    "Hugging Face runner",
+    "AI Runtimes",
+    "huggingface.co",
+    "https://huggingface.co/docs/transformers/serve-cli/serving",
+    "pip",
+    null,
+    "—",
+    "3 GB",
+    "optional",
+    "Runs Safetensors and PyTorch models (transformers serve on port 8083), offline from the FRIDAY folder. Installs PyTorch and Transformers into their own environment.",
+  ),
+  E(
     "Deno",
     "Languages & Runtimes",
     "deno.com",

@@ -25,6 +25,7 @@ const LOCAL_PROVIDER_IDS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
   "local",
