@@ -1767,6 +1767,11 @@ function stopOwnedProcesses() {
   } catch {
     /* worker may already be gone */
   }
+  try {
+    toolServices.stopOwned();
+  } catch {
+    /* nothing of ours is running */
+  }
 }
 
 function stopChat(requestId) {
@@ -6325,6 +6330,106 @@ ipcMain.handle("doctor:export", async (_e, payload) => {
   fs.writeFileSync(file, String(payload || ""), "utf8");
   shell.showItemInFolder(file);
   return file;
+});
+
+// Background services of installed tools (Ollama, LM Studio, Docker, databases):
+// started when work needs them, stopped when idle or when FRIDAY quits, and
+// only the ones FRIDAY started herself.
+const toolServices = require("./tool-services.cjs").createServices({
+  run: (cmd, args, timeout) => toolchain.run(cmd, args, timeout),
+  ping: (url) => toolchain.ping(url, 1500),
+  tcp: (port) =>
+    new Promise((resolve) => {
+      const socket = require("node:net").connect({ host: "127.0.0.1", port });
+      const done = (ok) => {
+        socket.destroy();
+        resolve(ok);
+      };
+      socket.setTimeout(1200, () => done(false));
+      socket.once("connect", () => done(true));
+      socket.once("error", () => done(false));
+    }),
+  spawnDetached: (cmd, args) =>
+    new Promise((resolve) => {
+      let child;
+      try {
+        child = require("node:child_process").spawn(cmd, args, {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } catch {
+        resolve(null);
+        return;
+      }
+      child.once("error", () => resolve(null));
+      child.once("spawn", () => {
+        child.unref();
+        resolve({ pid: child.pid });
+      });
+    }),
+  killTree: (pid) => appLifecycle.killProcessTree(pid),
+  killImages: (names) => {
+    if (process.platform !== "win32") return;
+    for (const name of names) {
+      try {
+        require("node:child_process").spawnSync("taskkill", ["/F", "/IM", name], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
+      } catch {
+        /* the process may not be running */
+      }
+    }
+  },
+  exeFor: (id) =>
+    id === "Ollama" ? require("./local-library.cjs").findInstalledOllama()?.exe : null,
+  installed: (id) =>
+    Boolean(toolchain.lastDetected().tools.find((t) => t.id === id && t.installed)),
+  elevated: (cmd, args) => toolchain.runElevated(cmd, args),
+  winServices: async () => {
+    if (process.platform !== "win32") return [];
+    const text = await toolchain.run("sc", ["query", "state=", "all"], 15000);
+    return [...String(text || "").matchAll(/SERVICE_NAME:\s*(\S+)/g)].map((m) => m[1]);
+  },
+  // A local model that answered recently keeps its server alive.
+  lastUsed: (id) => {
+    const provider = id === "Ollama" ? "ollama" : id === "LM Studio" ? "lmstudio" : null;
+    if (!provider) return 0;
+    return Math.max(
+      0,
+      ...usageLedger
+        .snapshot()
+        .models.filter((row) => row.providerId === provider)
+        .map((row) => row.lastAt || 0),
+    );
+  },
+});
+try {
+  const saved = Number(readSettings().toolServiceIdleMinutes);
+  if (Number.isFinite(saved)) toolServices.setIdleMinutes(saved);
+} catch {
+  /* settings are not readable yet; the default stands */
+}
+const serviceSnapshot = async () => ({
+  at: Date.now(),
+  idleMinutes: toolServices.getIdleMinutes(),
+  services: await toolServices.statusAll(),
+});
+ipcMain.handle("tools:services", () => serviceSnapshot());
+ipcMain.handle("tools:service", async (_e, id, op) => {
+  const name = String(id || "");
+  if (!toolServices.has(name)) return { ok: false, id: name, error: `no service called "${name}"` };
+  const run =
+    op === "start" ? toolServices.start : op === "stop" ? toolServices.stop : toolServices.restart;
+  const result = await run(name);
+  send("tools:services-changed", { id: name, op, ok: result.ok });
+  return result;
+});
+ipcMain.handle("tools:service-idle", (_e, minutes) => {
+  const value = toolServices.setIdleMinutes(minutes);
+  writeSettings({ ...readSettings(), toolServiceIdleMinutes: value });
+  return { idleMinutes: value };
 });
 
 ipcMain.handle("tools:detect", (_e, force) => toolchain.detectTools({ force: Boolean(force) }));

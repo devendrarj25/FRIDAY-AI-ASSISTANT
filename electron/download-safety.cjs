@@ -137,12 +137,30 @@ function assertAllowedUrl(raw, extraHosts = [], originFamily = "") {
   return parsed;
 }
 
+/**
+ * A download that carries a SHA-256 may be redirected by its vendor to the
+ * vendor's CDN (a different host family). The bytes are still refused unless
+ * they match the digest, and every hop must be https. The token is set by the
+ * downloader only when a digest was supplied; it is not an allowlist entry.
+ */
+const VERIFIED_REDIRECTS = "*verified-redirects";
+
 async function fetchAllowlisted(raw, options = {}, extraHosts = []) {
   let current = String(raw);
   let originFamily = "";
+  const anyRedirect = extraHosts.includes(VERIFIED_REDIRECTS);
   for (let hop = 0; hop < 5; hop += 1) {
-    const checked = assertAllowedUrl(current, extraHosts, originFamily);
-    if (!originFamily) originFamily = checked.fridayFamily || "";
+    if (hop > 0 && anyRedirect) {
+      const next = new URL(current);
+      if (next.protocol !== "https:" || next.username || next.password) {
+        const error = new Error("only https downloads are allowed");
+        error.code = "UNSAFE_URL";
+        throw error;
+      }
+    } else {
+      const checked = assertAllowedUrl(current, extraHosts, originFamily);
+      if (!originFamily) originFamily = checked.fridayFamily || "";
+    }
     const res = await fetch(current, { ...options, redirect: "manual" });
     const status = res.status;
     if (status >= 300 && status < 400) {
@@ -279,6 +297,7 @@ function authenticodeStatus(file) {
 }
 
 module.exports = {
+  VERIFIED_REDIRECTS,
   authenticodeStatus,
   get HOSTS() {
     return hostPolicy();

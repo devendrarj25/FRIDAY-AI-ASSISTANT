@@ -388,11 +388,14 @@ async function downloadOnce(url, dest, options) {
     sha256,
     needBytes,
     control,
-    extraHosts = [],
     forceSingle = false,
     segmentThreshold = SEGMENT_THRESHOLD,
     maxSegments = MAX_SEGMENTS,
   } = options;
+  // With a digest to check, the vendor may send us on to its own CDN.
+  const extraHosts = sha256
+    ? [...(options.extraHosts || []), safety.VERIFIED_REDIRECTS]
+    : options.extraHosts || [];
   safety.assertAllowedUrl(url, extraHosts);
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   assertDiskRoom(path.dirname(dest), needBytes);
