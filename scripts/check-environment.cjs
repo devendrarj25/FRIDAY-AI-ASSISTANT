@@ -594,6 +594,49 @@ if (win) {
   });
 }
 
+// ---------------------------------------------------------------- agent toolkit
+// The tools FRIDAY leans on to run, build, test, search, convert, containerise
+// and use the GPU (config/agent-toolkit.json). Optional here: a missing one is a
+// WARN with the one command that installs the whole list, never a failed check.
+if (win) {
+  const toolkit = require(path.join(root, "config", "agent-toolkit.json"));
+  const expand = (text) =>
+    String(text || "").replace(/%([^%]+)%/g, (_m, name) => process.env[name] || "");
+  let managedDirs = [];
+  try {
+    const picked = require("./friday-root.cjs").workspaceRootOrDev();
+    const file = path.join(picked.root, "runtime", "managed-path.json");
+    managedDirs = JSON.parse(fs.readFileSync(file, "utf8")).dirs || [];
+  } catch {
+    managedDirs = [];
+  }
+  const gpu = !!capture("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"]);
+  for (const entry of toolkit.prefetch) {
+    if (entry.requires === "nvidia-gpu" && !gpu) continue;
+    // FFmpeg and Tesseract have their own rows above.
+    if (entry.id === "FFmpeg" || entry.id === "Tesseract OCR") continue;
+    const probe = entry.probe || {};
+    let found = null;
+    if (probe.file) {
+      found = fs.existsSync(expand(probe.file)) ? "present" : null;
+    } else if (probe.cmd) {
+      const dirs = [...(probe.dirs || []).map(expand), ...managedDirs];
+      const out = captureCommand(probe.cmd, probe.args || ["--version"], dirs);
+      found = out ? firstVersion(out) || "present" : null;
+    }
+    add({
+      name: entry.id,
+      group: "agent-toolkit",
+      required: false,
+      ok: !!found,
+      found: found || "not installed",
+      want: `optional — ${entry.why}`,
+      fix: "npm run setup:toolkit (or the Install Manager: Install agent toolkit)",
+      url: "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT",
+    });
+  }
+}
+
 // ---------------------------------------------------------------- repair
 // `--fix` repairs everything FRIDAY can install itself (the pinned Python
 // kernel packages). It is idempotent: pip re-installs the same pinned set and

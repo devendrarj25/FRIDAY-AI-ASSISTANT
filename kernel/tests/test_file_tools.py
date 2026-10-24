@@ -93,6 +93,8 @@ def test_zip_slip_and_absolute_names_are_refused_before_writing(tmp_path):
     out = file_tools.extract_archive(evil, tmp_path / "dest")
     assert out["ok"] is False and out["cause"] == "refused"
     assert not (tmp_path / "escaped.txt").exists()
+    # A bad member refuses the whole archive: the good one before it is not left behind either.
+    assert not (tmp_path / "dest" / "ok.txt").exists()
     drive = tmp_path / "drive.zip"
     with zipfile.ZipFile(drive, "w") as archive:
         archive.writestr("C:/Windows/x.txt", "bad")
@@ -218,3 +220,25 @@ def test_docker_run_is_refused_without_authorization(tmp_path):
     reg, _ = registry(tmp_path)
     out = run(reg.execute("docker.run", {"image": "alpine"}))
     assert out["ok"] is False and out["risk"] == "exec"
+
+
+def test_seven_zip_round_trip_when_py7zr_is_installed(tmp_path):
+    py7zr = pytest.importorskip("py7zr")
+    (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
+    with py7zr.SevenZipFile(tmp_path / "pack.7z", "w") as archive:
+        archive.write(tmp_path / "a.txt", "a.txt")
+    assert file_tools.identify(tmp_path / "pack.7z")["kind"] == "7z"
+    assert file_tools.list_archive(tmp_path / "pack.7z")["count"] == 1
+    out = file_tools.extract_archive(tmp_path / "pack.7z", tmp_path / "out")
+    assert out["ok"] and (tmp_path / "out" / "a.txt").read_text(encoding="utf-8") == "alpha"
+
+
+def test_docker_bind_mount_survives_a_comma_or_quote_in_the_folder(tmp_path):
+    folder = tmp_path / 'a,b "c"'
+    folder.mkdir()
+    plan = toolchain_gate.plan_docker("run", {"docker": "docker", "image": "alpine"}, folder)
+    mount = plan["argv"][plan["argv"].index("--mount") + 1]
+    assert mount.startswith('type=bind,"src=') and mount.endswith(",dst=/work")
+    assert '""c""' in mount
+    plain = toolchain_gate.plan_docker("run", {"docker": "docker", "image": "alpine"}, tmp_path)
+    assert plain["argv"][plain["argv"].index("--mount") + 1].startswith("type=bind,src=")

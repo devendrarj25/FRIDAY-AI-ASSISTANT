@@ -13,6 +13,7 @@ import devices_bluetooth
 import devices_network
 import file_tools
 import httpx
+import sandbox_runner
 import toolchain_gate
 from authority import Authority
 
@@ -100,6 +101,8 @@ RISK = {
     "docker.status": "safe",
     "docker.pull": "write",
     "docker.run": "exec",
+    # A throwaway Windows (Windows Sandbox): the workspace is read-only inside it.
+    "sandbox.run": "exec",
 }
 
 
@@ -172,6 +175,7 @@ SUMMARY = {
     "docker.status": "Ask whether Docker is installed and its engine is running",
     "docker.pull": "Pull a container image from its registry",
     "docker.run": "Run a command in a throwaway container with the workspace mounted, no network by default",
+    "sandbox.run": "Run a command in a throwaway Windows Sandbox, workspace read-only, no network by default",
 }
 
 
@@ -700,3 +704,12 @@ class ToolRegistry:
 
     async def _docker_run(self, args: dict) -> dict:
         return await self._planned(toolchain_gate.plan_docker("run", args, self.workspace))
+
+    async def _sandbox_run(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            sandbox_runner.run,
+            self.workspace.resolve(),
+            str(args.get("command") or ""),
+            bool(args.get("network")),
+            int(args.get("timeout") or 300),
+        )

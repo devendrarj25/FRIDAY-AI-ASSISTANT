@@ -52,6 +52,7 @@ const SANDBOX = new Set([
   "ci.run",
   "test.run",
   "docker.run",
+  "sandbox.run",
 ]);
 
 const FRIDAY_TOOLS = [

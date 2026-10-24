@@ -442,6 +442,28 @@ try {
   if (Test-Path -LiteralPath (Join-Path $installDir "FRIDAY.exe")) { throw "Uninstall left FRIDAY.exe behind." }
   Assert-NoInstallOrphans
   if (-not (Test-Path $sentinel)) { throw "Uninstall removed the FRIDAY data folder." }
+  # Erase-all scenario: a scripted "Delete all FRIDAY data" (/S /DELETEDATA) must
+  # leave nothing of the root behind. It removes the per-user FRIDAY folders and
+  # the HKCU\Software\FRIDAY key too, so it runs only on a throwaway runner (CI)
+  # or when FRIDAY_SMOKE_ERASE=1 asks for it; on the owner's own PC it is skipped.
+  if ($env:CI -or $env:GITHUB_ACTIONS -or $env:FRIDAY_SMOKE_ERASE -eq "1") {
+    $uninstaller = Run-Setup
+    Verify-Boot
+    if (-not (Test-Path -LiteralPath $sentinel)) { throw "Reinstall after the keep-uninstall lost the data sentinel." }
+    $p = Start-Tracked -FilePath $uninstaller -ArgumentList @("/S", "/DELETEDATA", "_?=$installDir")
+    Wait-Exit $p 300 "FRIDAY uninstall (erase all data)" | Out-Null
+    # A detached helper sweeps the program folder and the root a few seconds after the uninstaller exits.
+    for ($i = 0; $i -lt 120; $i++) {
+      if (-not (Test-Path -LiteralPath $rootDir)) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (Test-Path -LiteralPath $rootDir) { throw "Erase-all uninstall left the FRIDAY folder behind: $rootDir" }
+    if (Test-Path -LiteralPath $sentinel) { throw "Erase-all uninstall left the data sentinel behind." }
+    Assert-NoInstallOrphans
+    Write-Host "[friday] PASS erase-all uninstall removed the program, the data folder and the per-user traces"
+  } else {
+    Write-Host "[friday] SKIP erase-all uninstall on this PC (it would delete the per-user FRIDAY folders); set FRIDAY_SMOKE_ERASE=1 to run it"
+  }
   Write-Host "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved"
 } catch {
   $smokeError = $_
@@ -449,6 +471,8 @@ try {
 } finally {
   try {
     Remove-Item Env:\FRIDAY_BOOT_SELFTEST -ErrorAction SilentlyContinue
+    # An erase-all uninstall deletes HKCU\Software\FRIDAY; bring the key back when it held a value before.
+    if ((-not (Test-Path $registry)) -and (($null -ne $oldWorkspace) -or ($null -ne $oldInstall))) { New-Item -Path $registry -Force | Out-Null }
     if (Test-Path $registry) {
       if ($null -ne $oldWorkspace) { Set-ItemProperty $registry WorkspacePath $oldWorkspace }
       else { Remove-ItemProperty $registry WorkspacePath -ErrorAction SilentlyContinue }

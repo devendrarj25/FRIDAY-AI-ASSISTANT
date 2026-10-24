@@ -14,6 +14,7 @@
 import { catalog, categories, statusOf, type CatalogEntry, type CatalogStatus } from "./catalog";
 import { isDesktop } from "./bridge";
 import { livePoller } from "./live-poll";
+import toolkitJson from "../../../config/agent-toolkit.json";
 import {
   answerInstallerQuestion,
   parseServiceRequest,
@@ -1218,6 +1219,31 @@ class InstallerStore {
     );
     missing.forEach((e) => this.enqueue(e.pkg, "install"));
     return missing.length;
+  }
+
+  /**
+   * The tools in config/agent-toolkit.json that are not installed yet, queued in
+   * the manifest's order (WSL 2 before Docker). The same list the build installs
+   * before the EXE is made, so an app installed from a release gets them in one
+   * click. An entry gated on an NVIDIA GPU is queued only when its driver is here.
+   */
+  installToolkit(): number {
+    const byName = new Map(this.entries().map((e) => [e.pkg, e]));
+    // On the desktop only a package the scan has looked at counts as installed;
+    // the catalog's seeded flags are not evidence.
+    const have = (name: string) =>
+      Boolean(this.state.installed[name]) &&
+      (this.state.bridge !== "desktop" || this.state.probed.includes(name));
+    const picked = (toolkitJson.prefetch as { id: string; catalog?: string; requires?: string }[])
+      .map((row) => ({ ...row, pkg: row.catalog ?? row.id }))
+      .filter((row) => {
+        if (have(row.pkg)) return false;
+        if (row.requires === "nvidia-gpu" && !have("NVIDIA Driver")) return false;
+        return byName.has(row.pkg);
+      })
+      .map((row) => byName.get(row.pkg) as CatalogEntry);
+    picked.forEach((e) => this.enqueue(e.pkg, "install"));
+    return picked.length;
   }
 
   fixIssues(): number {

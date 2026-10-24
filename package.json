@@ -77,6 +77,7 @@
     "release:heal:check": "node scripts/release-engine.cjs heal --check",
     "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "setup:python": "node scripts/setup-python.cjs",
+    "setup:toolkit": "node scripts/prefetch-toolkit.cjs",
     "setup:electron": "node scripts/ensure-electron.cjs",
     "setup:python:venv": "node scripts/setup-python.cjs",
     "init:runtime": "node scripts/init-runtime.cjs",

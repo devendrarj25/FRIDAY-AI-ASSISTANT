@@ -334,6 +334,8 @@ function createLifecycle(options = {}) {
   const setTimer = options.setTimer || setTimeout;
   const clearTimer = options.clearTimer || clearTimeout;
   const relaunchArgs = options.relaunchArgs;
+  const env = options.env || process.env;
+  const exists = options.exists || require("node:fs").existsSync;
   let state = "STARTING";
   let running = false;
   let exited = false;
@@ -450,7 +452,14 @@ function createLifecycle(options = {}) {
       relaunched = true;
       try {
         const args = typeof relaunchArgs === "function" ? relaunchArgs() : relaunchArgs;
-        if (Array.isArray(args) && args.length) app.relaunch({ args });
+        // A Portable build runs from a copy unpacked into the temp folder, which
+        // is removed when the launcher exits. Relaunching process.execPath would
+        // start a file that is gone, so the portable launcher itself is started.
+        const portable = String(env.PORTABLE_EXECUTABLE_FILE || "");
+        const launcher = portable && exists(portable) ? portable : "";
+        const list = Array.isArray(args) ? args : [];
+        if (launcher) app.relaunch({ execPath: launcher, args: list });
+        else if (list.length) app.relaunch({ args: list });
         else app.relaunch();
       } catch (error) {
         note(`relaunch failed: ${error && error.message ? error.message : error}`);

@@ -30,6 +30,7 @@ MAX_TEXT_BYTES = 2 * 1024**2
 LIST_LIMIT = 2_000
 FIND_LIMIT = 200
 TRASH = ".friday-trash"
+HIDDEN = {TRASH, ".friday-sandbox"}
 
 ZIP_EXT = {".zip", ".jar", ".apk", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".whl", ".nupkg"}
 TAR_MODES = {
@@ -197,7 +198,7 @@ def list_dir(path: Path, root: Path, depth: int = 1) -> dict:
         for item in sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if len(rows) >= LIST_LIMIT:
                 return
-            if item.name == TRASH or item.is_symlink():
+            if item.name in HIDDEN or item.is_symlink():
                 continue
             rows.append(
                 {
@@ -222,7 +223,7 @@ def find(path: Path, root: Path, pattern: str = "*", contains: str = "") -> dict
     for item in path.rglob("*"):
         if len(hits) >= FIND_LIMIT:
             break
-        if not item.is_file() or item.is_symlink() or TRASH in item.parts:
+        if not item.is_file() or item.is_symlink() or HIDDEN & set(item.parts):
             continue
         if not fnmatch.fnmatch(item.name.lower(), pattern.lower()):
             continue
@@ -387,10 +388,12 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
             with zipfile.ZipFile(path) as archive:
                 items = archive.infolist()
                 _guard_totals(len(items), sum(i.file_size for i in items))
+                # Check every name before the first byte is written, so a bad member leaves nothing behind.
                 for item in items:
-                    mode = (item.external_attr >> 16) & 0o170000
-                    if mode == 0o120000:
+                    if ((item.external_attr >> 16) & 0o170000) == 0o120000:
                         raise ArchiveRefused(f"{item.filename!r} is a link; links are not unpacked")
+                    target_for(item.filename)
+                for item in items:
                     target = target_for(item.filename)
                     if item.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
@@ -406,6 +409,8 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
                 for item in items:
                     if item.issym() or item.islnk() or item.isdev() or item.isfifo():
                         raise ArchiveRefused(f"{item.name!r} is not a plain file or folder")
+                    target_for(item.name)
+                for item in items:
                     target = target_for(item.name)
                     if item.isdir():
                         target.mkdir(parents=True, exist_ok=True)
@@ -444,7 +449,7 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
             return {"ok": False, "error": f"{path.name} is not a supported archive"}
     except ArchiveRefused as exc:
         return {"ok": False, "error": str(exc), "cause": "refused"}
-    except (zipfile.BadZipFile, tarfile.TarError, OSError, EOFError) as exc:
+    except (zipfile.BadZipFile, tarfile.TarError, OSError, EOFError, RuntimeError) as exc:
         return {"ok": False, "error": f"{path.name} could not be read: {exc}", "cause": "corrupt"}
     return {"ok": True, "format": kind, "files": len(written), "extracted": written[:LIST_LIMIT]}
 
@@ -461,7 +466,7 @@ def create_archive(sources: list[Path], target: Path, root: Path, overwrite: boo
             return {"ok": False, "error": f"{source.name} does not exist"}
         if source.is_dir():
             for item in sorted(source.rglob("*")):
-                if item.is_file() and not item.is_symlink() and TRASH not in item.parts and item != target:
+                if item.is_file() and not item.is_symlink() and not HIDDEN & set(item.parts) and item != target:
                     files.append((item, (Path(source.name) / item.relative_to(source)).as_posix()))
         elif source != target:
             files.append((source, source.name))

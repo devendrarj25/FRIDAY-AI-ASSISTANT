@@ -1,38 +1,283 @@
 {
-  "$comment": "What FRIDAY needs installed to run, build, test, search, convert, containerise and use the GPU. scripts/prefetch-toolkit.cjs installs every entry of `prefetch` before the EXE is built, whatever its size, through the Install Manager job. There is no size cap: `onDemand` is by kind, not by size. Big AI models are chosen in the Models section, and the heavy runners and GPU stacks that only a model needs (PyTorch, the Hugging Face runner, vLLM) come from the Install Manager when that model is used. `elevated` entries need an administrator prompt and may ask for a restart; `requires` gates an entry on this PC's hardware.",
+  "$comment": "What FRIDAY needs installed to run, build, test, search, convert, containerise and use the GPU. scripts/prefetch-toolkit.cjs installs every entry of `prefetch` before the EXE is built, whatever its size, through the Install Manager job. There is no size cap: `onDemand` is by kind, not by size. Big AI models are chosen in the Models section, and the heavy runners and GPU stacks that only a model needs (PyTorch, the Hugging Face runner, vLLM) come from the Install Manager when that model is used. `catalog` is the row name in the Install Manager list when it differs from the tool id; `elevated` entries need an administrator prompt and may ask for a restart; `requires` gates an entry on this PC's hardware. `probe` is how `npm run doctor` and the tests tell the tool is there (a command on PATH or in a folder, or a file).",
   "prefetch": [
-    { "id": "ripgrep", "group": "portable", "why": "fast text search across a project", "approxBytes": 6000000 },
-    { "id": "jq (JSON)", "group": "portable", "why": "read and reshape JSON on the command line", "approxBytes": 1000000 },
-    { "id": "yq (YAML)", "group": "portable", "why": "read and reshape YAML on the command line", "approxBytes": 10000000 },
-    { "id": "Ninja", "group": "portable", "why": "fast build runner for C and C++ projects", "approxBytes": 400000 },
-    { "id": "uv (Python)", "group": "portable", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
-    { "id": "aria2", "group": "portable", "why": "resumable multi-connection downloads", "approxBytes": 2000000 },
-    { "id": "FFmpeg", "group": "portable", "why": "convert and inspect audio and video", "approxBytes": 100000000 },
-    { "id": "Git", "group": "developer", "why": "version control for the agent's projects", "approxBytes": 60000000 },
-    { "id": "GitHub CLI", "group": "developer", "why": "pull requests and issues from the command line", "approxBytes": 16000000 },
-    { "id": "Git LFS", "group": "developer", "why": "large files in Git repositories", "approxBytes": 5000000 },
-    { "id": "CMake", "group": "developer", "why": "configure C and C++ builds", "approxBytes": 40000000 },
-    { "id": "7-Zip", "group": "developer", "why": "read and write 7z, rar and other archives", "approxBytes": 2000000 },
-    { "id": "Pandoc", "group": "developer", "why": "convert documents between formats", "approxBytes": 40000000 },
-    { "id": "Graphviz", "group": "developer", "why": "draw diagrams from text", "approxBytes": 8000000 },
-    { "id": "Tesseract OCR", "group": "developer", "why": "read text out of images and scans", "approxBytes": 50000000 },
-    { "id": "PowerShell 7", "group": "developer", "why": "modern PowerShell for scripts", "approxBytes": 110000000 },
-    { "id": "Go", "group": "language", "why": "build and run Go programs", "approxBytes": 80000000 },
-    { "id": "Rust", "group": "language", "why": "build and run Rust programs", "approxBytes": 10000000 },
-    { "id": "OpenJDK (Temurin)", "group": "language", "why": "build and run Java programs", "approxBytes": 200000000 },
-    { "id": "WSL 2", "group": "container", "elevated": true, "why": "Linux layer that Docker Desktop runs on", "approxBytes": 300000000 },
-    { "id": "Docker Desktop", "group": "container", "elevated": true, "why": "run code and services in containers", "approxBytes": 600000000 },
-    { "id": "Sandbox runner (Windows Sandbox)", "group": "container", "elevated": true, "why": "throwaway Windows to test untrusted programs", "approxBytes": 0 },
-    { "id": "CUDA Toolkit", "group": "gpu", "elevated": true, "requires": "nvidia-gpu", "why": "GPU compute for local models, only on a PC with an NVIDIA GPU", "approxBytes": 3500000000 }
+    {
+      "id": "ripgrep",
+      "group": "portable",
+      "why": "fast text search across a project",
+      "approxBytes": 6000000,
+      "probe": {
+        "cmd": ["rg", "rg.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "jq (JSON)",
+      "group": "portable",
+      "why": "read and reshape JSON on the command line",
+      "approxBytes": 1000000,
+      "probe": {
+        "cmd": ["jq", "jq.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "yq (YAML)",
+      "group": "portable",
+      "why": "read and reshape YAML on the command line",
+      "approxBytes": 10000000,
+      "probe": {
+        "cmd": ["yq", "yq.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "Ninja",
+      "group": "portable",
+      "why": "fast build runner for C and C++ projects",
+      "approxBytes": 400000,
+      "probe": {
+        "cmd": ["ninja", "ninja.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "uv (Python)",
+      "catalog": "uv",
+      "group": "portable",
+      "why": "fast Python packages and virtual environments",
+      "approxBytes": 40000000,
+      "probe": {
+        "cmd": ["uv", "uv.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "aria2",
+      "group": "portable",
+      "why": "resumable multi-connection downloads",
+      "approxBytes": 2000000,
+      "probe": {
+        "cmd": ["aria2c", "aria2c.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "FFmpeg",
+      "group": "portable",
+      "why": "convert and inspect audio and video",
+      "approxBytes": 100000000,
+      "probe": {
+        "cmd": ["ffmpeg", "ffmpeg.exe"],
+        "args": ["-version"]
+      }
+    },
+    {
+      "id": "Git",
+      "group": "developer",
+      "why": "version control for the agent's projects",
+      "approxBytes": 60000000,
+      "probe": {
+        "cmd": ["git", "git.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "GitHub CLI",
+      "group": "developer",
+      "why": "pull requests and issues from the command line",
+      "approxBytes": 16000000,
+      "probe": {
+        "cmd": ["gh", "gh.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "Git LFS",
+      "group": "developer",
+      "why": "large files in Git repositories",
+      "approxBytes": 5000000,
+      "probe": {
+        "cmd": ["git-lfs", "git-lfs.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "CMake",
+      "group": "developer",
+      "why": "configure C and C++ builds",
+      "approxBytes": 40000000,
+      "probe": {
+        "cmd": ["cmake", "cmake.exe"],
+        "args": ["--version"],
+        "dirs": ["%ProgramFiles%\\CMake\\bin"]
+      }
+    },
+    {
+      "id": "7-Zip",
+      "group": "developer",
+      "why": "read and write 7z, rar and other archives",
+      "approxBytes": 2000000,
+      "probe": {
+        "cmd": ["7z", "7z.exe"],
+        "args": ["i"],
+        "dirs": ["%ProgramFiles%\\7-Zip"]
+      }
+    },
+    {
+      "id": "Pandoc",
+      "group": "developer",
+      "why": "convert documents between formats",
+      "approxBytes": 40000000,
+      "probe": {
+        "cmd": ["pandoc", "pandoc.exe"],
+        "args": ["--version"]
+      }
+    },
+    {
+      "id": "Graphviz",
+      "group": "developer",
+      "why": "draw diagrams from text",
+      "approxBytes": 8000000,
+      "probe": {
+        "cmd": ["dot", "dot.exe"],
+        "args": ["-V"],
+        "dirs": ["%ProgramFiles%\\Graphviz\\bin"]
+      }
+    },
+    {
+      "id": "Tesseract OCR",
+      "group": "developer",
+      "why": "read text out of images and scans",
+      "approxBytes": 50000000,
+      "probe": {
+        "cmd": ["tesseract", "tesseract.exe"],
+        "args": ["--version"],
+        "dirs": ["%ProgramFiles%\\Tesseract-OCR"]
+      }
+    },
+    {
+      "id": "PowerShell 7",
+      "group": "developer",
+      "why": "modern PowerShell for scripts",
+      "approxBytes": 110000000,
+      "probe": {
+        "cmd": ["pwsh", "pwsh.exe"],
+        "args": ["-Version"],
+        "dirs": ["%ProgramFiles%\\PowerShell\\7"]
+      }
+    },
+    {
+      "id": "Go",
+      "group": "language",
+      "why": "build and run Go programs",
+      "approxBytes": 80000000,
+      "probe": {
+        "cmd": ["go", "go.exe"],
+        "args": ["version"],
+        "dirs": ["%ProgramFiles%\\Go\\bin"]
+      }
+    },
+    {
+      "id": "Rust",
+      "group": "language",
+      "why": "build and run Rust programs",
+      "approxBytes": 10000000,
+      "probe": {
+        "cmd": ["rustc", "rustc.exe"],
+        "args": ["--version"],
+        "dirs": ["%USERPROFILE%\\.cargo\\bin"]
+      }
+    },
+    {
+      "id": "OpenJDK (Temurin)",
+      "group": "language",
+      "why": "build and run Java programs",
+      "approxBytes": 200000000,
+      "probe": {
+        "cmd": ["java", "java.exe"],
+        "args": ["-version"]
+      }
+    },
+    {
+      "id": "WSL 2",
+      "group": "container",
+      "elevated": true,
+      "why": "Linux layer that Docker Desktop runs on",
+      "approxBytes": 300000000,
+      "probe": {
+        "cmd": ["wsl", "wsl.exe"],
+        "args": ["--status"]
+      }
+    },
+    {
+      "id": "Docker Desktop",
+      "group": "container",
+      "elevated": true,
+      "why": "run code and services in containers",
+      "approxBytes": 600000000,
+      "probe": {
+        "cmd": ["docker", "docker.exe"],
+        "args": ["--version"],
+        "dirs": ["%ProgramFiles%\\Docker\\Docker\\resources\\bin"]
+      }
+    },
+    {
+      "id": "Sandbox runner (Windows Sandbox)",
+      "group": "container",
+      "elevated": true,
+      "why": "throwaway Windows to test untrusted programs",
+      "approxBytes": 0,
+      "probe": {
+        "file": "%SystemRoot%\\System32\\WindowsSandbox.exe"
+      }
+    },
+    {
+      "id": "CUDA Toolkit",
+      "group": "gpu",
+      "elevated": true,
+      "requires": "nvidia-gpu",
+      "why": "GPU compute for local models, only on a PC with an NVIDIA GPU",
+      "approxBytes": 3500000000,
+      "probe": {
+        "cmd": ["nvcc", "nvcc.exe"],
+        "args": ["--version"],
+        "dirs": ["%CUDA_PATH%\\bin"]
+      }
+    }
   ],
   "onDemand": [
-    { "id": "Hugging Face runner", "reason": "runs Safetensors models; it brings PyTorch and is installed when such a model is used" },
-    { "id": "PyTorch (CUDA)", "reason": "only a model needs it; the Hugging Face runner installs its own" },
-    { "id": "vLLM", "reason": "a heavy server for large GPU models" },
-    { "id": "LM Studio", "reason": "an optional second local runner next to Ollama" },
-    { "id": "Podman", "reason": "an alternative to Docker, not needed beside it" },
-    { "id": "Visual Studio", "reason": "full IDE; the C toolchain FRIDAY uses is MinGW-based" },
-    { "id": "VS Build Tools", "reason": "only for projects that need MSVC" },
-    { "id": "Android Studio", "reason": "only for Android app work" }
+    {
+      "id": "Hugging Face runner",
+      "reason": "runs Safetensors models; it brings PyTorch and is installed when such a model is used"
+    },
+    {
+      "id": "PyTorch (CUDA)",
+      "reason": "only a model needs it; the Hugging Face runner installs its own"
+    },
+    {
+      "id": "vLLM",
+      "reason": "a heavy server for large GPU models"
+    },
+    {
+      "id": "LM Studio",
+      "reason": "an optional second local runner next to Ollama"
+    },
+    {
+      "id": "Podman",
+      "reason": "an alternative to Docker, not needed beside it"
+    },
+    {
+      "id": "Visual Studio",
+      "reason": "full IDE; the C toolchain FRIDAY uses is MinGW-based"
+    },
+    {
+      "id": "VS Build Tools",
+      "reason": "only for projects that need MSVC"
+    },
+    {
+      "id": "Android Studio",
+      "reason": "only for Android app work"
+    }
   ]
 }

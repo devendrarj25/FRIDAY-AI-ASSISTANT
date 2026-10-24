@@ -93,3 +93,31 @@ describe("a scan that fails", () => {
     expect(installer.getSnapshot().scanError).toBeNull();
   });
 });
+
+describe("agent toolkit queue", () => {
+  it("queues the manifest's missing tools in order, skips what is installed and gates CUDA on an NVIDIA driver", async () => {
+    vi.stubGlobal("window", {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      friday: { isDesktop: true, detectTools: async () => ({ tools: [] }) },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    });
+    const { installer } = await import("../../src/lib/friday/installer-engine");
+    const manifest = (await import("../../config/agent-toolkit.json")).default;
+    installer.state.bridge = "desktop";
+    installer.state.probed = ["Git"];
+    installer.state.installed["Git"] = "2.50.0";
+    const queued = installer.installToolkit();
+    const order = installer.getSnapshot().jobs.map((j) => j.pkg);
+    expect(queued).toBeGreaterThan(10);
+    expect(order).toContain("Docker Desktop");
+    expect(order).not.toContain("Git");
+    expect(order).not.toContain("CUDA Toolkit");
+    expect(order.indexOf("WSL 2")).toBeLessThan(order.indexOf("Docker Desktop"));
+    for (const row of manifest.prefetch as { id: string; catalog?: string; requires?: string }[]) {
+      if (row.requires === "nvidia-gpu") continue;
+      if (row.id === "Git") continue;
+      expect(order, row.id).toContain(row.catalog ?? row.id);
+    }
+  });
+});

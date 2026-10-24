@@ -2475,7 +2475,28 @@ let detectInflight = null;
 let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
-async function detectTools({ force = false, root: rootArg } = {}) {
+async function detectTools({ force = false, root: rootArg, only = null } = {}) {
+  // A caller that needs a handful of tools (the build-time toolkit step) probes
+  // just those and leaves the app's full-scan cache alone.
+  if (Array.isArray(only) && only.length) {
+    const want = new Set(only);
+    const root = rootArg ?? fridayPaths.root() ?? "";
+    const [freeze, installedPackages] = await Promise.all([
+      loadPipFreeze(force),
+      loadWingetList(force),
+    ]);
+    const probed = await pool(
+      TOOLS.filter((t) => want.has(t.id)),
+      6,
+      (t) => probeTool(t, freeze, installedPackages, root),
+    );
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
+    return { at: Date.now(), tools: probed, root };
+  }
   // FRIDAY's own installs live under <root>\runtime; without the root a tool she
   // unpacked there read "Missing" on every scan and was downloaded again.
   const root = rootArg ?? fridayPaths.root() ?? "";
@@ -3183,7 +3204,9 @@ function runJob({ id, action, root }, emit) {
     const fallback = action === "uninstall" ? null : directInstaller(tool);
 
     const vendorFeeds = require("./vendor-sources.cjs");
-    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id)) {
+    const altManagers =
+      action === "uninstall" ? [] : require("./alt-package-managers.cjs").managersFor(tool.id);
+    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id) && !altManagers.length) {
       const vendorOnly = Boolean(tool.manual) && !tool.pip;
       const outcome = voiceInstall.installOutcome({
         pythonFound: false,
@@ -3548,9 +3571,44 @@ function runJob({ id, action, root }, emit) {
       return { ok: true, code: last.code, version: last.probe.version, via: "url" };
     };
 
+    // Chocolatey and Scoop are last resorts, used only when already on this PC.
+    const tryAlternateManagers = async () => {
+      const alt = require("./alt-package-managers.cjs");
+      for (const manager of altManagers) {
+        const cmd = alt.commandFor(manager, tool.id, action);
+        if (!cmd || !(await which(manager))) continue;
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the earlier sources did not install it — trying ${manager}`,
+        });
+        last = await attempt(manager, cmd);
+        tried.push(`${manager} (exit ${last.code})`);
+        if (!last.ok) continue;
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: last.restartRequired ? "Restart required" : "Done",
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+          version: last.probe.version,
+          line: `installed with ${manager} · health check: ${last.probe.status}`,
+        });
+        return {
+          ok: true,
+          code: last.code,
+          version: last.probe.version,
+          via: manager,
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+        };
+      }
+      return null;
+    };
+
     for (const step of vendorFirst
-      ? [tryVendorInstaller, tryPackageManager]
-      : [tryPackageManager, tryVendorInstaller]) {
+      ? [tryVendorInstaller, tryPackageManager, tryAlternateManagers]
+      : [tryPackageManager, tryVendorInstaller, tryAlternateManagers]) {
       const done = await step();
       if (done) return done;
     }

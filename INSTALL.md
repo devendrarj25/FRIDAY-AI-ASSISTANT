@@ -83,9 +83,10 @@ Inside the script, in order:
 3. `npm ci` from `package-lock.json`. On failure: `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
 4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip, then `@electron/get`).
 5. `node scripts\setup-python.cjs` — venv at the selected FRIDAY folder `runtime\.venv`, or checkout `.venv` if no folder is selected.
-6. `node scripts\init-runtime.cjs` — folders, wake model, database.
-7. `node scripts\check-environment.cjs --fix`.
-8. `npm run doctor`. Success prints `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. A missing Tesseract is an in-app Doctor row (Missing) and does not fail this command.
+6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
+7. `node scripts\init-runtime.cjs` — folders, wake model, database.
+8. `node scripts\check-environment.cjs --fix`.
+9. `npm run doctor`. Success prints `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. A missing Tesseract is an in-app Doctor row (Missing) and does not fail this command.
 
 Official download floors (tried in order):
 
@@ -129,7 +130,7 @@ Prerequisites: section 5 succeeded (`npm run setup` already did the floors). The
 npm run build:win
 ```
 
-That is `scripts\build-windows.cmd` with no extra argument: **Setup installer and Portable**.
+That is `scripts\build-windows.cmd` with no extra argument: **Setup installer and Portable**. On a PC without Node.js 22.19.0+ it first runs `scripts\setup-windows.ps1` (so run `scripts\build-windows.cmd` itself there, since `npm` comes with Node), puts `%ProgramFiles%\nodejs` on PATH and carries on; the `prepare-environment` phase then runs the agent toolkit step again, which only fills what is still missing.
 
 Other pack shapes from the same `.cmd`:
 
@@ -242,7 +243,8 @@ Run from the project root in `cmd.exe`.
 | `scripts\install-python-deps.cmd` | Same `setup-python.cjs` | CMD alias if you prefer a `.cmd` entry |
 | `npm run setup:electron` | `scripts\ensure-electron.cjs` | Electron binary missing after `npm ci` |
 | `npm run init:runtime` | `scripts\init-runtime.cjs` | Canonical folders, wake model copy, SQLite schema |
-| `npm run check:env` | `scripts\check-environment.cjs` | Print what is missing (does not install) |
+| `npm run setup:toolkit` | `scripts\prefetch-toolkit.cjs` | Install or update the agent toolkit only (the same step `setup` and `build:win` run) |
+| `npm run check:env` | `scripts\check-environment.cjs` | Print what is missing (does not install); the agent toolkit shows as optional WARN rows |
 | `npm run check:env:fix` | `check-environment.cjs --fix` | Repair Electron + Python via the same scripts as setup |
 | `npm run doctor` | `init-runtime` + `check-environment` + `verify-deps` + `env-registry` | Full readiness after setup or when the EXE kernel is sick |
 | `npm run verify:env` | `scripts\env-registry.cjs` | Show the recorded environment registry |
