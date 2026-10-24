@@ -26,6 +26,8 @@ export type GithubConfig = {
   channel: GithubChannel;
   updateChannel: UpdateChannel;
   autoCheck: boolean;
+  /** Fetch and verify the new installer in the background; installing still waits for the owner. */
+  autoDownload: boolean;
   intervalHours: number;
   autoApply: boolean;
   appliedRef: string | null;
@@ -118,6 +120,9 @@ export type GithubCheck = {
    * action is hidden for it.
    */
   packaged?: boolean;
+  /** The installer was already downloaded and verified in the background. */
+  staged?: boolean;
+  stagedFile?: string;
 };
 
 /**
@@ -449,7 +454,8 @@ export const DEFAULT_GITHUB_CONFIG: GithubConfig = {
   branch: "main",
   channel: "branch",
   updateChannel: "stable",
-  autoCheck: false,
+  autoCheck: true,
+  autoDownload: true,
   intervalHours: 6,
   autoApply: false,
   appliedRef: null,

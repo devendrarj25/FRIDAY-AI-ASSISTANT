@@ -221,8 +221,9 @@ export function wireNotifications(): void {
       id: `update:${check.updateChannel ?? "stable"}:${check.ref ?? check.version ?? "latest"}`,
       level: "action",
       title: `${check.testBuild ? "Test build" : "Update"} available — ${what}`,
-      detail:
-        "Open Settings → Updates to download and install it. Nothing is installed without your go-ahead.",
+      detail: check.staged
+        ? "Downloaded and checked in the background. Open Settings → Updates and press Install. Nothing is installed without your go-ahead."
+        : "Open Settings → Updates to download and install it. Nothing is installed without your go-ahead.",
       source: "Updates",
       route: "/settings",
     });

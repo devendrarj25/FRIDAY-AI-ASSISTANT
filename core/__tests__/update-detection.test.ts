@@ -51,9 +51,11 @@ describe("the repository stays connected across a restart", () => {
     expect(scheduler.slice(0, 1600)).toContain("setTimeout(() => void runGithubCheck(), 15_000)");
     expect(scheduler.slice(0, 1600)).toContain("setInterval(() => void runGithubCheck(), every)");
     // Notify-only for an installed app: background polling never installs.
-    expect(main.slice(main.indexOf("async function runGithubCheck()")).slice(0, 900)).toContain(
-      'if (app.isPackaged || result.channel === "release") return;',
-    );
+    const check = main.slice(main.indexOf("async function runGithubCheck()"));
+    const guard = check.indexOf('if (app.isPackaged || result.channel === "release") {');
+    expect(guard).toBeGreaterThan(0);
+    expect(guard).toBeLessThan(check.indexOf("importer.applyImport"));
+    expect(check.slice(guard, guard + 160)).toContain("await stageInBackground(root, result);");
   });
 
   it("asks GitHub itself when the panel opens before the start-up reconnect finished", () => {
@@ -189,5 +191,48 @@ describe("the download shows size, speed and time left", () => {
     const main = src("electron/main.cjs");
     const pull = main.slice(main.indexOf('ipcMain.handle("github:pull"'));
     expect(pull.slice(0, 1500)).toContain('send("github:download-progress", progress)');
+  });
+});
+
+describe("the new installer is fetched ahead of time, and only fetched", () => {
+  const main = src("electron/main.cjs");
+  const staging = main.slice(main.indexOf("async function stageInBackground("));
+
+  it("is on by default and can be switched off", () => {
+    expect(sync.readConfig(root).autoDownload).toBe(true);
+    sync.writeConfig(root, { repo: "o/r", autoDownload: false });
+    expect(sync.readConfig(root).autoDownload).toBe(false);
+    const panel = src("src/components/friday/settings/GithubUpdates.tsx");
+    expect(panel).toContain("Download new versions in the background");
+    expect(panel).toContain("autoDownload: !config.autoDownload");
+  });
+
+  it("never fetches a TEST build, never interrupts the owner's own download, never installs", () => {
+    const body = staging.slice(0, staging.indexOf("/** One background look"));
+    expect(body).toContain("if (live.autoDownload === false) return;");
+    expect(body).toContain("if (result.testBuild ||");
+    expect(body).toContain("if (installerDownload) return;");
+    expect(body).not.toContain("install-update");
+    expect(body).not.toContain("installerLaunch");
+    // Only a verified file is announced as ready.
+    expect(body).toContain("staged?.ok && staged.verified");
+  });
+
+  it("shares one download path with the button, which takes over a background download", () => {
+    expect(main).toContain("async function stageInstaller(");
+    const button = main.slice(main.indexOf('ipcMain.handle("github:download-installer"'));
+    expect(button.slice(0, 1800)).toContain("installerDownload?.abort();");
+    expect(button.slice(0, 1800)).toContain("await stageInstaller(");
+    const check = main.slice(main.indexOf("async function runGithubCheck()"));
+    expect(check.slice(0, 900)).toContain("await stageInBackground(root, result);");
+  });
+
+  it("tells the owner when the installer is already waiting", () => {
+    expect(src("src/lib/friday/notification-wiring.ts")).toContain(
+      "Downloaded and checked in the background",
+    );
+    expect(src("src/components/friday/settings/GithubUpdates.tsx")).toContain(
+      "The installer is already downloaded and checked",
+    );
   });
 });

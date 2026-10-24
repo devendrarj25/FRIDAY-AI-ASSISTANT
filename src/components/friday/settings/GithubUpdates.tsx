@@ -703,6 +703,11 @@ export function GithubUpdates() {
               {check?.testBuild ? "Install TEST build" : "Install new EXE"}
             </Button>
           ) : null}
+          {check?.staged && check?.updateAvailable ? (
+            <p className="basis-full text-xs text-muted-foreground">
+              The installer is already downloaded and checked — Install starts right away.
+            </p>
+          ) : null}
 
           {pipeline === "ready-to-restart" ? (
             <Button
@@ -1167,6 +1172,12 @@ export function GithubUpdates() {
           hint={`Every ${config.intervalHours} hour(s)`}
           on={config.autoCheck}
           onToggle={() => void patch({ autoCheck: !config.autoCheck })}
+        />
+        <ToggleRow
+          label="Download new versions in the background"
+          hint="Only fetches and checks the installer so Install is instant. Nothing is installed until you press Install. TEST builds are never fetched on their own."
+          on={config.autoDownload}
+          onToggle={() => void patch({ autoDownload: !config.autoDownload })}
         />
         <ToggleRow
           label="Let FRIDAY apply updates herself"

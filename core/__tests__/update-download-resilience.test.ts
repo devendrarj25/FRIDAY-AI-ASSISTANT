@@ -241,6 +241,40 @@ describe("what an update leaves behind", () => {
     ]);
   });
 
+  it("stops before touching anything when the safety backup cannot fit", () => {
+    fs.mkdirSync(path.join(work, "memory"), { recursive: true });
+    fs.writeFileSync(path.join(work, "memory", "notes.json"), "x".repeat(5000));
+    const out = safety.backupState({ root: work, version: "2.0.0", freeSpace: () => 1024 });
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("Not enough free disk space for the safety backup");
+    expect(out.error).toContain("nothing was changed");
+    expect(fs.readdirSync(path.join(work, "backup", "releases"))).toEqual([]);
+    expect(fs.readFileSync(path.join(work, "memory", "notes.json"), "utf8")).toHaveLength(5000);
+    const roomy = safety.backupState({ root: work, version: "2.0.0", freeSpace: () => 1e12 });
+    expect(roomy.ok).toBe(true);
+  });
+
+  it("keeps the newest two release backups and the one a pending rollback needs", () => {
+    const base = path.join(work, "backup", "releases");
+    const names = ["1.0-a", "1.1-b", "1.2-c", "1.3-d"];
+    names.forEach((name, i) => {
+      fs.mkdirSync(path.join(base, name), { recursive: true });
+      const at = new Date(2026, 0, i + 1);
+      fs.utimesSync(path.join(base, name), at, at);
+    });
+    fs.mkdirSync(path.join(work, "updates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(work, "updates", "pending-update.json"),
+      JSON.stringify({ state: "installing", backup: path.join(base, "1.0-a") }),
+    );
+    const out = safety.pruneBackups({ root: work, keep: 2 });
+    expect(out.removed.sort()).toEqual(["1.1-b"]);
+    expect(fs.readdirSync(base).sort()).toEqual(["1.0-a", "1.2-c", "1.3-d"]);
+    // Pruning runs after a healthy start, never before an install.
+    const main = fs.readFileSync(path.join(process.cwd(), "electron/main.cjs"), "utf8");
+    expect(main).toContain("updateSafety.pruneBackups({ root, keep: 2 })");
+  });
+
   it("clears half-finished downloads nobody resumed for a week, and only those", () => {
     const dir = path.join(work, "updates", "installers");
     fs.mkdirSync(dir, { recursive: true });

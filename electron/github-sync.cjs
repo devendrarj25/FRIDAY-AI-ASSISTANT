@@ -91,6 +91,9 @@ const DEFAULTS = {
   // Reading is harmless (a packaged FRIDAY only ever notifies; installing always
   // waits for the owner), so a connected repository is watched unless switched off.
   autoCheck: true,
+  // Fetch and verify the new installer in the background (download only; the
+  // install always waits for the owner). Never for a TEST build.
+  autoDownload: true,
   intervalHours: 6,
   autoApply: false, // when false FRIDAY asks before applying
   // FRIDAY never pushes source on her own. A push happens only when the owner

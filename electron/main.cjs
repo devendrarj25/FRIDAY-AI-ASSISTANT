@@ -6947,20 +6947,12 @@ const githubPush = require("./github-push.cjs");
 
 let installerDownload = null;
 
-ipcMain.handle("github:download-installer", async (_e, payload) => {
-  // A TEST build downloads updates too (TEST → newer TEST, TEST → Stable).
-  // Verification, backup, channel confirmation and rollback are enforced by
-  // github:install-update exactly as they are for a Stable build.
-  const root = getWorkspaceRoot();
-  // The checksum must come from the manifest of the SAME release the asset
-  // belongs to. A Stable ⇄ Test download therefore re-reads the release on the
-  // channel it is crossing to, never the currently selected one.
-  const wantTest = payload?.testBuild === true;
-  const check = await githubSync.checkUpdate(root, {
-    channel: "release",
-    updateChannel: wantTest ? "test" : "stable",
-    currentVersion: productVersion(),
-  });
+/**
+ * Pick the installer of a checked release, take its checksum from the manifest
+ * of the SAME release, and download it (resumable, verified). Used by the
+ * button and by the background download, so there is one path.
+ */
+async function stageInstaller({ root, check, payload = {}, onProgress, signal }) {
   const pool = [...(check?.assets || []), ...(check?.otherChannel?.assets || [])];
   const listed = githubSync.installerAsset(pool);
   const matched =
@@ -6988,24 +6980,48 @@ ipcMain.handle("github:download-installer", async (_e, payload) => {
   const expected =
     githubSync.expectedChecksum(check?.manifest, asset.name) ||
     githubSync.expectedChecksum(check?.otherChannel?.manifest, asset.name);
+  return githubSync.downloadInstaller({
+    root,
+    url: asset.url,
+    apiUrl: asset.apiUrl,
+    assetId: asset.id,
+    name: asset.name,
+    bytes: asset.bytes,
+    sha256: expected,
+    onProgress,
+    signal,
+  });
+}
+
+ipcMain.handle("github:download-installer", async (_e, payload) => {
+  // A TEST build downloads updates too (TEST → newer TEST, TEST → Stable).
+  // Verification, backup, channel confirmation and rollback are enforced by
+  // github:install-update exactly as they are for a Stable build.
+  const root = getWorkspaceRoot();
+  // The checksum must come from the manifest of the SAME release the asset
+  // belongs to. A Stable ⇄ Test download therefore re-reads the release on the
+  // channel it is crossing to, never the currently selected one.
+  const wantTest = payload?.testBuild === true;
+  const check = await githubSync.checkUpdate(root, {
+    channel: "release",
+    updateChannel: wantTest ? "test" : "stable",
+    currentVersion: productVersion(),
+  });
   const progress = (info) => {
     send("import:progress", info);
     send("github:download-progress", info);
   };
   // One installer download at a time; "Cancel" aborts it and keeps the part so
-  // the next try continues from where it stopped.
+  // the next try continues from where it stopped. A background download in
+  // progress is stopped the same way and the button's download continues it.
   installerDownload?.abort();
   const controller = new AbortController();
   installerDownload = controller;
   try {
-    return await githubSync.downloadInstaller({
+    return await stageInstaller({
       root,
-      url: asset.url,
-      apiUrl: asset.apiUrl,
-      assetId: asset.id,
-      name: asset.name,
-      bytes: asset.bytes,
-      sha256: expected,
+      check,
+      payload,
       onProgress: progress,
       signal: controller.signal,
     });
@@ -7198,6 +7214,36 @@ ipcMain.handle("github:run-installer", async (_e, file) => {
   return { ok: true, launched: target };
 });
 
+/**
+ * Fetch and verify the new installer ahead of time (the way electron-updater's
+ * autoDownload does), so "Install" is instant and a flaky connection is dealt
+ * with before the owner is waiting. It only downloads: nothing is installed or
+ * touched, a TEST build is never fetched without being asked, and a download
+ * the owner started is never interrupted.
+ */
+async function stageInBackground(root, result) {
+  try {
+    const live = githubSync.readConfig(root);
+    if (live.autoDownload === false) return;
+    if (result.testBuild || githubSync.normalizeUpdateChannel(live.updateChannel) === "test")
+      return;
+    if (installerDownload) return;
+    const controller = new AbortController();
+    installerDownload = controller;
+    let staged;
+    try {
+      staged = await stageInstaller({ root, check: result, signal: controller.signal });
+    } finally {
+      if (installerDownload === controller) installerDownload = null;
+    }
+    if (staged?.ok && staged.verified) {
+      send("github:update-available", { ...result, staged: true, stagedFile: staged.file });
+    }
+  } catch {
+    /* the button downloads it, with the full error, when the owner asks */
+  }
+}
+
 /** One background look at the repository: notify, and (source checkout only) apply when allowed. */
 async function runGithubCheck() {
   try {
@@ -7211,7 +7257,10 @@ async function runGithubCheck() {
     send("github:update-available", result);
     // A packaged FRIDAY is only ever replaced by a verified release the owner
     // approves — background polling notifies, it never installs.
-    if (app.isPackaged || result.channel === "release") return;
+    if (app.isPackaged || result.channel === "release") {
+      await stageInBackground(root, result);
+      return;
+    }
     const live = githubSync.readConfig(root);
     // The TEST channel is never silent: a test build is only ever installed
     // by an explicit action in Settings → Updates.
@@ -7302,12 +7351,31 @@ function checkUpdateHealth() {
   if (!root) return null;
   try {
     const health = updateSafety.healthCheck({ root, version: productVersion() });
-    if (health.state === "updated") updateSafety.pruneInstallers({ root, keep: 2 });
+    if (health.state === "updated") {
+      updateSafety.pruneInstallers({ root, keep: 2 });
+      updateSafety.pruneBackups({ root, keep: 2 });
+    }
     if (health.state === "updated" || health.state === "failed")
       send("github:update-health", health);
     return health;
   } catch {
     return null;
+  }
+}
+
+/** Packages a newer version added to kernel/requirements.txt, installed once in the background. */
+async function syncKernelDepsNow() {
+  try {
+    const root = getWorkspaceRoot();
+    if (!root) return;
+    const kernelDeps = require("./kernel-deps.cjs");
+    const file = require("./resource-paths.cjs").resolveResourceFile("kernel/requirements.txt");
+    if (!file || !kernelDeps.status({ root, file }).needed) return;
+    const python = await resolvePython(null);
+    const out = await kernelDeps.syncKernelDeps({ root, file, python, log });
+    if (out.installed) noteRestartRequired("New Python packages were installed for this version");
+  } catch (error) {
+    log(`kernel packages: ${error?.message || error}`);
   }
 }
 
@@ -7329,6 +7397,17 @@ app.whenReady().then(() => {
     readiness: false,
     run() {
       setTimeout(() => void reconnectGithub(), 9000);
+    },
+  });
+  startupTasks.register({
+    id: "kernel-deps",
+    phase: "idle",
+    timeoutMs: 1000,
+    readiness: false,
+    run() {
+      // Only an installed app: a source checkout refreshes its packages with
+      // `npm run setup:python`, which the Updates panel names after a merge.
+      if (app.isPackaged) setTimeout(() => void syncKernelDepsNow(), 60_000);
     },
   });
   startupTasks.register({

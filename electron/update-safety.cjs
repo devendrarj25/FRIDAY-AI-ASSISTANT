@@ -102,13 +102,66 @@ function verifyArtifact({ file, expected, version, currentVersion, channelSwitch
 
 // ------------------------------------------------------------------ backup --
 
-/** Copy the protected parts of the root into <root>/backup/releases/<stamp>. */
-function backupState({ root, version }) {
+/** Bytes under a path (files only, symlinks not followed); unreadable parts count as 0. */
+function treeBytes(target) {
+  let total = 0;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(target, { withFileTypes: true });
+  } catch {
+    try {
+      return fs.statSync(target).size;
+    } catch {
+      return 0;
+    }
+  }
+  for (const entry of entries) {
+    const full = path.join(target, entry.name);
+    if (entry.isDirectory()) total += treeBytes(full);
+    else if (entry.isFile()) {
+      try {
+        total += fs.statSync(full).size;
+      } catch {
+        /* vanished */
+      }
+    }
+  }
+  return total;
+}
+
+function freeBytes(dir) {
+  try {
+    const stat = fs.statfsSync(dir);
+    return Number(stat.bavail) * Number(stat.bsize);
+  } catch {
+    return null;
+  }
+}
+
+const mb = (bytes) => `${Math.ceil(bytes / 1048576)} MB`;
+
+/**
+ * Copy the protected parts of the root into <root>/backup/releases/<stamp>.
+ * The drive is checked first (a backup that cannot fit stops the update before
+ * anything is touched, with a plain message), and a copy that fails halfway is
+ * removed instead of being left behind.
+ */
+function backupState({ root, version, freeSpace = freeBytes }) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(root, "backup", "releases", `${version || "update"}-${stamp}`);
   const copied = [];
   try {
+    const need = PROTECTED.reduce((sum, name) => sum + treeBytes(path.join(root, name)), 0);
+    fs.mkdirSync(path.join(root, "backup", "releases"), { recursive: true });
+    const free = freeSpace(path.join(root, "backup", "releases"));
+    const required = Math.ceil(need * 1.1) + 256 * 1048576;
+    if (free !== null && free < required) {
+      return {
+        ok: false,
+        error: `Not enough free disk space for the safety backup: about ${mb(required)} are needed and ${mb(free)} are free. Free some space (or remove old folders under backup\\releases) and try again — nothing was changed.`,
+      };
+    }
     fs.mkdirSync(dir, { recursive: true });
     for (const name of PROTECTED) {
       const source = path.join(root, name);
@@ -118,9 +171,47 @@ function backupState({ root, version }) {
     }
     writeJson(path.join(dir, "backup.json"), { at: Date.now(), version: version || null, copied });
   } catch (error) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* what could not be removed is reported by the error below */
+    }
     return { ok: false, error: `Backup failed: ${error.message}` };
   }
   return { ok: true, backup: dir, copied };
+}
+
+/**
+ * Every update copies the protected data aside, so the copies would pile up
+ * until a later backup no longer fits. After a healthy start keep the newest
+ * few; never touch the one a pending rollback still needs.
+ */
+function pruneBackups({ root, keep = 2 } = {}) {
+  if (!root) return { ok: false, removed: [] };
+  const base = path.join(root, "backup", "releases");
+  let names = [];
+  try {
+    names = fs.readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory());
+  } catch {
+    return { ok: true, removed: [] };
+  }
+  const pending = readJson(stateFile(root));
+  const inUse = pending?.backup ? path.resolve(pending.backup) : "";
+  const rows = names
+    .map((e) => ({ name: e.name, full: path.join(base, e.name) }))
+    .map((row) => ({ ...row, at: fs.statSync(row.full).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  const removed = [];
+  for (const row of rows.slice(Math.max(1, keep))) {
+    if (inUse && path.resolve(row.full) === inUse) continue;
+    try {
+      fs.rmSync(row.full, { recursive: true, force: true });
+      removed.push(row.name);
+    } catch {
+      /* in use by the OS — next time */
+    }
+  }
+  return { ok: true, removed };
 }
 
 // ----------------------------------------------------------------- install --
@@ -313,6 +404,7 @@ module.exports = {
   MUST_PRESERVE,
   SILENT_UPDATE_ARGS,
   pruneInstallers,
+  pruneBackups,
   installerLaunch,
   verifyArtifact,
   backupState,
