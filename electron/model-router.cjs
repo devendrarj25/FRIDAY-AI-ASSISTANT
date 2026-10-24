@@ -1228,6 +1228,21 @@ function modelAvailability(model, policy, now, task = "chat") {
   if (life === "retired" || life === "deprecated" || model?.deprecated === true) {
     return { visibility: "hide", reason: "retired" };
   }
+  // What a model is cannot change with the owner's cost setting, so it is named
+  // first: an embedding or speech model is not hidden "for cost", and turning
+  // paid access on would not bring it into chat.
+  if (
+    (task === "chat" || task === "fast") &&
+    model?.capabilities &&
+    model.capabilities.chat === false
+  ) {
+    const why = model.capabilities.embeddings
+      ? "flagged embedding-only"
+      : model.capabilities.audio
+        ? "flagged speech-only"
+        : "not-chat";
+    return { visibility: "hide", reason: why };
+  }
   const local = model?.type === "local";
   const paidOn = policy === "allow-paid" || policy === "paid-only";
   const quota =
@@ -1254,18 +1269,6 @@ function modelAvailability(model, policy, now, task = "chat") {
         model?.accessRecord?.evidence?.stale === true;
       return { visibility: "hide", reason: stale ? "pricing-stale" : "cost-unknown" };
     }
-  }
-  if (
-    (task === "chat" || task === "fast") &&
-    model?.capabilities &&
-    model.capabilities.chat === false
-  ) {
-    const why = model.capabilities.embeddings
-      ? "flagged embedding-only"
-      : model.capabilities.audio
-        ? "flagged speech-only"
-        : "not-chat";
-    return { visibility: "hide", reason: why };
   }
   return {
     visibility: "show",
@@ -1487,7 +1490,11 @@ function hardReject(model, ctx) {
   } else {
     if (m.access === "paid" && ctx.usage !== "allow-paid") return "cost";
     if (m.access === "unknown" && !spendCapAllows(m)) {
-      if (!preferredHit(m, ctx.preferred)) return "cost";
+      // Naming a provider ("use Groq") is the owner's own choice of that provider's
+      // models; with paid access on it opens its unknown-cost ones. The billing
+      // firewall still has the last word on every request.
+      const providerNamed = ctx.usage === "allow-paid" && ctx.selectedProviderIds.length > 0;
+      if (!preferredHit(m, ctx.preferred) && !providerNamed) return "cost";
     }
   }
   if (m.meta?.loaded === false || m.status === "unavailable") return "unavailable";
@@ -1587,6 +1594,7 @@ function prepareRoute(models, options = {}) {
     cloudChosenByMode ||
     (usage === "allow-paid" && m.access === "paid") ||
     (usage === "allow-paid" && m.access === "unknown" && spendCapAllows(m)) ||
+    (usage === "allow-paid" && m.access === "unknown" && selectedProviderIds.length > 0) ||
     preferred.some((id) => matchPreferred([m], id) === m);
 
   const ctx = {
@@ -2662,10 +2670,19 @@ function explainUnavailable({
   unlocked = true,
   checked = [],
   failures = [],
+  providers = [],
 } = {}) {
   const route = normaliseRouteMode(mode);
   const usage = normalisePolicy(policy);
   const picked = (preferred || []).filter(Boolean);
+  const named = (providers || []).filter(Boolean);
+
+  if (named.length && !(Array.isArray(failures) && failures.length)) {
+    const who = named.join(", ");
+    return usage === "allow-paid"
+      ? `You asked for ${who} only, and none of its models can answer right now. Connect its key in Models, or check that it lists a chat model.`
+      : `You asked for ${who} only, but none of its models is allowed under the current cost mode. Its cost is not proven free: turn on paid access (or mark the provider free in Models) and ask again.`;
+  }
 
   if (route === "local-only" && usage === "paid-only") {
     return [
@@ -3028,7 +3045,12 @@ function routeRequest(models, options = {}) {
   const groups = {
     local: localPick,
     "cloud-free": preferNewestFree(split.free, { failedIds: options.failedIds, allowlist }).order,
-    "cloud-paid": split.paid,
+    // Unknown-cost models join only when the owner named their provider and the
+    // paid lane is open; the billing firewall still checks every request.
+    "cloud-paid": [
+      ...split.paid,
+      ...(decision.paidOpen && (options.selectedProviderIds || []).length > 0 ? split.unknown : []),
+    ],
   };
   const droppedPaid = split.droppedPaid;
   laneOptions.traceExclusions = [

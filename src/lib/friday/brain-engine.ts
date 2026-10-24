@@ -185,6 +185,7 @@ import {
 } from "./self/task-runners";
 import { handleDoctorCommand } from "./doctor-engine";
 import { handleInstallerCommand } from "./installer-engine";
+import { handleModelsCommand } from "./models-command";
 import {
   kernelCall,
   checkForUpdates,
@@ -1739,6 +1740,18 @@ class BrainStore {
         handled: true,
         kind: "action",
         text: doctorReply,
+        confidence: 1,
+      });
+      return;
+    }
+
+    const modelsReply = handleModelsCommand(work);
+    if (modelsReply) {
+      stampUnderstanding("models question — no model");
+      void this.answerFromBaseline(run, {
+        handled: true,
+        kind: "action",
+        text: modelsReply,
         confidence: 1,
       });
       return;

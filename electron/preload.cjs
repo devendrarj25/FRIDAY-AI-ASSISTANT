@@ -245,6 +245,8 @@ contextBridge.exposeInMainWorld("friday", {
   onConnectivityChanged: on("connectivity:changed"),
 
   modelHealthState: () => ipcRenderer.invoke("models:health-state"),
+  modelLiveStatus: () => ipcRenderer.invoke("models:live-status"),
+  resetModelUsage: (modelId) => ipcRenderer.invoke("models:usage-reset", modelId || null),
   syncKernelModels: (force) => ipcRenderer.invoke("models:sync-kernel", Boolean(force)),
   selectModels: (task, preferred) =>
     ipcRenderer.invoke("models:select", task || "chat", preferred || []),
@@ -695,6 +697,7 @@ contextBridge.exposeInMainWorld("friday", {
   onProvidersDetected: on("providers:detected"),
   onModelRegistryChanged: on("models:registry-changed"),
   onModelHealthChanged: on("models:health-changed"),
+  onModelUsageChanged: on("models:usage-changed"),
   onModelPolicy: on("models:policy"),
   onNetworkStatus: on("system:network"),
 

@@ -372,6 +372,23 @@ if (process.env.FRIDAY_READINESS === "1") readinessTrace.trace("before-subsystem
 
 /** Live model health/cooldown state (rate limits, quota, bad keys). */
 const providerHealth = new modelRouter.ProviderHealthManager();
+const modelUsage = require("./model-usage.cjs");
+let usageSaveTimer = null;
+const usageLedger = modelUsage.createUsageLedger({
+  onChange: () => {
+    send("models:usage-changed", { at: Date.now() });
+    if (usageSaveTimer) return;
+    usageSaveTimer = setTimeout(() => {
+      usageSaveTimer = null;
+      try {
+        writeSettings({ ...readSettings(), modelUsage: usageLedger.snapshot() });
+      } catch (error) {
+        log(`model usage could not be saved: ${error?.message || error}`);
+      }
+    }, 1500);
+    if (usageSaveTimer.unref) usageSaveTimer.unref();
+  },
+});
 // The temp fallback in friday-paths stands until the app is ready. userData
 // is applied in the whenReady handler below, never on this turn.
 if (process.env.FRIDAY_BOOT_SELFTEST && process.env.FRIDAY_WORKSPACE_ROOT) {
@@ -1996,6 +2013,7 @@ function startModelRegistryRefresh() {
   if (modelRefreshTimer) return;
   try {
     providerHealth.importState(readSettings().routerHealth);
+    usageLedger.load(readSettings().modelUsage);
   } catch {
     /* a missing settings file is a fresh install */
   }
@@ -2258,11 +2276,15 @@ function modelAllowlist() {
 }
 
 function setModelAllowlist(value) {
-  const next = modelRouter.normaliseAllowlist(value) || {
-    saved: true,
-    ids: [],
-    paidEnabled: false,
-  };
+  const next = modelRouter.normaliseAllowlist(value);
+  // An empty list would silently block every cloud model, which nobody means by
+  // "save". Nothing selected removes the restriction; local-only mode is how to
+  // keep a turn off the cloud.
+  if (!next || next.ids.length === 0) {
+    const { modelAllowlist: _removed, ...rest } = readSettings();
+    writeSettings(rest);
+    return { ids: [], paidEnabled: false, cleared: true };
+  }
   writeSettings({
     ...readSettings(),
     modelAllowlist: { ids: next.ids, paidEnabled: next.paidEnabled },
@@ -2729,7 +2751,27 @@ async function authoriseProviderRequest({
  * instead — that is what the Brain's multi-model collaboration path uses so
  * two or three concurrent candidates do not interleave into one bubble.
  */
-async function streamOnce({
+/** Every provider request goes through here once, so the usage ledger sees all of them. */
+async function streamOnce(args) {
+  const result = await streamOnceRaw(args);
+  try {
+    usageLedger.record({
+      modelId: args.model?.id,
+      providerId: args.model?.meta?.providerId || args.model?.providerId,
+      type: args.model?.type,
+      prompt: args.prompt,
+      text: result?.text,
+      ok: Boolean(result?.ok),
+      cancelled: Boolean(result?.cancelled),
+      blocked: Boolean(result?.blocked),
+    });
+  } catch (error) {
+    log(`model usage was not recorded: ${error?.message || error}`);
+  }
+  return result;
+}
+
+async function streamOnceRaw({
   requestId,
   request,
   prompt,
@@ -3205,6 +3247,7 @@ async function startChat(request) {
     mode: routeMode,
     policy,
     preferred,
+    providers: selectedProviderIds,
     unlocked,
     checked,
     failures: failures.length
@@ -5650,6 +5693,52 @@ ipcMain.handle("models:registry", async (_e, force) => {
   };
 });
 ipcMain.handle("models:health-state", () => providerHealth.snapshot());
+// One live record per model: usage so far, plus the router's own health for it.
+ipcMain.handle("models:live-status", () => {
+  const now = Date.now();
+  const usage = usageLedger.snapshot();
+  const health = new Map(providerHealth.snapshot(now).map((row) => [row.modelId, row]));
+  const ids = new Set([...usage.models.map((row) => row.modelId), ...health.keys()]);
+  const used = new Map(usage.models.map((row) => [row.modelId, row]));
+  return {
+    at: now,
+    totals: usage.totals,
+    models: [...ids].map((modelId) => {
+      const u = used.get(modelId) || null;
+      const h = health.get(modelId) || null;
+      return {
+        modelId,
+        providerId: u?.providerId || null,
+        requests: u?.requests || 0,
+        answered: u?.answered || 0,
+        failed: u?.failed || 0,
+        blocked: u?.blocked || 0,
+        promptTokens: u?.promptTokens || 0,
+        completionTokens: u?.completionTokens || 0,
+        todayTokens: u?.todayTokens || 0,
+        estimated: Boolean(u?.estimated),
+        lastAt: u?.lastAt || 0,
+        lastOutcome: u?.lastOutcome || null,
+        status: h?.status || "available",
+        category: h?.category || null,
+        coolingDown: Boolean(h?.coolingDown),
+        cooldownUntil: h?.cooldownUntil || 0,
+        quarantined: Boolean(h?.quarantined),
+        breaker: h?.breaker || "CLOSED",
+        failures: h?.failures || 0,
+        lastError: h?.lastError || null,
+        nextStep: h?.nextStep || "",
+        latencyMs: h?.latencyMs ?? null,
+        lastOkAt: h?.lastOkAt || 0,
+      };
+    }),
+    decisions: Array.isArray(providerHealth.decisions) ? providerHealth.decisions.slice(-8) : [],
+  };
+});
+ipcMain.handle("models:usage-reset", (_e, modelId) => {
+  usageLedger.reset(modelId || undefined);
+  return { ok: true };
+});
 
 // The authoritative provider registry — System Status, Models, Diagnostics and
 // routing all read this one record so no screen can drift from another.

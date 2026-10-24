@@ -2792,16 +2792,46 @@ export function registryTag(model: ModelSpec): string | null {
   return null;
 }
 
-/** Match a real installed tag (`llama3.1:8b`) back to a catalog entry. */
+/**
+ * Does an installed tag (`qwen2.5:1.5b`, `qwen2.5:latest`, `qwen2.5`) mean this
+ * exact catalog tag? Sizes never match each other: `qwen2.5:latest` is the
+ * engine's default build, which is a catalog row only when that row's tag has no
+ * size, so one installed model can never mark every size of its family.
+ */
+export function tagMatches(installedTag: string, specTag: string): boolean {
+  const have = installedTag.trim().toLowerCase();
+  const want = specTag.trim().toLowerCase();
+  if (!have || !want) return false;
+  if (have === want) return true;
+  const haveBare = have.replace(/:latest$/, "");
+  const wantBare = want.replace(/:latest$/, "");
+  return !haveBare.includes(":") && !wantBare.includes(":") && haveBare === wantBare;
+}
+
+/**
+ * Every catalog entry an installed tag stands for. Two entries can name the same
+ * engine tag (an alias row), and then one install is both. A `:latest` tag is the
+ * engine's own default build, so it names a family row only when the catalog has
+ * exactly one size of that family; with several it names none of them.
+ */
+export function modelsByTag(tag: string): ModelSpec[] {
+  const exact = modelCatalog.filter((model) => {
+    const t = registryTag(model);
+    return Boolean(t) && tagMatches(tag, t!);
+  });
+  if (exact.length) return exact;
+  const wanted = tag.trim().toLowerCase();
+  if (!wanted.endsWith(":latest")) return [];
+  const family = wanted.slice(0, -":latest".length);
+  const sizes = modelCatalog.filter(
+    (model) => registryTag(model)?.toLowerCase().split(":")[0] === family,
+  );
+  return sizes.length === 1 ? sizes : [];
+}
+
+/** The first catalog entry an installed tag (`llama3.1:8b`) stands for. */
 export function modelByTag(tag: string): ModelSpec | null {
-  const normalized = tag.trim().toLowerCase();
-  const bare = normalized.replace(/:latest$/, "");
-  for (const model of modelCatalog) {
-    const t = registryTag(model)?.toLowerCase();
-    if (!t) continue;
-    if (t === normalized || t === bare || t.split(":")[0] === bare) return model;
-  }
-  return null;
+  return modelsByTag(tag)[0] ?? null;
 }
 
 /* ------------------------------------------------------- provider API ids */

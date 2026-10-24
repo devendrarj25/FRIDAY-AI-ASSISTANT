@@ -76,6 +76,7 @@ import { useBilling } from "@/lib/friday/use-billing";
 import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
 import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/installer-engine";
 import { useInstaller } from "@/lib/friday/use-installer";
+import { ModelsLivePanel } from "@/components/friday/ModelsLivePanel";
 import { modelRegistry } from "@/lib/friday/model-registry";
 import { useModelRegistry } from "@/lib/friday/use-model-registry";
 import { useLivePoll } from "@/lib/friday/use-live-poll";
@@ -128,6 +129,7 @@ const TABS = [
   { key: "catalog", label: "Catalog" },
   { key: "installed", label: "Installed" },
   { key: "providers", label: "Providers" },
+  { key: "live", label: "Live Status" },
   { key: "routing", label: "Routing & Modes" },
   { key: "runtime", label: "Live Runtime" },
   { key: "benchmarks", label: "Benchmarks" },
@@ -498,7 +500,25 @@ function CloudSelection({
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [paidOn, setPaidOn] = useState(false);
-  const [note, setNote] = useState("Only the selected models are ever used.");
+  const [note, setNote] = useState(
+    "No selection saved: every connected model your cost policy allows can be used.",
+  );
+  // Show what is really saved, so Save never replaces it with an empty page.
+  useEffect(() => {
+    let live = true;
+    void desktopApi()
+      ?.modelAllowlist?.()
+      .then((saved) => {
+        if (!live || !saved?.saved) return;
+        setPicked(saved.ids);
+        setPaidOn(saved.paidEnabled);
+        setNote("Only the selected models are ever used.");
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   const [shown, setShown] = useState(24);
   const cloud = models.filter((model) => model.type === "cloud");
   const visible = cloud.slice(0, shown);
@@ -535,12 +555,18 @@ function CloudSelection({
           size="sm"
           variant="outline"
           onClick={() => {
-            void desktopApi()?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn });
-            setNote(
-              paidOn
-                ? "Saved. Paid models you selected still need a budget."
-                : "Saved. Only the selected models are ever used.",
-            );
+            void desktopApi()
+              ?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn })
+              .then((saved) =>
+                setNote(
+                  saved.cleared
+                    ? "Nothing selected, so no restriction is saved: every connected model your cost policy allows can be used."
+                    : paidOn
+                      ? "Saved. Paid models you selected still need a budget."
+                      : "Saved. Only the selected models are ever used.",
+                ),
+              )
+              .catch((err: Error) => setNote(`Not saved — ${err.message}`));
           }}
         >
           Save selection
@@ -1358,7 +1384,9 @@ function ModelsPage() {
                   <span key="st" className="flex items-center gap-1.5">
                     <StatusPill
                       label={status}
-                      tone={toneForStatus(status === "Installed" ? "ready" : status)}
+                      tone={toneForStatus(
+                        status === "Installed" || status === "Connected" ? "ready" : status,
+                      )}
                     />
                     {runtime ? (
                       <StatusPill
@@ -1661,6 +1689,9 @@ function ModelsPage() {
             </div>
           </div>
         )}
+
+        {/* ------------------------------------------------------ live status */}
+        {tab === "live" && <ModelsLivePanel />}
 
         {/* ---------------------------------------------------------- runtime */}
         {tab === "runtime" && (

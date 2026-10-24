@@ -657,7 +657,7 @@ type DesktopApi = {
   setModelAllowlist?: (value: {
     ids?: string[];
     paidEnabled?: boolean;
-  }) => Promise<{ ids: string[]; paidEnabled: boolean }>;
+  }) => Promise<{ ids: string[]; paidEnabled: boolean; cleared?: boolean }>;
   modelBudget?: () => Promise<{ allows: boolean; reason: string; configured: boolean }>;
   setModelBudget?: (value: {
     perRequestUsd?: number | null;
@@ -681,6 +681,10 @@ type DesktopApi = {
   modelHealthState?: () => Promise<
     { modelId: string; status: string; cooldownUntil: number; coolingDown: boolean }[]
   >;
+  /** Usage so far plus the router's health for every model it has touched. */
+  modelLiveStatus?: () => Promise<ModelLiveStatus>;
+  resetModelUsage?: (modelId?: string | null) => Promise<{ ok: boolean }>;
+  onModelUsageChanged?: (cb: (p: { at: number }) => void) => () => void;
   onModelRegistryChanged?: (cb: (p: { at: number; provider?: string }) => void) => () => void;
   onModelHealthChanged?: (
     cb: (p: { modelId: string; status: string; cooldownUntil: number }) => void,
@@ -885,6 +889,46 @@ export type DiscoveryResult = {
   cached?: boolean;
   offline?: boolean;
   error?: string;
+};
+
+export type ModelLiveRow = {
+  modelId: string;
+  providerId: string | null;
+  requests: number;
+  answered: number;
+  failed: number;
+  blocked: number;
+  promptTokens: number;
+  completionTokens: number;
+  todayTokens: number;
+  /** True when any count is an estimate (about four characters a token). */
+  estimated: boolean;
+  lastAt: number;
+  lastOutcome: "answered" | "failed" | "blocked" | null;
+  status: string;
+  category: string | null;
+  coolingDown: boolean;
+  cooldownUntil: number;
+  quarantined: boolean;
+  breaker: string;
+  failures: number;
+  lastError: string | null;
+  nextStep: string;
+  latencyMs: number | null;
+  lastOkAt: number;
+};
+
+export type ModelLiveStatus = {
+  at: number;
+  totals: { requests: number; tokens: number; todayTokens: number };
+  models: ModelLiveRow[];
+  decisions: {
+    at: number;
+    modelId: string;
+    why: string;
+    latencyMs: number | null;
+    outcome: string;
+  }[];
 };
 
 export type ModelInventory = {

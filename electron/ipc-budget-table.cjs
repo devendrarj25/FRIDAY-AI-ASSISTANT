@@ -266,6 +266,8 @@ const CHANNEL_CLASS = Object.freeze({
   "models:heal": "quick",
   "models:health": "quick",
   "models:health-state": "quick",
+  "models:live-status": "quick",
+  "models:usage-reset": "quick",
   "models:inventory": "quick",
   "models:keys": "quick",
   "models:policy": "quick",

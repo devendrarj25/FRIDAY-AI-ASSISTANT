@@ -18,6 +18,7 @@ import {
   checkSupport,
   modelById,
   modelByTag,
+  modelsByTag,
   registryTag,
   modelCatalog,
   providerById,
@@ -29,6 +30,7 @@ import {
   type SystemProfile,
 } from "./model-catalog";
 import { downloadSources } from "./model-sources";
+import { livePoller } from "./live-poll";
 import { modelIdleMs, shouldKeepModelsWarm, shouldUnloadIdleModels } from "./settings-runtime";
 
 export type JobKind = "download" | "update" | "remove" | "benchmark" | "import";
@@ -153,6 +155,7 @@ export type ModelsState = {
 
 const STORAGE_KEY = "friday.models.v1";
 const TICK_MS = 400;
+const INVENTORY_POLL_MS = 20_000;
 const MAX_LOG = 200;
 
 const clock = (at = Date.now()) =>
@@ -301,11 +304,31 @@ class ModelsStore {
     if (!this.hydrated && typeof window !== "undefined") {
       window.setTimeout(() => this.hydrate(), 0);
     }
+    // While a view is open the inventory is re-read on the shared poller, so an
+    // install or delete made outside FRIDAY (the engine's own CLI) shows up here.
+    if (!this.offInventory && typeof window !== "undefined") {
+      this.offInventory = livePoller().subscribe(
+        "models.inventory",
+        async () => {
+          if (this.state.bridge !== "desktop" || this.state.scanning) return;
+          if (await this.refreshFromDesktop()) this.emit(false);
+        },
+        INVENTORY_POLL_MS,
+        undefined,
+        false,
+      );
+    }
     return () => {
       this.listeners.delete(l);
-      if (this.listeners.size === 0) this.stopTimer();
+      if (this.listeners.size === 0) {
+        this.stopTimer();
+        this.offInventory?.();
+        this.offInventory = null;
+      }
     };
   };
+
+  private offInventory: (() => void) | null = null;
 
   getSnapshot = () => this.snapshot;
 
@@ -464,8 +487,7 @@ class ModelsStore {
       if (provider.kind !== "local") continue;
       for (const model of provider.models) {
         installedTags.add(model.id);
-        const spec = modelByTag(model.id);
-        if (spec) this.state.installed[spec.id] = spec.version;
+        for (const spec of modelsByTag(model.id)) this.state.installed[spec.id] = spec.version;
       }
     }
 
@@ -479,8 +501,7 @@ class ModelsStore {
       if (spec.kind !== "local" || !scannedProviders.has(spec.provider)) continue;
       const tag = registryTag(spec);
       const present = [...installedTags].some(
-        (t) =>
-          t === spec.id || (tag && (t === tag || t.replace(/:latest$/, "") === tag.split(":")[0])),
+        (t) => t === spec.id || (tag !== null && modelsByTag(t).some((hit) => hit.id === spec.id)),
       );
       if (!present && this.state.installed[spec.id]) this.state.installed[spec.id] = null;
     }
@@ -1210,25 +1231,38 @@ class ModelsStore {
     }
     const api = desktopApi();
     const tag = registryTag(model);
+    const forget = () => {
+      this.unload(modelId, true);
+      this.state.installed[modelId] = null;
+      for (const [task, id] of Object.entries(this.state.routing)) {
+        if (id === modelId) this.state.routing[task as RoutingTask] = null;
+      }
+      this.state.multiModel = this.state.multiModel.filter((id) => id !== modelId);
+    };
     if (this.state.bridge === "desktop" && api?.removeModel && tag) {
+      // The row stays installed until the engine confirms the delete, so the page
+      // never says a model is gone while its files are still on disk.
       void api
         .removeModel(tag)
-        .then((r) => {
-          this.push(
-            r.ok ? "warn" : "error",
-            r.ok ? `${model.name} deleted from disk` : `${model.name} — ${r.error}`,
-          );
-          return this.refreshFromDesktop();
+        .then(async (r) => {
+          if (r.ok) {
+            forget();
+            this.push("warn", `${model.name} deleted from disk — ${formatGb(model.sizeGb)} freed`);
+          } else {
+            this.push(
+              "error",
+              `${model.name} was not deleted — ${r.error ?? "the engine refused"}`,
+            );
+          }
+          await this.refreshFromDesktop();
+          this.emit();
         })
-        .then(() => this.emit())
-        .catch((err: Error) => this.log("error", `${model.name} — ${err.message}`));
+        .catch((err: Error) => {
+          this.log("error", `${model.name} was not deleted — ${err.message}`);
+        });
+      return;
     }
-    this.unload(modelId, true);
-    this.state.installed[modelId] = null;
-    for (const [task, id] of Object.entries(this.state.routing)) {
-      if (id === modelId) this.state.routing[task as RoutingTask] = null;
-    }
-    this.state.multiModel = this.state.multiModel.filter((id) => id !== modelId);
+    forget();
     this.push("warn", `${model.name} removed — ${formatGb(model.sizeGb)} reclaimed`);
     this.emit();
   }
@@ -1702,11 +1736,14 @@ class ModelsStore {
 
   /* ---------------------------------------------------------------- status */
 
-  statusOf(modelId: string): "Installed" | "Update available" | "Not installed" | "Available" {
+  statusOf(
+    modelId: string,
+  ): "Installed" | "Connected" | "Update available" | "Not installed" | "Available" {
     const model = modelById.get(modelId);
     if (!model) return "Not installed";
+    // A hosted model is never "installed": it is connected when its provider answers with a key.
     if (model.kind === "cloud")
-      return this.state.providerState[model.provider]?.apiKey ? "Installed" : "Available";
+      return this.state.providerState[model.provider]?.apiKey ? "Connected" : "Available";
     const installed = this.state.installed[modelId];
     if (!installed) return "Not installed";
     return installed === model.version ? "Installed" : "Update available";
