@@ -64,7 +64,7 @@ Tool, resource, and prompt names below are generated. Edit the catalog, then run
 
 <!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->
 
-Protocol `2026-07-28`. Kernel tools in the risk table: 53.
+Protocol `2026-07-28`. Kernel tools in the risk table: 68.
 
 | Tool | Risk | Scopes |
 | --- | --- | --- |
@@ -92,9 +92,24 @@ Protocol `2026-07-28`. Kernel tools in the risk table: 53.
 | `friday.thread.append` | write | write |
 | `friday.thread.read` | safe | read |
 | `friday.web.search` | safe | read |
+| `kernel.archive.create` | write | write, files |
+| `kernel.archive.extract` | write | write, files |
+| `kernel.archive.list` | safe | read, files |
 | `kernel.ci.run` | exec | exec, sandbox |
 | `kernel.cpp.build` | exec | exec, sandbox |
 | `kernel.cpp.run` | exec | exec, sandbox |
+| `kernel.docker.pull` | write | write |
+| `kernel.docker.run` | exec | exec, sandbox |
+| `kernel.docker.status` | safe | read |
+| `kernel.fs.copy` | write | write, files |
+| `kernel.fs.delete` | write | write, files |
+| `kernel.fs.extract` | safe | read, files |
+| `kernel.fs.find` | safe | read, files |
+| `kernel.fs.identify` | safe | read, files |
+| `kernel.fs.info` | safe | read, files |
+| `kernel.fs.list` | safe | read, files |
+| `kernel.fs.mkdir` | write | write, files |
+| `kernel.fs.move` | write | write, files |
 | `kernel.fs.read` | safe | read, files |
 | `kernel.fs.write` | write | write, files |
 | `kernel.git` | write | write |

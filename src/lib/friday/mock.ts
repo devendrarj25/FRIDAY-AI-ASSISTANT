@@ -122,7 +122,7 @@ export const tools: ToolDef[] = [
     risk: "safe",
     enabled: true,
   },
-  { name: "fs.write", summary: "Create, edit and delete files", risk: "write", enabled: true },
+  { name: "fs.write", summary: "Create and edit files", risk: "write", enabled: true },
   { name: "shell.cmd", summary: "Run a Windows cmd command", risk: "exec", enabled: true },
   {
     name: "shell.powershell",

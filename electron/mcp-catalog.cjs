@@ -40,7 +40,7 @@ const WITHHELD = {
   "network.cast": "Casting to another device stays on the desktop.",
 };
 
-const OPEN_WORLD = new Set(["http.fetch", "network.discover", "network.cast"]);
+const OPEN_WORLD = new Set(["http.fetch", "network.discover", "network.cast", "docker.pull"]);
 const SANDBOX = new Set([
   "python.exec",
   "node.run",
@@ -51,6 +51,7 @@ const SANDBOX = new Set([
   "java.compile",
   "ci.run",
   "test.run",
+  "docker.run",
 ]);
 
 const FRIDAY_TOOLS = [
@@ -308,7 +309,7 @@ function loadKernelRisk(root = path.resolve(__dirname, "..")) {
 
 function scopesForKernel(name, risk) {
   const scopes = [risk === "safe" ? "read" : risk === "write" ? "write" : "exec"];
-  if (name.startsWith("fs.")) scopes.push("files");
+  if (name.startsWith("fs.") || name.startsWith("archive.")) scopes.push("files");
   if (SANDBOX.has(name)) scopes.push("sandbox");
   return [...new Set(scopes)];
 }

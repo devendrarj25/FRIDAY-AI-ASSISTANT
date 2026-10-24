@@ -334,6 +334,10 @@ try {
   Write-Step 'Creating the isolated Python environment and runtime storage'
   & node.exe scripts\setup-python.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
+
+  Write-Step 'Installing the agent tools FRIDAY needs (search, Git, build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC); big models and model-only runners come later'
+  & node.exe scripts\prefetch-toolkit.cjs
+  if ($LASTEXITCODE -ne 0) { Write-Host '[FRIDAY] INFO the tool prefetch did not finish; the Install Manager offers each tool later.' }
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 

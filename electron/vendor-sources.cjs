@@ -288,6 +288,32 @@ const FEEDS = {
     kind: "exe",
     bin: "koboldcpp.exe",
   }),
+  // Portable zip feeds for the command-line tools an agent leans on. They are the
+  // fallback when winget is missing or fails; the unpacked folder joins PATH.
+  ripgrep: githubFeed({
+    repo: "BurntSushi/ripgrep",
+    asset: /^ripgrep-[\d.]+-x86_64-pc-windows-msvc\.zip$/,
+    kind: "zip",
+    bin: (name) => `${name.replace(/\.zip$/, "")}/rg.exe`,
+  }),
+  "uv (Python)": githubFeed({
+    repo: "astral-sh/uv",
+    asset: /^uv-x86_64-pc-windows-msvc\.zip$/,
+    kind: "zip",
+    bin: "uv.exe",
+  }),
+  CMake: githubFeed({
+    repo: "Kitware/CMake",
+    asset: /^cmake-[\d.]+-windows-x86_64\.zip$/,
+    kind: "zip",
+    bin: (name) => `${name.replace(/\.zip$/, "")}/bin/cmake.exe`,
+  }),
+  Ninja: githubFeed({
+    repo: "ninja-build/ninja",
+    asset: /^ninja-win\.zip$/,
+    kind: "zip",
+    bin: "ninja.exe",
+  }),
   "FRIDAY GitHub CLI": githubFeed({
     repo: "cli/cli",
     asset: /^gh_[\d.]+_windows_amd64\.zip$/,

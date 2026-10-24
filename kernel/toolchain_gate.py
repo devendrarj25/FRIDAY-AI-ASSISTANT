@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -196,6 +198,65 @@ def plan_java(action: str, args: dict, workspace: Path) -> dict:
     if action == "compile":
         return {"ok": True, "argv": [javac, str(source)], "cwd": str(workspace), "timeout": 30}
     return {"ok": True, "argv": [java, str(source.with_suffix(""))], "cwd": str(workspace), "timeout": 20}
+
+
+IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?(@sha256:[0-9a-f]{64})?$")
+LIMIT = re.compile(r"^\d+(\.\d+)?[bkmg]?$", re.IGNORECASE)
+
+
+def plan_docker(action: str, args: dict, workspace: Path) -> dict:
+    """Docker, scoped to one workspace: no privilege, no network unless asked, caps dropped."""
+    docker = str(args.get("docker") or shutil.which("docker") or "")
+    if not docker:
+        return {
+            "ok": False,
+            "error": "Docker is not installed: add Docker Desktop from the Install Manager",
+            "cause": "missing",
+            "fatal": False,
+        }
+    if action == "status":
+        return {
+            "ok": True,
+            "argv": [docker, "version", "--format", "{{.Server.Version}}"],
+            "cwd": str(workspace),
+            "timeout": 20,
+        }
+    image = str(args.get("image") or "").strip()
+    if not IMAGE.match(image):
+        return {"ok": False, "error": f"{image or 'an image'} is not a valid image name", "cause": "usage"}
+    if action == "pull":
+        return {"ok": True, "argv": [docker, "pull", image], "cwd": str(workspace), "timeout": 1800}
+    command = args.get("command") or []
+    if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
+        return {"ok": False, "error": "command must be a list of arguments", "cause": "usage"}
+    memory = str(args.get("memory") or "1g")
+    if not LIMIT.match(memory):
+        return {"ok": False, "error": f"{memory} is not a memory limit", "cause": "usage"}
+    timeout = max(5, min(int(args.get("timeout") or 300), 1800))
+    argv = [
+        docker,
+        "run",
+        "--rm",
+        "--network",
+        "bridge" if args.get("network") else "none",
+        "--memory",
+        memory,
+        "--cpus",
+        str(max(1, min(int(args.get("cpus") or 2), 8))),
+        "--pids-limit",
+        "256",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--mount",
+        f"type=bind,src={workspace.resolve()},dst=/work",
+        "-w",
+        "/work",
+        image,
+        *command,
+    ]
+    return {"ok": True, "argv": argv, "cwd": str(workspace), "timeout": timeout}
 
 
 def plan_ci(args: dict, workspace: Path) -> dict:
