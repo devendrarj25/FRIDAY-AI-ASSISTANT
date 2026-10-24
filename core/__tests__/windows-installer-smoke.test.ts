@@ -35,7 +35,7 @@ describe("windows installer smoke", () => {
     expect(smoke).toContain("Remove-Item -LiteralPath $sandbox");
     expect(smoke).toContain("[friday] FAIL installer smoke:");
     expect(smoke).toContain(
-      "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved",
+      "[friday] PASS installer -> boot -> reinstall -> silent update -> boot -> uninstall; data preserved",
     );
     expect(smoke).toContain("--friday-boot-selftest");
     expect(smoke).toContain("--friday-workspace=$rootDir");
@@ -48,6 +48,22 @@ describe("windows installer smoke", () => {
     const failExit = smoke.indexOf("if ($null -ne $smokeError) { exit 1 }");
     expect(passAt).toBeGreaterThan(-1);
     expect(failExit).toBeGreaterThan(passAt);
+  });
+
+  it("runs the silent in-place update FRIDAY itself uses, between the reinstall and the uninstall", () => {
+    const update = smoke.indexOf('"/S", "--updated", "--force-run"');
+    expect(update).toBeGreaterThan(-1);
+    // Same switches as electron/update-safety.cjs installerLaunch.
+    const safety = fs.readFileSync(path.join(root, "electron/update-safety.cjs"), "utf8");
+    expect(safety).toContain('["/S", "--updated", "--force-run"]');
+    expect(update).toBeGreaterThan(smoke.indexOf("In-place repair"));
+    expect(update).toBeLessThan(smoke.indexOf("$uninstallHits = 0"));
+    const block = smoke.slice(update, smoke.indexOf("$uninstallHits = 0"));
+    // Data and program survive; the app is closed again; the result still boots.
+    expect(block).toContain("The silent update removed the FRIDAY data folder.");
+    expect(block).toContain("The silent update left no FRIDAY.exe");
+    expect(block).toContain("Stop-InstalledApp");
+    expect(block).toContain("Verify-Boot");
   });
 
   it("keeps the CI parameters the pipeline already passes", () => {

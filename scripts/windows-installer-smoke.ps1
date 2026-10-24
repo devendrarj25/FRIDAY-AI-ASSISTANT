@@ -410,6 +410,36 @@ try {
   if (-not (Test-Path -LiteralPath $sentinel)) {
     throw "Reinstall / repair removed the FRIDAY data folder."
   }
+  # The in-place UPDATE path FRIDAY itself takes (electron/update-safety.cjs,
+  # installerLaunch): the same Setup, silent, with the update switches, over an
+  # install that already holds data. Data and the program must survive, and
+  # --force-run should start the app again; that start is only reported, because
+  # whether the runner's desktop session accepts a GUI launch is not something
+  # this check can promise. The app is closed again before anything else runs.
+  $p = Start-Tracked -FilePath $installerPath -ArgumentList @("/S", "--updated", "--force-run", "/D=$rootDir")
+  Wait-Exit $p 900 "FRIDAY Setup (silent update)" | Out-Null
+  $relaunched = $false
+  for ($i = 0; $i -lt 20; $i++) {
+    if (@(Get-OwnedProcesses).Count -gt 0) { $relaunched = $true; break }
+    Start-Sleep -Milliseconds 500
+  }
+  if ($relaunched) {
+    Write-Host "[friday] silent update started FRIDAY again (--force-run)"
+  } else {
+    Write-Host "[friday] WARN silent update did not start FRIDAY again within 10 seconds (--force-run); the install itself succeeded"
+  }
+  Stop-InstalledApp
+  Assert-NoInstallOrphans
+  if (-not (Test-Path -LiteralPath (Join-Path $installDir "FRIDAY.exe"))) {
+    throw "The silent update left no FRIDAY.exe in $installDir."
+  }
+  if (-not (Test-Path -LiteralPath $sentinel)) {
+    throw "The silent update removed the FRIDAY data folder."
+  }
+  Verify-Boot
+  Assert-NoInstallOrphans
+  Write-Host "[friday] PASS silent update over an existing install kept the program and the data"
+
   $uninstallHits = 0
   foreach ($rootKey in @(
       "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -464,7 +494,7 @@ try {
   } else {
     Write-Host "[friday] SKIP erase-all uninstall on this PC (it would delete the per-user FRIDAY folders); set FRIDAY_SMOKE_ERASE=1 to run it"
   }
-  Write-Host "[friday] PASS installer -> boot -> reinstall -> boot -> uninstall; data preserved"
+  Write-Host "[friday] PASS installer -> boot -> reinstall -> silent update -> boot -> uninstall; data preserved"
 } catch {
   $smokeError = $_
   Write-Host "[friday] FAIL installer smoke: $($_.Exception.Message)"
