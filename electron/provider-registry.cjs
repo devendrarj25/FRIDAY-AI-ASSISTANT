@@ -24,6 +24,8 @@ const LOCAL_PROVIDER_IDS = new Set([
   "vllm",
   "localai",
   "jan",
+  "koboldcpp",
+  "gpt4all",
   "mlx",
   "local",
 ]);

@@ -10,7 +10,18 @@ const billingPolicy = require_("../../electron/billing-policy.cjs");
 const access = require_("../../electron/model-access.cjs");
 const privacy = require_("../../electron/privacy-firewall.cjs");
 
-const KINDS = ["local", "ollama", "llamacpp", "lmstudio", "vllm", "localai", "jan", "mlx"];
+const KINDS = [
+  "local",
+  "ollama",
+  "llamacpp",
+  "lmstudio",
+  "vllm",
+  "localai",
+  "jan",
+  "koboldcpp",
+  "gpt4all",
+  "mlx",
+];
 // Every cost mode the owner can pick except Paid-only, which excludes free models by design.
 const POLICIES = ["free-only", "free-preferred", "allow-paid", null];
 const SECRET = "my key is sk-live-4eC39HqLyjWDarjtT1zdp7dc and password: hunter2";

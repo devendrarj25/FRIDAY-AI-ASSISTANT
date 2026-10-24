@@ -270,3 +270,103 @@ describe("transfers of found models", () => {
     expect(page).toContain("jobName(j)");
   });
 });
+
+describe("voice models on the Models page", () => {
+  const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+
+  it("lists exactly the voice weights that are on disk", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-voice-"));
+    try {
+      const put = (...parts: string[]) => {
+        mkdirSync(path.join(dir, ...parts.slice(0, -1)), { recursive: true });
+        writeFileSync(path.join(dir, ...parts), "x");
+      };
+      put("cache", "stt", "small", "config.json");
+      put("cache", "stt", "small", "model.bin");
+      put("cache", "stt", "tiny", "config.json"); // no model.bin: not ready
+      put("models", "silero-vad", "silero_vad.onnx");
+      put("models", "supertonic-3", "onnx", "vocoder.onnx");
+      const ids = weights
+        .voiceModelsOnDisk(dir, existsSync)
+        .map((row: { catalogId: string }) => row.catalogId)
+        .sort();
+      expect(ids).toEqual(["faster-whisper-small", "silero-vad", "supertonic-3"]);
+      expect(weights.voiceModelsOnDisk(null, existsSync)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads a speech size into the folder the speech worker opens", () => {
+    const target = weights.downloadTarget("faster-whisper-small", "/r");
+    expect(target).toEqual({ dir: path.join("/r", "cache", "stt"), folderId: "small" });
+    expect(weights.downloadTarget("faster-whisper", "/r").folderId).toBe("large-v3");
+    expect(weights.downloadTarget("qwen2.5-1.5b", "/r")).toBeNull();
+    expect(weights.downloadTarget("faster-whisper-small", null)).toBeNull();
+    expect(read("electron/main.cjs")).toContain('voice-weights.cjs").downloadTarget(modelId');
+  });
+
+  it("every voice id is in the catalog and defaults point at shipped engines", async () => {
+    const { VOICE_MODEL_IDS } = await import("../../src/lib/friday/models-engine");
+    const { modelById } = await import("../../src/lib/friday/model-catalog");
+    for (const id of VOICE_MODEL_IDS) expect(modelById.get(id), id).toBeTruthy();
+    const engine = read("src/lib/friday/models-engine.ts");
+    expect(engine).toContain('speech: "faster-whisper-small"');
+    expect(engine).toContain('voice: "supertonic-3"');
+    expect(read("electron/models.cjs")).toContain("voiceModelsOnDisk(voiceRoot || workspace");
+  });
+});
+
+describe("cloud catalogues are read whole", () => {
+  const modelsApi = require_(path.join(root, "electron/models.cjs"));
+
+  it("follows Anthropic's after_id cursor and Cohere's page token", async () => {
+    const anthropic = modelsApi.CLOUD.anthropic;
+    const seen: string[] = [];
+    const pages: Record<string, unknown> = {
+      [`${anthropic.url}?after_id=b`]: { data: [{ id: "c" }], has_more: false, last_id: "c" },
+    };
+    const merged = await modelsApi.followPages(
+      anthropic,
+      { ok: true, body: { data: [{ id: "a" }, { id: "b" }], has_more: true, last_id: "b" } },
+      anthropic.url,
+      {},
+      async (url: string) => {
+        seen.push(url);
+        return { ok: true, body: pages[url] };
+      },
+    );
+    expect(merged.body.data.map((m: { id: string }) => m.id)).toEqual(["a", "b", "c"]);
+    expect(seen).toEqual([`${anthropic.url}?after_id=b`]);
+
+    const cohere = modelsApi.CLOUD.cohere;
+    const next = cohere.nextPage({ next_page_token: "t2" }, cohere.url);
+    expect(new URL(next).searchParams.get("page_token")).toBe("t2");
+    expect(new URL(next).searchParams.get("endpoint")).toBe("chat");
+    expect(cohere.nextPage({ models: [] }, cohere.url)).toBeNull();
+  });
+
+  it("a failed page keeps the rows already read, and a repeating cursor stops", async () => {
+    const spec = { nextPage: () => "https://x.test/models?p=2" };
+    const failed = await modelsApi.followPages(
+      spec,
+      { ok: true, body: { data: [{ id: "a" }] } },
+      "https://x.test/models",
+      {},
+      async () => ({ ok: false, body: null }),
+    );
+    expect(failed.body.data).toEqual([{ id: "a" }]);
+    let calls = 0;
+    await modelsApi.followPages(
+      spec,
+      { ok: true, body: { data: [] } },
+      "https://x.test/models",
+      {},
+      async () => {
+        calls += 1;
+        return { ok: true, body: { data: [{ id: "z" }] } };
+      },
+    );
+    expect(calls).toBe(1);
+  });
+});

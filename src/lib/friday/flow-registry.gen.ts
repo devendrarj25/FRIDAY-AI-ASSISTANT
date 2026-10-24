@@ -3719,6 +3719,30 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "faster-whisper-base",
+      kind: "model",
+      name: "Faster Whisper base",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-medium",
+      kind: "model",
+      name: "Faster Whisper medium",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-small",
+      kind: "model",
+      name: "Faster Whisper small",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
+      id: "faster-whisper-tiny",
+      kind: "model",
+      name: "Faster Whisper tiny",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "fireworks-llama3.3-70b",
       kind: "model",
       name: "Llama 3.3 70B (Fireworks)",
@@ -8548,8 +8572,8 @@ export const FLOW_REGISTRY = {
       total: 116,
     },
     capabilities: {
-      mapped: 1016,
-      total: 1016,
+      mapped: 1020,
+      total: 1020,
     },
     ipc: {
       mapped: 462,

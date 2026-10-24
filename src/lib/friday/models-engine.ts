@@ -217,6 +217,18 @@ const baseProviders = (): Record<string, ProviderState> =>
     ]),
   );
 
+/** Voice models FRIDAY's own speech stack loads; installed only when on disk. */
+export const VOICE_MODEL_IDS = [
+  "faster-whisper-tiny",
+  "faster-whisper-base",
+  "faster-whisper-small",
+  "faster-whisper-medium",
+  "faster-whisper",
+  "silero-vad",
+  "smart-turn",
+  "supertonic-3",
+] as const;
+
 const baseRouting = (): Record<RoutingTask, string | null> => ({
   brain: "qwen2.5-32b",
   coding: "deepseek-coder-v2",
@@ -224,8 +236,8 @@ const baseRouting = (): Record<RoutingTask, string | null> => ({
   reasoning: "deepseek-r1-32b",
   vision: null,
   fast: "qwen2.5-1.5b",
-  speech: "whispercpp-base",
-  voice: "piper-en",
+  speech: "faster-whisper-small",
+  voice: "supertonic-3",
   image: null,
   embedding: "bge-m3",
   rerank: null,
@@ -315,6 +327,10 @@ class ModelsStore {
     }
     this.state.installed = installed;
     this.state.routing = { ...baseRouting(), ...(saved.routing ?? {}) };
+    // Older builds defaulted speech and voice to engines FRIDAY does not ship.
+    if (this.state.routing.voice === "piper-en") this.state.routing.voice = baseRouting().voice;
+    if (this.state.routing.speech === "whispercpp-base")
+      this.state.routing.speech = baseRouting().speech;
     this.state.benchmarks = saved.benchmarks ?? {};
     this.state.imported = saved.imported ?? [];
     this.state.active = saved.active ?? this.state.active;
@@ -467,6 +483,16 @@ class ModelsStore {
           t === spec.id || (tag && (t === tag || t.replace(/:latest$/, "") === tag.split(":")[0])),
       );
       if (!present && this.state.installed[spec.id]) this.state.installed[spec.id] = null;
+    }
+
+    // Voice weights are files, not an engine: the disk scan is the proof.
+    if (Array.isArray(inventory.voice)) {
+      const onDisk = new Set(inventory.voice.map((row) => row.catalogId));
+      for (const id of VOICE_MODEL_IDS) {
+        const spec = modelById.get(id);
+        if (!spec) continue;
+        this.state.installed[id] = onDisk.has(id) ? spec.version : null;
+      }
     }
 
     // Resident models reported by /api/ps are the only real runtimes.
@@ -1176,6 +1202,12 @@ class ModelsStore {
   remove(modelId: string) {
     const model = modelById.get(modelId);
     if (!model) return;
+    if ((VOICE_MODEL_IDS as readonly string[]).includes(modelId) && this.state.installed[modelId]) {
+      // Voice weights belong to the speech stack; deleting them here would leave
+      // the voice broken while this page claimed space was reclaimed.
+      this.log("warn", `${model.name} is part of the voice stack — manage it in Install Manager`);
+      return;
+    }
     const api = desktopApi();
     const tag = registryTag(model);
     if (this.state.bridge === "desktop" && api?.removeModel && tag) {

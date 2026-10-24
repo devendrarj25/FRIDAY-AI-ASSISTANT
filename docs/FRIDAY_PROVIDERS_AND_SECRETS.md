@@ -18,6 +18,8 @@ No API key. Detected by `electron/models.cjs`. Auto-start uses `electron/startup
 | `vllm` | vLLM | `http://127.0.0.1:8000` | pip `vllm` | Starts the exact explicitly selected safetensors folder, or the only folder in `<FRIDAY_ROOT>/models` (`vllm serve <dir>`). GGUF is not a vLLM start path; ambiguous folders are refused. |
 | `localai` | LocalAI | `http://127.0.0.1:8081` | Native `local-ai` binary (Linux/macOS). Windows: vendor docs are Docker, no `local-ai.exe` — not a fake winget. | Yes when `local-ai` is on PATH — `local-ai run --address 127.0.0.1:8081` (8081 so llama.cpp keeps 8080) |
 | `jan` | Jan | Desktop Local API `http://127.0.0.1:1337`; CLI fallback `http://127.0.0.1:6767` | winget `Jan.Jan` | No. Desktop Settings → Local API Server, or `jan serve <MODEL_ID>` (bare `jan serve` is interactive). A configured endpoint / `FRIDAY_JAN_ENDPOINT` wins; FRIDAY reports connected only after one candidate answers `/v1/models`. |
+| `koboldcpp` | KoboldCpp | `http://127.0.0.1:5001` (OpenAI-compatible `/v1`) | Official release `koboldcpp.exe` (pinned in `config/local-runners.json`) | No. It needs a model file: run `koboldcpp.exe` with a GGUF, or load one from its launcher. |
+| `gpt4all` | GPT4All | `http://127.0.0.1:4891` (`/v1/models`, `/v1/chat/completions`) | Official installer from its release page | No. GPT4All → Settings → Application → Enable Local API Server. |
 | `mlx` | MLX-LM | `http://127.0.0.1:8082` | pip `mlx-lm`, **darwin only** | macOS only, and only with exactly one safetensors folder (`mlx_lm.server --model`). Never listed or started on Windows. |
 
 llama.cpp health is `GET /health`. OpenAI-compatible locals use `GET /v1/models`. Ollama uses native `/api/chat`, `/api/pull`, `/api/show`. Inventory, the Providers detector, Test Provider, and service health all resolve the same configured/environment/default endpoint candidates; none can claim Jan (or another compatible local engine) is offline while routing is using a different configured endpoint.
@@ -172,6 +174,8 @@ One deduplicated record. ADOPT means built as described, ADAPT means built in a 
 | Stale snapshot as a paid error; hand-editing a date without a page | REJECT | Fail closed stays; a marker miss leaves the last table. |
 | Third-party silent installer flags; LM Studio direct exe pin; Ollama blob CDN wildcard | REJECT | Only documented flags, published digests, and same-family hosts are used. [Ollama Windows](https://docs.ollama.com/windows), [LM Studio download](https://lmstudio.ai/download). |
 | Launcher pins and download sources | ADOPT | [Ollama v0.40.4](https://github.com/ollama/ollama/releases/tag/v0.40.4), [Jan v0.8.6](https://github.com/janhq/jan/releases/tag/v0.8.6), [KoboldCpp v1.123](https://github.com/LostRuins/koboldcpp/releases/tag/v1.123), [llama.cpp b11609](https://github.com/ggml-org/llama.cpp/releases/tag/b11609), [Hub downloads](https://huggingface.co/docs/hub/en/models-downloading), [Hub API](https://huggingface.co/docs/hub/api). |
+| KoboldCpp and GPT4All as local chat engines (2026-10-24) | ADOPT | [KoboldCpp wiki](https://github.com/LostRuins/koboldcpp/wiki) documents port 5001 and the OpenAI-compatible chat API; the GPT4All API server docs (mirrored with the [GPT4All repository](https://github.com/nomic-ai/gpt4all)) document port 4891 with `/v1/models` and `/v1/chat/completions`. Both are free and private like every local engine. |
+| A model or provider named in the prompt (2026-10-24) | ADOPT | "use gpt-4o-mini", "gemini se pucho" or "ask claude" pins that turn through `promptRouting()` in `src/lib/friday/brain-engine.ts` (parser `src/lib/friday/brain/model-request.ts`). A bare mention is not a request. Both firewalls still decide in the main router. |
 | Newest verified-free id first; spend log beside budget caps | ADOPT | Version order is a sort on the verified list. An unverified newer id stays behind a proven older one; `budgetDecision` stays the cap. |
 | DashScope, SiliconFlow, Hyperbolic, Novita, AI21, Reka, Inception, Azure OpenAI, Bedrock, Vertex, Replicate, Cloudflare Workers AI, GitHub Models | REJECT | No endpoint, price, or free tier was added without a read official page. Bedrock, Foundry, and Vertex stay off until the owner connects those accounts. |
 
@@ -207,6 +211,8 @@ One deduplicated record. ADOPT means built as described, ADAPT means built in a 
 | `vllm` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `localai` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `jan` | implemented | existing-catalogue | yes | no | no | mocked | no |
+| `koboldcpp` | implemented | documented | yes | no | no | mocked | no |
+| `gpt4all` | implemented | documented | yes | no | no | mocked | no |
 | `mlx` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `local` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `huggingface-local` | download-manager | documented | yes | no | no | mocked | no |

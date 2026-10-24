@@ -91,6 +91,50 @@ function otherVoiceJobs() {
   ];
 }
 
+/** Models-page catalog id for each speech size FRIDAY can load. */
+const STT_CATALOG = {
+  tiny: "faster-whisper-tiny",
+  base: "faster-whisper-base",
+  small: "faster-whisper-small",
+  medium: "faster-whisper-medium",
+  "large-v3": "faster-whisper",
+};
+
+/**
+ * Voice models that are really on disk, by the same paths the speech worker
+ * and the kernel open. The Models page marks exactly these as installed.
+ */
+function voiceModelsOnDisk(root, exists) {
+  const check = exists || (() => false);
+  if (!root) return [];
+  const found = [];
+  for (const [size, catalogId] of Object.entries(STT_CATALOG)) {
+    const dir = path.join(root, "cache", "stt", size);
+    if (weightsReady(dir, check)) found.push({ catalogId, path: dir, kind: "stt" });
+  }
+  for (const row of PINNED) {
+    const file = path.join(root, ...row.dir, row.file);
+    if (check(file)) found.push({ catalogId: row.id, path: file, kind: "voice" });
+  }
+  for (const dir of [
+    path.join(root, "models", "supertonic-3"),
+    path.join(root, "models", "voice", "supertonic-3"),
+  ]) {
+    if (check(path.join(dir, "onnx", "vocoder.onnx"))) {
+      found.push({ catalogId: "supertonic-3", path: dir, kind: "tts" });
+      break;
+    }
+  }
+  return found;
+}
+
+/** Where the Models page should download a speech size so the worker finds it. */
+function downloadTarget(catalogId, root) {
+  if (!root) return null;
+  const size = Object.keys(STT_CATALOG).find((key) => STT_CATALOG[key] === catalogId);
+  return size ? { dir: path.join(root, "cache", "stt"), folderId: size } : null;
+}
+
 async function ensureSttWeights(model, root, deps = {}) {
   const plan = sttPlan(model, root);
   plan.skipped = otherVoiceJobs().map((row) => row.id);
@@ -140,7 +184,10 @@ async function ensureSttWeights(model, root, deps = {}) {
 
 module.exports = {
   STT_REPOS,
+  STT_CATALOG,
   sttPlan,
+  voiceModelsOnDisk,
+  downloadTarget,
   weightsReady,
   pinnedJobs,
   otherVoiceJobs,

@@ -156,6 +156,8 @@ def billing_class(model: Any) -> str:
         "vllm",
         "localai",
         "jan",
+        "koboldcpp",
+        "gpt4all",
         "mlx",
         "local",
     )

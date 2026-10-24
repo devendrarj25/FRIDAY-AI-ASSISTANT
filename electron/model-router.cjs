@@ -344,6 +344,8 @@ const LOCAL_PROVIDERS = new Set([
   "vllm",
   "localai",
   "jan",
+  "koboldcpp",
+  "gpt4all",
   "mlx",
   "local",
 ]);
@@ -1157,6 +1159,8 @@ const PROVIDER_NAMES = Object.freeze({
   vllm: "vLLM",
   localai: "LocalAI",
   jan: "Jan",
+  koboldcpp: "KoboldCpp",
+  gpt4all: "GPT4All",
   mlx: "MLX",
   local: "Local",
 });

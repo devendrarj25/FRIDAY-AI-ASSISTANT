@@ -2649,6 +2649,8 @@ function kernelChatModel(payload) {
     "llama.cpp",
     "localai",
     "jan",
+    "koboldcpp",
+    "gpt4all",
     "mlx",
   ]);
   if (localKinds.has(prefix) || localKinds.has(first.toLowerCase())) {
@@ -5327,6 +5329,8 @@ const modelsContext = () => ({
   // Provider keys are read from the same place they are written.
   userData: keyStoreRoot(),
   workspace: getWorkspaceRoot(),
+  // The speech worker and the kernel read voice weights from the FRIDAY root.
+  voiceRoot: paths.root(),
 });
 
 ipcMain.handle("models:inventory", () => modelsApi.inventory(modelsContext()));
@@ -5806,13 +5810,17 @@ ipcMain.handle("models:download", async (_e, payload) => {
   const controller = new AbortController();
   modelJobs.set(id, controller);
   const ctx = modelsContext();
-  const dir = paths.ensureDir("models");
+  // A speech size goes where the speech worker opens it (<root>\cache\stt\<size>);
+  // every other model lands in <root>\models\<id>.
+  const target = require("./voice-weights.cjs").downloadTarget(modelId, paths.root());
+  const dir = target ? target.dir : paths.ensureDir("models");
+  const folderId = target ? target.folderId : modelId;
   send("models:pull-progress", { jobId: id, model: modelId, status: "starting", progress: 0 });
   try {
     const pump = { paused: false };
     modelPumps.set(id, pump);
     const result = await modelDownload.downloadModel(
-      { modelId, sources, dir, control: pump, transferId: id },
+      { modelId: folderId, sources, dir, control: pump, transferId: id },
       (event) => send("models:pull-progress", { jobId: id, model: modelId, ...event }),
       controller.signal,
       { ollamaPull: modelsApi.ollamaPull },

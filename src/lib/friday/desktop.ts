@@ -891,6 +891,8 @@ export type ModelInventory = {
   at: number;
   providers: DiscoveredProvider[];
   running: RunningModel[];
+  /** Voice weights on disk (speech, turn, VAD, neural voice), by catalog id. */
+  voice?: { catalogId: string; path: string; kind: string }[];
   roots: string[];
   totals: { providersOnline: number; models: number; localModels: number };
 };
