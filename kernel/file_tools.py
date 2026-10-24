@@ -30,6 +30,7 @@ MAX_TEXT_BYTES = 2 * 1024**2
 LIST_LIMIT = 2_000
 FIND_LIMIT = 200
 TRASH = ".friday-trash"
+HIDDEN = {TRASH, ".friday-sandbox"}
 
 ZIP_EXT = {".zip", ".jar", ".apk", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".whl", ".nupkg"}
 TAR_MODES = {
@@ -197,7 +198,7 @@ def list_dir(path: Path, root: Path, depth: int = 1) -> dict:
         for item in sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if len(rows) >= LIST_LIMIT:
                 return
-            if item.name == TRASH or item.is_symlink():
+            if item.name in HIDDEN or item.is_symlink():
                 continue
             rows.append(
                 {
@@ -222,7 +223,7 @@ def find(path: Path, root: Path, pattern: str = "*", contains: str = "") -> dict
     for item in path.rglob("*"):
         if len(hits) >= FIND_LIMIT:
             break
-        if not item.is_file() or item.is_symlink() or TRASH in item.parts:
+        if not item.is_file() or item.is_symlink() or HIDDEN & set(item.parts):
             continue
         if not fnmatch.fnmatch(item.name.lower(), pattern.lower()):
             continue
@@ -461,7 +462,7 @@ def create_archive(sources: list[Path], target: Path, root: Path, overwrite: boo
             return {"ok": False, "error": f"{source.name} does not exist"}
         if source.is_dir():
             for item in sorted(source.rglob("*")):
-                if item.is_file() and not item.is_symlink() and TRASH not in item.parts and item != target:
+                if item.is_file() and not item.is_symlink() and not HIDDEN & set(item.parts) and item != target:
                     files.append((item, (Path(source.name) / item.relative_to(source)).as_posix()))
         elif source != target:
             files.append((source, source.name))

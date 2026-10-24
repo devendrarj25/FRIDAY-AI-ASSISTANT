@@ -374,13 +374,41 @@ Var FridayUnMode
 Var FridayUnRoot
 !endif
 
+!ifdef BUILD_UNINSTALLER
+; A silent uninstall keeps the data unless the caller passes /DELETEDATA, which
+; is an explicit, scripted request for the "Delete all FRIDAY data" outcome (the
+; interactive path needs a ticked box and a second YES). It is honoured only
+; together with /S, so a double-clicked uninstaller can never erase by accident.
+Function un.FridayDetectDeleteSwitch
+  StrCpy $R2 "0"
+  StrCpy $R0 0
+  friday_del_loop:
+    StrCpy $R1 "$CMDLINE" 11 $R0
+    StrCmp $R1 "" friday_del_done
+    StrCmp $R1 "/DELETEDATA" friday_del_found
+    StrCmp $R1 "/deletedata" friday_del_found
+    IntOp $R0 $R0 + 1
+    Goto friday_del_loop
+  friday_del_found:
+    StrCpy $R2 "1"
+  friday_del_done:
+FunctionEnd
+!endif
+
 !macro customUnInit
   ; Default for every path, including a silent uninstall and the uninstaller
   ; that a reinstall/upgrade runs first: KEEP the data.
   StrCpy $FridayUnMode "keep"
   ReadRegStr $FridayUnRoot HKCU "Software\FRIDAY" "WorkspacePath"
   ${If} ${Silent}
-    DetailPrint "Silent uninstall - keeping the FRIDAY data folder: $FridayUnRoot"
+    Call un.FridayDetectDeleteSwitch
+    ${If} $R2 == "1"
+    ${AndIf} "${PRODUCT_NAME}" != "FRIDAY Test"
+      StrCpy $FridayUnMode "delete"
+      DetailPrint "Silent uninstall with /DELETEDATA - deleting all FRIDAY data: $FridayUnRoot"
+    ${Else}
+      DetailPrint "Silent uninstall - keeping the FRIDAY data folder: $FridayUnRoot"
+    ${EndIf}
   ${EndIf}
 !macroend
 

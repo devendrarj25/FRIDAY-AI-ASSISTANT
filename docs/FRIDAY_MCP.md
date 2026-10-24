@@ -64,7 +64,7 @@ Tool, resource, and prompt names below are generated. Edit the catalog, then run
 
 <!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->
 
-Protocol `2026-07-28`. Kernel tools in the risk table: 68.
+Protocol `2026-07-28`. Kernel tools in the risk table: 69.
 
 | Tool | Risk | Scopes |
 | --- | --- | --- |
@@ -131,6 +131,7 @@ Protocol `2026-07-28`. Kernel tools in the risk table: 68.
 | `kernel.pip.show` | safe | read |
 | `kernel.pip.uninstall` | write | write |
 | `kernel.python.exec` | exec | exec, sandbox |
+| `kernel.sandbox.run` | exec | exec, sandbox |
 | `kernel.test.run` | exec | exec, sandbox |
 
 Resources:

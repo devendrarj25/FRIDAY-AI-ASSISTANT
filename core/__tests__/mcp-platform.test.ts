@@ -73,7 +73,7 @@ describe("MCP catalog matches kernel risk", () => {
   const built = catalog.buildCatalog(risk);
 
   it("maps every kernel tool and withholds the ones that must stay on the desktop", () => {
-    expect(Object.keys(risk)).toHaveLength(68);
+    expect(Object.keys(risk)).toHaveLength(69);
     const mapped = (name: string) =>
       built.mappings.find((item: { kernel: string }) => item.kernel === name);
     expect(mapped("archive.extract")).toMatchObject({ tier: "write", exposed: true });
@@ -83,6 +83,8 @@ describe("MCP catalog matches kernel risk", () => {
     expect(mapped("docker.run").scopes).toContain("sandbox");
     expect(mapped("docker.pull")).toMatchObject({ tier: "write", openWorld: true });
     expect(mapped("docker.status")).toMatchObject({ tier: "safe" });
+    expect(mapped("sandbox.run")).toMatchObject({ tier: "exec", exposed: true });
+    expect(mapped("sandbox.run").scopes).toContain("sandbox");
     for (const key of Object.keys(risk)) {
       const row = built.mappings.find((item: { kernel: string }) => item.kernel === key);
       expect(row, key).toBeTruthy();

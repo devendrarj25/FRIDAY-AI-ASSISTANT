@@ -14,10 +14,10 @@
 # from the project root matches CMD setup.
 #
 # These packages are the entire startup surface of the FastAPI kernel.
-fastapi>=0.142.2
+fastapi>=0.162.0
 uvicorn[standard]>=0.54.0
 httpx>=0.28.1
-pydantic>=2.13.5
+pydantic>=2.14.1
 PyYAML>=6.0.3
 
 # Voice runtime (same STT / TTS the app already uses). setup-python installs
@@ -31,7 +31,7 @@ faster-whisper>=1.2.1
 # in a PyPI release (latest remains 1.2.1, which only requires av>=11).
 # audiolab (via pyrnnoise) needs av>=17.0.0, so the safe range is below 19.
 av>=17.0.0,<19
-edge-tts>=7.2.8
+edge-tts>=7.3.1
 
 # Memory, devices, wake scorer, OCR and Windows control extras live in
 # kernel/requirements-capabilities.txt — not here — so a missing wheel cannot

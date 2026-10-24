@@ -3183,7 +3183,9 @@ function runJob({ id, action, root }, emit) {
     const fallback = action === "uninstall" ? null : directInstaller(tool);
 
     const vendorFeeds = require("./vendor-sources.cjs");
-    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id)) {
+    const altManagers =
+      action === "uninstall" ? [] : require("./alt-package-managers.cjs").managersFor(tool.id);
+    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id) && !altManagers.length) {
       const vendorOnly = Boolean(tool.manual) && !tool.pip;
       const outcome = voiceInstall.installOutcome({
         pythonFound: false,
@@ -3548,9 +3550,44 @@ function runJob({ id, action, root }, emit) {
       return { ok: true, code: last.code, version: last.probe.version, via: "url" };
     };
 
+    // Chocolatey and Scoop are last resorts, used only when already on this PC.
+    const tryAlternateManagers = async () => {
+      const alt = require("./alt-package-managers.cjs");
+      for (const manager of altManagers) {
+        const cmd = alt.commandFor(manager, tool.id, action);
+        if (!cmd || !(await which(manager))) continue;
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the earlier sources did not install it — trying ${manager}`,
+        });
+        last = await attempt(manager, cmd);
+        tried.push(`${manager} (exit ${last.code})`);
+        if (!last.ok) continue;
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: last.restartRequired ? "Restart required" : "Done",
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+          version: last.probe.version,
+          line: `installed with ${manager} · health check: ${last.probe.status}`,
+        });
+        return {
+          ok: true,
+          code: last.code,
+          version: last.probe.version,
+          via: manager,
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+        };
+      }
+      return null;
+    };
+
     for (const step of vendorFirst
-      ? [tryVendorInstaller, tryPackageManager]
-      : [tryPackageManager, tryVendorInstaller]) {
+      ? [tryVendorInstaller, tryPackageManager, tryAlternateManagers]
+      : [tryPackageManager, tryVendorInstaller, tryAlternateManagers]) {
       const done = await step();
       if (done) return done;
     }

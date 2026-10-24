@@ -218,3 +218,14 @@ def test_docker_run_is_refused_without_authorization(tmp_path):
     reg, _ = registry(tmp_path)
     out = run(reg.execute("docker.run", {"image": "alpine"}))
     assert out["ok"] is False and out["risk"] == "exec"
+
+
+def test_seven_zip_round_trip_when_py7zr_is_installed(tmp_path):
+    py7zr = pytest.importorskip("py7zr")
+    (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
+    with py7zr.SevenZipFile(tmp_path / "pack.7z", "w") as archive:
+        archive.write(tmp_path / "a.txt", "a.txt")
+    assert file_tools.identify(tmp_path / "pack.7z")["kind"] == "7z"
+    assert file_tools.list_archive(tmp_path / "pack.7z")["count"] == 1
+    out = file_tools.extract_archive(tmp_path / "pack.7z", tmp_path / "out")
+    assert out["ok"] and (tmp_path / "out" / "a.txt").read_text(encoding="utf-8") == "alpha"
