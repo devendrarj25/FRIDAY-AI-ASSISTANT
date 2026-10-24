@@ -44,6 +44,10 @@ Local substitute for PR Validation (no GitHub check): `npm run preflight`. `npm 
 
 `npm test` on a code pull request is two Windows shards (`--shard=1/2` and `--shard=2/2`) with `fail-fast: false`. Each shard writes the 20 slowest files into the job summary. `isolate` stays on. It was not proven safe to turn off. The `validate` job does not run the suite. It publishes the commit status `PR Validation` from the four parallel results, on the checked-out commit and on a docs heal commit when one was pushed. A failed or skipped parallel job publishes failure. A red or missing status cannot reach `gh release create`.
 
+## 1d. What a green PR Validation proves for the build
+
+`package-windows` runs `electron-pack --win nsis`, `verify-build nsis` and the installer smoke. FRIDAY Release and the CMD pack run the shared pipeline `scripts/build-pipeline.cjs` (phases in `core/__tests__/build-parity.test.ts`). The update path is covered in both through `verify-build` (block map, manifest, checksums, differential download, `packaged-requires`) and the smoke (install, boot, reinstall, silent update, uninstall, erase-all). Phases PR Validation does not run today, and what runs them instead: `prepare-environment` (CMD pack and Release), `sign-hook`, `verify-boot` (portable/dir boot), `readiness --pack`, `packaged-self-check` (bundled Python, pip, whisper, MCP) and the Portable target. Closing that gap means calling `build-pipeline.cjs --from stage-toolchain` from `package-windows` instead of the separate steps; that is a workflow change and waits for the owner's second yes (see `FRIDAY_STATE.md`).
+
 ## 1c. Test audit
 
 `node scripts/test-audit.cjs` classifies every Vitest file under `core/__tests__` and every `kernel/tests/test_*.py`. The default verdict is KEEP. Wording-only tests and duplicate behaviour tests are not kept; `actionlint-pin.test.ts` checks the indexed script before use and `full-spectrum-upgrade.test.ts` uses a fixture page. Files that still depend on an environment stay, with a visible skip, and a hermetic test beside them where one already exists.

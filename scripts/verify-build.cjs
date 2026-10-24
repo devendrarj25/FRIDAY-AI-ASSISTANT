@@ -13,6 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 const { spawnDirect } = require("./win-spawn.cjs");
 const IDENTITY = require("./identity.cjs");
 const engine = require("./release-engine.cjs");
@@ -364,6 +365,42 @@ if (expectedVersion && expectedVersion !== publicVersion) {
     } else {
       console.log("[friday] ok       Update metadata: latest.yml matches");
     }
+  }
+}
+
+// The update path on the real installer: its block map, the manifest and
+// checksums the app will read, and a differential download of a changed copy.
+// PR Validation, FRIDAY Release and the CMD build all run this same step.
+if (wantsInstaller && installerFile) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, "verify-update-path.cjs"),
+      "--release",
+      release,
+      "--installer",
+      installerFile,
+      "--version",
+      version,
+    ],
+    { stdio: "inherit" },
+  );
+  if (result.status !== 0) failed++;
+}
+
+// Every relative require in electron/ must resolve inside the packaged app.asar.
+// The shared pipeline runs this as its own phase; running it here as well means
+// PR Validation (which calls verify-build) catches a module left out of the
+// package before FRIDAY Release does.
+if (wantsInstaller || mode === "dir") {
+  const asar = path.join(release, "win-unpacked", "resources", "app.asar");
+  if (fs.existsSync(asar)) {
+    const required = spawnSync(
+      process.execPath,
+      [path.join(__dirname, "packaged-requires.cjs"), "--asar", asar],
+      { stdio: "inherit" },
+    );
+    if (required.status !== 0) failed++;
   }
 }
 

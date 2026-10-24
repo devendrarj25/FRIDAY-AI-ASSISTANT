@@ -1102,7 +1102,50 @@ function findOldInstaller(dir, target) {
   return null;
 }
 
+/**
+ * An earlier installer that was downloaded before block maps were saved has none
+ * beside it. Its own release published one (named after it, under the tag of its
+ * version), so read it from there; the result must still match the file's size.
+ */
+async function findOldInstallerFromRelease({ cfg, dir, target, repo }) {
+  const { parseBlockMap, mapSize } = require("./differential-download.cjs");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n) && path.join(dir, n) !== target);
+  } catch {
+    return null;
+  }
+  const rows = names
+    .map((name) => ({
+      name,
+      file: path.join(dir, name),
+      at: fs.statSync(path.join(dir, name)).mtimeMs,
+    }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 2);
+  const slug = normalizeRepo(repo || cfg.repo);
+  for (const row of rows) {
+    const version = /^FRIDAY-Setup-(\d+(?:\.\d+){2,3}(?:-[\w.]+)?)\.exe$/i.exec(row.name)?.[1];
+    if (!version) continue;
+    const release = await api(cfg, `/repos/${slug}/releases/tags/v${version}`);
+    if (!release.ok) continue;
+    const found = (release.body?.assets || []).find((a) => a.name === `${row.name}.blockmap`);
+    if (!found) continue;
+    const fetched = await fetchBlockMap(cfg, mapReleaseAsset(found), slug);
+    if (!fetched) continue;
+    try {
+      if (fs.statSync(row.file).size !== mapSize(fetched.map)) continue;
+    } catch {
+      continue;
+    }
+    saveBlockMapSidecar(row.file, fetched.raw);
+    return { file: row.file, map: fetched.map };
+  }
+  return null;
+}
+
 async function tryDifferential({
+  repo,
   cfg,
   dir,
   file,
@@ -1115,7 +1158,9 @@ async function tryDifferential({
   run,
 }) {
   try {
-    const old = findOldInstaller(dir, file);
+    const old =
+      findOldInstaller(dir, file) ||
+      (await findOldInstallerFromRelease({ cfg, dir, target: file, repo }));
     if (!old) return null;
     const part = `${file}.diff.part`;
     const go = run || require("./differential-download.cjs").downloadDifferential;
@@ -1214,6 +1259,7 @@ async function downloadInstaller({
     const nextMap = await fetchBlockMap(cfg, blockmap, repo);
     if (nextMap && expected) {
       const diff = await tryDifferential({
+        repo,
         cfg,
         dir,
         file,
