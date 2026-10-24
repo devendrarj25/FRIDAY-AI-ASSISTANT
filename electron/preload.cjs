@@ -516,6 +516,10 @@ contextBridge.exposeInMainWorld("friday", {
 
   // Install Manager — real detection and background install jobs.
   detectTools: (force) => ipcRenderer.invoke("tools:detect", Boolean(force)),
+  toolServices: () => ipcRenderer.invoke("tools:services"),
+  toolServiceAction: (id, op) => ipcRenderer.invoke("tools:service", id, op),
+  setToolServiceIdle: (minutes) => ipcRenderer.invoke("tools:service-idle", minutes),
+  onToolServicesChanged: on("tools:services-changed"),
   latestToolVersions: () => ipcRenderer.invoke("tools:latest"),
   runToolJob: (job) => ipcRenderer.invoke("tools:run", job),
   cancelToolJob: (job) => ipcRenderer.invoke("tools:cancel", job),

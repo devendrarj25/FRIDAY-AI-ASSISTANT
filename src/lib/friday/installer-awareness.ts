@@ -141,6 +141,14 @@ export function formatInstallerExtra(maxChars = 4000): string {
     )
     .join("\n")
     .slice(-800);
+  const services = installer
+    .getSnapshot()
+    .services.filter((row) => row.installed || row.running)
+    .map(
+      (row) =>
+        `${row.id} ${row.running ? "running" : "stopped"}${row.ownedByFriday ? " (FRIDAY started it)" : ""}`,
+    )
+    .join(", ");
   const log = snap.log
     .slice(0, 16)
     .map((line) => `${line.at} [${line.level}] ${line.line}`)
@@ -171,6 +179,7 @@ export function formatInstallerExtra(maxChars = 4000): string {
     `selected: ${snap.selectedPkg || "none"}`,
     selected ? `selected source: ${selected.source} ${selected.url}` : "selected source: none",
     probe?.path ? `selected path: ${probe.path}` : "selected path: (none probed)",
+    `services: ${services || "(none read yet)"}`,
     "active jobs:",
     queue || "(idle)",
     "recent catalog:",

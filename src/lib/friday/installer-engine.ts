@@ -13,6 +13,12 @@
 
 import { catalog, categories, statusOf, type CatalogEntry, type CatalogStatus } from "./catalog";
 import { isDesktop } from "./bridge";
+import { livePoller } from "./live-poll";
+import {
+  answerInstallerQuestion,
+  parseServiceRequest,
+  type InstallerView,
+} from "./installer-answers";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 
 export type JobAction = "install" | "update" | "repair" | "uninstall" | "rollback" | "verify";
@@ -114,7 +120,45 @@ type DetectedTool = ProbeInfo & {
   alsoKnownAs?: string[];
 };
 
+/** A background service of an installed tool, as the main process reports it. */
+export type ServiceRow = {
+  id: string;
+  supported: boolean;
+  kind?: "process" | "cli" | "app" | "winservice";
+  note?: string;
+  installed?: boolean;
+  running?: boolean;
+  ownedByFriday?: boolean;
+  needsAdmin?: boolean;
+  canStart?: boolean;
+  canStop?: boolean;
+  /** Minutes since FRIDAY last used a service she started; null for one she did not start. */
+  idleMinutes?: number | null;
+  serviceName?: string;
+};
+
+export type ServiceOp = "start" | "stop" | "restart";
+
+/** Catalog rows that stand for a service under another name. */
+const SERVICE_ALIASES: Record<string, string> = {
+  Redis: "Redis (Memurai)",
+  "Redis (server)": "Redis (Memurai)",
+  "PostgreSQL + pgvector": "PostgreSQL",
+};
+
+export const serviceIdFor = (pkg: string, known: readonly ServiceRow[]): string | null => {
+  const id = SERVICE_ALIASES[pkg] ?? pkg;
+  return known.some((row) => row.id === id && row.supported) ? id : null;
+};
+
 export type DesktopInstallerApi = {
+  toolServices?: () => Promise<{ at: number; idleMinutes: number; services: ServiceRow[] }>;
+  toolServiceAction?: (
+    id: string,
+    op: ServiceOp,
+  ) => Promise<{ ok: boolean; id: string; running?: boolean; detail?: string; error?: string }>;
+  setToolServiceIdle?: (minutes: number) => Promise<{ idleMinutes: number }>;
+  onToolServicesChanged?: (cb: () => void) => () => void;
   detectTools?: (force?: boolean) => Promise<{ at: number; tools: DetectedTool[] }>;
   latestToolVersions?: () => Promise<Record<string, string>>;
   /** Which cloud providers actually have a stored credential right now. */
@@ -137,6 +181,10 @@ export type InstallerState = {
   log: LogLine[];
   history: HistoryEntry[];
   scanning: boolean;
+  /** Why the last scan failed, or null. The page shows it with a Retry. */
+  scanError: string | null;
+  /** The last scan could not read the newest versions, so "latest" may be old. */
+  latestFailed: boolean;
   scanProgress: number;
   lastScanAt: number | null;
   verifying: boolean;
@@ -153,12 +201,20 @@ export type InstallerState = {
   probed: string[];
   /** Probed tools that are not part of the bundled catalog. */
   extra: CatalogEntry[];
+  /** Background services (Ollama, Docker, databases) and whether they run now. */
+  services: ServiceRow[];
+  /** Minutes a service FRIDAY started may sit unused before it is stopped; 0 = never. */
+  serviceIdleMinutes: number;
+  /** Service id -> the operation in flight. */
+  serviceBusy: Record<string, ServiceOp>;
 };
 
 const STORAGE_KEY = "friday.installer.v1";
 const MAX_LOG = 240;
 const MAX_HISTORY = 120;
 const TICK_MS = 250;
+const SCAN_POLL_MS = 300_000;
+const SERVICE_POLL_MS = 15_000;
 
 const INSTALL_NICKNAMES: Record<string, string> = {
   python: "Python",
@@ -318,6 +374,8 @@ class InstallerStore {
     log: [],
     history: [],
     scanning: false,
+    scanError: null,
+    latestFailed: false,
     scanProgress: 0,
     lastScanAt: null,
     verifying: false,
@@ -330,19 +388,58 @@ class InstallerStore {
     probe: {},
     probed: [],
     extra: [],
+    services: [],
+    serviceIdleMinutes: 20,
+    serviceBusy: {},
   };
 
   private snapshot: InstallerState = this.state;
 
   /* ---------------------------------------------------------- subscription */
 
+  private offPolls: (() => void)[] = [];
+
+  /**
+   * While a view is open the machine is re-read on the shared poller: a full
+   * scan every five minutes (and at once when the window returns), the services
+   * every fifteen seconds. Nothing runs while the window is hidden.
+   */
+  private startPolls() {
+    if (this.offPolls.length || typeof window === "undefined" || !isDesktop()) return;
+    const poller = livePoller();
+    this.offPolls = [
+      poller.subscribe(
+        "installer.scan",
+        async () => {
+          if (this.state.scanning || this.state.jobs.some((j) => isActive(j.phase))) return;
+          await this.refreshFromSystem(false);
+        },
+        SCAN_POLL_MS,
+        undefined,
+        false,
+      ),
+      poller.subscribe("installer.services", () => this.refreshServices(), SERVICE_POLL_MS),
+    ];
+    const off = this.desktopApi()?.onToolServicesChanged?.(() => void this.refreshServices());
+    if (off) this.offPolls.push(off);
+  }
+
+  private stopPolls() {
+    this.offPolls.forEach((off) => off());
+    this.offPolls = [];
+  }
+
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     this.hydrate();
     this.ensureTimer();
+    this.startPolls();
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stopTimer();
+      if (this.listeners.size === 0) {
+        this.stopTimer();
+        this.stopPolls();
+      }
     };
   };
 
@@ -446,7 +543,22 @@ class InstallerStore {
 
   /** Published version: the live registry lookup wins over the catalog value. */
   latestOf(entry: CatalogEntry): string {
-    return this.state.latest[entry.pkg] || entry.latest;
+    const live = this.state.latest[entry.pkg];
+    if (live) return live;
+    // On the desktop the bundled catalog version is history, not a fact about
+    // today. An installed tool no source reports a newer version for is current
+    // (its own version); anything else has no known latest and says so.
+    if (this.state.bridge === "desktop") {
+      const installed = this.state.installed[entry.pkg];
+      if (installed && !["installed", "configured"].includes(installed)) return installed;
+      return "—";
+    }
+    return entry.latest;
+  }
+
+  /** True when a live source (not the bundled catalog) named the newest version. */
+  latestKnown(entry: CatalogEntry): boolean {
+    return Boolean(this.state.latest[entry.pkg]);
   }
 
   statusOf(entry: CatalogEntry): CatalogStatus {
@@ -552,9 +664,13 @@ class InstallerStore {
 
     this.detectInflight = (async () => {
       try {
+        let latestFailed = false;
         const [detected, latest, keys] = await Promise.all([
           desktop.detectTools!(force),
-          desktop.latestToolVersions?.().catch(() => ({})) ?? Promise.resolve({}),
+          desktop.latestToolVersions?.().catch(() => {
+            latestFailed = true;
+            return {};
+          }) ?? Promise.resolve({}),
           desktop.providerKeys?.().catch(() => ({})) ?? Promise.resolve({}),
         ]);
         const installed: InstalledMap = {};
@@ -619,6 +735,9 @@ class InstallerStore {
         this.state.latest = { ...this.state.latest, ...(latest as Record<string, string>) };
 
         this.state.lastScanAt = Date.now();
+        this.state.scanError = null;
+        this.state.latestFailed = latestFailed;
+        void this.refreshServices();
         const found = Object.values(installed).filter(Boolean).length;
         const updates = this.entries().filter(
           (e) => this.statusOf(e) === "Update available",
@@ -628,7 +747,8 @@ class InstallerStore {
           `detection complete — ${found}/${this.state.probed.length} probed tools installed, ${updates} update(s) available`,
         );
       } catch (err) {
-        this.push("error", `detection failed: ${(err as Error).message}`);
+        this.state.scanError = (err as Error).message || "the scan did not finish";
+        this.push("error", `detection failed: ${this.state.scanError}`);
       } finally {
         this.state.scanning = false;
         this.state.scanProgress = 100;
@@ -754,7 +874,11 @@ class InstallerStore {
       const slots = Math.max(0, this.state.concurrency - active.length);
       const queued = this.state.jobs.filter((j) => j.phase === "Queued").slice(0, slots);
       for (const job of queued) {
-        const issues = dependencyIssues({ [job.pkg]: entryOf(job.pkg)?.needs ?? [] });
+        const needs = entryOf(job.pkg)?.needs ?? [];
+        const issues = dependencyIssues({
+          [job.pkg]: needs,
+          ...Object.fromEntries(needs.map((need) => [need, [] as string[]])),
+        });
         if (issues.length) {
           job.phase = "Failed";
           job.detail = issues[0] ?? "dependency conflict";
@@ -939,6 +1063,23 @@ class InstallerStore {
           : action === "repair" || action === "verify"
             ? (this.state.installed[pkg] ?? this.latestOf(entry))
             : this.latestOf(entry);
+    // "—" (no source named a version) is not a version to show as the target.
+    const targetVersion = target === "—" ? "latest" : target;
+
+    // What this package needs goes first: the desktop queue runs one job at a
+    // time in order, so a missing runtime is installed before the tool on it.
+    if (this.state.bridge === "desktop" && (action === "install" || action === "update")) {
+      for (const need of entry.needs ?? []) {
+        const needed = entryOf(need);
+        // Only a need the scan has looked at and found missing is queued; the
+        // catalog's seeded "installed" flags are not evidence on the desktop.
+        if (!needed || needed.method === "api-key") continue;
+        if (!this.state.probed.includes(need) || this.state.installed[need]) continue;
+        if (this.state.jobs.some((j) => j.pkg === need && isActive(j.phase))) continue;
+        this.push("info", `${pkg} needs ${need} — installing that first`);
+        this.enqueue(need, "install");
+      }
+    }
 
     const mb = sizeToMb(entry.size) * (action === "repair" ? 0.35 : 1);
     const job: Job = {
@@ -952,7 +1093,7 @@ class InstallerStore {
       bytesDone: 0,
       speedMbps: 0,
       etaSeconds: 0,
-      targetVersion: target,
+      targetVersion,
       startedAt: Date.now(),
     };
     this.state.jobs = [...this.state.jobs, job];
@@ -1120,6 +1261,72 @@ class InstallerStore {
     this.emit();
   }
 
+  /* -------------------------------------------------------------- services */
+
+  serviceOf(pkg: string): ServiceRow | null {
+    const id = serviceIdFor(pkg, this.state.services);
+    return id ? (this.state.services.find((row) => row.id === id) ?? null) : null;
+  }
+
+  async refreshServices(): Promise<void> {
+    const desktop = this.desktopApi();
+    if (!desktop?.toolServices) return;
+    try {
+      const snapshot = await desktop.toolServices();
+      this.state.services = snapshot.services;
+      this.state.serviceIdleMinutes = snapshot.idleMinutes;
+      this.emit();
+    } catch (err) {
+      this.push("error", `service check failed: ${(err as Error).message}`);
+    }
+  }
+
+  /** Start, stop or restart a service, then show what is really running. */
+  async serviceAction(pkg: string, op: ServiceOp): Promise<{ ok: boolean; message: string }> {
+    const id = serviceIdFor(pkg, this.state.services);
+    const desktop = this.desktopApi();
+    if (!id || !desktop?.toolServiceAction) {
+      return { ok: false, message: `${pkg} has no background service FRIDAY can control` };
+    }
+    if (this.state.serviceBusy[id]) {
+      return { ok: false, message: `${id} is already busy (${this.state.serviceBusy[id]})` };
+    }
+    this.state.serviceBusy = { ...this.state.serviceBusy, [id]: op };
+    this.push("info", `${id} — ${op}…`);
+    this.emit();
+    try {
+      const result = await desktop.toolServiceAction(id, op);
+      const message = result.ok
+        ? (result.detail ?? `${op} done`)
+        : (result.error ?? `${op} failed`);
+      this.push(result.ok ? "ok" : "error", `${id} — ${message}`);
+      return { ok: result.ok, message };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.push("error", `${id} — ${message}`);
+      return { ok: false, message };
+    } finally {
+      const { [id]: _done, ...rest } = this.state.serviceBusy;
+      this.state.serviceBusy = rest;
+      await this.refreshServices();
+      void this.refreshFromSystem(true);
+    }
+  }
+
+  async setServiceIdle(minutes: number): Promise<void> {
+    const desktop = this.desktopApi();
+    if (!desktop?.setToolServiceIdle) return;
+    const result = await desktop.setToolServiceIdle(minutes);
+    this.state.serviceIdleMinutes = result.idleMinutes;
+    this.push(
+      "info",
+      result.idleMinutes
+        ? `services FRIDAY starts stop after ${result.idleMinutes} idle minutes`
+        : "services FRIDAY starts stay on until you stop them",
+    );
+    this.emit();
+  }
+
   matchPackage(text: string): CatalogEntry | undefined {
     const raw = String(text || "").trim();
     if (!raw) return undefined;
@@ -1163,6 +1370,26 @@ const INSTALL_ACTION = /^(install|update|repair|verify|uninstall)\s+(.+)$/i;
  * Direct Install Manager control from chat/voice. Does not steal
  * “what's wrong”, Doctor LOOK, Logs, or Tasks queue commands.
  */
+function installerView(): InstallerView {
+  const snap = installer.getSnapshot();
+  return {
+    desktop: snap.bridge === "desktop",
+    scanned: snap.lastScanAt !== null,
+    entries: installer.entries(),
+    installedVersion: (pkg) => installer.installedVersion(pkg),
+    latestOf: (entry) => installer.latestOf(entry),
+    latestKnown: (entry) => installer.latestKnown(entry),
+    statusOf: (entry) => installer.statusOf(entry),
+    probe: (pkg) => installer.probeOf(pkg),
+    services: snap.services,
+    failedJobs: snap.jobs
+      .filter((j) => j.phase === "Failed")
+      .slice(-4)
+      .map((j) => ({ pkg: j.pkg, detail: j.error ?? j.detail })),
+    match: (text) => installer.matchPackage(text),
+  };
+}
+
 export function handleInstallerCommand(text: string): string | null {
   const message = text.trim();
   const lower = message.toLowerCase();
@@ -1215,6 +1442,21 @@ export function handleInstallerCommand(text: string): string | null {
       ...snap.log.slice(0, 6).map((line) => `${line.at} [${line.level}] ${line.line}`),
     ].join("\n");
   }
+  const serviceReq = parseServiceRequest(message);
+  if (serviceReq) {
+    const entry = installer.matchPackage(serviceReq.target);
+    const known = installer.getSnapshot().services;
+    const id = entry ? serviceIdFor(entry.pkg, known) : serviceIdFor(serviceReq.target, known);
+    if (id) {
+      void installer.serviceAction(id, serviceReq.op);
+      const verb = { start: "Starting", stop: "Stopping", restart: "Restarting" }[serviceReq.op];
+      return `${verb} ${id}. The Install Manager shows when it is done.`;
+    }
+    // Not a service: "start X" is not ours, let the rest of FRIDAY have it.
+    if (entry) return `${entry.pkg} has no background service for me to ${serviceReq.op}.`;
+  }
+  const answered = answerInstallerQuestion(message, installerView());
+  if (answered) return answered;
   const acted = INSTALL_ACTION.exec(message);
   if (acted) {
     const action = acted[1]!.toLowerCase() as JobAction;

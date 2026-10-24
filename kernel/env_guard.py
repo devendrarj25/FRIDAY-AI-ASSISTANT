@@ -15,6 +15,7 @@ opens a URL, so neither can be forgotten in one place and enforced in another:
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import re
 import socket
@@ -32,6 +33,23 @@ SECRET_ENV_NAMES = {
 }
 
 
+def managed_dirs(root: str | None = None) -> list[str]:
+    """Folders of tools FRIDAY installed for herself (runtime/managed-path.json).
+
+    The desktop writes the list after every scan and install, so a command the
+    kernel starts can use a tool FRIDAY installed after the kernel began.
+    """
+    base = root if root is not None else os.environ.get("FRIDAY_ROOT", "")
+    if not base:
+        return []
+    try:
+        with open(os.path.join(base, "runtime", "managed-path.json"), encoding="utf-8") as handle:
+            dirs = json.load(handle).get("dirs", [])
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [d for d in dirs if isinstance(d, str) and d and os.path.isdir(d)]
+
+
 def child_env(base: dict | None = None, extra: dict | None = None) -> dict:
     """The environment a spawned tool/command/app is allowed to see."""
     source = dict(os.environ if base is None else base)
@@ -42,6 +60,15 @@ def child_env(base: dict | None = None, extra: dict | None = None) -> dict:
     }
     if extra:
         clean.update(extra)
+    # Managed tools come after the system's own entries, so an installed Git or
+    # Node still wins and FRIDAY's copy only fills a gap.
+    managed = managed_dirs(clean.get("FRIDAY_ROOT"))
+    if managed:
+        key = "Path" if "Path" in clean and "PATH" not in clean else "PATH"
+        parts = [p for p in clean.get(key, "").split(os.pathsep) if p]
+        seen = {p.lower() for p in parts}
+        parts += [d for d in managed if d.lower() not in seen]
+        clean[key] = os.pathsep.join(parts)
     return clean
 
 

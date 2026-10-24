@@ -16,6 +16,7 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const voiceInstall = require("./voice-install.cjs");
+const vendorSources = require("./vendor-sources.cjs");
 const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
@@ -585,6 +586,39 @@ async function wingetHealth() {
  */
 const T = (id, category, opts) => ({ id, category, ...opts });
 
+/** Chromium that Playwright downloaded into the user's cache, or null. */
+function detectPlaywrightBrowsers() {
+  const bases = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    WIN
+      ? path.join(
+          process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
+          "ms-playwright",
+        )
+      : path.join(os.homedir(), ".cache", "ms-playwright"),
+  ].filter((dir) => dir && dir !== "0");
+  for (const base of bases) {
+    try {
+      const chromium = fs
+        .readdirSync(base)
+        .filter((name) => /^chromium-\d+$/.test(name))
+        .sort()
+        .pop();
+      if (chromium) {
+        return {
+          installed: true,
+          version: chromium.replace("chromium-", "build "),
+          path: path.join(base, chromium),
+          status: "Ready",
+        };
+      }
+    } catch {
+      /* no cache here */
+    }
+  }
+  return { installed: false, status: "Missing" };
+}
+
 const TOOLS = [
   // --- languages & runtimes -------------------------------------------------
   T("Node.js LTS", "Languages & Runtimes", {
@@ -603,6 +637,9 @@ const TOOLS = [
     latest: { kind: "npm", ref: "npm" },
     required: true,
     manual: "ships with Node.js",
+    // `npm install -g npm@latest` is npm's documented way to update itself.
+    npm: "npm",
+    noUninstall: true,
   }),
   T("Python", "Languages & Runtimes", {
     cmd: PY,
@@ -963,12 +1000,8 @@ const TOOLS = [
     service: "http://127.0.0.1:8081/v1/models",
     // Native Windows EXE is not in vendor docs (Docker is). Linux/macOS have
     // `local-ai run`. Never report a fake winget install.
-    ...(WIN
-      ? {
-          manual:
-            "LocalAI has no native Windows EXE in the vendor docs (Docker or a local-ai binary on PATH). FRIDAY starts `local-ai run --address 127.0.0.1:8081` when that binary exists.",
-        }
-      : {}),
+    manual:
+      "LocalAI has no native Windows EXE in the vendor docs (Docker or a local-ai binary on PATH). FRIDAY starts `local-ai run --address 127.0.0.1:8081` when that binary exists.",
   }),
   T("Jan", "AI Runtimes", {
     cmd: "jan",
@@ -1147,6 +1180,9 @@ const TOOLS = [
     url: "https://docs.docker.com/compose/",
     source: "docker.com",
     manual: "bundled with Docker Desktop",
+    // Compose is part of Docker Desktop: installing it installs that.
+    installVia: "Docker Desktop",
+    noUninstall: true,
   }),
   T("SQLite", "Databases", {
     cmd: "sqlite3",
@@ -1174,6 +1210,7 @@ const TOOLS = [
     pip: "PyYAML",
     url: "https://pyyaml.org/",
     source: "FRIDAY kernel",
+    latest: { kind: "pypi", ref: "PyYAML" },
   }),
   T("Cron scheduler", "Automation", {
     // FRIDAY schedules work through the operating system scheduler, which is
@@ -1202,6 +1239,12 @@ const TOOLS = [
     url: "https://learn.microsoft.com/windows/wsl/install",
     source: "microsoft.com",
     manual: "run `wsl --install` in an elevated terminal",
+    // Microsoft's own command, run with the owner's UAC approval. Windows
+    // usually wants a restart before the feature answers.
+    customCommand: async () => (WIN ? ["wsl", ["--install", "--no-distribution"]] : null),
+    elevate: true,
+    restartMayBeNeeded: true,
+    noUninstall: true,
   }),
 
   // --- FRIDAY build & packaging toolchain -----------------------------------
@@ -1240,6 +1283,108 @@ const TOOLS = [
   }),
 
   // --- additional runtimes, engines, databases and sandboxing ---------------
+  T("Ruby", "Languages & Runtimes", {
+    cmd: "ruby",
+    args: ["--version"],
+    winget: "RubyInstallerTeam.Ruby.3.4",
+    url: "https://rubyinstaller.org/",
+    source: "rubyinstaller.org",
+  }),
+  T("PHP", "Languages & Runtimes", {
+    cmd: "php",
+    args: ["-v"],
+    winget: "PHP.PHP.8.4",
+    url: "https://windows.php.net/",
+    source: "windows.php.net",
+  }),
+  T("Zig", "Languages & Runtimes", {
+    cmd: "zig",
+    args: ["version"],
+    winget: "zig.zig",
+    url: "https://ziglang.org/",
+    source: "ziglang.org",
+    latest: { kind: "github", ref: "ziglang/zig" },
+  }),
+  T("Perl", "Languages & Runtimes", {
+    cmd: "perl",
+    args: ["--version"],
+    winget: "StrawberryPerl.StrawberryPerl",
+    url: "https://strawberryperl.com/",
+    source: "strawberryperl.com",
+  }),
+  T("Julia", "Languages & Runtimes", {
+    cmd: "julia",
+    args: ["--version"],
+    winget: "Julialang.Julia",
+    url: "https://julialang.org/",
+    source: "julialang.org",
+    latest: { kind: "github", ref: "JuliaLang/julia" },
+  }),
+  T("Lua", "Languages & Runtimes", {
+    cmd: "lua",
+    args: ["-v"],
+    winget: "DEVCOM.Lua",
+    url: "https://www.lua.org/",
+    source: "lua.org",
+  }),
+  T("Maven", "Developer Tools", {
+    cmd: "mvn",
+    args: ["-v"],
+    winget: "Apache.Maven",
+    url: "https://maven.apache.org/",
+    source: "maven.apache.org",
+  }),
+  T("Terraform", "Developer Tools", {
+    cmd: "terraform",
+    args: ["version"],
+    winget: "Hashicorp.Terraform",
+    url: "https://developer.hashicorp.com/terraform",
+    source: "hashicorp.com",
+    latest: { kind: "github", ref: "hashicorp/terraform" },
+  }),
+  T("kubectl", "Developer Tools", {
+    cmd: "kubectl",
+    args: ["version", "--client"],
+    winget: "Kubernetes.kubectl",
+    url: "https://kubernetes.io/docs/tasks/tools/",
+    source: "kubernetes.io",
+    latest: { kind: "github", ref: "kubernetes/kubernetes" },
+  }),
+  T("Helm", "Developer Tools", {
+    cmd: "helm",
+    args: ["version", "--short"],
+    winget: "Helm.Helm",
+    url: "https://helm.sh/",
+    source: "helm.sh",
+    latest: { kind: "github", ref: "helm/helm" },
+  }),
+  T("AWS CLI", "Developer Tools", {
+    cmd: "aws",
+    args: ["--version"],
+    winget: "Amazon.AWSCLI",
+    url: "https://aws.amazon.com/cli/",
+    source: "aws.amazon.com",
+  }),
+  T("soundfile", "Voice", {
+    pipDist: "soundfile",
+    pip: "soundfile",
+    url: "https://pypi.org/project/soundfile/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "soundfile" },
+  }),
+  T("KoboldCpp", "AI Runtimes", {
+    // One self-contained executable; it still needs a model file to start, so it
+    // is stored under runtime\\ and run from there, never registered as a service.
+    url: "https://github.com/LostRuins/koboldcpp",
+    source: "github.com/LostRuins",
+    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
+    sha256: "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38",
+    needBytes: 642223685,
+    storeOnly: true,
+    archiveBin: "koboldcpp.exe",
+    latest: { kind: "github", ref: "LostRuins/koboldcpp" },
+    manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
+  }),
   T("Deno", "Languages & Runtimes", {
     cmd: "deno",
     args: ["-V"],
@@ -1391,11 +1536,24 @@ const TOOLS = [
       "Windows only. Installing onnxruntime-directml replaces the CPU onnxruntime wheel, so FRIDAY does not install it from requirements. CPUExecutionProvider stays the fallback.",
   }),
   T("Playwright browsers", "Web Automation", {
-    cmd: PY,
-    args: ["-m", "playwright", "--version"],
     url: "https://playwright.dev/python/",
     source: "pypi.org",
-    manual: "run `python -m playwright install chromium` after installing Playwright",
+    latest: { kind: "pypi", ref: "playwright" },
+    // The browsers are a download Playwright makes into the user's cache, so the
+    // folder is the proof, not a command on PATH.
+    detect: () => detectPlaywrightBrowsers(),
+    // One interpreter installs the package and then fetches Chromium, so a
+    // fresh machine needs no second click and no terminal.
+    customCommand: async () => {
+      const python = await resolvePython(path.join(__dirname, ".."));
+      if (!python) return null;
+      const code =
+        "import subprocess,sys;" +
+        "subprocess.check_call([sys.executable,'-m','pip','install','--upgrade','playwright']);" +
+        "subprocess.check_call([sys.executable,'-m','playwright','install','chromium'])";
+      return [python.exe, [...python.prefix, "-c", code]];
+    },
+    noUninstall: true,
   }),
   T("Sandbox runner (Windows Sandbox)", "Developer Tools", {
     cmd: "WindowsSandbox",
@@ -1862,6 +2020,9 @@ const TOOLS = [
     source: "github.com/ggml-org",
     latest: { kind: "github", ref: "ggml-org/whisper.cpp" },
     manual: "build from the whisper.cpp repository — no unattended Windows package",
+    // The same engine FRIDAY unpacks for herself from the pinned release.
+    installVia: "whisper.cpp",
+    noUninstall: true,
   }),
   T("AMD ROCm", "GPU Support", {
     cmd: "rocminfo",
@@ -1922,6 +2083,40 @@ const CATALOG_ALIAS = new Map([
 const DISPLAY_IDS = new Map();
 for (const [shown, real] of CATALOG_ALIAS) {
   DISPLAY_IDS.set(real, [...(DISPLAY_IDS.get(real) || []), shown]);
+}
+
+/**
+ * Tools FRIDAY unpacks from a pinned archive are the packs of
+ * config/toolchain-manifest.json. The pack carries the pinned version and the
+ * extra download hosts, so the tool row knows both without a second copy.
+ */
+const PACK_OF_TOOL = {
+  "FRIDAY Python": "python-standalone",
+  "FRIDAY Python embed": "python-embed",
+  "FRIDAY pip bootstrap": "get-pip",
+  "FRIDAY Node": "node-win",
+  "whisper.cpp": "whisper-cpp",
+  "ggml-base": "ggml-base",
+  "ggml-tiny": "ggml-tiny",
+  MinGit: "mingit",
+  "Temurin JDK zip": "temurin-jdk",
+  "FRIDAY GitHub CLI": "gh-cli",
+  w64devkit: "w64devkit",
+};
+try {
+  const packs = require("./toolchain-pack.cjs").readManifest().packs || [];
+  for (const tool of TOOLS) {
+    const pack = packs.find((p) => p.id === PACK_OF_TOOL[tool.id]);
+    if (!pack) continue;
+    tool.packId = pack.id;
+    tool.pinVersion = pack.version;
+    const mirrors = (pack.mirrors || []).filter((url) => url && url !== tool.installerUrl);
+    if (mirrors.length) {
+      tool.installerMirrors = [...new Set([...(tool.installerMirrors || []), ...mirrors])];
+    }
+  }
+} catch {
+  /* a missing manifest leaves the pins written on the tools themselves */
 }
 
 const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
@@ -1998,11 +2193,53 @@ function archiveInstallCommand(file, root, tool) {
 function extractZip(file, dest) {
   const buf = fs.readFileSync(file);
   const base = path.resolve(dest);
+  const place = (name, method, data) => {
+    if (!name || name.endsWith("/")) return;
+    const rel = name.replace(/\\/g, "/");
+    if (rel.startsWith("/") || rel.split("/").includes("..")) return;
+    const target = path.resolve(dest, rel);
+    const fromRoot = path.relative(base, target);
+    if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (method === 0) fs.writeFileSync(target, data);
+    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
+    else throw new Error(`unsupported zip method ${method}`);
+  };
+  // The central directory at the end of the file always carries the real sizes;
+  // a local header may say 0 and put them in a data descriptor after the data
+  // (many vendor zips do), so the directory is the one to read.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i -= 1) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd >= 0) {
+    const count = buf.readUInt16LE(eocd + 10);
+    let at = buf.readUInt32LE(eocd + 16);
+    for (let n = 0; n < count; n += 1) {
+      if (buf.readUInt32LE(at) !== 0x02014b50) break;
+      const method = buf.readUInt16LE(at + 10);
+      const compSize = buf.readUInt32LE(at + 20);
+      const nameLen = buf.readUInt16LE(at + 28);
+      const extraLen = buf.readUInt16LE(at + 30);
+      const commentLen = buf.readUInt16LE(at + 32);
+      const localAt = buf.readUInt32LE(at + 42);
+      const name = buf.slice(at + 46, at + 46 + nameLen).toString("utf8");
+      at += 46 + nameLen + extraLen + commentLen;
+      if (compSize === 0xffffffff || localAt === 0xffffffff)
+        throw new Error("zip64 is not supported");
+      const dataAt = localAt + 30 + buf.readUInt16LE(localAt + 26) + buf.readUInt16LE(localAt + 28);
+      place(name, method, buf.slice(dataAt, dataAt + compSize));
+    }
+    return;
+  }
+  // No directory: walk the local headers (archives FRIDAY writes itself).
   let offset = 0;
   while (offset + 30 <= buf.length) {
     if (buf.readUInt32LE(offset) !== 0x04034b50) break;
-    const flags = buf.readUInt16LE(offset + 6);
-    if (flags & 0x8) throw new Error("zip data descriptor is not supported");
+    if (buf.readUInt16LE(offset + 6) & 0x8) throw new Error("zip data descriptor is not supported");
     const method = buf.readUInt16LE(offset + 8);
     const compSize = buf.readUInt32LE(offset + 18);
     const nameLen = buf.readUInt16LE(offset + 26);
@@ -2010,18 +2247,8 @@ function extractZip(file, dest) {
     const nameStart = offset + 30;
     const name = buf.slice(nameStart, nameStart + nameLen).toString("utf8");
     const dataStart = nameStart + nameLen + extraLen;
-    const data = buf.slice(dataStart, dataStart + compSize);
+    place(name, method, buf.slice(dataStart, dataStart + compSize));
     offset = dataStart + compSize;
-    if (!name || name.endsWith("/")) continue;
-    const rel = name.replace(/\\/g, "/");
-    if (rel.startsWith("/") || rel.split("/").includes("..")) continue;
-    const target = path.resolve(dest, rel);
-    const fromRoot = path.relative(base, target);
-    if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) continue;
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    if (method === 0) fs.writeFileSync(target, data);
-    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
-    else throw new Error(`unsupported zip method ${method}`);
   }
 }
 
@@ -2111,14 +2338,14 @@ async function probeTool(tool, freeze, installedPackages = "", root = "") {
     };
   }
   if (tool.archiveBin && root) {
-    const candidate = path.join(root, "runtime", safeToolDir(tool.id), tool.archiveBin);
-    if (fs.existsSync(candidate)) {
+    const found = require("./managed-install.cjs").installedBin(root, tool);
+    if (found) {
       return {
         id: tool.id,
         category: tool.category,
         installed: true,
-        version: null,
-        path: candidate,
+        version: found.version,
+        path: found.bin,
         source: tool.source,
         url: tool.url,
         manager: "vendor",
@@ -2205,10 +2432,14 @@ async function pool(items, size, worker) {
 }
 
 let detectInflight = null;
-let lastDetect = { at: 0, tools: [] };
+let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
-async function detectTools({ force = false } = {}) {
+async function detectTools({ force = false, root: rootArg } = {}) {
+  // FRIDAY's own installs live under <root>\runtime; without the root a tool she
+  // unpacked there read "Missing" on every scan and was downloaded again.
+  const root = rootArg ?? fridayPaths.root() ?? "";
+  if (lastDetect.root !== root) force = true;
   if (!force && Date.now() - lastDetect.at < 15_000) return lastDetect;
   if (detectInflight) {
     // A forced scan (after an install or update) must not adopt a scan that
@@ -2223,7 +2454,7 @@ async function detectTools({ force = false } = {}) {
       loadPipFreeze(force),
       loadWingetList(force),
     ]);
-    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages));
+    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages, root));
     // A component that several catalog rows share is reported once per row, so
     // every row carries the same real machine state instead of "Unknown".
     const tools = probed.flatMap((p) => {
@@ -2232,7 +2463,12 @@ async function detectTools({ force = false } = {}) {
       return [{ ...p, alsoKnownAs: shown }, ...aliases];
     });
 
-    lastDetect = { at: Date.now(), tools };
+    lastDetect = { at: Date.now(), tools, root };
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
     return lastDetect;
   })().finally(() => {
     detectInflight = null;
@@ -2245,29 +2481,78 @@ async function detectTools({ force = false } = {}) {
 const latestCache = new Map(); // id -> { at, version }
 const LATEST_TTL = 30 * 60 * 1000;
 
-async function latestFor(tool) {
-  const spec = tool.latest;
-  if (!spec) return null;
+/** JSON through the app's network stack (system proxy, Windows certificates). */
+async function jsonFrom(url, headers = {}) {
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetchCompat(url, {
+      signal: c.signal,
+      headers: { "user-agent": "FRIDAY-InstallManager", ...headers },
+    });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** One registry lookup, each with a second official host when the first does not answer. */
+async function latestFromSpec(spec) {
+  if (spec.kind === "npm") {
+    const hosts = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
+    for (const host of hosts) {
+      const version = (await jsonFrom(`${host}/${spec.ref}/latest`))?.version;
+      if (version) return version;
+    }
+    return null;
+  }
+  if (spec.kind === "pypi") {
+    return (await jsonFrom(`https://pypi.org/pypi/${spec.ref}/json`))?.info?.version || null;
+  }
+  if (spec.kind === "github") {
+    const release = await require("./vendor-sources.cjs").githubRelease(spec.ref);
+    return release?.tag ? semver(release.tag) : null;
+  }
+  return null;
+}
+
+/**
+ * Installed packages that winget says have a newer version: Id -> available.
+ * One `winget upgrade` answers for every winget-managed tool at once, and it is
+ * the version `winget upgrade --id` would install, so "update available" and the
+ * Update button agree.
+ */
+let wingetUpgradeCache = { at: 0, table: {} };
+async function wingetUpgrades(force = false) {
+  if (!WIN) return {};
+  if (!force && Date.now() - wingetUpgradeCache.at < LATEST_TTL) return wingetUpgradeCache.table;
+  const text = await run(
+    "winget",
+    ["upgrade", "--accept-source-agreements", "--disable-interactivity"],
+    60_000,
+  );
+  const table = text ? require("./vendor-sources.cjs").parseWingetUpgrade(text) : {};
+  wingetUpgradeCache = { at: Date.now(), table };
+  return table;
+}
+
+/**
+ * The newest version of one tool, from the first source that answers: its own
+ * registry (npm, PyPI, GitHub), the vendor's release feed, then winget.
+ */
+async function latestFor(tool, context = {}) {
   const hit = latestCache.get(tool.id);
   if (hit && Date.now() - hit.at < LATEST_TTL) return hit.version;
   let version = null;
   try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), 6000);
-    if (spec.kind === "npm") {
-      const r = await fetch(`https://registry.npmjs.org/${spec.ref}/latest`, { signal: c.signal });
-      if (r.ok) version = (await r.json()).version || null;
-    } else if (spec.kind === "pypi") {
-      const r = await fetch(`https://pypi.org/pypi/${spec.ref}/json`, { signal: c.signal });
-      if (r.ok) version = (await r.json())?.info?.version || null;
-    } else if (spec.kind === "github") {
-      const r = await fetch(`https://api.github.com/repos/${spec.ref}/releases/latest`, {
-        signal: c.signal,
-        headers: { "user-agent": "FRIDAY-InstallManager" },
-      });
-      if (r.ok) version = semver((await r.json()).tag_name || "");
-    }
-    clearTimeout(t);
+    if (tool.latest) version = await latestFromSpec(tool.latest);
+    const vendor = require("./vendor-sources.cjs");
+    if (!version && vendor.hasFeed(tool.id))
+      version = (await vendor.resolveFeed(tool.id))?.version || null;
+    if (!version && tool.winget) version = (context.wingetTable || {})[tool.winget] || null;
   } catch {
     version = null;
   }
@@ -2276,8 +2561,13 @@ async function latestFor(tool) {
 }
 
 async function latestVersions() {
-  const withSpec = TOOLS.filter((t) => t.latest);
-  const results = await pool(withSpec, 5, async (t) => [t.id, await latestFor(t)]);
+  const vendor = require("./vendor-sources.cjs");
+  const wingetTable = await wingetUpgrades().catch(() => ({}));
+  const withSource = TOOLS.filter((t) => t.latest || vendor.hasFeed(t.id) || t.winget);
+  const results = await pool(withSource, 5, async (t) => [
+    t.id,
+    await latestFor(t, { wingetTable }),
+  ]);
   const map = Object.fromEntries(results.filter(([, v]) => v));
   // Shared components publish their version under every catalog row name too.
   for (const [real, shown] of DISPLAY_IDS) {
@@ -2352,6 +2642,10 @@ const jobs = new Map(); // key `${id}:${action}` -> child process
 
 async function commandFor(tool, action, opts = {}) {
   const winget = tool.winget;
+  if (action === "uninstall" && tool.noUninstall) return null;
+  if (typeof tool.customCommand === "function" && action !== "uninstall") {
+    return tool.customCommand(action, opts);
+  }
   if (action === "uninstall") {
     if (winget)
       return ["winget", ["uninstall", "--id", winget, "--silent", "--accept-source-agreements"]];
@@ -2442,6 +2736,35 @@ async function isElevated() {
  * npm-based installs such as n8n failed instantly with no output. Route those
  * through the command processor while every real .exe still spawns directly.
  */
+/** Run a command with administrator rights (one UAC prompt); resolves {ok, error}. */
+function runElevated(cmd, args) {
+  return new Promise((resolve) => {
+    const [exe, exeArgs] = elevatedCommand(cmd, args || []);
+    let child;
+    try {
+      child = spawnCommand(exe, exeArgs);
+    } catch (err) {
+      resolve({ ok: false, error: String((err && err.message) || err) });
+      return;
+    }
+    let output = "";
+    child.stderr?.on("data", (chunk) => (output += String(chunk)));
+    child.on("error", (err) => resolve({ ok: false, error: String(err.message) }));
+    child.on("close", (code) =>
+      resolve(
+        code === 0
+          ? { ok: true }
+          : {
+              ok: false,
+              error: /canceled by the user|operation was canceled/i.test(output)
+                ? "administrator approval was declined"
+                : output.trim().slice(-200) || `exit code ${code}`,
+            },
+      ),
+    );
+  });
+}
+
 function spawnCommand(cmd, args) {
   const { loadWinSpawn } = require("./load-win-spawn.cjs");
   return loadWinSpawn(__dirname).spawnChild(cmd, args || []);
@@ -2566,6 +2889,10 @@ async function downloadInstaller(url, root, report, { sha256, needBytes, label, 
     sha256,
     needBytes,
     label: label || name,
+    // The URL is one FRIDAY's own tool table or an official release feed named;
+    // without this only GitHub and Hugging Face downloads were accepted and
+    // every other vendor's installer was refused as "off allowlist".
+    extraHosts: [url],
   });
   return target;
 }
@@ -2575,6 +2902,31 @@ async function downloadInstaller(url, root, report, { sha256, needBytes, label, 
  * newest official release: its URL, size and sha256 replace the pin, and the
  * pin is used when the lookup fails or is offline.
  */
+/** The vendor feed's installer for a tool, or null (no feed, no answer, no digest). */
+async function vendorFeedInstall(tool) {
+  try {
+    const feed = await require("./vendor-sources.cjs").resolveFeed(tool.id);
+    return feed?.install ? feed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The tool with the feed's installer, digest and arguments in place of any pin. */
+function applyFeed(tool, feed) {
+  return {
+    ...tool,
+    installerUrl: feed.install.url,
+    sha256: feed.install.sha256,
+    needBytes: feed.bytes || 0,
+    installerMirrors: [...(feed.mirrors || []), ...(tool.installerMirrors || [])],
+    ...(feed.installerArgs ? { installerArgs: feed.installerArgs } : {}),
+    ...(feed.bin ? { feedBin: feed.bin, archiveBin: feed.bin } : {}),
+    releaseTag: feed.version,
+    verifySignature: feed.kind === "exe" || feed.kind === "msi",
+  };
+}
+
 async function withLatestRelease(tool) {
   if (!tool.release) return tool;
   let latest = null;
@@ -2631,6 +2983,21 @@ function runJob({ id, action, root }, emit) {
   if (jobs.has(key)) {
     emit({ id, action, phase: "Running", line: "job already running — reusing it" });
     return Promise.resolve({ ok: true, reused: true });
+  }
+
+  // A component that is part of another tool (Compose in Docker Desktop, the
+  // Whisper.cpp row in FRIDAY's own whisper.cpp) installs through that tool.
+  if (tool.installVia && action !== "uninstall" && action !== "verify") {
+    const target = toolById(tool.installVia);
+    if (target && target.id !== tool.id) {
+      emit({
+        id,
+        action,
+        phase: "Running",
+        line: `${tool.id} comes with ${target.id} — installing that`,
+      });
+      return runJob({ id: target.id, action, root }, (event) => emit({ ...event, id }));
+    }
   }
 
   // Components that ship with the operating system or with FRIDAY itself have
@@ -2726,6 +3093,21 @@ function runJob({ id, action, root }, emit) {
     }
 
     if (action !== "uninstall") tool = await withLatestRelease(tool);
+    // A pinned archive (Node, MinGit, gh, Temurin) installs the newest release
+    // its vendor publishes with a digest; the pin in the manifest is what is used
+    // when the feed does not answer.
+    if (action !== "uninstall" && tool.archiveBin && vendorSources.hasFeed(tool.id)) {
+      const feed = await vendorFeedInstall(tool);
+      if (feed) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `newest official release is ${feed.version} (${feed.source})`,
+        });
+        tool = applyFeed(tool, feed);
+      }
+    }
 
     // Packages whose installability depends on the real machine (Python
     // version, GPU, available wheels) decide their strategy before we spend a
@@ -2760,7 +3142,8 @@ function runJob({ id, action, root }, emit) {
     const pmCmd = await commandFor(tool, action, installOpts);
     const fallback = action === "uninstall" ? null : directInstaller(tool);
 
-    if (!pmCmd && !fallback) {
+    const vendorFeeds = require("./vendor-sources.cjs");
+    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id)) {
       const vendorOnly = Boolean(tool.manual) && !tool.pip;
       const outcome = voiceInstall.installOutcome({
         pythonFound: false,
@@ -2840,6 +3223,15 @@ function runJob({ id, action, root }, emit) {
       const freeze = await loadPipFreeze(true);
       let probe = await probeTool(tool, freeze, await loadWingetList(true), root);
       let ok = jobSucceeded(code, action, probe);
+      // A tool just unpacked under <root>\runtime is on PATH from now on, for
+      // FRIDAY's own terminal, agents and the kernel, without a restart.
+      if (ok && action !== "uninstall") {
+        try {
+          require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+        } catch {
+          /* convenience only */
+        }
+      }
       // A service that was answering before the job (Ollama) is started again
       // by the same install, so it comes back on the version just installed.
       if (ok && wasRunning && tool.startAfter && probe.status !== "Running") {
@@ -2886,8 +3278,27 @@ function runJob({ id, action, root }, emit) {
           });
         }
       }
+      // Windows features (WSL) answer only after a restart: a clean exit then
+      // is success, said as such, not a failure to retry.
+      let restartRequired = false;
+      if (!ok && code === 0 && tool.restartMayBeNeeded && action !== "uninstall") {
+        ok = true;
+        restartRequired = true;
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `[${label}] finished — restart Windows to finish enabling ${tool.name || id}`,
+        });
+      }
       const sourceProblem = !ok ? wingetSourceFailure(code) : null;
-      return { code, probe, ok, ...(sourceProblem ? { sourceProblem } : {}) };
+      return {
+        code,
+        probe,
+        ok,
+        ...(restartRequired ? { restartRequired } : {}),
+        ...(sourceProblem ? { sourceProblem } : {}),
+      };
     };
 
     const tried = [];
@@ -2916,27 +3327,49 @@ function runJob({ id, action, root }, emit) {
         id,
         action,
         ok: true,
-        phase: "Done",
+        phase: last.restartRequired ? "Restart required" : "Done",
+        ...(last.restartRequired ? { restartRequired: true } : {}),
         version: last.probe.version,
         line: `exit code ${last.code} · health check: ${last.probe.status}`,
       });
-      return { ok: true, code: last.code, version: last.probe.version };
+      return {
+        ok: true,
+        code: last.code,
+        version: last.probe.version,
+        ...(last.restartRequired ? { restartRequired: true } : {}),
+      };
     };
 
     const tryVendorInstaller = async () => {
-      if (!fallback) return null;
-      const sources = [fallback.url, ...(tool.installerMirrors || [])];
+      let direct = fallback;
+      // No pinned installer: ask the vendor's own feed, which gives the newest
+      // installer and its SHA-256. Without a digest nothing is downloaded.
+      if (!direct && vendorFeeds.hasFeed(tool.id)) {
+        const feed = await vendorFeedInstall(tool);
+        if (feed) {
+          tool = applyFeed(tool, feed);
+          direct = { url: feed.install.url };
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `${pmMethodLabel(tool)} did not install it — using the official ${feed.source} installer ${feed.version}`,
+          });
+        }
+      }
+      if (!direct) return null;
+      const sources = [direct.url, ...(tool.installerMirrors || [])];
       emit({
         id,
         action,
         phase: "Running",
         line:
           pmCmd && !vendorFirst
-            ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${fallback.url}`
-            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${fallback.url}`,
+            ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${direct.url}`
+            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${direct.url}`,
       });
       let file = null;
-      let usedUrl = fallback.url;
+      let usedUrl = direct.url;
       for (const url of sources) {
         usedUrl = url;
         const cached = cachedInstaller(url, root);
@@ -3015,7 +3448,7 @@ function runJob({ id, action, root }, emit) {
           file = null;
         }
       }
-      if (file && WIN && tool.release) {
+      if (file && WIN && (tool.release || tool.verifySignature) && /\.(exe|msi)$/i.test(file)) {
         const signed = require("./download-safety.cjs").authenticodeStatus(file);
         emit({
           id,
@@ -3036,6 +3469,11 @@ function runJob({ id, action, root }, emit) {
         const target = path.join(destDir, tool.archiveBin || path.basename(file));
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(file, target);
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.archiveBin || path.basename(file),
+          url: usedUrl,
+        });
         emit({
           id,
           action,
@@ -3050,6 +3488,15 @@ function runJob({ id, action, root }, emit) {
       last = await attempt("vendor installer", installerCommand(file, tool, root));
       tried.push(`vendor installer (exit ${last.code})`);
       if (!last.ok) return null;
+      // An unpacked archive records what it is, so the next scan finds it, knows
+      // its version and can tell when a newer one exists.
+      if (tool.archiveBin && /\.(zip|gz)$/i.test(file)) {
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.feedBin || tool.archiveBin,
+          url: usedUrl,
+        });
+      }
       emit({
         id,
         action,
@@ -3134,12 +3581,17 @@ function installerDir(root) {
 }
 
 module.exports = {
+  runElevated,
+  lastDetected: () => lastDetect,
+  applyManagedPath: (root) => require("./managed-path.cjs").applyManagedPath(root, TOOLS),
   anyReachable,
   TOOLS,
   toolById,
   CATALOG_ALIAS,
   detectTools,
   latestVersions,
+  latestFor,
+  wingetUpgrades,
   runJob,
   cancelJob,
   activeJobs,
