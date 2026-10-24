@@ -300,7 +300,7 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
         status: res.status,
         rateLimited: true,
         resetAt,
-        error: `GitHub's request limit is used up${resetAt ? ` until ${clockTime(resetAt)}` : " for now"}. ${
+        error: `GitHub's rate limit is used up${resetAt ? ` until ${clockTime(resetAt)}` : " for now"}. ${
           cfg.token
             ? "Try again after that."
             : "A read-only token raises the limit from 60 to 5,000 requests an hour."

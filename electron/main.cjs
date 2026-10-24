@@ -1239,9 +1239,9 @@ function startWatching(root, approvedFolders) {
 
 /**
  * The kernel's canonical config folder: <FRIDAY root>/config. The seed files
- * that ship with the build (models.yaml, kernel.yaml) are copied in once so the
- * installed EXE never reads them from a development checkout, and the owner can
- * edit their own copy afterwards without an update overwriting it.
+ * that ship with the build (models.yaml, kernel.yaml) are copied in so the
+ * installed EXE never reads them from a development checkout; the owner can edit
+ * their own copy and an update never overwrites an edited one (config-seed.cjs).
  */
 function ensureKernelConfigDir() {
   let configDir = null;
@@ -1254,11 +1254,15 @@ function ensureKernelConfigDir() {
   try {
     fs.mkdirSync(configDir, { recursive: true });
     const resourcePaths = require("./resource-paths.cjs");
-    for (const name of ["models.yaml", "kernel.yaml"]) {
-      const target = path.join(configDir, name);
-      if (fs.existsSync(target)) continue;
-      const from = resourcePaths.resolveConfigFile(name);
-      if (from) fs.copyFileSync(from, target);
+    // Copied once, and brought forward on an update unless the owner edited it
+    // (then the new shipped file is saved beside it as <name>.new).
+    const synced = require("./config-seed.cjs").syncSeedConfig({
+      dir: configDir,
+      names: ["models.yaml", "kernel.yaml"],
+      resolve: (name) => resourcePaths.resolveConfigFile(name),
+    });
+    for (const row of synced) {
+      if (row.action !== "current") log(`config ${row.name}: ${row.action}`);
     }
   } catch (error) {
     log(`kernel config seed failed: ${error?.message || error}`);

@@ -111,12 +111,12 @@ describe("GitHub is asked sparingly and answers honestly", () => {
     const out = await sync.api({ repo: "o/r" }, "/repos/o/r/limit-case");
     expect(out).toMatchObject({ ok: false, status: 403, rateLimited: true });
     expect(out.resetAt).toBe(reset * 1000);
-    expect(out.error).toContain("request limit");
+    expect(out.error).toContain("rate limit");
     expect(out.error).toContain("read-only token raises the limit");
     expect(out.error).not.toMatch(/Read and write|Actions/);
   });
 
-  it("keeps the connection and says 'limit', not 'sign in again', while rate-limited", async () => {
+  it("keeps the connection and says 'rate limit', not 'sign in again', while rate-limited", async () => {
     sync.writeConfig(root, { repo: "o/r", updateToken: "ro" });
     vi.stubGlobal(
       "fetch",
@@ -130,7 +130,7 @@ describe("GitHub is asked sparingly and answers honestly", () => {
     );
     const state = await sync.connect(root);
     expect(state.state).toBe("offline");
-    expect(state.message).toContain("request limit");
+    expect(state.message).toContain("rate limit");
     // The stored credential is still there.
     expect(sync.readConfig(root).updateToken).toBe("ro");
   });
