@@ -16,6 +16,7 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs");
 const voiceInstall = require("./voice-install.cjs");
+const vendorSources = require("./vendor-sources.cjs");
 const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
@@ -1282,6 +1283,108 @@ const TOOLS = [
   }),
 
   // --- additional runtimes, engines, databases and sandboxing ---------------
+  T("Ruby", "Languages & Runtimes", {
+    cmd: "ruby",
+    args: ["--version"],
+    winget: "RubyInstallerTeam.Ruby.3.4",
+    url: "https://rubyinstaller.org/",
+    source: "rubyinstaller.org",
+  }),
+  T("PHP", "Languages & Runtimes", {
+    cmd: "php",
+    args: ["-v"],
+    winget: "PHP.PHP.8.4",
+    url: "https://windows.php.net/",
+    source: "windows.php.net",
+  }),
+  T("Zig", "Languages & Runtimes", {
+    cmd: "zig",
+    args: ["version"],
+    winget: "zig.zig",
+    url: "https://ziglang.org/",
+    source: "ziglang.org",
+    latest: { kind: "github", ref: "ziglang/zig" },
+  }),
+  T("Perl", "Languages & Runtimes", {
+    cmd: "perl",
+    args: ["--version"],
+    winget: "StrawberryPerl.StrawberryPerl",
+    url: "https://strawberryperl.com/",
+    source: "strawberryperl.com",
+  }),
+  T("Julia", "Languages & Runtimes", {
+    cmd: "julia",
+    args: ["--version"],
+    winget: "Julialang.Julia",
+    url: "https://julialang.org/",
+    source: "julialang.org",
+    latest: { kind: "github", ref: "JuliaLang/julia" },
+  }),
+  T("Lua", "Languages & Runtimes", {
+    cmd: "lua",
+    args: ["-v"],
+    winget: "DEVCOM.Lua",
+    url: "https://www.lua.org/",
+    source: "lua.org",
+  }),
+  T("Maven", "Developer Tools", {
+    cmd: "mvn",
+    args: ["-v"],
+    winget: "Apache.Maven",
+    url: "https://maven.apache.org/",
+    source: "maven.apache.org",
+  }),
+  T("Terraform", "Developer Tools", {
+    cmd: "terraform",
+    args: ["version"],
+    winget: "Hashicorp.Terraform",
+    url: "https://developer.hashicorp.com/terraform",
+    source: "hashicorp.com",
+    latest: { kind: "github", ref: "hashicorp/terraform" },
+  }),
+  T("kubectl", "Developer Tools", {
+    cmd: "kubectl",
+    args: ["version", "--client"],
+    winget: "Kubernetes.kubectl",
+    url: "https://kubernetes.io/docs/tasks/tools/",
+    source: "kubernetes.io",
+    latest: { kind: "github", ref: "kubernetes/kubernetes" },
+  }),
+  T("Helm", "Developer Tools", {
+    cmd: "helm",
+    args: ["version", "--short"],
+    winget: "Helm.Helm",
+    url: "https://helm.sh/",
+    source: "helm.sh",
+    latest: { kind: "github", ref: "helm/helm" },
+  }),
+  T("AWS CLI", "Developer Tools", {
+    cmd: "aws",
+    args: ["--version"],
+    winget: "Amazon.AWSCLI",
+    url: "https://aws.amazon.com/cli/",
+    source: "aws.amazon.com",
+  }),
+  T("soundfile", "Voice", {
+    pipDist: "soundfile",
+    pip: "soundfile",
+    url: "https://pypi.org/project/soundfile/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "soundfile" },
+  }),
+  T("KoboldCpp", "AI Runtimes", {
+    // One self-contained executable; it still needs a model file to start, so it
+    // is stored under runtime\\ and run from there, never registered as a service.
+    url: "https://github.com/LostRuins/koboldcpp",
+    source: "github.com/LostRuins",
+    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
+    sha256: "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38",
+    needBytes: 642223685,
+    storeOnly: true,
+    archiveBin: "koboldcpp.exe",
+    latest: { kind: "github", ref: "LostRuins/koboldcpp" },
+    manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
+  }),
   T("Deno", "Languages & Runtimes", {
     cmd: "deno",
     args: ["-V"],
@@ -2993,7 +3096,7 @@ function runJob({ id, action, root }, emit) {
     // A pinned archive (Node, MinGit, gh, Temurin) installs the newest release
     // its vendor publishes with a digest; the pin in the manifest is what is used
     // when the feed does not answer.
-    if (action !== "uninstall" && tool.archiveBin && !tool.storeOnly) {
+    if (action !== "uninstall" && tool.archiveBin && vendorSources.hasFeed(tool.id)) {
       const feed = await vendorFeedInstall(tool);
       if (feed) {
         emit({

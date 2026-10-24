@@ -167,3 +167,19 @@ describe("tool services", () => {
     }
   });
 });
+
+describe("image kill", () => {
+  it("stops a program by image name only on Windows and only for a plain .exe", async () => {
+    const { createRequire } = await import("node:module");
+    const lifecycle = createRequire(import.meta.url)("../../electron/app-lifecycle.cjs") as {
+      killImage: (name: string, o: Record<string, unknown>) => boolean;
+    };
+    const calls: string[][] = [];
+    const spawn = (_cmd: string, args: string[]) => (calls.push(args), { unref() {} });
+    expect(lifecycle.killImage("ollama.exe", { platform: "win32", spawn })).toBe(true);
+    expect(calls[0]).toEqual(["/F", "/IM", "ollama.exe"]);
+    expect(lifecycle.killImage("a b; calc.exe", { platform: "win32", spawn })).toBe(false);
+    expect(lifecycle.killImage("ollama.exe", { platform: "linux", spawn })).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+});

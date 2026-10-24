@@ -143,6 +143,34 @@ describe("vendor feeds", () => {
     expect(bare.install).toBeNull();
   });
 
+  it("KoboldCpp: the executable and the digest GitHub published for it", async () => {
+    const net = network({
+      "https://api.github.com/repos/LostRuins/koboldcpp/releases/latest": {
+        tag_name: "v1.124",
+        assets: [
+          {
+            name: "koboldcpp.exe",
+            browser_download_url: "https://github.com/k/koboldcpp.exe",
+            size: 9,
+            digest: `sha256:${H("7")}`,
+          },
+          {
+            name: "koboldcpp_nocuda.exe",
+            browser_download_url: "https://github.com/k/nocuda.exe",
+            size: 8,
+            digest: `sha256:${H("8")}`,
+          },
+        ],
+      },
+    });
+    const kobold = await vendor.resolveFeed("KoboldCpp", { fetchImpl: net.fetchImpl });
+    expect([kobold.version, kobold.bin, kobold.install.sha256]).toEqual([
+      "1.124",
+      "koboldcpp.exe",
+      H("7"),
+    ]);
+  });
+
   it("GitHub: the public redirect keeps the version when the API is rate-limited", async () => {
     const fetchImpl = async (url: string) =>
       url.startsWith("https://api.github.com")

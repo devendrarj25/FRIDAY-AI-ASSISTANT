@@ -77,6 +77,27 @@ function processesToStop(list) {
   return (Array.isArray(list) ? list : []).filter(shouldStop);
 }
 
+/**
+ * Stop every process of one program by image name (Windows only), for a tool
+ * FRIDAY started whose children cannot be walked from one pid. Only the tool
+ * service module calls it, and only for a service it started itself.
+ */
+function killImage(name, options = {}) {
+  const image = String(name || "");
+  if (!/^[\w.-]+\.exe$/i.test(image)) return false;
+  if ((options.platform || process.platform) !== "win32") return false;
+  try {
+    const child = (options.spawn || spawn)("taskkill", ["/F", "/IM", image], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    if (child && typeof child.unref === "function") child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Signal a pid FRIDAY started and wait until it is gone, or the deadline passes. */
 async function waitForProcessGone(pid, options = {}) {
   const id = Number(pid);
@@ -549,6 +570,7 @@ module.exports = {
   restartPlan,
   pidAlive,
   killProcessTree,
+  killImage,
   waitForProcessGone,
   createPidRegistry,
   usePidRegistry,

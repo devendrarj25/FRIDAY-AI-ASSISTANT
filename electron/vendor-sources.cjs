@@ -281,6 +281,13 @@ const FEEDS = {
     kind: "zip",
     bin: (name) => `${name.replace(/\.zip$/, "")}/aria2c.exe`,
   }),
+  KoboldCpp: githubFeed({
+    repo: "LostRuins/koboldcpp",
+    asset: /^koboldcpp\.exe$/,
+    version: (tag) => tag.replace(/^v/, ""),
+    kind: "exe",
+    bin: "koboldcpp.exe",
+  }),
   "FRIDAY GitHub CLI": githubFeed({
     repo: "cli/cli",
     asset: /^gh_[\d.]+_windows_amd64\.zip$/,

@@ -1996,6 +1996,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "tools:service",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "tools:service-idle",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "tools:services",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "updates:apply",
       file: "electron/main.cjs",
     },
@@ -8584,8 +8596,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 464,
-      total: 464,
+      mapped: 467,
+      total: 467,
     },
     kernel: {
       mapped: 14,

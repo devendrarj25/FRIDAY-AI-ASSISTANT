@@ -6370,18 +6370,9 @@ const toolServices = require("./tool-services.cjs").createServices({
     }),
   killTree: (pid) => appLifecycle.killProcessTree(pid),
   killImages: (names) => {
-    if (process.platform !== "win32") return;
-    for (const name of names) {
-      try {
-        require("node:child_process").spawnSync("taskkill", ["/F", "/IM", name], {
-          windowsHide: true,
-          stdio: "ignore",
-        });
-      } catch {
-        /* the process may not be running */
-      }
-    }
+    for (const name of names) appLifecycle.killImage(name);
   },
+
   exeFor: (id) =>
     id === "Ollama" ? require("./local-library.cjs").findInstalledOllama()?.exe : null,
   installed: (id) =>
