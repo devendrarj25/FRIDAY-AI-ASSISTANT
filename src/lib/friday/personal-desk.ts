@@ -35,6 +35,16 @@ const nextId = () => `desk-${Date.now().toString(36)}-${(seq += 1).toString(36)}
 class PersonalDesk {
   private tasks: DeskTask[] = [];
   private loaded = false;
+  private listeners = new Set<() => void>();
+  private snapshot: DeskState = { tasks: [] };
+
+  /** The page re-reads the list through useSyncExternalStore. */
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
 
   private load() {
     if (this.loaded) return;
@@ -42,12 +52,23 @@ class PersonalDesk {
     if (typeof window === "undefined") return;
     const local = readLocalState<DeskState>(STORAGE_KEY);
     if (local?.tasks) this.tasks = local.tasks;
+    this.refresh();
     restoreFromDisk<DeskState>(STORAGE_KEY, (disk) => {
-      if (disk?.tasks?.length) this.tasks = disk.tasks;
+      if (disk?.tasks?.length) {
+        this.tasks = disk.tasks;
+        this.refresh();
+      }
     });
   }
 
+  /** A new snapshot object only when the list changed, then tell the page. */
+  private refresh() {
+    this.snapshot = { tasks: [...this.tasks] };
+    for (const listener of this.listeners) listener();
+  }
+
   private emit() {
+    this.refresh();
     if (typeof window === "undefined") return;
     writeState(STORAGE_KEY, { tasks: this.tasks } satisfies DeskState);
   }
@@ -64,9 +85,40 @@ class PersonalDesk {
     this.emit();
   }
 
+  /** Stable between changes, so a subscribed component does not re-render for nothing. */
   getSnapshot(): DeskState {
     this.load();
-    return { tasks: [...this.tasks] };
+    return this.snapshot;
+  }
+
+  /** Tick or untick one task by id (the page's checkbox). */
+  toggle(id: string): DeskTask | null {
+    this.load();
+    const task = this.tasks.find((item) => item.id === id);
+    if (!task) return null;
+    task.done = !task.done;
+    task.doneAt = task.done ? Date.now() : null;
+    this.emit();
+    return task;
+  }
+
+  /** Delete one task by id. */
+  remove(id: string): boolean {
+    this.load();
+    const before = this.tasks.length;
+    this.tasks = this.tasks.filter((item) => item.id !== id);
+    if (this.tasks.length === before) return false;
+    this.emit();
+    return true;
+  }
+
+  /** Delete every finished task. */
+  clearDone(): number {
+    this.load();
+    const before = this.tasks.length;
+    this.tasks = this.tasks.filter((item) => !item.done);
+    if (this.tasks.length !== before) this.emit();
+    return before - this.tasks.length;
   }
 
   add(title: string, dueAt: number | null = null): DeskTask {
