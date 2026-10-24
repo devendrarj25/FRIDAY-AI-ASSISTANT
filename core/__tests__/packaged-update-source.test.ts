@@ -26,9 +26,23 @@ describe("packaged app source-update guard", () => {
     expect(handler.slice(0, 900)).toContain("sourceUpdateBlocked");
   });
 
-  it("has no packaged-app bypass for a developer import", () => {
-    expect(handler.slice(0, 900)).toContain("if (app.isPackaged)");
-    expect(handler.slice(0, 900)).not.toContain("developerImport");
+  it("has no packaged-app bypass for a developer import; the one exception is merging content packs", () => {
+    const head = handler.slice(0, 1400);
+    expect(head).toContain("if (app.isPackaged && options?.contentOnly !== true)");
+    expect(head).not.toContain("developerImport");
+    // That exception cannot reach program code or the owner's data: a packaged
+    // app applies a GitHub scan only inside the content areas.
+    const apply = MAIN.slice(MAIN.indexOf('ipcMain.handle("import:apply"'));
+    expect(apply.slice(0, 1200)).toContain("app.isPackaged && scan.githubRef");
+    expect(apply.slice(0, 1200)).toContain("githubSync.CONTENT_AREAS");
+    const sync = fs.readFileSync(path.resolve(process.cwd(), "electron/github-sync.cjs"), "utf8");
+    const areas = sync.slice(
+      sync.indexOf("const CONTENT_AREAS"),
+      sync.indexOf("]);", sync.indexOf("const CONTENT_AREAS")),
+    );
+    for (const code of ["kernel", "shell", "renderer", "core", "config", "brain"]) {
+      expect(areas, code).not.toContain(`"${code}"`);
+    }
   });
 
   it("checks releases only for a packaged build", () => {

@@ -1514,6 +1514,7 @@ jobs:
           for asset in \
             "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe" \
             "release/FRIDAY-Portable-${{ steps.plan.outputs.version }}.exe" \
+            "release/FRIDAY-Setup-${{ steps.plan.outputs.version }}.exe.blockmap" \
             "release/latest.yml" \
             "release/friday-update.json" \
             "release/SHA256SUMS.txt" \

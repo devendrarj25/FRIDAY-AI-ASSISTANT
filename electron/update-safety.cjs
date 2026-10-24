@@ -102,13 +102,74 @@ function verifyArtifact({ file, expected, version, currentVersion, channelSwitch
 
 // ------------------------------------------------------------------ backup --
 
-/** Copy the protected parts of the root into <root>/backup/releases/<stamp>. */
-function backupState({ root, version }) {
-  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+/** Bytes under a path (files only, symlinks not followed); unreadable parts count as 0. */
+function treeBytes(target) {
+  let total = 0;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(target, { withFileTypes: true });
+  } catch {
+    try {
+      return fs.statSync(target).size;
+    } catch {
+      return 0;
+    }
+  }
+  for (const entry of entries) {
+    const full = path.join(target, entry.name);
+    if (entry.isDirectory()) total += treeBytes(full);
+    else if (entry.isFile()) {
+      try {
+        total += fs.statSync(full).size;
+      } catch {
+        /* vanished */
+      }
+    }
+  }
+  return total;
+}
+
+function freeBytes(dir) {
+  try {
+    const stat = fs.statfsSync(dir);
+    return Number(stat.bavail) * Number(stat.bsize);
+  } catch {
+    return null;
+  }
+}
+
+const mb = (bytes) => `${Math.ceil(bytes / 1048576)} MB`;
+
+/**
+ * Copy the protected parts of the root into <root>/backup/releases/<stamp>.
+ * The drive is checked first (a backup that cannot fit stops the update before
+ * anything is touched, with a plain message), and a copy that fails halfway is
+ * removed instead of being left behind.
+ */
+function planBackup({ root, version, freeSpace }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(root, "backup", "releases", `${version || "update"}-${stamp}`);
+  const need = PROTECTED.reduce((sum, name) => sum + treeBytes(path.join(root, name)), 0);
+  fs.mkdirSync(path.join(root, "backup", "releases"), { recursive: true });
+  const free = freeSpace(path.join(root, "backup", "releases"));
+  const required = Math.ceil(need * 1.1) + 256 * 1048576;
+  if (free !== null && free < required) {
+    return {
+      dir,
+      error: `Not enough free disk space for the safety backup: about ${mb(required)} are needed and ${mb(free)} are free. Free some space (or remove old folders under backup\\releases) and try again — nothing was changed.`,
+    };
+  }
+  return { dir, error: "" };
+}
+
+function backupState({ root, version, freeSpace = freeBytes }) {
+  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  let dir = "";
   const copied = [];
   try {
+    const plan = planBackup({ root, version, freeSpace });
+    dir = plan.dir;
+    if (plan.error) return { ok: false, error: plan.error };
     fs.mkdirSync(dir, { recursive: true });
     for (const name of PROTECTED) {
       const source = path.join(root, name);
@@ -118,9 +179,77 @@ function backupState({ root, version }) {
     }
     writeJson(path.join(dir, "backup.json"), { at: Date.now(), version: version || null, copied });
   } catch (error) {
+    if (dir) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* what could not be removed is reported by the error below */
+      }
+    }
     return { ok: false, error: `Backup failed: ${error.message}` };
   }
   return { ok: true, backup: dir, copied };
+}
+
+/**
+ * The same backup without freezing the window: the copy runs on the async file
+ * API, so a large database or memory store does not make FRIDAY "Not responding"
+ * while the safety copy is taken. The installer path uses this one.
+ */
+async function backupStateAsync({ root, version, freeSpace = freeBytes }) {
+  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  let dir = "";
+  const copied = [];
+  try {
+    const plan = planBackup({ root, version, freeSpace });
+    dir = plan.dir;
+    if (plan.error) return { ok: false, error: plan.error };
+    await fs.promises.mkdir(dir, { recursive: true });
+    for (const name of PROTECTED) {
+      const source = path.join(root, name);
+      if (!fs.existsSync(source)) continue;
+      await fs.promises.cp(source, path.join(dir, name), { recursive: true });
+      copied.push(name);
+    }
+    writeJson(path.join(dir, "backup.json"), { at: Date.now(), version: version || null, copied });
+  } catch (error) {
+    if (dir) await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+    return { ok: false, error: `Backup failed: ${error.message}` };
+  }
+  return { ok: true, backup: dir, copied };
+}
+
+/**
+ * Every update copies the protected data aside, so the copies would pile up
+ * until a later backup no longer fits. After a healthy start keep the newest
+ * few; never touch the one a pending rollback still needs.
+ */
+function pruneBackups({ root, keep = 2 } = {}) {
+  if (!root) return { ok: false, removed: [] };
+  const base = path.join(root, "backup", "releases");
+  let names = [];
+  try {
+    names = fs.readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory());
+  } catch {
+    return { ok: true, removed: [] };
+  }
+  const pending = readJson(stateFile(root));
+  const inUse = pending?.backup ? path.resolve(pending.backup) : "";
+  const rows = names
+    .map((e) => ({ name: e.name, full: path.join(base, e.name) }))
+    .map((row) => ({ ...row, at: fs.statSync(row.full).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  const removed = [];
+  for (const row of rows.slice(Math.max(1, keep))) {
+    if (inUse && path.resolve(row.full) === inUse) continue;
+    try {
+      fs.rmSync(row.full, { recursive: true, force: true });
+      removed.push(row.name);
+    } catch {
+      /* in use by the OS — next time */
+    }
+  }
+  return { ok: true, removed };
 }
 
 // ----------------------------------------------------------------- install --
@@ -159,6 +288,81 @@ function cancelInstall({ root }) {
   } catch (error) {
     return { ok: false, error: `Pending update could not be cleared: ${error.message}` };
   }
+}
+
+// ------------------------------------------------------------------ launch --
+
+/**
+ * The flags of an in-place update, the same ones electron-updater passes to an
+ * electron-builder NSIS installer: /S runs it without the wizard, --updated
+ * marks it as an upgrade of the installed copy (same folder, same data), and
+ * --force-run starts FRIDAY again when the install is finished.
+ */
+const SILENT_UPDATE_ARGS = ["/S", "--updated", "--force-run"];
+
+const unsafeForCmd = (value) => /["%^&|<>\r\n]/.test(String(value));
+
+/**
+ * How to start the verified installer so the update needs no clicks and always
+ * ends with FRIDAY open. `start /wait` makes cmd wait for the installer; if it
+ * exits with an error the still-installed app is opened instead, so a failed
+ * update never leaves FRIDAY closed. Returns null off Windows or when a path
+ * cannot be quoted safely (the caller then starts the installer directly).
+ */
+function installerLaunch({ file, appExe = "", platform = process.platform } = {}) {
+  if (platform !== "win32" || !file || unsafeForCmd(file) || unsafeForCmd(appExe)) return null;
+  const setup = `start "" /wait "${file}" ${SILENT_UPDATE_ARGS.join(" ")}`;
+  const reopen = appExe ? ` || start "" "${appExe}"` : "";
+  return {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", `"${setup}${reopen}"`],
+    options: { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true },
+  };
+}
+
+/**
+ * Keep the newest few downloaded installers and delete the rest. Each one is
+ * about 200 MB and an update leaves it behind; the previous one stays for a
+ * rollback. Only files in <root>/updates/installers are touched.
+ */
+function pruneInstallers({ root, keep = 2 } = {}) {
+  if (!root) return { ok: false, removed: [] };
+  const dir = path.join(root, "updates", "installers");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((name) => /\.exe$/i.test(name));
+  } catch {
+    return { ok: true, removed: [] };
+  }
+  const rows = names
+    .map((name) => ({ name, at: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  const removed = [];
+  // A half-finished download nobody resumed within a week is just disk space.
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(part|verified)$/i.test(name)) continue;
+      const file = path.join(dir, name);
+      if (Date.now() - fs.statSync(file).mtimeMs > 7 * 86_400_000) {
+        fs.rmSync(file, { force: true });
+        removed.push(name);
+      }
+    }
+  } catch {
+    /* next time */
+  }
+  for (const row of rows.slice(Math.max(1, keep))) {
+    try {
+      fs.rmSync(path.join(dir, row.name), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.part`), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.blockmap`), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.diff.part`), { force: true });
+      removed.push(row.name);
+    } catch {
+      /* a file the OS still holds is left for next time */
+    }
+  }
+  return { ok: true, removed };
 }
 
 /** The last version that started up healthy — FRIDAY's stable anchor. */
@@ -238,8 +442,13 @@ const pendingUpdate = (root) => (root ? readJson(stateFile(root)) : null);
 module.exports = {
   PROTECTED,
   MUST_PRESERVE,
+  SILENT_UPDATE_ARGS,
+  pruneInstallers,
+  pruneBackups,
+  installerLaunch,
   verifyArtifact,
   backupState,
+  backupStateAsync,
   beginInstall,
   healthCheck,
   rollback,

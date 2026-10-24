@@ -331,9 +331,10 @@ contextBridge.exposeInMainWorld("friday", {
   githubConnection: (refresh) => ipcRenderer.invoke("github:connection", refresh === true),
 
   githubCheck: (override) => ipcRenderer.invoke("github:check", override),
-  githubPull: (ref) => ipcRenderer.invoke("github:pull", ref),
+  githubPull: (ref, options) => ipcRenderer.invoke("github:pull", ref, options),
   githubRecord: (payload) => ipcRenderer.invoke("github:record", payload),
   githubDownloadInstaller: (asset) => ipcRenderer.invoke("github:download-installer", asset),
+  githubCancelDownload: () => ipcRenderer.invoke("github:cancel-download"),
   githubRunInstaller: (file) => ipcRenderer.invoke("github:run-installer", file),
   // Safe update — verify, back up, install, then health-check / roll back.
   githubInstallUpdate: (payload) => ipcRenderer.invoke("github:install-update", payload),

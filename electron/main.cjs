@@ -1239,9 +1239,9 @@ function startWatching(root, approvedFolders) {
 
 /**
  * The kernel's canonical config folder: <FRIDAY root>/config. The seed files
- * that ship with the build (models.yaml, kernel.yaml) are copied in once so the
- * installed EXE never reads them from a development checkout, and the owner can
- * edit their own copy afterwards without an update overwriting it.
+ * that ship with the build (models.yaml, kernel.yaml) are copied in so the
+ * installed EXE never reads them from a development checkout; the owner can edit
+ * their own copy and an update never overwrites an edited one (config-seed.cjs).
  */
 function ensureKernelConfigDir() {
   let configDir = null;
@@ -1254,11 +1254,15 @@ function ensureKernelConfigDir() {
   try {
     fs.mkdirSync(configDir, { recursive: true });
     const resourcePaths = require("./resource-paths.cjs");
-    for (const name of ["models.yaml", "kernel.yaml"]) {
-      const target = path.join(configDir, name);
-      if (fs.existsSync(target)) continue;
-      const from = resourcePaths.resolveConfigFile(name);
-      if (from) fs.copyFileSync(from, target);
+    // Copied once, and brought forward on an update unless the owner edited it
+    // (then the new shipped file is saved beside it as <name>.new).
+    const synced = require("./config-seed.cjs").syncSeedConfig({
+      dir: configDir,
+      names: ["models.yaml", "kernel.yaml"],
+      resolve: (name) => resourcePaths.resolveConfigFile(name),
+    });
+    for (const row of synced) {
+      if (row.action !== "current") log(`config ${row.name}: ${row.action}`);
     }
   } catch (error) {
     log(`kernel config seed failed: ${error?.message || error}`);
@@ -6757,7 +6761,22 @@ ipcMain.handle("import:scan", async (_e, source) => {
 ipcMain.handle("import:apply", async (_e, scanOrId, options) => {
   const scan = importScan(scanOrId);
   if (!scan) return { ok: false, error: "This import is no longer staged — scan it again." };
-  const areas = Array.isArray(options?.areas) ? options.areas : null;
+  let areas = Array.isArray(options?.areas) ? options.areas : null;
+  // A GitHub scan applied by an installed app may only touch content packs.
+  if (app.isPackaged && scan.githubRef) {
+    areas = (areas || githubSync.CONTENT_AREAS).filter((area) =>
+      githubSync.CONTENT_AREAS.includes(String(area)),
+    );
+    // An empty list means "everything" to the importer, so nothing left to
+    // merge must stop here instead of widening to the whole package.
+    if (!areas.length) {
+      return {
+        ok: false,
+        error:
+          "An installed FRIDAY merges only skills, agents, plugins, modules, workflows, resources and docs from GitHub. Pick one of those areas.",
+      };
+    }
+  }
   const result = await importer.applyImport({
     root: getWorkspaceRoot(),
     scan,
@@ -6795,9 +6814,13 @@ ipcMain.handle("github:config", () =>
 
 ipcMain.handle("github:set-config", async (_e, patch) => {
   const next = { ...(patch || {}) };
-  // An empty token string means "keep the stored token"; null clears it.
-  if (next.token === "" || next.token === undefined) delete next.token;
-  if (next.token === null) next.token = "";
+  // An empty token string means "keep the stored token"; null clears it. The
+  // update token is the read-only one Settings → Updates uses; the plain token
+  // belongs to Friday Hub's write-side work.
+  for (const key of ["token", "updateToken"]) {
+    if (next[key] === "" || next[key] === undefined) delete next[key];
+    else if (next[key] === null) next[key] = "";
+  }
   const result = githubSync.writeConfig(getWorkspaceRoot(), next);
   scheduleGithubChecks();
   // Await the live session so the renderer reads CONNECTED (or the real error)
@@ -6807,7 +6830,8 @@ ipcMain.handle("github:set-config", async (_e, patch) => {
 });
 
 ipcMain.handle("github:test", (_e, override) =>
-  githubSync.testConnection(getWorkspaceRoot(), override || {}),
+  // Read-only: what can FRIDAY see, and with which kind of token.
+  githubSync.testUpdateSource(getWorkspaceRoot(), override || {}),
 );
 
 ipcMain.handle("github:check", async (_e, override) => {
@@ -6832,21 +6856,28 @@ ipcMain.handle("github:check", async (_e, override) => {
 
 ipcMain.handle("github:pull", async (_e, ref, options = {}) => {
   // Source ZIPs are a DEVELOPER channel (Import & Build). An installed,
-  // packaged FRIDAY is only ever updated by a verified release installer
-  // (github:download-build → github:install-update), never by source.
-  if (app.isPackaged) {
+  // packaged FRIDAY replaces its program only through a verified release
+  // installer (github:download-installer -> github:install-update). It may still
+  // merge a release's content packs (skills, agents, plugins, modules,
+  // workflows, docs): import:apply restricts such a scan to those areas.
+  if (app.isPackaged && options?.contentOnly !== true) {
     return {
       ok: false,
       sourceUpdateBlocked: true,
       error:
-        "An installed FRIDAY updates from published release installers only. Use Import & Build for source packages.",
+        "An installed FRIDAY installs new versions from the release installer. Use Update content to merge new skills, agents, plugins, modules and workflows, or Import & Build for source packages.",
     };
   }
   const scan = await githubSync.pullUpdate({
     root: getWorkspaceRoot(),
     importer,
     ref: ref ? String(ref) : null,
-    onProgress: (progress) => send("import:progress", progress),
+    onProgress: (progress) => {
+      send("import:progress", progress);
+      // The Updates panel draws the same bar, size, speed and time left for the
+      // source zip as for the installer.
+      send("github:download-progress", progress);
+    },
   });
   return rememberImportScan(scan);
 });
@@ -6914,20 +6945,14 @@ ipcMain.handle("github:release-runs", (_e, override) =>
 const updateSafety = require("./update-safety.cjs");
 const githubPush = require("./github-push.cjs");
 
-ipcMain.handle("github:download-installer", async (_e, payload) => {
-  // A TEST build downloads updates too (TEST → newer TEST, TEST → Stable).
-  // Verification, backup, channel confirmation and rollback are enforced by
-  // github:install-update exactly as they are for a Stable build.
-  const root = getWorkspaceRoot();
-  // The checksum must come from the manifest of the SAME release the asset
-  // belongs to. A Stable ⇄ Test download therefore re-reads the release on the
-  // channel it is crossing to, never the currently selected one.
-  const wantTest = payload?.testBuild === true;
-  const check = await githubSync.checkUpdate(root, {
-    channel: "release",
-    updateChannel: wantTest ? "test" : "stable",
-    currentVersion: productVersion(),
-  });
+let installerDownload = null;
+
+/**
+ * Pick the installer of a checked release, take its checksum from the manifest
+ * of the SAME release, and download it (resumable, verified). Used by the
+ * button and by the background download, so there is one path.
+ */
+async function stageInstaller({ root, check, payload = {}, onProgress, signal }) {
   const pool = [...(check?.assets || []), ...(check?.otherChannel?.assets || [])];
   const listed = githubSync.installerAsset(pool);
   const matched =
@@ -6955,10 +6980,8 @@ ipcMain.handle("github:download-installer", async (_e, payload) => {
   const expected =
     githubSync.expectedChecksum(check?.manifest, asset.name) ||
     githubSync.expectedChecksum(check?.otherChannel?.manifest, asset.name);
-  const progress = (info) => {
-    send("import:progress", info);
-    send("github:download-progress", info);
-  };
+  // electron-builder publishes <installer>.blockmap next to the installer.
+  const blockmap = pool.find((a) => a.name === `${asset.name}.blockmap`) || null;
   return githubSync.downloadInstaller({
     root,
     url: asset.url,
@@ -6967,8 +6990,53 @@ ipcMain.handle("github:download-installer", async (_e, payload) => {
     name: asset.name,
     bytes: asset.bytes,
     sha256: expected,
-    onProgress: progress,
+    blockmap,
+    onProgress,
+    signal,
   });
+}
+
+ipcMain.handle("github:download-installer", async (_e, payload) => {
+  // A TEST build downloads updates too (TEST → newer TEST, TEST → Stable).
+  // Verification, backup, channel confirmation and rollback are enforced by
+  // github:install-update exactly as they are for a Stable build.
+  const root = getWorkspaceRoot();
+  // The checksum must come from the manifest of the SAME release the asset
+  // belongs to. A Stable ⇄ Test download therefore re-reads the release on the
+  // channel it is crossing to, never the currently selected one.
+  const wantTest = payload?.testBuild === true;
+  const check = await githubSync.checkUpdate(root, {
+    channel: "release",
+    updateChannel: wantTest ? "test" : "stable",
+    currentVersion: productVersion(),
+  });
+  const progress = (info) => {
+    send("import:progress", info);
+    send("github:download-progress", info);
+  };
+  // One installer download at a time; "Cancel" aborts it and keeps the part so
+  // the next try continues from where it stopped. A background download in
+  // progress is stopped the same way and the button's download continues it.
+  installerDownload?.abort();
+  const controller = new AbortController();
+  installerDownload = controller;
+  try {
+    return await stageInstaller({
+      root,
+      check,
+      payload,
+      onProgress: progress,
+      signal: controller.signal,
+    });
+  } finally {
+    if (installerDownload === controller) installerDownload = null;
+  }
+});
+
+ipcMain.handle("github:cancel-download", () => {
+  const running = installerDownload !== null;
+  installerDownload?.abort();
+  return { ok: true, cancelled: running };
 });
 
 /**
@@ -7032,7 +7100,7 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
   // Release sqlite/python handles before copying `database/` and before NSIS
   // replaces files. A live kernel on Windows locks friday.sqlite3.
   await stopKernel();
-  const backup = updateSafety.backupState({ root, version: payload.version });
+  const backup = await updateSafety.backupStateAsync({ root, version: payload.version });
   if (!backup.ok) {
     await resumeKernel("kernel resume after failed update backup");
     return backup;
@@ -7055,11 +7123,20 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
     return { ok: true, staged: true, backup: backup.backup, message: "Installer staged." };
   }
   try {
-    const child = require("child_process").spawn(file, [], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: false,
+    // Silent in-place update: no wizard, the data folder is reused, FRIDAY
+    // reopens on the new version, and a failed install reopens the old one.
+    const launch = updateSafety.installerLaunch({
+      file,
+      appExe: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
     });
+    const child = launch
+      ? require("child_process").spawn(launch.command, launch.args, launch.options)
+      : require("child_process").spawn(file, updateSafety.SILENT_UPDATE_ARGS, {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+    child.on("error", () => {});
     child.unref();
   } catch (error) {
     updateSafety.cancelInstall({ root });
@@ -7140,11 +7217,99 @@ ipcMain.handle("github:run-installer", async (_e, file) => {
   return { ok: true, launched: target };
 });
 
-/** Background polling — off unless the owner turns autoCheck on. */
+/**
+ * Fetch and verify the new installer ahead of time (the way electron-updater's
+ * autoDownload does), so "Install" is instant and a flaky connection is dealt
+ * with before the owner is waiting. It only downloads: nothing is installed or
+ * touched, a TEST build is never fetched without being asked, and a download
+ * the owner started is never interrupted.
+ */
+async function stageInBackground(root, result) {
+  try {
+    const live = githubSync.readConfig(root);
+    if (live.autoDownload === false) return;
+    if (result.testBuild || githubSync.normalizeUpdateChannel(live.updateChannel) === "test")
+      return;
+    if (installerDownload) return;
+    const controller = new AbortController();
+    installerDownload = controller;
+    let staged;
+    try {
+      staged = await stageInstaller({ root, check: result, signal: controller.signal });
+    } finally {
+      if (installerDownload === controller) installerDownload = null;
+    }
+    if (staged?.ok && staged.verified) {
+      send("github:update-available", { ...result, staged: true, stagedFile: staged.file });
+    }
+  } catch {
+    /* the button downloads it, with the full error, when the owner asks */
+  }
+}
+
+/** One background look at the repository: notify, and (source checkout only) apply when allowed. */
+async function runGithubCheck() {
+  try {
+    const root = getWorkspaceRoot();
+    if (!root) return;
+    const result = await githubSync.checkUpdate(root, {
+      currentVersion: productVersion(),
+      ...(app.isPackaged ? { channel: "release" } : {}),
+    });
+    if (!result?.ok || !result.updateAvailable) return;
+    send("github:update-available", result);
+    // A packaged FRIDAY is only ever replaced by a verified release the owner
+    // approves — background polling notifies, it never installs.
+    if (app.isPackaged || result.channel === "release") {
+      await stageInBackground(root, result);
+      return;
+    }
+    const live = githubSync.readConfig(root);
+    // The TEST channel is never silent: a test build is only ever installed
+    // by an explicit action in Settings → Updates.
+    if (githubSync.normalizeUpdateChannel(live.updateChannel) === "test") return;
+    // Development source channel: FRIDAY may apply it herself, with a backup.
+    if (live.autoApply) {
+      const scan = await githubSync.pullUpdate({ root, importer, ref: result.ref });
+      if (!scan?.ok) return;
+      rememberImportScan(scan);
+      const applied = await importer.applyImport({ root, scan });
+      if (applied?.ok) {
+        githubSync.recordApplied(root, {
+          ref: result.ref,
+          applied: applied.applied,
+          areas: applied.areas,
+          backup: applied.backup,
+          notes: result.title,
+        });
+        scheduleRescan(root, 300);
+        send("github:update-available", {
+          ...result,
+          applied: applied.applied,
+          autoApplied: true,
+        });
+      }
+    }
+  } catch {
+    /* offline — the next tick tries again */
+  }
+}
+
+/**
+ * Background watching of the connected repository (on unless switched off). It
+ * looks once shortly after start — a launch is when an update is most useful to
+ * hear about — unless a check already ran in the last half hour, then every
+ * `intervalHours`. One timer, replaced on every change of settings.
+ */
+let githubStartupCheck = null;
 function scheduleGithubChecks() {
   if (githubTimer) {
     clearInterval(githubTimer);
     githubTimer = null;
+  }
+  if (githubStartupCheck) {
+    clearTimeout(githubStartupCheck);
+    githubStartupCheck = null;
   }
   const root = getWorkspaceRoot();
   if (!root) return;
@@ -7153,48 +7318,12 @@ function scheduleGithubChecks() {
   const cfg = githubSync.readConfig(root);
   if (!cfg.autoCheck || !cfg.repo) return;
   const every = Math.max(1, Number(cfg.intervalHours) || 6) * 3600_000;
-  githubTimer = setInterval(async () => {
-    try {
-      const root = getWorkspaceRoot();
-      const result = await githubSync.checkUpdate(root, {
-        currentVersion: productVersion(),
-        ...(app.isPackaged ? { channel: "release" } : {}),
-      });
-      if (!result?.ok || !result.updateAvailable) return;
-      send("github:update-available", result);
-      // A packaged FRIDAY is only ever replaced by a verified release the owner
-      // approves — background polling notifies, it never installs.
-      if (app.isPackaged || result.channel === "release") return;
-      const live = githubSync.readConfig(root);
-      // The TEST channel is never silent: a test build is only ever installed
-      // by an explicit action in Settings → Updates.
-      if (githubSync.normalizeUpdateChannel(live.updateChannel) === "test") return;
-      // Development source channel: FRIDAY may apply it herself, with a backup.
-      if (live.autoApply) {
-        const scan = await githubSync.pullUpdate({ root, importer, ref: result.ref });
-        if (!scan?.ok) return;
-        rememberImportScan(scan);
-        const applied = await importer.applyImport({ root, scan });
-        if (applied?.ok) {
-          githubSync.recordApplied(root, {
-            ref: result.ref,
-            applied: applied.applied,
-            areas: applied.areas,
-            backup: applied.backup,
-            notes: result.title,
-          });
-          scheduleRescan(root, 300);
-          send("github:update-available", {
-            ...result,
-            applied: applied.applied,
-            autoApplied: true,
-          });
-        }
-      }
-    } catch {
-      /* offline — the next tick tries again */
-    }
-  }, every);
+  const sinceLast = Date.now() - (Number(cfg.lastCheck) || 0);
+  if (sinceLast >= 30 * 60_000) {
+    githubStartupCheck = setTimeout(() => void runGithubCheck(), 15_000);
+    githubStartupCheck.unref?.();
+  }
+  githubTimer = setInterval(() => void runGithubCheck(), every);
   if (githubTimer.unref) githubTimer.unref();
 }
 
@@ -7225,11 +7354,31 @@ function checkUpdateHealth() {
   if (!root) return null;
   try {
     const health = updateSafety.healthCheck({ root, version: productVersion() });
+    if (health.state === "updated") {
+      updateSafety.pruneInstallers({ root, keep: 2 });
+      updateSafety.pruneBackups({ root, keep: 2 });
+    }
     if (health.state === "updated" || health.state === "failed")
       send("github:update-health", health);
     return health;
   } catch {
     return null;
+  }
+}
+
+/** Packages a newer version added to kernel/requirements.txt, installed once in the background. */
+async function syncKernelDepsNow() {
+  try {
+    const root = getWorkspaceRoot();
+    if (!root) return;
+    const kernelDeps = require("./kernel-deps.cjs");
+    const file = require("./resource-paths.cjs").resolveResourceFile("kernel/requirements.txt");
+    if (!file || !kernelDeps.status({ root, file }).needed) return;
+    const python = await resolvePython(null);
+    const out = await kernelDeps.syncKernelDeps({ root, file, python, log });
+    if (out.installed) noteRestartRequired("New Python packages were installed for this version");
+  } catch (error) {
+    log(`kernel packages: ${error?.message || error}`);
   }
 }
 
@@ -7251,6 +7400,17 @@ app.whenReady().then(() => {
     readiness: false,
     run() {
       setTimeout(() => void reconnectGithub(), 9000);
+    },
+  });
+  startupTasks.register({
+    id: "kernel-deps",
+    phase: "idle",
+    timeoutMs: 1000,
+    readiness: false,
+    run() {
+      // Only an installed app: a source checkout refreshes its packages with
+      // `npm run setup:python`, which the Updates panel names after a merge.
+      if (app.isPackaged) setTimeout(() => void syncKernelDepsNow(), 60_000);
     },
   });
   startupTasks.register({

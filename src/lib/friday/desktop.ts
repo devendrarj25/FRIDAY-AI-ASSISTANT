@@ -1058,6 +1058,9 @@ export type UpdateProgress = {
   percent?: number;
   received?: number;
   total?: number;
+  speedBps?: number;
+  speedMbps?: number;
+  etaSeconds?: number | null;
   state?: string;
 };
 

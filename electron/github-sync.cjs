@@ -12,15 +12,43 @@
 // (<FRIDAY_ROOT>/security/credentials), handled by electron/credentials.cjs.
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 // One semver implementation for the whole release system (workflow + desktop).
 const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
 
 const credentials = require("./credentials.cjs");
+// Loaded up front so net-fetch notes the global fetch before anything replaces it.
+const { fetchCompat } = require("./net-fetch.cjs");
 
 const API = "https://api.github.com";
 
+/**
+ * What a release's source zip may change inside an INSTALLED app: capability
+ * packs and docs. The program itself (electron, kernel, src, scripts) comes from
+ * the installer, and memory, brain data and settings are the owner's and are
+ * never part of an update.
+ */
+const CONTENT_AREAS = Object.freeze([
+  "modules",
+  "plugins",
+  "agents",
+  "skills",
+  "workflows",
+  "resources",
+  "docs",
+]);
+
 /** The one credential id used by the whole GitHub release/update system. */
 const TOKEN_ID = "github.token";
+
+/**
+ * The credential Settings → Updates uses. It only ever READS (releases, assets,
+ * the source zip), so it can be a fine-grained token with Contents: Read-only.
+ * Push, pull request and release work (Friday Hub) keep using TOKEN_ID. An older
+ * install that has only TOKEN_ID keeps updating with it until an update token is
+ * added; nothing else about the update path changes.
+ */
+const UPDATE_TOKEN_ID = "github.update.token";
 
 const configFile = (root) => path.join(root, "config", "github.json");
 
@@ -60,7 +88,12 @@ const DEFAULTS = {
   // The two channels keep separate installed-ref state so switching back to
   // stable hides every test build again and never mixes the two histories.
   updateChannel: "stable",
-  autoCheck: false,
+  // Reading is harmless (a packaged FRIDAY only ever notifies; installing always
+  // waits for the owner), so a connected repository is watched unless switched off.
+  autoCheck: true,
+  // Fetch and verify the new installer in the background (download only; the
+  // install always waits for the owner). Never for a TEST build.
+  autoDownload: true,
   intervalHours: 6,
   autoApply: false, // when false FRIDAY asks before applying
   // FRIDAY never pushes source on her own. A push happens only when the owner
@@ -122,19 +155,39 @@ function readConfig(root) {
       /* the credential store is authoritative from now on regardless */
     }
   }
-  return { ...stored, token: credentials.getSecret(root, TOKEN_ID) };
+  return {
+    ...stored,
+    token: credentials.getSecret(root, TOKEN_ID),
+    updateToken: credentials.getSecret(root, UPDATE_TOKEN_ID),
+  };
+}
+
+/** The same config seen by the update path: its own token, GET-only. */
+function updateCfg(cfg = {}) {
+  const own = String(cfg.updateToken || "");
+  return {
+    ...cfg,
+    token: own || cfg.token || "",
+    tokenKind: own ? "update" : cfg.token ? "shared" : "none",
+    readOnly: true,
+  };
 }
 
 function writeConfig(root, patch) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
-  const { token, ...rest } = patch || {};
+  const { token, updateToken, ...rest } = patch || {};
   // A token in the patch never reaches disk as plain config — it is encrypted.
   if (token !== undefined) {
     const saved = credentials.setSecret(root, TOKEN_ID, token || "");
     if (!saved.ok) return saved;
   }
+  if (updateToken !== undefined) {
+    const saved = credentials.setSecret(root, UPDATE_TOKEN_ID, updateToken || "");
+    if (!saved.ok) return saved;
+  }
   const next = { ...readStored(root), ...rest };
   delete next.token;
+  delete next.updateToken;
   if (Array.isArray(next.connections)) next.connections = sanitizeConnections(next.connections);
   // Anything unknown collapses to stable: the safe, official-releases-only side.
   next.updateChannel = normalizeUpdateChannel(next.updateChannel);
@@ -144,21 +197,44 @@ function writeConfig(root, patch) {
   fs.writeFileSync(configFile(root), JSON.stringify(next, null, 2));
   return {
     ok: true,
-    config: { ...publicConfig(next), hasToken: credentials.hasSecret(root, TOKEN_ID) },
+    config: {
+      ...publicConfig(next),
+      hasToken: credentials.hasSecret(root, TOKEN_ID),
+      hasUpdateToken: credentials.hasSecret(root, UPDATE_TOKEN_ID),
+      updateTokenShared:
+        !credentials.hasSecret(root, UPDATE_TOKEN_ID) && credentials.hasSecret(root, TOKEN_ID),
+    },
   };
 }
 
 /** The renderer never receives the token itself, only whether one is stored. */
 function publicConfig(cfg) {
-  const { token, connections, selectedConnectionId, selfPrivate, ...rest } = cfg;
+  const { token, updateToken, connections, selectedConnectionId, selfPrivate, ...rest } = cfg;
   return {
     ...rest,
     hasToken: Boolean(token) || (rest.tokenStored ?? false),
+    hasUpdateToken: Boolean(updateToken),
+    updateTokenShared: !updateToken && Boolean(token),
     encryptedStore: credentials.encryptionAvailable(),
   };
 }
 
+// Conditional requests: GitHub answers 304 when nothing changed, and an
+// authenticated 304 does not count against the rate limit. ETags belong to the
+// token that received them, so the key carries a short fingerprint of it.
+const etagCache = new Map();
+const ETAG_LIMIT = 64;
+const etagKey = (cfg, endpoint) =>
+  `${cfg.token ? crypto.createHash("sha256").update(cfg.token).digest("hex").slice(0, 8) : "-"}:${endpoint}`;
+
+const clockTime = (ms) =>
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 async function api(cfg, endpoint, { method = "GET", body } = {}) {
+  // The update path only reads. A write that reaches it is a bug, so it stops here.
+  if (cfg.readOnly && String(method).toUpperCase() !== "GET") {
+    return { ok: false, status: 0, error: "The update connection is read-only." };
+  }
   const headers = {
     accept: "application/vnd.github+json",
     "user-agent": "FRIDAY",
@@ -166,23 +242,45 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
   };
   if (cfg.token) headers.authorization = `Bearer ${cfg.token}`;
   if (body) headers["content-type"] = "application/json";
+  const isRead = String(method).toUpperCase() === "GET";
+  const key = isRead ? etagKey(cfg, endpoint) : "";
+  const cached = isRead ? etagCache.get(key) : null;
+  if (cached) headers["if-none-match"] = cached.etag;
   let res;
-  try {
-    res = await fetch(`${API}${endpoint}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (error) {
-    // No network, DNS or proxy failure — this is not an auth problem, so the
-    // stored credential must never be discarded because of it.
-    return {
-      ok: false,
-      status: 0,
-      offline: true,
-      error: "GitHub is unreachable — FRIDAY is offline or blocked by the network.",
-      detail: String(error?.message || error),
-    };
+  for (let attempt = 1; attempt <= (isRead ? 2 : 1); attempt += 1) {
+    try {
+      res = await fetchCompat(`${API}${endpoint}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15_000),
+      });
+      // A rate limit or a server hiccup on a read is worth one more try.
+      if (isRead && attempt === 1 && (res.status === 429 || res.status >= 502)) {
+        const wait = Math.min(Number(res.headers?.get?.("retry-after")) || 1, 5) * 1000;
+        await res.body?.cancel?.().catch?.(() => {});
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        continue;
+      }
+      break;
+    } catch (error) {
+      if (isRead && attempt === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        continue;
+      }
+      // No network, DNS or proxy failure — this is not an auth problem, so the
+      // stored credential must never be discarded because of it.
+      return {
+        ok: false,
+        status: 0,
+        offline: true,
+        error: "GitHub is unreachable — FRIDAY is offline or blocked by the network.",
+        detail: String(error?.message || error),
+      };
+    }
+  }
+  if (res.status === 304 && cached) {
+    return { ok: true, status: 200, body: structuredClone(cached.body), cached: true };
   }
   const text = await res.text();
   let parsed = null;
@@ -192,16 +290,47 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
     parsed = null;
   }
   if (!res.ok) {
+    // GitHub reports an exhausted request limit as 403 (or 429), which is not a
+    // bad token: say so, and say when it resets, instead of asking for a new one.
+    const remaining = res.headers?.get?.("x-ratelimit-remaining");
+    if (
+      res.status === 429 ||
+      (res.status === 403 && (remaining === "0" || /rate limit/i.test(parsed?.message || "")))
+    ) {
+      const resetAt = Number(res.headers?.get?.("x-ratelimit-reset")) * 1000 || 0;
+      return {
+        ok: false,
+        status: res.status,
+        rateLimited: true,
+        resetAt,
+        error: `GitHub's rate limit is used up${resetAt ? ` until ${clockTime(resetAt)}` : " for now"}. ${
+          cfg.token
+            ? "Try again after that."
+            : "A read-only token raises the limit from 60 to 5,000 requests an hour."
+        }`,
+      };
+    }
     const reason =
       res.status === 404
         ? "Repository not found — check the name, and add a token if it is private."
         : res.status === 401 || res.status === 403
-          ? parsed?.message ||
-            "GitHub rejected the token. A FRIDAY token needs fine-grained permissions Contents: Read and write, Actions: Read and write on this repository."
+          ? parsed?.message
+            ? cfg.readOnly
+              ? `${parsed.message} The update token needs Contents: Read-only on this repository.`
+              : parsed.message
+            : cfg.readOnly
+              ? "GitHub rejected the token. The update token needs Contents: Read-only on this repository."
+              : "GitHub rejected the token. A FRIDAY token needs fine-grained permissions Contents: Read and write, Actions: Read and write on this repository."
           : parsed?.message || `GitHub error ${res.status}`;
     return { ok: false, status: res.status, error: reason };
   }
 
+  const etag = isRead ? res.headers?.get?.("etag") : "";
+  if (etag) {
+    etagCache.delete(key);
+    etagCache.set(key, { etag, body: structuredClone(parsed) });
+    if (etagCache.size > ETAG_LIMIT) etagCache.delete(etagCache.keys().next().value);
+  }
   return { ok: true, status: res.status, body: parsed };
 }
 
@@ -241,6 +370,81 @@ async function testConnection(root, override = {}) {
         : !actions
           ? "The FRIDAY Release workflow is not reachable — push .github/workflows/release.yml and set Actions: Read and write on the token."
           : "",
+  };
+}
+
+/**
+ * Settings → Updates "Test connection": can FRIDAY read this repository, and
+ * what would she find there? Read-only from end to end. It reports the scope of
+ * the token it used, so the owner can tell a safe read-only token from one that
+ * could also write, and it lists the newest official and test releases so the
+ * panel can say exactly what will arrive.
+ */
+async function testUpdateSource(root, override = {}) {
+  const cfg = updateCfg(loadConfig(root, override));
+  if (!cfg.repo) return { ok: false, error: "Enter a repository as owner/name." };
+  const repo = await api(cfg, `/repos/${cfg.repo}`);
+  if (!repo.ok) {
+    return repo.status === 404 && !cfg.token
+      ? {
+          ...repo,
+          error:
+            "Repository not found — check the name, and add a token if it is private (a fine-grained token with Contents: Read-only is enough), then test again.",
+        }
+      : repo;
+  }
+  const perms = repo.body.permissions || {};
+  const canWrite = Boolean(perms.push || perms.admin || perms.maintain);
+  const list = await api(cfg, `/repos/${cfg.repo}/releases?per_page=30`);
+  const published = list.ok && Array.isArray(list.body) ? list.body.filter((r) => !r.draft) : [];
+  const newest = (rows) =>
+    [...rows].sort((a, b) => compareBuilds(b.tag_name, a.tag_name))[0] || null;
+  const official = newest(published.filter((r) => !isTestRelease(r)));
+  const test = newest(published.filter((r) => isTestRelease(r)));
+  const summary = (release) =>
+    release
+      ? {
+          tag: release.tag_name,
+          title: release.name || release.tag_name,
+          at: Date.parse(release.published_at || "") || 0,
+          files: describeFiles((release.assets || []).map(mapReleaseAsset), "").length,
+        }
+      : null;
+  const tokenScope = !cfg.token ? "none" : canWrite ? "write-capable" : "read-only";
+  const notes = [];
+  if (!cfg.token && repo.body.private !== true) {
+    notes.push("Public repository: no token is needed. Add one only if GitHub rate-limits you.");
+  }
+  if (cfg.tokenKind === "shared") {
+    notes.push(
+      "Updates are using the same token as Friday Hub, which can write. Add a read-only update token here so updates can only read.",
+    );
+  } else if (tokenScope === "write-capable") {
+    notes.push(
+      "This token can also write to the repository. Updates only read, but a read-only token (Contents: Read-only) is safer.",
+    );
+  }
+  if (!official && !test) {
+    notes.push(
+      "No release is published yet, so there is nothing to install. Source updates still work from the branch.",
+    );
+  }
+  return {
+    ok: true,
+    repo: repo.body.full_name,
+    private: Boolean(repo.body.private),
+    defaultBranch: repo.body.default_branch,
+    pushedAt: repo.body.pushed_at,
+    authenticated: Boolean(cfg.token),
+    tokenKind: cfg.tokenKind,
+    tokenScope,
+    readOnly: tokenScope !== "write-capable",
+    latestOfficial: summary(official),
+    latestTest: summary(test),
+    releasesChecked: published.length,
+    releasesError: list.ok ? "" : list.error || "",
+    warning: notes.join(" "),
+    notes,
   };
 }
 
@@ -304,15 +508,27 @@ async function connect(root, override = {}) {
   // Public repos are reachable without a token. Skipping the live check used to
   // mark every token-less repo as reauth-required, so a successful public
   // Test connection never persisted as CONNECTED across refresh or restart.
-  const test = await testConnection(root, override);
-  const hasToken = Boolean(cfg.token);
-  if (test.ok)
+  // Reachability is the update path's: its own read-only token, or none for a
+  // public repository. Whether the Hub token can release is a separate question.
+  const test = await testUpdateSource(root, override);
+  const hasToken = Boolean(cfg.token) || Boolean(cfg.updateToken);
+  if (test.ok) {
+    const release = cfg.token ? await testConnection(root, override) : null;
     return setSession({
       state: "connected",
       repo: test.repo,
       private: test.private,
       message: test.warning || "",
-      canRelease: Boolean(test.canRelease),
+      canRelease: Boolean(release?.canRelease),
+      hasToken,
+    });
+  }
+  if (test.rateLimited)
+    return setSession({
+      state: "offline",
+      repo: cfg.repo,
+      message: test.error,
+      canRelease: false,
       hasToken,
     });
   if (test.offline || test.status === 0)
@@ -349,6 +565,83 @@ const API_ASSET_URL = /^https?:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/releas
  * Normalize a GitHub release asset so later steps can use the API asset URL
  * (required for private repos) without inferring the channel from a filename.
  */
+/**
+ * What a published file is and what FRIDAY does with it, from its name alone.
+ * `kind` drives the Updates panel's guide and decides which actions it offers;
+ * `installable` is true only for the programs FRIDAY may run after the owner
+ * says yes. Anything unknown is kept as "other" and is never run.
+ */
+function classifyAsset(name = "") {
+  const n = String(name).toLowerCase();
+  const rows = [
+    [
+      /friday-update\.json$/,
+      "update-manifest",
+      "Release manifest",
+      "Lists every file of this release with its SHA-256. FRIDAY reads it to check each download; it is never installed.",
+      false,
+    ],
+    [
+      /sha256sums(\.txt)?$|\.sha256$/,
+      "checksums",
+      "Checksums",
+      "The published SHA-256 of each file, a second way to verify a download. Never installed.",
+      false,
+    ],
+    [
+      /latest\.yml$|\.blockmap$/,
+      "updater-metadata",
+      "Updater metadata",
+      "Technical files for installer updaters. FRIDAY keeps them with the release and does not run them.",
+      false,
+    ],
+    [
+      /changelog|release-notes|\.md$/,
+      "notes",
+      "Release notes",
+      "What changed in this release. Shown in the panel; never installed.",
+      false,
+    ],
+    [
+      /(^|[-_.])setup([-_.]|$).*\.exe$|installer.*\.exe$/,
+      "installer",
+      "Windows installer",
+      "The full FRIDAY app. Updates the installed copy in place and restarts it; your data, settings, models and downloads stay.",
+      true,
+    ],
+    [
+      /portable.*\.exe$/,
+      "portable",
+      "Portable app",
+      "A copy of FRIDAY that runs without installing. Download it to a folder you choose; it does not replace the installed app.",
+      true,
+    ],
+    [
+      /\.(zip|tar\.gz|tgz)$/,
+      "source-archive",
+      "Source archive",
+      "Files and code of this release. FRIDAY scans it, shows what would change, backs up, and merges it into a source checkout only when you apply it.",
+      false,
+    ],
+    [
+      /\.exe$/,
+      "program",
+      "Program",
+      "A Windows program published with this release. Download only; FRIDAY does not run it by itself.",
+      false,
+    ],
+  ];
+  for (const [pattern, kind, label, purpose, installable] of rows) {
+    if (pattern.test(n)) return { kind, label, purpose, installable };
+  }
+  return {
+    kind: "other",
+    label: "Other file",
+    purpose: "Published with this release. FRIDAY keeps it for you to open; it never runs it.",
+    installable: false,
+  };
+}
+
 function mapReleaseAsset(a = {}) {
   const apiMatch = String(a.apiUrl || a.url || "").match(API_ASSET_URL);
   const apiUrl = a.apiUrl || (apiMatch ? apiMatch[0] : null);
@@ -361,6 +654,7 @@ function mapReleaseAsset(a = {}) {
     apiUrl: apiUrl || null,
     id: Number.isFinite(idNum) ? idNum : null,
     bytes: Number(a.size ?? a.bytes ?? 0) || 0,
+    ...classifyAsset(a.name),
   };
 }
 
@@ -401,23 +695,6 @@ async function cancelBody(res) {
   }
 }
 
-async function fetchFollowRedirects(url, { token = "", extraHeaders = {}, range = "" } = {}) {
-  let current = url;
-  for (let hop = 0; hop < 12; hop++) {
-    const headers = downloadHeaders(current, token, extraHeaders);
-    if (range) headers.range = range;
-    const res = await fetch(current, { method: "GET", headers, redirect: "manual" });
-    const location = res.headers.get("location");
-    if (location && res.status >= 300 && res.status < 400) {
-      await cancelBody(res);
-      current = new URL(location, current).href;
-      continue;
-    }
-    return res;
-  }
-  throw new Error("GitHub redirected too many times while downloading the installer.");
-}
-
 function sha256File(file) {
   const crypto = require("crypto");
   const hash = crypto.createHash("sha256");
@@ -447,66 +724,24 @@ function looksLikeHtmlFile(file) {
   return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<?xml");
 }
 
-function downloadStatusError(status) {
-  if (status === 404) {
-    return "GitHub could not find that installer (404). If the repository is private, add a token with Contents: Read.";
-  }
-  if (status === 401 || status === 403) {
-    return "GitHub rejected the download. Check the stored token has Contents: Read on this repository.";
-  }
-  return `Installer download failed (${status})`;
-}
-
-async function streamResponseToFile(res, file, { append = false, onChunk = () => {} } = {}) {
-  const startSize = append && fs.existsSync(file) ? fs.statSync(file).size : 0;
-  const fd = fs.openSync(file, append ? "a" : "w");
-  let received = startSize;
-  const addLength = Number(res.headers.get("content-length") || 0);
-  const total = append && addLength ? startSize + addLength : addLength;
-  try {
-    if (res.body && typeof res.body.getReader === "function") {
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = Buffer.from(value);
-        fs.writeSync(fd, chunk);
-        received += chunk.length;
-        onChunk(received, total);
-      }
-    } else {
-      const chunk = Buffer.from(await res.arrayBuffer());
-      fs.writeSync(fd, chunk);
-      received += chunk.length;
-      onChunk(received, total);
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-  return { received, total };
-}
-
-function commitPartFile(part, dest) {
-  const verified = `${dest}.verified`;
-  fs.rmSync(verified, { force: true });
-  fs.renameSync(part, verified);
-  fs.rmSync(dest, { force: true });
-  fs.renameSync(verified, dest);
-}
-
 /**
  * The release manifest published beside the EXE (friday-update.json). It holds
  * the SHA-256 of every artifact, so an installed FRIDAY can prove the file it
  * downloaded is the file GitHub Actions built. A release without a manifest is
  * treated as unverified, never as trusted.
  */
-async function releaseManifest(cfg, assets = []) {
+async function releaseManifest(cfgIn, assets = []) {
+  const cfg = updateCfg(cfgIn);
   const asset = assets.find((a) => /friday-update\.json$/i.test(a.name || ""));
   if (!asset) return null;
   const url = assetDownloadUrl(asset, cfg.repo);
   if (!url) return null;
   try {
-    const res = await fetchFollowRedirects(url, { token: cfg.token || "" });
+    const res = await require("./resilient-download.cjs").followRedirects(url, {
+      headers: { "user-agent": "FRIDAY", accept: "application/octet-stream" },
+      auth: cfg.token ? { authorization: `Bearer ${cfg.token}` } : null,
+      signal: AbortSignal.timeout(20_000),
+    });
     if (!res.ok) {
       await cancelBody(res);
       return null;
@@ -518,13 +753,41 @@ async function releaseManifest(cfg, assets = []) {
   }
 }
 
+/**
+ * Everything a release offers, named for the panel: its published files plus the
+ * full source archive GitHub builds for every tag. The source archive is the
+ * whole repository at that tag, the thing "Download & apply" merges.
+ */
+function describeFiles(assets = [], zipUrl = "") {
+  const files = (assets || []).map((a) => ({
+    name: a.name,
+    bytes: a.bytes,
+    kind: a.kind,
+    label: a.label,
+    purpose: a.purpose,
+    installable: Boolean(a.installable),
+  }));
+  if (zipUrl) {
+    files.push({
+      name: "Source code (zip)",
+      bytes: 0,
+      kind: "source-zip",
+      label: "Full repository",
+      purpose:
+        "Every file and the code of this version, straight from the repository. FRIDAY scans it, shows what would change, backs up, and merges it into a source checkout when you apply it; an installed app updates through the installer instead. Your data, settings, models and downloads are never touched.",
+      installable: false,
+    });
+  }
+  return files;
+}
+
 /** The published SHA-256 for one asset name, when the release carries one. */
 const expectedChecksum = (manifest, name) =>
   (manifest?.assets || []).find((a) => a.name === name)?.sha256 || null;
 
 /** Which remote ref is current, and is it different from what is installed? */
 async function checkUpdate(root, override = {}) {
-  const cfg = loadConfig(root, override);
+  const cfg = updateCfg(loadConfig(root, override));
   if (!cfg.repo) return { ok: false, error: "No repository is connected." };
 
   if (cfg.channel === "release") {
@@ -575,10 +838,15 @@ async function checkUpdate(root, override = {}) {
         assets,
         manifest,
         verified: Boolean(manifest),
+        files: describeFiles(assets, `${API}/repos/${cfg.repo}/zipball/${encodeURIComponent(ref)}`),
         requiresChannelSwitch: true,
       };
     };
-    const otherChannel = await describe(otherRaw, !wantTest);
+    // Both channels' manifests are read at once, not one after the other.
+    const [otherChannel, mainManifest] = await Promise.all([
+      describe(otherRaw, !wantTest),
+      body ? releaseManifest(cfg, (body.assets || []).map(mapReleaseAsset)) : Promise.resolve(null),
+    ]);
 
     if (!body) {
       writeConfig(root, { lastCheck: Date.now() });
@@ -618,7 +886,7 @@ async function checkUpdate(root, override = {}) {
     // The release manifest (scripts/release-manifest.cjs) carries the SHA-256
     // of every published artifact. Without it an update is "unverified" and the
     // installer is never run without the owner accepting that explicitly.
-    const manifest = await releaseManifest(cfg, assets);
+    const manifest = mainManifest;
     const result = {
       ok: true,
       channel: "release",
@@ -640,6 +908,7 @@ async function checkUpdate(root, override = {}) {
       assets,
       manifest,
       verified: Boolean(manifest),
+      files: describeFiles(assets, `${API}/repos/${cfg.repo}/zipball/${encodeURIComponent(ref)}`),
       updateAvailable: newer && ref !== appliedRef,
       appliedRef,
       otherChannel,
@@ -689,7 +958,7 @@ async function checkUpdate(root, override = {}) {
  * a GitHub update is reviewed, diffed and applied exactly like a manual ZIP.
  */
 async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
-  const cfg = loadConfig(root);
+  const cfg = updateCfg(loadConfig(root));
   if (!cfg.repo) return { ok: false, error: "No repository is connected." };
   const target = ref || (await checkUpdate(root))?.ref;
   if (!target) return { ok: false, error: "Could not resolve a ref to download." };
@@ -701,11 +970,18 @@ async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
     url,
     name: `github-${cfg.repo.replace("/", "-")}-${String(target).slice(0, 12)}`,
     token: cfg.token || undefined,
+    onProgress,
   });
   if (!download.ok) return download;
 
   onProgress({ phase: "Scanning update" });
-  const scan = await importer.scanImport({ root, source: download.file, onProgress });
+  // The repository's own layout: every file keeps its place (root files included).
+  const scan = await importer.scanImport({
+    root,
+    source: download.file,
+    onProgress,
+    layout: "repo",
+  });
   if (!scan.ok) return scan;
   return { ...scan, githubRef: target, repo: cfg.repo, bytes: download.bytes };
 }
@@ -716,11 +992,29 @@ async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
  * be the installed stable version (and switching channels restores the right
  * baseline instead of mixing the two).
  */
-function recordApplied(root, { ref, applied = 0, areas = [], backup = null, notes = "", channel }) {
+function recordApplied(
+  root,
+  { ref, applied = 0, areas = [], backup = null, notes = "", channel, contentOnly = false },
+) {
   const cfg = readConfig(root);
   const target = normalizeUpdateChannel(channel ?? cfg.updateChannel);
-  const entry = { ref, at: Date.now(), applied, areas, backup, notes, channel: target };
+  const entry = {
+    ref,
+    at: Date.now(),
+    applied,
+    areas,
+    backup,
+    notes,
+    channel: target,
+    contentOnly,
+  };
   const history = [entry, ...(cfg.history || [])].slice(0, 40);
+  // Merging a release's content packs is not installing that release: the
+  // installed ref stays, so the new EXE is still offered.
+  if (contentOnly) {
+    writeConfig(root, { history });
+    return { ok: true, entry };
+  }
   writeConfig(
     root,
     target === "test"
@@ -751,13 +1045,110 @@ function installerAsset(assets = []) {
   );
 }
 
+/** The installer's block map, saved next to it so the next update can be a difference. */
+function saveBlockMapSidecar(installerFile, raw) {
+  try {
+    if (raw?.length) fs.writeFileSync(`${installerFile}.blockmap`, raw);
+  } catch {
+    /* the next update simply downloads in full */
+  }
+}
+
+/** Read and parse the release's block map; null when there is none or it cannot be used. */
+async function fetchBlockMap(cfg, asset, repo) {
+  if (!asset) return null;
+  const url = assetDownloadUrl(asset, normalizeRepo(repo || cfg.repo));
+  if (!url) return null;
+  try {
+    const { followRedirects } = require("./resilient-download.cjs");
+    const res = await followRedirects(url, {
+      headers: { "user-agent": "FRIDAY", accept: "application/octet-stream" },
+      auth: cfg.token ? { authorization: `Bearer ${cfg.token}` } : null,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      await cancelBody(res);
+      return null;
+    }
+    const raw = Buffer.from(await res.arrayBuffer());
+    if (raw.length > 8 * 1048576) return null;
+    const { parseBlockMap } = require("./differential-download.cjs");
+    return { raw, map: parseBlockMap(raw) };
+  } catch {
+    return null;
+  }
+}
+
+/** The newest other installer here whose own block map was saved with it and still matches. */
+function findOldInstaller(dir, target) {
+  const { parseBlockMap, mapSize } = require("./differential-download.cjs");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n) && path.join(dir, n) !== target);
+  } catch {
+    return null;
+  }
+  const rows = names
+    .map((name) => ({ file: path.join(dir, name), at: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  for (const row of rows) {
+    try {
+      const map = parseBlockMap(fs.readFileSync(`${row.file}.blockmap`));
+      if (fs.statSync(row.file).size === mapSize(map)) return { file: row.file, map };
+    } catch {
+      /* no usable sidecar for this one */
+    }
+  }
+  return null;
+}
+
+async function tryDifferential({
+  cfg,
+  dir,
+  file,
+  nextMap,
+  url,
+  expected,
+  expectedBytes,
+  signal,
+  onProgress,
+  run,
+}) {
+  try {
+    const old = findOldInstaller(dir, file);
+    if (!old) return null;
+    const part = `${file}.diff.part`;
+    const go = run || require("./differential-download.cjs").downloadDifferential;
+    const got = await go({
+      url,
+      token: cfg.token || "",
+      oldFile: old.file,
+      oldBlockMap: old.map,
+      newBlockMap: nextMap.map,
+      part,
+      expectedBytes: Number(expectedBytes) || 0,
+      sha256: expected,
+      onProgress,
+      signal,
+    });
+    if (!got?.ok) return got;
+    await require("./resilient-download.cjs").commitFile(part, file);
+    return got;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Download a release asset (normally FRIDAY-Setup-<version>.exe) into
  * <root>/updates/installers, then check it against the published SHA-256.
  *
- * Bytes go to a .part file and only become the destination after size +
- * checksum checks. A failure never replaces an already-valid installer.
- * Authorization is attached only for api.github.com; CDN redirects are anonymous.
+ * The transfer itself is electron/resilient-download.cjs: it resumes after a
+ * dropped or stalled connection, retries rate limits, sends the token only to
+ * GitHub's API host and refuses a web page where the file should be. Bytes go to
+ * a .part file and only become the destination after size + checksum checks, so
+ * a failure never replaces an already-valid installer. An installer already on
+ * disk that matches its published checksum is reused, not downloaded again.
  */
 async function downloadInstaller({
   root,
@@ -769,9 +1160,14 @@ async function downloadInstaller({
   bytes: expectedBytes,
   repo,
   onProgress = () => {},
+  signal,
+  downloader,
+  force = false,
+  blockmap = null,
+  differential,
 } = {}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
-  const cfg = readConfig(root);
+  const cfg = updateCfg(readConfig(root));
   const downloadUrl = assetDownloadUrl(
     { url, apiUrl, id: assetId, name, bytes: expectedBytes },
     normalizeRepo(repo || cfg.repo),
@@ -781,7 +1177,6 @@ async function downloadInstaller({
   const dir = path.join(root, "updates", "installers");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, String(name || "FRIDAY-Setup.exe").replace(/[^\w.\-]+/g, "-"));
-  const part = `${file}.part`;
   const verified = `${file}.verified`;
   if (!fs.existsSync(file) && fs.existsSync(verified)) {
     try {
@@ -791,106 +1186,104 @@ async function downloadInstaller({
     }
   }
 
-  const discardPart = () => {
-    fs.rmSync(part, { force: true });
-    fs.rmSync(verified, { force: true });
-  };
-
   try {
-    onProgress({ phase: "Downloading installer", percent: 0, state: "DOWNLOADING" });
-    let existing = 0;
-    if (fs.existsSync(part)) {
-      existing = fs.statSync(part).size;
-      if (!expectedBytes || existing <= 0 || existing >= expectedBytes) {
-        fs.rmSync(part, { force: true });
-        existing = 0;
+    // Already here and proven: nothing to fetch (unless a fresh copy is asked for).
+    if (!force && fs.existsSync(file)) {
+      const size = fs.statSync(file).size;
+      const sizeOk = !expectedBytes || size === Number(expectedBytes);
+      if (sizeOk && size >= 1024 && !looksLikeHtmlFile(file)) {
+        const digest = sha256File(file);
+        if (!expected || digest.toLowerCase() === String(expected).toLowerCase()) {
+          onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
+          return {
+            ok: true,
+            file,
+            bytes: size,
+            sha256: digest,
+            verified: Boolean(expected),
+            reused: true,
+          };
+        }
+      }
+      fs.rmSync(file, { force: true });
+    }
+
+    // Only the blocks that changed since the installer already on this PC, when
+    // the release publishes block maps; anything unexpected falls through to the
+    // normal full download below, which is what verifies and keeps the result.
+    const nextMap = await fetchBlockMap(cfg, blockmap, repo);
+    if (nextMap && expected) {
+      const diff = await tryDifferential({
+        cfg,
+        dir,
+        file,
+        nextMap,
+        url: downloadUrl,
+        expected,
+        expectedBytes,
+        signal,
+        onProgress,
+        run: differential,
+      });
+      if (diff?.cancelled)
+        return { ok: false, cancelled: true, error: "Cancelled.", resumable: false };
+      if (diff?.ok) {
+        const digest = diff.sha256;
+        onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
+        saveBlockMapSidecar(file, nextMap.raw);
+        return {
+          ok: true,
+          file,
+          bytes: diff.bytes,
+          sha256: digest,
+          verified: true,
+          differential: true,
+          downloaded: diff.downloaded,
+          reused: diff.reused,
+        };
       }
     }
 
-    let res = await fetchFollowRedirects(downloadUrl, {
+    onProgress({ phase: "Downloading installer", percent: 0, state: "DOWNLOADING" });
+    const run = downloader || require("./resilient-download.cjs").downloadToFile;
+    const got = await run({
+      url: downloadUrl,
+      dest: file,
       token: cfg.token || "",
-      range: existing > 0 ? `bytes=${existing}-` : "",
-    });
-    if (existing > 0 && (res.status === 200 || res.status === 416)) {
-      await cancelBody(res);
-      fs.rmSync(part, { force: true });
-      existing = 0;
-      res = await fetchFollowRedirects(downloadUrl, { token: cfg.token || "" });
-    }
-    if (!res.ok && res.status !== 206) {
-      const status = res.status;
-      await cancelBody(res);
-      return { ok: false, error: downloadStatusError(status), status };
-    }
-
-    const contentType = String(res.headers.get("content-type") || "").toLowerCase();
-    if (contentType.includes("text/html")) {
-      await cancelBody(res);
-      discardPart();
-      return {
-        ok: false,
-        error:
-          "GitHub returned a web page instead of the installer. Add a repository token if this repo is private.",
-      };
-    }
-
-    let announced = 0;
-    const append = existing > 0 && res.status === 206;
-    await streamResponseToFile(res, part, {
-      append,
-      onChunk: (received, total) => {
-        const percent = total ? Math.min(99, Math.round((received / total) * 100)) : 0;
-        if (percent >= announced + 2 || !total) {
-          announced = percent;
-          onProgress({
-            phase: "Downloading installer",
-            percent,
-            received,
-            total,
-            state: "DOWNLOADING",
-          });
+      expectedBytes: Number(expectedBytes) || 0,
+      signal,
+      phase: "Downloading installer",
+      onProgress,
+      validate: async (part) => {
+        onProgress({ phase: "Verifying download", percent: 100, state: "VERIFYING" });
+        if (expected && sha256File(part).toLowerCase() !== String(expected).toLowerCase()) {
+          return "Checksum mismatch — the download does not match the published release.";
         }
+        return "";
       },
     });
-
-    const size = fs.existsSync(part) ? fs.statSync(part).size : 0;
-    if (size < 1024) {
-      discardPart();
-      return { ok: false, error: "The downloaded installer was empty." };
-    }
-    if (expectedBytes && size !== Number(expectedBytes)) {
-      discardPart();
+    if (!got.ok) {
       return {
         ok: false,
-        error: `Incomplete download (${size} bytes, expected ${expectedBytes}).`,
+        error: got.error || "The installer could not be downloaded.",
+        ...(got.status ? { status: got.status } : {}),
+        ...(got.cancelled ? { cancelled: true } : {}),
+        ...(got.resumable ? { resumable: true } : {}),
       };
     }
-    if (looksLikeHtmlFile(part)) {
-      discardPart();
-      return {
-        ok: false,
-        error:
-          "GitHub returned a web page instead of the installer. Add a repository token if this repo is private.",
-      };
-    }
-
-    onProgress({ phase: "Verifying download", percent: 100, state: "VERIFYING" });
-    const digest = sha256File(part);
-    if (expected && digest.toLowerCase() !== String(expected).toLowerCase()) {
-      discardPart();
-      return {
-        ok: false,
-        error: "Checksum mismatch — the download does not match the published release.",
-      };
-    }
-    commitPartFile(part, file);
+    const digest = sha256File(got.file);
+    // Remember this installer's block map: the next release can then be fetched
+    // as a difference against it.
+    if (nextMap) saveBlockMapSidecar(got.file, nextMap.raw);
     onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
     return {
       ok: true,
-      file,
-      bytes: size,
+      file: got.file,
+      bytes: got.bytes,
       sha256: digest,
       verified: Boolean(expected),
+      attempts: got.attempts,
+      resumed: Boolean(got.resumed),
     };
   } catch (error) {
     return { ok: false, error: String(error.message || error) };
@@ -1126,6 +1519,11 @@ module.exports = {
   writeConfig,
   publicConfig,
   testConnection,
+  testUpdateSource,
+  classifyAsset,
+  describeFiles,
+  updateCfg,
+  UPDATE_TOKEN_ID,
   connect,
   connection,
   TOKEN_ID,
@@ -1140,6 +1538,7 @@ module.exports = {
   checkUpdate,
   pullUpdate,
   recordApplied,
+  CONTENT_AREAS,
   releaseManifest,
   expectedChecksum,
   isTestRelease,

@@ -72,6 +72,10 @@ describe("GitHub credential storage", () => {
     expect(general).toContain("githubSetConfig");
     expect(general).not.toContain('setField("githubToken")');
     expect(updates).toContain("githubSetConfig");
-    expect(updates).toContain("patch({ token }");
+    // Settings → Updates has its own read-only credential; the plain token is Friday Hub's.
+    expect(updates).toContain("patch({ updateToken: token }");
+    expect(updates).toContain("patch({ updateToken: null }");
+    expect(updates).not.toContain("patch({ token");
+    expect(updates).not.toMatch(/next\.token\s*=/);
   });
 });

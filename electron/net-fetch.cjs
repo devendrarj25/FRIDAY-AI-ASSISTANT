@@ -19,6 +19,18 @@ try {
   electron = null;
 }
 
+/**
+ * The fetches as they were when this module loaded; anything else was put there
+ * on purpose (a test double, a proxy shim) and is honoured.
+ */
+const LOAD_TIME_FETCH = globalThis.fetch;
+let LOAD_TIME_UNDICI_FETCH = null;
+try {
+  LOAD_TIME_UNDICI_FETCH = require("undici").fetch;
+} catch {
+  LOAD_TIME_UNDICI_FETCH = null;
+}
+
 let dispatcher = null;
 let egressPolicy = null;
 
@@ -95,7 +107,17 @@ async function fetchCompat(url, init = {}) {
       chromiumError = error;
     }
   }
-  const { fetch: undiciFetch } = require("undici");
+  // Node's own stack (undici). A replaced undici fetch wins, then a replaced
+  // global fetch; otherwise the real undici one.
+  const undici = require("undici");
+  const globalReplaced =
+    typeof globalThis.fetch === "function" && globalThis.fetch !== LOAD_TIME_FETCH;
+  const undiciFetch =
+    undici.fetch !== LOAD_TIME_UNDICI_FETCH
+      ? undici.fetch
+      : globalReplaced
+        ? globalThis.fetch
+        : undici.fetch;
   try {
     return await undiciFetch(String(url), {
       ...init,
