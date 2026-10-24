@@ -1,25 +1,38 @@
 {
-  "$comment": "The command-line tools FRIDAY leans on to run, test, search, unpack and convert for the owner. scripts/prefetch-toolkit.cjs installs the portable ones into <FRIDAY folder>/runtime before the EXE is built; anything at or above maxPrefetchBytes, or that needs an administrator or a restart, stays in the Install Manager.",
-  "maxPrefetchBytes": 2000000000,
+  "$comment": "What FRIDAY needs installed to run, build, test, search, convert, containerise and use the GPU. scripts/prefetch-toolkit.cjs installs every entry of `prefetch` before the EXE is built, whatever its size, through the Install Manager job. There is no size cap: `onDemand` is by kind, not by size. Big AI models are chosen in the Models section, and the heavy runners and GPU stacks that only a model needs (PyTorch, the Hugging Face runner, vLLM) come from the Install Manager when that model is used. `elevated` entries need an administrator prompt and may ask for a restart; `requires` gates an entry on this PC's hardware.",
   "prefetch": [
-    { "id": "ripgrep", "why": "fast text search across a project", "approxBytes": 6000000 },
-    { "id": "jq (JSON)", "why": "read and reshape JSON on the command line", "approxBytes": 1000000 },
-    { "id": "yq (YAML)", "why": "read and reshape YAML on the command line", "approxBytes": 10000000 },
-    { "id": "Ninja", "why": "fast build runner for C and C++ projects", "approxBytes": 400000 },
-    { "id": "uv (Python)", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
-    { "id": "aria2", "why": "resumable multi-connection downloads", "approxBytes": 2000000 },
-    { "id": "FFmpeg", "why": "convert and inspect audio and video", "approxBytes": 100000000 }
+    { "id": "ripgrep", "group": "portable", "why": "fast text search across a project", "approxBytes": 6000000 },
+    { "id": "jq (JSON)", "group": "portable", "why": "read and reshape JSON on the command line", "approxBytes": 1000000 },
+    { "id": "yq (YAML)", "group": "portable", "why": "read and reshape YAML on the command line", "approxBytes": 10000000 },
+    { "id": "Ninja", "group": "portable", "why": "fast build runner for C and C++ projects", "approxBytes": 400000 },
+    { "id": "uv (Python)", "group": "portable", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
+    { "id": "aria2", "group": "portable", "why": "resumable multi-connection downloads", "approxBytes": 2000000 },
+    { "id": "FFmpeg", "group": "portable", "why": "convert and inspect audio and video", "approxBytes": 100000000 },
+    { "id": "Git", "group": "developer", "why": "version control for the agent's projects", "approxBytes": 60000000 },
+    { "id": "GitHub CLI", "group": "developer", "why": "pull requests and issues from the command line", "approxBytes": 16000000 },
+    { "id": "Git LFS", "group": "developer", "why": "large files in Git repositories", "approxBytes": 5000000 },
+    { "id": "CMake", "group": "developer", "why": "configure C and C++ builds", "approxBytes": 40000000 },
+    { "id": "7-Zip", "group": "developer", "why": "read and write 7z, rar and other archives", "approxBytes": 2000000 },
+    { "id": "Pandoc", "group": "developer", "why": "convert documents between formats", "approxBytes": 40000000 },
+    { "id": "Graphviz", "group": "developer", "why": "draw diagrams from text", "approxBytes": 8000000 },
+    { "id": "Tesseract OCR", "group": "developer", "why": "read text out of images and scans", "approxBytes": 50000000 },
+    { "id": "PowerShell 7", "group": "developer", "why": "modern PowerShell for scripts", "approxBytes": 110000000 },
+    { "id": "Go", "group": "language", "why": "build and run Go programs", "approxBytes": 80000000 },
+    { "id": "Rust", "group": "language", "why": "build and run Rust programs", "approxBytes": 10000000 },
+    { "id": "OpenJDK (Temurin)", "group": "language", "why": "build and run Java programs", "approxBytes": 200000000 },
+    { "id": "WSL 2", "group": "container", "elevated": true, "why": "Linux layer that Docker Desktop runs on", "approxBytes": 300000000 },
+    { "id": "Docker Desktop", "group": "container", "elevated": true, "why": "run code and services in containers", "approxBytes": 600000000 },
+    { "id": "Sandbox runner (Windows Sandbox)", "group": "container", "elevated": true, "why": "throwaway Windows to test untrusted programs", "approxBytes": 0 },
+    { "id": "CUDA Toolkit", "group": "gpu", "elevated": true, "requires": "nvidia-gpu", "why": "GPU compute for local models, only on a PC with an NVIDIA GPU", "approxBytes": 3500000000 }
   ],
-  "deferred": [
-    { "id": "Docker Desktop", "reason": "administrator, WSL 2 and a restart; over 2 GB installed", "approxBytes": 2500000000 },
-    { "id": "WSL 2", "reason": "administrator and a restart", "approxBytes": 0 },
-    { "id": "Sandbox runner (Windows Sandbox)", "reason": "Windows optional feature: administrator and a restart", "approxBytes": 0 },
-    { "id": "Podman", "reason": "needs a virtual machine; install when Docker is not wanted", "approxBytes": 600000000 },
-    { "id": "Hugging Face runner", "reason": "PyTorch makes it larger than 2 GB", "approxBytes": 3500000000 },
-    { "id": "PyTorch (CUDA)", "reason": "larger than 2 GB and needs a matching GPU driver", "approxBytes": 3000000000 },
-    { "id": "CUDA Toolkit", "reason": "larger than 2 GB, administrator", "approxBytes": 3500000000 },
-    { "id": "Visual Studio", "reason": "larger than 2 GB, administrator", "approxBytes": 8000000000 },
-    { "id": "VS Build Tools", "reason": "larger than 2 GB, administrator", "approxBytes": 3000000000 },
-    { "id": "Android Studio", "reason": "larger than 2 GB", "approxBytes": 3000000000 }
+  "onDemand": [
+    { "id": "Hugging Face runner", "reason": "runs Safetensors models; it brings PyTorch and is installed when such a model is used" },
+    { "id": "PyTorch (CUDA)", "reason": "only a model needs it; the Hugging Face runner installs its own" },
+    { "id": "vLLM", "reason": "a heavy server for large GPU models" },
+    { "id": "LM Studio", "reason": "an optional second local runner next to Ollama" },
+    { "id": "Podman", "reason": "an alternative to Docker, not needed beside it" },
+    { "id": "Visual Studio", "reason": "full IDE; the C toolchain FRIDAY uses is MinGW-based" },
+    { "id": "VS Build Tools", "reason": "only for projects that need MSVC" },
+    { "id": "Android Studio", "reason": "only for Android app work" }
   ]
 }

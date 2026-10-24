@@ -19,32 +19,58 @@ const pipeline = require_(path.join(root, "scripts/build-pipeline.cjs"));
 type Row = { id: string; action: string; from?: string; to?: string; version?: string };
 
 describe("agent toolkit manifest", () => {
-  it("names only tools the Install Manager can install, and keeps every prefetch under 2 GB", () => {
+  it("names only tools the Install Manager can install, and has no size cap", () => {
     const ids = new Set(toolchain.TOOLS.map((tool: { id: string }) => tool.id));
-    expect(manifest.maxPrefetchBytes).toBe(2_000_000_000);
-    for (const entry of [...manifest.prefetch, ...manifest.deferred]) {
+    expect(manifest.maxPrefetchBytes).toBeUndefined();
+    for (const entry of [...manifest.prefetch, ...manifest.onDemand]) {
       expect(ids.has(entry.id), entry.id).toBe(true);
     }
-    const total = manifest.prefetch.reduce(
-      (sum: number, row: { approxBytes: number }) => sum + row.approxBytes,
-      0,
-    );
-    expect(total).toBeLessThan(manifest.maxPrefetchBytes);
-    for (const entry of manifest.prefetch) {
-      expect(entry.approxBytes, entry.id).toBeLessThan(manifest.maxPrefetchBytes);
-      expect(entry.why, entry.id).toBeTruthy();
-    }
+    for (const entry of manifest.prefetch) expect(entry.why, entry.id).toBeTruthy();
   });
 
-  it("never prefetches a tool that needs an administrator, a restart or more than 2 GB", () => {
+  it("installs the heavy tools FRIDAY's features need before the build, whatever their size", () => {
+    const wanted = new Set(manifest.prefetch.map((row: { id: string }) => row.id));
+    for (const id of [
+      "Docker Desktop",
+      "WSL 2",
+      "Sandbox runner (Windows Sandbox)",
+      "CUDA Toolkit",
+      "Git",
+      "CMake",
+      "Go",
+      "Rust",
+      "OpenJDK (Temurin)",
+      "ripgrep",
+      "FFmpeg",
+    ]) {
+      expect(wanted.has(id), id).toBe(true);
+    }
+    const order = manifest.prefetch.map((row: { id: string }) => row.id);
+    expect(order.indexOf("WSL 2")).toBeLessThan(order.indexOf("Docker Desktop"));
+  });
+
+  it("marks the administrator tools and gates CUDA on an NVIDIA GPU", () => {
+    const by = Object.fromEntries(manifest.prefetch.map((row: { id: string }) => [row.id, row]));
+    for (const id of [
+      "Docker Desktop",
+      "WSL 2",
+      "Sandbox runner (Windows Sandbox)",
+      "CUDA Toolkit",
+    ]) {
+      expect(by[id].elevated, id).toBe(true);
+    }
+    expect(by["CUDA Toolkit"].requires).toBe("nvidia-gpu");
+  });
+
+  it("leaves only models and the runners a model needs for later, by kind", () => {
     const prefetched = new Set(manifest.prefetch.map((row: { id: string }) => row.id));
-    for (const entry of manifest.deferred) {
+    for (const entry of manifest.onDemand) {
       expect(prefetched.has(entry.id), entry.id).toBe(false);
       expect(entry.reason, entry.id).toBeTruthy();
     }
-    for (const id of ["Docker Desktop", "WSL 2", "Hugging Face runner", "CUDA Toolkit"]) {
+    for (const id of ["Hugging Face runner", "PyTorch (CUDA)", "vLLM"]) {
       expect(
-        manifest.deferred.some((row: { id: string }) => row.id === id),
+        manifest.onDemand.some((row: { id: string }) => row.id === id),
         id,
       ).toBe(true);
     }
@@ -64,27 +90,40 @@ describe("toolkit plan", () => {
     Ninja: { installed: false },
   };
   const latest = { ripgrep: "15.1.0", "jq (JSON)": "1.7.1" };
+  const get = (rows: Row[], id: string) => rows.find((row) => row.id === id);
 
   it("installs what is missing, updates what is older, and keeps what is current", () => {
     const rows = toolkit.toolkitPlan({ detected, latest }) as Row[];
-    const get = (id: string) => rows.find((row) => row.id === id);
-    expect(get("ripgrep")).toMatchObject({ action: "update", from: "14.1.0", to: "15.1.0" });
-    expect(get("jq (JSON)")).toMatchObject({ action: "keep", version: "1.7.1" });
-    expect(get("Ninja")?.action).toBe("install");
-    expect(get("yq (YAML)")?.action).toBe("install");
+    expect(get(rows, "ripgrep")).toMatchObject({ action: "update", from: "14.1.0", to: "15.1.0" });
+    expect(get(rows, "jq (JSON)")).toMatchObject({ action: "keep", version: "1.7.1" });
+    expect(get(rows, "Ninja")?.action).toBe("install");
+    expect(get(rows, "Docker Desktop")?.action).toBe("install");
   });
 
   it("only reports an update when updates are switched off, and never claims one it cannot see", () => {
     const rows = toolkit.toolkitPlan({ detected, latest, update: false }) as Row[];
-    expect(rows.find((row) => row.id === "ripgrep")?.action).toBe("outdated");
+    expect(get(rows, "ripgrep")?.action).toBe("outdated");
     const unknown = toolkit.toolkitPlan({ detected, latest: {} }) as Row[];
-    expect(unknown.find((row) => row.id === "ripgrep")?.action).toBe("keep");
+    expect(get(unknown, "ripgrep")?.action).toBe("keep");
   });
 
-  it("defers anything at or above the cap", () => {
-    const rows = toolkit.toolkitPlan({ detected: {}, latest: {}, cap: 5_000_000 }) as Row[];
-    expect(rows.find((row) => row.id === "uv (Python)")?.action).toBe("defer");
-    expect(rows.find((row) => row.id === "Ninja")?.action).toBe("install");
+  it("installs CUDA only on a PC whose NVIDIA driver answers", () => {
+    const none = toolkit.toolkitPlan({ detected: {} }) as Row[];
+    expect(get(none, "CUDA Toolkit")?.action).toBe("skip");
+    const gpu = toolkit.toolkitPlan({
+      detected: { "NVIDIA Driver": { installed: true, version: "560.1" } },
+    }) as Row[];
+    expect(get(gpu, "CUDA Toolkit")?.action).toBe("install");
+  });
+
+  it("skips only the administrator tools for a quick build, and keeps ones already installed", () => {
+    const quick = toolkit.toolkitPlan({
+      detected: { "Docker Desktop": { installed: true, version: "4.0" } },
+      elevated: false,
+    }) as Row[];
+    expect(get(quick, "WSL 2")?.action).toBe("skip");
+    expect(get(quick, "Docker Desktop")?.action).toBe("keep");
+    expect(get(quick, "Git")?.action).toBe("install");
   });
 
   it("compares dotted versions without being fooled by text", () => {
@@ -142,7 +181,7 @@ describe("toolkit run", () => {
     expect(lines.join("\n")).toContain("ripgrep 100%");
   });
 
-  it("installs the missing tools with progress, survives a failed one, and names what stays in the Install Manager", async () => {
+  it("installs every missing tool with progress, warns before an administrator one, and names what is left for later", async () => {
     const stub = fakeToolchain({});
     const lines: string[] = [];
     const rows = await toolkit.prefetchToolkit("C:/friday", {
@@ -151,14 +190,40 @@ describe("toolkit run", () => {
       progressLine,
       log: (l: string) => lines.push(l),
     });
-    expect(stub.jobs).toHaveLength(manifest.prefetch.length);
+    const ids = stub.jobs.map((job) => job.id);
+    expect(ids).toContain("Docker Desktop");
+    expect(ids).toContain("Sandbox runner (Windows Sandbox)");
+    expect(ids).not.toContain("CUDA Toolkit");
     expect(stub.jobs.every((job) => job.action === "install")).toBe(true);
     expect(rows.find((row: { id: string }) => row.id === "aria2")).toMatchObject({ ok: false });
     const text = lines.join("\n");
+    expect(text).toContain("Docker Desktop needs administrator rights");
+    expect(text).toContain("CUDA Toolkit skipped: no NVIDIA GPU driver");
     expect(text).toContain("not installed; FRIDAY offers it in the Install Manager");
-    expect(text).toContain("left for the Install Manager inside FRIDAY");
-    expect(text).toContain("Docker Desktop");
-    expect(text).toContain("limit 2.0 GB");
+    expect(text).toContain("no size limit");
+    expect(text).toContain("Models section");
+    expect(text).toContain("Hugging Face runner");
+  });
+
+  it("reports a pending restart without stopping the build", async () => {
+    const stub = fakeToolchain({});
+    const real = stub.runJob;
+    stub.runJob = async (job, emit) => {
+      const out = await real(job, emit);
+      return job.id === "WSL 2" ? { ...out, restartRequired: true } : out;
+    };
+    const lines: string[] = [];
+    const rows = await toolkit.prefetchToolkit("C:/friday", {
+      ...win,
+      toolchain: stub,
+      progressLine,
+      log: (l: string) => lines.push(l),
+    });
+    expect(rows.find((row: { id: string }) => row.id === "WSL 2")).toMatchObject({
+      restartRequired: true,
+    });
+    expect(lines.join("\n")).toContain("WSL 2 asks for a Windows restart");
+    expect(stub.jobs.map((job) => job.id)).toContain("Docker Desktop");
   });
 
   it("never lets a throwing install stop the build", async () => {
@@ -172,7 +237,9 @@ describe("toolkit run", () => {
       progressLine,
       log: () => {},
     });
-    expect(rows.every((row: { ok: boolean }) => row.ok === false)).toBe(true);
+    const tried = rows.filter((row: { skipped?: boolean }) => !row.skipped);
+    expect(tried.length).toBeGreaterThan(10);
+    expect(tried.every((row: { ok: boolean }) => row.ok === false)).toBe(true);
   });
 
   it("skips offline, off Windows, on hosted CI and when switched off", async () => {

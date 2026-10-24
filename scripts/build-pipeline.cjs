@@ -619,7 +619,7 @@ function runPhase(phase, options, root) {
     npmCi(root);
     runNode("scripts/ensure-electron.cjs", ["--quiet"], root);
     runNode("scripts/setup-python.cjs", [], root);
-    // Portable agent tools under 2 GB land in the FRIDAY folder now; a failure never stops the build.
+    // The tools FRIDAY needs (search, Git, build tools, Docker, Sandbox, CUDA) are installed now; a failure never stops the build.
     runNode("scripts/prefetch-toolkit.cjs", [], root);
     runNode("scripts/init-runtime.cjs", [], root);
     runNode("scripts/check-environment.cjs", ["--fix"], root);

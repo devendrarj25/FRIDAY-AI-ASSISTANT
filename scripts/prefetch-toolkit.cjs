@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Build-time toolkit prefetch: the portable command-line tools FRIDAY uses to
- * search, convert, fetch and build for the owner land in the FRIDAY folder
- * (<root>\runtime) before the EXE is built, so a fresh install can use them on
- * first launch instead of finding them missing.
+ * Build-time toolkit prefetch: the tools, languages and runtimes FRIDAY needs to
+ * run, build, test, search, convert, containerise and use the GPU land on this
+ * PC before the EXE is built, so a fresh install can use them on first launch
+ * instead of finding them missing.
  *
  * It does not carry a second installer. Every tool goes through the Install
  * Manager's own job (electron/toolchain.cjs runJob): winget first, then the
@@ -13,15 +13,22 @@
  * - Present and current: nothing is downloaded (one line, "already installed").
  * - Present and older than the newest release: it is updated, so the build
  *   starts from the latest versions (FRIDAY_PREFETCH_TOOLKIT_UPDATE=0 only reports).
- * - Missing: installed, with the size and the live progress printed.
- * - At or above config/agent-toolkit.json maxPrefetchBytes (2 GB), or needing an
- *   administrator or a restart (Docker Desktop, WSL 2, CUDA, PyTorch ...): not
- *   fetched here. The summary names each one so the owner knows it comes from
- *   the Install Manager inside FRIDAY.
+ * - Missing: installed, with the size and the live progress printed. There is no
+ *   size cap: a needed tool is installed however large it is (Docker Desktop,
+ *   WSL 2, Windows Sandbox, the CUDA Toolkit).
+ * - An entry gated on hardware (`requires`) is skipped on a PC without it: CUDA
+ *   only where an NVIDIA GPU driver answers.
+ * - What stays for later is a kind, not a size (config/agent-toolkit.json
+ *   `onDemand`): big AI models come from the Models section, and runners that
+ *   only a model needs (Hugging Face runner with PyTorch, vLLM) from the Install
+ *   Manager when that model is used. The last line of the step names them.
  *
- * A failed or offline install never fails the build. Opt out: FRIDAY_PREFETCH=0
- * or FRIDAY_PREFETCH_TOOLKIT=0; FRIDAY_OFFLINE=1 skips. Hosted CI skips it unless
- * FRIDAY_PREFETCH=1.
+ * An `elevated` tool shows a Windows administrator prompt and may ask for a
+ * restart; the build goes on and the log says a restart is pending. A failed or
+ * offline install never fails the build. Opt out: FRIDAY_PREFETCH=0 or
+ * FRIDAY_PREFETCH_TOOLKIT=0 skips the step, FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0
+ * skips only the administrator ones (a quick build); FRIDAY_OFFLINE=1 skips.
+ * Hosted CI skips it unless FRIDAY_PREFETCH=1.
  */
 const path = require("node:path");
 
@@ -73,39 +80,43 @@ function toolkitPlan({
   detected = {},
   latest = {},
   update = true,
-  cap = config.maxPrefetchBytes,
+  elevated = true,
+  entries = config.prefetch,
 } = {}) {
-  return config.prefetch.map((entry) => {
-    const base = { id: entry.id, why: entry.why, bytes: entry.approxBytes };
-    if (entry.approxBytes >= cap) {
+  return entries.map((entry) => {
+    const base = {
+      id: entry.id,
+      why: entry.why,
+      bytes: entry.approxBytes,
+      elevated: Boolean(entry.elevated),
+    };
+    const have = detected[entry.id];
+    if (
+      entry.requires === "nvidia-gpu" &&
+      !detected["NVIDIA Driver"]?.installed &&
+      !have?.installed
+    ) {
+      return { ...base, action: "skip", note: "no NVIDIA GPU driver on this PC" };
+    }
+    if (entry.elevated && !elevated && !have?.installed) {
       return {
         ...base,
-        action: "defer",
-        note: `${mb(entry.approxBytes)} is over the ${mb(cap)} limit`,
+        action: "skip",
+        note: "administrator tools are switched off for this build",
       };
     }
-    const have = detected[entry.id];
     if (!have?.installed) return { ...base, action: "install" };
     const next = latest[entry.id];
     if (next && have.version && newer(next, have.version)) {
-      return {
-        ...base,
-        action: update ? "update" : "outdated",
-        from: have.version,
-        to: next,
-      };
+      return { ...base, action: update ? "update" : "outdated", from: have.version, to: next };
     }
     return { ...base, action: "keep", version: have.version || "" };
   });
 }
 
-/** Tools the Install Manager keeps: named in the summary so nothing is a surprise. */
+/** Kinds the Install Manager and the Models section keep: named in the summary so nothing is a surprise. */
 function deferredList() {
-  return config.deferred.map((entry) => ({
-    id: entry.id,
-    reason: entry.reason,
-    bytes: entry.approxBytes,
-  }));
+  return config.onDemand.map((entry) => ({ id: entry.id, reason: entry.reason }));
 }
 
 /** Print an Install Manager job event as build-log lines. */
@@ -139,6 +150,7 @@ async function prefetchToolkit(root, deps = {}) {
   const toolchain = deps.toolchain || require("../electron/toolchain.cjs");
   const progressLine = deps.progressLine || require("./stage-toolchain.cjs").progressLine;
   const update = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_UPDATE");
+  const elevated = enabled(env, "FRIDAY_PREFETCH_TOOLKIT_ELEVATED");
   const detected = {};
   const latest = {};
   try {
@@ -161,11 +173,11 @@ async function prefetchToolkit(root, deps = {}) {
   } catch {
     /* an unknown latest version only means "no update is claimed" */
   }
-  const plan = toolkitPlan({ detected, latest, update });
+  const plan = toolkitPlan({ detected, latest, update, elevated });
   const rows = [];
   const total = plan.filter((row) => row.action === "install" || row.action === "update");
   log(
-    `[friday] agent toolkit: ${plan.length} tools, ${total.length} to fetch (${mb(total.reduce((sum, row) => sum + row.bytes, 0))} at most), limit ${mb(config.maxPrefetchBytes)}`,
+    `[friday] agent toolkit: ${plan.length} tools, ${total.length} to fetch (${mb(total.reduce((sum, row) => sum + row.bytes, 0))} at most), no size limit`,
   );
   for (const row of plan) {
     if (row.action === "keep") {
@@ -182,9 +194,9 @@ async function prefetchToolkit(root, deps = {}) {
       rows.push({ id: row.id, ok: true, downloaded: false, outdated: true });
       continue;
     }
-    if (row.action === "defer") {
-      log(`[friday] INFO     ${row.id} left for the Install Manager (${row.note})`);
-      rows.push({ id: row.id, ok: true, downloaded: false, deferred: true });
+    if (row.action === "skip") {
+      log(`[friday] INFO     ${row.id} skipped: ${row.note}`);
+      rows.push({ id: row.id, ok: true, downloaded: false, skipped: true });
       continue;
     }
     log(
@@ -192,6 +204,11 @@ async function prefetchToolkit(root, deps = {}) {
         ? `[friday] updating ${row.id} ${row.from} -> ${row.to}`
         : `[friday] fetching ${row.id} (about ${mb(row.bytes)}): ${row.why}`,
     );
+    if (row.elevated) {
+      log(
+        `[friday] ${row.id} needs administrator rights: accept the Windows prompt when it appears`,
+      );
+    }
     let result;
     try {
       result = await toolchain.runJob(
@@ -203,7 +220,17 @@ async function prefetchToolkit(root, deps = {}) {
     }
     if (result?.ok) {
       log(`[friday] ok       ${row.id} ${row.action === "update" ? "updated" : "installed"}`);
-      rows.push({ id: row.id, ok: true, downloaded: true });
+      if (result.restartRequired) {
+        log(
+          `[friday] INFO     ${row.id} asks for a Windows restart; restart once the build is done`,
+        );
+      }
+      rows.push({
+        id: row.id,
+        ok: true,
+        downloaded: true,
+        ...(result.restartRequired ? { restartRequired: true } : {}),
+      });
     } else {
       log(`[friday] INFO     ${row.id} not installed; FRIDAY offers it in the Install Manager`);
       rows.push({ id: row.id, ok: false, error: result?.error || "install failed" });
@@ -211,11 +238,11 @@ async function prefetchToolkit(root, deps = {}) {
   }
   const left = deferredList();
   log(
-    `[friday] left for the Install Manager inside FRIDAY (over ${mb(config.maxPrefetchBytes)}, or an administrator / restart): ${left.map((row) => row.id).join(", ")}`,
+    `[friday] left for the Install Manager inside FRIDAY (big models are chosen in the Models section; runners only a model needs install when it is used): ${left.map((row) => row.id).join(", ")}`,
   );
   const failed = rows.filter((row) => !row.ok).length;
   log(
-    `[friday] agent toolkit done: ${rows.filter((row) => row.downloaded).length} fetched, ${rows.filter((row) => row.ok && !row.downloaded).length} reused or deferred, ${failed} not installed`,
+    `[friday] agent toolkit done: ${rows.filter((row) => row.downloaded).length} fetched, ${rows.filter((row) => row.ok && !row.downloaded).length} reused or skipped, ${failed} not installed`,
   );
   return rows;
 }
