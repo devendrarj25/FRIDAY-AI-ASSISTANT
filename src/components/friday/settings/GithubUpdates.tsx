@@ -39,6 +39,7 @@ import {
   githubInstallerBundles,
   githubRollback,
   onGithubUpdateHealth,
+  describeTransfer,
   onGithubDownloadProgress,
   releaseInstaller,
   githubSetConfig,
@@ -126,7 +127,11 @@ export function GithubUpdates() {
   // The credential is stored once and restored by the main process at startup;
   // the UI only ever reads the resulting session state.
   const refreshSession = useCallback(async (verify = false) => {
-    setSession(await githubConnection(verify));
+    const snapshot = await githubConnection(verify);
+    setSession(snapshot);
+    // Opened before the start-up reconnect finished: ask GitHub now instead of
+    // showing "unknown" until it does.
+    if (!verify && snapshot.state === "unknown") setSession(await githubConnection(true));
   }, []);
 
   useEffect(
@@ -159,6 +164,9 @@ export function GithubUpdates() {
           ...(typeof next.percent === "number" ? { percent: next.percent } : {}),
           ...(typeof next.received === "number" ? { received: next.received } : {}),
           ...(typeof next.total === "number" ? { total: next.total } : {}),
+          ...(typeof next.speedBps === "number" ? { speedBps: next.speedBps } : {}),
+          ...(typeof next.speedMbps === "number" ? { speedMbps: next.speedMbps } : {}),
+          ...(next.etaSeconds !== undefined ? { etaSeconds: next.etaSeconds } : {}),
         });
         if (!applyingRef.current) return;
         const phase = String(next.phase || "");
@@ -630,6 +638,7 @@ export function GithubUpdates() {
                     toast.error(result.error || "Update failed — nothing was changed.");
                     return;
                   }
+                  setProgress(null);
                   await reload();
                   toast.success(
                     result.applied
@@ -652,10 +661,23 @@ export function GithubUpdates() {
                     return;
                   }
                   setCheck(null);
+                  setProgress(null);
                   await reload();
                   toast.success(
-                    `Updated ${result.applied} file(s)${result.restartRequired ? " — restart FRIDAY to load them" : ""}`,
+                    `Updated ${result.applied} file(s)${result.restartRequired ? " — restart FRIDAY to load them" : ""}${
+                      result.preserved
+                        ? `. ${result.preserved} of your own data file(s) were left untouched.`
+                        : ""
+                    }`,
                   );
+                  if (result.dependencyChanges?.length) {
+                    toast.message(
+                      `Dependencies changed (${result.dependencyChanges.map((d) => d.file).join(", ")}). Run ${[
+                        ...new Set(result.dependencyChanges.map((d) => d.command)),
+                      ].join(" and ")} before the next build.`,
+                      { duration: 20000 },
+                    );
+                  }
                 })
               }
             >
@@ -741,12 +763,10 @@ export function GithubUpdates() {
                 <p className="text-foreground">
                   {progress?.phase}
                   {typeof progress?.percent === "number" ? ` · ${progress.percent}%` : ""}
-                  {progress?.total
-                    ? ` · ${Math.round((progress.received ?? 0) / 1048576)} / ${Math.round(
-                        progress.total / 1048576,
-                      )} MB`
-                    : ""}
                 </p>
+                {describeTransfer(progress) ? (
+                  <p className="mt-0.5 text-muted-foreground">{describeTransfer(progress)}</p>
+                ) : null}
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border/60">
                   <div
                     className="h-full bg-primary transition-all"

@@ -21,6 +21,7 @@ function describeProblem(problem: SelfProblem): string {
   return lines.join("\n");
 }
 
+import { onGithubUpdate } from "./github-updates";
 import { networkMeter } from "./network";
 import { notifications } from "./notifications";
 import { autonomousCore } from "./self/autonomous-core";
@@ -209,6 +210,23 @@ export function wireNotifications(): void {
   // component going missing or degraded only surfaced once the doctor happened
   // to re-scan. Now she raises it as soon as she notices it herself.
   systemMap.subscribe(publishSelfReport);
+
+  /* ------------------------------------------------------------ updates */
+  // The background check runs without the Updates panel open. This is what lets
+  // a new release reach the owner anyway. It only informs: nothing installs.
+  onGithubUpdate((check) => {
+    if (!check.updateAvailable) return;
+    const what = check.version ? `FRIDAY ${check.version}` : check.title || "A new FRIDAY version";
+    notifications.push({
+      id: `update:${check.updateChannel ?? "stable"}:${check.ref ?? check.version ?? "latest"}`,
+      level: "action",
+      title: `${check.testBuild ? "Test build" : "Update"} available — ${what}`,
+      detail:
+        "Open Settings → Updates to download and install it. Nothing is installed without your go-ahead.",
+      source: "Updates",
+      route: "/settings",
+    });
+  });
 
   /* ------------------------------------------------------------ network */
   let wasOnline = true;

@@ -52,6 +52,32 @@ const STACK_HINTS = [
   ["Dockerfile", "Docker"],
 ];
 
+/**
+ * The owner's own data. A source update may add a placeholder that is missing
+ * but never replaces a file that is already there.
+ */
+const USER_DATA_DIRS = new Set([
+  "memory",
+  "database",
+  "brain-data",
+  "conversations",
+  "security",
+  "voices",
+  "downloads",
+  "logs",
+  "backup",
+  "backups",
+  "temporary",
+]);
+const isUserData = (dest) => USER_DATA_DIRS.has(String(dest).split("/")[0]);
+
+/** Files whose change means a source checkout needs its packages refreshed. */
+const DEPENDENCY_FILES = [
+  [/^package(-lock)?\.json$/, "npm ci"],
+  [/^kernel\/requirements[^/]*\.txt$/, "npm run setup:python"],
+  [/^kernel\/pyproject\.toml$/, "npm run setup:python"],
+];
+
 const uid = () => crypto.randomBytes(5).toString("hex");
 const SCAN_LIMIT = 20;
 const scanIndexFile = (root) => path.join(root, "updates", "import-scans.json");
@@ -339,7 +365,7 @@ function filenameFromDownload(url, name, response) {
  * Unpack + recognise + diff. Nothing in the workspace is touched here.
  * Returns { ok, id, staging, mode, files:[{path,dest,state,area,reason}], areas, summary }.
  */
-async function scanImport({ root, source, onProgress = () => {} }) {
+async function scanImport({ root, source, onProgress = () => {}, layout = "" }) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   if (!source || !fs.existsSync(source)) {
     return { ok: false, error: "The selected import could not be found." };
@@ -372,7 +398,10 @@ async function scanImport({ root, source, onProgress = () => {} }) {
 
   onProgress({ id, phase: "Recognising" });
   await expandNested(contentRoot);
-  const info = inspectPackage(contentRoot, path.basename(source));
+  const info = {
+    ...inspectPackage(contentRoot, path.basename(source)),
+    ...(layout ? { layout } : {}),
+  };
 
   onProgress({ id, phase: "Scanning" });
   const found = walk(contentRoot);
@@ -442,6 +471,7 @@ async function scanImport({ root, source, onProgress = () => {} }) {
     staging,
     contentRoot,
     mode: info.mode,
+    ...(layout ? { layout } : {}),
     label: info.label,
     packageName: info.packageName,
     version,
@@ -519,6 +549,7 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
     packageName: scan.packageName,
     manifestKind: scan.manifestKind,
     manifestName: scan.manifestName,
+    ...(scan.layout ? { layout: scan.layout } : {}),
     // The scan travels over IPC, so the recognised packages are re-derived here
     // from the same staged tree — apply must place files exactly where the
     // preview said it would.
@@ -526,6 +557,7 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
   };
 
   const allowed = Array.isArray(areas) && areas.length ? new Set(areas.map(String)) : null;
+  let preserved = 0;
   const files = walk(contentRoot)
     .map((file) => {
       const verdict = classify(file.path, { ...info, full: file.full });
@@ -541,9 +573,30 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
     .filter((f) => {
       const current = path.join(root, f.dest);
       return !fs.existsSync(current) || hashFile(current) !== hashFile(f.full);
+    })
+    .filter((f) => {
+      // A GitHub source update never replaces the owner's own data.
+      if (
+        (scan.githubRef || scan.layout === "repo") &&
+        isUserData(f.dest) &&
+        fs.existsSync(path.join(root, f.dest))
+      ) {
+        preserved += 1;
+        return false;
+      }
+      return true;
     });
   if (!files.length) {
-    return { ok: true, applied: 0, backup: null, restartRequired: false, areas: [], placed: [] };
+    return {
+      ok: true,
+      applied: 0,
+      backup: null,
+      restartRequired: false,
+      areas: [],
+      placed: [],
+      preserved,
+      dependencyChanges: [],
+    };
   }
 
   onProgress({ id: scan.id, phase: "Backing up" });
@@ -591,6 +644,13 @@ async function applyImport({ root, scan, onProgress = () => {}, keepBackup = tru
     areas: [...touched],
     placed: [...placed.entries()].map(([dir, count]) => ({ dir, files: count })),
     restartRequired,
+    preserved,
+    dependencyChanges: files
+      .map((f) => {
+        const hit = DEPENDENCY_FILES.find(([pattern]) => pattern.test(f.dest));
+        return hit ? { file: f.dest, command: hit[1] } : null;
+      })
+      .filter(Boolean),
     at: stamp,
   };
 }

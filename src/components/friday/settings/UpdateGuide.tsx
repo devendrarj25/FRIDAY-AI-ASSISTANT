@@ -49,7 +49,10 @@ export function UpdateGuide() {
           read-only token: GitHub, Settings, Developer settings, Fine-grained tokens, repository
           access to this one repository only, permission <em>Contents: Read-only</em> (Metadata is
           added for you). That token cannot push or change anything. Pushing and releasing use the
-          separate connection on Friday Hub.
+          separate connection on Friday Hub. The connection is remembered: after you close and
+          reopen FRIDAY she reconnects by herself and looks for a new version a few seconds after
+          she starts, then every few hours, and tells you in Notifications. Nothing installs without
+          you.
         </li>
         <li>
           <span className="font-medium text-foreground">2. Test connection.</span> FRIDAY shows
@@ -69,13 +72,16 @@ export function UpdateGuide() {
         </li>
         <li>
           <span className="font-medium text-foreground">5. Install or apply.</span> The installer is
-          downloaded, checked against its published SHA-256, your data is backed up, then FRIDAY
-          closes, the new version installs and she reopens. A dropped connection continues from the
-          same place, and Cancel then Retry resumes. That is how an installed app updates. Update
-          content merges only new skills, agents, plugins, modules and workflows from the release.
-          The source zip is for a source checkout: it is scanned, the changes are shown, a backup is
-          taken, and the files are merged into the folder when you apply them. Packs (plugins,
-          modules, workflows, themes) update from the list under Check for updates.
+          downloaded with a live bar, size, speed and time left, checked against its published
+          SHA-256, your data is backed up, then FRIDAY closes, the new version installs and she
+          reopens. A dropped connection continues from the same place, and Cancel then Retry
+          resumes. That is how an installed app updates. Update content merges only new skills,
+          agents, plugins, modules and workflows from the release. The source zip is for a source
+          checkout: it is scanned, the changes are shown, a backup is taken, and the files are
+          merged into the folder when you apply them, each file where it lives in the repository.
+          Files that are gone from the repository are not deleted, and your memory, chats, database
+          and settings are never replaced; if packages changed she tells you which command to run.
+          Packs (plugins, modules, workflows, themes) update from the list under Check for updates.
         </li>
         <li>
           <span className="font-medium text-foreground">6. What is never touched.</span> Your chats,

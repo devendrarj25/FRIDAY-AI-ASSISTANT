@@ -116,6 +116,18 @@ const statusMessage = (status) =>
       ? "The server refused the download. Check the stored token can read this repository (Contents: Read-only)."
       : `The server answered ${status}.`;
 
+/** Free bytes on the drive that holds `dir`, or null when the platform cannot say. */
+async function freeBytes(dir) {
+  try {
+    const stat = await fsp.statfs(dir);
+    return Number(stat.bavail) * Number(stat.bsize);
+  } catch {
+    return null;
+  }
+}
+
+const mbText = (bytes) => `${Math.ceil(bytes / 1048576)} MB`;
+
 /** Rename into place, tolerating a scanner that briefly holds the new file. */
 async function commitFile(part, dest, { retries = 6, sleep = defaultSleep } = {}) {
   const verified = `${dest}.verified`;
@@ -205,6 +217,7 @@ async function downloadToFile(options = {}) {
     fetchImpl,
     sleep = defaultSleep,
     phase = "Downloading",
+    freeSpace = freeBytes,
   } = options;
   if (!url) return { ok: false, error: "There is nothing to download.", fatal: true, attempts: 0 };
   const auth = token ? { authorization: `Bearer ${token}` } : null;
@@ -219,6 +232,15 @@ async function downloadToFile(options = {}) {
   let resumed = false;
   let made = 0;
   let invalid = 0;
+  /** The last figures reported, kept so a retry notice does not look like a restart. */
+  const progress = {
+    percent: 0,
+    received: 0,
+    total: 0,
+    speedBps: 0,
+    speedMbps: 0,
+    etaSeconds: null,
+  };
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     made = attempt;
@@ -316,10 +338,25 @@ async function downloadToFile(options = {}) {
               ? 0
               : Number(res.headers?.get?.("content-length") || 0);
           if (!knownTotal && length) knownTotal = append ? existing + length : length;
+          // Fail early and plainly when the drive cannot hold the rest, instead of
+          // retrying a write that will keep failing halfway.
+          if (knownTotal) {
+            const need = knownTotal - (append ? existing : 0) + 64 * 1048576;
+            const free = await freeSpace(path.dirname(part));
+            if (free !== null && free < need) {
+              await res.body?.cancel?.().catch?.(() => {});
+              throw new DownloadError(
+                `Not enough free disk space: about ${mbText(need)} are needed and ${mbText(free)} are free on that drive. Free some space and press Retry.`,
+                { fatal: true, code: "ENOSPC" },
+              );
+            }
+          }
           handle = await fsp.open(part, append ? "a" : "w");
           let received = append ? existing : 0;
-          const startedAt = Date.now();
-          let announced = -10;
+          let windowAt = Date.now();
+          let windowBytes = 0;
+          let smoothed = 0;
+          let lastEmit = 0;
           const reader = res.body?.getReader?.();
           if (reader) {
             for (;;) {
@@ -328,26 +365,36 @@ async function downloadToFile(options = {}) {
               arm();
               await handle.write(value);
               received += value.length;
-              const percent = knownTotal
+              windowBytes += value.length;
+              // The live figures follow every chunk, so a notice raised when the
+              // connection drops is exact; only the report to the screen is throttled.
+              progress.received = received;
+              progress.total = knownTotal;
+              progress.percent = knownTotal
                 ? Math.min(99, Math.round((received / knownTotal) * 100))
                 : 0;
-              if (percent >= announced + 2 || !knownTotal) {
-                announced = percent;
-                const seconds = Math.max(0.5, (Date.now() - startedAt) / 1000);
-                onProgress({
-                  phase,
-                  percent,
-                  received,
-                  total: knownTotal,
-                  speedMbps:
-                    Math.round(((received - (append ? existing : 0)) / seconds / 1048576) * 10) /
-                    10,
-                  attempt,
-                  attempts,
-                  state: "DOWNLOADING",
-                });
+              const now = Date.now();
+              // Four reports a second at most: smooth enough for a live bar and
+              // speed, light enough not to flood the interface.
+              if (now - lastEmit >= 250) {
+                const seconds = Math.max(0.001, (now - windowAt) / 1000);
+                const instant = windowBytes / seconds;
+                smoothed = smoothed ? smoothed * 0.7 + instant * 0.3 : instant;
+                windowAt = now;
+                windowBytes = 0;
+                lastEmit = now;
+                progress.speedBps = Math.round(smoothed);
+                progress.speedMbps = Math.round((smoothed / 1048576) * 10) / 10;
+                progress.etaSeconds =
+                  knownTotal && smoothed > 0
+                    ? Math.max(0, Math.round((knownTotal - received) / smoothed))
+                    : null;
+                onProgress({ phase, ...progress, attempt, attempts, state: "DOWNLOADING" });
               }
             }
+            // Whatever arrived after the last report still counts: end on the true figures.
+            progress.etaSeconds = knownTotal ? 0 : null;
+            onProgress({ phase, ...progress, attempt, attempts, state: "DOWNLOADING" });
           } else {
             const buffer = Buffer.from(await res.arrayBuffer());
             await handle.write(buffer);
@@ -423,7 +470,8 @@ async function downloadToFile(options = {}) {
         };
       }
       if (error?.fatal) {
-        await fsp.rm(part, { force: true });
+        // A full disk is the owner's to fix; what already arrived stays for Retry.
+        if (error.code !== "ENOSPC") await fsp.rm(part, { force: true });
         return {
           ok: false,
           error: error.message,
@@ -439,6 +487,16 @@ async function downloadToFile(options = {}) {
           return { ok: false, error: error.message, fatal: true, attempts: attempt };
         }
       }
+      if (["ENOSPC", "EDQUOT"].includes(error?.code)) {
+        return {
+          ok: false,
+          error:
+            "The drive ran out of free space while downloading. Free some space and press Retry.",
+          fatal: true,
+          attempts: attempt,
+          resumable: true,
+        };
+      }
       lastError = stalled
         ? `No data arrived for ${Math.round(stallMs / 1000)} seconds.`
         : `${error?.message || error}${error?.cause?.code ? ` (${error.cause.code})` : ""}`;
@@ -449,7 +507,12 @@ async function downloadToFile(options = {}) {
         );
         onProgress({
           phase: `${phase} — connection lost, retrying (${attempt}/${attempts - 1})`,
-          percent: 0,
+          percent: progress.percent,
+          received: progress.received,
+          total: progress.total,
+          speedBps: 0,
+          speedMbps: 0,
+          etaSeconds: null,
           attempt,
           attempts,
           state: "RETRYING",
@@ -478,6 +541,7 @@ module.exports = {
   DownloadError,
   downloadToFile,
   followRedirects,
+  freeBytes,
   commitFile,
   looksLikeHtml,
   zipLooksComplete,

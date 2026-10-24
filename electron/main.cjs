@@ -6868,7 +6868,12 @@ ipcMain.handle("github:pull", async (_e, ref, options = {}) => {
     root: getWorkspaceRoot(),
     importer,
     ref: ref ? String(ref) : null,
-    onProgress: (progress) => send("import:progress", progress),
+    onProgress: (progress) => {
+      send("import:progress", progress);
+      // The Updates panel draws the same bar, size, speed and time left for the
+      // source zip as for the installer.
+      send("github:download-progress", progress);
+    },
   });
   return rememberImportScan(scan);
 });
@@ -7189,11 +7194,66 @@ ipcMain.handle("github:run-installer", async (_e, file) => {
   return { ok: true, launched: target };
 });
 
-/** Background polling — off unless the owner turns autoCheck on. */
+/** One background look at the repository: notify, and (source checkout only) apply when allowed. */
+async function runGithubCheck() {
+  try {
+    const root = getWorkspaceRoot();
+    if (!root) return;
+    const result = await githubSync.checkUpdate(root, {
+      currentVersion: productVersion(),
+      ...(app.isPackaged ? { channel: "release" } : {}),
+    });
+    if (!result?.ok || !result.updateAvailable) return;
+    send("github:update-available", result);
+    // A packaged FRIDAY is only ever replaced by a verified release the owner
+    // approves — background polling notifies, it never installs.
+    if (app.isPackaged || result.channel === "release") return;
+    const live = githubSync.readConfig(root);
+    // The TEST channel is never silent: a test build is only ever installed
+    // by an explicit action in Settings → Updates.
+    if (githubSync.normalizeUpdateChannel(live.updateChannel) === "test") return;
+    // Development source channel: FRIDAY may apply it herself, with a backup.
+    if (live.autoApply) {
+      const scan = await githubSync.pullUpdate({ root, importer, ref: result.ref });
+      if (!scan?.ok) return;
+      rememberImportScan(scan);
+      const applied = await importer.applyImport({ root, scan });
+      if (applied?.ok) {
+        githubSync.recordApplied(root, {
+          ref: result.ref,
+          applied: applied.applied,
+          areas: applied.areas,
+          backup: applied.backup,
+          notes: result.title,
+        });
+        scheduleRescan(root, 300);
+        send("github:update-available", {
+          ...result,
+          applied: applied.applied,
+          autoApplied: true,
+        });
+      }
+    }
+  } catch {
+    /* offline — the next tick tries again */
+  }
+}
+
+/**
+ * Background watching of the connected repository (on unless switched off). It
+ * looks once shortly after start — a launch is when an update is most useful to
+ * hear about — unless a check already ran in the last half hour, then every
+ * `intervalHours`. One timer, replaced on every change of settings.
+ */
+let githubStartupCheck = null;
 function scheduleGithubChecks() {
   if (githubTimer) {
     clearInterval(githubTimer);
     githubTimer = null;
+  }
+  if (githubStartupCheck) {
+    clearTimeout(githubStartupCheck);
+    githubStartupCheck = null;
   }
   const root = getWorkspaceRoot();
   if (!root) return;
@@ -7202,48 +7262,12 @@ function scheduleGithubChecks() {
   const cfg = githubSync.readConfig(root);
   if (!cfg.autoCheck || !cfg.repo) return;
   const every = Math.max(1, Number(cfg.intervalHours) || 6) * 3600_000;
-  githubTimer = setInterval(async () => {
-    try {
-      const root = getWorkspaceRoot();
-      const result = await githubSync.checkUpdate(root, {
-        currentVersion: productVersion(),
-        ...(app.isPackaged ? { channel: "release" } : {}),
-      });
-      if (!result?.ok || !result.updateAvailable) return;
-      send("github:update-available", result);
-      // A packaged FRIDAY is only ever replaced by a verified release the owner
-      // approves — background polling notifies, it never installs.
-      if (app.isPackaged || result.channel === "release") return;
-      const live = githubSync.readConfig(root);
-      // The TEST channel is never silent: a test build is only ever installed
-      // by an explicit action in Settings → Updates.
-      if (githubSync.normalizeUpdateChannel(live.updateChannel) === "test") return;
-      // Development source channel: FRIDAY may apply it herself, with a backup.
-      if (live.autoApply) {
-        const scan = await githubSync.pullUpdate({ root, importer, ref: result.ref });
-        if (!scan?.ok) return;
-        rememberImportScan(scan);
-        const applied = await importer.applyImport({ root, scan });
-        if (applied?.ok) {
-          githubSync.recordApplied(root, {
-            ref: result.ref,
-            applied: applied.applied,
-            areas: applied.areas,
-            backup: applied.backup,
-            notes: result.title,
-          });
-          scheduleRescan(root, 300);
-          send("github:update-available", {
-            ...result,
-            applied: applied.applied,
-            autoApplied: true,
-          });
-        }
-      }
-    } catch {
-      /* offline — the next tick tries again */
-    }
-  }, every);
+  const sinceLast = Date.now() - (Number(cfg.lastCheck) || 0);
+  if (sinceLast >= 30 * 60_000) {
+    githubStartupCheck = setTimeout(() => void runGithubCheck(), 15_000);
+    githubStartupCheck.unref?.();
+  }
+  githubTimer = setInterval(() => void runGithubCheck(), every);
   if (githubTimer.unref) githubTimer.unref();
 }
 

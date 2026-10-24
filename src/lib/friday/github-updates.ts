@@ -512,7 +512,16 @@ export const connectionLabel = (state?: GithubConnectionState): string =>
 export async function githubUpdateNow(
   ref?: string | null,
   options: { contentOnly?: boolean } = {},
-): Promise<{ ok: boolean; error?: string; applied?: number; restartRequired?: boolean }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  applied?: number;
+  restartRequired?: boolean;
+  /** Existing files of the owner's data that the update left alone. */
+  preserved?: number;
+  /** Files that changed which need a dependency refresh on a source checkout. */
+  dependencyChanges?: { file: string; command: string }[];
+}> {
   const api = bridge();
   if (!api?.githubPull) return { ok: false, error: DESKTOP_ONLY };
   if (shouldSnapshotMemory()) {
@@ -536,6 +545,8 @@ export async function githubUpdateNow(
     areas?: string[];
     backup?: string | null;
     restartRequired?: boolean;
+    preserved?: number;
+    dependencyChanges?: { file: string; command: string }[];
   };
   if (!result?.ok) return { ok: false, error: result?.error || "The update could not be applied." };
   await api.githubRecord?.({
@@ -549,6 +560,8 @@ export async function githubUpdateNow(
     ok: true,
     applied: result.applied ?? 0,
     restartRequired: Boolean(result.restartRequired),
+    preserved: result.preserved ?? 0,
+    dependencyChanges: result.dependencyChanges ?? [],
   };
 }
 
@@ -638,6 +651,45 @@ export interface UpdateDownloadProgress {
   percent?: number;
   received?: number;
   total?: number;
+  /** Smoothed bytes per second, and the time left at that speed (null = unknown). */
+  speedBps?: number;
+  speedMbps?: number;
+  etaSeconds?: number | null;
+  attempt?: number;
+  attempts?: number;
+  state?: string;
+}
+
+const sizeText = (bytes: number): string => {
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0)} MB`;
+  return `${(bytes / 1073741824).toFixed(2)} GB`;
+};
+
+const etaText = (seconds: number): string => {
+  if (seconds < 5) return "a few seconds";
+  if (seconds < 90) return `${Math.round(seconds)} s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
+  return `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
+};
+
+/** "42 MB of 180 MB · 3.2 MB/s · about 43 s left" — only the parts that are known. */
+export function describeTransfer(progress: UpdateDownloadProgress | null | undefined): string {
+  if (!progress) return "";
+  const parts: string[] = [];
+  const received = progress.received ?? 0;
+  if (progress.total && progress.total > 0) {
+    parts.push(`${sizeText(received)} of ${sizeText(progress.total)}`);
+  } else if (received > 0) {
+    parts.push(sizeText(received));
+  }
+  const bps = progress.speedBps ?? (progress.speedMbps ? progress.speedMbps * 1048576 : 0);
+  if (bps > 0) parts.push(`${sizeText(bps)}/s`);
+  if (typeof progress.etaSeconds === "number" && progress.etaSeconds > 0 && bps > 0) {
+    parts.push(`about ${etaText(progress.etaSeconds)} left`);
+  }
+  return parts.join(" · ");
 }
 
 export const onGithubDownloadProgress = (fn: (progress: UpdateDownloadProgress) => void) =>

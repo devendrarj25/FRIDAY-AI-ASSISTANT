@@ -209,6 +209,19 @@ function pruneInstallers({ root, keep = 2 } = {}) {
     .map((name) => ({ name, at: fs.statSync(path.join(dir, name)).mtimeMs }))
     .sort((a, b) => b.at - a.at);
   const removed = [];
+  // A half-finished download nobody resumed within a week is just disk space.
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(part|verified)$/i.test(name)) continue;
+      const file = path.join(dir, name);
+      if (Date.now() - fs.statSync(file).mtimeMs > 7 * 86_400_000) {
+        fs.rmSync(file, { force: true });
+        removed.push(name);
+      }
+    }
+  } catch {
+    /* next time */
+  }
   for (const row of rows.slice(Math.max(1, keep))) {
     try {
       fs.rmSync(path.join(dir, row.name), { force: true });

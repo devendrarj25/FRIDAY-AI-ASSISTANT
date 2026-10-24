@@ -3,7 +3,7 @@
  * stands in for GitHub and its CDN: it can cut the connection mid-file, send
  * nothing, ignore Range, rate-limit, redirect and answer with a web page.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -38,6 +38,8 @@ type Answer =
       ignoreRange?: boolean;
       /** A proxy that compresses: Content-Length counts the compressed bytes. */
       encoding?: string;
+      /** Milliseconds between chunks, to give the progress reports real time to pass. */
+      chunkDelay?: number;
     }
   | { kind: "status"; status: number; headers?: Record<string, string> }
   | { kind: "redirect"; to: string };
@@ -89,6 +91,8 @@ function server(plan: Plan) {
     const cut = Math.min(answer.cutAfter ?? body.length, body.length);
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
+        if (answer.chunkDelay && at < cut)
+          await new Promise((r) => setTimeout(r, answer.chunkDelay));
         if (at < cut) {
           const end = Math.min(at + 40_000, cut);
           controller.enqueue(body.subarray(at, end));
@@ -137,6 +141,75 @@ describe("a complete file", () => {
     expect(fs.existsSync(`${out.file}.part`)).toBe(false);
     expect(calls).toHaveLength(1);
     expect(events.at(-1)?.percent).toBeGreaterThan(50);
+  });
+});
+
+describe("a drive that is too full", () => {
+  it("says so before writing anything and keeps nothing half-written", async () => {
+    const { fetchImpl, calls } = server({ next: () => ({ kind: "ok" }) });
+    const out = await run(fetchImpl, { freeSpace: async () => 10 * 1048576 });
+    expect(out).toMatchObject({ ok: false, fatal: true, attempts: 1 });
+    expect(out.error).toContain("Not enough free disk space");
+    expect(calls).toHaveLength(1);
+    expect(fs.existsSync(path.join(dir, "FRIDAY-Setup.exe"))).toBe(false);
+  });
+
+  it("does not retry when the drive fills during the write", async () => {
+    const { fetchImpl, calls } = server({ next: () => ({ kind: "ok" }) });
+    const real = fs.promises.open;
+    const spy = vi.spyOn(fs.promises, "open").mockImplementation(async (...args) => {
+      const handle = await real.apply(fs.promises, args as never);
+      handle.write = (async () => {
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      }) as never;
+      return handle;
+    });
+    try {
+      const out = await run(fetchImpl);
+      expect(out).toMatchObject({ ok: false, fatal: true, resumable: true });
+      expect(out.error).toContain("free space");
+      expect(calls).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("what the progress reports say", () => {
+  it("carries size, speed and time left, and ends on the true byte count", async () => {
+    const { fetchImpl } = server({ next: () => ({ kind: "ok", chunkDelay: 120 }) });
+    const events: {
+      percent: number;
+      received: number;
+      total: number;
+      speedBps: number;
+      etaSeconds: number | null;
+    }[] = [];
+    const out = await run(fetchImpl, { stallMs: 5000, onProgress: (e: never) => events.push(e) });
+    expect(out.ok).toBe(true);
+    expect(events.length).toBeGreaterThan(2);
+    expect(events.every((e) => e.total === payload.length)).toBe(true);
+    expect(events.some((e) => e.speedBps > 0)).toBe(true);
+    expect(events.some((e) => typeof e.etaSeconds === "number" && e.etaSeconds > 0)).toBe(true);
+    const last = events.at(-1)!;
+    expect(last.received).toBe(payload.length);
+    expect(last.percent).toBe(99);
+    expect(last.etaSeconds).toBe(0);
+    // Never faster than four reports a second, so the interface is not flooded.
+    expect(events.length).toBeLessThan(40);
+  }, 20_000);
+
+  it("keeps the figures during a retry notice instead of falling back to zero", async () => {
+    const { fetchImpl } = server({
+      next: (c) => (c.n === 1 ? { kind: "ok", cutAfter: 120_000 } : { kind: "ok" }),
+    });
+    const events: { state?: string; percent: number; received: number }[] = [];
+    const out = await run(fetchImpl, { onProgress: (e: never) => events.push(e) });
+    expect(out.ok).toBe(true);
+    const retry = events.find((e) => e.state === "RETRYING");
+    expect(retry).toBeTruthy();
+    expect(retry!.received).toBe(120_000);
+    expect(retry!.percent).toBeGreaterThan(30);
   });
 });
 

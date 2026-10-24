@@ -12,6 +12,7 @@
 // (<FRIDAY_ROOT>/security/credentials), handled by electron/credentials.cjs.
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 // One semver implementation for the whole release system (workflow + desktop).
 const { compareBuilds } = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
 
@@ -87,7 +88,9 @@ const DEFAULTS = {
   // The two channels keep separate installed-ref state so switching back to
   // stable hides every test build again and never mixes the two histories.
   updateChannel: "stable",
-  autoCheck: false,
+  // Reading is harmless (a packaged FRIDAY only ever notifies; installing always
+  // waits for the owner), so a connected repository is watched unless switched off.
+  autoCheck: true,
   intervalHours: 6,
   autoApply: false, // when false FRIDAY asks before applying
   // FRIDAY never pushes source on her own. A push happens only when the owner
@@ -213,6 +216,17 @@ function publicConfig(cfg) {
   };
 }
 
+// Conditional requests: GitHub answers 304 when nothing changed, and an
+// authenticated 304 does not count against the rate limit. ETags belong to the
+// token that received them, so the key carries a short fingerprint of it.
+const etagCache = new Map();
+const ETAG_LIMIT = 64;
+const etagKey = (cfg, endpoint) =>
+  `${cfg.token ? crypto.createHash("sha256").update(cfg.token).digest("hex").slice(0, 8) : "-"}:${endpoint}`;
+
+const clockTime = (ms) =>
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 async function api(cfg, endpoint, { method = "GET", body } = {}) {
   // The update path only reads. A write that reaches it is a bug, so it stops here.
   if (cfg.readOnly && String(method).toUpperCase() !== "GET") {
@@ -226,6 +240,9 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
   if (cfg.token) headers.authorization = `Bearer ${cfg.token}`;
   if (body) headers["content-type"] = "application/json";
   const isRead = String(method).toUpperCase() === "GET";
+  const key = isRead ? etagKey(cfg, endpoint) : "";
+  const cached = isRead ? etagCache.get(key) : null;
+  if (cached) headers["if-none-match"] = cached.etag;
   let res;
   for (let attempt = 1; attempt <= (isRead ? 2 : 1); attempt += 1) {
     try {
@@ -237,7 +254,7 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
       });
       // A rate limit or a server hiccup on a read is worth one more try.
       if (isRead && attempt === 1 && (res.status === 429 || res.status >= 502)) {
-        const wait = Math.min(Number(res.headers.get("retry-after")) || 1, 5) * 1000;
+        const wait = Math.min(Number(res.headers?.get?.("retry-after")) || 1, 5) * 1000;
         await res.body?.cancel?.().catch?.(() => {});
         await new Promise((resolve) => setTimeout(resolve, wait));
         continue;
@@ -259,6 +276,9 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
       };
     }
   }
+  if (res.status === 304 && cached) {
+    return { ok: true, status: 200, body: structuredClone(cached.body), cached: true };
+  }
   const text = await res.text();
   let parsed = null;
   try {
@@ -267,16 +287,47 @@ async function api(cfg, endpoint, { method = "GET", body } = {}) {
     parsed = null;
   }
   if (!res.ok) {
+    // GitHub reports an exhausted request limit as 403 (or 429), which is not a
+    // bad token: say so, and say when it resets, instead of asking for a new one.
+    const remaining = res.headers?.get?.("x-ratelimit-remaining");
+    if (
+      res.status === 429 ||
+      (res.status === 403 && (remaining === "0" || /rate limit/i.test(parsed?.message || "")))
+    ) {
+      const resetAt = Number(res.headers?.get?.("x-ratelimit-reset")) * 1000 || 0;
+      return {
+        ok: false,
+        status: res.status,
+        rateLimited: true,
+        resetAt,
+        error: `GitHub's request limit is used up${resetAt ? ` until ${clockTime(resetAt)}` : " for now"}. ${
+          cfg.token
+            ? "Try again after that."
+            : "A read-only token raises the limit from 60 to 5,000 requests an hour."
+        }`,
+      };
+    }
     const reason =
       res.status === 404
         ? "Repository not found — check the name, and add a token if it is private."
         : res.status === 401 || res.status === 403
-          ? parsed?.message ||
-            "GitHub rejected the token. A FRIDAY token needs fine-grained permissions Contents: Read and write, Actions: Read and write on this repository."
+          ? parsed?.message
+            ? cfg.readOnly
+              ? `${parsed.message} The update token needs Contents: Read-only on this repository.`
+              : parsed.message
+            : cfg.readOnly
+              ? "GitHub rejected the token. The update token needs Contents: Read-only on this repository."
+              : "GitHub rejected the token. A FRIDAY token needs fine-grained permissions Contents: Read and write, Actions: Read and write on this repository."
           : parsed?.message || `GitHub error ${res.status}`;
     return { ok: false, status: res.status, error: reason };
   }
 
+  const etag = isRead ? res.headers?.get?.("etag") : "";
+  if (etag) {
+    etagCache.delete(key);
+    etagCache.set(key, { etag, body: structuredClone(parsed) });
+    if (etagCache.size > ETAG_LIMIT) etagCache.delete(etagCache.keys().next().value);
+  }
   return { ok: true, status: res.status, body: parsed };
 }
 
@@ -469,6 +520,14 @@ async function connect(root, override = {}) {
       hasToken,
     });
   }
+  if (test.rateLimited)
+    return setSession({
+      state: "offline",
+      repo: cfg.repo,
+      message: test.error,
+      canRelease: false,
+      hasToken,
+    });
   if (test.offline || test.status === 0)
     return setSession({
       state: "offline",
@@ -913,7 +972,13 @@ async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
   if (!download.ok) return download;
 
   onProgress({ phase: "Scanning update" });
-  const scan = await importer.scanImport({ root, source: download.file, onProgress });
+  // The repository's own layout: every file keeps its place (root files included).
+  const scan = await importer.scanImport({
+    root,
+    source: download.file,
+    onProgress,
+    layout: "repo",
+  });
   if (!scan.ok) return scan;
   return { ...scan, githubRef: target, repo: cfg.repo, bytes: download.bytes };
 }

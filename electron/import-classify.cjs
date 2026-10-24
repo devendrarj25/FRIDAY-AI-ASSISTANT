@@ -381,6 +381,18 @@ function classify(relative, ctx = {}) {
   const mode = ctx.mode || "friday";
   const pkg = slug(ctx.packageName || "import");
 
+  // 0 · FRIDAY's own repository (a GitHub source update): every file keeps its
+  // place, root files included (package.json, tsconfig, .github, LICENSE…).
+  // Routing them like loose content would scatter them into config/ and skills/.
+  if (ctx.layout === "repo") {
+    for (const rule of AREAS) {
+      if (rule.match.test(normalized)) {
+        return { area: rule.area, hot: rule.hot, dest: normalized, reason: "repository layout" };
+      }
+    }
+    return { area: "root", hot: false, dest: normalized, reason: "repository file kept in place" };
+  }
+
   // 1 · FRIDAY package — keep the original layout, it is an app upgrade.
   if (mode === "friday") {
     for (const rule of AREAS) {

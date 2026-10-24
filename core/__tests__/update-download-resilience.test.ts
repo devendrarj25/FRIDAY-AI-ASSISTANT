@@ -241,6 +241,20 @@ describe("what an update leaves behind", () => {
     ]);
   });
 
+  it("clears half-finished downloads nobody resumed for a week, and only those", () => {
+    const dir = path.join(work, "updates", "installers");
+    fs.mkdirSync(dir, { recursive: true });
+    const old = new Date(Date.now() - 9 * 86_400_000);
+    const stale = path.join(dir, "FRIDAY-Setup-old.exe.part");
+    const fresh = path.join(dir, "FRIDAY-Setup-new.exe.part");
+    fs.writeFileSync(stale, "x");
+    fs.writeFileSync(fresh, "x");
+    fs.utimesSync(stale, old, old);
+    safety.pruneInstallers({ root: work, keep: 2 });
+    expect(fs.existsSync(stale)).toBe(false);
+    expect(fs.existsSync(fresh)).toBe(true);
+  });
+
   it("records a content merge without claiming the release is installed", () => {
     sync.writeConfig(work, { repo: "o/r", appliedRef: "v1.0.0" });
     sync.recordApplied(work, { ref: "v2.0.0", applied: 4, areas: ["skills"], contentOnly: true });
