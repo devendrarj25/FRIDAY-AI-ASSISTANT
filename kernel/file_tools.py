@@ -388,10 +388,12 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
             with zipfile.ZipFile(path) as archive:
                 items = archive.infolist()
                 _guard_totals(len(items), sum(i.file_size for i in items))
+                # Check every name before the first byte is written, so a bad member leaves nothing behind.
                 for item in items:
-                    mode = (item.external_attr >> 16) & 0o170000
-                    if mode == 0o120000:
+                    if ((item.external_attr >> 16) & 0o170000) == 0o120000:
                         raise ArchiveRefused(f"{item.filename!r} is a link; links are not unpacked")
+                    target_for(item.filename)
+                for item in items:
                     target = target_for(item.filename)
                     if item.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
@@ -407,6 +409,8 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
                 for item in items:
                     if item.issym() or item.islnk() or item.isdev() or item.isfifo():
                         raise ArchiveRefused(f"{item.name!r} is not a plain file or folder")
+                    target_for(item.name)
+                for item in items:
                     target = target_for(item.name)
                     if item.isdir():
                         target.mkdir(parents=True, exist_ok=True)
@@ -445,7 +449,7 @@ def extract_archive(path: Path, dest: Path, overwrite: bool = False) -> dict:
             return {"ok": False, "error": f"{path.name} is not a supported archive"}
     except ArchiveRefused as exc:
         return {"ok": False, "error": str(exc), "cause": "refused"}
-    except (zipfile.BadZipFile, tarfile.TarError, OSError, EOFError) as exc:
+    except (zipfile.BadZipFile, tarfile.TarError, OSError, EOFError, RuntimeError) as exc:
         return {"ok": False, "error": f"{path.name} could not be read: {exc}", "cause": "corrupt"}
     return {"ok": True, "format": kind, "files": len(written), "extracted": written[:LIST_LIMIT]}
 

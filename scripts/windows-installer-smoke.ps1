@@ -471,6 +471,8 @@ try {
 } finally {
   try {
     Remove-Item Env:\FRIDAY_BOOT_SELFTEST -ErrorAction SilentlyContinue
+    # An erase-all uninstall deletes HKCU\Software\FRIDAY; bring the key back when it held a value before.
+    if ((-not (Test-Path $registry)) -and (($null -ne $oldWorkspace) -or ($null -ne $oldInstall))) { New-Item -Path $registry -Force | Out-Null }
     if (Test-Path $registry) {
       if ($null -ne $oldWorkspace) { Set-ItemProperty $registry WorkspacePath $oldWorkspace }
       else { Remove-ItemProperty $registry WorkspacePath -ErrorAction SilentlyContinue }

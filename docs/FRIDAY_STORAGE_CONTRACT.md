@@ -22,7 +22,7 @@ Python live venv: `<root>\runtime\.venv` when a folder is chosen.
 
 ## 4. Uninstall
 
-Typed in `installer/uninstall/index.ts` (`KEEP_DATA_PLAN` / `DELETE_EVERYTHING_PLAN`). NSIS welcome: default keep-data removes `<root>\App` only. Tick “Delete all FRIDAY data and resources” (`StrCpy $FridayUnMode "delete"`) to remove the whole root. `electron-builder.yml` `nsis.deleteAppDataOnUninstall: false`.
+Typed in `installer/uninstall/index.ts` (`KEEP_DATA_PLAN` / `DELETE_EVERYTHING_PLAN`). NSIS welcome: default keep-data removes `<root>\App` only. Tick “Delete all FRIDAY data and resources” (`StrCpy $FridayUnMode "delete"`) to remove the whole root. A silent uninstall (`/S`) always keeps the data; `Uninstall FRIDAY.exe /S /DELETEDATA` is the scripted form of the ticked box (FRIDAY Test never erases). `electron-builder.yml` `nsis.deleteAppDataOnUninstall: false`.
 
 TEST installs use `dev.friday.desk.test` so they cannot overwrite Official data. Isolation: [FRIDAY_BUILD_AND_RELEASE.md](FRIDAY_BUILD_AND_RELEASE.md).
 

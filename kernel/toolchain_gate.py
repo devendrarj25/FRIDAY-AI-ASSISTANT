@@ -204,6 +204,15 @@ IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?(@sha25
 LIMIT = re.compile(r"^\d+(\.\d+)?[bkmg]?$", re.IGNORECASE)
 
 
+def _bind_mount(folder: Path) -> str:
+    """The --mount value. Docker reads it as CSV, so a folder with a comma or a quote must be quoted."""
+    source = str(folder)
+    if "," in source or '"' in source:
+        source = '"src=' + source.replace('"', '""') + '"'
+        return f"type=bind,{source},dst=/work"
+    return f"type=bind,src={source},dst=/work"
+
+
 def plan_docker(action: str, args: dict, workspace: Path) -> dict:
     """Docker, scoped to one workspace: no privilege, no network unless asked, caps dropped."""
     docker = str(args.get("docker") or shutil.which("docker") or "")
@@ -250,7 +259,7 @@ def plan_docker(action: str, args: dict, workspace: Path) -> dict:
         "--security-opt",
         "no-new-privileges",
         "--mount",
-        f"type=bind,src={workspace.resolve()},dst=/work",
+        _bind_mount(workspace.resolve()),
         "-w",
         "/work",
         image,
