@@ -348,9 +348,26 @@ function scanRoot(root, origin, roots = [root]) {
   return out;
 }
 
+/** a > b for dotted numeric versions; false when either side is not one. */
+function versionGreater(a, b) {
+  const parse = (value) => {
+    const match = /^v?(\d+(?:\.\d+){0,3})/.exec(String(value ?? "").trim());
+    return match ? match[1].split(".").map(Number) : null;
+  };
+  const left = parse(a);
+  const right = parse(b);
+  if (!left || !right) return false;
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
 /**
  * Merged view of shipped + user-installed capabilities with persisted toggles.
- * Workspace entries win over app entries with the same id (user override).
+ * Workspace entries win over app entries with the same id (user override),
+ * unless the built-in is strictly newer.
  */
 function list({ appRoot, workspaceRoot }) {
   const overrides = readOverrides(workspaceRoot);
@@ -358,12 +375,24 @@ function list({ appRoot, workspaceRoot }) {
   // Dependencies may be satisfied by either root (shipped or user-installed).
   const roots = [appRoot, workspaceRoot].filter(Boolean);
   // ONE deterministic precedence rule: packaged built-ins load first, a
-  // user-installed copy with the same id always replaces it, and the replaced
-  // built-in is recorded on the winner so the UI can show what it shadows.
+  // user-installed copy with the same id replaces it, and the replaced built-in
+  // is recorded on the winner so the UI can show what it shadows. One exception
+  // keeps updates flowing: a built-in whose version is strictly newer than the
+  // copy in the workspace (an older "Update content" merge, or an old
+  // customisation) wins, and the older copy is recorded as `staleOverride`
+  // instead of silently blocking the fix the new app ships.
   for (const entry of scanRoot(appRoot, "app", roots))
     merged.set(entry.id, { ...entry, shadows: null });
   for (const entry of scanRoot(workspaceRoot, "workspace", roots)) {
     const builtIn = merged.get(entry.id);
+    if (builtIn && versionGreater(builtIn.version, entry.version)) {
+      merged.set(entry.id, {
+        ...builtIn,
+        shadows: null,
+        staleOverride: { origin: "workspace", path: entry.path, version: entry.version },
+      });
+      continue;
+    }
     merged.set(entry.id, {
       ...entry,
       shadows: builtIn

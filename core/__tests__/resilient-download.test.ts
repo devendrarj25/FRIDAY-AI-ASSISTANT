@@ -357,6 +357,25 @@ describe("redirects and the token", () => {
   });
 });
 
+describe("a stack that hides the Location of a manual redirect", () => {
+  it("lets it follow the redirect itself and still delivers the file", async () => {
+    const seen: { redirect: string | undefined; auth: string }[] = [];
+    const inner = server({ next: () => ({ kind: "ok" }) }).fetchImpl;
+    const fetchImpl = async (
+      url: string,
+      init: { redirect?: string; headers?: Record<string, string> } = {},
+    ) => {
+      seen.push({ redirect: init.redirect, auth: init.headers?.["authorization"] || "" });
+      if (init.redirect === "manual") return new Response(null, { status: 302 });
+      return inner(url, init as never);
+    };
+    const out = await run(fetchImpl);
+    expect(out.ok).toBe(true);
+    expect(sha(fs.readFileSync(out.file))).toBe(sha(payload));
+    expect(seen.map((s) => s.redirect)).toEqual(["manual", "follow"]);
+  });
+});
+
 describe("checks before the file is accepted", () => {
   it("rejects a file that is not the announced size", async () => {
     const fetchImpl = async () =>

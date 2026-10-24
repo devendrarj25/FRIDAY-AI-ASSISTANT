@@ -85,6 +85,17 @@ async function followRedirects(
       signal,
     });
     const location = res.headers?.get?.("location");
+    if (!location && res.status >= 300 && res.status < 400 && res.status !== 304) {
+      // A stack that hides the Location of a manual redirect: let it follow the
+      // redirect itself. Fetch drops the Authorization header on a cross-origin
+      // hop, so the token still stays with the host it was meant for.
+      try {
+        await res.body?.cancel?.();
+      } catch {
+        /* already closed */
+      }
+      return doFetch(current, { method: "GET", headers: sendHeaders, redirect: "follow", signal });
+    }
     if (location && res.status >= 300 && res.status < 400) {
       try {
         await res.body?.cancel?.();
