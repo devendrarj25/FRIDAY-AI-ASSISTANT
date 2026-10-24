@@ -86,6 +86,8 @@ function openStdio(commandLine, { cwd, timeoutMs = 20_000, onServerRequest } = {
   child.stderr?.on("data", (chunk) => {
     stderr = (stderr + String(chunk)).slice(-2000);
   });
+  // A server that exits mid-write must not take FRIDAY down with its EPIPE.
+  child.stdin?.on("error", () => {});
   const consume = (chunk) => {
     buf += String(chunk);
     const split = proto.splitFrames(buf);

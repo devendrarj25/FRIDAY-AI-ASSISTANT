@@ -97,9 +97,9 @@ function Start-Tracked {
 # executable is still under this install directory is closed too.
 function Stop-Tree([Diagnostics.Process]$Process) {
   if ($null -eq $Process) { return }
-  try { & "$env:SystemRoot\System32\taskkill.exe" /PID $Process.Id /T /F | Out-Null } catch {}
+  try { & "$env:SystemRoot\System32\taskkill.exe" /PID $Process.Id /T /F 2>&1 | Out-Null } catch {}
   foreach ($hit in @(Get-OwnedProcesses)) {
-    try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F | Out-Null } catch {}
+    try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F 2>&1 | Out-Null } catch {}
   }
   try {
     if (-not $Process.HasExited) { $null = $Process.WaitForExit(15000) }
@@ -238,7 +238,7 @@ function Stop-InstalledApp {
     $hits = @(Get-OwnedProcesses)
     if ($hits.Count -eq 0) { return }
     foreach ($hit in $hits) {
-      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F | Out-Null } catch {}
+      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F 2>&1 | Out-Null } catch {}
     }
     Start-Sleep -Milliseconds 200
   } while ((Get-Date) -lt $deadline)
@@ -305,7 +305,7 @@ function Assert-NoInstallOrphans {
     $hits = @(Get-OwnedProcesses)
     if ($hits.Count -eq 0) { return }
     foreach ($hit in $hits) {
-      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F | Out-Null } catch {}
+      try { & "$env:SystemRoot\System32\taskkill.exe" /PID $hit.ProcessId /T /F 2>&1 | Out-Null } catch {}
     }
     Start-Sleep -Milliseconds 400
   } while ((Get-Date) -lt $deadline)

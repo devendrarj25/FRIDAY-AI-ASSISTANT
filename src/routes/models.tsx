@@ -1525,8 +1525,10 @@ function ModelsPage() {
                               <div className="flex items-center gap-1.5">
                                 <span className="truncate text-sm font-medium">{p.name}</span>
                                 <StatusPill
-                                  label={ps.online ? "Online" : "Offline"}
-                                  tone={ps.online ? "accent" : "muted"}
+                                  label={
+                                    ps.checking ? "Checking…" : ps.online ? "Online" : "Offline"
+                                  }
+                                  tone={ps.checking ? "warning" : ps.online ? "accent" : "muted"}
                                 />
                                 {ps.apiKey ? <StatusPill label="key set" tone="magenta" /> : null}
                               </div>
@@ -1569,6 +1571,7 @@ function ModelsPage() {
                           <ProviderUse
                             providerId={p.id}
                             name={p.name}
+                            checking={Boolean(ps.checking)}
                             connected={Boolean(ps.apiKey) || (group === "local" && ps.online)}
                             found={ps.models}
                             models={registry.models}
@@ -1889,6 +1892,7 @@ function ProviderUse({
   providerId,
   name,
   connected,
+  checking = false,
   found,
   models,
   cloud,
@@ -1896,6 +1900,7 @@ function ProviderUse({
   providerId: string;
   name: string;
   connected: boolean;
+  checking?: boolean;
   found: number;
   models: ReturnType<typeof useModelRegistry>["models"];
   cloud: boolean;
@@ -1919,8 +1924,8 @@ function ProviderUse({
   return (
     <div className="mt-2 space-y-1.5">
       <p className="text-meta-sm text-muted-foreground">
-        {connected ? "connected" : "not connected"} · {found} found · USABLE NOW {usable.length} ·
-        HIDDEN {hidden.length}
+        {checking ? "checking the connection…" : connected ? "connected" : "not connected"} ·{" "}
+        {found} found · USABLE NOW {usable.length} · HIDDEN {hidden.length}
         {cooling.length ? ` · limited ${cooling.length}` : ""}
         {reasonLine ? ` · ${reasonLine}` : ""}
         {localWhy ? ` · ${localWhy}` : ""}
@@ -2105,7 +2110,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            disabled={unsupported}
+            disabled={unsupported || ps.checking}
             title={unsupported ? `${selected.name} has no connector in FRIDAY yet` : undefined}
             onClick={() => {
               if (!key.trim()) {
@@ -2121,7 +2126,7 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
             }}
           >
             <Link2 className="size-4" />
-            Connect
+            {ps.checking ? "Checking…" : "Connect"}
           </Button>
           <Button
             size="sm"
@@ -2154,11 +2159,23 @@ function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
                 return (
                   <span
                     key={p.id}
-                    title={live.online ? "key accepted" : (live.error ?? "checking…")}
+                    title={
+                      live.checking
+                        ? "checking the key…"
+                        : live.online
+                          ? "key accepted"
+                          : (live.error ?? "not accepted")
+                    }
                   >
                     <StatusPill
-                      label={live.online ? p.name : `${p.name} · not accepted`}
-                      tone={live.online ? "magenta" : "warning"}
+                      label={
+                        live.checking
+                          ? `${p.name} · checking…`
+                          : live.online
+                            ? p.name
+                            : `${p.name} · not accepted`
+                      }
+                      tone={live.checking ? "muted" : live.online ? "magenta" : "warning"}
                     />
                   </span>
                 );

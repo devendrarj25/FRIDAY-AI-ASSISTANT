@@ -240,6 +240,7 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
       };
       child.on("error", fail);
       child.on("close", fail);
+      child.stdin?.on("error", fail);
       speaker = session;
       return session;
     };

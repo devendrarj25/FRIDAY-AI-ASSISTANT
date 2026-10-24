@@ -516,13 +516,54 @@ async function ollamaReachable(signal) {
   }
 }
 
-/** Register an on-disk GGUF with the local Ollama daemon (best effort). */
-async function registerGguf(name, file, onEvent, signal) {
+/** sha256 of a file without blocking the main process (a GGUF is gigabytes). */
+function hashFileAsync(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const total = fs.statSync(file).size || 1;
+    let done = 0;
+    fs.createReadStream(file, { highWaterMark: 4 * 1024 * 1024 })
+      .on("data", (chunk) => {
+        hash.update(chunk);
+        done += chunk.length;
+        onProgress?.(done / total);
+      })
+      .on("error", reject)
+      .on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/** What Ollama said went wrong: its own JSON error, else the HTTP status. */
+async function ollamaFailure(res) {
+  let detail = "";
+  try {
+    const text = await res.text();
+    try {
+      detail = String(JSON.parse(text).error || "");
+    } catch {
+      detail = text.trim().split("\n").pop() || "";
+    }
+  } catch {
+    /* the status line is all there is */
+  }
+  return detail ? `HTTP ${res.status}: ${detail.slice(0, 240)}` : `HTTP ${res.status}`;
+}
+
+/**
+ * Register an on-disk GGUF with the local Ollama daemon.
+ *
+ * Current Ollama no longer reads a file path from a Modelfile: the file is
+ * uploaded as a blob (POST /api/blobs/sha256:<digest>) and /api/create names it
+ * under `files`. A server too old for blobs still gets the Modelfile form.
+ * https://github.com/ollama/ollama/blob/main/docs/api.md
+ */
+async function registerGguf(name, file, onEvent, signal, io = {}) {
+  const call = io.fetch || fetch;
   if (!(await ollamaReachable(signal))) return { ok: false, error: "ollama not running" };
   try {
     // Creating a tag imports the whole file into Ollama's own store, so a tag
     // that is already there is verified by name and left alone.
-    const listed = await fetch(`${OLLAMA}/api/tags`, { signal });
+    const listed = await call(`${OLLAMA}/api/tags`, { signal });
     if (listed.ok) {
       const have = ((await listed.json()).models || []).map((row) => String(row.name || row.model));
       if (have.some((tag) => tag === name || tag === `${name}:latest`)) {
@@ -530,18 +571,53 @@ async function registerGguf(name, file, onEvent, signal) {
         return { ok: true, already: true };
       }
     }
-    const res = await fetch(`${OLLAMA}/api/create`, {
+    onEvent?.({ status: "reading the model file" });
+    const digest = `sha256:${await hashFileAsync(file, (f) =>
+      onEvent?.({ status: `reading the model file ${Math.round(f * 100)}%` }),
+    )}`;
+    const blob = `${OLLAMA}/api/blobs/${digest}`;
+    const have = await call(blob, { method: "HEAD", signal });
+    if (have.status === 404) {
+      onEvent?.({ status: "handing the model file to Ollama" });
+      const size = fs.statSync(file).size;
+      const up = await call(blob, {
+        method: "POST",
+        headers: { "content-length": String(size) },
+        body: require("node:stream").Readable.toWeb(fs.createReadStream(file)),
+        duplex: "half",
+        signal,
+      });
+      if (up.status === 404 || up.status === 405) return legacyRegister(call, name, file, signal);
+      if (!up.ok) return { ok: false, error: await ollamaFailure(up) };
+    } else if (!have.ok && have.status !== 200) {
+      return legacyRegister(call, name, file, signal);
+    }
+    const res = await call(`${OLLAMA}/api/create`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, modelfile: `FROM ${file}`, stream: false }),
+      body: JSON.stringify({
+        model: name,
+        files: { [path.basename(file)]: digest },
+        stream: false,
+      }),
       signal,
     });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    if (!res.ok) return { ok: false, error: await ollamaFailure(res) };
     onEvent?.({ status: `registered with Ollama as ${name}` });
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err.message || err) };
   }
+}
+
+async function legacyRegister(call, name, file, signal) {
+  const res = await call(`${OLLAMA}/api/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, modelfile: `FROM ${file}`, stream: false }),
+    signal,
+  });
+  return res.ok ? { ok: true } : { ok: false, error: await ollamaFailure(res) };
 }
 
 function remember(root, job, fields) {

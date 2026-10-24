@@ -214,6 +214,20 @@
     border-color: var(--color-border);
   }
 
+  /* Native controls (the open list of a <select>, scrollbars, date pickers)
+     follow the theme instead of drawing a white sheet on a dark app. */
+  :root {
+    color-scheme: dark;
+  }
+  .theme-daylight {
+    color-scheme: light;
+  }
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -2255,4 +2269,16 @@ button[data-pending="true"] > svg:not(.friday-pending-spinner) {
 }
 button[data-pending="true"] {
   cursor: progress;
+}
+
+/* Outside any layer so it beats the popup library's own stylesheet. */
+/* Corner popups read the app's colours, not the library's light default. */
+[data-sonner-toaster] [data-sonner-toast] {
+  color: var(--popover-foreground);
+}
+[data-sonner-toaster] [data-sonner-toast] [data-title] {
+  color: var(--foreground);
+}
+[data-sonner-toaster] [data-sonner-toast] [data-description] {
+  color: var(--muted-foreground);
 }

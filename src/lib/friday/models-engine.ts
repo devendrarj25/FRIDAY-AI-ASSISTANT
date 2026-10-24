@@ -108,6 +108,8 @@ export type ProviderState = {
   latencyMs: number | null;
   error: string | null;
   checkedAt: number | null;
+  /** A real check is in flight, so Online/Offline is not known yet. Never stored. */
+  checking?: boolean;
 };
 
 export type LogLevel = "info" | "ok" | "warn" | "error";
@@ -399,7 +401,7 @@ class ModelsStore {
     if (saved.providerState) {
       for (const [id, ps] of Object.entries(saved.providerState)) {
         const current = this.state.providerState[id];
-        if (current) this.state.providerState[id] = { ...current, ...ps };
+        if (current) this.state.providerState[id] = { ...current, ...ps, checking: false };
       }
     }
   }
@@ -488,14 +490,24 @@ class ModelsStore {
   private async refreshFromDesktop(): Promise<boolean> {
     const api = desktopApi();
     if (!api?.modelsInventory) return false;
+    // Until the first real look this session, a stored key's status is unknown,
+    // not "offline": say so instead of flashing Offline and then Online.
+    const unlooked = this.inventoryLooked
+      ? []
+      : Object.values(this.state.providerState).filter((ps) => ps.apiKey);
+    for (const ps of unlooked) ps.checking = true;
+    if (unlooked.length) this.emit(false);
     let inventory;
     try {
       inventory = await api.modelsInventory();
     } catch (err) {
       this.push("error", `provider scan failed — ${String((err as Error).message ?? err)}`);
       return false;
+    } finally {
+      for (const ps of unlooked) ps.checking = false;
     }
     if (!inventory) return false;
+    this.inventoryLooked = true;
 
     const installedTags = new Set<string>();
     for (const provider of inventory.providers) {
@@ -880,6 +892,7 @@ class ModelsStore {
         void bridge.setProviderEndpoint(id, customEndpoint);
       // No invented status while the real probe is in flight.
       ps.online = false;
+      ps.checking = true;
       ps.latencyMs = null;
       ps.error = null;
       ps.checkedAt = Date.now();
@@ -911,6 +924,10 @@ class ModelsStore {
           this.log("error", `${p.name} — ${err.message}`);
           this.emit();
           return { ok: false, models: 0, error: err.message };
+        })
+        .finally(() => {
+          ps.checking = false;
+          this.emit();
         });
     }
     // Browser preview only — the desktop path above returns before this.
@@ -1048,6 +1065,7 @@ class ModelsStore {
     const api = desktopApi();
     if (this.state.bridge === "desktop" && api?.testModelProvider) {
       this.push("info", `${p.name} health check — contacting ${ps.endpoint}`);
+      ps.checking = true;
       this.emit();
       void api
         .testModelProvider(id, ps.apiKey === "stored" ? null : ps.apiKey)
@@ -1069,6 +1087,10 @@ class ModelsStore {
           ps.online = false;
           ps.error = err.message;
           this.push("error", `${p.name} health check failed — ${err.message}`);
+          this.emit();
+        })
+        .finally(() => {
+          ps.checking = false;
           this.emit();
         });
       return;
@@ -1726,7 +1748,13 @@ class ModelsStore {
       progress: 0,
       status: "starting",
     };
-    this.state.imported = [entry, ...this.state.imported].slice(0, 50);
+    // The same file or name is one row: a retry replaces its row, and an
+    // import that is already running is not started a second time.
+    const same = (row: ImportedModel) =>
+      row.path === source || row.name.toLowerCase() === entry.name.toLowerCase();
+    const running = this.state.imported.find((row) => same(row) && row.state === "importing");
+    if (running) return running;
+    this.state.imported = [entry, ...this.state.imported.filter((row) => !same(row))].slice(0, 50);
     const api = desktopApi();
     if (this.state.bridge !== "desktop" || !api?.importModel) {
       entry.state = "failed";
@@ -1769,6 +1797,7 @@ class ModelsStore {
   }
 
   private importBound = false;
+  private inventoryLooked = false;
 
   private bindImportEvents() {
     const api = desktopApi();

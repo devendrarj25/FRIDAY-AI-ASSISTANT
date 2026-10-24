@@ -60,11 +60,26 @@ function fromRegistry() {
   return value && !isThrowawayRoot(value) && fs.existsSync(value) ? value : null;
 }
 
+/**
+ * FRIDAY installed into its own checkout (<checkout>\App\FRIDAY.exe next to
+ * <checkout>\database\friday.sqlite3). The checkout is then the home, even
+ * when the registry entry or settings pointer is gone, so a rebuild keeps
+ * using the folder the installed app already uses instead of a second copy of
+ * every model under .friday-dev.
+ */
+function fromOwnCheckout(project = projectRoot) {
+  const installed = ["FRIDAY.exe", "FRIDAY"].some((name) =>
+    fs.existsSync(path.join(project, "App", name)),
+  );
+  const hasData = fs.existsSync(path.join(project, "database", "friday.sqlite3"));
+  return installed && hasData && !isThrowawayRoot(project) ? project : null;
+}
+
 /** The selected FRIDAY home, or null when the user has not chosen one yet. */
 function findWorkspaceRoot() {
   const explicit = process.env.FRIDAY_WORKSPACE_ROOT;
   if (explicit) return path.resolve(explicit);
-  return fromRegistry() || fromSettingsPointer();
+  return fromRegistry() || fromSettingsPointer() || fromOwnCheckout();
 }
 
 /**
@@ -109,6 +124,7 @@ const layout = (root) => ({
 module.exports = {
   projectRoot,
   findWorkspaceRoot,
+  fromOwnCheckout,
   workspaceRootOrDev,
   layout,
   RUNTIME_FOLDERS,
