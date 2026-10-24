@@ -31,6 +31,9 @@ export const RENAMES: Record<string, string> = {
   "C:\\FRIDAY\\models\\my-model.gguf": "C:\\Models\\my-model.gguf",
   // The search box now also searches online on Enter.
   "Search models…": "Search models… (Enter searches online)",
+  // Settings → Updates takes a read-only fine-grained token (Contents: Read-only),
+  // so its example is a fine-grained one instead of a classic "ghp_" token.
+  "ghp_…": "github_pat_… (Contents: Read-only)",
 };
 
 describe("UI control parity", () => {

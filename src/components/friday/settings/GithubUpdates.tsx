@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
+import { ReleaseFiles, UpdateGuide } from "@/components/friday/settings/UpdateGuide";
 import {
   DEFAULT_GITHUB_CONFIG,
   connectionLabel,
@@ -61,6 +62,7 @@ import {
   type UpdateInfo,
 } from "@/lib/friday/desktop";
 import { APP_VERSION_LABEL } from "@/lib/friday/version";
+import { PROJECT_IDENTITY } from "@/lib/friday/brain/project-identity";
 
 type PipelineState =
   "idle" | "checking" | "downloading" | "installing" | "ready-to-restart" | "failed";
@@ -201,7 +203,9 @@ export function GithubUpdates() {
     [],
   );
 
-  const patch = async (next: Partial<GithubConfig> & { token?: string | null }) => {
+  const patch = async (
+    next: Partial<GithubConfig> & { token?: string | null; updateToken?: string | null },
+  ) => {
     const result = await githubSetConfig(next);
     if (!result.ok) {
       toast.error(result.error || "Could not save the update source.");
@@ -213,11 +217,12 @@ export function GithubUpdates() {
   };
 
   const persistSource = async () => {
-    const next: Partial<GithubConfig> & { token?: string | null } = {
+    const next: Partial<GithubConfig> & { token?: string | null; updateToken?: string | null } = {
       repo: config.repo,
       branch: config.branch,
     };
-    if (token.trim()) next.token = token.trim();
+    // This section's token only reads. Friday Hub keeps its own write token.
+    if (token.trim()) next.updateToken = token.trim();
     const saved = await patch(next);
     if (saved && token.trim()) {
       setToken("");
@@ -380,7 +385,7 @@ export function GithubUpdates() {
 
   const showTokenField =
     changingToken ||
-    (!config.hasToken &&
+    (!config.hasUpdateToken &&
       Boolean(
         connection?.private ||
         tokenIsRequired(connection?.error) ||
@@ -399,9 +404,10 @@ export function GithubUpdates() {
 
   return (
     <div className="space-y-4">
+      <UpdateGuide />
       <HudPanel
         title="Update source — GitHub repository"
-        hint="FRIDAY pulls her own source from this repo and applies it in place. The token is entered once, encrypted into this workspace and reloaded on every startup. Hub uses the same connection for its own write-side work."
+        hint="FRIDAY only reads from this repository: releases, installers and the source zip. She never pushes or commits here. A read-only token is entered once, encrypted into this workspace and reloaded on every startup. Pushing and releasing use the separate connection on Friday Hub."
         actions={
           <div className="flex flex-wrap gap-2">
             <StatusPill
@@ -421,6 +427,17 @@ export function GithubUpdates() {
               onChange={(e) => setConfig({ ...config, repo: e.target.value })}
               onBlur={() => void patch({ repo: config.repo })}
             />
+            <button
+              type="button"
+              className="text-note text-accent underline-offset-2 hover:underline"
+              disabled={busy !== null || config.repo === PROJECT_IDENTITY.repository}
+              onClick={() => {
+                setConfig({ ...config, repo: PROJECT_IDENTITY.repository });
+                void patch({ repo: PROJECT_IDENTITY.repository });
+              }}
+            >
+              Use the official FRIDAY repository
+            </button>
           </label>
           <label className="space-y-1 text-xs text-muted-foreground">
             Branch
@@ -432,11 +449,13 @@ export function GithubUpdates() {
             />
           </label>
           <label className="space-y-1 text-xs text-muted-foreground">
-            Access token{" "}
-            {config.hasToken
+            Read-only access token{" "}
+            {config.hasUpdateToken
               ? "(stored, encrypted — never shown again)"
-              : "(needed for private repos or GitHub rate limits)"}
-            {config.hasToken && !changingToken ? (
+              : config.updateTokenShared
+                ? "(using the Friday Hub token — add a read-only one)"
+                : "(private repos or GitHub rate limits; Contents: Read-only)"}
+            {config.hasUpdateToken && !changingToken ? (
               <p className="rounded-surface border border-border/60 bg-background/40 px-3 py-2 text-xs text-foreground">
                 Token stored · hasToken: true
               </p>
@@ -444,7 +463,7 @@ export function GithubUpdates() {
               <Input
                 type="password"
                 value={token}
-                placeholder="ghp_…"
+                placeholder="github_pat_… (Contents: Read-only)"
                 onChange={(e) => setToken(e.target.value)}
               />
             ) : (
@@ -460,7 +479,7 @@ export function GithubUpdates() {
                 disabled={!token || busy !== null}
                 onClick={() =>
                   void run("token", async () => {
-                    await patch({ token });
+                    await patch({ updateToken: token });
                     setToken("");
                     setChangingToken(false);
                     toast.success("Token encrypted into this workspace's credential store.");
@@ -469,7 +488,7 @@ export function GithubUpdates() {
               >
                 Save token
               </Button>
-            ) : config.hasToken ? (
+            ) : config.hasUpdateToken ? (
               <Button
                 variant="outline"
                 disabled={busy !== null}
@@ -489,13 +508,13 @@ export function GithubUpdates() {
                 Add token
               </Button>
             )}
-            {config.hasToken ? (
+            {config.hasUpdateToken ? (
               <Button
                 variant="ghost"
                 disabled={busy !== null}
                 onClick={() =>
                   void run("token-clear", async () => {
-                    await patch({ token: null });
+                    await patch({ updateToken: null });
                     setChangingToken(false);
                     setToken("");
                   })
@@ -724,11 +743,31 @@ export function GithubUpdates() {
                     label={connection.authenticated ? "token: stored" : "token: none"}
                     tone={connection.authenticated ? "primary" : "muted"}
                   />
+                  {connection.authenticated ? (
+                    <StatusPill
+                      label={
+                        connection.tokenScope === "write-capable"
+                          ? "token can also write"
+                          : "token is read-only"
+                      }
+                      tone={connection.tokenScope === "write-capable" ? "warning" : "primary"}
+                    />
+                  ) : null}
                   <StatusPill
                     label={connection.private ? "visibility: private" : "visibility: public"}
                     tone={connection.private ? "warning" : "primary"}
                   />
                 </div>
+                <p className="text-muted-foreground">
+                  Newest official release:{" "}
+                  {connection.latestOfficial
+                    ? `${connection.latestOfficial.tag} (${connection.latestOfficial.files} files)`
+                    : "none published"}
+                  {" · "}Newest test build:{" "}
+                  {connection.latestTest
+                    ? `${connection.latestTest.tag} (${connection.latestTest.files} files)`
+                    : "none published"}
+                </p>
                 {connection.warning ? (
                   <p className="text-muted-foreground">{connection.warning}</p>
                 ) : null}
@@ -900,6 +939,7 @@ export function GithubUpdates() {
             Your FRIDAY_ROOT (chats, memory, settings, credentials, models, runtimes and voices) is
             preserved and reused.
           </p>
+          <ReleaseFiles files={check.files} />
           {check.changedFiles?.length ? (
             <ul className="mt-2 max-h-48 space-y-1 overflow-auto text-data text-muted-foreground">
               {check.changedFiles.slice(0, 200).map((file) => (
@@ -932,6 +972,7 @@ export function GithubUpdates() {
               </p>
             </div>
           ) : null}
+          <ReleaseFiles files={check.otherChannel.files} />
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               variant="outline"

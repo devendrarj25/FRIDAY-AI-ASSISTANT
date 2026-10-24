@@ -161,6 +161,36 @@ function cancelInstall({ root }) {
   }
 }
 
+// ------------------------------------------------------------------ launch --
+
+/**
+ * The flags of an in-place update, the same ones electron-updater passes to an
+ * electron-builder NSIS installer: /S runs it without the wizard, --updated
+ * marks it as an upgrade of the installed copy (same folder, same data), and
+ * --force-run starts FRIDAY again when the install is finished.
+ */
+const SILENT_UPDATE_ARGS = ["/S", "--updated", "--force-run"];
+
+const unsafeForCmd = (value) => /["%^&|<>\r\n]/.test(String(value));
+
+/**
+ * How to start the verified installer so the update needs no clicks and always
+ * ends with FRIDAY open. `start /wait` makes cmd wait for the installer; if it
+ * exits with an error the still-installed app is opened instead, so a failed
+ * update never leaves FRIDAY closed. Returns null off Windows or when a path
+ * cannot be quoted safely (the caller then starts the installer directly).
+ */
+function installerLaunch({ file, appExe = "", platform = process.platform } = {}) {
+  if (platform !== "win32" || !file || unsafeForCmd(file) || unsafeForCmd(appExe)) return null;
+  const setup = `start "" /wait "${file}" ${SILENT_UPDATE_ARGS.join(" ")}`;
+  const reopen = appExe ? ` || start "" "${appExe}"` : "";
+  return {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", `"${setup}${reopen}"`],
+    options: { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true },
+  };
+}
+
 /** The last version that started up healthy — FRIDAY's stable anchor. */
 const stable = (root) => readJson(stableFile(root));
 
@@ -238,6 +268,8 @@ const pendingUpdate = (root) => (root ? readJson(stateFile(root)) : null);
 module.exports = {
   PROTECTED,
   MUST_PRESERVE,
+  SILENT_UPDATE_ARGS,
+  installerLaunch,
   verifyArtifact,
   backupState,
   beginInstall,

@@ -22,6 +22,15 @@ const API = "https://api.github.com";
 /** The one credential id used by the whole GitHub release/update system. */
 const TOKEN_ID = "github.token";
 
+/**
+ * The credential Settings → Updates uses. It only ever READS (releases, assets,
+ * the source zip), so it can be a fine-grained token with Contents: Read-only.
+ * Push, pull request and release work (Friday Hub) keep using TOKEN_ID. An older
+ * install that has only TOKEN_ID keeps updating with it until an update token is
+ * added; nothing else about the update path changes.
+ */
+const UPDATE_TOKEN_ID = "github.update.token";
+
 const configFile = (root) => path.join(root, "config", "github.json");
 
 /** owner/name, including when the owner pastes a github.com URL. */
@@ -122,19 +131,39 @@ function readConfig(root) {
       /* the credential store is authoritative from now on regardless */
     }
   }
-  return { ...stored, token: credentials.getSecret(root, TOKEN_ID) };
+  return {
+    ...stored,
+    token: credentials.getSecret(root, TOKEN_ID),
+    updateToken: credentials.getSecret(root, UPDATE_TOKEN_ID),
+  };
+}
+
+/** The same config seen by the update path: its own token, GET-only. */
+function updateCfg(cfg = {}) {
+  const own = String(cfg.updateToken || "");
+  return {
+    ...cfg,
+    token: own || cfg.token || "",
+    tokenKind: own ? "update" : cfg.token ? "shared" : "none",
+    readOnly: true,
+  };
 }
 
 function writeConfig(root, patch) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
-  const { token, ...rest } = patch || {};
+  const { token, updateToken, ...rest } = patch || {};
   // A token in the patch never reaches disk as plain config — it is encrypted.
   if (token !== undefined) {
     const saved = credentials.setSecret(root, TOKEN_ID, token || "");
     if (!saved.ok) return saved;
   }
+  if (updateToken !== undefined) {
+    const saved = credentials.setSecret(root, UPDATE_TOKEN_ID, updateToken || "");
+    if (!saved.ok) return saved;
+  }
   const next = { ...readStored(root), ...rest };
   delete next.token;
+  delete next.updateToken;
   if (Array.isArray(next.connections)) next.connections = sanitizeConnections(next.connections);
   // Anything unknown collapses to stable: the safe, official-releases-only side.
   next.updateChannel = normalizeUpdateChannel(next.updateChannel);
@@ -144,21 +173,33 @@ function writeConfig(root, patch) {
   fs.writeFileSync(configFile(root), JSON.stringify(next, null, 2));
   return {
     ok: true,
-    config: { ...publicConfig(next), hasToken: credentials.hasSecret(root, TOKEN_ID) },
+    config: {
+      ...publicConfig(next),
+      hasToken: credentials.hasSecret(root, TOKEN_ID),
+      hasUpdateToken: credentials.hasSecret(root, UPDATE_TOKEN_ID),
+      updateTokenShared:
+        !credentials.hasSecret(root, UPDATE_TOKEN_ID) && credentials.hasSecret(root, TOKEN_ID),
+    },
   };
 }
 
 /** The renderer never receives the token itself, only whether one is stored. */
 function publicConfig(cfg) {
-  const { token, connections, selectedConnectionId, selfPrivate, ...rest } = cfg;
+  const { token, updateToken, connections, selectedConnectionId, selfPrivate, ...rest } = cfg;
   return {
     ...rest,
     hasToken: Boolean(token) || (rest.tokenStored ?? false),
+    hasUpdateToken: Boolean(updateToken),
+    updateTokenShared: !updateToken && Boolean(token),
     encryptedStore: credentials.encryptionAvailable(),
   };
 }
 
 async function api(cfg, endpoint, { method = "GET", body } = {}) {
+  // The update path only reads. A write that reaches it is a bug, so it stops here.
+  if (cfg.readOnly && String(method).toUpperCase() !== "GET") {
+    return { ok: false, status: 0, error: "The update connection is read-only." };
+  }
   const headers = {
     accept: "application/vnd.github+json",
     "user-agent": "FRIDAY",
@@ -244,6 +285,81 @@ async function testConnection(root, override = {}) {
   };
 }
 
+/**
+ * Settings → Updates "Test connection": can FRIDAY read this repository, and
+ * what would she find there? Read-only from end to end. It reports the scope of
+ * the token it used, so the owner can tell a safe read-only token from one that
+ * could also write, and it lists the newest official and test releases so the
+ * panel can say exactly what will arrive.
+ */
+async function testUpdateSource(root, override = {}) {
+  const cfg = updateCfg(loadConfig(root, override));
+  if (!cfg.repo) return { ok: false, error: "Enter a repository as owner/name." };
+  const repo = await api(cfg, `/repos/${cfg.repo}`);
+  if (!repo.ok) {
+    return repo.status === 404 && !cfg.token
+      ? {
+          ...repo,
+          error:
+            "Repository not found — check the name, and add a token if it is private (a fine-grained token with Contents: Read-only is enough), then test again.",
+        }
+      : repo;
+  }
+  const perms = repo.body.permissions || {};
+  const canWrite = Boolean(perms.push || perms.admin || perms.maintain);
+  const list = await api(cfg, `/repos/${cfg.repo}/releases?per_page=30`);
+  const published = list.ok && Array.isArray(list.body) ? list.body.filter((r) => !r.draft) : [];
+  const newest = (rows) =>
+    [...rows].sort((a, b) => compareBuilds(b.tag_name, a.tag_name))[0] || null;
+  const official = newest(published.filter((r) => !isTestRelease(r)));
+  const test = newest(published.filter((r) => isTestRelease(r)));
+  const summary = (release) =>
+    release
+      ? {
+          tag: release.tag_name,
+          title: release.name || release.tag_name,
+          at: Date.parse(release.published_at || "") || 0,
+          files: describeFiles((release.assets || []).map(mapReleaseAsset), "").length,
+        }
+      : null;
+  const tokenScope = !cfg.token ? "none" : canWrite ? "write-capable" : "read-only";
+  const notes = [];
+  if (!cfg.token && repo.body.private !== true) {
+    notes.push("Public repository: no token is needed. Add one only if GitHub rate-limits you.");
+  }
+  if (cfg.tokenKind === "shared") {
+    notes.push(
+      "Updates are using the same token as Friday Hub, which can write. Add a read-only update token here so updates can only read.",
+    );
+  } else if (tokenScope === "write-capable") {
+    notes.push(
+      "This token can also write to the repository. Updates only read, but a read-only token (Contents: Read-only) is safer.",
+    );
+  }
+  if (!official && !test) {
+    notes.push(
+      "No release is published yet, so there is nothing to install. Source updates still work from the branch.",
+    );
+  }
+  return {
+    ok: true,
+    repo: repo.body.full_name,
+    private: Boolean(repo.body.private),
+    defaultBranch: repo.body.default_branch,
+    pushedAt: repo.body.pushed_at,
+    authenticated: Boolean(cfg.token),
+    tokenKind: cfg.tokenKind,
+    tokenScope,
+    readOnly: tokenScope !== "write-capable",
+    latestOfficial: summary(official),
+    latestTest: summary(test),
+    releasesChecked: published.length,
+    releasesError: list.ok ? "" : list.error || "",
+    warning: notes.join(" "),
+    notes,
+  };
+}
+
 // ------------------------------------------------------- persistent session
 /**
  * FRIDAY is single-user and private: the owner enters the token once and it
@@ -304,17 +420,21 @@ async function connect(root, override = {}) {
   // Public repos are reachable without a token. Skipping the live check used to
   // mark every token-less repo as reauth-required, so a successful public
   // Test connection never persisted as CONNECTED across refresh or restart.
-  const test = await testConnection(root, override);
-  const hasToken = Boolean(cfg.token);
-  if (test.ok)
+  // Reachability is the update path's: its own read-only token, or none for a
+  // public repository. Whether the Hub token can release is a separate question.
+  const test = await testUpdateSource(root, override);
+  const hasToken = Boolean(cfg.token) || Boolean(cfg.updateToken);
+  if (test.ok) {
+    const release = cfg.token ? await testConnection(root, override) : null;
     return setSession({
       state: "connected",
       repo: test.repo,
       private: test.private,
       message: test.warning || "",
-      canRelease: Boolean(test.canRelease),
+      canRelease: Boolean(release?.canRelease),
       hasToken,
     });
+  }
   if (test.offline || test.status === 0)
     return setSession({
       state: "offline",
@@ -349,6 +469,83 @@ const API_ASSET_URL = /^https?:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/releas
  * Normalize a GitHub release asset so later steps can use the API asset URL
  * (required for private repos) without inferring the channel from a filename.
  */
+/**
+ * What a published file is and what FRIDAY does with it, from its name alone.
+ * `kind` drives the Updates panel's guide and decides which actions it offers;
+ * `installable` is true only for the programs FRIDAY may run after the owner
+ * says yes. Anything unknown is kept as "other" and is never run.
+ */
+function classifyAsset(name = "") {
+  const n = String(name).toLowerCase();
+  const rows = [
+    [
+      /friday-update\.json$/,
+      "update-manifest",
+      "Release manifest",
+      "Lists every file of this release with its SHA-256. FRIDAY reads it to check each download; it is never installed.",
+      false,
+    ],
+    [
+      /sha256sums(\.txt)?$|\.sha256$/,
+      "checksums",
+      "Checksums",
+      "The published SHA-256 of each file, a second way to verify a download. Never installed.",
+      false,
+    ],
+    [
+      /latest\.yml$|\.blockmap$/,
+      "updater-metadata",
+      "Updater metadata",
+      "Technical files for installer updaters. FRIDAY keeps them with the release and does not run them.",
+      false,
+    ],
+    [
+      /changelog|release-notes|\.md$/,
+      "notes",
+      "Release notes",
+      "What changed in this release. Shown in the panel; never installed.",
+      false,
+    ],
+    [
+      /(^|[-_.])setup([-_.]|$).*\.exe$|installer.*\.exe$/,
+      "installer",
+      "Windows installer",
+      "The full FRIDAY app. Updates the installed copy in place and restarts it; your data, settings, models and downloads stay.",
+      true,
+    ],
+    [
+      /portable.*\.exe$/,
+      "portable",
+      "Portable app",
+      "A copy of FRIDAY that runs without installing. Download it to a folder you choose; it does not replace the installed app.",
+      true,
+    ],
+    [
+      /\.(zip|tar\.gz|tgz)$/,
+      "source-archive",
+      "Source archive",
+      "Files and code of this release. FRIDAY scans it, shows what would change, backs up, and merges it into a source checkout only when you apply it.",
+      false,
+    ],
+    [
+      /\.exe$/,
+      "program",
+      "Program",
+      "A Windows program published with this release. Download only; FRIDAY does not run it by itself.",
+      false,
+    ],
+  ];
+  for (const [pattern, kind, label, purpose, installable] of rows) {
+    if (pattern.test(n)) return { kind, label, purpose, installable };
+  }
+  return {
+    kind: "other",
+    label: "Other file",
+    purpose: "Published with this release. FRIDAY keeps it for you to open; it never runs it.",
+    installable: false,
+  };
+}
+
 function mapReleaseAsset(a = {}) {
   const apiMatch = String(a.apiUrl || a.url || "").match(API_ASSET_URL);
   const apiUrl = a.apiUrl || (apiMatch ? apiMatch[0] : null);
@@ -361,6 +558,7 @@ function mapReleaseAsset(a = {}) {
     apiUrl: apiUrl || null,
     id: Number.isFinite(idNum) ? idNum : null,
     bytes: Number(a.size ?? a.bytes ?? 0) || 0,
+    ...classifyAsset(a.name),
   };
 }
 
@@ -500,7 +698,8 @@ function commitPartFile(part, dest) {
  * downloaded is the file GitHub Actions built. A release without a manifest is
  * treated as unverified, never as trusted.
  */
-async function releaseManifest(cfg, assets = []) {
+async function releaseManifest(cfgIn, assets = []) {
+  const cfg = updateCfg(cfgIn);
   const asset = assets.find((a) => /friday-update\.json$/i.test(a.name || ""));
   if (!asset) return null;
   const url = assetDownloadUrl(asset, cfg.repo);
@@ -518,13 +717,41 @@ async function releaseManifest(cfg, assets = []) {
   }
 }
 
+/**
+ * Everything a release offers, named for the panel: its published files plus the
+ * full source archive GitHub builds for every tag. The source archive is the
+ * whole repository at that tag, the thing "Download & apply" merges.
+ */
+function describeFiles(assets = [], zipUrl = "") {
+  const files = (assets || []).map((a) => ({
+    name: a.name,
+    bytes: a.bytes,
+    kind: a.kind,
+    label: a.label,
+    purpose: a.purpose,
+    installable: Boolean(a.installable),
+  }));
+  if (zipUrl) {
+    files.push({
+      name: "Source code (zip)",
+      bytes: 0,
+      kind: "source-zip",
+      label: "Full repository",
+      purpose:
+        "Every file and the code of this version, straight from the repository. FRIDAY scans it, shows what would change, backs up, and merges it into a source checkout when you apply it; an installed app updates through the installer instead. Your data, settings, models and downloads are never touched.",
+      installable: false,
+    });
+  }
+  return files;
+}
+
 /** The published SHA-256 for one asset name, when the release carries one. */
 const expectedChecksum = (manifest, name) =>
   (manifest?.assets || []).find((a) => a.name === name)?.sha256 || null;
 
 /** Which remote ref is current, and is it different from what is installed? */
 async function checkUpdate(root, override = {}) {
-  const cfg = loadConfig(root, override);
+  const cfg = updateCfg(loadConfig(root, override));
   if (!cfg.repo) return { ok: false, error: "No repository is connected." };
 
   if (cfg.channel === "release") {
@@ -575,6 +802,7 @@ async function checkUpdate(root, override = {}) {
         assets,
         manifest,
         verified: Boolean(manifest),
+        files: describeFiles(assets, `${API}/repos/${cfg.repo}/zipball/${encodeURIComponent(ref)}`),
         requiresChannelSwitch: true,
       };
     };
@@ -640,6 +868,7 @@ async function checkUpdate(root, override = {}) {
       assets,
       manifest,
       verified: Boolean(manifest),
+      files: describeFiles(assets, `${API}/repos/${cfg.repo}/zipball/${encodeURIComponent(ref)}`),
       updateAvailable: newer && ref !== appliedRef,
       appliedRef,
       otherChannel,
@@ -689,7 +918,7 @@ async function checkUpdate(root, override = {}) {
  * a GitHub update is reviewed, diffed and applied exactly like a manual ZIP.
  */
 async function pullUpdate({ root, importer, ref, onProgress = () => {} }) {
-  const cfg = loadConfig(root);
+  const cfg = updateCfg(loadConfig(root));
   if (!cfg.repo) return { ok: false, error: "No repository is connected." };
   const target = ref || (await checkUpdate(root))?.ref;
   if (!target) return { ok: false, error: "Could not resolve a ref to download." };
@@ -771,7 +1000,7 @@ async function downloadInstaller({
   onProgress = () => {},
 } = {}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
-  const cfg = readConfig(root);
+  const cfg = updateCfg(readConfig(root));
   const downloadUrl = assetDownloadUrl(
     { url, apiUrl, id: assetId, name, bytes: expectedBytes },
     normalizeRepo(repo || cfg.repo),
@@ -1126,6 +1355,11 @@ module.exports = {
   writeConfig,
   publicConfig,
   testConnection,
+  testUpdateSource,
+  classifyAsset,
+  describeFiles,
+  updateCfg,
+  UPDATE_TOKEN_ID,
   connect,
   connection,
   TOKEN_ID,

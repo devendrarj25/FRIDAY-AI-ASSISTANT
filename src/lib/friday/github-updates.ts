@@ -35,6 +35,10 @@ export type GithubConfig = {
   testAppliedAt: number;
   lastCheck: number;
   hasToken: boolean;
+  /** A read-only token kept just for updates (Friday Hub's write token is separate). */
+  hasUpdateToken?: boolean;
+  /** Updates are borrowing the Hub token because no update token is stored. */
+  updateTokenShared?: boolean;
   history: {
     ref: string;
     at: number;
@@ -52,6 +56,22 @@ export type GithubAsset = {
   bytes: number;
   apiUrl?: string | null;
   id?: number | null;
+  /** What FRIDAY recognised this file as (installer, portable, manifest, checksums, ...). */
+  kind?: string;
+  label?: string;
+  /** One sentence: what the file is for and what FRIDAY does with it. */
+  purpose?: string;
+  installable?: boolean;
+};
+
+/** One line of "what this release contains", including the full source zip. */
+export type GithubFile = {
+  name: string;
+  bytes: number;
+  kind: string;
+  label: string;
+  purpose: string;
+  installable: boolean;
 };
 
 /** Checksums published with a release, so a download can be proven genuine. */
@@ -87,6 +107,8 @@ export type GithubCheck = {
   assets?: GithubAsset[];
   manifest?: ReleaseManifest | null;
   verified?: boolean;
+  /** Every file this release offers, named for the guide. */
+  files?: GithubFile[];
   changedFiles?: { path: string; state: string; changes: number }[];
   /** The newest build published on the OTHER channel, for an explicit switch. */
   otherChannel?: GithubCrossChannel | null;
@@ -117,6 +139,7 @@ export type GithubCrossChannel = {
   assets: GithubAsset[];
   manifest: ReleaseManifest | null;
   verified: boolean;
+  files?: GithubFile[];
   requiresChannelSwitch: true;
 };
 
@@ -259,6 +282,21 @@ export type GithubTest = {
   permissions?: { contents: boolean; actions: boolean; releaseWorkflow: boolean };
   canRelease?: boolean;
   warning?: string;
+  /** Which stored token the check used: the update token, the shared Hub token, or none. */
+  tokenKind?: "update" | "shared" | "none";
+  /** What that token may do: read-only is the safe answer. */
+  tokenScope?: "none" | "read-only" | "write-capable";
+  latestOfficial?: GithubReleaseSummary | null;
+  latestTest?: GithubReleaseSummary | null;
+  releasesChecked?: number;
+  notes?: string[];
+};
+
+export type GithubReleaseSummary = {
+  tag: string;
+  title: string;
+  at: number;
+  files: number;
 };
 
 /** The persistent GitHub session FRIDAY restores herself on every startup. */
@@ -277,7 +315,9 @@ export type GithubConnection = {
 
 type Bridge = {
   githubConfig?: () => Promise<GithubConfig>;
-  githubSetConfig?: (patch: Partial<GithubConfig> & { token?: string | null }) => Promise<{
+  githubSetConfig?: (
+    patch: Partial<GithubConfig> & { token?: string | null; updateToken?: string | null },
+  ) => Promise<{
     ok: boolean;
     error?: string;
     config?: GithubConfig;
@@ -411,14 +451,17 @@ export const DEFAULT_GITHUB_CONFIG: GithubConfig = {
   testAppliedAt: 0,
   lastCheck: 0,
   hasToken: false,
+  hasUpdateToken: false,
+  updateTokenShared: false,
   history: [],
 };
 
 export const githubConfig = async (): Promise<GithubConfig> =>
   (await bridge()?.githubConfig?.()) ?? DEFAULT_GITHUB_CONFIG;
 
-export const githubSetConfig = async (patch: Partial<GithubConfig> & { token?: string | null }) =>
-  (await bridge()?.githubSetConfig?.(patch)) ?? { ok: false, error: DESKTOP_ONLY };
+export const githubSetConfig = async (
+  patch: Partial<GithubConfig> & { token?: string | null; updateToken?: string | null },
+) => (await bridge()?.githubSetConfig?.(patch)) ?? { ok: false, error: DESKTOP_ONLY };
 
 export const githubTest = async (override?: Record<string, unknown>): Promise<GithubTest> =>
   (await bridge()?.githubTest?.(override)) ?? { ok: false, error: DESKTOP_ONLY };

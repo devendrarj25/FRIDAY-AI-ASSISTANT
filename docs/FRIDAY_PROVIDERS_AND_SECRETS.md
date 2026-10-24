@@ -253,3 +253,7 @@ Final provider audit, 2026-10-24 (Gemini, OpenRouter, Groq, NVIDIA, Hugging Face
 | `ollama-cloud` | not-added | not-read | no | no | no | not-tested | no |
 
 <!-- docs-engine: end generated provider status -->
+
+## GitHub update token
+
+Settings → Updates stores its own read-only token as `github.update.token` in the same encrypted store (`electron/credentials.cjs`); Friday Hub's write token stays `github.token` (extra Hub repositories `github.token.<id>`). The renderer only learns whether each is stored (`hasUpdateToken`, `hasToken`), never the value. The update connection sends GET requests only.

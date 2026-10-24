@@ -6795,9 +6795,13 @@ ipcMain.handle("github:config", () =>
 
 ipcMain.handle("github:set-config", async (_e, patch) => {
   const next = { ...(patch || {}) };
-  // An empty token string means "keep the stored token"; null clears it.
-  if (next.token === "" || next.token === undefined) delete next.token;
-  if (next.token === null) next.token = "";
+  // An empty token string means "keep the stored token"; null clears it. The
+  // update token is the read-only one Settings → Updates uses; the plain token
+  // belongs to Friday Hub's write-side work.
+  for (const key of ["token", "updateToken"]) {
+    if (next[key] === "" || next[key] === undefined) delete next[key];
+    else if (next[key] === null) next[key] = "";
+  }
   const result = githubSync.writeConfig(getWorkspaceRoot(), next);
   scheduleGithubChecks();
   // Await the live session so the renderer reads CONNECTED (or the real error)
@@ -6807,7 +6811,8 @@ ipcMain.handle("github:set-config", async (_e, patch) => {
 });
 
 ipcMain.handle("github:test", (_e, override) =>
-  githubSync.testConnection(getWorkspaceRoot(), override || {}),
+  // Read-only: what can FRIDAY see, and with which kind of token.
+  githubSync.testUpdateSource(getWorkspaceRoot(), override || {}),
 );
 
 ipcMain.handle("github:check", async (_e, override) => {
@@ -7055,11 +7060,20 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
     return { ok: true, staged: true, backup: backup.backup, message: "Installer staged." };
   }
   try {
-    const child = require("child_process").spawn(file, [], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: false,
+    // Silent in-place update: no wizard, the data folder is reused, FRIDAY
+    // reopens on the new version, and a failed install reopens the old one.
+    const launch = updateSafety.installerLaunch({
+      file,
+      appExe: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
     });
+    const child = launch
+      ? require("child_process").spawn(launch.command, launch.args, launch.options)
+      : require("child_process").spawn(file, updateSafety.SILENT_UPDATE_ARGS, {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+    child.on("error", () => {});
     child.unref();
   } catch (error) {
     updateSafety.cancelInstall({ root });
