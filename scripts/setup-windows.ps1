@@ -334,6 +334,10 @@ try {
   Write-Step 'Creating the isolated Python environment and runtime storage'
   & node.exe scripts\setup-python.cjs
   if ($LASTEXITCODE -ne 0) { throw 'Python environment setup failed.' }
+
+  Write-Step 'Fetching the portable agent tools under 2 GB (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg); larger ones stay in the Install Manager'
+  & node.exe scripts\prefetch-toolkit.cjs
+  if ($LASTEXITCODE -ne 0) { Write-Host '[FRIDAY] INFO the tool prefetch did not finish; the Install Manager offers each tool later.' }
   & node.exe scripts\init-runtime.cjs
   if ($LASTEXITCODE -ne 0) { throw 'FRIDAY runtime initialization failed.' }
 

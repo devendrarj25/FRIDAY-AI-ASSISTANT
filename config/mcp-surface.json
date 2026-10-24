@@ -7,7 +7,7 @@
     "2025-11-25",
     "2026-07-28"
   ],
-  "kernelTools": 53,
+  "kernelTools": 68,
   "exposedTools": [
     {
       "name": "friday.ask",
@@ -332,6 +332,48 @@
       }
     },
     {
+      "name": "kernel.archive.create",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.archive.extract",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.archive.list",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "kernel.ci.run",
       "risk": "exec",
       "scopes": [
@@ -369,6 +411,172 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.docker.pull",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "kernel.docker.run",
+      "risk": "exec",
+      "scopes": [
+        "exec",
+        "sandbox"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.docker.status",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.copy",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.delete",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.extract",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.find",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.identify",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.info",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.list",
+      "risk": "safe",
+      "scopes": [
+        "read",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.mkdir",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.fs.move",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
       }

@@ -1,0 +1,25 @@
+{
+  "$comment": "The command-line tools FRIDAY leans on to run, test, search, unpack and convert for the owner. scripts/prefetch-toolkit.cjs installs the portable ones into <FRIDAY folder>/runtime before the EXE is built; anything at or above maxPrefetchBytes, or that needs an administrator or a restart, stays in the Install Manager.",
+  "maxPrefetchBytes": 2000000000,
+  "prefetch": [
+    { "id": "ripgrep", "why": "fast text search across a project", "approxBytes": 6000000 },
+    { "id": "jq (JSON)", "why": "read and reshape JSON on the command line", "approxBytes": 1000000 },
+    { "id": "yq (YAML)", "why": "read and reshape YAML on the command line", "approxBytes": 10000000 },
+    { "id": "Ninja", "why": "fast build runner for C and C++ projects", "approxBytes": 400000 },
+    { "id": "uv (Python)", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
+    { "id": "aria2", "why": "resumable multi-connection downloads", "approxBytes": 2000000 },
+    { "id": "FFmpeg", "why": "convert and inspect audio and video", "approxBytes": 100000000 }
+  ],
+  "deferred": [
+    { "id": "Docker Desktop", "reason": "administrator, WSL 2 and a restart; over 2 GB installed", "approxBytes": 2500000000 },
+    { "id": "WSL 2", "reason": "administrator and a restart", "approxBytes": 0 },
+    { "id": "Sandbox runner (Windows Sandbox)", "reason": "Windows optional feature: administrator and a restart", "approxBytes": 0 },
+    { "id": "Podman", "reason": "needs a virtual machine; install when Docker is not wanted", "approxBytes": 600000000 },
+    { "id": "Hugging Face runner", "reason": "PyTorch makes it larger than 2 GB", "approxBytes": 3500000000 },
+    { "id": "PyTorch (CUDA)", "reason": "larger than 2 GB and needs a matching GPU driver", "approxBytes": 3000000000 },
+    { "id": "CUDA Toolkit", "reason": "larger than 2 GB, administrator", "approxBytes": 3500000000 },
+    { "id": "Visual Studio", "reason": "larger than 2 GB, administrator", "approxBytes": 8000000000 },
+    { "id": "VS Build Tools", "reason": "larger than 2 GB, administrator", "approxBytes": 3000000000 },
+    { "id": "Android Studio", "reason": "larger than 2 GB", "approxBytes": 3000000000 }
+  ]
+}

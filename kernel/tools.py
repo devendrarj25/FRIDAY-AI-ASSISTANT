@@ -11,6 +11,7 @@ import control
 import devices_android
 import devices_bluetooth
 import devices_network
+import file_tools
 import httpx
 import toolchain_gate
 from authority import Authority
@@ -81,12 +82,30 @@ RISK = {
     "java.run": "exec",
     "java.compile": "exec",
     "ci.run": "exec",
+    # Files and archives. Reading is safe; anything that changes a file is a
+    # write. Delete moves to the workspace trash, so it can be put back.
+    "fs.list": "safe",
+    "fs.info": "safe",
+    "fs.identify": "safe",
+    "fs.find": "safe",
+    "fs.extract": "safe",
+    "fs.mkdir": "write",
+    "fs.copy": "write",
+    "fs.move": "write",
+    "fs.delete": "write",
+    "archive.list": "safe",
+    "archive.extract": "write",
+    "archive.create": "write",
+    # Containers. Status is read-only; a pull is a download; a run executes code.
+    "docker.status": "safe",
+    "docker.pull": "write",
+    "docker.run": "exec",
 }
 
 
 SUMMARY = {
     "fs.read": "Read files and directories inside allowed roots",
-    "fs.write": "Create, edit and delete files",
+    "fs.write": "Create and edit files",
     "shell.cmd": "Run a Windows cmd command",
     "shell.powershell": "Run a PowerShell script block",
     "git": "Clone, branch, commit, diff, push",
@@ -138,6 +157,21 @@ SUMMARY = {
     "java.run": "Run a workspace Java class",
     "java.compile": "Compile a workspace Java file",
     "ci.run": "Run the local validation report. Hosted workflows are not dispatched",
+    "fs.list": "List a workspace folder with sizes, to a chosen depth",
+    "fs.info": "Size, date and real file type of one file or folder",
+    "fs.identify": "Tell what a file really is from its first bytes, not its name",
+    "fs.find": "Find files by name pattern, or by a phrase inside them",
+    "fs.extract": "Read the text of a document: docx, xlsx, pptx, pdf, csv, json, html, text",
+    "fs.mkdir": "Create a workspace folder",
+    "fs.copy": "Copy a workspace file or folder",
+    "fs.move": "Move or rename a workspace file or folder",
+    "fs.delete": "Delete into the workspace trash, so it can be put back",
+    "archive.list": "List what is inside a zip, tar, tar.gz, 7z or gz without unpacking it",
+    "archive.extract": "Unpack an archive into a workspace folder (unsafe names and bombs refused)",
+    "archive.create": "Pack workspace files into a zip, tar, tar.gz, tar.bz2 or tar.xz",
+    "docker.status": "Ask whether Docker is installed and its engine is running",
+    "docker.pull": "Pull a container image from its registry",
+    "docker.run": "Run a command in a throwaway container with the workspace mounted, no network by default",
 }
 
 
@@ -155,6 +189,28 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
                 "description": "Path relative to the FRIDAY workspace root.",
             }
         },
+        "required": ["path"],
+    },
+    "fs.list": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Folder relative to the FRIDAY workspace root."},
+            "depth": {"type": "integer", "description": "How many levels to list (1-6)."},
+        },
+    },
+    "fs.identify": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "File relative to the workspace root."}},
+        "required": ["path"],
+    },
+    "fs.extract": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "Document relative to the workspace root."}},
+        "required": ["path"],
+    },
+    "archive.list": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "Archive relative to the workspace root."}},
         "required": ["path"],
     },
     "android.list": {"type": "object", "properties": {}},
@@ -570,3 +626,77 @@ class ToolRegistry:
 
     async def _ci_run(self, args: dict) -> dict:
         return await self._planned(toolchain_gate.plan_ci(args, self.workspace))
+
+    # ------------------------------------------------------ files and archives
+
+    def _under(self, args: dict, key: str = "path", default: str = ".") -> Path:
+        return self._resolve(str(args.get(key) or default))
+
+    async def _fs_list(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            file_tools.list_dir, self._under(args), self.workspace.resolve(), int(args.get("depth") or 1)
+        )
+
+    async def _fs_info(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.info, self._under(args))
+
+    async def _fs_identify(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.identify, self._under(args))
+
+    async def _fs_find(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            file_tools.find,
+            self._under(args),
+            self.workspace.resolve(),
+            str(args.get("pattern") or "*"),
+            str(args.get("contains") or ""),
+        )
+
+    async def _fs_extract(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.extract_text, self._under(args))
+
+    async def _fs_mkdir(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.make_dir, self._under(args))
+
+    async def _fs_copy(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            file_tools.copy, self._under(args, "from"), self._under(args, "to"), bool(args.get("overwrite"))
+        )
+
+    async def _fs_move(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            file_tools.move, self._under(args, "from"), self._under(args, "to"), bool(args.get("overwrite"))
+        )
+
+    async def _fs_delete(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.trash, self._under(args), self.workspace.resolve())
+
+    async def _archive_list(self, args: dict) -> dict:
+        return await asyncio.to_thread(file_tools.list_archive, self._under(args))
+
+    async def _archive_extract(self, args: dict) -> dict:
+        path = self._under(args)
+        dest = self._under(args, "to", path.stem if path.suffix else f"{path.name}-files")
+        return await asyncio.to_thread(file_tools.extract_archive, path, dest, bool(args.get("overwrite")))
+
+    async def _archive_create(self, args: dict) -> dict:
+        raw = args.get("sources")
+        names = [str(raw)] if isinstance(raw, str) else [str(item) for item in (raw or [])]
+        if not names:
+            return {"ok": False, "error": "sources is empty: name the files or folders to pack"}
+        return await asyncio.to_thread(
+            file_tools.create_archive,
+            [self._resolve(name) for name in names],
+            self._under(args, "to", "archive.zip"),
+            self.workspace.resolve(),
+            bool(args.get("overwrite")),
+        )
+
+    async def _docker_status(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_docker("status", args, self.workspace))
+
+    async def _docker_pull(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_docker("pull", args, self.workspace))
+
+    async def _docker_run(self, args: dict) -> dict:
+        return await self._planned(toolchain_gate.plan_docker("run", args, self.workspace))

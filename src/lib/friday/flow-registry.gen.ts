@@ -2258,6 +2258,10 @@ export const FLOW_REGISTRY = {
   ],
   messages: [
     {
+      kind: "7z",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "approval-required",
       file: "kernel/main.py",
     },
@@ -2294,12 +2298,24 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "csv",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "docx",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "done",
       file: "kernel/main.py",
     },
     {
       kind: "failed",
       file: "kernel/main.py",
+    },
+    {
+      kind: "json",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "local",
@@ -2314,8 +2330,20 @@ export const FLOW_REGISTRY = {
       file: "kernel/billing.py",
     },
     {
+      kind: "pdf",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "planned",
       file: "kernel/main.py",
+    },
+    {
+      kind: "pptx",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "rar",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "retry",
@@ -2326,8 +2354,24 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "single",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "tar",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "task",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "xlsx",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "zip",
+      file: "kernel/file_tools.py",
     },
   ],
   workflows: [
