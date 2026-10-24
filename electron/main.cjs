@@ -6980,6 +6980,8 @@ async function stageInstaller({ root, check, payload = {}, onProgress, signal })
   const expected =
     githubSync.expectedChecksum(check?.manifest, asset.name) ||
     githubSync.expectedChecksum(check?.otherChannel?.manifest, asset.name);
+  // electron-builder publishes <installer>.blockmap next to the installer.
+  const blockmap = pool.find((a) => a.name === `${asset.name}.blockmap`) || null;
   return githubSync.downloadInstaller({
     root,
     url: asset.url,
@@ -6988,6 +6990,7 @@ async function stageInstaller({ root, check, payload = {}, onProgress, signal })
     name: asset.name,
     bytes: asset.bytes,
     sha256: expected,
+    blockmap,
     onProgress,
     signal,
   });
@@ -7097,7 +7100,7 @@ ipcMain.handle("github:install-update", async (_e, payload = {}) => {
   // Release sqlite/python handles before copying `database/` and before NSIS
   // replaces files. A live kernel on Windows locks friday.sqlite3.
   await stopKernel();
-  const backup = updateSafety.backupState({ root, version: payload.version });
+  const backup = await updateSafety.backupStateAsync({ root, version: payload.version });
   if (!backup.ok) {
     await resumeKernel("kernel resume after failed update backup");
     return backup;

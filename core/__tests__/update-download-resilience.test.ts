@@ -254,6 +254,31 @@ describe("what an update leaves behind", () => {
     expect(roomy.ok).toBe(true);
   });
 
+  it("takes the backup without blocking, with the same result and the same safety checks", async () => {
+    fs.mkdirSync(path.join(work, "memory"), { recursive: true });
+    fs.writeFileSync(path.join(work, "memory", "notes.json"), "owner memory");
+    fs.mkdirSync(path.join(work, "database"), { recursive: true });
+    fs.writeFileSync(path.join(work, "database", "friday.sqlite3"), "rows");
+    const out = await safety.backupStateAsync({ root: work, version: "2.0.0" });
+    expect(out.ok).toBe(true);
+    expect(out.copied.sort()).toEqual(["database", "memory"]);
+    expect(fs.readFileSync(path.join(out.backup, "memory", "notes.json"), "utf8")).toBe(
+      "owner memory",
+    );
+    // The live data is untouched, and a backup that cannot fit stops before copying.
+    expect(fs.readFileSync(path.join(work, "memory", "notes.json"), "utf8")).toBe("owner memory");
+    const full = await safety.backupStateAsync({
+      root: work,
+      version: "2.0.0",
+      freeSpace: () => 10,
+    });
+    expect(full.ok).toBe(false);
+    expect(full.error).toContain("nothing was changed");
+    // The installer path uses it, so the window keeps responding.
+    const main = fs.readFileSync(path.join(process.cwd(), "electron/main.cjs"), "utf8");
+    expect(main).toContain("await updateSafety.backupStateAsync(");
+  });
+
   it("keeps the newest two release backups and the one a pending rollback needs", () => {
     const base = path.join(work, "backup", "releases");
     const names = ["1.0-a", "1.1-b", "1.2-c", "1.3-d"];

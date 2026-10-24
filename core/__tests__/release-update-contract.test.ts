@@ -25,7 +25,7 @@ describe("the release workflow and the app agree", () => {
         .replace(/^release\//, "")
         .replace("${{ steps.plan.outputs.version }}", "9.9.9"),
     )
-    .filter((name) => /\.(exe|yml|json|txt|md)$/.test(name));
+    .filter((name) => /\.(exe|yml|json|txt|md|blockmap)$/.test(name));
 
   it("publishes the installer, the portable app, the manifest, checksums and notes", () => {
     expect(listed).toEqual(
@@ -36,6 +36,8 @@ describe("the release workflow and the app agree", () => {
         "friday-update.json",
         "SHA256SUMS.txt",
         "CHANGELOG.md",
+        // Lets the next update fetch only what changed (differential download).
+        "FRIDAY-Setup-9.9.9.exe.blockmap",
       ]),
     );
   });
@@ -49,6 +51,7 @@ describe("the release workflow and the app agree", () => {
       "friday-update.json": "update-manifest",
       "SHA256SUMS.txt": "checksums",
       "CHANGELOG.md": "notes",
+      "FRIDAY-Setup-9.9.9.exe.blockmap": "updater-metadata",
     });
     expect(sync.classifyAsset("FRIDAY-Setup-9.9.9.exe").installable).toBe(true);
     expect(sync.classifyAsset("friday-update.json").installable).toBe(false);

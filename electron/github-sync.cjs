@@ -1045,6 +1045,100 @@ function installerAsset(assets = []) {
   );
 }
 
+/** The installer's block map, saved next to it so the next update can be a difference. */
+function saveBlockMapSidecar(installerFile, raw) {
+  try {
+    if (raw?.length) fs.writeFileSync(`${installerFile}.blockmap`, raw);
+  } catch {
+    /* the next update simply downloads in full */
+  }
+}
+
+/** Read and parse the release's block map; null when there is none or it cannot be used. */
+async function fetchBlockMap(cfg, asset, repo) {
+  if (!asset) return null;
+  const url = assetDownloadUrl(asset, normalizeRepo(repo || cfg.repo));
+  if (!url) return null;
+  try {
+    const { followRedirects } = require("./resilient-download.cjs");
+    const res = await followRedirects(url, {
+      headers: { "user-agent": "FRIDAY", accept: "application/octet-stream" },
+      auth: cfg.token ? { authorization: `Bearer ${cfg.token}` } : null,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      await cancelBody(res);
+      return null;
+    }
+    const raw = Buffer.from(await res.arrayBuffer());
+    if (raw.length > 8 * 1048576) return null;
+    const { parseBlockMap } = require("./differential-download.cjs");
+    return { raw, map: parseBlockMap(raw) };
+  } catch {
+    return null;
+  }
+}
+
+/** The newest other installer here whose own block map was saved with it and still matches. */
+function findOldInstaller(dir, target) {
+  const { parseBlockMap, mapSize } = require("./differential-download.cjs");
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n) && path.join(dir, n) !== target);
+  } catch {
+    return null;
+  }
+  const rows = names
+    .map((name) => ({ file: path.join(dir, name), at: fs.statSync(path.join(dir, name)).mtimeMs }))
+    .sort((a, b) => b.at - a.at);
+  for (const row of rows) {
+    try {
+      const map = parseBlockMap(fs.readFileSync(`${row.file}.blockmap`));
+      if (fs.statSync(row.file).size === mapSize(map)) return { file: row.file, map };
+    } catch {
+      /* no usable sidecar for this one */
+    }
+  }
+  return null;
+}
+
+async function tryDifferential({
+  cfg,
+  dir,
+  file,
+  nextMap,
+  url,
+  expected,
+  expectedBytes,
+  signal,
+  onProgress,
+  run,
+}) {
+  try {
+    const old = findOldInstaller(dir, file);
+    if (!old) return null;
+    const part = `${file}.diff.part`;
+    const go = run || require("./differential-download.cjs").downloadDifferential;
+    const got = await go({
+      url,
+      token: cfg.token || "",
+      oldFile: old.file,
+      oldBlockMap: old.map,
+      newBlockMap: nextMap.map,
+      part,
+      expectedBytes: Number(expectedBytes) || 0,
+      sha256: expected,
+      onProgress,
+      signal,
+    });
+    if (!got?.ok) return got;
+    await require("./resilient-download.cjs").commitFile(part, file);
+    return got;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Download a release asset (normally FRIDAY-Setup-<version>.exe) into
  * <root>/updates/installers, then check it against the published SHA-256.
@@ -1069,6 +1163,8 @@ async function downloadInstaller({
   signal,
   downloader,
   force = false,
+  blockmap = null,
+  differential,
 } = {}) {
   if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
   const cfg = updateCfg(readConfig(root));
@@ -1112,6 +1208,42 @@ async function downloadInstaller({
       fs.rmSync(file, { force: true });
     }
 
+    // Only the blocks that changed since the installer already on this PC, when
+    // the release publishes block maps; anything unexpected falls through to the
+    // normal full download below, which is what verifies and keeps the result.
+    const nextMap = await fetchBlockMap(cfg, blockmap, repo);
+    if (nextMap && expected) {
+      const diff = await tryDifferential({
+        cfg,
+        dir,
+        file,
+        nextMap,
+        url: downloadUrl,
+        expected,
+        expectedBytes,
+        signal,
+        onProgress,
+        run: differential,
+      });
+      if (diff?.cancelled)
+        return { ok: false, cancelled: true, error: "Cancelled.", resumable: false };
+      if (diff?.ok) {
+        const digest = diff.sha256;
+        onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
+        saveBlockMapSidecar(file, nextMap.raw);
+        return {
+          ok: true,
+          file,
+          bytes: diff.bytes,
+          sha256: digest,
+          verified: true,
+          differential: true,
+          downloaded: diff.downloaded,
+          reused: diff.reused,
+        };
+      }
+    }
+
     onProgress({ phase: "Downloading installer", percent: 0, state: "DOWNLOADING" });
     const run = downloader || require("./resilient-download.cjs").downloadToFile;
     const got = await run({
@@ -1140,6 +1272,9 @@ async function downloadInstaller({
       };
     }
     const digest = sha256File(got.file);
+    // Remember this installer's block map: the next release can then be fetched
+    // as a difference against it.
+    if (nextMap) saveBlockMapSidecar(got.file, nextMap.raw);
     onProgress({ phase: "Installer ready", percent: 100, state: "STAGED" });
     return {
       ok: true,

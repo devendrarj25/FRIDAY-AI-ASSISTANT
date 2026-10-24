@@ -146,22 +146,30 @@ const mb = (bytes) => `${Math.ceil(bytes / 1048576)} MB`;
  * anything is touched, with a plain message), and a copy that fails halfway is
  * removed instead of being left behind.
  */
-function backupState({ root, version, freeSpace = freeBytes }) {
-  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+function planBackup({ root, version, freeSpace }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(root, "backup", "releases", `${version || "update"}-${stamp}`);
+  const need = PROTECTED.reduce((sum, name) => sum + treeBytes(path.join(root, name)), 0);
+  fs.mkdirSync(path.join(root, "backup", "releases"), { recursive: true });
+  const free = freeSpace(path.join(root, "backup", "releases"));
+  const required = Math.ceil(need * 1.1) + 256 * 1048576;
+  if (free !== null && free < required) {
+    return {
+      dir,
+      error: `Not enough free disk space for the safety backup: about ${mb(required)} are needed and ${mb(free)} are free. Free some space (or remove old folders under backup\\releases) and try again — nothing was changed.`,
+    };
+  }
+  return { dir, error: "" };
+}
+
+function backupState({ root, version, freeSpace = freeBytes }) {
+  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  let dir = "";
   const copied = [];
   try {
-    const need = PROTECTED.reduce((sum, name) => sum + treeBytes(path.join(root, name)), 0);
-    fs.mkdirSync(path.join(root, "backup", "releases"), { recursive: true });
-    const free = freeSpace(path.join(root, "backup", "releases"));
-    const required = Math.ceil(need * 1.1) + 256 * 1048576;
-    if (free !== null && free < required) {
-      return {
-        ok: false,
-        error: `Not enough free disk space for the safety backup: about ${mb(required)} are needed and ${mb(free)} are free. Free some space (or remove old folders under backup\\releases) and try again — nothing was changed.`,
-      };
-    }
+    const plan = planBackup({ root, version, freeSpace });
+    dir = plan.dir;
+    if (plan.error) return { ok: false, error: plan.error };
     fs.mkdirSync(dir, { recursive: true });
     for (const name of PROTECTED) {
       const source = path.join(root, name);
@@ -171,11 +179,41 @@ function backupState({ root, version, freeSpace = freeBytes }) {
     }
     writeJson(path.join(dir, "backup.json"), { at: Date.now(), version: version || null, copied });
   } catch (error) {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* what could not be removed is reported by the error below */
+    if (dir) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* what could not be removed is reported by the error below */
+      }
     }
+    return { ok: false, error: `Backup failed: ${error.message}` };
+  }
+  return { ok: true, backup: dir, copied };
+}
+
+/**
+ * The same backup without freezing the window: the copy runs on the async file
+ * API, so a large database or memory store does not make FRIDAY "Not responding"
+ * while the safety copy is taken. The installer path uses this one.
+ */
+async function backupStateAsync({ root, version, freeSpace = freeBytes }) {
+  if (!root) return { ok: false, error: "No FRIDAY workspace is selected." };
+  let dir = "";
+  const copied = [];
+  try {
+    const plan = planBackup({ root, version, freeSpace });
+    dir = plan.dir;
+    if (plan.error) return { ok: false, error: plan.error };
+    await fs.promises.mkdir(dir, { recursive: true });
+    for (const name of PROTECTED) {
+      const source = path.join(root, name);
+      if (!fs.existsSync(source)) continue;
+      await fs.promises.cp(source, path.join(dir, name), { recursive: true });
+      copied.push(name);
+    }
+    writeJson(path.join(dir, "backup.json"), { at: Date.now(), version: version || null, copied });
+  } catch (error) {
+    if (dir) await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
     return { ok: false, error: `Backup failed: ${error.message}` };
   }
   return { ok: true, backup: dir, copied };
@@ -317,6 +355,8 @@ function pruneInstallers({ root, keep = 2 } = {}) {
     try {
       fs.rmSync(path.join(dir, row.name), { force: true });
       fs.rmSync(path.join(dir, `${row.name}.part`), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.blockmap`), { force: true });
+      fs.rmSync(path.join(dir, `${row.name}.diff.part`), { force: true });
       removed.push(row.name);
     } catch {
       /* a file the OS still holds is left for next time */
@@ -408,6 +448,7 @@ module.exports = {
   installerLaunch,
   verifyArtifact,
   backupState,
+  backupStateAsync,
   beginInstall,
   healthCheck,
   rollback,

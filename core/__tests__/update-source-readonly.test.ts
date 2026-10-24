@@ -286,7 +286,7 @@ describe("installing a downloaded update", () => {
     const order = [
       "updateSafety.verifyArtifact(",
       "await stopKernel()",
-      "updateSafety.backupState(",
+      "updateSafety.backupStateAsync(",
       "updateSafety.beginInstall(",
       "updateSafety.installerLaunch(",
       'life.requestShutdown("installer"',

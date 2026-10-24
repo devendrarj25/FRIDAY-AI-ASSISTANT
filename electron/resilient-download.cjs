@@ -70,7 +70,7 @@ function defaultFetch() {
  */
 async function followRedirects(
   url,
-  { fetchImpl, headers = {}, auth = null, signal, maxHops = 12 } = {},
+  { fetchImpl, headers = {}, auth = null, signal, maxHops = 12, track = null } = {},
 ) {
   const doFetch = fetchImpl || defaultFetch();
   const origin = hostOf(url);
@@ -94,6 +94,7 @@ async function followRedirects(
       } catch {
         /* already closed */
       }
+      if (track) track.url = null;
       return doFetch(current, { method: "GET", headers: sendHeaders, redirect: "follow", signal });
     }
     if (location && res.status >= 300 && res.status < 400) {
@@ -105,6 +106,9 @@ async function followRedirects(
       current = new URL(location, current).href;
       continue;
     }
+    // Where the chain ended, so later requests for the same file (byte ranges)
+    // can go straight there instead of walking GitHub's API redirect again.
+    if (track) track.url = current;
     return res;
   }
   throw new DownloadError("The server redirected too many times.", { fatal: true });
