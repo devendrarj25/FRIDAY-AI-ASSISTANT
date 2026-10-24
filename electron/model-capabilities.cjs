@@ -31,6 +31,10 @@ const CAPABILITY_KEYS = [
   "audio",
   "research",
   "longContext",
+  "imageGeneration",
+  "speechToText",
+  "textToSpeech",
+  "video",
 ];
 
 const BASE = {
@@ -44,13 +48,87 @@ const BASE = {
   audio: false,
   research: false,
   longContext: false,
+  imageGeneration: false,
+  speechToText: false,
+  textToSpeech: false,
+  video: false,
 };
 
 /**
  * Curated records. `match` is tested against the normalised model name.
  * Keep entries narrow and factual — this table is the reviewed truth.
  */
+const NON_CHAT = { chat: false, tools: false, streaming: false };
 const REGISTRY = [
+  // ---------------------------------------------------------------- Media
+  // Models that make or read images, speech and video rather than chat. They
+  // come first so a name such as gpt-4o-mini-tts is never taken for a chat model.
+  {
+    id: "gemini-image-chat",
+    match: /gemini.*(flash-image|image-preview|-image$)|nano-banana/,
+    caps: { vision: true, imageGeneration: true, tools: false },
+  },
+  {
+    id: "image-generation",
+    match:
+      /dall-?e|gpt-image|imagen|(^|[/_-])flux|stable-?diffusion|sdxl|sd-?3|stable-image|ideogram|recraft|playground-v|kandinsky|hidream|seedream|qwen-image|cogview|midjourney|firefly|z-image|text-to-image/,
+    caps: { ...NON_CHAT, imageGeneration: true },
+  },
+  {
+    id: "video-generation",
+    match:
+      /sora|veo-?\d|runway|kling|luma-|hunyuan-?video|wan-?\d|ltx-video|cogvideo|pika-|text-to-video/,
+    caps: { ...NON_CHAT, video: true },
+  },
+  {
+    id: "speech-to-text",
+    match:
+      /whisper|transcribe|speech-to-text|parakeet|canary|moonshine|distil-whisper|scribe|asr($|[-_])|automatic-speech/,
+    caps: { ...NON_CHAT, audio: true, speechToText: true },
+  },
+  {
+    id: "text-to-speech",
+    match:
+      /(^|[-_/])tts($|[-_])|text-to-speech|elevenlabs|eleven[-_]|kokoro|orpheus|bark|parler|xtts|piper|playht|speech-0|chatterbox|dia-|f5-tts|supertonic|audio-gen/,
+    caps: { ...NON_CHAT, audio: true, textToSpeech: true },
+  },
+  // ------------------------------------------- Never chat, whoever makes them
+  {
+    id: "deepseek-reasoner",
+    match: /deepseek-(r1|reasoner)|^r1(-|$)/,
+    caps: { reasoning: true, coding: true, tools: false, longContext: true },
+  },
+  { id: "deepseek-coder", match: /deepseek.*cod/, caps: { coding: true, tools: true } },
+  { id: "deepseek", match: /deepseek/, caps: { coding: true, tools: true, reasoning: true } },
+  // ----------------------------------------------------------------- Qwen
+  { id: "qwen-vl", match: /qwen.*(vl|vision)/, caps: { vision: true, tools: true } },
+  { id: "qwen-coder", match: /qwen.*cod/, caps: { coding: true, tools: true } },
+  { id: "qwq", match: /qwq|qwen.*think/, caps: { reasoning: true, tools: true } },
+  { id: "qwen", match: /qwen/, caps: { tools: true, coding: true, longContext: true } },
+  // -------------------------------------------------------------- Mistral
+  { id: "pixtral", match: /pixtral/, caps: { vision: true, tools: true } },
+  {
+    id: "non-chat-safety",
+    match:
+      /moderation|moderator|prompt-guard|llama-guard|shieldgemma|nemoguard|safeguard|content-safety|safety-guard/,
+    caps: { chat: false, tools: false, streaming: false },
+  },
+  {
+    id: "research",
+    match: /research|search|sonar|perplex|compound/,
+    caps: { research: true, tools: true, longContext: true },
+  },
+  {
+    id: "embeddings",
+    match: /bge|e5-|gte-|nomic-embed|all-minilm|mxbai-embed|rerank/,
+    caps: { chat: false, tools: false, streaming: false, embeddings: true },
+  },
+  {
+    id: "vision-by-name",
+    match:
+      /(^|[/_-])(neva|nvlm|vila|cosmos-nemotron|paligemma|florence|molmo|internvl|glm-4\.?\d*v|kosmos|fuyu|idefics|smolvlm|phi-3(\.5)?-vision|llama-3\.2-\d+b-vision|llama-4)/,
+    caps: { vision: true, tools: true },
+  },
   // ---------------------------------------------------------------- OpenAI
   {
     id: "openai-o-series",
@@ -98,25 +176,6 @@ const REGISTRY = [
   { id: "meta-llama", match: /llama/, caps: { tools: true } },
   // ------------------------------------------------------------- DeepSeek
   {
-    id: "deepseek-reasoner",
-    match: /deepseek-(r1|reasoner)|^r1(-|$)/,
-    caps: { reasoning: true, coding: true, tools: false, longContext: true },
-  },
-  { id: "deepseek-coder", match: /deepseek.*cod/, caps: { coding: true, tools: true } },
-  { id: "deepseek", match: /deepseek/, caps: { coding: true, tools: true, reasoning: true } },
-  // ----------------------------------------------------------------- Qwen
-  { id: "qwen-vl", match: /qwen.*(vl|vision)/, caps: { vision: true, tools: true } },
-  { id: "qwen-coder", match: /qwen.*cod/, caps: { coding: true, tools: true } },
-  { id: "qwq", match: /qwq|qwen.*think/, caps: { reasoning: true, tools: true } },
-  { id: "qwen", match: /qwen/, caps: { tools: true, coding: true, longContext: true } },
-  // -------------------------------------------------------------- Mistral
-  { id: "pixtral", match: /pixtral/, caps: { vision: true, tools: true } },
-  {
-    id: "non-chat-safety",
-    match: /moderation|moderator|prompt-guard|safeguard|content-safety/,
-    caps: { chat: false, tools: false, streaming: false },
-  },
-  {
     id: "mistral",
     match: /mistral|mixtral|devstral|codestral/,
     caps: { tools: true, coding: true },
@@ -129,16 +188,6 @@ const REGISTRY = [
   },
   { id: "phi", match: /phi-?[34]/, caps: { tools: true, coding: true, reasoning: true } },
   { id: "starcoder", match: /starcoder|granite-code|codegemma/, caps: { coding: true } },
-  {
-    id: "research",
-    match: /research|search|sonar|perplex/,
-    caps: { research: true, tools: true, longContext: true },
-  },
-  {
-    id: "embeddings",
-    match: /bge|e5-|gte-|nomic-embed|all-minilm|mxbai-embed|rerank/,
-    caps: { chat: false, tools: false, streaming: false, embeddings: true },
-  },
   {
     id: "audio",
     match:
@@ -177,6 +226,29 @@ function declaredCapabilities(model) {
   if (declaredNames.some((item) => /embed/.test(item))) out.embeddings = true;
   if (declaredNames.some((item) => /audio|speech/.test(item))) out.audio = true;
   if (declaredNames.some((item) => /stream/.test(item))) out.streaming = true;
+  // OpenRouter and the Hugging Face router publish what goes in and comes out.
+  const arch = catalogue?.architecture || model?.meta?.architecture || null;
+  const inputs = []
+    .concat(arch?.input_modalities || [])
+    .map((item) => String(item || "").toLowerCase());
+  const outputs = []
+    .concat(arch?.output_modalities || [])
+    .map((item) => String(item || "").toLowerCase());
+  const modalityText = String(arch?.modality || catalogue?.modality || "").toLowerCase();
+  if (modalityText.includes("->")) {
+    const [from, to] = modalityText.split("->");
+    for (const part of from.split("+")) inputs.push(part.trim());
+    for (const part of to.split("+")) outputs.push(part.trim());
+  }
+  if (inputs.includes("image")) out.vision = true;
+  if (inputs.includes("audio")) out.audio = true;
+  if (outputs.includes("image")) out.imageGeneration = true;
+  if (outputs.includes("video")) out.video = true;
+  if (outputs.includes("audio") || outputs.includes("speech")) out.textToSpeech = true;
+  if (outputs.length && !outputs.includes("text")) {
+    out.chat = false;
+    out.tools = false;
+  }
   const routeType = String(
     catalogue?.type || catalogue?.task || catalogue?.pipeline_tag || catalogue?.pipelineTag || "",
   ).toLowerCase();
@@ -228,6 +300,19 @@ function declaredCapabilities(model) {
     if (pipeline.includes("automatic-speech-recognition") || pipeline.includes("text-to-speech")) {
       out.audio = true;
       out.chat = false;
+    }
+    if (pipeline.includes("automatic-speech-recognition")) out.speechToText = true;
+    if (pipeline.includes("text-to-speech") || pipeline.includes("text-to-audio"))
+      out.textToSpeech = true;
+    if (pipeline.includes("text-to-image") || pipeline.includes("image-to-image")) {
+      out.imageGeneration = true;
+      out.chat = false;
+      out.tools = false;
+    }
+    if (pipeline.includes("text-to-video") || pipeline.includes("image-to-video")) {
+      out.video = true;
+      out.chat = false;
+      out.tools = false;
     }
   }
   // Ollama POST /api/show publishes a capabilities array. An array that is
@@ -287,8 +372,31 @@ function inferredCapabilities(name) {
       /whisper|tts|piper|xtts|bark|orpheus|kokoro|silero|supertonic|moonshine|smart-turn|rnnoise/.test(
         name,
       ),
-    research: /research|search|sonar|perplex/.test(name),
+    research: /research|search|sonar|perplex|compound/.test(name),
+    imageGeneration: /dall-?e|gpt-image|imagen|flux|stable-?diffusion|sdxl/.test(name),
+    speechToText: /whisper|transcribe/.test(name),
+    textToSpeech: /(^|[-_/])tts($|[-_])|text-to-speech/.test(name),
+    video: /sora|veo-?\d|text-to-video/.test(name),
   };
+}
+
+/** The one word the Models page shows for what a model is for. */
+function kindOf(caps) {
+  if (caps.imageGeneration) return "Image";
+  if (caps.video && !caps.chat) return "Video";
+  if (caps.speechToText && !caps.chat) return "Speech to Text";
+  if (caps.textToSpeech && !caps.chat) return "Text to Speech";
+  if (caps.audio && !caps.chat) return "Audio";
+  if (caps.embeddings && !caps.chat) return "Embedding";
+  if (!caps.chat) return "Other";
+  if (caps.research) return "Research";
+  // A model with several strengths is a general chat model; one strength names it.
+  const strengths = [caps.vision, caps.coding, caps.reasoning].filter(Boolean).length;
+  if (strengths >= 2) return "Chat";
+  if (caps.vision) return "Vision";
+  if (caps.coding) return "Coding";
+  if (caps.reasoning) return "Reasoning";
+  return "Chat";
 }
 
 /**
@@ -335,14 +443,26 @@ function resolveCapabilities(model) {
     vision: proofOf(sources.vision),
     context: proofOf(sources.longContext),
   };
+  // Any speech model is an audio model.
+  if (caps.speechToText || caps.textToSpeech) caps.audio = true;
   // An embedding or audio model cannot chat or call tools, whatever else said.
-  if (caps.embeddings || caps.audio) {
+  // The same holds for a model that only makes images or video.
+  const makesMedia = (caps.imageGeneration || caps.video) && !caps.vision;
+  if (caps.embeddings || caps.audio || makesMedia) {
     caps.chat = false;
     caps.tools = false;
   }
 
   const source = Object.keys(declared).length ? "declared" : entry ? "registry" : "inferred";
-  return { ...caps, contextK, source, registryId: entry ? entry.id : null, sources, proof };
+  return {
+    ...caps,
+    contextK,
+    source,
+    registryId: entry ? entry.id : null,
+    sources,
+    proof,
+    kind: kindOf(caps),
+  };
 }
 
 /**
@@ -403,6 +523,7 @@ module.exports = {
   CAPABILITY_KEYS,
   REGISTRY,
   resolveCapabilities,
+  kindOf,
   resolveQualityProfile,
   registryEntry,
   normaliseName,

@@ -35,6 +35,7 @@ const LOCAL_KINDS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
 ]);

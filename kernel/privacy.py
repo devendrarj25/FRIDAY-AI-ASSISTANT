@@ -193,6 +193,7 @@ LOCAL_KINDS = {
     "localai",
     "jan",
     "koboldcpp",
+    "transformers",
     "gpt4all",
     "mlx",
 }

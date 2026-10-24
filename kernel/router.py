@@ -28,6 +28,7 @@ OPENAI_COMPATIBLE = {
     "localai",
     "jan",
     "koboldcpp",
+    "transformers",
     "gpt4all",
     "mlx",
     "online",
@@ -148,6 +149,7 @@ PROVIDER_SURFACES: dict[str, dict] = {
     "localai": {"wire": "openai", "base": "http://127.0.0.1:8081/v1"},
     "jan": {"wire": "openai", "base": "http://127.0.0.1:1337/v1"},
     "koboldcpp": {"wire": "openai", "base": "http://127.0.0.1:5001/v1"},
+    "transformers": {"wire": "openai", "base": "http://127.0.0.1:8083/v1"},
     "gpt4all": {"wire": "openai", "base": "http://127.0.0.1:4891/v1"},
     "mlx": {"wire": "openai", "base": "http://127.0.0.1:8082/v1"},
     # cloud providers — bases copied from each vendor's own documentation
@@ -337,6 +339,7 @@ def is_local_model(model: Model) -> bool:
         "localai",
         "jan",
         "koboldcpp",
+        "transformers",
         "gpt4all",
         "mlx",
         "local",
@@ -589,7 +592,10 @@ async def _raise_with_body(resp) -> None:
     except Exception:  # noqa: BLE001,S110 — a non-JSON error body falls through to the status
         pass
     hint = http_error_hint(resp.status_code, str(detail or ""))
-    raise RuntimeError(f"HTTP {resp.status_code}{hint}: {str(detail)[:400]}")
+    # The provider's own wait travels with the error, so the cooldown is exact.
+    wait = _header_get(resp.headers, "retry-after")
+    suffix = f" (retry-after {wait})" if wait not in (None, "") and resp.status_code == 429 else ""
+    raise RuntimeError(f"HTTP {resp.status_code}{hint}: {str(detail)[:400]}{suffix}")
 
 
 #: One shared HTTP client for every provider call. Creating a client per
@@ -875,6 +881,7 @@ class ModelRouter:
             "localai",
             "jan",
             "koboldcpp",
+            "transformers",
             "gpt4all",
             "mlx",
             "local",
@@ -951,6 +958,7 @@ class ModelRouter:
             "localai",
             "jan",
             "koboldcpp",
+            "transformers",
             "gpt4all",
             "mlx",
             "local",

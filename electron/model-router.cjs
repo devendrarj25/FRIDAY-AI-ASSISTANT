@@ -345,6 +345,7 @@ const LOCAL_PROVIDERS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
   "local",
@@ -449,29 +450,40 @@ function classifyError(input) {
   }
 
   if (status === 429 || has("rate limit", "rate-limit", "rate_limit", "too many requests")) {
-    const retryAfter = cooldownFromRetryAfter(input);
-    if (has("quota", "insufficient_quota", "exceeded your current quota")) {
+    // The provider's own wait wins: the header, else the number in its message.
+    const told = cooldownFromRetryAfter(input) || retryHintFromText(text);
+    // Billing quota (a plan that has run out) is not a rate limit.
+    if (has("insufficient_quota", "exceeded your current quota")) {
       return withStep({
         category: "quota_exceeded",
         retryable: true,
-        cooldownMs: retryAfter || 30 * 60_000,
+        cooldownMs: told || 30 * 60_000,
+        exact: Boolean(told),
       });
     }
     // A DAILY cap (OpenRouter's free tier is 50/day under 10 credits, 1000/day
-    // after) is not the same as a per-minute burst limit. Groq's
-    // x-ratelimit-remaining-requests header is the daily counter.
+    // after; Gemini's "...PerDay..." quota ids; Groq's tokens per day) is not the
+    // same as a per-minute burst limit. Groq's x-ratelimit-remaining-requests
+    // header is the daily counter.
     const remaining = dailyRemaining(input);
-    if (remaining === 0 || has("per day", "per-day", "daily", "free-models-per-day")) {
+    if (
+      remaining === 0 ||
+      has("per day", "per-day", "perday", "daily", "free-models-per-day", "(tpd)", "(rpd)")
+    ) {
       return withStep({
         category: "daily_limit",
         retryable: true,
-        cooldownMs: retryAfter || 60 * 60_000,
+        cooldownMs: told || 60 * 60_000,
+        exact: Boolean(told),
       });
     }
+    // Everything else on a 429 is a per-minute burst: Gemini's free tier says
+    // "quota exceeded" for those too, and must not freeze a model for 30 minutes.
     return withStep({
       category: "rate_limited",
       retryable: true,
-      cooldownMs: retryAfter || 60_000,
+      cooldownMs: told || 20_000,
+      exact: Boolean(told),
     });
   }
   if (has("insufficient_quota", "exceeded your current quota", "quota")) {
@@ -493,7 +505,15 @@ function classifyError(input) {
   }
   if (
     status === 402 ||
-    has("payment required", "insufficient credit", "billing_required", "billing required")
+    has(
+      "payment required",
+      "insufficient credit",
+      "billing_required",
+      "billing required",
+      "monthly included credits",
+      "pre-paid credit",
+      "depleted your",
+    )
   ) {
     return withStep({ category: "billing_required", retryable: false, cooldownMs: 60 * 60_000 });
   }
@@ -630,6 +650,31 @@ function classifyError(input) {
 }
 
 /** Retry-After on the error object, capped at one hour. Seconds when the number is small. */
+/**
+ * The wait a provider put in the words of a rate-limit error, in ms, or 0.
+ * Groq: "Please try again in 7.66s" / "in 14m22.5s"; Gemini: "Please retry in
+ * 34.5s" and `"retryDelay": "34s"`; others: "retry after 12 seconds" and the
+ * kernel's own "(retry-after 12)" taken from the response header.
+ */
+function retryHintFromText(text) {
+  const raw = String(text || "").toLowerCase();
+  const units = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+  const composite = /try again in\s*((?:\d+(?:\.\d+)?\s*(?:ms|h|m|s)\s*)+)/.exec(raw);
+  if (composite) {
+    let total = 0;
+    for (const part of composite[1].matchAll(/(\d+(?:\.\d+)?)\s*(ms|h|m|s)/g)) {
+      total += Number(part[1]) * units[part[2]];
+    }
+    if (total > 0) return Math.min(Math.round(total), 60 * 60_000);
+  }
+  const seconds =
+    /retry(?:ing)?\s*(?:after|in)\s*(\d+(?:\.\d+)?)\s*(?:s|sec|secs|seconds?)?\b/.exec(raw) ||
+    /retrydelay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s/.exec(raw) ||
+    /\(retry-after (\d+(?:\.\d+)?)\)/.exec(raw);
+  if (seconds) return Math.min(Math.round(Number(seconds[1]) * 1000), 60 * 60_000);
+  return 0;
+}
+
 function cooldownFromRetryAfter(input) {
   if (!input || typeof input !== "object") return 0;
   const headers = input.headers && typeof input.headers === "object" ? input.headers : {};
@@ -752,7 +797,13 @@ class ProviderHealthManager {
     const entry = this.get(modelId);
     const failures = entry.failures + 1;
     // Exponential backoff, capped, so a flaky provider is retried sensibly.
-    const backoff = Math.min(classified.cooldownMs * Math.min(2 ** (failures - 1), 8), 60 * 60_000);
+    // A wait the provider named is used as told. A guessed per-minute wait grows
+    // only to 4x, so a short burst never freezes a model for minutes.
+    const factorCap = classified.exact ? 1 : classified.category === "rate_limited" ? 4 : 8;
+    const backoff = Math.min(
+      classified.cooldownMs * Math.min(2 ** (failures - 1), factorCap),
+      60 * 60_000,
+    );
     const recent = [...(entry.recent || []), { at: now, category: classified.category }]
       .filter((row) => now - row.at < 10 * 60_000)
       .slice(-8);
@@ -1160,6 +1211,7 @@ const PROVIDER_NAMES = Object.freeze({
   localai: "LocalAI",
   jan: "Jan",
   koboldcpp: "KoboldCpp",
+  transformers: "Hugging Face runner",
   gpt4all: "GPT4All",
   mlx: "MLX",
   local: "Local",
@@ -2586,17 +2638,36 @@ function selectParallel(models, options = {}) {
   const preferred = options.preferred || options.selectedModelIds || [];
   const defaultCount = preferred.length >= 2 ? preferred.length : 3;
   const count = Math.max(2, Math.min(Number(options.count) || defaultCount, 5));
-  const chosen = selectEligible(models, {
+  const pool = selectEligible(models, {
     ...options,
     mode: options.mode || "multi",
-    limit: Math.max(count, Number(options.limit) || count),
+    limit: Math.max(count * 3, Number(options.limit) || count),
   });
-  const unique = [];
-  for (const model of chosen) {
-    if (!unique.some((m) => m.id === model.id)) unique.push(model);
-    if (unique.length >= count) break;
+  const seen = new Set();
+  const distinct = [];
+  for (const model of pool) {
+    if (!seen.has(model.id)) {
+      seen.add(model.id);
+      distinct.push(model);
+    }
   }
-  return unique;
+  // Models at the same time should come from different providers first: one
+  // provider's per-minute limit is shared by all of its models, so three at once
+  // on it would trip it, while three providers each take one request.
+  const providerOf = (model) => String(model.providerId || model.meta?.providerId || model.id);
+  const picked = [];
+  const providers = new Set();
+  for (const model of distinct) {
+    if (picked.length >= count) break;
+    if (providers.has(providerOf(model))) continue;
+    providers.add(providerOf(model));
+    picked.push(model);
+  }
+  for (const model of distinct) {
+    if (picked.length >= count) break;
+    if (!picked.includes(model)) picked.push(model);
+  }
+  return picked.sort((a, b) => distinct.indexOf(a) - distinct.indexOf(b));
 }
 
 /**
@@ -3302,6 +3373,7 @@ function localFanout(models, hardware = {}) {
 }
 
 module.exports = {
+  retryHintFromText,
   POLICIES,
   COST_MODES,
   DEFAULT_COST_MODE,

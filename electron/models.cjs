@@ -21,6 +21,8 @@ const { fetchCompat } = require("./net-fetch.cjs");
 const modelAccess = require("./model-access.cjs");
 const modelRouter = require("./model-router.cjs");
 const modelCapabilities = require("./model-capabilities.cjs");
+const hfRunner = require("./hf-runner.cjs");
+const paths = require("./friday-paths.cjs");
 
 const OLLAMA = process.env.OLLAMA_HOST?.replace(/\/+$/, "") || "http://127.0.0.1:11434";
 
@@ -40,6 +42,9 @@ const LOCAL_ENGINES = {
   },
   // KoboldCpp serves its OpenAI-compatible API on its documented default port.
   koboldcpp: { name: "KoboldCpp", endpoint: "http://127.0.0.1:5001" },
+  // `transformers serve` from the Hugging Face runner (Safetensors / PyTorch). 8000 is
+  // vLLM's, so FRIDAY starts it on 8083. See electron/hf-runner.cjs.
+  transformers: { name: "Hugging Face runner", endpoint: "http://127.0.0.1:8083" },
   // GPT4All desktop: Settings -> Application -> Enable Local API Server.
   gpt4all: { name: "GPT4All", endpoint: "http://127.0.0.1:4891" },
 };
@@ -966,6 +971,32 @@ async function ollamaProbeRun(model, prompt = "Reply with the single word: ready
       .trim()
       .slice(0, 200),
   };
+}
+
+/**
+ * One tiny real question to a model on a local OpenAI-compatible engine, so a
+ * model only reads "ready" after it answered. The first call can include
+ * loading the weights, so it waits far longer than a normal chat.
+ */
+async function engineProbeRun(id, model, prompt = "Reply with the single word: ready.") {
+  const base = localEndpointCandidates(id)[0];
+  if (!base) return { ok: false, error: `no endpoint for ${id}` };
+  const res = await request(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 16,
+      stream: false,
+    }),
+    timeout: 300000,
+  });
+  if (!res.ok) return { ok: false, error: res.error || `HTTP ${res.status}` };
+  const text = String(res.body?.choices?.[0]?.message?.content || "").trim();
+  return text
+    ? { ok: true, latencyMs: res.latencyMs, response: text.slice(0, 200) }
+    : { ok: false, error: "empty answer" };
 }
 
 /** Ollama keeps a model resident; keep_alive: 0 unloads it for real. */
@@ -1908,6 +1939,20 @@ const ENGINE_CONTROL = {
       "KoboldCpp needs a model file to start. Run koboldcpp.exe with your GGUF (port 5001), or load one from its launcher.",
     probe: () => localEngine("koboldcpp").then((r) => r.online),
   },
+  transformers: {
+    // The runner is installed from the Install Manager into the FRIDAY folder;
+    // its start command exists only once that has happened.
+    get start() {
+      const root = paths.root();
+      const found = root ? hfRunner.detect(root) : null;
+      return found?.installed ? [hfRunner.serveBin(root), hfRunner.serveArgs()] : null;
+    },
+    startEnv: () => hfRunner.serveEnv(paths.root()),
+    startTimeoutMs: 90000,
+    stopHint:
+      "Stop the Hugging Face runner from the Install Manager (Services), or use Stop everything.",
+    probe: () => localEngine("transformers").then((r) => r.online),
+  },
   gpt4all: {
     stopHint: "Open GPT4All → Settings → Application → Enable Local API Server (127.0.0.1:4891).",
     probe: () => localEngine("gpt4all").then((r) => r.online),
@@ -1970,7 +2015,6 @@ async function waitUntil(probe, timeoutMs = 15000, stepMs = 700) {
 function ownedModelFiles() {
   try {
     const download = require("./model-download.cjs");
-    const paths = require("./friday-paths.cjs");
     const root = paths.root() || paths.base();
     if (!root) return [];
     return download.listLocalWeights(path.join(root, "models"));
@@ -2106,7 +2150,12 @@ async function startEngine(id, options = {}) {
     }
     let child;
     try {
-      child = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true });
+      child = spawn(cmd, args, {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+        ...(spec.startEnv ? { env: spec.startEnv() } : {}),
+      });
     } catch (err) {
       return {
         ok: false,
@@ -3000,6 +3049,7 @@ module.exports = {
   ollamaPull,
   ollamaDelete,
   ollamaProbeRun,
+  engineProbeRun,
   ollamaUnload,
   ollamaRunning,
   localFolders,

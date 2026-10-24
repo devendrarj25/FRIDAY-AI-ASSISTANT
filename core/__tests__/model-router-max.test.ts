@@ -91,7 +91,11 @@ describe("provider errors stay on the model that failed", () => {
       headers: { "x-ratelimit-remaining-requests": "10" },
     });
     expect(burst.category).toBe("rate_limited");
-    expect(burst.cooldownMs).toBe(60_000);
+    // No wait is stated, so the guess is 20 s (it was a full minute), and a
+    // wait the provider does state is used as told.
+    expect(burst.cooldownMs).toBe(20_000);
+    const told = router.classifyError({ status: 429, message: "rate limit", retryAfter: 7 });
+    expect(told.cooldownMs).toBe(7000);
   });
 
   it("keeps a sibling eligible after one model's paid or access refusal", () => {

@@ -113,6 +113,21 @@
       "uninstallHint": "Delete the downloaded executable. It is not an installed app."
     },
     {
+      "id": "transformers",
+      "name": "Hugging Face runner",
+      "officialPage": "https://huggingface.co/docs/transformers/serve-cli/serving",
+      "docs": "https://huggingface.co/docs/transformers/serve-cli/serving",
+      "api": "http://127.0.0.1:8083",
+      "installScope": "venv",
+      "requiresAdmin": false,
+      "catalog": "huggingface",
+      "catalogNote": "Runs Safetensors and PyTorch models with transformers serve. Models come from the Hugging Face Hub or an imported folder and are served offline from the FRIDAY folder.",
+      "release": null,
+      "start": null,
+      "stopHint": "Stop it from the Install Manager (Services).",
+      "uninstallHint": "Delete the runtime\\Hugging_Face_runner folder in the FRIDAY folder. Models in models\\huggingface are kept."
+    },
+    {
       "id": "llamacpp",
       "name": "llama.cpp",
       "officialPage": "https://github.com/ggml-org/llama.cpp/releases",

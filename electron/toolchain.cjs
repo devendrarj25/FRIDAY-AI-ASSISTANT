@@ -17,6 +17,7 @@ const path = require("path");
 const fs = require("fs");
 const voiceInstall = require("./voice-install.cjs");
 const vendorSources = require("./vendor-sources.cjs");
+const hfRunner = require("./hf-runner.cjs");
 const zlib = require("zlib");
 const { resolvePython } = require("./python.cjs");
 const fridayPaths = require("./friday-paths.cjs");
@@ -587,6 +588,33 @@ async function wingetHealth() {
 const T = (id, category, opts) => ({ id, category, ...opts });
 
 /** Chromium that Playwright downloaded into the user's cache, or null. */
+/**
+ * The command that builds the Hugging Face runner's environment. PyTorch wheels
+ * trail the newest Python, so a 3.13 or 3.12 interpreter is preferred when one
+ * exists; otherwise the interpreter FRIDAY already resolved is used. An NVIDIA
+ * GPU selects the CUDA build of PyTorch.
+ */
+async function hfRunnerInstallCommand(root) {
+  if (!root) return null;
+  let base = null;
+  if (WIN) {
+    for (const minor of ["3.13", "3.12"]) {
+      const ok = await run("py", [`-${minor}`, "-c", "print(1)"], 8000);
+      if (ok && String(ok).trim() === "1") {
+        base = { exe: "py", prefix: [`-${minor}`] };
+        break;
+      }
+    }
+  }
+  if (!base) {
+    const found = await resolvePython(path.join(__dirname, ".."));
+    if (found) base = { exe: found.exe, prefix: found.prefix || [] };
+  }
+  if (!base) return null;
+  const gpu = await run("nvidia-smi", ["-L"], 6000);
+  return [base.exe, [...base.prefix, ...hfRunner.installArgs(root, Boolean(gpu))]];
+}
+
 function detectPlaywrightBrowsers() {
   const bases = [
     process.env.PLAYWRIGHT_BROWSERS_PATH,
@@ -1384,6 +1412,18 @@ const TOOLS = [
     archiveBin: "koboldcpp.exe",
     latest: { kind: "github", ref: "LostRuins/koboldcpp" },
     manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
+  }),
+  T("Hugging Face runner", "AI Runtimes", {
+    // `transformers serve` in its own virtual environment under runtime\\ (PyTorch
+    // is too large for the kernel's environment). The folder is the proof.
+    url: "https://huggingface.co/docs/transformers/serve-cli/serving",
+    source: "huggingface.co",
+    latest: { kind: "pypi", ref: "transformers" },
+    detect: ({ root } = {}) => hfRunner.detect(root),
+    customCommand: async (_action, opts = {}) => hfRunnerInstallCommand(opts.root),
+    noUninstall: true,
+    manual:
+      "installs PyTorch and Transformers into the FRIDAY folder (large download); models are served offline",
   }),
   T("Deno", "Languages & Runtimes", {
     cmd: "deno",
@@ -2258,7 +2298,7 @@ async function probeTool(tool, freeze, installedPackages = "", root = "") {
   if (typeof tool.detect === "function") {
     let found = null;
     try {
-      found = await tool.detect();
+      found = await tool.detect({ root });
     } catch (err) {
       found = { installed: false, status: "Error", note: String(err && err.message) };
     }
@@ -3112,7 +3152,7 @@ function runJob({ id, action, root }, emit) {
     // Packages whose installability depends on the real machine (Python
     // version, GPU, available wheels) decide their strategy before we spend a
     // download on an install that cannot succeed.
-    let installOpts = {};
+    let installOpts = { root };
     if (typeof tool.strategy === "function" && action !== "uninstall") {
       const plan = await tool.strategy();
       if (!plan.ok) {

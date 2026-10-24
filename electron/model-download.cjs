@@ -29,6 +29,26 @@ const library = require("./local-library.cjs");
 
 const HF_HOSTS = voiceInstall.hfHostList(process.env);
 const OLLAMA = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
+
+/**
+ * The Hugging Face token of the owner's own account, set for the length of one
+ * download. It is sent to huggingface.co and hf.co only, so gated and private
+ * repositories open; a redirect to another host drops it (fetch does this by
+ * itself), and it is never logged or written.
+ */
+let hfToken = null;
+const HF_AUTH_HOSTS = /^(?:[\w-]+\.)?(?:huggingface\.co|hf\.co)$/i;
+function withHfAuth(url, init = {}) {
+  if (!hfToken) return init;
+  let host = "";
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return init;
+  }
+  if (!HF_AUTH_HOSTS.test(host)) return init;
+  return { ...init, headers: { ...(init.headers || {}), authorization: `Bearer ${hfToken}` } };
+}
 const SEGMENT_THRESHOLD = 192 * 1024 * 1024; // below this, one connection is faster
 const MAX_SEGMENTS = 4;
 const RETRIES = 3;
@@ -91,7 +111,7 @@ async function hfFiles(repo, signal) {
       // so every weight is verified against the publisher's own digest.
       const listingUrl = `${host}/api/models/${repo}?blobs=true`;
       safety.assertAllowedUrl(listingUrl);
-      const res = await fetch(listingUrl, { signal });
+      const res = await fetch(listingUrl, withHfAuth(listingUrl, { signal }));
       if (!res.ok) {
         lastError = `HTTP ${res.status}`;
         continue;
@@ -134,7 +154,11 @@ function pickGguf(files, match = []) {
 // ------------------------------------------------------------- HTTP fetching
 async function headInfo(url, signal, extraHosts = []) {
   try {
-    const { res } = await safety.fetchAllowlisted(url, { method: "HEAD", signal }, extraHosts);
+    const { res } = await safety.fetchAllowlisted(
+      url,
+      withHfAuth(url, { method: "HEAD", signal }),
+      extraHosts,
+    );
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     return {
       ok: true,
@@ -312,7 +336,10 @@ async function fetchSegment(segment, ctx) {
     try {
       const { res } = await safety.fetchAllowlisted(
         url,
-        { headers: canRange ? { Range: `bytes=${from}-${segment.end}` } : {}, signal },
+        withHfAuth(url, {
+          headers: canRange ? { Range: `bytes=${from}-${segment.end}` } : {},
+          signal,
+        }),
         extraHosts,
       );
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -361,7 +388,7 @@ async function fetchUnknownLength(ctx) {
   for (let failures = 1; ; failures += 1) {
     try {
       await handle.truncate(0);
-      const { res } = await safety.fetchAllowlisted(url, { signal }, extraHosts);
+      const { res } = await safety.fetchAllowlisted(url, withHfAuth(url, { signal }), extraHosts);
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       return await pipeInto(handle, res, 0, report, signal, control);
     } catch (err) {
@@ -649,7 +676,7 @@ function remember(root, job, fields) {
  * @param {string} job.dir              destination root for file downloads
  * @param {object} deps                 { ollamaPull } injected from models.cjs
  */
-async function downloadModel(job, onEvent, signal, deps = {}) {
+async function downloadModelInner(job, onEvent, signal, deps = {}) {
   const { modelId, sources = [], dir } = job;
   // Every downloaded byte is persistent FRIDAY data, so it must land inside
   // the selected FRIDAY folder. There is no temp-folder fallback: a caller
@@ -922,7 +949,25 @@ function selfCheckPlan(input) {
   return voiceInstall.downloadSelfCheck(input);
 }
 
+/** One download, with the owner's Hugging Face token (deps.hfToken) in place while it runs. */
+let tokenUsers = 0;
+async function downloadModel(job, onEvent, signal, deps = {}) {
+  if (deps.hfToken) {
+    hfToken = String(deps.hfToken);
+    tokenUsers += 1;
+  }
+  try {
+    return await downloadModelInner(job, onEvent, signal, deps);
+  } finally {
+    if (deps.hfToken && (tokenUsers -= 1) <= 0) {
+      tokenUsers = 0;
+      hfToken = null;
+    }
+  }
+}
+
 module.exports = {
+  withHfAuth,
   HF_HOSTS,
   selfCheckPlan,
   hfFiles,

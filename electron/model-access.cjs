@@ -51,6 +51,7 @@ const LOCAL_KINDS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
 ]);
@@ -63,6 +64,7 @@ const LOCAL_PROVIDERS = new Set([
   "localai",
   "jan",
   "koboldcpp",
+  "transformers",
   "gpt4all",
   "mlx",
   "local",
@@ -1827,7 +1829,7 @@ function classifyModel(input = {}, now = Date.now()) {
         },
         now,
       );
-  record = applyOwnerDeclaration(record, input.ownerDeclaration, now);
+  record = applyOwnerDeclaration(record, input.ownerDeclaration, now, providerId);
   if (input.probe) record = applyProbe(record, input.probe, now);
   return record;
 }
@@ -1837,7 +1839,15 @@ function classifyModel(input = {}, now = Date.now()) {
  * UNKNOWN only — a published PAID price stays PAID. A per-model mark free or
  * mark paid is stored as owner_declared and is shown as the owner's word.
  */
-function applyOwnerDeclaration(record, declaration, now) {
+/**
+ * Providers whose Free plan has no payment method behind it, so a request past
+ * its limits is refused, not billed. When the owner says this key is on that plan,
+ * the provider's published developer-plan prices do not apply to it. Groq is the
+ * one built in: its pricing table lists the Developer plan.
+ */
+const FREE_PLAN_HAS_NO_BILLING = new Set(["groq"]);
+
+function applyOwnerDeclaration(record, declaration, now, providerId = "") {
   if (!declaration || typeof declaration !== "object") return record;
   const mark =
     declaration.model === "free" || declaration.model === "paid" ? declaration.model : null;
@@ -1863,6 +1873,22 @@ function applyOwnerDeclaration(record, declaration, now) {
         // "pricing_stale" and stay blocked after the owner marked it free.
         failureReason: null,
         evidence: { source: "owner_declared", checkedAt: now, confidence: 0.9 },
+      },
+      now,
+    );
+  }
+  if (
+    declaration.providerFreeTier === true &&
+    record.billingMode === "PAID" &&
+    FREE_PLAN_HAS_NO_BILLING.has(String(providerId))
+  ) {
+    return makeRecord(
+      {
+        ...record,
+        billingMode: "FREE_QUOTA",
+        eligibility: "ELIGIBLE",
+        failureReason: null,
+        evidence: { source: "owner_declared", checkedAt: now, confidence: 0.6 },
       },
       now,
     );

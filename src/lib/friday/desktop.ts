@@ -736,6 +736,15 @@ type DesktopApi = {
   startModelEngine?: (id: string, selectedModel?: string) => Promise<EngineResult>;
   stopModelEngine?: (id: string) => Promise<EngineResult>;
   localModelStatus?: () => Promise<LocalModelStatus>;
+  /** Draw a picture with a connected cloud provider (privacy and billing gates apply). */
+  generateImage?: (payload: {
+    prompt: string;
+    modelId?: string;
+    size?: string;
+  }) => Promise<
+    | { ok: true; file: string; dataUrl: string; model: string; access?: string }
+    | { ok: false; error: string }
+  >;
   comfyuiStatus?: () => Promise<{
     online: boolean;
     endpoint: string;
@@ -758,6 +767,8 @@ type DesktopApi = {
       state?: "ready" | "installed-not-responding";
       latencyMs?: number | null;
       tokensPerSec?: number | null;
+      /** A runner FRIDAY must install before this model can answer. */
+      needsRunner?: string;
     }) => void,
   ) => () => void;
   mcpDesk?: (payload: Record<string, unknown>) => Promise<unknown>;
@@ -988,6 +999,10 @@ export type ModelImportResult = {
   linked?: boolean;
   registered?: boolean;
   registeredAs?: string;
+  /** The engine that serves it, when it is not the default one. */
+  engine?: string;
+  /** A runner FRIDAY must install before this model can answer. */
+  needsRunner?: string;
 };
 
 export type ModelImportProgress = {

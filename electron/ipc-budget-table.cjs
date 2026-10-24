@@ -112,6 +112,7 @@ const CHANNEL_CLASS = Object.freeze({
   "character:texture": "quick",
   "character:update": "quick",
   "chat:parallel": "stream",
+  "image:generate": "long-job",
   "comfyui:run": "long-job",
   "comfyui:status": "quick",
   "companion:cognize-ack": "quick",

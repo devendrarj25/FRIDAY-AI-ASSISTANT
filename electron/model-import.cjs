@@ -243,6 +243,15 @@ async function importModel(request, deps = {}) {
     path: inspected.kind === "folder" ? placed.dir : placed.files[0],
     linked: placed.linked,
   };
+  // A Safetensors or PyTorch folder is served by the Hugging Face runner: it is
+  // linked into the runner's offline cache and answers by its repo id.
+  if (
+    inspected.kind === "folder" &&
+    (inspected.format === "Safetensors" || inspected.format === "PyTorch") &&
+    deps.serve
+  ) {
+    return importForRunner({ base, slug, name, deps, emit });
+  }
   // Only a GGUF can be served by the local engine as it is.
   if (inspected.format !== "GGUF" || inspected.kind !== "file" || !deps.register) {
     return {
@@ -290,7 +299,75 @@ async function importModel(request, deps = {}) {
   return { ...base, state: "ready", registered: true, registeredAs: tag };
 }
 
+/**
+ * Register a placed Transformers folder with the Hugging Face runner.
+ * deps.serve: { repoId(slug), register(repoId, dir), installed(), ensure(), verify(repoId) }
+ */
+async function importForRunner({ base, slug, name, deps, emit }) {
+  const serve = deps.serve;
+  const repoId = serve.repoId(slug);
+  emit({ status: "linking the model into the Hugging Face runner", progress: 97 });
+  const linked = serve.register(repoId, base.path);
+  if (!linked?.ok) {
+    return {
+      ...base,
+      state: "stored",
+      registered: false,
+      note: `stored; the Hugging Face runner could not take it (${linked?.error || "unknown reason"})`,
+    };
+  }
+  if (!serve.installed()) {
+    return {
+      ...base,
+      state: "stored",
+      registered: true,
+      registeredAs: repoId,
+      engine: "transformers",
+      needsRunner: "Hugging Face runner",
+      note: "stored and linked; the Hugging Face runner is being installed so it can run",
+    };
+  }
+  emit({ status: "starting the Hugging Face runner", progress: 98 });
+  const up = await serve.ensure().catch(() => false);
+  if (!up) {
+    return {
+      ...base,
+      state: "stored",
+      registered: true,
+      registeredAs: repoId,
+      engine: "transformers",
+      note: "stored and linked; the Hugging Face runner did not start, so it will answer when you retry",
+    };
+  }
+  emit({
+    status: "sending a test prompt (the first load of a large model takes a while)",
+    progress: 99,
+  });
+  const verified = serve.verify
+    ? await serve.verify(repoId).catch((e) => ({ ok: false, error: String(e) }))
+    : null;
+  if (verified && !verified.ok) {
+    return {
+      ...base,
+      state: "not-responding",
+      registered: true,
+      registeredAs: repoId,
+      engine: "transformers",
+      note: `linked, but it did not answer the test prompt (${verified.error || "empty answer"})`,
+    };
+  }
+  return {
+    ...base,
+    name,
+    state: "ready",
+    registered: true,
+    registeredAs: repoId,
+    engine: "transformers",
+  };
+}
+
 module.exports = {
+  importForRunner,
   FORMATS,
   PICK_FILTERS,
   slugOf,

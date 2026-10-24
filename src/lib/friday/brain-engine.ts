@@ -215,6 +215,7 @@ import {
 import { handleDoctorCommand } from "./doctor-engine";
 import { handleInstallerCommand } from "./installer-engine";
 import { handleModelsCommand } from "./models-command";
+import { parseImageRequest, runImageRequest } from "./image-command";
 import {
   kernelCall,
   checkForUpdates,
@@ -1785,6 +1786,15 @@ class BrainStore {
         text: modelsReply,
         confidence: 1,
       });
+      return;
+    }
+
+    const imageRequest = parseImageRequest(work);
+    if (imageRequest) {
+      stampUnderstanding("draw a picture — no chat model");
+      void runImageRequest(imageRequest).then((text) =>
+        this.answerFromBaseline(run, { handled: true, kind: "action", text, confidence: 1 }),
+      );
       return;
     }
 
