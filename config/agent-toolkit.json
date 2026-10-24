@@ -1,11 +1,11 @@
 {
-  "$comment": "What FRIDAY needs installed to run, build, test, search, convert, containerise and use the GPU. scripts/prefetch-toolkit.cjs installs every entry of `prefetch` before the EXE is built, whatever its size, through the Install Manager job. There is no size cap: `onDemand` is by kind, not by size. Big AI models are chosen in the Models section, and the heavy runners and GPU stacks that only a model needs (PyTorch, the Hugging Face runner, vLLM) come from the Install Manager when that model is used. `elevated` entries need an administrator prompt and may ask for a restart; `requires` gates an entry on this PC's hardware.",
+  "$comment": "What FRIDAY needs installed to run, build, test, search, convert, containerise and use the GPU. scripts/prefetch-toolkit.cjs installs every entry of `prefetch` before the EXE is built, whatever its size, through the Install Manager job. There is no size cap: `onDemand` is by kind, not by size. Big AI models are chosen in the Models section, and the heavy runners and GPU stacks that only a model needs (PyTorch, the Hugging Face runner, vLLM) come from the Install Manager when that model is used. `catalog` is the row name in the Install Manager list when it differs from the tool id; `elevated` entries need an administrator prompt and may ask for a restart; `requires` gates an entry on this PC's hardware.",
   "prefetch": [
     { "id": "ripgrep", "group": "portable", "why": "fast text search across a project", "approxBytes": 6000000 },
     { "id": "jq (JSON)", "group": "portable", "why": "read and reshape JSON on the command line", "approxBytes": 1000000 },
     { "id": "yq (YAML)", "group": "portable", "why": "read and reshape YAML on the command line", "approxBytes": 10000000 },
     { "id": "Ninja", "group": "portable", "why": "fast build runner for C and C++ projects", "approxBytes": 400000 },
-    { "id": "uv (Python)", "group": "portable", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
+    { "id": "uv (Python)", "catalog": "uv", "group": "portable", "why": "fast Python packages and virtual environments", "approxBytes": 40000000 },
     { "id": "aria2", "group": "portable", "why": "resumable multi-connection downloads", "approxBytes": 2000000 },
     { "id": "FFmpeg", "group": "portable", "why": "convert and inspect audio and video", "approxBytes": 100000000 },
     { "id": "Git", "group": "developer", "why": "version control for the agent's projects", "approxBytes": 60000000 },

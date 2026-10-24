@@ -27,7 +27,9 @@
  * restart; the build goes on and the log says a restart is pending. A failed or
  * offline install never fails the build. Opt out: FRIDAY_PREFETCH=0 or
  * FRIDAY_PREFETCH_TOOLKIT=0 skips the step, FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0
- * skips only the administrator ones (a quick build); FRIDAY_OFFLINE=1 skips.
+ * skips only the administrator ones (a quick build); FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN
+ * (default 30, 45 for an administrator tool) ends an install that never answers;
+ * FRIDAY_OFFLINE=1 skips.
  * Hosted CI skips it unless FRIDAY_PREFETCH=1.
  */
 const path = require("node:path");
@@ -57,6 +59,13 @@ function newer(latest, have) {
     if (delta) return delta > 0;
   }
   return false;
+}
+
+/** How long one install may run before the build moves on (minutes in FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN). */
+function jobLimitMs(env = process.env, elevated = false) {
+  const minutes = Number(env.FRIDAY_PREFETCH_TOOLKIT_TIMEOUT_MIN);
+  const base = Number.isFinite(minutes) && minutes > 0 ? minutes : 30;
+  return Math.round(base * (elevated ? 1.5 : 1) * 60 * 1000);
 }
 
 /** Why the whole step is skipped, or "" when it runs. Pure. */
@@ -154,7 +163,10 @@ async function prefetchToolkit(root, deps = {}) {
   const detected = {};
   const latest = {};
   try {
-    const scan = await toolchain.detectTools({ force: true, root });
+    // Probe only the tools of this list (and the NVIDIA driver the CUDA row waits on),
+    // not the whole 197-row catalog, so the step stays fast on every build.
+    const wanted = [...config.prefetch.map((entry) => entry.id), "NVIDIA Driver"];
+    const scan = await toolchain.detectTools({ force: true, root, only: wanted });
     for (const row of scan.tools || []) detected[row.id] = row;
   } catch (err) {
     log(
@@ -210,14 +222,35 @@ async function prefetchToolkit(root, deps = {}) {
       );
     }
     let result;
+    const job = {
+      id: row.id,
+      action: row.action === "update" ? "update" : "install",
+      root,
+    };
+    const limit = jobLimitMs(env, row.elevated);
+    let timer;
     try {
-      result = await toolchain.runJob(
-        { id: row.id, action: row.action === "update" ? "update" : "install", root },
-        eventPrinter(log, row.id, progressLine),
-      );
+      result = await Promise.race([
+        toolchain.runJob(job, eventPrinter(log, row.id, progressLine)),
+        new Promise((resolve) => {
+          timer = setTimeout(() => {
+            // An unanswered administrator prompt or a stuck installer must not hold the build for ever.
+            try {
+              toolchain.cancelJob?.(job);
+            } catch {
+              /* the job is abandoned either way */
+            }
+            resolve({ ok: false, error: `no answer after ${Math.round(limit / 60000)} minutes` });
+          }, limit);
+        }),
+      ]);
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
+    } finally {
+      clearTimeout(timer);
     }
+    if (!result?.ok && result?.error)
+      log(`[friday] INFO     ${row.id}: ${String(result.error).slice(0, 200)}`);
     if (result?.ok) {
       log(`[friday] ok       ${row.id} ${row.action === "update" ? "updated" : "installed"}`);
       if (result.restartRequired) {
@@ -247,7 +280,16 @@ async function prefetchToolkit(root, deps = {}) {
   return rows;
 }
 
-module.exports = { prefetchToolkit, toolkitPlan, skipReason, deferredList, newer, mb, config };
+module.exports = {
+  prefetchToolkit,
+  jobLimitMs,
+  toolkitPlan,
+  skipReason,
+  deferredList,
+  newer,
+  mb,
+  config,
+};
 
 if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");

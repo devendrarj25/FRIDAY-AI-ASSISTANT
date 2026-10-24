@@ -197,6 +197,43 @@ describe("lifecycle owner", () => {
     expect(seen).toEqual(["quit", "exit", "before-quit"]);
   });
 
+  it("restarts a Portable build through its launcher, not the temp copy that is about to be removed", async () => {
+    const launched: { execPath?: string; args?: string[] }[] = [];
+    const app = {
+      ...fakeApp(),
+      relaunch(opts?: { execPath?: string; args?: string[] }) {
+        launched.push(opts ?? {});
+      },
+    };
+    const portable = owner.createLifecycle({
+      app,
+      env: { PORTABLE_EXECUTABLE_FILE: "D:\\Apps\\FRIDAY-Portable.exe" },
+      exists: (file: string) => file.endsWith("FRIDAY-Portable.exe"),
+      relaunchArgs: () => ["--friday-restart=1"],
+    });
+    await portable.requestRestart("portable");
+    expect(launched).toEqual([
+      { execPath: "D:\\Apps\\FRIDAY-Portable.exe", args: ["--friday-restart=1"] },
+    ]);
+
+    // A missing launcher file, or an installed build, keeps the plain relaunch.
+    const plain: { execPath?: string; args?: string[] }[] = [];
+    const app2 = {
+      ...fakeApp(),
+      relaunch(opts?: { execPath?: string; args?: string[] }) {
+        plain.push(opts ?? {});
+      },
+    };
+    const installed = owner.createLifecycle({
+      app: app2,
+      env: { PORTABLE_EXECUTABLE_FILE: "D:\\gone.exe" },
+      exists: () => false,
+      relaunchArgs: () => [],
+    });
+    await installed.requestRestart("installed");
+    expect(plain).toEqual([{}]);
+  });
+
   it("relaunches once after cleanup and forces exit if cleanup hangs", async () => {
     const app = fakeApp();
     const deadline: { fire: (() => void) | null } = { fire: null };

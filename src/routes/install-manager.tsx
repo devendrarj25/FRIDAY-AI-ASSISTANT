@@ -338,6 +338,19 @@ function InstallManagerPage() {
     );
   };
 
+  const onInstallToolkit = () => {
+    if (
+      !window.confirm(
+        "Queue the agent toolkit (search, Git, build tools, Go, Rust, Java, WSL 2, Docker, Windows Sandbox, CUDA on an NVIDIA PC)? Some of these show a Windows administrator prompt.",
+      )
+    )
+      return;
+    const n = installer.installToolkit();
+    toast[n ? "success" : "message"](
+      n ? `${n} toolkit packages queued` : "The agent toolkit is already installed",
+    );
+  };
+
   const onUpdateAll = () => {
     if (
       !window.confirm(
@@ -388,6 +401,9 @@ function InstallManagerPage() {
           </Button>
           <Button size="sm" variant="outline" onClick={onInstallRequired}>
             <Download className="size-4" /> Install Required
+          </Button>
+          <Button size="sm" variant="outline" onClick={onInstallToolkit}>
+            <Download className="size-4" /> Install agent toolkit
           </Button>
           <Button size="sm" variant="outline" onClick={onUpdateAll}>
             <Download className="size-4" /> Update all ({counts.updates})

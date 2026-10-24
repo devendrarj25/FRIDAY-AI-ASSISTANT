@@ -2475,7 +2475,28 @@ let detectInflight = null;
 let lastDetect = { at: 0, tools: [], root: null };
 
 /** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
-async function detectTools({ force = false, root: rootArg } = {}) {
+async function detectTools({ force = false, root: rootArg, only = null } = {}) {
+  // A caller that needs a handful of tools (the build-time toolkit step) probes
+  // just those and leaves the app's full-scan cache alone.
+  if (Array.isArray(only) && only.length) {
+    const want = new Set(only);
+    const root = rootArg ?? fridayPaths.root() ?? "";
+    const [freeze, installedPackages] = await Promise.all([
+      loadPipFreeze(force),
+      loadWingetList(force),
+    ]);
+    const probed = await pool(
+      TOOLS.filter((t) => want.has(t.id)),
+      6,
+      (t) => probeTool(t, freeze, installedPackages, root),
+    );
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
+    return { at: Date.now(), tools: probed, root };
+  }
   // FRIDAY's own installs live under <root>\runtime; without the root a tool she
   // unpacked there read "Missing" on every scan and was downloaded again.
   const root = rootArg ?? fridayPaths.root() ?? "";
