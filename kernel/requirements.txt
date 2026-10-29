@@ -30,7 +30,7 @@ faster-whisper>=1.2.1
 # PyAV 19 removed that keyword. The upstream guard is on master and is not
 # in a PyPI release (latest remains 1.2.1, which only requires av>=11).
 # audiolab (via pyrnnoise) needs av>=17.0.0, so the safe range is below 19.
-av>=17.0.0,<19
+av>=17.1.0,<19
 edge-tts>=7.3.1
 
 # Memory, devices, wake scorer, OCR and Windows control extras live in
