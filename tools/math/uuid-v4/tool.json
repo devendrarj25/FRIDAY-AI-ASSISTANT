@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "UUID v4",
+  "description": "Generate a RFC-4122 UUID v4 with Node crypto.randomUUID.",
+  "category": "math",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to GENERATE a UUID v4. Allow this?",
+  "keywords": [
+    "uuid",
+    "guid",
+    "random"
+  ]
+}

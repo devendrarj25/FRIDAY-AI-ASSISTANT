@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "daily-activity-rollup",
+  "name": "Daily activity rollup",
+  "description": "Accumulate file-change counts per local date, then rewrite a daily summary on idle.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-file-change",
+    "on-idle"
+  ]
+}

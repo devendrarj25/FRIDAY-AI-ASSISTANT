@@ -1,0 +1,17 @@
+{
+  "name": "Zip archive inventory",
+  "version": "1.0.0",
+  "description": "Lists zip/7z/rar archives with size and age. Does not extract; use this before opening a huge dump.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} archive(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

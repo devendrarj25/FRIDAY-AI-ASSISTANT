@@ -1,0 +1,22 @@
+{
+  "name": "Mirror the connected Android phone's screen",
+  "version": "1.0.0",
+  "description": "Show and control the phone's screen on this PC with scrcpy. Nothing is recorded or uploaded.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "android.mirror",
+  "inputs": [
+    {
+      "name": "serial",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "process.exec",
+    "devices"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to mirror your connected Android phone's screen onto this PC. Allow this?"
+}

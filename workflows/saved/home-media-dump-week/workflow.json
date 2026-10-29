@@ -1,0 +1,78 @@
+{
+  "id": "home-media-dump-week",
+  "name": "Home media dump week",
+  "version": "1.0.0",
+  "description": "Home photo/video dump: Pictures year folders, WhatsApp images, videos, camera bursts, duplicate photos, Recycle Bin hint, then a local sort plan. No cloud upload.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Saturday 15:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Plan Pictures year folders",
+      "kind": "agent",
+      "ref": "agents/core/pictures-year-folder-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan WhatsApp image dumps",
+      "kind": "agent",
+      "ref": "agents/core/whatsapp-image-dump-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Inventory video stashes",
+      "kind": "agent",
+      "ref": "agents/core/video-stash-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory camera bursts",
+      "kind": "agent",
+      "ref": "agents/core/camera-burst-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Find duplicate photos",
+      "kind": "agent",
+      "ref": "agents/core/duplicate-photo-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Hint Recycle Bin leftovers",
+      "kind": "agent",
+      "ref": "agents/core/recycle-bin-hint",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Inventory music downloads",
+      "kind": "agent",
+      "ref": "agents/core/music-download-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Draft a sort plan",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the media plan local",
+      "kind": "note",
+      "ref": "home-media-week",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "toml-inspect",
+  "version": "1.0.0",
+  "description": "Parse a TOML file with stdlib tomllib and report top-level keys and table names. Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "TOML inspect",
+    "icon": "file"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "con-formwork-area",
+  "name": "Formwork area takeoff",
+  "summary": "Contact area for a rectangular pour: base optional, sides from openSides count.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "length",
+    "width",
+    "height",
+    "openSides"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "sides = openSides × length_or_width × height (simplified box). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Ties, pour rate, and pressure design stay with temporary-works engineering."
+}

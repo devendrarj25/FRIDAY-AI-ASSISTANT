@@ -1,0 +1,16 @@
+{
+  "id": "off-action-tracker",
+  "name": "Action tracker table",
+  "summary": "Turn a bullet list of tasks into a markdown table with owner, due, and status columns.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Tabulates tasks you paste. It does not assign work in an external tracker."
+}

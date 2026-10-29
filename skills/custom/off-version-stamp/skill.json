@@ -1,0 +1,17 @@
+{
+  "id": "off-version-stamp",
+  "name": "Version note stamp",
+  "summary": "Build a short version / what's-new stamp from a version string and change bullets.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "version",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Formats release notes you already wrote. It is not FRIDAY's version authority."
+}

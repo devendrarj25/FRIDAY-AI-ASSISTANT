@@ -1,0 +1,42 @@
+# Model registry seed. Endpoints are local unless marked online.
+models:
+  - id: brain-qwen
+    label: Qwen2.5 32B Instruct
+    provider: llamacpp
+    endpoint: http://127.0.0.1:8080/v1
+    role: brain
+    params: "32B · Q4_K_M"
+    context_k: 32
+
+  - id: coder-ds
+    label: DeepSeek Coder V2 16B
+    provider: ollama
+    endpoint: http://127.0.0.1:11434
+    role: coder
+    params: "16B · Q5"
+    context_k: 64
+
+  - id: fast-llama
+    label: Llama 3.2 3B
+    provider: lmstudio
+    endpoint: http://127.0.0.1:1234/v1
+    role: fast
+    params: "3B · Q8"
+    context_k: 16
+
+  - id: embed-bge
+    label: bge-m3 embeddings
+    provider: llamacpp
+    endpoint: http://127.0.0.1:8081/v1
+    role: embed
+    params: "560M · F16"
+    context_k: 8
+
+  # Online models read their key from the OS keychain / env, never from this file.
+  - id: research-online
+    label: Online reasoning model
+    provider: online
+    endpoint: https://api.provider.example/v1
+    role: researcher
+    api_key_env: FRIDAY_ONLINE_API_KEY
+    context_k: 200

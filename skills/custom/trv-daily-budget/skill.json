@@ -1,0 +1,17 @@
+{
+  "id": "trv-daily-budget",
+  "name": "Trip daily budget",
+  "summary": "Divide a trip cash budget by days and split into stay / food / local transport sketches.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "amount",
+    "days"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

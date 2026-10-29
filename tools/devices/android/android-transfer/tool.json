@@ -1,0 +1,34 @@
+{
+  "name": "Transfer files with the connected Android phone",
+  "version": "1.0.0",
+  "description": "Copy a file to or from a cable-connected Android phone over ADB.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "android.transfer",
+  "inputs": [
+    {
+      "name": "direction",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "local",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "remote",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "permissions": [
+    "process.exec",
+    "fs.read",
+    "fs.write",
+    "devices"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to copy files between this PC and your connected Android phone. Allow this?"
+}

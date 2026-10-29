@@ -1,0 +1,12 @@
+{
+  "name": "Startup program auditor",
+  "version": "1.0.0",
+  "description": "Lists programs registered to start with Windows (Startup folders and Run keys). On non-Windows hosts it reports that honestly instead of inventing an inventory. Read-only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} startup program(s) on this PC. This is a read-only inventory — allow to keep the list in the approval queue. Nothing will be disabled or deleted."
+}

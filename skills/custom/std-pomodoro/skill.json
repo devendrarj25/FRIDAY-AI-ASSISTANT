@@ -1,0 +1,18 @@
+{
+  "id": "std-pomodoro",
+  "name": "Pomodoro session blocks",
+  "summary": "Lay out focus/break blocks for a study window (25/5 by default).",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "minutes",
+    "focus",
+    "break"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A timer plan. FRIDAY does not start an OS timer."
+}

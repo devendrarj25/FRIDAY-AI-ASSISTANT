@@ -1,0 +1,64 @@
+{
+  "id": "csv-expense-total-chain",
+  "name": "CSV expense total chain",
+  "version": "1.0.0",
+  "description": "Total CSV expenses, profile CSV via module, histogram bins skill, then a local P&L sketch from those rows only.",
+  "category": "bookkeeping",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Total CSV expenses",
+      "kind": "agent",
+      "ref": "agents/core/csv-expense-total",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Preview the CSV",
+      "kind": "tool",
+      "ref": "tools/filesystem/csv-preview",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Profile CSV via module",
+      "kind": "module",
+      "ref": "modules/developer/csv-profile",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Summarise a column",
+      "kind": "skill",
+      "ref": "skills/custom/dat-column-summary",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Histogram bins",
+      "kind": "skill",
+      "ref": "skills/custom/dat-histogram-bins",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft the totals note",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep totals local",
+      "kind": "note",
+      "ref": "csv-totals",
+      "risk": "safe"
+    }
+  ]
+}

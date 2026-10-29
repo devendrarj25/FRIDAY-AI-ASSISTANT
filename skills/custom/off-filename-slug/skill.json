@@ -1,0 +1,17 @@
+{
+  "id": "off-filename-slug",
+  "name": "Safe filename slug",
+  "summary": "Turn a title into a lowercase, filesystem-safe slug with an optional extension.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "ext"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Produces a slug string. It does not rename files on disk."
+}

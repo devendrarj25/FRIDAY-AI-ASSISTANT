@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Open in the live FRIDAY Browser",
+  "description": "Navigate a visible FRIDAY Browser tab when that section is mounted (electron/browser-live.cjs). If no live tab is mounted, falls back to the headless open() path instead of pretending a tab exists.",
+  "category": "browser",
+  "inputs": [
+    "url"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to OPEN “{url}” in the FRIDAY Browser. Allow this navigation?"
+}

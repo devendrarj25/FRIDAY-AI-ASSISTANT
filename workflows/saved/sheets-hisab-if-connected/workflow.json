@@ -1,0 +1,50 @@
+{
+  "id": "sheets-hisab-if-connected",
+  "name": "Sheets hisab if connected",
+  "version": "1.0.0",
+  "description": "Local CSV totals first; Google Sheets only when connected. Not a live GST filing.",
+  "category": "connectors",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Total CSV expenses",
+      "kind": "agent",
+      "ref": "agents/core/csv-expense-total",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Preview CSV",
+      "kind": "tool",
+      "ref": "tools/filesystem/csv-preview",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Google Sheets if connected",
+      "kind": "connector",
+      "ref": "google-sheets",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft the books line",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep hisab local too",
+      "kind": "note",
+      "ref": "sheets-hisab",
+      "risk": "safe"
+    }
+  ]
+}

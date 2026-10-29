@@ -1,0 +1,17 @@
+{
+  "name": "Bookmark HTML parser",
+  "version": "1.0.0",
+  "description": "Parses Netscape-style bookmarks.html exports and lists href targets. Local file only \u2014 no browser profile scrape beyond the file you point at.",
+  "category": "research",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} bookmark href(s) from HTML under \u201c{folder}\u201d. Local parse only. Allow to keep the list."
+}

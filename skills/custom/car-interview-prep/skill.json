@@ -1,0 +1,17 @@
+{
+  "id": "car-interview-prep",
+  "name": "Interview question list",
+  "summary": "Build a prep list mixing canned behavioural questions with terms from the role paste.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "role"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Prep list. Not insider questions from a real employer."
+}

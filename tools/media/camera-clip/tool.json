@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Camera clip",
+  "description": "Capture a short webcam clip as sequential stills via electron/camera.cjs. Not an unbounded live stream. Never invents pixels.",
+  "category": "media",
+  "inputs": ["frames"],
+  "permissions": ["camera.read"],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to CAPTURE a short webcam clip (a few stills). Allow this?"
+}

@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Cookie value dump",
+  "description": "Dump name, domain and value of cookies in the FRIDAY Browser session. Exec-tier. Never auto-enabled. Count-only stays on web-cookie-count.",
+  "category": "browser",
+  "inputs": ["url", "domain"],
+  "permissions": ["web.access"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to DUMP cookie VALUES from the FRIDAY Browser session (url {url}). That includes login cookies. Allow this dump?"
+}

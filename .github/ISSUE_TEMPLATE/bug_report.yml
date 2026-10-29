@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in FRIDAY works incorrectly, freezes or crashes
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - UI / renderer
+        - Chat / brain / memory
+        - Models / providers
+        - Tools / agents / skills / plugins
+        - Build (CMD)
+        - Build (GitHub TEST)
+        - Build (GitHub OFFICIAL)
+        - Installer / uninstaller
+        - Update system
+        - Storage / data root
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: FRIDAY version
+      placeholder: "1.3.2 (Settings -> About)"
+    validations:
+      required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Channel
+      options: [Stable, Test, Local CMD build, Dev (npm run dev)]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Console, CMD output, or debug/errors entries. Never paste tokens or API keys.
+      render: text

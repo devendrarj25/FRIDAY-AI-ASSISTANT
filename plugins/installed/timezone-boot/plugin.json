@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "timezone-boot",
+  "name": "Timezone boot",
+  "description": "Record the host timezone offset and locale time string at start.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-app-start"
+  ]
+}

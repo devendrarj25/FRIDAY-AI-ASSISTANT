@@ -1,0 +1,19 @@
+{
+  "name": "media-inventory",
+  "version": "1.0.0",
+  "description": "Inventory audio/video filenames (.mp4 .mkv .webm .mp3 .wav .flac .mov) with sizes. No transcode, no FFmpeg.",
+  "category": "home",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Media inventory",
+    "icon": "film"
+  }
+}

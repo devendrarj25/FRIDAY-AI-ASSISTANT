@@ -1,0 +1,18 @@
+{
+  "id": "con-unit-convert",
+  "name": "Construction unit conversions",
+  "summary": "Convert length, area, or volume between mm, m, ft, in, m², ft², m³, and yd³.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "value",
+    "from",
+    "to"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Uses fixed factors (1 in = 25.4 mm, 1 ft = 0.3048 m, 1 yd³ = 0.764555 m³). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

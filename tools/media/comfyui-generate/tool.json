@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "ComfyUI image",
+  "description": "Make an image from a text prompt with the owner's own ComfyUI on this PC (127.0.0.1:8188), or run a workflow saved with Save (API). Uses the first installed checkpoint unless one is named. Fails honestly when ComfyUI is not running or has no checkpoint. Images are saved under the FRIDAY assets/comfyui folder.",
+  "category": "media",
+  "inputs": ["prompt", "negative", "width", "height", "steps", "seed", "checkpoint", "workflow"],
+  "permissions": ["network.loopback", "fs.write"],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to MAKE an image in ComfyUI from “{prompt}” and save it in the FRIDAY assets folder. Allow this?"
+}

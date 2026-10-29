@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Average list",
+  "description": "Average numbers from a JSON array or a comma/space-separated list.",
+  "category": "math",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to AVERAGE a LIST of numbers. Allow this?",
+  "keywords": [
+    "average",
+    "mean"
+  ]
+}

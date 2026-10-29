@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+/**
+ * Dependency advisory policy.
+ *
+ * High, critical, and unknown severity fail the run unless the advisory id
+ * is listed in config/advisory-allow.json and that entry's expiry is still
+ * ahead of the clock. Moderate and low severities warn and do not fail.
+ * A missing audit tool fails the run. The clock is injectable so a test
+ * does not depend on today's date.
+ */
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnCaptured } = require("./win-spawn.cjs");
+
+const root = path.resolve(__dirname, "..");
+const DEFAULT_ALLOW = path.join(root, "config", "advisory-allow.json");
+
+function parseClock(value) {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function loadAllow(file, nowMs) {
+  const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+  const active = new Set();
+  const ignored = [];
+  for (const entry of doc.entries || []) {
+    const id = entry && typeof entry.id === "string" ? entry.id.trim() : "";
+    const expires = parseClock(entry && entry.expires);
+    if (!id || expires == null) {
+      ignored.push(entry);
+      continue;
+    }
+    if (expires > nowMs) active.add(id);
+  }
+  return { active, ignored };
+}
+
+function ghsaIds(via) {
+  const ids = [];
+  if (!Array.isArray(via)) return ids;
+  for (const item of via) {
+    if (!item || typeof item !== "object") continue;
+    for (const field of [item.url, item.source, item.title]) {
+      if (typeof field !== "string") continue;
+      const match = field.match(/GHSA-[a-z0-9-]+/i);
+      if (match) ids.push(match[0]);
+    }
+  }
+  return [...new Set(ids)];
+}
+
+function classifyNpm(report) {
+  const findings = [];
+  const vulns = report && report.vulnerabilities ? report.vulnerabilities : {};
+  for (const [name, row] of Object.entries(vulns)) {
+    const severity = String((row && row.severity) || "unknown").toLowerCase();
+    const ids = ghsaIds(row && row.via);
+    const id = ids[0] || `npm:${name}`;
+    findings.push({ ecosystem: "npm", id, ids: ids.length ? ids : [id], package: name, severity });
+  }
+  return findings;
+}
+
+function classifyPip(report) {
+  const findings = [];
+  const deps = report && Array.isArray(report.dependencies) ? report.dependencies : [];
+  for (const dep of deps) {
+    for (const vuln of dep.vulns || []) {
+      const aliases = Array.isArray(vuln.aliases) ? vuln.aliases.map(String) : [];
+      const id = String(vuln.id || aliases[0] || `pip:${dep.name}`);
+      const severity = String(vuln.severity || "unknown").toLowerCase();
+      findings.push({
+        ecosystem: "pip",
+        id,
+        ids: [...new Set([id, ...aliases])],
+        package: dep.name,
+        severity,
+      });
+    }
+  }
+  return findings;
+}
+
+function isInformational(severity) {
+  return severity === "low" || severity === "moderate" || severity === "info";
+}
+
+function decide(findings, allow) {
+  const blocking = [];
+  const inform = [];
+  for (const finding of findings) {
+    if (finding.ids.some((id) => allow.has(id))) continue;
+    if (isInformational(finding.severity)) inform.push(finding);
+    else blocking.push(finding);
+  }
+  return { blocking, inform };
+}
+
+function evaluate({ npm, pip, allow, nowMs }) {
+  const findings = [...classifyNpm(npm), ...classifyPip(pip)];
+  return decide(findings, allow.active || allow);
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function jsonFromOutput(text) {
+  const raw = String(text || "");
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  try {
+    return JSON.parse(raw.slice(start));
+  } catch {
+    return null;
+  }
+}
+
+function runTool(command, args) {
+  const result = spawnCaptured(command, args, { cwd: root });
+  return {
+    status: result.status,
+    error: result.error ? result.error.message : "",
+    parsed: jsonFromOutput(result.stdout),
+    stderr: String(result.stderr || ""),
+  };
+}
+
+// An audit that could not reach its registry must never read as "no findings".
+// npm prints a JSON error object and pip-audit prints nothing usable, so a
+// report only counts when it has the shape the tool prints on success.
+function npmReportProblem(report) {
+  if (!report || typeof report !== "object") return "npm audit did not return JSON";
+  if (report.error) {
+    const detail = report.error.summary || report.error.code || report.message || "unknown";
+    return `npm audit reported an error: ${detail}`;
+  }
+  if (!report.vulnerabilities || typeof report.vulnerabilities !== "object") {
+    return "npm audit returned no vulnerabilities table";
+  }
+  return "";
+}
+
+function pipReportProblem(report) {
+  if (!report || typeof report !== "object") return "pip-audit did not return JSON";
+  if (!Array.isArray(report.dependencies)) return "pip-audit returned no dependencies list";
+  return "";
+}
+
+// The registries are the network, so a transient failure is retried before it
+// fails the check. Only a report that is missing or malformed is retried; a real
+// finding (npm audit exits non-zero then) is a valid report and is never retried.
+function auditWithRetry(
+  command,
+  args,
+  problemOf,
+  { attempts = 3, delayMs = 4000, run, sleep } = {},
+) {
+  const exec = run || runTool;
+  const wait = sleep || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
+  let last = "";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const ran = exec(command, args);
+    last = problemOf(ran.parsed) || "";
+    if (!last) return { report: ran.parsed, problem: "" };
+    const why =
+      ran.error ||
+      String(ran.stderr || "")
+        .trim()
+        .split("\n")[0] ||
+      "";
+    last = why ? `${last} (${why})` : last;
+    if (attempt < attempts) wait(delayMs * attempt);
+  }
+  return { report: null, problem: last };
+}
+
+function parseCli(argv) {
+  const opts = {
+    nowMs: Date.now(),
+    allow: DEFAULT_ALLOW,
+    npmJson: "",
+    pipJson: "",
+    reportOnly: false,
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    const next = argv[i + 1];
+    if (token === "--now" && next) {
+      const ms = parseClock(next);
+      if (ms == null) throw new Error(`--now is not a time: ${next}`);
+      opts.nowMs = ms;
+      i += 1;
+    } else if (token === "--allow" && next) {
+      opts.allow = path.resolve(next);
+      i += 1;
+    } else if (token === "--npm-json" && next) {
+      opts.npmJson = path.resolve(next);
+      i += 1;
+    } else if (token === "--pip-json" && next) {
+      opts.pipJson = path.resolve(next);
+      i += 1;
+    } else if (token === "--report-only") {
+      opts.reportOnly = true;
+    }
+  }
+  return opts;
+}
+
+function report(decision, ignored) {
+  for (const entry of ignored) {
+    console.log("::warning title=advisory allow-list::Ignored an entry with no id or no expiry.");
+  }
+  for (const finding of decision.inform) {
+    console.log(
+      `::warning title=${finding.ecosystem} advisory::${finding.severity} ${finding.package} ${finding.id}`,
+    );
+  }
+  for (const finding of decision.blocking) {
+    console.error(
+      `::error title=${finding.ecosystem} advisory::${finding.severity} ${finding.package} ${finding.id}`,
+    );
+  }
+  console.log(
+    `advisory audit: ${decision.blocking.length} blocking, ${decision.inform.length} informational`,
+  );
+}
+
+function main(argv) {
+  const opts = parseCli(argv);
+  const allow = loadAllow(opts.allow, opts.nowMs);
+  let npm;
+  let pip;
+  if (opts.npmJson) {
+    npm = readJson(opts.npmJson);
+  } else {
+    const ran = auditWithRetry("npm", ["audit", "--json", "--omit=dev"], npmReportProblem);
+    if (ran.problem) {
+      console.error(`::error title=advisory audit::${ran.problem}`);
+      process.exit(1);
+    }
+    npm = ran.report;
+  }
+  if (opts.pipJson) {
+    pip = readJson(opts.pipJson);
+  } else {
+    const ran = auditWithRetry(
+      "python",
+      ["-m", "pip_audit", "-r", "kernel/requirements.txt", "--format", "json"],
+      pipReportProblem,
+    );
+    if (ran.problem) {
+      console.error(`::error title=advisory audit::${ran.problem}`);
+      process.exit(1);
+    }
+    pip = ran.report;
+  }
+  const decision = evaluate({ npm, pip, allow, nowMs: opts.nowMs });
+  report(decision, allow.ignored);
+  process.exit(!opts.reportOnly && decision.blocking.length ? 1 : 0);
+}
+
+module.exports = {
+  loadAllow,
+  classifyNpm,
+  classifyPip,
+  decide,
+  evaluate,
+  parseCli,
+  npmReportProblem,
+  pipReportProblem,
+  auditWithRetry,
+};
+
+if (require.main === module) {
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "sec-phishing-flags",
+  "name": "Phishing red flags",
+  "summary": "Flag urgency, mismatched links, and credential asks in a pasted message.",
+  "category": "security-hygiene",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
+}

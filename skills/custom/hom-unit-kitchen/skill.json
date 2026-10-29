@@ -1,0 +1,18 @@
+{
+  "id": "hom-unit-kitchen",
+  "name": "Kitchen unit convert",
+  "summary": "Convert common kitchen amounts (cups, tbsp, ml, grams of water) you type.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "value",
+    "from",
+    "to"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Approximate cooking math. Grams assume water density unless you say otherwise."
+}

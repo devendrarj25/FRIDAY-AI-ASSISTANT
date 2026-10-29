@@ -1,0 +1,8 @@
+# FRIDAY — code ownership
+#
+# Every pull request into main requires a review from the owner. Combined with
+# "Require review from Code Owners" in branch protection this makes owner
+# approval mandatory before a merge — no self-merge without approval, no
+# automatic merge.
+
+* @devendrarj25

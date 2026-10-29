@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "symlink-idle",
+  "name": "Symlink idle",
+  "description": "On idle, list symbolic links found in a depth-2 walk (names only).",
+  "category": "housekeeping",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

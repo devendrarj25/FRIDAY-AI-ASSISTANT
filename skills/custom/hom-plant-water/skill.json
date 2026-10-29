@@ -1,0 +1,16 @@
+{
+  "id": "hom-plant-water",
+  "name": "Plant watering table",
+  "summary": "Build a watering interval table from plant names tagged dry, average, or wet.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Household planning helper. It does not control devices or place orders. Not a botanist diagnosis."
+}

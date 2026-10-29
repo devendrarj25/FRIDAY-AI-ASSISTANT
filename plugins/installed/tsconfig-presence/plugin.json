@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "tsconfig-presence",
+  "name": "tsconfig presence",
+  "description": "Check tsconfig.json / jsconfig.json at start.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-app-start"
+  ]
+}

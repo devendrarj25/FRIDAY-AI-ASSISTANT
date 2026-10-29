@@ -1,0 +1,16 @@
+{
+  "id": "hlt-stretch-flow",
+  "name": "Stretch sequence",
+  "summary": "Suggest a timed stretch sequence from a minute budget (neck, hips, hamstrings).",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "minutes"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "rsn-socratic",
+  "name": "Socratic question set",
+  "summary": "Generate clarifying, evidence, alternative, and implication questions for a pasted claim.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Questions are templated from the claim text. They are prompts for you, not answers."
+}

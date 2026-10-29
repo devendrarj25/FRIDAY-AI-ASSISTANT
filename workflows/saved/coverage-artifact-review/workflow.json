@@ -1,0 +1,57 @@
+{
+  "id": "coverage-artifact-review",
+  "name": "Coverage artifact review",
+  "version": "1.0.0",
+  "description": "Find coverage artifacts, test inventory via module, large source files, then a clean plan.",
+  "category": "maintenance",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find coverage artifacts",
+      "kind": "agent",
+      "ref": "agents/core/coverage-artifact-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory tests via module",
+      "kind": "module",
+      "ref": "modules/developer/test-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find large source files",
+      "kind": "agent",
+      "ref": "agents/core/large-source-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Scan build artifacts",
+      "kind": "agent",
+      "ref": "agents/core/build-artifact-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft what is leftover",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Hold cleanup until approved",
+      "kind": "note",
+      "ref": "coverage-plan",
+      "risk": "safe"
+    }
+  ]
+}

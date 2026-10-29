@@ -1,0 +1,19 @@
+{
+  "id": "mkt-compound-growth",
+  "name": "Compound growth table",
+  "summary": "Year-by-year compound amount from principal, rate, years, and compounds per year.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "principal",
+    "ratePct",
+    "years",
+    "compoundsPerYear"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. A = P(1 + r/n)^{n t}. Table is truncated to 40 years. Not a product illustration from a bank."
+}

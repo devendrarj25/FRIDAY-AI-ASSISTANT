@@ -1,0 +1,27 @@
+{
+  "name": "Send a file over Bluetooth",
+  "version": "1.0.0",
+  "description": "Send a file to a paired Bluetooth device using Windows' own OBEX transfer. The paired device must accept the transfer.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "bluetooth.send_file",
+  "inputs": [
+    {
+      "name": "path",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "device",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "devices",
+    "fs.read"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to send a file from this PC to a paired Bluetooth device. Allow this?"
+}

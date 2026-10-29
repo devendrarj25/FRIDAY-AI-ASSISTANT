@@ -1,0 +1,19 @@
+{
+  "name": "changelog-head",
+  "version": "1.0.0",
+  "description": "Read CHANGELOG.md / CHANGELOG / HISTORY.md and return the first heading plus the first 24 lines. Read-only; does not rewrite release notes.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Changelog head",
+    "icon": "scroll"
+  }
+}

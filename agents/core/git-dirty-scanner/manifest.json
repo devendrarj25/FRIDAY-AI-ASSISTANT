@@ -1,0 +1,17 @@
+{
+  "name": "Git dirty scanner",
+  "version": "1.0.0",
+  "description": "Runs a read-only git status in a folder that has .git and lists dirty paths. Never commits, stages, or pushes.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} dirty git path(s) in \u201c{folder}\u201d. Read-only git status. Allow to keep the list. Nothing will be committed."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "con-lumber-cut-list",
+  "name": "Lumber cut list",
+  "summary": "Bin packed cut lengths onto stock boards and report leftover per board.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "stockLength"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Each line is a cut length. First-fit decreasing onto stockLength (default 2400). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Grain, grade, and load capacity are out of scope."
+}

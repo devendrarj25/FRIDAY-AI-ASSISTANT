@@ -1,0 +1,19 @@
+{
+  "name": "gguf-inventory",
+  "version": "1.0.0",
+  "description": "List .gguf model files with sizes (and optional sidecar .json). Does not load llama weights.",
+  "category": "ai",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "GGUF inventory",
+    "icon": "cpu"
+  }
+}

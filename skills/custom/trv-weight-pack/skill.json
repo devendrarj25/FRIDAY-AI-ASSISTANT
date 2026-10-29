@@ -1,0 +1,17 @@
+{
+  "id": "trv-weight-pack",
+  "name": "Packing weight sum",
+  "summary": "Sum item weights you list as name:grams so you can compare to an airline cap.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "capGrams"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

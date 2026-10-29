@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract page links",
+  "description": "Open a URL through the browser engine and return the http(s) links it discovered on that page.",
+  "category": "browser",
+  "inputs": [
+    "url"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to LIST the links on “{url}”. The page is fetched from the internet. Allow this?"
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Screen capture",
+  "description": "Capture a PNG via electron/screen-vision.cjs. Owner must have enabled screen vision; never invents pixels.",
+  "category": "media",
+  "inputs": [
+    "sourceId",
+    "scale"
+  ],
+  "permissions": [
+    "screen.read"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to CAPTURE the screen or a window as an image. Allow this?"
+}

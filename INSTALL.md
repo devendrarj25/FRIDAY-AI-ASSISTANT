@@ -1,0 +1,359 @@
+# FRIDAY — Windows Install and Build Guide
+
+**Shipping version: 1.1.4.6**  
+**Publisher:** Devendra Singh Meena (devendrarj25)
+
+FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
+
+This is the owner start-to-finish guide: get FRIDAY onto a Windows PC, pack the Windows EXEs from this checkout, install those EXEs, update, uninstall, and bring Chat / voice / local engines / cloud keys to a working state.
+
+Related documents (do not copy their tables here): version numbers [VERSIONING.md](VERSIONING.md); what Setup may replace on disk [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md); using each sidebar section after the app is open [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md); how CMD / TEST / Official packs differ, and how Stable vs Test updates behave, [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+
+Every command in this file is run from the **project root** (the folder that contains `package.json`) in **Windows `cmd.exe`**, unless a step says otherwise. `npm run build:win` must stay the backslash CMD path — it is the owner-verified pack launcher.
+
+## 1. Pick one path
+
+| Path | Who it is for | What you do |
+| --- | --- | --- |
+| A. Published GitHub EXE | Daily use. No Node, Python, or Git required. | Download `FRIDAY-Setup-1.1.4.6.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.1.4.6.exe` (no uninstaller) |
+| B. Source checkout + Windows CMD | Packing a new EXE, changing code, or running the desktop app from this tree | Clone this repo, then `npm run setup`, then `npm run build:win` (or `npm run desktop:start` without packing) |
+
+Both paths share one disk root once a folder is chosen. Do not install Official and then overwrite it with a TEST EXE expecting the same Windows appId — TEST uses `dev.friday.desk.test` so it can sit beside Official. Isolation: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
+
+If you clone Git into a folder that is **already** the installed FRIDAY data root (same path as `HKCU\Software\FRIDAY\WorkspacePath`), `kernel/` can be treated as a data alias of `backend/`. `setup-python` restores that tree. Prefer cloning into a **different** folder than the installed root.
+
+## 2. Path A — install the published Setup EXE
+
+No CMD pack is required for daily use.
+
+1. On the Windows PC, open GitHub Latest for repository `devendrarj25/FRIDAY-AI-ASSISTANT`, tag **v1.1.4.6**.
+2. Download `FRIDAY-Setup-1.1.4.6.exe`. Optionally check `SHA256SUMS.txt` on that release.
+3. Double-click Setup while signed in as the user who will run FRIDAY. The product is per-user (`perMachine: false` in `electron-builder.yml`). Do not “Run as administrator” unless that account should own the install.
+4. The wizard has one folder page: where the FRIDAY root should live. Default is `%USERPROFILE%\FRIDAY`. Setup refuses `Program Files`, `Windows`, and a nested `FRIDAY\FRIDAY` folder.
+5. Program files go into `<chosen root>\App` (`$INSTDIR`). The chosen root is written to `HKCU\Software\FRIDAY\WorkspacePath`.
+6. After copy, Setup launches `installer/build/repair-runtime.ps1`. That helper **never aborts Setup**. It reuses a healthy `runtime\.venv`, installs `kernel\requirements.txt` (startup + voice floors), then tries `kernel\requirements-capabilities.txt` as best-effort extras. When Python repair cannot finish, shortcuts and the uninstaller still register, and Setup records `PythonSetupPending` so Doctor / Install Manager can finish later.
+7. Tick launch if the wizard offers it, or start FRIDAY from the Start menu / desktop shortcut (`FRIDAY.exe` inside `<root>\App`).
+8. Continue at [section 8](#8-first-launch--make-friday-actually-work).
+
+SmartScreen may warn on an unsigned build. That is the honest local/CI default until `CSC_LINK` / `CSC_KEY_PASSWORD` are set at pack time. Signing does not by itself clear SmartScreen for a new publisher.
+
+## 3. Path A — Portable EXE (no Apps & Features row)
+
+`FRIDAY-Portable-1.1.4.6.exe` is the same public version with no Apps & Features entry and no NSIS uninstaller. Run or extract it, then pick the same kind of FRIDAY root as Setup. Updates still come from GitHub Releases when the running app is packaged. Prefer Setup when you want a Start-menu shortcut and a keep-data vs delete-all uninstall.
+
+Then continue at [section 8](#8-first-launch--make-friday-actually-work).
+
+## 4. Path B — open CMD in the Git clone
+
+Packing needs a Windows PC with `cmd.exe`. Floors live in `config/toolchain-versions.json`. A newer compatible tool is reused; setup never downgrades.
+
+1. Install Git for Windows if it is not already there (setup can also install it).
+2. Open **Command Prompt** (`cmd.exe`). Do not use Git Bash for `npm run build:win`.
+3. Clone into a folder that is **not** already the installed FRIDAY data root:
+
+```cmd
+git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
+cd FRIDAY-AI-ASSISTANT
+git pull origin main
+```
+
+If the repo already exists:
+
+```cmd
+cd /d D:\FRIDAY
+git pull origin main
+```
+
+Replace `D:\FRIDAY` with the real clone path. You are in the right folder when `dir package.json` shows that file.
+
+## 5. Path B — first-time setup (toolchain + venv + Doctor)
+
+From that same folder:
+
+```cmd
+npm run setup
+```
+
+That runs `scripts\setup-windows.ps1` via `powershell.exe` (Windows PowerShell 5.1). The script is 7-bit ASCII so 5.1 can parse it. It is idempotent: a tool already at or above its floor is reused, never downgraded; a tool that is missing or older is installed at the **latest stable release** from the official source. **Nothing is optional:** everything the setup installs is needed, so a tool, model or package that cannot be installed stops the setup with its reason (and `npm run doctor` repairs and checks again). Only what cannot apply to your PC is skipped and shown as `not applicable` (CUDA without an NVIDIA GPU, Windows Sandbox on an edition that lacks it); hosted CI, an offline build, `FRIDAY_PREFETCH=0` and `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` are choices you make on purpose.
+
+The whole chain is: `npm run setup` (install everything) → `npm run doctor` (check and repair; the backup when setup stopped halfway) → `npm run build:win` (check the PC again, install what is still missing, build, verify, run the requirement tests, print **FRIDAY BUILD READY** with the files to use).
+
+Inside the script, in order:
+
+1. Node, Python, Git, PowerShell, npm — each method prints `method failed:` and the next official source runs.
+2. FFmpeg, Tesseract, VC++ runtime — required, installed the same way; setup stops if one stays missing.
+3. `npm ci` from `package-lock.json`. On failure: `npm cache verify` then `npm ci` again with `https://registry.npmjs.org/`.
+4. `node scripts\ensure-electron.cjs` (npm installer, GitHub Electron zip, then `@electron/get`).
+5. `node scripts\setup-python.cjs` — venv at the selected FRIDAY folder `runtime\.venv`, or checkout `.venv` if no folder is selected.
+6. `node scripts\prefetch-toolkit.cjs` — the agent toolkit of `config\agent-toolkit.json` (ripgrep, jq, yq, Ninja, uv, aria2, FFmpeg, Git, GitHub CLI, CMake, 7-Zip, Pandoc, Graphviz, Tesseract, PowerShell 7, Go, Rust, OpenJDK, WSL 2, Docker Desktop, Windows Sandbox, and CUDA on an NVIDIA PC). Installed tools are reused, older ones updated, WSL 2 / Docker / Sandbox / CUDA show a Windows administrator prompt, and a failure never fails setup. `FRIDAY_PREFETCH_TOOLKIT=0` skips it, `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` skips only the administrator ones. Re-run it alone with `npm run setup:toolkit`.
+7. `node scripts\init-runtime.cjs` — folders, wake model, database.
+8. `node scripts\check-environment.cjs --fix`.
+9. `npm run doctor`. Success prints `SETUP PASS`. The interface bundle (`dist-desktop`) is **not** required here; `npm run build:win` builds it. For the toolchain alone, `scripts\setup-windows.ps1 -ToolchainOnly` installs only Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime (doctor and the build call it).
+
+What the log tells you on a real PC:
+
+- A line such as `Git LFS ... left as it is` or `... is the newest version winget offers` is not a failure: winget had nothing newer, or the tool came inside another package (Git LFS inside Git for Windows). When the vendor's own feed lists a newer release than winget does (Git for Windows `.windows.4`, a Go patch release), the update continues with the vendor's installer after its SHA-256 and signature check, asking for administrator rights once for a copy under Program Files; if that installer cannot finish, the working copy stays and the line says so. A tool already on the PC is used from where it is: the folders the toolkit probes (Go, CMake, 7-Zip, cargo, winget's link folder ...) are added to the PATH of FRIDAY and of the commands she starts when they exist, and nothing is downloaded or copied again.
+- Windows Sandbox is reported `not applicable` on Windows Home (the feature exists only on Pro, Enterprise and Education). It never stops setup or the build.
+- Rust counts as installed only when `rustc` runs. It installs from the official `rustup-init` (SHA-256 from static.rust-lang.org, per user, `-y`, no administrator, no prompt) before winget is tried, because the winget package is only the launcher. The install reads only the small digest file first; the large channel document that names the version has a 45-second limit and falls back to the compiler's GitHub release, so a slow line can no longer make the whole official source look unavailable, and a feed that gives nothing says why. The install then runs `rustup default stable`. The digest file rust-lang.org publishes holds the bare hash with no file name, and `rustup-init.exe` carries no Authenticode signature, so the installer is accepted on that SHA-256 alone (a signature that is present must still be valid). If `rustup` is already on this PC, even when winget's launcher folder is not on PATH, it is finished in place (`rustup default stable`, or `rustup update stable` for an update) and nothing is downloaded.
+- Nothing in setup waits for a typed answer: installers run with the keyboard closed (stdin ignored) and with their own yes flags, winget is asked for its own source only (no Microsoft Store agreement prompt), and Chocolatey, which needs administrator rights and otherwise stops at "Do you want to continue?", is used only when FRIDAY is elevated. If a window ever does ask something, close it and run `npm run doctor`; it repairs and checks again.
+- Model downloads go through the official Hugging Face client first (`huggingface_hub` with `hf_xet`, already installed in FRIDAY's Python environment, run with `HF_XET_HIGH_PERFORMANCE=1`): a plain download link for a Xet file is served through Hugging Face's compatibility bridge, which is slower than the client's own chunked path. Every file it fetches is checked against the SHA-256 and size Hugging Face lists, and it is cut off after a minute without a byte. If it is missing or fails, FRIDAY's own downloader (`electron/model-download.cjs`) takes over: a file over 24 MB is cut into 8 MB chunks that a pool of connections pulls, starting at 4 and adding two at a time while the speed still rises (up to 16 for one file, 24 in all); a connection with no byte, or a server with no answer, for 20 seconds is ended and the chunk is asked again on the next host; SHA-256 and resume as before. `FRIDAY_HF_ENGINE=own` skips the client, `hub` uses only it. One model downloads at a time (`FRIDAY_PREFETCH_PARALLEL=2..4` runs more) and the optional larger speech size goes last, so everything FRIDAY needs is in place before it. The terminal shows one live line (bar, percent, MB of MB, MB/s, ETA, connections), a log one line per ten percent, and a finished model prints its size, time and average speed. Hugging Face is the only official host of these weights; `FRIDAY_HF_MIRROR=1` adds hf-mirror.com as a last resort and its bytes are still checked against Hugging Face's own digest.
+- Setup, Doctor and the build read the Machine and User PATH from the registry again, so FFmpeg, Pandoc and Rust that setup just installed are found without opening a new window. A tool still missing after that is genuinely missing.
+- Models are downloaded once. With no FRIDAY folder chosen they wait in `.friday-dev` and the installed app moves them into your folder on first launch (section 8).
+
+Official download floors (tried in order):
+
+| Tool | Floor | Sources |
+| --- | --- | --- |
+| Node.js | 22.19.0 | winget `OpenJS.NodeJS.LTS` → nodejs.org LTS MSI → nodejs.org floor MSI |
+| npm | 10.9.0 | Bundled with Node → `npm install -g npm@latest` |
+| Python | 3.12.10 (64-bit) | winget `Python.Python.3.13` → `Python.Python.3.12` → python.org listing → python.org floor installer |
+| SQLite (that CPython) | 3.45.3 | Comes with python.org / winget CPython |
+| Git | 2.49.0 | winget `Git.Git` → GitHub `git-for-windows/git` |
+| PowerShell 7 | 7.5.0 | winget `Microsoft.PowerShell` → GitHub `PowerShell/PowerShell` |
+| Electron binary | 43.0.0 | `scripts/ensure-electron.cjs` |
+| FFmpeg | — | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials` |
+| Tesseract | — | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
+| VC++ Redist | — | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe` |
+
+Downloads use `Invoke-WebRequest` first, then `curl.exe --fail --location --retry`. TLS certificate checks stay on.
+
+If setup installed Node and the current window still cannot see `node`, **close CMD and open a new `cmd.exe`**, `cd` back to the clone, and run `npm run setup` again.
+
+If `python` opens the Microsoft Store stub: Settings → Apps → Advanced app settings → App execution aliases → turn off `python.exe` / `python3.exe`.
+
+Pip inside `setup-python.cjs`: `ensurepip` → `get-pip.py` from `bootstrap.pypa.io` → the same file from GitHub `pypa/get-pip`. Kernel `requirements.txt` tries `--only-binary=:all:` first, then prefer-binary, `--no-cache-dir`, explicit `https://pypi.org/simple`, then prefer-binary with extra retries. Capability extras (`requirements-capabilities.txt`, including PyAutoGUI on Python 3.14) start at prefer-binary because a wheels-only pass can miss a `py3-none-any` closure. Windows fail-closes if `faster-whisper` / `edge-tts` cannot import.
+
+Installer-time Python (`installer/build/install-python.ps1`, called from `repair-runtime.ps1`) also retries python.org with `curl.exe` and then winget `Python.Python.3.13` / `3.12` when the FTP listing or MSI download fails.
+
+After a successful setup:
+
+- Electron: `node_modules\electron\dist\electron.exe` (verified by executing it with `ELECTRON_RUN_AS_NODE=1`).
+- Kernel interpreter: selected folder `runtime\.venv\Scripts\python.exe`, else checkout `.venv\Scripts\python.exe`. The running EXE uses the same resolver (`electron/python.cjs` `resolveManagedPython`).
+- Database: `<FRIDAY folder>\database\friday.sqlite3` created by `init-runtime` (`from db import SCHEMA`).
+- Wake model: `<FRIDAY folder>\models\wake`.
+
+Nothing in this chain uses a global `pip install` as the kernel. If a Store alias or a broken venv is on PATH, delete the isolated `.venv` folder and run `npm run setup:python` again.
+
+## 6. Path B — pack the Windows EXEs
+
+Prerequisites: section 5 succeeded (`npm run setup` already did the floors). Then, still in the clone root:
+
+```cmd
+npm run build:win
+```
+
+That is `scripts\build-windows.cmd` with no extra argument: **Setup installer and Portable**. It is two steps. Step 1: on a PC without Node.js 22.19.0+ it runs `scripts\setup-windows.ps1 -ToolchainOnly` (so run `scripts\build-windows.cmd` itself there, since `npm` comes with Node) and puts `%ProgramFiles%\nodejs` on PATH. Step 2: the pipeline. Its first phase, `prepare-environment`, checks the PC again (`setup-windows.ps1 -ToolchainOnly`: Git, PowerShell, FFmpeg, Tesseract, Visual C++ are installed when missing), then `npm ci`, Electron, the Python environment and models, the agent toolkit, the runtime and the repair pass; any of them that cannot finish stops the build with its reason. The last thing printed is **FRIDAY BUILD READY** (every phase passed) or **FAILED**, with the files to use.
+
+Other pack shapes from the same `.cmd`:
+
+```cmd
+scripts\build-windows.cmd nsis
+scripts\build-windows.cmd portable
+npm run build:win:dir
+```
+
+| Command | Output |
+| --- | --- |
+| `npm run build:win` | Setup **and** Portable in `release\` |
+| `scripts\build-windows.cmd nsis` | Setup EXE only |
+| `scripts\build-windows.cmd portable` | Portable EXE only |
+| `npm run build:win:dir` | Unpacked `release\win-unpacked\` only (faster debug) |
+
+The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
+
+1. Sets `ELECTRON_CACHE` / `ELECTRON_BUILDER_CACHE` under this repo `.cache\`. Removes a leftover `winCodeSign` cache that used to break symlink creation. Then `scripts\setup-windows.ps1 -ToolchainOnly` (local Windows only; hosted CI keeps its own toolchain): Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime are reused when they meet the floor and installed at the latest stable release when not.
+2. `scripts\check-engines.cjs` (same `package.json` engines as CI) **before** `npm ci`.
+3. `npm ci --no-audit --no-fund`. On failure: `npm cache verify` and a second `npm ci` against `https://registry.npmjs.org/`.
+4. `scripts\ensure-electron.cjs --quiet`.
+5. `scripts\setup-python.cjs` (Python venv, then the model prefetch: speech weights, turn-taking and wake models, and on Windows an installed Ollama is reused (or a per-user one installed) with one light, fast chat model, each with a progress bar and none downloaded twice; details and opt-outs in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) section 7) then `scripts\init-runtime.cjs`.
+6. `scripts\check-environment.cjs --fix` then `scripts\env-registry.cjs repair`.
+7. `scripts\release-engine.cjs heal` then `verify`.
+8. `scripts\verify-deps.cjs`.
+9. Deletes previous `release\` and `dist-desktop\`, then `npm run build:desktop`.
+10. `scripts\electron-pack.cjs` with `electron-builder.yml`. The pinned toolchain packs download first with a progress bar and fall back to pinned mirrors. Names use the public four-part identity, not npm `1.0.0`.
+11. Optional Authenticode if `CSC_LINK` + `CSC_KEY_PASSWORD` are set (`scripts\sign-windows.ps1`).
+12. `scripts\verify-build.cjs` (Setup and Portable must clear the toolchain size floor and stay under 2 GiB), `scripts\verify-boot.cjs`, `scripts\readiness-test.cjs --pack` (Chat without a loaded local model is a WARN; it does not fail the pack), then the installer smoke when the target includes NSIS. A skipped phase is listed as `SKIP` and is only allowed where the target makes it not apply (for example no installer smoke for `dir`).
+
+Expected files after a full pack:
+
+- `release\FRIDAY-Setup-1.1.4.6.exe`
+- `release\FRIDAY-Portable-1.1.4.6.exe`
+- `release\win-unpacked\FRIDAY.exe` (always, including `dir`)
+
+Python wheels: floors, not pins. Missing capability extras do not fail kernel boot. Windows `setup-python` still fail-closes on missing voice imports.
+
+`scripts\build-windows.cmd` checks that Node is on PATH, then calls `node scripts\build-pipeline.cjs --channel production`. `npm run build:win`, `build:win:dir`, `build:all`, `release:package`, `build:portable`, `desktop:build`, and `desktop:pack` call that same pipeline. `desktop:build` packs NSIS. `desktop:pack` packs the unpacked directory. They are not a thinner second recipe. The first pack needs the network so the toolchain packs can be fetched and hashed. A later pack reuses `.cache\toolchain`. A skipped toolchain stage is refused.
+
+Packaging identity, TEST vs Official, and GitHub Actions: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). Assistants must not dispatch those workflows. Official publish is Actions → **FRIDAY Release** on GitHub, not a CMD command. A branch EXE is Actions → **FRIDAY Test Build**.
+
+## 7. Path B — install the EXE you just packed
+
+1. Close any running FRIDAY that uses the same Windows appId you are about to install.
+2. Run `release\FRIDAY-Setup-1.1.4.6.exe` (or the Portable) the same way as [section 2](#2-path-a--install-the-published-setup-exe).
+3. A **TEST** artifact (`FRIDAY-Test-Setup-…`) installs beside Official; it does not replace Official user data. Do not mix their folders.
+4. Follow [section 8](#8-first-launch--make-friday-actually-work) on the new install (venv under that root’s `runtime\.venv`).
+
+Installing a locally packed Setup over an older Official of the **same** four-part version is a rebuild of that version, not a bump. Bumping `config/friday-version.json` is owner-only.
+
+## 8. First launch — make FRIDAY actually work
+
+This section applies after Path A **or** Path B install, and also after `npm run desktop:start` from a checkout.
+
+The window is allowed to open without a completed first-run flag. AppShell does not park you on a mandatory model-connect screen. A folder must still exist; if none is selected, the app asks. After that, kernel status in the title strip / FRIDAY Status must become ready before Chat and Doctor are meaningful.
+
+Auto mode listens and speaks. Manual and chat do not. Hands-free is the Auto conversation unless you turn that control off, which requires the wake word again. Exec approval stays off.
+
+Do these in order on the running app:
+
+1. **Folder.** Choose a writable root (not Program Files). Build time and first run share it: `npm run setup` and `build:win` download the speech, voice and chat models into the FRIDAY folder they can find (`HKCU\Software\FRIDAY\WorkspacePath`, or `FRIDAY_WORKSPACE_ROOT`). With none selected they stage them in `.friday-dev` inside the checkout and say so in the log; the installed app moves those downloads (`electron/staged-assets.cjs`) into the folder you choose on first launch, so no model is downloaded twice. An item the chosen folder already has is never overwritten. To download straight into the final folder instead, run `set FRIDAY_WORKSPACE_ROOT=<your FRIDAY folder>` before `npm run setup` and `npm run build:win`. Canonical names and what uninstall may delete: [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md). Live venv after a folder is chosen: `<root>\runtime\.venv`.
+2. **Kernel.** Wait until status is ready. If it stays down, open **Setup & Doctor** (and Install Manager). A leftover `PythonSetupPending` from Setup means repair-runtime did not finish — Doctor / `npm run doctor` from a checkout, or Install Manager on the EXE, is the follow-up.
+3. **Voice runtime (hear / speak).** Install Manager catalog rows `faster-whisper` and `edge-tts` (same names as `BOOTSTRAP_VOICE_PACKAGES` in `src/lib/friday/first-run.ts`). Windows CMD `setup-python` already fail-closes if those two cannot import in the live venv. The kernel still boots when no voice model is installed. Optional rows, downloaded on demand and not bundled in the EXE: Silero VAD (`silero-vad`), Supertonic 3 (`supertonic-3`, code MIT, weights OpenRAIL-M, voice F2), and Smart Turn (`smart-turn`, checksum-checked). `npm run voice:install` fetches Supertonic, Smart Turn, and the English Moonshine streaming weights into the selected FRIDAY folder. Hindi and Hinglish stay on faster-whisper. edge-tts is cloud speech: a fresh install asks for hi-IN-SwaraNeural when the network is on and Privacy mode is off, and it does not run for sensitive text. Supertonic 3 F2 speaks when that model is installed; otherwise a female Indian Windows voice is preferred. kokoro-onnx, piper-tts, and sherpa-onnx are not installed: their licenses or bundled phonemizers are not permissive. `npm run voice:check` prints PASS or FAIL for each stage and still exits 0 when a model is missing.
+4. **Offline chat model.** Models page / Install Manager: `llama3.2-3b` (`BOOTSTRAP_MODEL_ID`). Optional bootstrap from first-run still enqueues that model plus the two voice packages; it is not a startup gate.
+5. **Wake word (optional).** Bundled `friday.onnx` is copied into `<root>\models\wake` by `init-runtime`. A custom name needs `{word}.onnx` in that folder. `jarvis` must load `jarvis.onnx` — `friday.onnx` is not a silent substitute.
+6. **Chat Manual.** Friday (Main Window): pick a connected model, type, send. Needs at least one local engine with a pulled model **or** a free-tier cloud key that validated.
+7. **Chat Auto.** Same conversation as Manual. Auto Mode is ready only after local STT reports `ready` (Whisper model actually loaded in the persistent worker), not merely because pip installed `faster-whisper`.
+8. **Local engines (optional, offline-friendly).** Models page connects engines FRIDAY already knows. Typical loopbacks: Ollama `11434`, LM Studio `1234`, llama.cpp `8080`, vLLM `8000`, LocalAI `8081`. Start the engine yourself or use Install Manager where the catalog already has a row. llama.cpp / vLLM start only when exactly one matching weight sits under `<root>\models`.
+9. **Diagram compilers (optional).** Flow Studio draws and exports without them. Install Manager can add Graphviz 16.1.0 and D2 0.9.0. Each Windows installer is hash-checked. A missing compiler leaves the canvas working. Doctor shows those two rows as missing until they are installed.
+10. **Free-tier cloud keys (optional).** Models page: Groq, OpenRouter, Google Gemini. Paste a key; FRIDAY stores it in the encrypted credential store and validates it. A valid key is not the same as a verified free model — see [FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md). Paid hosts stay behind the billing firewall — no silent spend. Key URLs live in `FREE_TIER_PROVIDERS` in `src/lib/friday/first-run.ts`.
+11. **Confirm.** FRIDAY Status (read-only overlay) and Doctor should show kernel + Python venv healthy. Mic hardware and wake-word on a real Windows device are still required for a physical voice pass.
+
+Section-by-section use after this: [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md).
+
+## 9. Run from this checkout without packing
+
+Useful while developing. Not a substitute for the Setup EXE on a daily-driver PC.
+
+```cmd
+npm run setup
+npm run desktop:start
+```
+
+`npm run desktop:dev` uses `electron/dev.cjs` instead of `electron/main.cjs`. You still need a FRIDAY folder and a ready kernel. Chat / voice / model steps in section 8 still apply.
+
+## 10. Every owner-facing CMD / npm command
+
+Run from the project root in `cmd.exe`.
+
+### 10.1 Pack and run
+
+| Command | What it actually runs | Use it when |
+| --- | --- | --- |
+| `npm ci` | Lockfile install (`package-lock.json`) | After a clone, if you are not using `npm run setup` |
+| `npm run setup` | `scripts\setup-windows.ps1` | First time on a Windows PC: toolchain + lockfile + Electron + Python venv + runtime + Doctor |
+| `npm run build:win` | `scripts\build-windows.cmd` | Pack Setup **and** Portable into `release\` |
+| `npm run build:win:dir` | `scripts\build-windows.cmd dir` | Unpacked `release\win-unpacked\` only |
+| `scripts\build-windows.cmd nsis` | Same `.cmd` with `nsis` | Setup EXE only |
+| `scripts\build-windows.cmd portable` | Same `.cmd` with `portable` | Portable EXE only |
+| `npm run desktop:start` | `electron electron/main.cjs` | Run the desktop app from this checkout (not a pack) |
+| `npm run desktop:dev` | `electron electron/dev.cjs` | Dev desktop from this checkout |
+
+### 10.2 Repair one piece
+
+| Command | What it actually runs | Use it when |
+| --- | --- | --- |
+| `npm run setup:python` | `scripts\setup-python.cjs` | Recreate/repair only the isolated venv and pip packages |
+| `scripts\install-python-deps.cmd` | Same `setup-python.cjs` | CMD alias if you prefer a `.cmd` entry |
+| `npm run setup:electron` | `scripts\ensure-electron.cjs` | Electron binary missing after `npm ci` |
+| `npm run init:runtime` | `scripts\init-runtime.cjs` | Canonical folders, wake model copy, SQLite schema |
+| `npm run setup:toolkit` | `scripts\prefetch-toolkit.cjs` | Install or update the agent toolkit only (the same step `setup` and `build:win` run) |
+| `npm run check:env` | `scripts\check-environment.cjs` | Print what is missing (does not install). Where the setup installs a tool (FFmpeg, Tesseract, VC++, Ollama, the agent toolkit) a missing one is MISSING and fails; `not applicable` rows are hardware or editions this PC cannot have, and `SKIPPED` rows (hosted CI, offline, a `FRIDAY_PREFETCH*=0` opt-out) name the step that does not run on that machine; `npm run setup` installs them on your PC |
+| `npm run check:env:fix` | `check-environment.cjs --fix` | Repair through the same scripts as setup: the toolchain, Electron, Python, the models and the agent toolkit |
+| `npm run doctor` | `scripts\doctor.cjs`: `npm ci` when node_modules is stale, `check-environment --fix`, `init-runtime`, `verify-deps`, `env-registry repair` | Check **and repair** everything; the backup when `npm run setup` stopped halfway. Every step runs, and it exits 1 if any failed |
+| `npm run verify:env` | `scripts\env-registry.cjs` | Show the recorded environment registry |
+| `npm run repair:env` | `env-registry.cjs repair` | Rewrite/repair that registry |
+| `npm run verify:boot` | `scripts\verify-boot.cjs` | EXE + browser boot checks |
+| `npm run verify:install` | `scripts\readiness-test.cjs` | Post-pack kernel/database/chat/voice/model/task probe |
+| `npm run clean:cache` | `scripts\clean-build-cache.cjs` | Clear project pack caches under `.cache\` |
+
+### 10.3 Checks that do not pack an EXE
+
+| Command | What it actually runs | Use it when |
+| --- | --- | --- |
+| `npm run typecheck` | `tsc --noEmit` | After TypeScript edits |
+| `npm test` | `vitest run` | Contract tests |
+| `npm run docs:sync` / `npm run docs:check` | `scripts\docs-engine.cjs` | After Markdown edits |
+| `npm run verify:version` | `release-engine.cjs verify` | Version-governed docs vs `config/friday-version.json` |
+| `npm run validate:local` | `scripts\validate-local.cjs` | Local substitute for PR Validation (Linux skips NSIS pack) |
+| `npm run sign:win` | `scripts\sign-windows.ps1` | Sign already-packed EXEs when a PFX is configured |
+
+Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run build:win` needs `cmd.exe`. Those two are Windows-only by design. `setup:python`, `setup:electron`, `init:runtime`, and `check:env` do run on Linux.
+
+## 11. Where files land
+
+One scannable root. Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
+
+| Location | What it is |
+| --- | --- |
+| `<root>\App` | Program files (`FRIDAY.exe`, resources). Replaced by a normal upgrade / keep-data uninstall |
+| `<root>\runtime\.venv` | Isolated CPython the installed app launches (after a folder is chosen) |
+| `<root>\database` | `friday.sqlite3` — the kernel database |
+| `<root>\models` and `<root>\models\wake` | Downloaded weights and wake `.onnx` files |
+| `<root>\config` | Including `first-run.json`, `github.json` (update channel) |
+| `HKCU\Software\FRIDAY\WorkspacePath` | Pointer to the root |
+| Checkout `.venv` | Only when packing/running from source with **no** selected folder |
+| Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`) |
+| Checkout `temporary\downloads` | Official installer payloads during `npm run setup` |
+| Checkout `dist-desktop\` | Renderer bundle |
+| Checkout `release\` | `FRIDAY-Setup-1.1.4.6.exe`, `FRIDAY-Portable-1.1.4.6.exe`, `win-unpacked\FRIDAY.exe` |
+
+## 12. Update
+
+In the running **packaged** app: Settings → Updates. The Stable vs Test selector is described in [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md). The updater reads GitHub Releases and `friday-update.json`, verifies SHA256, then `electron/update-safety.cjs` (backup → install → health → rollback). Packaged FRIDAY is never replaced by a source ZIP. User data under the root is not deleted by a normal update.
+
+From source, packing a new EXE and running that Setup is an upgrade of `<root>\App` only.
+
+## 13. Uninstall
+
+1. Windows Settings → Apps → Installed apps → FRIDAY (Official) or FRIDAY Test.
+2. Default (keep-data): only `<root>\App` is removed. Database, models, memory, library, and the rest of the root stay.
+3. Tick **Delete all FRIDAY data and resources** to remove the whole root (`$FridayUnMode == "delete"`). `nsis.deleteAppDataOnUninstall` is `false` in `electron-builder.yml`, so Windows will not silently wipe the root.
+4. Portable: delete the extracted folder yourself; there is no Apps & Features row.
+
+Typed plans: `installer/uninstall/index.ts`. Contract: [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
+
+## 14. Signing a packed EXE (optional)
+
+```cmd
+set CSC_LINK=C:\path\to\publisher.pfx
+set CSC_KEY_PASSWORD=********
+npm run build:win
+```
+
+Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CSC_LINK` means unsigned. Details: [SECURITY.md](SECURITY.md).
+
+## 15. Troubleshooting (install / pack / first kernel)
+
+| Symptom | What to do |
+| --- | --- |
+| Setup finished but kernel never becomes ready | Doctor + Install Manager. Look for `PythonSetupPending`. Repair is `runtime\.venv`, not a second global Python |
+| `npm run setup` cannot find `node.exe` | Let the script install Node; open a **new** `cmd.exe` if PATH did not refresh, then re-run |
+| `python` opens the Microsoft Store | Disable the App execution alias; reuse python.org / winget CPython |
+| `npm ci` fails once | The scripts retry after `npm cache verify` and pin `registry.npmjs.org`. Check proxy (`HTTPS_PROXY`) |
+| `faster-whisper` / `edge-tts` import fails on Windows | `npm run setup:python` fail-closes on purpose. Retry on a network that can reach PyPI; do not skip those floors |
+| `build:win` not found on Linux / macOS | Expected. Pack on Windows `cmd.exe`. Do not wrap the `.cmd` in a Unix script |
+| SQLite / Git below floor on Linux CI agents | Floors in `config/toolchain-versions.json` are Windows product requirements. Do not lower them to green a Linux agent |
+| SmartScreen warning | Unsigned default. See section 14 |
+| Official and TEST both installed | Different appIds — expected. Uninstall the one you meant |
+| Packed app will not take a GitHub source ZIP as an update | Intentional. Use Settings → Updates / a verified Setup EXE |
+| `kernel/requirements.txt not found` during `npm run build:win` | This Git clone is also the FRIDAY data root, so `kernel/` was treated as a data alias of `backend/`. Re-run the pack; `setup-python` restores `kernel/`. Clone the repo into a folder that is not the installed FRIDAY root |
+| ParserError `Unexpected token '$('` in `setup-windows.ps1` | Windows PowerShell 5.1 read a non-ASCII character as a quote. Every `powershell.exe` script in this tree is 7-bit ASCII, so keep it that way and run `npm run setup` again |
+| `check:env` / `doctor` report no `runtime\.venv` and no Electron binary right after a failed setup | Expected cascade: setup never reached `setup-python` / `ensure-electron`. Re-run `npm run setup`. If setup already passed, `npm run setup:electron` then `npm run setup:python` then `npm run doctor` |
+| `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | The pack is good; no local model is loaded, and the `--pack` gate continues past that. Load a model in Ollama or LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fails Chat |
+| `npm warn allow-scripts electron-winstaller` | The package is explicitly denied in `package.json` `allowScripts`. Its install script only copies Squirrel 7-Zip. NSIS and Portable do not use it. `electron` is explicitly allowed. Electron 43 has no install script, so `npm run setup:electron` still downloads the binary |
+
+Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.
+
+## 16. Copy-paste order (source path, Windows CMD)
+
+From a fresh clone on a Windows PC:
+
+```cmd
+git clone https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.git
+cd FRIDAY-AI-ASSISTANT
+git pull origin main
+npm run setup
+npm run doctor
+npm run build:win
+```
+
+Then run `release\FRIDAY-Setup-1.1.4.6.exe`, pick a FRIDAY folder, wait for kernel ready, then follow section 8 until Chat Manual sends a reply.

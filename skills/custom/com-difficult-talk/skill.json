@@ -1,0 +1,16 @@
+{
+  "id": "com-difficult-talk",
+  "name": "Difficult-conversation outline",
+  "summary": "Outline a hard conversation: facts, feeling, request, and check-in question.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A talking scaffold. It does not speak for you."
+}

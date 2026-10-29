@@ -1,0 +1,17 @@
+{
+  "name": "Scanned image finder",
+  "version": "1.0.0",
+  "description": "Finds scan/IMG document photos (scan, scanned, camscanner) so paper-to-folder dumps can be grouped.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} scan-like image(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

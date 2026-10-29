@@ -1,0 +1,17 @@
+{
+  "name": "Executable download scanner",
+  "version": "1.0.0",
+  "description": "Lists executables and scripts sitting in a Downloads-like folder regardless of age so they are not forgotten. Report only.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} executable/script file(s) under \u201c{folder}\u201d. Read-only. Nothing will be deleted."
+}

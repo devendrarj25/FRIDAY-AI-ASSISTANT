@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Env get",
+  "description": "Read one named process environment variable. Does not dump the whole env.",
+  "category": "automation",
+  "inputs": [
+    "name"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ ONE ENVIRONMENT VARIABLE by name. Allow this?",
+  "keywords": [
+    "env",
+    "environment",
+    "variable"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "dat-dedupe-keys",
+  "name": "Dedupe key list",
+  "summary": "Return unique keys from a pasted list and the ones that were duplicated.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "In-memory uniqueness. It does not rewrite the source file."
+}

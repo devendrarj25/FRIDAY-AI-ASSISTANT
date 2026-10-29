@@ -1,0 +1,16 @@
+{
+  "id": "rsn-goal-kr",
+  "name": "Goal and key-result splitter",
+  "summary": "Separate a north-star goal from measurable KR-looking lines (numbers, %, by-date).",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Heuristic: lines with digits or % become KRs. Not a full OKR product."
+}

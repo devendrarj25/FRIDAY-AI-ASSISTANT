@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Clipboard history",
+  "description": "Store and list recent clipboard captures in the workspace memory folder. Capture reads the OS clipboard in the desktop app, or explicit text.",
+  "category": "system",
+  "inputs": ["action", "text", "root"],
+  "permissions": ["fs.write"],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to STORE clipboard text in this workspace ({action}). Clipboard contents can include secrets. Allow this?"
+}

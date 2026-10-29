@@ -1,0 +1,18 @@
+{
+  "id": "com-intro-blurb",
+  "name": "Intro blurb",
+  "summary": "Build a 3-line introduction from name, role, and what you help with.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "name",
+    "role",
+    "helps"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Bio draft. It does not post to social networks."
+}

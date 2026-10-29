@@ -1,0 +1,19 @@
+{
+  "name": "coverage-artifact-scan",
+  "version": "1.0.0",
+  "description": "Find coverage artifacts (.coverage, coverage.xml, lcov.info, htmlcov/) by name. Read-only; does not parse coverage percentages as truth.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Coverage artifact scan",
+    "icon": "pie-chart"
+  }
+}

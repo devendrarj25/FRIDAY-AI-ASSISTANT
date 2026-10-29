@@ -1,0 +1,19 @@
+{
+  "name": "Screenshot dump organizer",
+  "version": "1.0.0",
+  "description": "Finds Screenshot / Screen Shot / IMG_ files and plans moving them into a Screenshots folder so the Desktop and Pictures dump stay usable.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dest",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to MOVE {count} screenshot(s) from \u201c{folder}\u201d into the Screenshots destination. Review destinations before allowing."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "rsn-weighted-score",
+  "name": "Weighted option scoring",
+  "summary": "Score options from lines `option, criterion, weight, score` and sum weight×score.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "You supply the numbers. Highest total wins the worksheet, not the decision."
+}

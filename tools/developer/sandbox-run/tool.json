@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Run code in the sandbox",
+  "description": "Execute a short Node or Python snippet through the built-in sandbox.run skill (electron/sandbox.cjs runIsolated). Not a way to push or merge.",
+  "category": "developer",
+  "inputs": [
+    "code",
+    "language",
+    "allowNetwork",
+    "root"
+  ],
+  "permissions": [
+    "sandbox.exec"
+  ],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to RUN {language} code in the isolated sandbox. Allow this execution?"
+}

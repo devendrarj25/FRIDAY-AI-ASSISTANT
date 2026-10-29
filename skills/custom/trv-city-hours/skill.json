@@ -1,0 +1,17 @@
+{
+  "id": "trv-city-hours",
+  "name": "Walk-time from km",
+  "summary": "Estimate walking minutes from kilometres at 5 km/h, plus a buffer percent.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "km",
+    "bufferPct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

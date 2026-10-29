@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "turn-error-scratch",
+  "name": "Turn error scratch",
+  "description": "Writes the last chat-turn error line into this plugin's data/last-error.txt when on-error fires.",
+  "category": "diagnostics",
+  "permissions": [],
+  "hooks": [
+    "on-error"
+  ]
+}

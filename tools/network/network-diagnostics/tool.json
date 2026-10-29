@@ -1,0 +1,12 @@
+{
+  "name": "Network diagnostics",
+  "version": "1.0.0",
+  "description": "Run real connectivity checks: DNS resolution, TCP reachability and HTTPS latency to the endpoints FRIDAY depends on (model providers, package registries).",
+  "category": "network",
+  "entry": "index.cjs",
+  "inputs": ["hosts"],
+  "permissions": ["network"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to test this PC's internet connection by resolving DNS and opening HTTPS requests to public endpoints. No personal data is sent. Allow this?"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "off-agenda-builder",
+  "name": "Agenda builder",
+  "summary": "Build a timed meeting agenda from a list of topics and a total minute budget.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "minutes"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Splits a topic list across a meeting length so each item has a suggested slot. Does not create a calendar event."
+}

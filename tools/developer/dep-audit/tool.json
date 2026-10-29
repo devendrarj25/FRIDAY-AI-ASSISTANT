@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Dependency audit",
+  "description": "Run npm audit --json in the project via sandbox.runCommand. Reports vulnerabilities; does not apply npm audit fix.",
+  "category": "developer",
+  "inputs": [
+    "root",
+    "probe"
+  ],
+  "permissions": [
+    "network",
+    "process.exec"
+  ],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to RUN npm audit in this project (contacts the npm registry, does not change lockfiles). Allow this?"
+}

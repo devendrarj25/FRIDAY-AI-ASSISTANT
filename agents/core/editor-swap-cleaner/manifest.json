@@ -1,0 +1,18 @@
+{
+  "name": "Editor swap cleaner",
+  "version": "1.0.0",
+  "description": "Finds leftover editor swap/backup files (*~, *.swp, *.swo, *.bak) and can delete them after you approve.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} editor swap/backup file(s) under \u201c{folder}\u201d. Review the list before allowing."
+}

@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Round number",
+  "description": "Round a number to N decimal places with Number.toFixed semantics.",
+  "category": "math",
+  "inputs": [
+    "value",
+    "places"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to ROUND a NUMBER. Allow this?",
+  "keywords": [
+    "round",
+    "decimal",
+    "fixed"
+  ]
+}

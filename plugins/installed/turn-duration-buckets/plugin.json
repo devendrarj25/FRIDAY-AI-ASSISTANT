@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "turn-duration-buckets",
+  "name": "Turn duration buckets",
+  "description": "Bucket finished-turn durations (<1s, 1–4s, 4–8s, 8s+) into a running histogram.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-turn-complete"
+  ]
+}

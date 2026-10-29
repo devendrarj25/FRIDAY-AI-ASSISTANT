@@ -1,0 +1,17 @@
+{
+  "id": "code-refactor-plan",
+  "name": "Refactor planning notes",
+  "summary": "Skim pasted code for long functions, duplication hints, and a sequenced refactor plan.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code",
+    "filename"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Flags functions over ~40 lines and repeated 8+ character tokens. Planning only; it does not rewrite the tree."
+}

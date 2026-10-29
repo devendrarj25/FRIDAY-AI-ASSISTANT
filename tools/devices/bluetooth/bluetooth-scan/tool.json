@@ -1,0 +1,21 @@
+{
+  "name": "Scan for nearby Bluetooth LE devices",
+  "version": "1.0.0",
+  "description": "Discover Bluetooth LE devices advertising nearby. Discovery only \u2014 nothing is connected or paired automatically.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "bluetooth.scan",
+  "inputs": [
+    {
+      "name": "seconds",
+      "type": "number",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "devices"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to scan for Bluetooth devices near this PC. Allow this?"
+}

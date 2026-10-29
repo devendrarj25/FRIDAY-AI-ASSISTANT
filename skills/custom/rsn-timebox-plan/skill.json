@@ -1,0 +1,17 @@
+{
+  "id": "rsn-timebox-plan",
+  "name": "Timebox focus plan",
+  "summary": "Chunk a task list into sequential timeboxes of N minutes (default 25).",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "minutes"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Simple round-robin of pasted tasks. Not a calendar booking."
+}

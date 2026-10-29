@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "cpu-count-boot",
+  "name": "CPU count boot",
+  "description": "Stamp os.cpus().length at on-app-start.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-app-start"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Downloads cleanup agent",
+  "version": "1.0.0",
+  "description": "Scans your Downloads folder for stale, duplicate and oversized files and proposes a cleanup. Always previews the exact file list first (dry run) and only deletes after you approve.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": ["folder", "olderThanDays", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} file(s) ({size}) from “{folder}” that are older than {olderThanDays} days or duplicated. This is permanent — files go to the recycle bin only if your system does that by default. Review the previewed list before allowing."
+}

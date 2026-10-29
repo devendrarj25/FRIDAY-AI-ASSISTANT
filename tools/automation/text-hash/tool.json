@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Hash text",
+  "description": "SHA-256 of a string via node:crypto. Does not hash files (use file-hash) and does not store credentials.",
+  "category": "automation",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to SHA-256 hash text you provided. The hash is computed locally. Allow this?"
+}

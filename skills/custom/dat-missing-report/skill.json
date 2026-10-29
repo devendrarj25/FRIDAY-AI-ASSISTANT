@@ -1,0 +1,16 @@
+{
+  "id": "dat-missing-report",
+  "name": "Missing-field report",
+  "summary": "Scan CSV-like rows and report empty cells per column so you can see gaps.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Counts blanks in pasted text. It does not impute or overwrite source files."
+}

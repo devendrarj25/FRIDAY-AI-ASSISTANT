@@ -1,0 +1,19 @@
+{
+  "id": "com-status-update",
+  "name": "Stand-up status",
+  "summary": "Format yesterday / today / blockers lines for a stand-up update.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "yesterday",
+    "today",
+    "blockers",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. It does not post to Slack — use the Slack connector if you need send."
+}

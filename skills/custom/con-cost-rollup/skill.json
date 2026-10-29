@@ -1,0 +1,16 @@
+{
+  "id": "con-cost-rollup",
+  "name": "Material cost rollup",
+  "summary": "Sum line items written as `qty unitCost description` and report a subtotal.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Each line: quantity, unit cost, rest is the label. Totals are arithmetic on your numbers, not a bid. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

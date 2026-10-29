@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Strip HTML to text",
+  "description": "Turn an HTML string into readable text using the same stripTags() helper the browser engine uses when reading pages. No network.",
+  "category": "browser",
+  "inputs": [
+    "html"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to convert HTML you provided into plain text. Nothing is sent anywhere. Allow this?"
+}

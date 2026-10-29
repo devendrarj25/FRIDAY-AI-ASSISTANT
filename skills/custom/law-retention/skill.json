@@ -1,0 +1,14 @@
+{
+  "id": "law-retention",
+  "name": "Records retention table",
+  "summary": "A study table of example retention buckets (receipts, contracts, HR) — not your jurisdiction's law.",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

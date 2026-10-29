@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git status",
+  "description": "Read-only git status (porcelain) for the FRIDAY project or a given repo root. Does not stage, commit or push.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to run git status (read-only) in this repository. Allow this?"
+}

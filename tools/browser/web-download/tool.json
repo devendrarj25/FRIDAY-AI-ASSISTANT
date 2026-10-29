@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Download a file from the web",
+  "description": "Download an http(s) URL into the FRIDAY downloads folder using the same browser download path as the rest of the app. Writes a real file.",
+  "category": "browser",
+  "inputs": [
+    "url",
+    "name",
+    "root"
+  ],
+  "permissions": [
+    "network",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to DOWNLOAD “{url}” into the FRIDAY downloads folder as “{name}”. This writes a file on disk. Allow this download?"
+}

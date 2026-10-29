@@ -1,0 +1,64 @@
+{
+  "id": "rfp-extract-chain",
+  "name": "RFP extract chain",
+  "version": "1.0.0",
+  "description": "Extract from named PDFs, inventory PDFs, scan tender names, then a local clause note. Scanned PDFs fail honestly.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan tender filenames",
+      "kind": "agent",
+      "ref": "agents/core/tender-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory PDFs",
+      "kind": "agent",
+      "ref": "agents/core/pdf-inventory-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Extract text from a named PDF",
+      "kind": "tool",
+      "ref": "tools/filesystem/docs-extract",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Load RFI checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-rfi-checklist",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Load safety-general checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-safety-general",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft missing-field questions",
+      "kind": "skill",
+      "ref": "skills/custom/com-ask-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the extract local",
+      "kind": "note",
+      "ref": "rfp-extract",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "ICS events",
+  "description": "Parse VEVENT blocks from .ics text (SUMMARY/DTSTART/DTEND/LOCATION). No calendar daemon.",
+  "category": "automation",
+  "inputs": [
+    "text",
+    "limit"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PARSE calendar (.ics) text in memory. Allow this?"
+}

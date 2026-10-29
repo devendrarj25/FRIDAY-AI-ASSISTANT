@@ -1,0 +1,12 @@
+{
+  "name": "Duplicate photo finder",
+  "version": "1.0.0",
+  "description": "Scans a pictures folder for same-size, same-hash image files and reports duplicate groups. Dry-run by default; deletes extras only after you approve a plan.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": ["folder", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} duplicate photo(s) ({size}) from “{folder}”, keeping the first file in each group. This is permanent. Review the previewed list before allowing."
+}

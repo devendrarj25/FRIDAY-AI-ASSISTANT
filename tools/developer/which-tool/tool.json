@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Which tool",
+  "description": "Resolve a command on PATH using electron/toolchain.cjs which() — the Install Manager detector.",
+  "category": "developer",
+  "inputs": [
+    "cmd"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to look up “{cmd}” on this PC's PATH. Allow this?"
+}

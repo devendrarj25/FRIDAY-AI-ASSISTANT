@@ -1,0 +1,17 @@
+{
+  "id": "code-gitignore-notes",
+  "name": "gitignore coverage notes",
+  "summary": "Compare a pasted gitignore with a file list and list paths that still look committable.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "files"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Glob-lite: * → .*, prefix match. Not a git check-ignore clone."
+}

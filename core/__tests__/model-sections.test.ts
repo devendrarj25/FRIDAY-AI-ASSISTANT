@@ -1,0 +1,90 @@
+/**
+ * Phase 4: Models sections keep every current tab, and the screen
+ * does not offer to run an installer.
+ */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import {
+  MODEL_SECTIONS,
+  SECTION_TABS,
+  firstPage,
+  launcherLines,
+  pinAgeDays,
+  pinAgeLabel,
+  sectionCovers,
+  selectCloud,
+} from "../../src/lib/friday/model-sections";
+
+const require_ = createRequire(import.meta.url);
+const library = require_("../../electron/local-library.cjs");
+
+// Read from the page itself, so a tab added there but left out of every section fails here.
+const TABS = [
+  ...readFileSync(path.resolve("src/routes/models.tsx"), "utf8")
+    .slice(readFileSync(path.resolve("src/routes/models.tsx"), "utf8").indexOf("const TABS = ["))
+    .split("];")[0]!
+    .matchAll(/key: "([a-z]+)"/g),
+].map((hit) => hit[1]!);
+
+describe("model sections", () => {
+  it("puts every current Models tab under Local, Cloud, or Routing", () => {
+    expect(MODEL_SECTIONS.map((section) => section.label)).toEqual([
+      "LOCAL AI",
+      "CLOUD AI",
+      "ROUTING",
+    ]);
+    expect(sectionCovers(TABS)).toEqual([]);
+    expect(TABS).toContain("live");
+    expect(SECTION_TABS.routing).toEqual(["routing", "live"]);
+    const page = readFileSync(path.resolve("src/routes/models.tsx"), "utf8");
+    expect(page).toContain("MODEL_SECTIONS");
+    expect(page).toContain("firstPage");
+    expect(page).toContain("Select all free");
+    expect(page).toContain("Local answer strategy");
+    expect(page).toContain("pinAgeLabel");
+    expect(page).toContain("Check for update");
+    expect(page).toContain("checkLauncherRelease");
+    expect(page).not.toMatch(/disabled=\{true\}/);
+  });
+
+  it("shows how old a launcher pin is without using today's date", () => {
+    const now = Date.parse("2026-10-16T00:00:00Z");
+    expect(pinAgeDays("2026-10-14", now)).toBe(2);
+    expect(pinAgeLabel("2026-10-14", now)).toBe("Pin age: 2 days");
+    expect(pinAgeDays("", now)).toBeNull();
+  });
+
+  it("never offers to run a launcher from the screen helper", () => {
+    const ollama = library.runnerById("ollama");
+    const gpt = library.runnerById("gpt4all");
+    expect(launcherLines(ollama, false).canRun).toBe(false);
+    expect(launcherLines(ollama, false).check).toMatch(/owner click/i);
+    expect(launcherLines(ollama, true).check).toMatch(/signature/i);
+    expect(launcherLines(gpt, true).check).toMatch(/sha256/i);
+    expect(
+      launcherLines({ release: null, officialPage: "https://lmstudio.ai/download" }, true).check,
+    ).toMatch(/official page/i);
+  });
+
+  it("selects free models and refuses paid until the owner confirms", () => {
+    const models = [
+      { id: "free-a", type: "cloud", access: "free" },
+      { id: "paid-a", type: "cloud", access: "paid" },
+      { id: "local-a", type: "local", access: "free" },
+    ];
+    expect(selectCloud(models, "free", false).ids).toEqual(["free-a"]);
+    expect(selectCloud(models, "paid", false).refused).toMatch(/confirm/i);
+    expect(selectCloud(models, "paid", false).ids).toEqual(["free-a"]);
+    expect(selectCloud(models, "both", true).ids).toEqual(["free-a", "paid-a"]);
+  });
+
+  it("pages a long model list and leaves the rest behind Show more", () => {
+    const rows = Array.from({ length: 100 }, (_, index) => index);
+    expect(firstPage(rows, 40).rows).toHaveLength(40);
+    expect(firstPage(rows, 40).more).toBe(true);
+    expect(firstPage(rows, 100).more).toBe(false);
+    expect(firstPage(rows, 0).rows).toEqual([]);
+  });
+});

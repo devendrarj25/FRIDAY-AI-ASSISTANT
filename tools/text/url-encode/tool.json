@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "URL encode",
+  "description": "encodeURIComponent on a string.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to URL-ENCODE text in memory. Allow this?"
+}

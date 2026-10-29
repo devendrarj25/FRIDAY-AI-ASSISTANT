@@ -1,0 +1,64 @@
+{
+  "id": "follow-up-draft-queue",
+  "name": "Follow-up draft queue",
+  "version": "1.0.0",
+  "description": "Build a follow-up queue from overdue filenames, contracts, and email drafts. Sends wait for approval.",
+  "category": "office",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 17:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan contract filenames",
+      "kind": "agent",
+      "ref": "agents/core/contract-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft follow-ups",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft an apology if a date slipped",
+      "kind": "skill",
+      "ref": "skills/custom/com-apology",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft the email body",
+      "kind": "skill",
+      "ref": "skills/custom/com-email-draft",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the queue local until you send",
+      "kind": "note",
+      "ref": "follow-up-queue",
+      "risk": "safe"
+    }
+  ]
+}

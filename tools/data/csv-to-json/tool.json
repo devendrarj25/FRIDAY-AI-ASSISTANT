@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "CSV to JSON",
+  "description": "Parse CSV text with document-extract.parseCsv and return JSON rows.",
+  "category": "data",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to CONVERT CSV text to JSON in memory. Allow this?"
+}

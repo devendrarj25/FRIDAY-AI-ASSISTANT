@@ -1,0 +1,16 @@
+{
+  "id": "com-slack-update",
+  "name": "Short async update",
+  "summary": "Compress bullets into a 4-line async update suitable for chat (not posted).",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. Slack send still uses the connector and approval gate."
+}

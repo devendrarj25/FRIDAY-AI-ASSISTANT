@@ -1,0 +1,17 @@
+{
+  "name": "Leftover extract scanner",
+  "version": "1.0.0",
+  "description": "Finds folders that look like unzip leftovers (extracted, unzipped, (1) copy folders) so you can decide what to keep. Report only.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} extract-like folder(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory. Nothing will be deleted."
+}

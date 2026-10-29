@@ -1,0 +1,16 @@
+{
+  "name": "List connected Android phones",
+  "version": "1.0.0",
+  "description": "Read every Android phone attached to this PC by cable, with its real USB-debugging authorization state. FRIDAY never stores a phone's PIN or pattern.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "android.list",
+  "inputs": [],
+  "permissions": [
+    "process.exec",
+    "devices"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to list the Android phones connected to this PC by cable. Allow this?"
+}

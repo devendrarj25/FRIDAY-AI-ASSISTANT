@@ -1,0 +1,12 @@
+{
+  "name": "Browser extension inventory",
+  "version": "1.0.0",
+  "description": "Reads locally installed Chrome / Chromium / Edge extension folders and lists their manifest names. Read-only. Empty on hosts with no browser profile, never invented.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} browser extension(s) from local profile folders. This is read-only — allow to keep the inventory in the approval queue. Nothing will be removed."
+}

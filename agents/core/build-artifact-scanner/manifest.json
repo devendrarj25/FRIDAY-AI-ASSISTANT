@@ -1,0 +1,17 @@
+{
+  "name": "Build artifact scanner",
+  "version": "1.0.0",
+  "description": "Finds dist, .next, target, build, coverage and similar artifact folders and reports age plus estimated size. Report only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} build-artifact folder(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory. Nothing will be deleted."
+}

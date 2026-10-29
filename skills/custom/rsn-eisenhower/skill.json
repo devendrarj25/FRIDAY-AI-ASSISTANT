@@ -1,0 +1,16 @@
+{
+  "id": "rsn-eisenhower",
+  "name": "Priority and urgency triage",
+  "summary": "Sort tasks into urgent-important, schedule, delegate, and drop using keywords or U/I tags.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Recognises `u+ i+`, `urgent`, `important`, `later`, `delegate`. A triage board, not an auto-scheduler."
+}

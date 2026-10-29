@@ -1,0 +1,16 @@
+{
+  "id": "com-follow-up",
+  "name": "Follow-up email",
+  "summary": "Draft a follow-up that restates the last ask and offers a clear next action.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. FRIDAY does not send the follow-up or create a calendar reminder."
+}

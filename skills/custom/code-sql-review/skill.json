@@ -1,0 +1,16 @@
+{
+  "id": "code-sql-review",
+  "name": "SQL review checklist",
+  "summary": "Flag SELECT *, missing WHERE on UPDATE/DELETE, and string-concat filters in pasted SQL.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "sql"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Static pattern checks. Does not connect to a database."
+}

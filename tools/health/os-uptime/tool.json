@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "OS uptime",
+  "description": "Return os.uptime() in seconds plus a compact label.",
+  "category": "health",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ OS UPTIME. Allow this?",
+  "keywords": [
+    "uptime",
+    "os"
+  ]
+}

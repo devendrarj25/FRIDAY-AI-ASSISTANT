@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "NDJSON preview",
+  "description": "Parse newline-delimited JSON and return the first rows.",
+  "category": "data",
+  "inputs": [
+    "text",
+    "limit"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PREVIEW NDJSON / JSONL text in memory. Allow this?",
+  "keywords": [
+    "ndjson",
+    "jsonl",
+    "preview"
+  ]
+}

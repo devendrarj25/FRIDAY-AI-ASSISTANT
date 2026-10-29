@@ -1,0 +1,17 @@
+{
+  "id": "con-phase-checklist",
+  "name": "Project phase checklist",
+  "summary": "Emit a default site phase list (mobilise → close-out) scaled to a week count.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "weeks"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Phases are a generic sequence you can tick against pasted notes. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Not a critical-path schedule engine."
+}

@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Summarise the workspace",
+  "description": "Count folders and files at the FRIDAY workspace root via the built-in project.summarise skill.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to COUNT folders in the FRIDAY workspace. Allow this?"
+}

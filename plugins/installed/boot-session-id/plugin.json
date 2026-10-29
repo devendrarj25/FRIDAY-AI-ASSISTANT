@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "boot-session-id",
+  "name": "Boot session id",
+  "description": "Allocates a local session id on app start and marks it closed on quit, stored only in this plugin's data/session.json.",
+  "category": "session",
+  "permissions": [],
+  "hooks": [
+    "on-app-start",
+    "on-app-quit"
+  ]
+}

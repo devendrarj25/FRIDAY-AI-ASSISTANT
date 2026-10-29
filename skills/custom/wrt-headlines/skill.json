@@ -1,0 +1,16 @@
+{
+  "id": "wrt-headlines",
+  "name": "Headline options",
+  "summary": "Produce eight short headline options from a topic sentence or blurb.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Headline ideas only. It does not publish to a CMS."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "mkt-allocation-mix",
+  "name": "Portfolio allocation mixer",
+  "summary": "Parse name/weight lines, renormalise weights to 100%, and flag rows that do not add up.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Each line is `name weight`. Weights are scaled so they sum to 1. Does not rebalance a live account."
+}

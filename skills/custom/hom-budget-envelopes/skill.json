@@ -1,0 +1,17 @@
+{
+  "id": "hom-budget-envelopes",
+  "name": "Budget envelopes",
+  "summary": "Split a monthly cash amount into named envelopes by percent or equal shares.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "amount",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Arithmetic on numbers you type. Not a bank connection."
+}

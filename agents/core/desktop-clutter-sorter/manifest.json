@@ -1,0 +1,19 @@
+{
+  "name": "Desktop clutter sorter",
+  "version": "1.0.0",
+  "description": "Plans moving loose Desktop (or chosen folder) files into type folders such as Documents, Images, Archives and Installers. Preview first.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dest",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to MOVE {count} file(s) from \u201c{folder}\u201d into type folders under the destination. Review each destination path before allowing."
+}

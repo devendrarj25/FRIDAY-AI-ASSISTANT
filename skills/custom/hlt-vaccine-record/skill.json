@@ -1,0 +1,14 @@
+{
+  "id": "hlt-vaccine-record",
+  "name": "Vaccine record template",
+  "summary": "Blank personal immunisation record table — you fill dates; FRIDAY does not store medical claims.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

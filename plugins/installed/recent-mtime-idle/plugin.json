@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "recent-mtime-idle",
+  "name": "Recent mtime idle",
+  "description": "On idle, list the 15 most recently modified files from a depth-2 walk.",
+  "category": "housekeeping",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

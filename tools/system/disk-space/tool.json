@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Disk space",
+  "description": "Free/total bytes for the FRIDAY folder's filesystem via fs.statfsSync (Node 22).",
+  "category": "system",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to read free disk space for the FRIDAY folder's drive. Allow this?"
+}

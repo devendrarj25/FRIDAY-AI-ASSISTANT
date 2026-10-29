@@ -1,0 +1,16 @@
+{
+  "id": "ckn-grocery-merge",
+  "name": "Recipe grocery merge",
+  "summary": "Merge several recipe ingredient dumps into one shopping list with crude counts.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Merges pasted ingredient lines into one list. It does not place a grocery order."
+}

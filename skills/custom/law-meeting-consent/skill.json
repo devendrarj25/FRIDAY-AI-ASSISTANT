@@ -1,0 +1,16 @@
+{
+  "id": "law-meeting-consent",
+  "name": "Recording-consent note",
+  "summary": "Short meeting-recording consent paragraph you can paste into an agenda (not a statute).",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "where"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

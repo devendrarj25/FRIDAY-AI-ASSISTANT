@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Random int",
+  "description": "Inclusive crypto.randomInt between min and max (capped to a million-wide span).",
+  "category": "math",
+  "inputs": [
+    "min",
+    "max"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to GENERATE a RANDOM INTEGER. Allow this?",
+  "keywords": [
+    "random",
+    "integer",
+    "rng"
+  ]
+}

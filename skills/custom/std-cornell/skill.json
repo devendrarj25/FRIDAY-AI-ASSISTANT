@@ -1,0 +1,16 @@
+{
+  "id": "std-cornell",
+  "name": "Cornell notes split",
+  "summary": "Split notes into cues, details, and a summary line in Cornell layout.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Layout helper. It does not grade the notes."
+}

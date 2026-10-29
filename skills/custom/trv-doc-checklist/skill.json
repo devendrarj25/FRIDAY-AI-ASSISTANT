@@ -1,0 +1,14 @@
+{
+  "id": "trv-doc-checklist",
+  "name": "Travel document checklist",
+  "summary": "Educational document checklist (passport validity, tickets, insurance copy) — not visa advice.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

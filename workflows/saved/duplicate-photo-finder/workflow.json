@@ -1,0 +1,50 @@
+{
+  "id": "duplicate-photo-finder",
+  "name": "Duplicate photo chain",
+  "version": "1.0.0",
+  "description": "Find duplicate photos, screenshots, WhatsApp dumps, then a keep list.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find duplicate photos",
+      "kind": "agent",
+      "ref": "agents/core/duplicate-photo-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Organise screenshot dumps",
+      "kind": "agent",
+      "ref": "agents/core/screenshot-dump-organizer",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan WhatsApp image dumps",
+      "kind": "agent",
+      "ref": "agents/core/whatsapp-image-dump-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Plan Pictures year folders",
+      "kind": "agent",
+      "ref": "agents/core/pictures-year-folder-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the keep-list local",
+      "kind": "note",
+      "ref": "photo-dupes",
+      "risk": "safe"
+    }
+  ]
+}

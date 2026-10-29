@@ -1,0 +1,16 @@
+{
+  "id": "rsn-feedback-draft",
+  "name": "Feedback draft (observation/feeling/request)",
+  "summary": "Reshape a complaint into observation, feeling, need, request — a draft you still edit.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "NVC-inspired buckets. Not HR policy and not a send action."
+}

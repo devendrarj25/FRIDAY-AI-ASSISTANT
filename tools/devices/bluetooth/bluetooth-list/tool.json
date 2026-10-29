@@ -1,0 +1,15 @@
+{
+  "name": "List paired Bluetooth devices",
+  "version": "1.0.0",
+  "description": "Read the Bluetooth devices Windows has already paired, with their real connection status.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "bluetooth.list",
+  "inputs": [],
+  "permissions": [
+    "devices"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to read the Bluetooth devices paired with this PC. Allow this?"
+}

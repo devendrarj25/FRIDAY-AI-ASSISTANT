@@ -1,0 +1,50 @@
+{
+  "id": "markdown-index-pass",
+  "name": "Markdown index pass",
+  "version": "1.0.0",
+  "description": "Index markdown, TOC, links, word counts — local knowledge map.",
+  "category": "research",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Index markdown files",
+      "kind": "agent",
+      "ref": "agents/core/markdown-index-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Markdown TOC via module",
+      "kind": "module",
+      "ref": "modules/communication/markdown-toc",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Markdown links via module",
+      "kind": "module",
+      "ref": "modules/communication/markdown-links",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Word-count text notes",
+      "kind": "agent",
+      "ref": "agents/core/text-notes-wordcount",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the index local",
+      "kind": "note",
+      "ref": "md-index",
+      "risk": "safe"
+    }
+  ]
+}

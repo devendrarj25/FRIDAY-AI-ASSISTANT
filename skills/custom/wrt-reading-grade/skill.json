@@ -1,0 +1,16 @@
+{
+  "id": "wrt-reading-grade",
+  "name": "Reading ease estimate",
+  "summary": "Estimate Flesch-style reading ease from sentence and syllable proxies.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "A rough local estimate, not a certified readability audit."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "dat-percent-change",
+  "name": "Percent-change series",
+  "summary": "Compute period-to-period percent change for a numeric series.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Backward-looking math on a list you paste. Not a forecast."
+}

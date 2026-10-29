@@ -1,0 +1,16 @@
+{
+  "id": "code-api-contract",
+  "name": "API contract checklist",
+  "summary": "Check a pasted OpenAPI/route sketch for method, path, auth, error shape, and examples.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Looks for HTTP verbs, /paths, auth words, and 4xx/5xx. Does not start a server."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "sec-password-hygiene",
+  "name": "Password hygiene checklist",
+  "summary": "Checklist for unique passwords, a manager, and no reused logins — static advice.",
+  "category": "security-hygiene",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
+}

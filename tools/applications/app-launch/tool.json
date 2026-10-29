@@ -1,0 +1,19 @@
+{
+  "name": "Launch application",
+  "version": "1.0.0",
+  "description": "Start any application or executable installed on this PC (for example Notepad, Chrome, or a full path to an .exe).",
+  "category": "applications",
+  "entry": "index.cjs",
+  "kernelTool": "app.launch",
+  "inputs": [
+    "app",
+    "args",
+    "cwd"
+  ],
+  "permissions": [
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to START an application on this PC: \u201c{app}\u201d. Starting a program runs real code on your machine with your account's rights. Allow this launch?"
+}

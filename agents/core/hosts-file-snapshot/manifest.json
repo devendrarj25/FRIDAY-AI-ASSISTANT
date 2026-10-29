@@ -1,0 +1,16 @@
+{
+  "name": "Hosts file snapshot",
+  "version": "1.0.0",
+  "description": "Reads the local hosts file and lists non-comment hostnames. Does not edit the file. Windows uses System32/drivers/etc/hosts; others use /etc/hosts.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} hosts-file row(s). Read-only. Allow to keep the snapshot. The hosts file will not be edited."
+}

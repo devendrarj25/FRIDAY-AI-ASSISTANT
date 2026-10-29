@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Screen state",
+  "description": "Read the last screen-vision engine state (sources/capture flags). Does not capture.",
+  "category": "media",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ SCREEN-VISION STATE (no capture). Allow this?",
+  "keywords": [
+    "screen",
+    "vision",
+    "state"
+  ]
+}

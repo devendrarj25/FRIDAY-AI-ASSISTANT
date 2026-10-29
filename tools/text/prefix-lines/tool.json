@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Prefix lines",
+  "description": "Prefix every line of text with a string (for example a comment marker).",
+  "category": "text",
+  "inputs": [
+    "text",
+    "prefix"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PREFIX LINES of text in memory. Allow this?",
+  "keywords": [
+    "prefix",
+    "lines",
+    "comment"
+  ]
+}

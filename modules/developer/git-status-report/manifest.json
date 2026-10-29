@@ -1,0 +1,19 @@
+{
+  "name": "git-status-report",
+  "version": "1.0.0",
+  "description": "Read git status --porcelain -b through the kernel git tool and summarise the branch, staged/unstaged/untracked counts, and sample paths. Does not clone or commit.",
+  "category": "developer",
+  "permissions": [
+    "git"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Git status report",
+    "icon": "git-branch"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Clamp number",
+  "description": "Clamp a number between min and max.",
+  "category": "math",
+  "inputs": [
+    "value",
+    "min",
+    "max"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to CLAMP a NUMBER between min and max. Allow this?",
+  "keywords": [
+    "clamp",
+    "bound",
+    "range"
+  ]
+}

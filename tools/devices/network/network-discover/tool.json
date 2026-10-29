@@ -1,0 +1,21 @@
+{
+  "name": "Discover devices on this WiFi network",
+  "version": "1.0.0",
+  "description": "Find devices that advertise themselves on this local network over mDNS/Bonjour and UPnP. Discovery only: FRIDAY never probes devices that have not opted in.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "network.discover",
+  "inputs": [
+    {
+      "name": "kind",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to look for devices advertising themselves on your WiFi network. Allow this?"
+}

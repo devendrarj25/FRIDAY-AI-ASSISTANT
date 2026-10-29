@@ -1,0 +1,17 @@
+{
+  "name": "Private key path alert",
+  "version": "1.0.0",
+  "description": "Alerts when files named like private keys exist (id_rsa, id_ed25519, *.pem without .pub). Reports path and mode only \u2014 never dumps key bytes.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} private-key-named file(s) under \u201c{folder}\u201d. Paths/modes only. Allow to keep the alert. Key bytes are not read."
+}

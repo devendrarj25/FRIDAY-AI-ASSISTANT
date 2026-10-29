@@ -1,0 +1,19 @@
+{
+  "name": "editorconfig-keys",
+  "version": "1.0.0",
+  "description": "Parse .editorconfig sections and keys (indent_style, indent_size, end_of_line, charset). Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Editorconfig keys",
+    "icon": "settings"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "hom-appliance-life",
+  "name": "Appliance lifespan notes",
+  "summary": "Look up typical residential lifespan ranges for common appliances from a static table.",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Household planning helper. It does not control devices or place orders. Typical ranges, not a warranty or repair diagnosis."
+}

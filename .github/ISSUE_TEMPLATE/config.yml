@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (do not open a public issue)
+    url: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/security/advisories/new
+    about: Report privately. See SECURITY.md for the policy and contact.
+  - name: Build, release and version documentation
+    url: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/blob/main/RELEASE.md
+    about: Read the release runbook and versioning policy before filing a build issue.

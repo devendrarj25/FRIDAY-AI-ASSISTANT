@@ -1,0 +1,17 @@
+{
+  "name": "Git branch HEAD reader",
+  "version": "1.0.0",
+  "description": "Reads .git/HEAD (and a short git rev-parse) so the current branch is visible without running git write commands.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY read HEAD as {count} ref(s) in \u201c{folder}\u201d. Read-only. Allow to keep the snapshot. Nothing will be committed."
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "node-version-boot",
+  "name": "Node version boot",
+  "description": "Record process.version at on-app-start.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-app-start"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "google-calendar-if-connected",
+  "name": "Google Calendar connected chain",
+  "version": "1.0.0",
+  "description": "Reads Google Calendar only when connected; otherwise the connector step fails honestly and local ICS still runs.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 08:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read local ICS first",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Google Calendar if connected",
+      "kind": "connector",
+      "ref": "google-calendar",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft the day list",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the day list local",
+      "kind": "note",
+      "ref": "gcal-day",
+      "risk": "safe"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Workspace shell",
+  "description": "Run a command in FRIDAY's workspace terminal (electron/terminal.cjs): cmd, PowerShell, pwsh, WSL, Git Bash, bash, Node, or the FRIDAY Python venv. Confined to the FRIDAY root. Never invents output.",
+  "category": "developer",
+  "inputs": ["command", "shell", "cwd", "root"],
+  "permissions": ["shell.cmd"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to RUN a command in the FRIDAY workspace terminal. Allow this?"
+}

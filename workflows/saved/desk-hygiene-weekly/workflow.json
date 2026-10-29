@@ -1,0 +1,71 @@
+{
+  "id": "desk-hygiene-weekly",
+  "name": "Desk hygiene weekly",
+  "version": "1.0.0",
+  "description": "Weekly desk tidy from local folders: downloads, desktop clutter, leftover extracts, screenshots, temp files, empty folders, huge files, then a local tidy plan.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Sunday 11:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Plan downloads cleanup",
+      "kind": "agent",
+      "ref": "agents/core/downloads-cleanup",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Sort desktop clutter by name",
+      "kind": "agent",
+      "ref": "agents/core/desktop-clutter-sorter",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find leftover extract folders",
+      "kind": "agent",
+      "ref": "agents/core/leftover-extract-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Organise screenshot dumps",
+      "kind": "agent",
+      "ref": "agents/core/screenshot-dump-organizer",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Plan temp-file cleanup",
+      "kind": "agent",
+      "ref": "agents/core/temp-file-cleanup",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Find empty folders",
+      "kind": "agent",
+      "ref": "agents/core/empty-folder-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Find huge files",
+      "kind": "agent",
+      "ref": "agents/core/huge-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the tidy plan local",
+      "kind": "note",
+      "ref": "desk-hygiene",
+      "risk": "safe"
+    }
+  ]
+}

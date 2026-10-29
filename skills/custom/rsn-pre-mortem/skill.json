@@ -1,0 +1,16 @@
+{
+  "id": "rsn-pre-mortem",
+  "name": "Pre-mortem",
+  "summary": "Assume the plan failed and list failure modes, signals, and mitigations from pasted fears.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Prompts why-it-failed / early-signal / mitigation columns. Imagination aid, not a prediction."
+}

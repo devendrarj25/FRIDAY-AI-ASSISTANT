@@ -1,0 +1,19 @@
+{
+  "name": "symlink-list",
+  "version": "1.0.0",
+  "description": "List symbolic links under a folder with target paths. Read-only. Empty list when the OS cannot create links in self_test.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Symlink list",
+    "icon": "link"
+  }
+}

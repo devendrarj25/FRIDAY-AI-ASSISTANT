@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Changelog draft",
+  "description": "Draft changelog bullets from recent git subjects. Returns text only — it never writes CHANGELOG.md, releases/notes, or release-notes.md.",
+  "category": "developer",
+  "inputs": [
+    "root",
+    "limit"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to DRAFT changelog bullets from git log. No files will be written. Allow this?"
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Extract document text",
+  "description": "Read real text and rows from CSV, XLSX, DOCX and text-based PDFs via the built-in docs.extract skill (electron/document-extract.cjs). Scanned PDFs fail honestly.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to EXTRACT text from the document “{path}” inside the FRIDAY folder. Allow this?"
+}

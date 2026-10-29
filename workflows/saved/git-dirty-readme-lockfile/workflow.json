@@ -1,0 +1,71 @@
+{
+  "id": "git-dirty-readme-lockfile",
+  "name": "Git dirty + README + lockfile",
+  "version": "1.0.0",
+  "description": "Developer hygiene: dirty tree, missing README, lockfile, gitignore/env, HEAD — inspect only.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 18:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan git dirty files",
+      "kind": "agent",
+      "ref": "agents/core/git-dirty-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Read git HEAD",
+      "kind": "agent",
+      "ref": "agents/core/git-branch-head-reader",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Audit lockfile presence",
+      "kind": "agent",
+      "ref": "agents/core/lockfile-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Audit gitignore vs env files",
+      "kind": "agent",
+      "ref": "agents/core/gitignore-env-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Git status via module",
+      "kind": "module",
+      "ref": "modules/developer/git-status-report",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Draft a commit-message hint",
+      "kind": "skill",
+      "ref": "skills/custom/code-commit-message",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the hygiene note local",
+      "kind": "note",
+      "ref": "git-hygiene",
+      "risk": "safe"
+    }
+  ]
+}

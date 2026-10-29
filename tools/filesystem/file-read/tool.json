@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Read a file",
+  "description": "Read a UTF-8 text file inside the FRIDAY folder (same root resolution as kernel fs.read / skills). Binary files are refused rather than decoded as garbage.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "maxChars",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ the file “{path}” inside the FRIDAY folder. Allow this?"
+}

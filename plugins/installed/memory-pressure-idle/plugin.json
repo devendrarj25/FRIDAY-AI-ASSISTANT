@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "memory-pressure-idle",
+  "name": "Memory pressure idle",
+  "description": "On idle, compute free/total memory ratio and flag pressure below 10% free.",
+  "category": "system",
+  "permissions": [],
+  "hooks": [
+    "on-idle"
+  ]
+}

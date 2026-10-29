@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "gitignore-presence",
+  "name": "gitignore presence",
+  "description": "Check .gitignore at workspace root on start.",
+  "category": "git",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-app-start"
+  ]
+}

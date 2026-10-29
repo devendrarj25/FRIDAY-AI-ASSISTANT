@@ -1,0 +1,14 @@
+{
+  "name": "data-normalize",
+  "version": "1.0.0",
+  "description": "Preview a CSV or JSON table, trim headers, and write a .friday-import-report.json next to the file. Dry-run by default; apply=True writes the report through kernel fs.write.",
+  "category": "data",
+  "permissions": ["fs.read", "fs.write"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "Data import",
+    "icon": "file-input"
+  }
+}

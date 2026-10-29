@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "List zip contents",
+  "description": "List entries inside a ZIP file using electron/document-extract.cjs unzip() — the same ZIP reader used for DOCX/XLSX. Non-zip archives fail honestly.",
+  "category": "filesystem",
+  "inputs": [
+    "archive",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to LIST the contents of the ZIP “{archive}” inside the FRIDAY folder. Allow this?"
+}

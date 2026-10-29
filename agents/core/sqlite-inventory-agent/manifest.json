@@ -1,0 +1,17 @@
+{
+  "name": "SQLite inventory agent",
+  "version": "1.0.0",
+  "description": "Lists .sqlite/.db files with size and age so local ledgers and app databases are visible before a backup copy.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} SQLite/db file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

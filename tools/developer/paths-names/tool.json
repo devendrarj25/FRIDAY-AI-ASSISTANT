@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Path names",
+  "description": "List canonical FRIDAY folder names from friday-contract.cjs. No disk walk.",
+  "category": "developer",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to LIST CANONICAL FOLDER NAMES from the structure contract. Allow this?",
+  "keywords": [
+    "paths",
+    "folders",
+    "contract"
+  ]
+}

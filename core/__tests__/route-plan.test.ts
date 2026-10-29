@@ -1,0 +1,738 @@
+/**
+ * Route plan: hard reasons, quality targets, and non-retryable 400s.
+ * The default score (no quality target, or balanced) stays today's order.
+ */
+import { describe, expect, it } from "vitest";
+import { createRequire } from "node:module";
+import {
+  createRoutingContract,
+  normaliseQualityTarget,
+  validateRoutingContract,
+} from "../../src/lib/friday/model-routing-contract";
+
+const require_ = createRequire(import.meta.url);
+const router = require_("../../electron/model-router.cjs");
+const access = require_("../../electron/model-access.cjs");
+
+function localModel(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    label: id,
+    type: "local",
+    kind: "local",
+    provider: "ollama",
+    endpoint: "http://127.0.0.1:11434",
+    contextK: 32,
+    status: "ready",
+    role: "brain",
+    capabilities: { chat: true, coding: true, reasoning: true, tools: true, vision: false },
+    meta: { providerId: "ollama", kind: "local", modelName: id, resident: false, sizeGb: 4 },
+    ...overrides,
+  };
+}
+
+function cloudModel(
+  id: string,
+  providerId: string,
+  billingMode = "ZERO_COST",
+  overrides: Record<string, unknown> = {},
+) {
+  const record = access.makeRecord({
+    billingMode,
+    eligibility: "ELIGIBLE",
+    verification: "VERIFIED",
+  });
+  return {
+    id,
+    label: id,
+    type: "cloud",
+    kind: "cloud",
+    provider: providerId,
+    endpoint: "https://api.example.com/v1",
+    contextK: 128,
+    status: "ready",
+    role: "brain",
+    accessRecord: record,
+    capabilities: { chat: true, coding: true, reasoning: true, tools: true, vision: true },
+    meta: { providerId, kind: "cloud", modelName: id, accessRecord: record },
+    ...overrides,
+  };
+}
+
+describe("route plan", () => {
+  const local = localModel("ollama:llama3.1");
+  const cloud = cloudModel("groq:llama-fast", "groq");
+  const pool = [local, cloud];
+
+  it("rejects a cloud model under local-only for mode and never returns it", () => {
+    const options = { mode: "local-only", policy: "free-preferred", now: 1_700_000_000_000 };
+    const plan = router.planRoute(pool, options);
+    const selected = router.selectEligible(pool, options);
+    expect(selected.map((model: { id: string }) => model.id)).toEqual(["ollama:llama3.1"]);
+    expect(plan.candidates).toEqual(selected.map((model: { id: string }) => model.id));
+    expect(plan.rejected).toContainEqual({ id: "groq:llama-fast", reason: "mode" });
+    expect(plan.candidates).not.toContain("groq:llama-fast");
+  });
+
+  it("drops a model that cannot call tools and does not fall back to it", () => {
+    const plain = cloudModel("custom:plain-chat", "custom", "ZERO_COST", {
+      capabilities: { chat: true, tools: false, vision: false, coding: true, reasoning: true },
+    });
+    const tooled = cloudModel("groq:tool-chat", "groq");
+    const options = {
+      mode: "cloud-only",
+      policy: "free-preferred",
+      requirements: { tools: true },
+      now: 1_700_000_000_000,
+    };
+    const plan = router.planRoute([plain, tooled, local], options);
+    expect(plan.candidates).toEqual(["groq:tool-chat"]);
+    expect(plan.rejected).toContainEqual({ id: "custom:plain-chat", reason: "tools" });
+    expect(plan.candidates).not.toContain("custom:plain-chat");
+  });
+
+  it("keeps a private request on this PC", () => {
+    const options = {
+      mode: "auto",
+      policy: "free-preferred",
+      requirements: { privacy: "private" },
+      now: 1_700_000_000_000,
+    };
+    const plan = router.planRoute(pool, options);
+    expect(plan.candidates).toEqual(["ollama:llama3.1"]);
+    expect(plan.rejected).toContainEqual({ id: "groq:llama-fast", reason: "privacy" });
+    expect(plan.constraints.privacy).toBe("private");
+  });
+
+  it("stays empty when private and cloud-only are both set", () => {
+    const options = {
+      mode: "cloud-only",
+      policy: "free-preferred",
+      requirements: { privacy: "private" },
+      now: 1_700_000_000_000,
+    };
+    const plan = router.planRoute(pool, options);
+    expect(plan.planType).toBe("none");
+    expect(plan.candidates).toEqual([]);
+    expect(plan.selected).toBeNull();
+    expect(plan.why).toMatch(/private/i);
+    expect(plan.why).toMatch(/cloud-only/i);
+    expect(router.selectEligible(pool, options)).toEqual([]);
+  });
+
+  it("uses the same candidate ids as selectEligible", () => {
+    const options = { mode: "auto", policy: "free-preferred", now: 1_700_000_000_000 };
+    const plan = router.planRoute(pool, options);
+    const selected = router.selectEligible(pool, options);
+    expect(plan.candidates).toEqual(selected.map((model: { id: string }) => model.id));
+    expect(plan.planType).toBe("primary-fallback");
+  });
+
+  it("does not change order when qualityTarget is omitted or balanced", () => {
+    const options = { mode: "auto", policy: "free-preferred", now: 1_700_000_000_000 };
+    const plain = router.selectEligible(pool, options).map((model: { id: string }) => model.id);
+    const balanced = router
+      .selectEligible(pool, { ...options, qualityTarget: "balanced" })
+      .map((model: { id: string }) => model.id);
+    expect(balanced).toEqual(plain);
+    expect(plain.length).toBeGreaterThan(0);
+  });
+
+  it("lets fastest prefer the lower-latency model without moving the balanced order", () => {
+    const slow = {
+      id: "slow",
+      role: "brain",
+      type: "local",
+      access: "free",
+      accessRecord: {},
+      capabilities: { chat: true },
+      qualityProfile: { chatScore: 0.95, speedScore: 0.2, reasoningScore: 0.5, codingScore: 0.5 },
+      contextK: 32,
+      health: "available",
+      latencyMs: 800,
+      failures: 0,
+      coolingDown: false,
+      lastFailureAt: 0,
+    };
+    const fast = {
+      ...slow,
+      id: "fast",
+      qualityProfile: { chatScore: 0.4, speedScore: 0.95, reasoningScore: 0.5, codingScore: 0.5 },
+      latencyMs: 200,
+    };
+    const base = { task: "chat", policy: "free-preferred", now: 1 };
+    expect(router.scoreModel(slow, base)).toBeGreaterThan(router.scoreModel(fast, base));
+    expect(router.scoreModel(slow, { ...base, qualityTarget: "balanced" })).toBe(
+      router.scoreModel(slow, base),
+    );
+    expect(router.scoreModel(fast, { ...base, qualityTarget: "fastest" })).toBeGreaterThan(
+      router.scoreModel(slow, { ...base, qualityTarget: "fastest" }),
+    );
+  });
+
+  it("moves cheapest, best-quality, and reliable only when that target is set", () => {
+    const rich = {
+      id: "rich",
+      role: "brain",
+      type: "cloud",
+      access: "paid",
+      accessRecord: {},
+      capabilities: { chat: true, reasoning: true, coding: true },
+      qualityProfile: { chatScore: 0.95, reasoningScore: 0.99, codingScore: 0.99, speedScore: 0.4 },
+      contextK: 128,
+      health: "available",
+      latencyMs: 400,
+      failures: 0,
+      coolingDown: false,
+      lastFailureAt: 0,
+    };
+    const bargain = {
+      ...rich,
+      id: "bargain",
+      type: "local",
+      access: "free",
+      contextK: 8,
+      qualityProfile: { chatScore: 0.4, reasoningScore: 0.35, codingScore: 0.35, speedScore: 0.5 },
+    };
+    const reasoning = { task: "reasoning", policy: "allow-paid", now: 1 };
+    expect(router.scoreModel(rich, reasoning)).toBeGreaterThan(
+      router.scoreModel(bargain, reasoning),
+    );
+    expect(router.scoreModel(bargain, { ...reasoning, qualityTarget: "cheapest" })).toBeGreaterThan(
+      router.scoreModel(rich, { ...reasoning, qualityTarget: "cheapest" }),
+    );
+    const balancedGap = router.scoreModel(rich, reasoning) - router.scoreModel(bargain, reasoning);
+    const qualityGap =
+      router.scoreModel(rich, { ...reasoning, qualityTarget: "best-quality" }) -
+      router.scoreModel(bargain, { ...reasoning, qualityTarget: "best-quality" });
+    expect(qualityGap).toBeGreaterThan(balancedGap);
+
+    const sharp = {
+      id: "sharp",
+      role: "brain",
+      type: "local",
+      access: "free",
+      accessRecord: {},
+      capabilities: { chat: true },
+      qualityProfile: { chatScore: 0.99, speedScore: 0.5, reasoningScore: 0.5, codingScore: 0.5 },
+      contextK: 32,
+      health: "unknown",
+      failures: 1,
+      coolingDown: false,
+      lastFailureAt: 0,
+      latencyMs: null,
+    };
+    const steady = {
+      ...sharp,
+      id: "steady",
+      failures: 0,
+      qualityProfile: { chatScore: 0.4, speedScore: 0.5, reasoningScore: 0.5, codingScore: 0.5 },
+    };
+    const chat = { task: "chat", policy: "free-preferred", now: 1 };
+    expect(router.scoreModel(sharp, chat)).toBeGreaterThan(router.scoreModel(steady, chat));
+    expect(router.scoreModel(steady, { ...chat, qualityTarget: "reliable" })).toBeGreaterThan(
+      router.scoreModel(sharp, { ...chat, qualityTarget: "reliable" }),
+    );
+  });
+
+  it("does not probe cloud models for a private turn", () => {
+    expect(
+      router.selectVerificationCandidates(pool, {
+        requirements: { privacy: "private" },
+        policy: "free-preferred",
+      }),
+    ).toEqual([]);
+    expect(
+      router.selectVerificationCandidates(pool, {
+        qualityTarget: "private",
+        policy: "free-preferred",
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects name-only vision evidence and a retired model", () => {
+    const named = {
+      id: "ollama:mystery-vision-x",
+      label: "mystery-vision-x",
+      type: "local",
+      kind: "local",
+      provider: "ollama",
+      endpoint: "http://127.0.0.1:11434",
+      contextK: 8,
+      status: "ready",
+      role: "brain",
+      meta: { providerId: "ollama", kind: "local", modelName: "mystery-vision-x", sizeGb: 4 },
+    };
+    const declared = localModel("ollama:eye", {
+      capabilities: { chat: true, vision: true, tools: false, coding: false, reasoning: false },
+    });
+    const retired = localModel("ollama:old", { lifecycle: "retired" });
+    const options = {
+      task: "vision",
+      mode: "local-only",
+      policy: "free-preferred",
+      now: 1_700_000_000_000,
+    };
+    const plan = router.planRoute([named, declared, retired], options);
+    expect(plan.rejected).toContainEqual({ id: "ollama:mystery-vision-x", reason: "evidence" });
+    expect(plan.rejected).toContainEqual({ id: "ollama:old", reason: "retired" });
+    expect(plan.candidates).toContain("ollama:eye");
+    const allowed = router.planRoute([named, declared], {
+      ...options,
+      requirements: { allowInferred: true },
+    });
+    expect(allowed.candidates).toContain("ollama:mystery-vision-x");
+  });
+
+  it("assigns critic, judge, and pipeline roles and keeps a stable plan id", () => {
+    const local = { id: "a", type: "local", provider: "ollama", meta: { providerId: "ollama" } };
+    const same = { id: "b", type: "local", provider: "ollama", meta: { providerId: "ollama" } };
+    const cloud = { id: "c", type: "cloud", provider: "groq", meta: { providerId: "groq" } };
+    expect(router.assignSteps([local, cloud], "primary-critic")).toEqual([
+      { modelEndpointId: "a", role: "primary" },
+      { modelEndpointId: "c", role: "critic" },
+    ]);
+    const judged = router.assignSteps([local, same, cloud], "candidate-judge");
+    expect(judged.at(-1)).toEqual({ modelEndpointId: "c", role: "judge" });
+    expect(
+      router
+        .assignSteps([local, same, cloud], "pipeline")
+        .map((step: { role: string }) => step.role),
+    ).toEqual(["planner", "specialist", "synthesizer"]);
+    const turn = router.compileRoleTurn({
+      strategy: "primary-critic",
+      role: "critic",
+      prompt: "Check the dates",
+      drafts: [{ modelId: "a", text: "Tuesday" }],
+    });
+    expect(turn).toContain("Check the dates");
+    expect(turn).toContain("Tuesday");
+    expect(turn).toContain("concrete errors");
+    const plan = router.planRoute(pool, {
+      mode: "multi",
+      preferred: ["ollama:llama3.1", "groq:llama-fast"],
+      strategy: "primary-verifier",
+      policy: "free-preferred",
+      now: 1_700_000_000_000,
+    });
+    expect(plan.strategy).toBe("primary-verifier");
+    expect(plan.steps.map((step: { role: string }) => step.role)).toEqual(["primary", "verifier"]);
+    expect(plan.planId).toMatch(/^route-/);
+    expect(plan.explanation[0]).toMatch(/primary-verifier/);
+    expect(plan.trace.map((row: { stage: string }) => row.stage)).toEqual([
+      "filter",
+      "score",
+      "plan",
+    ]);
+    expect(plan.budgets.concurrency).toBe(1);
+  });
+
+  it("interleaves model families when the quality target is diverse", () => {
+    const family = (id: string, name: string) =>
+      localModel(id, {
+        meta: {
+          providerId: "ollama",
+          kind: "local",
+          modelName: id,
+          resident: false,
+          sizeGb: 4,
+          family: name,
+        },
+      });
+    const alphaA = family("ollama:a", "alpha");
+    const alphaB = family("ollama:b", "alpha");
+    const beta = family("ollama:c", "beta");
+    const options = {
+      mode: "local-only",
+      policy: "free-preferred",
+      limit: 3,
+      now: 1_700_000_000_000,
+    };
+    expect(
+      router
+        .selectEligible([alphaA, alphaB, beta], options)
+        .map((model: { id: string }) => model.id),
+    ).toEqual(["ollama:a", "ollama:b", "ollama:c"]);
+    expect(
+      router
+        .selectEligible([alphaA, alphaB, beta], { ...options, qualityTarget: "diverse" })
+        .map((model: { id: string }) => model.id),
+    ).toEqual(["ollama:a", "ollama:c", "ollama:b"]);
+  });
+
+  it("honours Retry-After on a 429 and keeps the default cooldown otherwise", () => {
+    expect(
+      router.classifyError({ status: 429, message: "rate limit", retryAfter: 2 }).cooldownMs,
+    ).toBe(2000);
+    // A per-minute limit with no stated wait rests a model for 20 s, not a minute.
+    expect(router.classifyError("HTTP 429: rate limit exceeded").cooldownMs).toBe(20_000);
+  });
+
+  it("plans a parallel run only for multi with at least two candidates", () => {
+    const plan = router.planRoute(pool, {
+      mode: "multi",
+      preferred: ["ollama:llama3.1", "groq:llama-fast"],
+      policy: "free-preferred",
+      now: 1_700_000_000_000,
+    });
+    expect(plan.planType).toBe("parallel");
+    expect(plan.candidates).toEqual(["ollama:llama3.1", "groq:llama-fast"]);
+  });
+
+  it("mirrors qualityTarget on the TypeScript contract and rejects an unknown one", () => {
+    const contract = createRoutingContract({ routeMode: "auto" });
+    expect(contract.qualityTarget).toBe("balanced");
+    expect(normaliseQualityTarget("fastest")).toBe("fastest");
+    expect(normaliseQualityTarget("nope")).toBe("balanced");
+    const desktop = router.createRoutingContract({ routeMode: "auto", qualityTarget: "reliable" });
+    expect(desktop.qualityTarget).toBe("reliable");
+    expect(validateRoutingContract({ ...contract, qualityTarget: "sideways" }).ok).toBe(false);
+    expect(router.validateRoutingContract({ ...desktop, qualityTarget: "sideways" }).ok).toBe(
+      false,
+    );
+  });
+});
+
+describe("deterministic request errors", () => {
+  it("does not retry or cool down HTTP 400 or 422", () => {
+    for (const sample of [
+      "HTTP 400: malformed request",
+      { status: 422, message: "invalid request" },
+    ]) {
+      const classified = router.classifyError(sample);
+      expect(classified.category).toBe("invalid_request");
+      expect(classified.retryable).toBe(false);
+      expect(classified.cooldownMs).toBe(0);
+    }
+    const health = new router.ProviderHealthManager();
+    const now = 1_700_000_000_000;
+    const noted = health.noteFailure("ollama:llama3.1", "HTTP 400: unsupported parameter", now);
+    expect(noted.category).toBe("invalid_request");
+    expect(noted.cooldownMs).toBe(0);
+    expect(health.isCoolingDown("ollama:llama3.1", now)).toBe(false);
+    expect(health.isCoolingDown("ollama:llama3.1", now + 60_000)).toBe(false);
+  });
+
+  it("still retries a provider 500 and still refuses a bad key", () => {
+    const outage = router.classifyError("HTTP 500: provider error");
+    expect(outage.category).toBe("provider_error");
+    expect(outage.retryable).toBe(true);
+    expect(outage.cooldownMs).toBeGreaterThan(0);
+    const key = router.classifyError({ status: 401, message: "invalid api key" });
+    expect(key.category).toBe("invalid_key");
+    expect(key.retryable).toBe(false);
+    const overflow = router.classifyError("HTTP 400: context length exceeded");
+    expect(overflow.category).toBe("context_overflow");
+    expect(overflow.retryable).toBe(false);
+  });
+
+  it("scores a model from recorded outcomes and keeps a private cascade local", () => {
+    const weak = localModel("ollama:weak", {
+      outcomes: { trials: 10, successes: 2, meanLatencyMs: 1500 },
+    });
+    const strong = localModel("ollama:strong", {
+      outcomes: { trials: 10, successes: 9, meanLatencyMs: 400, ownerUp: 1 },
+    });
+    const now = 1_700_000_000_000;
+    const health = new router.ProviderHealthManager();
+    expect(router.scoreModel(router.describe(strong, health, now), { now })).toBeGreaterThan(
+      router.scoreModel(router.describe(weak, health, now), { now }),
+    );
+    const paid = { ...cloudModel("openai:paid", "openai", "PAID"), access: "paid" };
+    const plan = router.planRoute([paid, localModel("ollama:llama3.1")], {
+      strategy: "cascade",
+      requirements: { privacy: "private" },
+      now,
+    });
+    expect(plan.candidates).toEqual(["ollama:llama3.1"]);
+    expect(plan.rejected).toContainEqual({ id: "openai:paid", reason: "privacy" });
+    expect(router.cascadeAccepts("short")).toBe(false);
+    expect(router.cascadeAccepts("This answer is long enough to keep.")).toBe(true);
+    expect(router.cascadeAccepts("I don't know how to finish this sentence at all.")).toBe(false);
+  });
+
+  it("assigns cascade and race roles without a second router", () => {
+    const cheap = { ...localModel("ollama:cheap"), access: "free" };
+    const strong = { ...cloudModel("openai:strong", "openai", "PAID"), access: "paid" };
+    expect(
+      router.assignSteps([strong, cheap], "cascade").map((step: { role: string }) => step.role),
+    ).toEqual(["cheap", "strong"]);
+    expect(
+      router
+        .assignSteps([strong, cheap], "cascade")
+        .map((step: { modelEndpointId: string }) => step.modelEndpointId),
+    ).toEqual(["ollama:cheap", "openai:strong"]);
+    const other = localModel("ollama:other");
+    const raced = router.planRoute([cheap, other], { strategy: "race", now: 1 });
+    expect(raced.strategy).toBe("race");
+    expect(raced.budgets.concurrency).toBe(2);
+    expect(raced.steps.every((step: { role: string }) => step.role === "racer")).toBe(true);
+    const judged = router.classifyTask("fix this typescript bug");
+    expect(judged.task).toBe("coding");
+    expect(judged.source).toBe("rules");
+    const preview = router.previewRoute([cheap], "summarise the notes", { now: 1 });
+    expect(preview.judged.preset).toBe("summarization");
+    expect(preview.plan.candidates).toEqual(["ollama:cheap"]);
+  });
+});
+
+describe("fallback order and catalogue swap", () => {
+  const endpointA = {
+    id: "groq:llama-a",
+    providerId: "groq",
+    providerModelId: "llama",
+    canonicalModelId: "meta/llama",
+    type: "cloud",
+    meta: { providerId: "groq", family: "llama" },
+  };
+  const endpointB = {
+    id: "together:llama-b",
+    providerId: "together",
+    providerModelId: "llama",
+    canonicalModelId: "meta/llama",
+    type: "cloud",
+    meta: { providerId: "together", family: "llama" },
+  };
+  const sibling = {
+    id: "groq:llama-small",
+    providerId: "groq",
+    providerModelId: "llama-small",
+    canonicalModelId: "groq/llama-small",
+    type: "cloud",
+    meta: { providerId: "groq", family: "llama" },
+  };
+  const other = {
+    id: "ollama:qwen",
+    providerId: "ollama",
+    providerModelId: "qwen",
+    canonicalModelId: "ollama/qwen",
+    type: "local",
+    meta: { providerId: "ollama", family: "qwen" },
+  };
+
+  it("orders another endpoint, then a sibling, then the family, then a different model", () => {
+    const ordered = router.orderFallbacks(
+      [other, sibling, endpointA, endpointB],
+      endpointA,
+      "timeout",
+    );
+    expect(ordered.map((model: { id: string }) => model.id)).toEqual([
+      "together:llama-b",
+      "groq:llama-small",
+      "ollama:qwen",
+    ]);
+    const outage = router.orderFallbacks([sibling, endpointB, other], endpointA, "provider_error");
+    expect(outage.map((model: { id: string }) => model.id)).toEqual([
+      "together:llama-b",
+      "ollama:qwen",
+      "groq:llama-small",
+    ]);
+  });
+
+  it("a deterministic request does not move to another model", () => {
+    expect(router.fallbackAdvances("invalid_request")).toBe(false);
+    expect(router.orderFallbacks([endpointB, sibling], endpointA, "invalid_request")).toEqual([]);
+    expect(router.fallbackAdvances("context_overflow")).toBe(false);
+    expect(router.fallbackAdvances("context_overflow", { compacted: true })).toBe(true);
+    const plan = router.planRoute([localModel("ollama:llama3.1")], {
+      mode: "local-only",
+      now: 1_700_000_000_000,
+      failed: { id: "ollama:llama3.1", category: "invalid_request" },
+    });
+    expect(plan.candidates).toEqual([]);
+    expect(plan.why).toMatch(/does not move/);
+    expect(plan.trace.some((row: { stage: string }) => row.stage === "fallback")).toBe(true);
+    expect(router.explainFailure({ failures: [{ category: "invalid_request" }] })).toMatch(
+      /Doosra model par nahi bheja/,
+    );
+  });
+
+  it("does not quarantine a provider for a deterministic 400", () => {
+    const health = new router.ProviderHealthManager();
+    const now = 1_700_000_000_000;
+    health.noteFailure("groq:llama", { status: 400, message: "malformed" }, now);
+    health.noteFailure("groq:llama", { status: 400, message: "malformed" }, now + 1);
+    const noted = health.noteFailure(
+      "groq:llama",
+      { status: 422, message: "invalid request" },
+      now + 2,
+    );
+    expect(noted.quarantined).toBe(false);
+    expect(health.isCoolingDown("groq:llama", now + 2)).toBe(false);
+    const outage = new router.ProviderHealthManager();
+    outage.noteFailure("groq:llama", "HTTP 500: provider error", now);
+    outage.noteFailure("groq:llama", "HTTP 500: provider error", now + 1);
+    const third = outage.noteFailure("groq:llama", "HTTP 503: provider error", now + 2);
+    expect(third.quarantined).toBe(true);
+    expect(outage.noteRecovery("groq:llama", true, now + 3).recoveryProbe).toBe("passed");
+    expect(outage.isCoolingDown("groq:llama", now + 3)).toBe(false);
+  });
+
+  it("keeps the previous catalogue when the next generation is broken", () => {
+    const previous = [{ id: "ollama:llama3.1" }];
+    const broken = router.commitCatalogue(previous, [{ id: "" }]);
+    expect(broken.ok).toBe(false);
+    expect(broken.snapshot).toEqual(previous);
+    const swapped = router.commitCatalogue(previous, [{ id: "groq:llama" }, { id: "ollama:qwen" }]);
+    expect(swapped.ok).toBe(true);
+    expect(swapped.snapshot.map((row: { id: string }) => row.id)).toEqual([
+      "groq:llama",
+      "ollama:qwen",
+    ]);
+    const repeat = router.commitCatalogue(previous, [{ id: "same" }, { id: "same" }]);
+    expect(repeat.ok).toBe(false);
+    expect(repeat.snapshot).toEqual(previous);
+  });
+
+  it("declares multi aggregation and keeps hidden reasoning out of the trace", () => {
+    const plan = router.planRoute(
+      [localModel("ollama:llama3.1"), cloudModel("groq:llama-fast", "groq")],
+      {
+        mode: "multi",
+        preferred: ["ollama:llama3.1", "groq:llama-fast"],
+        policy: "free-preferred",
+        now: 1_700_000_000_000,
+      },
+    );
+    expect(plan.aggregation).toBe("parallel");
+    expect(plan.information.fanOut).toBe(true);
+    const trace = router.modelExecutionTrace({
+      task: "chat",
+      mode: "auto",
+      candidates: ["ollama:llama3.1"],
+      rejected: [{ id: "groq:llama", reason: "chain-of-thought api_key=sk-test" }],
+      selected: "ollama:llama3.1",
+      planType: "single",
+      validation: "passed",
+    });
+    expect(trace.filtered[0]).not.toMatch(/chain[- ]of[- ]thought/i);
+    expect(trace.filtered[0]).not.toContain("sk-test");
+    expect(trace.candidateCount).toBe(1);
+    expect(router.publicDecision("password=hunter2")).toBe("secret");
+  });
+});
+
+describe("answer escalation and refresh", () => {
+  it("moves to another model after a refusal, a tool failure, a schema failure, or low confidence", () => {
+    const refusal = router.classifyError("the model refused the request");
+    expect(refusal.category).toBe("model_refusal");
+    expect(refusal.cooldownMs).toBe(0);
+    expect(router.fallbackAdvances(refusal.category)).toBe(true);
+    expect(router.classifyError("content filter blocked the prompt").category).toBe(
+      "content_filter",
+    );
+    expect(router.fallbackAdvances("content_filter")).toBe(false);
+    const tool = router.classifyError("tool call failed");
+    expect(tool.category).toBe("tool_failure");
+    expect(router.fallbackAdvances(tool.category)).toBe(true);
+    const schema = router.classifyError({
+      status: 422,
+      message: "response schema validation failed",
+    });
+    expect(schema.category).toBe("schema_failure");
+    expect(router.fallbackAdvances(schema.category)).toBe(true);
+    const low = router.classifyError("verification failed: confidence too low");
+    expect(low.category).toBe("low_confidence");
+    expect(router.fallbackAdvances(low.category)).toBe(true);
+    const health = new router.ProviderHealthManager();
+    const now = 1_700_000_000_000;
+    health.noteFailure("a", "schema validation failed", now);
+    health.noteFailure("a", "schema validation failed", now + 1);
+    const third = health.noteFailure("a", "schema validation failed", now + 2);
+    expect(third.quarantined).toBe(false);
+    expect(health.isCoolingDown("a", now + 2)).toBe(false);
+    const failed = { id: "a", providerId: "groq", canonicalModelId: "llama" };
+    const next = { id: "b", providerId: "gemini", canonicalModelId: "gemini" };
+    expect(
+      router
+        .orderFallbacks([failed, next], failed, "model_refusal")
+        .map((model: { id: string }) => model.id),
+    ).toEqual(["b"]);
+  });
+
+  it("refreshes a stale catalogue before routing and leaves a fresh one alone", () => {
+    const fresh = router.planRefresh("before-routing", {
+      catalogueAgeMs: 1000,
+      catalogueTtlMs: 30_000,
+    });
+    expect(fresh.refresh).toBe(false);
+    expect(fresh.layers).toEqual([]);
+    const stale = router.planRefresh("before-routing", {
+      catalogueAgeMs: 60_000,
+      catalogueTtlMs: 30_000,
+    });
+    expect(stale.refresh).toBe(true);
+    expect(stale.layers).toEqual(["catalogue", "health"]);
+    expect(stale.layers.length).toBeLessThan(9);
+    const startup = router.planRefresh("startup", { catalogueAgeMs: 1, catalogueTtlMs: 30_000 });
+    expect(startup.refresh).toBe(false);
+    expect(startup.layers).toEqual(["health"]);
+    const page = router.planRefresh("foreground", { catalogueAgeMs: 1, catalogueTtlMs: 30_000 });
+    expect(page.layers).toHaveLength(9);
+    expect(page.layers).toContain("pricing");
+    expect(page.layers).toContain("artifact-integrity");
+    const background = router.planRefresh("background", { jitterMs: 1500 });
+    expect(background.layers).toEqual(["catalogue", "health", "lifecycle"]);
+    expect(background.delayMs).toBe(1500);
+    const after = router.planRefresh("after-failure", {
+      catalogueAgeMs: 1,
+      catalogueTtlMs: 30_000,
+    });
+    expect(after.refresh).toBe(true);
+    expect(after.layers).toEqual(["catalogue", "health"]);
+  });
+
+  it("refuses an owner-only model repair", () => {
+    for (const kind of [
+      "rotate-credentials",
+      "privacy-mode",
+      "upload-weights",
+      "enable-paid",
+      "delete-selected",
+      "replace-pinned",
+    ]) {
+      expect(router.repairModelIssue(kind).allowed).toBe(false);
+    }
+    expect(router.repairModelIssue("stale-endpoint").allowed).toBe(true);
+    expect(router.repairModelIssue("").allowed).toBe(false);
+  });
+
+  it("scores deep-reasoning, research-grade, local-preferred, and cloud-preferred", () => {
+    const local = {
+      id: "local",
+      role: "brain",
+      type: "local",
+      access: "free",
+      accessRecord: {},
+      capabilities: { chat: true, reasoning: true, research: false },
+      qualityProfile: { chatScore: 0.5, speedScore: 0.5, reasoningScore: 0.95, codingScore: 0.5 },
+      contextK: 8,
+      health: "available",
+      latencyMs: 200,
+      failures: 0,
+      coolingDown: false,
+      lastFailureAt: 0,
+    };
+    const cloud = {
+      ...local,
+      id: "cloud",
+      type: "cloud",
+      capabilities: { chat: true, reasoning: true, research: true },
+      qualityProfile: { chatScore: 0.5, speedScore: 0.5, reasoningScore: 0.2, codingScore: 0.5 },
+      contextK: 128,
+    };
+    const base = { task: "chat", policy: "allow-paid", now: 1 };
+    expect(router.scoreModel(local, { ...base, qualityTarget: "deep-reasoning" })).toBeGreaterThan(
+      router.scoreModel(cloud, { ...base, qualityTarget: "deep-reasoning" }),
+    );
+    expect(router.scoreModel(cloud, { ...base, qualityTarget: "research-grade" })).toBeGreaterThan(
+      router.scoreModel(local, { ...base, qualityTarget: "research-grade" }),
+    );
+    expect(router.scoreModel(local, { ...base, qualityTarget: "local-preferred" })).toBeGreaterThan(
+      router.scoreModel(cloud, { ...base, qualityTarget: "local-preferred" }),
+    );
+    expect(router.scoreModel(cloud, { ...base, qualityTarget: "cloud-preferred" })).toBeGreaterThan(
+      router.scoreModel(local, { ...base, qualityTarget: "cloud-preferred" }),
+    );
+  });
+});

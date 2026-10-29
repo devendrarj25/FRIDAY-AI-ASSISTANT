@@ -1,0 +1,17 @@
+{
+  "id": "ckn-cook-time",
+  "name": "Cook-time sketch",
+  "summary": "Rough roast minutes from kg at 30–40 min/kg plus rest — educational, not a food-safety timer.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "kg",
+    "kind"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Not a substitute for a thermometer or the recipe's own time."
+}

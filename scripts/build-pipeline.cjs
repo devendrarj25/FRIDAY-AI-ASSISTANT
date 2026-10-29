@@ -1,0 +1,1045 @@
+#!/usr/bin/env node
+/**
+ * FRIDAY — one Windows build recipe.
+ *
+ * The CMD pack, FRIDAY Release, and FRIDAY Test Build call this file.
+ * They differ only by the options below: channel, version stamp, targets,
+ * signing, and whether a later job publishes. The phase order does not.
+ *
+ *   node scripts/build-pipeline.cjs --channel production
+ *   node scripts/build-pipeline.cjs --channel test --version 1.0.1.2-test.1 --targets portable
+ *   node scripts/build-pipeline.cjs --plan
+ */
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnNpm, spawnDirect } = require("./win-spawn.cjs");
+const layout = require("../electron/runtime-layout.cjs");
+const stage = require("./stage-toolchain.cjs");
+
+const ROOT = path.resolve(__dirname, "..");
+
+const PHASES = [
+  "prepare-environment",
+  "verify-versions",
+  "stage-toolchain",
+  "build-renderer",
+  "package",
+  "packaged-requires",
+  "sign-hook",
+  "manifest",
+  "verify-artifacts",
+  "verify-boot",
+  "readiness",
+  "packaged-self-check",
+  "installer-smoke",
+];
+
+/** Command lines in phase order. Callers do not repeat this list. */
+const PHASE_COMMANDS = {
+  "prepare-environment": [
+    "scripts/setup-windows.ps1 -ToolchainOnly",
+    "scripts/check-engines.cjs",
+    "npm ci --no-audit --no-fund",
+    "scripts/ensure-electron.cjs",
+    "scripts/setup-python.cjs",
+    "scripts/prefetch-toolkit.cjs",
+    "scripts/init-runtime.cjs",
+    "scripts/check-environment.cjs --fix",
+    "scripts/env-registry.cjs repair",
+  ],
+  // canonical friday-version.json is the single truth
+  "verify-versions": [
+    "scripts/release-engine.cjs heal",
+    "scripts/release-engine.cjs verify",
+    "scripts/verify-deps.cjs",
+  ],
+  "stage-toolchain": ["scripts/stage-toolchain.cjs"],
+  "build-renderer": ["npm run build:desktop"],
+  package: ["scripts/electron-pack.cjs"],
+  "packaged-requires": ["scripts/packaged-requires.cjs"],
+  "sign-hook": ["scripts/sign-windows.ps1"],
+  manifest: ["scripts/release-manifest.cjs"],
+  "verify-artifacts": ["scripts/verify-build.cjs"],
+  "verify-boot": ["scripts/verify-boot.cjs"],
+  readiness: ["scripts/readiness-test.cjs --pack"],
+  "packaged-self-check": [
+    "python.exe get-pip.py",
+    "python.exe -m pip --version",
+    "python.exe -c import sys",
+    "whisper-cli -h",
+    "electron/friday-mcp.cjs initialize",
+  ],
+  "installer-smoke": ["scripts/windows-installer-smoke.ps1"],
+};
+
+const GITHUB_ASSET_LIMIT = 2147483648;
+
+/** Node retries EBUSY, EPERM, EMFILE, ENFILE, and ENOTEMPTY. No second remover. */
+const REMOVE_OPTIONS = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 };
+
+function removeTree(target) {
+  fs.rmSync(target, REMOVE_OPTIONS);
+}
+
+function parseArgs(argv) {
+  const options = {
+    channel: "production",
+    version: "",
+    targets: ["nsis", "portable"],
+    sign: "auto",
+    publish: false,
+    from: PHASES[0],
+    through: PHASES[PHASES.length - 1],
+    report: path.join(ROOT, "release", "build-report.json"),
+    planOnly: false,
+    offline: false,
+    caller: "node",
+    ref: "",
+    commit: "",
+    releaseType: "",
+    strict: false,
+  };
+  const args = argv.slice(2);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--plan") options.planOnly = true;
+    else if (arg === "--offline") options.offline = true;
+    else if (arg === "--strict") options.strict = true;
+    else if (arg === "--publish") options.publish = true;
+    else if (arg === "--channel") options.channel = String(args[++i] || "");
+    else if (arg === "--version") options.version = String(args[++i] || "");
+    else if (arg === "--targets") {
+      options.targets = String(args[++i] || "")
+        .split(/[,\s]+/)
+        .filter(Boolean);
+    } else if (arg === "--from") options.from = String(args[++i] || "");
+    else if (arg === "--through") options.through = String(args[++i] || "");
+    else if (arg === "--report") options.report = path.resolve(String(args[++i] || ""));
+    else if (arg === "--caller") options.caller = String(args[++i] || "");
+    else if (arg === "--sign") options.sign = String(args[++i] || "auto");
+    else if (arg === "--ref") options.ref = String(args[++i] || "");
+    else if (arg === "--commit") options.commit = String(args[++i] || "");
+    else if (arg === "--release-type") options.releaseType = String(args[++i] || "");
+    else if (arg === "dir" || arg === "nsis" || arg === "portable") {
+      options.targets = [arg];
+    } else if (arg === "--dir") options.targets = ["dir"];
+    else throw new Error(`unknown build option: ${arg}`);
+  }
+  if (options.channel !== "production" && options.channel !== "test") {
+    throw new Error(`channel must be production or test (got ${options.channel})`);
+  }
+  if (!options.targets.length) throw new Error("at least one package target is required");
+  if (process.env.FRIDAY_OFFLINE === "1") options.offline = true;
+  return options;
+}
+
+function selectedPhases(options) {
+  const start = PHASES.indexOf(options.from);
+  const end = PHASES.indexOf(options.through);
+  if (start < 0 || end < 0 || end < start) {
+    throw new Error(`phase range ${options.from}..${options.through} is not in the pipeline`);
+  }
+  return PHASES.slice(start, end + 1);
+}
+
+function commandsFor(phases = PHASES) {
+  return phases.flatMap((phase) => PHASE_COMMANDS[phase] || []);
+}
+
+function installerBounds(manifest) {
+  const plan = stage.stagePlan(manifest);
+  const floor = Math.floor(plan.sum * 0.7);
+  const ceiling = Math.min(
+    GITHUB_ASSET_LIMIT - 1,
+    Number(manifest.budgetBytes) + 800 * 1024 * 1024,
+  );
+  return {
+    floor,
+    ceiling,
+    sum: plan.sum,
+    budget: Number(manifest.budgetBytes) || 0,
+    assetLimit: GITHUB_ASSET_LIMIT,
+  };
+}
+
+function readManifest(root = ROOT) {
+  return JSON.parse(fs.readFileSync(path.join(root, "config", "toolchain-manifest.json"), "utf8"));
+}
+
+/**
+ * A Setup or Portable file below the toolchain floor means staging did not
+ * land. A file at or above the ceiling cannot be a GitHub release asset.
+ */
+function assertPackagedLayout({ releaseDir, manifest, targets = ["nsis", "portable"] }) {
+  const plan = stage.stagePlan(manifest);
+  const bounds = installerBounds(manifest);
+  const errors = [];
+  const unpacked = path.join(releaseDir, "win-unpacked");
+  for (const pack of plan.packs) {
+    const file = path.join(unpacked, "resources", ...layout.packRelative(pack.id).split("/"));
+    if (!fs.existsSync(file)) {
+      errors.push(
+        `${pack.id} is missing at ${file} — toolchain staging did not land inside the app; refusing a small EXE`,
+      );
+    }
+  }
+  const names = fs.existsSync(releaseDir) ? fs.readdirSync(releaseDir) : [];
+  const wantSetup = targets.includes("nsis");
+  const wantPortable = targets.includes("portable");
+  const setup = names.find(
+    (name) => /Setup-.+\.exe$/i.test(name) || /Test-Setup-.+\.exe$/i.test(name),
+  );
+  const portable = names.find((name) => /Portable-.+\.exe$/i.test(name));
+  const check = (label, name) => {
+    if (!name) {
+      errors.push(`${label} EXE is missing — refusing a small EXE`);
+      return;
+    }
+    const bytes = fs.statSync(path.join(releaseDir, name)).size;
+    if (bytes < bounds.floor) {
+      errors.push(
+        `${label} ${name} is ${bytes} bytes, below the toolchain floor ${bounds.floor} — staging did not produce a full build`,
+      );
+    }
+    if (bytes > bounds.ceiling) {
+      errors.push(
+        `${label} ${name} is ${bytes} bytes, above the ceiling ${bounds.ceiling} (GitHub asset limit ${bounds.assetLimit})`,
+      );
+    }
+  };
+  if (wantSetup) check("Setup", setup);
+  if (wantPortable) check("Portable", portable);
+  if (errors.length) {
+    const error = new Error(errors.join("\n"));
+    error.errors = errors;
+    throw error;
+  }
+  return { ok: true, bounds, setup: setup || null, portable: portable || null };
+}
+
+function runtimeSmokePlan(manifest = readManifest()) {
+  const plan = stage.stagePlan(manifest);
+  const byId = Object.fromEntries(plan.packs.map((pack) => [pack.id, pack]));
+  return {
+    python: {
+      id: "python-embed",
+      pack: byId["python-embed"]
+        ? `resources/${byId["python-embed"].dest}/python-embed/pack.bin`
+        : null,
+      sha256: byId["python-embed"] ? byId["python-embed"].sha256 : "",
+      bytes: byId["python-embed"] ? byId["python-embed"].bytes : 0,
+      command: ["python.exe", "-m", "pip", "--version"],
+    },
+    getPip: byId["get-pip"]
+      ? {
+          id: "get-pip",
+          pack: `resources/${byId["get-pip"].dest}/get-pip/pack.bin`,
+          sha256: byId["get-pip"].sha256,
+          bytes: byId["get-pip"].bytes,
+          command: ["python.exe", "get-pip.py"],
+        }
+      : null,
+    whisper: {
+      id: "whisper-cpp",
+      pack: byId["whisper-cpp"]
+        ? `resources/${byId["whisper-cpp"].dest}/whisper-cpp/pack.bin`
+        : null,
+      sha256: byId["whisper-cpp"] ? byId["whisper-cpp"].sha256 : "",
+      bytes: byId["whisper-cpp"] ? byId["whisper-cpp"].bytes : 0,
+      command: ["Release/whisper-cli.exe", "-h"],
+    },
+    sandbox: {
+      command: ["python.exe", "-c", "import sys; print(sys.executable)"],
+    },
+    mcp: {
+      command: ["node", "electron/friday-mcp.cjs"],
+      // A live server echoes the handshake. A build machine has no server,
+      // and the launcher then reports that FRIDAY is not running.
+      expect: "initialize",
+      also: "FRIDAY is not running",
+    },
+    node: byId["node-win"]
+      ? {
+          id: "node-win",
+          pack: `resources/${byId["node-win"].dest}/node-win/pack.bin`,
+          sha256: byId["node-win"].sha256,
+          bytes: byId["node-win"].bytes,
+          command: ["node.exe", "--version"],
+        }
+      : null,
+    model: byId["ggml-base"]
+      ? {
+          id: "ggml-base",
+          pack: `resources/${byId["ggml-base"].dest}/ggml-base/pack.bin`,
+          sha256: byId["ggml-base"].sha256,
+          bytes: byId["ggml-base"].bytes,
+          kind: "header",
+          file: "ggml-base.bin",
+        }
+      : null,
+  };
+}
+
+function signingStatusLines(env = process.env) {
+  const secret = String(
+    env.CSC_KEY_PASSWORD || env.FRIDAY_PFX_PASSWORD || env.CERTIFICATE_PASSWORD || "",
+  );
+  const lines = [
+    "[FRIDAY] unsigned build. Set CSC_LINK and CSC_KEY_PASSWORD to a CA-issued PFX to Authenticode-sign.",
+    "         Signing a new publisher does not by itself remove SmartScreen warnings.",
+  ];
+  if (secret && lines.some((line) => line.includes(secret))) {
+    throw new Error("signing status leaked a secret");
+  }
+  return lines;
+}
+
+function defaultSelfCheckRunner({ command, cwd, stdin }) {
+  const result = spawnDirect(command[0], command.slice(1), {
+    cwd,
+    input: stdin,
+    encoding: "utf8",
+  });
+  return {
+    status: result.status,
+    stdout: `${result.stdout || ""}${result.stderr || ""}${result.error ? result.error.message : ""}`,
+  };
+}
+
+function whisperProbeCommand(whisperDir, fallback) {
+  const nested = path.join(whisperDir, "Release", "whisper-cli.exe");
+  const flat = path.join(whisperDir, "whisper-cli.exe");
+  if (fs.existsSync(flat) && !fs.existsSync(nested)) return ["whisper-cli.exe", "-h"];
+  return fallback;
+}
+
+function extractZipPack(packFile, dest) {
+  try {
+    require("../electron/archive-safe.cjs").extractArchiveFile(packFile, dest);
+  } catch (error) {
+    throw new Error(
+      `packaged self-check: could not extract ${path.basename(packFile)} (${error.message})`,
+    );
+  }
+}
+
+function materialisePack(unpackDir, relativePack, dest, extract, expect) {
+  if (!relativePack) {
+    throw new Error("packaged self-check: pack path is missing from the manifest");
+  }
+  const packFile = path.join(unpackDir, relativePack);
+  if (!fs.existsSync(packFile)) {
+    throw new Error(`packaged self-check: missing ${relativePack}`);
+  }
+  if (expect && expect.sha256) {
+    const body = fs.readFileSync(packFile);
+    const hash = crypto.createHash("sha256").update(body).digest("hex");
+    if (expect.bytes && body.length !== expect.bytes) {
+      throw new Error(`packaged self-check: ${relativePack} size does not match the manifest`);
+    }
+    if (hash !== expect.sha256) {
+      throw new Error(`packaged self-check: ${relativePack} hash does not match the manifest`);
+    }
+  }
+  fs.mkdirSync(dest, { recursive: true });
+  extract(packFile, dest);
+  return dest;
+}
+
+/**
+ * On Windows, extract the staged Python and whisper packs from the packaged
+ * app and run the probes. Any other OS returns an explicit skip. A missing
+ * pack or a failing probe throws.
+ */
+function runPackagedSelfCheck(input = {}) {
+  const platform = input.platform || process.platform;
+  if (platform !== "win32") {
+    return "skipped: packaged self-check runs on Windows only";
+  }
+  const root = input.root || ROOT;
+  const unpackDir = input.unpackDir || path.join(root, "release", "win-unpacked");
+  if (!unpackDir || !fs.existsSync(unpackDir)) {
+    throw new Error(`packaged self-check: packaged app directory is missing (${unpackDir})`);
+  }
+  const plan = runtimeSmokePlan(input.manifest || readManifest(root));
+  const runner = input.runner || defaultSelfCheckRunner;
+  const extract = input.extract || extractZipPack;
+  const work = input.workDir || path.join(path.dirname(unpackDir), "self-check");
+  fs.mkdirSync(work, { recursive: true });
+  const pythonDir = materialisePack(
+    unpackDir,
+    plan.python.pack,
+    path.join(work, "python"),
+    extract,
+    plan.python,
+  );
+  if (plan.getPip) {
+    // The embeddable zip has no pip. First run copies the pinned script,
+    // enables site, then runs it. The same order is the proof here.
+    materialisePack(
+      unpackDir,
+      plan.getPip.pack,
+      pythonDir,
+      (file, dest) => {
+        fs.copyFileSync(file, path.join(dest, "get-pip.py"));
+      },
+      plan.getPip,
+    );
+    require("../electron/toolchain-pack.cjs").writeEmbedPth(pythonDir);
+  }
+  const whisperDir = materialisePack(
+    unpackDir,
+    plan.whisper.pack,
+    path.join(work, "whisper"),
+    extract,
+    plan.whisper,
+  );
+  let nodeDir = "";
+  if (plan.node) {
+    nodeDir = materialisePack(
+      unpackDir,
+      plan.node.pack,
+      path.join(work, "node"),
+      extract,
+      plan.node,
+    );
+    require("../electron/bundled-runtime.cjs").flattenSingleRoot(nodeDir);
+  }
+  let modelDir = "";
+  if (plan.model) {
+    const copyModel = (file, dest) => {
+      fs.mkdirSync(dest, { recursive: true });
+      fs.copyFileSync(file, path.join(dest, plan.model.file));
+    };
+    modelDir = materialisePack(
+      unpackDir,
+      plan.model.pack,
+      path.join(work, "model"),
+      copyModel,
+      plan.model,
+    );
+  }
+  const probes = [];
+  if (plan.getPip) {
+    probes.push({ name: "get-pip", command: plan.getPip.command, cwd: pythonDir });
+  }
+  probes.push(
+    { name: "python", command: plan.python.command, cwd: pythonDir },
+    { name: "sandbox", command: plan.sandbox.command, cwd: pythonDir },
+    {
+      name: "whisper",
+      command: whisperProbeCommand(whisperDir, plan.whisper.command),
+      cwd: whisperDir,
+    },
+    {
+      name: "mcp",
+      command: plan.mcp.command,
+      cwd: root,
+      stdin: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+      expect: plan.mcp.expect,
+      also: plan.mcp.also,
+    },
+  );
+  if (plan.node) probes.push({ name: "node", command: plan.node.command, cwd: nodeDir });
+  if (plan.model) {
+    probes.push({ name: "model", kind: "header", file: plan.model.file, cwd: modelDir });
+  }
+  const lines = [];
+  for (const probe of probes) {
+    if (probe.kind === "header") {
+      const file = path.join(probe.cwd, probe.file);
+      const fd = fs.openSync(file, "r");
+      const buf = Buffer.alloc(16);
+      let read = 0;
+      try {
+        read = fs.readSync(fd, buf, 0, 16, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      if (read < 16 || (buf[0] === 0x50 && buf[1] === 0x4b)) {
+        throw new Error(`packaged self-check: ${probe.name} failed (header)`);
+      }
+      lines.push(`${probe.name} ok`);
+      continue;
+    }
+    const result = runner(probe) || {};
+    const status = result.status;
+    const stdout = String(result.stdout || "");
+    if (status !== 0) {
+      const detail = stdout.replace(/\s+/g, " ").trim().slice(0, 300);
+      throw new Error(
+        `packaged self-check: ${probe.name} failed (${status === null || status === undefined ? "no exit" : status})${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    const accepted =
+      !probe.expect || stdout.includes(probe.expect) || (probe.also && stdout.includes(probe.also));
+    if (!accepted) {
+      const detail = stdout.replace(/\s+/g, " ").trim().slice(0, 300);
+      throw new Error(
+        `packaged self-check: ${probe.name} did not answer ${probe.expect}${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    lines.push(`${probe.name} ok`);
+  }
+  const sttScript = [
+    path.join(unpackDir, "resources", "kernel", "stt.py"),
+    path.join(unpackDir, "kernel", "stt.py"),
+  ].find((file) => fs.existsSync(file));
+  if (!sttScript) {
+    lines.push("stt-self-test skipped: kernel script is not in this unpack");
+  } else {
+    const pythonExe = path.join(pythonDir, "python.exe");
+    const speech = runner({
+      name: "stt-self-test",
+      command: [pythonExe, sttScript, "--self-test"],
+      cwd: path.dirname(sttScript),
+    });
+    const speechOut = String((speech && speech.stdout) || "");
+    const speechStatus = speech && speech.status;
+    if (speechStatus !== 0 && !/skipped/i.test(speechOut)) {
+      // The tail names the cause (an import error, a missing DLL) in the build log.
+      const detail = speechOut.replace(/\s+/g, " ").trim().slice(-300);
+      throw new Error(
+        `packaged self-check: stt-self-test failed (${speechStatus === null || speechStatus === undefined ? "no exit" : speechStatus})${detail ? `: ${detail}` : ""}`,
+      );
+    }
+    lines.push(/skipped/i.test(speechOut) ? "stt-self-test skipped" : "stt-self-test ok");
+  }
+  return lines.join("; ");
+}
+
+function applyBuildCache(root = ROOT) {
+  const cache = path.join(root, ".cache");
+  if (!process.env.ELECTRON_BUILDER_CACHE) {
+    process.env.ELECTRON_BUILDER_CACHE = path.join(cache, "electron-builder");
+  }
+  if (!process.env.ELECTRON_CACHE) process.env.ELECTRON_CACHE = path.join(cache, "electron");
+  process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
+  fs.mkdirSync(process.env.ELECTRON_BUILDER_CACHE, { recursive: true });
+  fs.mkdirSync(process.env.ELECTRON_CACHE, { recursive: true });
+  for (const dir of [
+    process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, "electron-builder", "Cache", "winCodeSign")
+      : "",
+    path.join(process.env.ELECTRON_BUILDER_CACHE, "winCodeSign"),
+  ].filter(Boolean)) {
+    removeTree(dir);
+  }
+}
+
+function runNode(script, args, root) {
+  const result = spawnDirect(process.execPath, [path.join(root, script), ...args], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
+  }
+}
+
+/**
+ * `npm ci` wipes node_modules and installs them again, which `npm run setup`
+ * has just done. node_modules is current when npm's own hidden lockfile is
+ * newer than package.json and package-lock.json and the Electron binary is in
+ * place (npm ci does not download it, ensure-electron does); anything else (a pull, an edit, a missing piece) installs again.
+ * FRIDAY_FORCE_NPM_CI=1 always installs.
+ */
+function nodeModulesCurrent(root, env = process.env) {
+  if (String(env.FRIDAY_FORCE_NPM_CI || "") === "1") return false;
+  try {
+    const modules = path.join(root, "node_modules");
+    const installed = fs.statSync(path.join(modules, ".package-lock.json")).mtimeMs;
+    const wanted = Math.max(
+      fs.statSync(path.join(root, "package.json")).mtimeMs,
+      fs.statSync(path.join(root, "package-lock.json")).mtimeMs,
+    );
+    const electron = path.join(modules, "electron");
+    const binary = process.platform === "win32" ? "electron.exe" : "electron";
+    const present =
+      fs.existsSync(path.join(electron, "path.txt")) ||
+      fs.existsSync(path.join(electron, "dist", binary));
+    return installed >= wanted && present;
+  } catch {
+    return false;
+  }
+}
+
+function npmCi(root) {
+  if (nodeModulesCurrent(root)) {
+    console.log("[FRIDAY] node_modules already matches package-lock.json; npm ci skipped");
+    return;
+  }
+  const args = ["ci", "--no-audit", "--no-fund"];
+  const once = spawnNpm(args, { cwd: root, stdio: "inherit" });
+  if (once.status === 0) return;
+  console.error("[FRIDAY] npm ci failed — npm cache verify, then retry against registry.npmjs.org");
+  spawnNpm(["cache", "verify"], { cwd: root, stdio: "inherit" });
+  const again = spawnNpm([...args, "--registry", "https://registry.npmjs.org/"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  if (again.status !== 0) throw new Error("npm ci failed after a registry retry");
+}
+
+function cleanOutputs(root) {
+  removeTree(path.join(root, "release"));
+  removeTree(path.join(root, "dist-desktop"));
+}
+
+function applyChannel(root, options) {
+  const file = path.join(root, "resources", "build-channel.json");
+  if (options.channel === "production") {
+    removeTree(file);
+    return;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        channel: "test",
+        ref: options.ref || "",
+        commit: options.commit || "",
+        runId: process.env.GITHUB_RUN_ID || "",
+        builtAt: "pipeline",
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function signingRequested(options) {
+  if (options.sign === "off" || options.sign === "false") return false;
+  return Boolean(process.env.CSC_LINK || process.env.FRIDAY_PFX);
+}
+
+function runPhase(phase, options, root) {
+  if (phase === "prepare-environment") {
+    applyBuildCache(root);
+    // Everything the setup installs is needed, so each step below either completes or stops the
+    // build with the reason. The toolchain comes first: Git, PowerShell, FFmpeg, Tesseract and the
+    // Visual C++ runtime are checked (and installed from the official source when missing) before
+    // npm ci, so a PC that has Node.js but not the rest is not discovered late.
+    ensureToolchain(root);
+    runNode("scripts/check-engines.cjs", [], root);
+    npmCi(root);
+    runNode("scripts/ensure-electron.cjs", ["--quiet"], root);
+    runNode("scripts/setup-python.cjs", [], root);
+    // The agent tools (search, Git, build tools, Docker, Sandbox, CUDA): a tool that cannot be installed stops the build.
+    runNode("scripts/prefetch-toolkit.cjs", [], root);
+    runNode("scripts/init-runtime.cjs", [], root);
+    runNode("scripts/check-environment.cjs", ["--fix"], root);
+    runNode("scripts/env-registry.cjs", ["repair"], root);
+    return "environment ready";
+  }
+  if (phase === "verify-versions") {
+    runNode("scripts/release-engine.cjs", ["heal"], root);
+    runNode("scripts/release-engine.cjs", ["verify"], root);
+    runNode("scripts/verify-deps.cjs", [], root);
+    return "version verified";
+  }
+  if (phase === "stage-toolchain") {
+    if (options.version) {
+      runNode("scripts/release-engine.cjs", ["stamp", "--version", options.version], root);
+    }
+    if (process.env.FRIDAY_SKIP_TOOLCHAIN_STAGE === "1") {
+      throw new Error(
+        "toolchain staging was skipped — refusing to build a small EXE. Unset FRIDAY_SKIP_TOOLCHAIN_STAGE.",
+      );
+    }
+    const offline = options.offline === true || process.env.FRIDAY_OFFLINE === "1";
+    return stage
+      .beforePack({ offline })
+      .then((result) => {
+        if (!result || result.skipped) {
+          throw new Error("toolchain staging produced nothing — refusing a small EXE");
+        }
+        const stamped = options.version ? `stamped ${options.version}; ` : "";
+        return `${stamped}staged ${result.staged.length} packs (${result.sum} bytes)`;
+      })
+      .catch((error) => {
+        const message = error && error.message ? error.message : String(error);
+        throw new Error(
+          `toolchain staging failed (${message}). No network, or a SHA-256 mismatch, stops the build before a small EXE is written.`,
+        );
+      });
+  }
+  if (phase === "build-renderer") {
+    cleanOutputs(root);
+    const built = spawnNpm(["run", "build:desktop"], { cwd: root, stdio: "inherit" });
+    if (built.status !== 0) throw new Error("renderer bundle failed");
+    if (!fs.existsSync(path.join(root, "dist-desktop", "index.html"))) {
+      throw new Error("renderer bundle missing — build failed");
+    }
+    return "renderer built";
+  }
+  if (phase === "package") {
+    applyChannel(root, options);
+    const packArgs = ["--win"];
+    if (options.targets.includes("dir") && options.targets.length === 1) packArgs.push("--dir");
+    else packArgs.push(...options.targets.filter((target) => target !== "dir"));
+    if (options.channel === "test") {
+      packArgs.push(
+        "-c.appId=dev.friday.desk.test",
+        "-c.productName=FRIDAY Test",
+        "-c.win.executableName=FRIDAY",
+        "-c.nsis.shortcutName=FRIDAY Test",
+        "-c.nsis.menuCategory=FRIDAY Test",
+        "-c.nsis.uninstallDisplayName=FRIDAY Test - Personal AI Assistant",
+      );
+    }
+    runNode("scripts/electron-pack.cjs", packArgs, root);
+    return `packaged ${packArgs.join(" ")}`;
+  }
+  if (phase === "packaged-requires") {
+    runNode("scripts/packaged-requires.cjs", [], root);
+    return "packaged requires resolved";
+  }
+  if (phase === "sign-hook") {
+    if (!signingRequested(options)) {
+      for (const line of signingStatusLines()) console.log(line);
+      return "unsigned";
+    }
+    const pfx = process.env.CSC_LINK || process.env.FRIDAY_PFX;
+    if (!fs.existsSync(pfx))
+      throw new Error("signing certificate path is set but the PFX file is missing");
+    const signArgs = [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      path.join(root, "scripts", "sign-windows.ps1"),
+      "-PfxPath",
+      pfx,
+      "-PfxPassword",
+      process.env.CSC_KEY_PASSWORD || process.env.FRIDAY_PFX_PASSWORD || "",
+      "-TargetDir",
+      path.join(root, "release"),
+    ];
+    if (process.env.EXPECTED_PUBLISHER) {
+      signArgs.push("-ExpectedPublisher", process.env.EXPECTED_PUBLISHER);
+    }
+    const result = spawnDirect("powershell", signArgs, { cwd: root, stdio: "inherit" });
+    if (result.status !== 0) throw new Error("Authenticode signing failed");
+    return "signed";
+  }
+  if (phase === "manifest") {
+    if (options.targets.length === 1 && options.targets[0] === "dir") {
+      return "skipped: unpacked dir has no installer manifest";
+    }
+    const engine = require("./release-engine.cjs");
+    const identity = engine.readCanonicalIdentity({ root });
+    const version = options.version || identity.releaseVersion;
+    const args = [
+      "--version",
+      version,
+      "--channel",
+      options.channel === "test" ? "test" : "stable",
+    ];
+    if (fs.existsSync(path.join(root, "release-notes.md")))
+      args.push("--notes", "release-notes.md");
+    if (options.releaseType) args.push("--type", options.releaseType);
+    runNode("scripts/release-manifest.cjs", args, root);
+    return options.channel === "test"
+      ? "test checksums written; stable channel files are this run's test manifest only"
+      : "update manifest written";
+  }
+  if (phase === "verify-artifacts") {
+    const mode = options.targets.includes("dir")
+      ? "dir"
+      : options.targets.includes("nsis") && options.targets.includes("portable")
+        ? "all"
+        : options.targets[0];
+    const verifyArgs = [mode];
+    if (options.channel === "production" && mode !== "dir") {
+      const engine = require("./release-engine.cjs");
+      const identity = engine.readCanonicalIdentity({ root });
+      verifyArgs.push("--version", options.version || identity.releaseVersion, "--manifest");
+    }
+    runNode("scripts/verify-build.cjs", verifyArgs, root);
+    if (!options.targets.includes("dir") || options.targets.length > 1) {
+      assertPackagedLayout({
+        releaseDir: path.join(root, "release"),
+        manifest: readManifest(root),
+        targets: options.targets,
+      });
+    }
+    return "artifacts verified";
+  }
+  if (phase === "verify-boot") {
+    runNode("scripts/verify-boot.cjs", [], root);
+    return "boot verified";
+  }
+  if (phase === "readiness") {
+    runNode("scripts/readiness-test.cjs", ["--pack"], root);
+    return "readiness passed";
+  }
+  if (phase === "packaged-self-check") {
+    return runPackagedSelfCheck({
+      platform: options.platform,
+      unpackDir: options.unpackDir,
+      root,
+      runner: options.runner,
+      extract: options.extract,
+      manifest: options.manifest,
+      workDir: options.workDir,
+    });
+  }
+  if (phase === "installer-smoke") {
+    if (process.platform !== "win32" || !options.targets.includes("nsis")) {
+      return "skipped: installer smoke runs on Windows when an NSIS target was packaged";
+    }
+    const releaseDir = path.join(root, "release");
+    const setup = fs.readdirSync(releaseDir).find((name) => /Setup-.+\.exe$/i.test(name));
+    if (!setup) throw new Error("installer smoke found no Setup EXE");
+    const product = options.channel === "test" ? "FRIDAY Test" : "FRIDAY";
+    const result = spawnDirect(
+      "powershell",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.join(root, "scripts", "windows-installer-smoke.ps1"),
+        "-Installer",
+        path.join(releaseDir, setup),
+        "-Product",
+        product,
+        "-ReleaseDir",
+        releaseDir,
+      ],
+      { cwd: root, stdio: "inherit" },
+    );
+    if (result.status !== 0) throw new Error("installer lifecycle smoke failed");
+    return "installer smoke passed";
+  }
+  throw new Error(`unknown phase ${phase}`);
+}
+
+/**
+ * The PC-level toolchain, checked and installed before anything else on Windows:
+ * scripts/setup-windows.ps1 -ToolchainOnly reuses every tool that meets its floor and
+ * installs the latest stable release of a missing or older one from the official
+ * source. Not run on hosted CI (the runner image owns its toolchain). A tool that
+ * cannot be installed throws, with the reason printed above.
+ */
+function ensureToolchain(root, env = process.env, platform = process.platform, deps = {}) {
+  if (platform !== "win32") return "skipped: toolchain setup runs on Windows only";
+  if (env.CI || env.GITHUB_ACTIONS) return "skipped: hosted CI keeps its own toolchain";
+  const run = deps.run || spawnDirect;
+  const result = run(
+    "powershell",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      path.join(root, "scripts", "setup-windows.ps1"),
+      "-ToolchainOnly",
+    ],
+    { cwd: root, stdio: "inherit" },
+  );
+  if (!result || result.status !== 0) {
+    throw new Error(
+      "the Windows toolchain is not complete (scripts\\setup-windows.ps1 -ToolchainOnly failed, see above). Fix it, then run npm run doctor",
+    );
+  }
+  // A tool installed just now is not on this process's PATH yet; read the new PATH once.
+  const read = deps.readPath || readWindowsPath;
+  const fresh = read();
+  if (fresh) env.PATH = `${env.PATH || ""};${fresh}`;
+  return "toolchain ready";
+}
+
+function readWindowsPath() {
+  const out = spawnDirect(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
+    ],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  return outputText(out);
+}
+
+function outputText(out) {
+  return out && out.status === 0 ? String(out.stdout || "").trim() : "";
+}
+
+/**
+ * With --strict (PR Validation) a phase that reports "skipped:" is a failure.
+ * On the Windows runner nothing may be skipped, so a silently skipped smoke or
+ * self-check can never turn into a green check.
+ */
+function assertNotSkipped(phase, detail, options) {
+  if (options && options.strict && String(detail).startsWith("skipped:")) {
+    throw new Error(`${phase} was skipped, and --strict does not allow that: ${detail}`);
+  }
+}
+
+async function runPipeline(options, root = ROOT) {
+  const phases = selectedPhases(options);
+  const report = {
+    ok: false,
+    channel: options.channel,
+    version: options.version || null,
+    targets: options.targets,
+    publish: options.publish,
+    sign: signingRequested(options) ? "requested" : "unsigned",
+    caller: options.caller,
+    phases: [],
+  };
+  for (const phase of phases) {
+    const started = Date.now();
+    try {
+      const detail = await runPhase(phase, options, root);
+      const text = String(detail);
+      assertNotSkipped(phase, text, options);
+      report.phases.push({
+        name: phase,
+        status: text.startsWith("skipped:") ? "skipped" : "ok",
+        ms: Date.now() - started,
+        detail: text,
+      });
+      console.log(`[FRIDAY] ${phase}: ${detail}`);
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      report.phases.push({
+        name: phase,
+        status: "failed",
+        ms: Date.now() - started,
+        detail: message,
+      });
+      report.ok = false;
+      fs.mkdirSync(path.dirname(options.report), { recursive: true });
+      fs.writeFileSync(options.report, `${JSON.stringify(report, null, 2)}\n`);
+      console.error(`[FRIDAY] ${phase} failed: ${message}`);
+      return report;
+    }
+  }
+  report.ok = true;
+  fs.mkdirSync(path.dirname(options.report), { recursive: true });
+  fs.writeFileSync(options.report, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+/**
+ * The last thing a local build prints: what was checked, what was produced and how to
+ * use it. READY only when the whole recipe ran and nothing failed. Pure, so a test reads it.
+ */
+function readySummary(options, report, root = ROOT, fsImpl = fs) {
+  const lines = [];
+  const phases = Array.isArray(report?.phases) ? report.phases : [];
+  const whole = options.from === PHASES[0] && options.through === PHASES[PHASES.length - 1];
+  const rule = "=".repeat(78);
+  lines.push(rule);
+  const skipped = phases.some((phase) => phase.status === "skipped");
+  if (report?.ok && whole) {
+    lines.push(
+      skipped
+        ? "FRIDAY BUILD READY - every check that applies passed (skipped steps are listed)"
+        : "FRIDAY BUILD READY - every check passed and the build is ready to use",
+    );
+  } else if (report?.ok) {
+    lines.push(`FRIDAY BUILD PARTIAL - phases ${options.from} .. ${options.through} passed`);
+  } else {
+    lines.push("FRIDAY BUILD FAILED - see the first error above");
+  }
+  lines.push(rule);
+  for (const phase of phases) {
+    const mark = phase.status === "ok" ? "PASS " : phase.status === "skipped" ? "SKIP " : "FAIL ";
+    lines.push(
+      `${mark}${String(phase.name).padEnd(22)} ${String(phase.detail || "")
+        .split(/\r?\n/)[0]
+        .slice(0, 90)}`,
+    );
+  }
+  if (report?.ok) {
+    const release = path.join(root, "release");
+    const found = [];
+    try {
+      for (const name of fsImpl.readdirSync(release)) {
+        if (/^FRIDAY(?: Test)?-(?:Setup|Portable)-.+\.exe$/i.test(name)) found.push(name);
+      }
+    } catch {
+      /* no release folder: nothing was packaged by this run */
+    }
+    const unpacked = path.join(release, "win-unpacked", "FRIDAY.exe");
+    lines.push("");
+    for (const name of found) {
+      let size = "";
+      try {
+        size = ` (${(fsImpl.statSync(path.join(release, name)).size / 1048576).toFixed(0)} MB)`;
+      } catch {
+        size = "";
+      }
+      lines.push(`  ${path.join("release", name)}${size}`);
+    }
+    if (fsImpl.existsSync(unpacked))
+      lines.push(`  ${path.join("release", "win-unpacked", "FRIDAY.exe")}`);
+    if (found.some((name) => /Setup/i.test(name))) {
+      lines.push("");
+      lines.push("  Install : run the Setup EXE above (Next, choose a folder, Install).");
+      lines.push("  Portable: run the Portable EXE; no install needed.");
+    }
+    lines.push("  Repair  : npm run doctor checks and fixes this PC at any time.");
+  } else {
+    lines.push("");
+    lines.push("  After fixing the cause: npm run doctor, then npm run build:win");
+  }
+  lines.push(rule);
+  return lines;
+}
+
+async function main() {
+  const options = parseArgs(process.argv);
+  if (options.planOnly) {
+    console.log(
+      JSON.stringify(
+        { phases: selectedPhases(options), commands: commandsFor(selectedPhases(options)) },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  const report = await runPipeline(options);
+  if (options.caller === "cmd" || options.caller === "npm") {
+    for (const line of readySummary(options, report)) console.log(line);
+  }
+  if (!report.ok) process.exit(1);
+}
+
+module.exports = {
+  PHASES,
+  PHASE_COMMANDS,
+  GITHUB_ASSET_LIMIT,
+  parseArgs,
+  assertNotSkipped,
+  ensureToolchain,
+  readySummary,
+  selectedPhases,
+  commandsFor,
+  installerBounds,
+  assertPackagedLayout,
+  runtimeSmokePlan,
+  applyChannel,
+  signingRequested,
+  signingStatusLines,
+  runPackagedSelfCheck,
+  runPipeline,
+  nodeModulesCurrent,
+  REMOVE_OPTIONS,
+  removeTree,
+};
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error && error.message ? error.message : error);
+    process.exit(1);
+  });
+}

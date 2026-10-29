@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Weekday name",
+  "description": "Return the weekday name for a date (ISO or ms) in a given locale.",
+  "category": "time",
+  "inputs": [
+    "text",
+    "locale"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to NAME the WEEKDAY of a date. Allow this?",
+  "keywords": [
+    "weekday",
+    "dow",
+    "day"
+  ]
+}

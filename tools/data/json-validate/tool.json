@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "JSON validate",
+  "description": "Parse JSON text and report whether it is valid, plus the top-level type.",
+  "category": "data",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to VALIDATE JSON text in memory. Allow this?",
+  "keywords": [
+    "json",
+    "validate",
+    "parse"
+  ]
+}

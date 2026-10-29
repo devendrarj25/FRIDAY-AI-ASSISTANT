@@ -1,0 +1,17 @@
+{
+  "id": "off-memo-outline",
+  "name": "Memo outline",
+  "summary": "Turn rough notes into a one-page memo outline with purpose, facts, ask, and next step.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "title"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Office drafting helper. Builds a memo skeleton from pasted notes so you can fill facts — it does not send mail or file a document outside FRIDAY."
+}

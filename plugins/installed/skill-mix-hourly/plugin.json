@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "skill-mix-hourly",
+  "name": "Skill mix hourly",
+  "description": "Count skill runs per local hour.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-skill-run"
+  ]
+}

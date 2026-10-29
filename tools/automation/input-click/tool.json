@@ -1,0 +1,26 @@
+{
+  "name": "Click the mouse",
+  "version": "1.0.0",
+  "description": "Move and click the real mouse pointer anywhere on the desktop. It clicks whatever is under those coordinates at that moment, in any application.",
+  "category": "automation",
+  "entry": "index.cjs",
+  "kernelTool": "input.click",
+  "inputs": [
+    "x",
+    "y",
+    "button",
+    "clicks",
+    "target",
+    "hwnd"
+  ],
+  "permissions": [
+    "devices",
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "requires": [
+    "PyAutoGUI"
+  ],
+  "approvalPrompt": "FRIDAY wants to CLICK your mouse ({button}, {clicks}\u00d7) at screen position {x},{y} in the window \u201c{target}\u201d. It will click whatever is there at that moment \u2014 buttons, links or confirmation dialogs. Allow this?"
+}

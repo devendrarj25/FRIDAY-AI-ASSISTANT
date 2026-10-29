@@ -1,0 +1,14 @@
+{
+  "name": "stack-audit",
+  "version": "1.0.0",
+  "description": "Read a local folder's package.json, requirements.txt, pyproject.toml, Cargo.toml and lockfiles and report the detected stack and declared engines. Read-only — does not clone or install.",
+  "category": "developer",
+  "permissions": ["fs.read"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "Stack audit",
+    "icon": "layers"
+  }
+}

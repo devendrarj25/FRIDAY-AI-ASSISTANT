@@ -1,0 +1,16 @@
+{
+  "id": "code-any-narrow",
+  "name": "TypeScript any finder",
+  "summary": "List lines that use `any` or `as any` so you can plan narrowing.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Line matches only. Does not infer better types."
+}

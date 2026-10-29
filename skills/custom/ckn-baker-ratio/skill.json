@@ -1,0 +1,17 @@
+{
+  "id": "ckn-baker-ratio",
+  "name": "Baker's percentages",
+  "summary": "Convert flour-relative weights into baker's percentages (flour = 100%).",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "flourGrams",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Assumes the first number tagged flour, or an explicit flourGrams field."
+}

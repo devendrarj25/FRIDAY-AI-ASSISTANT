@@ -1,0 +1,18 @@
+{
+  "name": "Large source file finder",
+  "version": "1.0.0",
+  "description": "Lists source files over a size threshold (default 256 KB) so generated or accidentally committed blobs show up.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "largeKb",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} oversized source file(s) under \u201c{folder}\u201d. Read-only. Nothing will be deleted."
+}

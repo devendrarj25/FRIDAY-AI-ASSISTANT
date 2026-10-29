@@ -1,0 +1,50 @@
+{
+  "id": "json-config-inventory",
+  "name": "JSON config inventory",
+  "version": "1.0.0",
+  "description": "Inventory JSON configs, JSON keys skill, YAML keys module — inspect only.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Inventory JSON configs",
+      "kind": "agent",
+      "ref": "agents/core/json-config-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "JSON keys skill",
+      "kind": "skill",
+      "ref": "skills/custom/dat-json-keys",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "JSON keys via module",
+      "kind": "module",
+      "ref": "modules/developer/json-keys",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "YAML keys via module",
+      "kind": "module",
+      "ref": "modules/developer/yaml-keys",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the config map local",
+      "kind": "note",
+      "ref": "json-map",
+      "risk": "safe"
+    }
+  ]
+}

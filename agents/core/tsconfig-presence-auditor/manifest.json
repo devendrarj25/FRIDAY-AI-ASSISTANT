@@ -1,0 +1,17 @@
+{
+  "name": "tsconfig presence auditor",
+  "version": "1.0.0",
+  "description": "Lists tsconfig*.json files so TypeScript projects in a folder tree are visible.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} tsconfig file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Control Bluetooth audio playback",
+  "version": "1.0.0",
+  "description": "Send play, pause, next, previous or volume to the connected Bluetooth audio device. Devices whose profile does not support a command are reported honestly.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "bluetooth.media",
+  "inputs": [
+    {
+      "name": "command",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "permissions": [
+    "devices"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to send {command} to your connected Bluetooth audio device. Allow this?"
+}

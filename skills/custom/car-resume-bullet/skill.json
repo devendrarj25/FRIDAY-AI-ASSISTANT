@@ -1,0 +1,20 @@
+{
+  "id": "car-resume-bullet",
+  "name": "STAR resume bullet",
+  "summary": "Turn a STAR story (situation, task, action, result) into one resume bullet.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "situation",
+    "task",
+    "action",
+    "result",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Writing aid. It does not apply to jobs for you."
+}

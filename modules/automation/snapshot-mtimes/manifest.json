@@ -1,0 +1,20 @@
+{
+  "name": "snapshot-mtimes",
+  "version": "1.0.0",
+  "description": "Snapshot relative path \u2192 mtime epoch for a folder. Dry-run returns the map; apply writes .friday-mtimes.json.",
+  "category": "automation",
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Snapshot mtimes",
+    "icon": "camera"
+  }
+}

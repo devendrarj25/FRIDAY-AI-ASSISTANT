@@ -1,0 +1,50 @@
+{
+  "id": "hosts-file-snapshot",
+  "name": "Hosts-file snapshot chain",
+  "version": "1.0.0",
+  "description": "Snapshot workspace hosts file, startup programs, network connection names — not OS /etc rewrite.",
+  "category": "privacy",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Snapshot hosts file",
+      "kind": "agent",
+      "ref": "agents/core/hosts-file-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Audit startup program names",
+      "kind": "agent",
+      "ref": "agents/core/startup-program-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Snapshot network connection names",
+      "kind": "agent",
+      "ref": "agents/core/network-connection-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Browser profile size audit",
+      "kind": "agent",
+      "ref": "agents/core/browser-profile-size-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the snapshot local",
+      "kind": "note",
+      "ref": "hosts-snap",
+      "risk": "safe"
+    }
+  ]
+}

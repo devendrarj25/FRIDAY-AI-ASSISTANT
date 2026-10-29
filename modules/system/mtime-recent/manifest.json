@@ -1,0 +1,19 @@
+{
+  "name": "mtime-recent",
+  "version": "1.0.0",
+  "description": "List the most recently modified files under a folder with ISO mtime. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Recent mtimes",
+    "icon": "clock"
+  }
+}

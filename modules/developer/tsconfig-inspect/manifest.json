@@ -1,0 +1,19 @@
+{
+  "name": "tsconfig-inspect",
+  "version": "1.0.0",
+  "description": "Read tsconfig.json compilerOptions (target, module, strict, jsx, paths keys) and whether files/include exist. Strips JSON comments. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Tsconfig inspect",
+    "icon": "file-code"
+  }
+}

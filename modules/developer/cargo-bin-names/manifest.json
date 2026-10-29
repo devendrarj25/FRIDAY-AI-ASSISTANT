@@ -1,0 +1,19 @@
+{
+  "name": "cargo-bin-names",
+  "version": "1.0.0",
+  "description": "Read Cargo.toml for [package] name and [[bin]] name entries. Distinct from stack-audit (which only flags Cargo.toml presence). Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Cargo bin names",
+    "icon": "package"
+  }
+}

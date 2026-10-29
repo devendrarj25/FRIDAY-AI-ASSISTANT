@@ -1,0 +1,71 @@
+{
+  "id": "downloads-hygiene-chain",
+  "name": "Downloads hygiene chain",
+  "version": "1.0.0",
+  "description": "Long Downloads pass: extension breakdown, stale downloads, executables, leftover extracts, then a cleanup plan. Writes wait for approval.",
+  "category": "files",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Break down Downloads by extension",
+      "kind": "agent",
+      "ref": "agents/core/downloads-extension-breakdown",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find stale downloads",
+      "kind": "agent",
+      "ref": "agents/core/stale-download-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan executable downloads",
+      "kind": "agent",
+      "ref": "agents/core/executable-download-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Find leftover extracts",
+      "kind": "agent",
+      "ref": "agents/core/leftover-extract-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Plan downloads cleanup",
+      "kind": "agent",
+      "ref": "agents/core/downloads-cleanup",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "List files in Downloads",
+      "kind": "tool",
+      "ref": "tools/filesystem/file-list",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Summarise what would be moved",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Hold the plan until you approve writes",
+      "kind": "note",
+      "ref": "downloads-plan",
+      "risk": "safe"
+    }
+  ]
+}

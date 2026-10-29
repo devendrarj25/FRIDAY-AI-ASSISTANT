@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "CSV row count",
+  "description": "Count parsed CSV rows from text (document-extract.parseCsv).",
+  "category": "data",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to COUNT CSV ROWS from text you provide. Allow this?",
+  "keywords": [
+    "csv",
+    "count",
+    "rows"
+  ]
+}

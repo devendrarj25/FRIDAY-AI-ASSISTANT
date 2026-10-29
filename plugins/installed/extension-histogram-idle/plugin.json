@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "extension-histogram-idle",
+  "name": "Extension histogram idle",
+  "description": "On idle, histogram file extensions from a depth-2 walk.",
+  "category": "housekeeping",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

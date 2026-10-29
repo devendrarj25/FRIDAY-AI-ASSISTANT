@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Read sensors",
+  "description": "Battery/thermal/fan probe via electron/hardware.cjs detectSensors.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "system.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ sensor values on this machine. Allow this?"
+}

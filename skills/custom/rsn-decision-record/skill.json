@@ -1,0 +1,17 @@
+{
+  "id": "rsn-decision-record",
+  "name": "Decision record template",
+  "summary": "Fill an ADR-style record: context, options, decision, consequences from pasted notes.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "title"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Keyword buckets. Does not commit architecture on its own."
+}

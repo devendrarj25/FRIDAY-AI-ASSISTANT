@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "binary-ext-watch",
+  "name": "Binary extension watch",
+  "description": "Journal file-change events for common binary extensions (exe/dll/png/jpg/zip/pdf).",
+  "category": "quality",
+  "permissions": [],
+  "hooks": [
+    "on-file-change"
+  ]
+}

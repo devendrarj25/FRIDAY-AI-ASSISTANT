@@ -1,0 +1,71 @@
+{
+  "id": "sunday-planning-chain",
+  "name": "Sunday planning chain",
+  "version": "1.0.0",
+  "description": "Plan next week from ICS, overdue files, recurring nudges, Google Calendar if connected, agenda headings, action tracker, a 30-60-90 career sketch, then a local plan. No calendar writes.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Sunday 18:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read upcoming .ics event titles",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Google Calendar if connected",
+      "kind": "connector",
+      "ref": "google-calendar",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Build agenda headings",
+      "kind": "skill",
+      "ref": "skills/custom/off-agenda-builder",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Load action-tracker headings",
+      "kind": "skill",
+      "ref": "skills/custom/off-action-tracker",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Sketch a 30-60-90 block",
+      "kind": "skill",
+      "ref": "skills/custom/car-30-60-90",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the Sunday plan local",
+      "kind": "note",
+      "ref": "sunday-plan",
+      "risk": "safe"
+    }
+  ]
+}

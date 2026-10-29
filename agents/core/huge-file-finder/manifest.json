@@ -1,0 +1,18 @@
+{
+  "name": "Huge file finder",
+  "version": "1.0.0",
+  "description": "Lists files larger than a size threshold (default 512 MB) so you can see what is filling a drive. Report only \u2014 it never deletes.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "largeMb",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} file(s) larger than {largeMb} MB under \u201c{folder}\u201d. This is read-only. Allow to keep the list. Nothing will be deleted."
+}

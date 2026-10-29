@@ -1,0 +1,3962 @@
+/**
+ * FRIDAY toolchain manager (main process only).
+ *
+ * Real detection + real installation of runtimes and developer tools.
+ *  - detection: probes the local machine with `where/which` + `--version`
+ *  - latest versions: official registries only (npm, PyPI, GitHub releases)
+ *  - install/update/repair/uninstall: winget / npm / pip / cargo, streamed
+ *
+ * Every job is de-duplicated so the same package can never be installed twice
+ * at the same time. A vendor installer comes only from the official release
+ * (and the vendor's own mirrors), over the app's one verified downloader.
+ */
+const { execFile, execFileSync, spawn } = require("child_process");
+const { killProcessTree } = require("./app-lifecycle.cjs");
+const os = require("os");
+const path = require("path");
+const fs = require("fs");
+const voiceInstall = require("./voice-install.cjs");
+const vendorSources = require("./vendor-sources.cjs");
+const hfRunner = require("./hf-runner.cjs");
+const zlib = require("zlib");
+const { resolvePython } = require("./python.cjs");
+const fridayPaths = require("./friday-paths.cjs");
+
+const WIN = process.platform === "win32";
+const PY = WIN ? "python" : "python3";
+
+// Commands that open a window instead of printing to stdout. Executing one of
+// these pops a native modal dialog that steals focus from FRIDAY and makes the
+// whole app look frozen, so detection must never spawn them.
+const GUI_COMMANDS = new Set([
+  "wt",
+  "wt.exe",
+  "explorer",
+  "explorer.exe",
+  "notepad",
+  "notepad.exe",
+]);
+
+/** GNU tar treats a drive colon in the archive path as a remote host. */
+function extractTarArchive(file, dest) {
+  const spec = require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .localTar(file, ["-xzf", file, "-C", dest]);
+  execFileSync("tar", spec.args, { cwd: spec.cwd, stdio: "ignore" });
+}
+
+const run = (cmd, args, timeout = 6000) => {
+  if (GUI_COMMANDS.has(String(cmd || "").toLowerCase())) return Promise.resolve(null);
+  return require("./load-win-spawn.cjs")
+    .loadWinSpawn(__dirname)
+    .captureOutput(cmd, args || [], {
+      timeout,
+      windowsHide: true,
+    });
+};
+
+const which = async (cmd) => {
+  const out = await run(WIN ? "where" : "which", [cmd], 4000);
+  if (!out) return null;
+  const first = out.split(/\r?\n/).find((l) => l.trim() && !/^INFO:/i.test(l));
+  return first ? first.trim() : null;
+};
+
+/**
+ * Re-read PATH from the Windows registry into this process.
+ *
+ * A package manager writes the new PATH to the registry, but our already
+ * running Electron process keeps the PATH it inherited at launch — so a tool
+ * that installed perfectly still probes as "Missing" until FRIDAY restarts.
+ * Pulling the machine + user PATH back in makes the post-install re-probe
+ * honest without asking the owner to restart anything.
+ */
+const refreshPathFromRegistry = async () => {
+  if (!WIN) return false;
+  const out = await run(
+    "powershell",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')",
+    ],
+    8000,
+  );
+  const fresh = (out || "").trim();
+  if (!fresh) return false;
+  const seen = new Set();
+  const merged = [];
+  for (const part of `${process.env.PATH || ""};${fresh}`.split(";")) {
+    const dir = part.trim().replace(/[\\/]+$/, "");
+    if (!dir) continue;
+    const key = dir.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(dir);
+  }
+  const next = merged.join(";");
+  const changed = next !== process.env.PATH;
+  process.env.PATH = next;
+  return changed;
+};
+
+const semver = (text) => {
+  if (!text) return null;
+  const m = /(\d+\.\d+(?:\.\d+)?(?:[-.\w]*)?)/.exec(text.split(/\r?\n/)[0] || text);
+  return m ? m[1].replace(/[.,]$/, "") : null;
+};
+
+/* ------------------------------------------------- real Windows detectors */
+
+/** Read one registry value across both registry views, per-machine and per-user. */
+async function regValue(key, name) {
+  if (!WIN) return null;
+  const views = ["64", "32"];
+  for (const view of views) {
+    const out = await run("reg", ["query", key, "/v", name, `/reg:${view}`], 6000);
+    if (!out) continue;
+    const m = new RegExp(`${name}\\s+REG_\\w+\\s+(.+)`, "i").exec(out);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+const WEBVIEW2_CLIENT = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+
+/**
+ * WebView2 is registered by Edge Update, per-machine (usually in the 32-bit
+ * view) or per-user. Probing a single hard-coded key reports a perfectly
+ * healthy runtime as missing, which is what made this row fail forever.
+ */
+async function detectWebView2() {
+  const keys = [
+    `HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT}`,
+    `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT}`,
+    `HKCU\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\${WEBVIEW2_CLIENT}`,
+  ];
+  for (const key of keys) {
+    const version = await regValue(key, "pv");
+    if (version && version !== "0.0.0.0") {
+      return {
+        installed: true,
+        version: semver(version) || version,
+        path: key.startsWith("HKCU") ? "per-user runtime" : "per-machine runtime",
+        status: "Ready",
+      };
+    }
+  }
+  return { installed: false, version: null, path: null, status: "Missing" };
+}
+
+/**
+ * Windows Sandbox is an optional Windows feature, not a downloadable package.
+ * Report its real state instead of a failure the owner cannot act on.
+ */
+async function detectWindowsSandbox() {
+  if (!WIN) {
+    return { installed: false, status: "Manual", manual: "Windows-only feature" };
+  }
+  const exe = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsSandbox.exe");
+  if (fs.existsSync(exe)) {
+    return { installed: true, version: null, path: exe, status: "Ready" };
+  }
+  const caption =
+    (await run(
+      "powershell",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-CimInstance Win32_OperatingSystem).Caption",
+      ],
+      10_000,
+    )) || "";
+  const supported = /pro|enterprise|education/i.test(caption);
+  return {
+    installed: false,
+    version: null,
+    path: null,
+    status: "Manual",
+    unsupported: !supported,
+    manual: supported
+      ? "supported on this Windows edition — enable the “Windows Sandbox” optional feature, then reboot"
+      : `not available on this Windows edition${caption ? ` (${caption.trim()})` : ""} — Pro, Enterprise or Education is required`,
+  };
+}
+
+/** Global npm bin directory, used to verify npm-installed CLIs for real. */
+let npmPrefix = { at: 0, dir: null };
+async function npmBinDir() {
+  if (Date.now() - npmPrefix.at < 60_000) return npmPrefix.dir;
+  const out = await run(WIN ? "npm.cmd" : "npm", ["prefix", "-g"], 12_000);
+  const dir = (out || "").split(/\r?\n/).find((l) => l.trim()) || null;
+  npmPrefix = { at: Date.now(), dir: dir ? dir.trim() : null };
+  return npmPrefix.dir;
+}
+
+/**
+ * rcedit ships an .exe inside its npm package; the `rcedit` shim is not always
+ * on PATH. Verify the real executable rather than trusting an npm exit code.
+ */
+async function detectRcedit() {
+  const onPath = await which(WIN ? "rcedit" : "rcedit");
+  if (onPath) return { installed: true, version: null, path: onPath, status: "Ready" };
+  const prefix = await npmBinDir();
+  // `npm prefix -g` and `npm root -g` do not always agree (nvm, Volta, a
+  // custom prefix), and the package has no CLI shim — so ask npm where the
+  // module really landed instead of trusting the install exit code.
+  const roots = [];
+  if (prefix)
+    roots.push(path.join(prefix, "node_modules"), path.join(prefix, "lib", "node_modules"));
+  const globalRoot = (await run(WIN ? "npm.cmd" : "npm", ["root", "-g"], 12_000)) || "";
+  const globalDir = globalRoot.split(/\r?\n/).find((line) => line.trim());
+  if (globalDir) roots.push(globalDir.trim());
+  roots.push(path.join(__dirname, "..", "node_modules"));
+  const candidates = [];
+  for (const base of roots) {
+    candidates.push(
+      path.join(base, "rcedit", "bin", "rcedit-x64.exe"),
+      path.join(base, "rcedit", "bin", "rcedit.exe"),
+    );
+  }
+  for (const file of candidates) {
+    if (fs.existsSync(file)) return { installed: true, version: null, path: file, status: "Ready" };
+  }
+  return { installed: false, version: null, path: null, status: "Missing" };
+}
+
+/**
+ * Hugging Face Hub renamed its CLI from `huggingface-cli` to `hf`. Detect the
+ * current command, the legacy one, and the Python package inside FRIDAY's own
+ * managed interpreter — the same one pip installs into.
+ */
+async function detectHuggingFace() {
+  for (const cmd of ["hf", "huggingface-cli"]) {
+    const bin = await which(cmd);
+    if (!bin) continue;
+    const out = await run(cmd, ["version"], 10_000);
+    return {
+      installed: true,
+      version: semver(out) || null,
+      path: bin,
+      status: "Ready",
+    };
+  }
+  const python = await resolvePython(path.join(__dirname, ".."));
+  if (python) {
+    const out = await run(
+      python.exe,
+      [...python.prefix, "-c", "import huggingface_hub as h;print(h.__version__)"],
+      12_000,
+    );
+    if (out && semver(out)) {
+      return {
+        installed: true,
+        version: semver(out),
+        path: `${python.exe} (huggingface_hub)`,
+        status: "Ready",
+      };
+    }
+  }
+  return { installed: false, version: null, path: null, status: "Missing" };
+}
+
+/**
+ * A FRIDAY-managed Python 3.12 runtime, created on demand.
+ *
+ * Some AI wheels (llama-cpp-python today) are simply not published for the
+ * newest Python. Instead of telling the owner to downgrade the machine, FRIDAY
+ * builds an isolated 3.12 virtual environment inside her own runtime folder
+ * and installs the package there. Returns { exe, prefix } or null.
+ */
+function useBundledEmbedDirect(chosen, embedFile) {
+  if (!chosen || !chosen.exe || !embedFile) return false;
+  const exe = String(chosen.exe);
+  if (!path.isAbsolute(exe)) return false;
+  try {
+    return path.resolve(exe) === path.resolve(String(embedFile));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An existing managed venv wins. The embeddable zip is used as itself.
+ * A system interpreter still gets a venv. The embeddable package has no pip
+ * and is not a base for `python -m venv`.
+ */
+function managedRuntimeChoice(input = {}) {
+  if (input.venvExe) return { action: "venv-ready", exe: input.venvExe, prefix: [] };
+  if (input.legacyFile) return { action: "legacy", exe: input.legacyFile, prefix: [] };
+  if (input.embedExists && input.embedFile) {
+    return { action: "embed", exe: input.embedFile, prefix: [] };
+  }
+  if (useBundledEmbedDirect(input.chosen, input.embedFile)) {
+    return { action: "embed", exe: path.resolve(String(input.embedFile)), prefix: [] };
+  }
+  if (input.chosen && input.chosen.exe) {
+    return {
+      action: "venv",
+      exe: input.chosen.exe,
+      prefix: input.chosen.prefix || [],
+    };
+  }
+  return { action: "missing", exe: "", prefix: [] };
+}
+
+async function ensureManagedPython(series = "3.12", onLine = () => {}) {
+  const base = fridayPaths.hasRoot()
+    ? fridayPaths.dir("runtime")
+    : path.join(__dirname, "..", "runtime");
+  const envDir = path.join(base, `py${series.replace(".", "")}`);
+  const exe = WIN ? path.join(envDir, "Scripts", "python.exe") : path.join(envDir, "bin", "python");
+  const runtimeLayout = require("./runtime-layout.cjs");
+  const embedFile = runtimeLayout.entryFile(base, "python-embed");
+  const present = managedRuntimeChoice({
+    venvExe: fs.existsSync(exe) ? exe : "",
+    legacyFile: series === "3.12" ? require("./toolchain-pack.cjs").findPythonExe(base) || "" : "",
+    embedFile,
+    embedExists: Boolean(embedFile && fs.existsSync(embedFile)),
+  });
+  if (
+    present.action === "venv-ready" ||
+    present.action === "legacy" ||
+    present.action === "embed"
+  ) {
+    return { exe: present.exe, prefix: present.prefix };
+  }
+
+  if (series === "3.12") {
+    const resourcesRoots = runtimeLayout.resourceRoots({
+      resourcesPath: process.resourcesPath,
+      devRoot: path.join(__dirname, ".."),
+      execPath: process.execPath,
+      portableDir: process.env.PORTABLE_EXECUTABLE_DIR || "",
+    });
+    if (runtimeLayout.findPack("python-embed", resourcesRoots)) {
+      const bundled = require("./bundled-runtime.cjs");
+      const landed = bundled.materialise({
+        resourcesRoots,
+        runtimeRoot: base,
+        ids: ["python-embed", "get-pip"],
+        prove: process.platform === "win32",
+      });
+      const row = landed.tools && landed.tools["python-embed"];
+      const file = row && row.file;
+      if (process.platform === "win32" && row && row.proved && file && fs.existsSync(file)) {
+        onLine(`using the bundled Python at ${file}`);
+        return { exe: file, prefix: [] };
+      }
+      if (landed.log && landed.log.length) onLine(landed.log.join("; "));
+    }
+  }
+
+  if (WIN && series === "3.12") {
+    try {
+      const boot = require("./python-bootstrap.cjs");
+      const spec = boot.standaloneSpec();
+      const chain = boot.installChain({
+        python: fs.existsSync(boot.interpreterPath(base)),
+      });
+      onLine(
+        chain.ok
+          ? `pinned runtime ${spec.version} is already in the runtime folder`
+          : `pinned runtime ${spec.version} · ${chain.step}`,
+      );
+      const stood = await boot.materialise({
+        runtimeDir: base,
+        platform: "win32",
+        exists: (file) => fs.existsSync(file),
+        onLine,
+        download: async (spec) => {
+          const downloads = require("./model-download.cjs");
+          const dest = path.join(base, "downloads", spec.file);
+          await downloads.downloadUrl(spec.url, dest, {
+            sha256: spec.sha256,
+            needBytes: spec.bytes,
+            label: "Python runtime",
+          });
+          return dest;
+        },
+        extract: async (file, dest) => {
+          fs.mkdirSync(dest, { recursive: true });
+          extractTarArchive(file, dest);
+        },
+        run: async (cmd, args) => {
+          await run(cmd, args, 10 * 60 * 1000);
+        },
+      });
+      if (stood?.exe && fs.existsSync(stood.exe)) return { exe: stood.exe, prefix: [] };
+    } catch (error) {
+      const boot = require("./python-bootstrap.cjs");
+      onLine(boot.classifyBootstrapError(String(error?.message || error)).line);
+    }
+  }
+
+  // Find a real 3.12 interpreter to build the environment from.
+  const bases = WIN
+    ? [
+        { exe: "py", prefix: [`-${series}`] },
+        { exe: `python${series}`, prefix: [] },
+      ]
+    : [{ exe: `python${series}`, prefix: [] }];
+  let chosen = null;
+  for (const candidate of bases) {
+    const out = await run(
+      candidate.exe,
+      [...candidate.prefix, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+      10_000,
+    );
+    if ((out || "").trim() === series) {
+      chosen = candidate;
+      break;
+    }
+  }
+  if (!chosen && WIN) {
+    onLine(`installing Python ${series} from the official winget package…`);
+    await run(
+      "winget",
+      [
+        "install",
+        "--id",
+        `Python.Python.${series}`,
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        "--disable-interactivity",
+      ],
+      30 * 60 * 1000,
+    );
+    const out = await run(
+      "py",
+      [`-${series}`, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+      10_000,
+    );
+    if ((out || "").trim() === series) chosen = { exe: "py", prefix: [`-${series}`] };
+  }
+  const picked = managedRuntimeChoice({ embedFile, chosen });
+  if (picked.action === "embed") {
+    onLine(`using the bundled Python at ${picked.exe}`);
+    return { exe: picked.exe, prefix: [] };
+  }
+  if (!chosen) {
+    const packApi = require("./toolchain-pack.cjs");
+    const pinned = packApi.packById("python-embed");
+    const listed = packApi.readManifest();
+    const layout = packApi.materialisePython({ root: base, network: false });
+    const chain = packApi.installChain({ python: false });
+    const cause = packApi.classifyBootstrapError("python was not found");
+    const site = packApi.embedPthText().includes("import site");
+    const probe = packApi.windowsLongPath(base);
+    const staged = packApi.previewBundledStage(listed);
+    const resolved = packApi.resolvePackagedTool({
+      id: "python-embed",
+      entry: "python.exe",
+      roots: [base],
+    });
+    const refresh = packApi.applyPackRefresh(
+      { version: pinned?.version, sha256: pinned?.sha256 },
+      pinned,
+    );
+    const drift = packApi.driftRows({});
+    const extraction = packApi.planExtraction(pinned, base);
+    onLine(
+      `Pinned ${pinned?.name || "Python"} ${pinned?.version || ""} is not extracted (${layout.step}, ${chain.step}, ${cause}, ${listed.packs?.length || 0} packs, site ${site ? "on" : "off"}, ${probe}, stage ${staged.errors?.length || 0}, ${resolved ? "found" : "absent"}, ${refresh.action}, drift ${drift.length}, ${extraction.step}). Install it from Install Manager.`,
+    );
+    return null;
+  }
+
+  fs.mkdirSync(base, { recursive: true });
+  onLine(`creating a managed Python ${series} runtime at ${envDir}`);
+  await run(chosen.exe, [...chosen.prefix, "-m", "venv", envDir], 10 * 60 * 1000);
+  if (!fs.existsSync(exe)) return null;
+  await run(exe, ["-m", "pip", "install", "--upgrade", "pip"], 10 * 60 * 1000);
+  return { exe, prefix: [] };
+}
+
+/**
+ * llama-cpp-python compatibility. A blind `pip install` fails on a Python
+ * version with no published wheel and, worse, a CPU wheel silently pretends to
+ * be CUDA support. Decide the strategy from the real machine first.
+ */
+async function llamaCppStrategy() {
+  const python = await resolvePython(path.join(__dirname, ".."));
+  if (!python) {
+    return { ok: false, reason: "FRIDAY's managed Python runtime was not found — run Setup first" };
+  }
+  const raw = await run(
+    python.exe,
+    [...python.prefix, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+    8000,
+  );
+  const version = (raw || "").trim();
+  const minor = Number(version.split(".")[1] || 0);
+  if (!version.startsWith("3.") || minor < 9) {
+    return {
+      ok: false,
+      reason: `Python ${version || "unknown"} is not supported by llama-cpp-python`,
+    };
+  }
+  let managed = null;
+  if (minor > 13) {
+    // No wheel for this Python yet: build/reuse FRIDAY's own 3.12 runtime and
+    // install into that, instead of stopping at a manual instruction.
+    managed = await ensureManagedPython("3.12");
+    if (!managed) {
+      return {
+        ok: false,
+        reason:
+          `no llama-cpp-python wheel is published for Python ${version} yet, and a managed ` +
+          `Python 3.12 runtime could not be created — install Python 3.12 and retry.`,
+      };
+    }
+  }
+  const smi = await run(
+    "nvidia-smi",
+    ["--query-gpu=name,driver_version", "--format=csv,noheader"],
+    8000,
+  );
+  if (smi && smi.trim()) {
+    return {
+      ok: true,
+      ...(managed ? { python: managed } : {}),
+      backend: "cuda",
+      extraIndex: "https://abetlen.github.io/llama-cpp-python/whl/cu124",
+      note:
+        `NVIDIA GPU detected (${smi.split(/\r?\n/)[0].trim()}) — using the CUDA wheel index` +
+        (managed ? ` in FRIDAY's managed Python 3.12 runtime (${managed.exe})` : ""),
+      verify: "import llama_cpp;print(llama_cpp.__version__)",
+    };
+  }
+  return {
+    ok: true,
+    ...(managed ? { python: managed } : {}),
+    backend: "cpu",
+    note:
+      "no NVIDIA GPU detected — installing the CPU build (CUDA will NOT be available)" +
+      (managed ? ` in FRIDAY's managed Python 3.12 runtime (${managed.exe})` : ""),
+    verify: "import llama_cpp;print(llama_cpp.__version__)",
+  };
+}
+
+/**
+ * WinGet health. A broken WinGet source returns package-style failures
+ * (0x8A150049, 0x8A15002B) that have nothing to do with the package, so the
+ * install manager must not blame the package for them.
+ */
+const WINGET_SOURCE_CODES = new Map([
+  [0x8a150049, "WinGet source agreements were not accepted"],
+  // 0x8a15002b is "no newer version" (WINGET_NO_UPGRADE below), a normal answer, not a source fault:
+  // listing it here sent a healthy winget through a source reset and a wrong "unavailable" message.
+  [0x8a150044, "the WinGet source could not be updated"],
+]);
+
+function wingetSourceFailure(code) {
+  if (code === null || code === undefined) return null;
+  const unsigned = code < 0 ? code >>> 0 : code;
+  return WINGET_SOURCE_CODES.get(unsigned) || null;
+}
+
+async function wingetHealth() {
+  if (!WIN) return { available: false, reason: "WinGet is Windows-only" };
+  const bin = await which("winget");
+  if (!bin) {
+    return {
+      available: false,
+      reason:
+        "WinGet (App Installer) is not installed — install “App Installer” from the Microsoft Store",
+    };
+  }
+  const version = await run("winget", ["--version"], 8000);
+  const sources = await run("winget", ["source", "list", "--disable-interactivity"], 15_000);
+  if (!sources || !/winget/i.test(sources)) {
+    return {
+      available: false,
+      version: semver(version),
+      reason:
+        "the WinGet package source is unavailable — run `winget source reset --force` in an administrator terminal",
+    };
+  }
+  return { available: true, version: semver(version) };
+}
+
+/* ------------------------------------------------------------------ catalog */
+/**
+ * `id` matches the package name used by the renderer catalog so the UI can
+ * overlay real data on the existing rows without renaming anything.
+ * latest: { kind: "npm"|"pypi"|"github", ref } — official registries only.
+ */
+const T = (id, category, opts) => ({ id, category, ...opts });
+
+/** Chromium that Playwright downloaded into the user's cache, or null. */
+/**
+ * The command that builds the Hugging Face runner's environment. PyTorch wheels
+ * trail the newest Python, so a 3.13 or 3.12 interpreter is preferred when one
+ * exists; otherwise the interpreter FRIDAY already resolved is used. An NVIDIA
+ * GPU selects the CUDA build of PyTorch.
+ */
+async function hfRunnerInstallCommand(root) {
+  if (!root) return null;
+  let base = null;
+  if (WIN) {
+    for (const minor of ["3.13", "3.12"]) {
+      const ok = await run("py", [`-${minor}`, "-c", "print(1)"], 8000);
+      if (ok && String(ok).trim() === "1") {
+        base = { exe: "py", prefix: [`-${minor}`] };
+        break;
+      }
+    }
+  }
+  if (!base) {
+    const found = await resolvePython(path.join(__dirname, ".."));
+    if (found) base = { exe: found.exe, prefix: found.prefix || [] };
+  }
+  if (!base) return null;
+  const gpu = await run("nvidia-smi", ["-L"], 6000);
+  return [base.exe, [...base.prefix, ...hfRunner.installArgs(root, Boolean(gpu))]];
+}
+
+function detectPlaywrightBrowsers() {
+  const bases = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    WIN
+      ? path.join(
+          process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
+          "ms-playwright",
+        )
+      : path.join(os.homedir(), ".cache", "ms-playwright"),
+  ].filter((dir) => dir && dir !== "0");
+  for (const base of bases) {
+    try {
+      const chromium = fs
+        .readdirSync(base)
+        .filter((name) => /^chromium-\d+$/.test(name))
+        .sort()
+        .pop();
+      if (chromium) {
+        return {
+          installed: true,
+          version: chromium.replace("chromium-", "build "),
+          path: path.join(base, chromium),
+          status: "Ready",
+        };
+      }
+    } catch {
+      /* no cache here */
+    }
+  }
+  return { installed: false, status: "Missing" };
+}
+
+const TOOLS = [
+  // --- languages & runtimes -------------------------------------------------
+  T("Node.js LTS", "Languages & Runtimes", {
+    cmd: "node",
+    args: ["-v"],
+    winget: "OpenJS.NodeJS.LTS",
+    url: "https://nodejs.org/",
+    source: "nodejs.org",
+    required: true,
+  }),
+  T("npm", "Languages & Runtimes", {
+    cmd: "npm",
+    args: ["-v"],
+    url: "https://www.npmjs.com/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "npm" },
+    required: true,
+    manual: "ships with Node.js",
+    // `npm install -g npm@latest` is npm's documented way to update itself.
+    npm: "npm",
+    noUninstall: true,
+  }),
+  T("Python", "Languages & Runtimes", {
+    cmd: PY,
+    args: ["--version"],
+    winget: "Python.Python.3.12",
+    url: "https://www.python.org/downloads/",
+    source: "python.org",
+    required: true,
+  }),
+  T("FRIDAY Python", "Languages & Runtimes", {
+    url: "https://github.com/astral-sh/python-build-standalone",
+    source: "github.com/astral-sh",
+    installerUrl:
+      "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-pc-windows-msvc-install_only.tar.gz",
+    sha256: "4b6f0beebbb695a0f3ea237b8c3eaa5bd424f47a7bc25b2fbe3a43390c770f08",
+    needBytes: 46509797,
+    archiveBin: "python/python.exe",
+    manual:
+      "Relocatable CPython 3.12.15, PSF-2.0, 46509797 bytes, release 20261003. WinGet is the later path.",
+  }),
+  T("FRIDAY Python embed", "Languages & Runtimes", {
+    url: "https://www.python.org/downloads/",
+    source: "python.org",
+    installerUrl: "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
+    sha256: "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+    needBytes: 11133606,
+    archiveBin: "python.exe",
+    embedPth: true,
+    manual:
+      "Embeddable CPython 3.12.10. PSF-2.0. Hashed 2026-10-08. Additional pin. The voice runtime stays install_only.",
+  }),
+  T("FRIDAY pip bootstrap", "Languages & Runtimes", {
+    url: "https://pip.pypa.io/",
+    source: "pypa.io",
+    installerUrl: "https://bootstrap.pypa.io/get-pip.py",
+    sha256: "f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",
+    needBytes: 2234489,
+    archiveBin: "get-pip.py",
+    storeOnly: true,
+    manual: "Pinned get-pip.py. MIT. Hashed 2026-10-21.",
+  }),
+  T("FRIDAY Node", "Languages & Runtimes", {
+    url: "https://nodejs.org/",
+    source: "nodejs.org",
+    installerUrl: "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+    sha256: "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+    needBytes: 35574076,
+    archiveBin: "node-v22.23.3-win-x64/node.exe",
+    manual:
+      "Portable Node.js 22.23.3 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-10-08.",
+  }),
+  T("whisper.cpp", "Voice", {
+    url: "https://github.com/ggml-org/whisper.cpp",
+    source: "github.com/ggml-org",
+    installerUrl:
+      "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+    sha256: "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
+    needBytes: 8194445,
+    archiveBin: "Release/whisper-cli.exe",
+    manual: "whisper.cpp 1.9.2 Windows zip. MIT. Hashed 2026-10-08.",
+  }),
+  T("ggml-base", "Voice", {
+    url: "https://huggingface.co/ggerganov/whisper.cpp",
+    source: "huggingface.co",
+    installerUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+    sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    needBytes: 147951465,
+    archiveBin: "ggml-base.bin",
+    storeOnly: true,
+    manual:
+      "ggml base weights. MIT. Size and hash read from the Hugging Face file id on 2026-10-08.",
+  }),
+  T("ggml-tiny", "Voice", {
+    url: "https://huggingface.co/ggerganov/whisper.cpp",
+    source: "huggingface.co",
+    installerUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+    sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+    needBytes: 77691713,
+    archiveBin: "ggml-tiny.bin",
+    storeOnly: true,
+    manual: "ggml tiny weights. MIT. On demand.",
+  }),
+  T("MinGit", "Developer Tools", {
+    url: "https://git-scm.com/",
+    source: "git-scm.com",
+    installerUrl:
+      "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip",
+    sha256: "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be",
+    needBytes: 39806486,
+    archiveBin: "cmd/git.exe",
+    manual: "MinGit 2.56.0.2. GPL-2.0. Separate process. Hashed 2026-10-08.",
+  }),
+  T("Temurin JDK zip", "Languages & Runtimes", {
+    url: "https://adoptium.net/",
+    source: "adoptium.net",
+    installerUrl:
+      "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
+    sha256: "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+    needBytes: 205073461,
+    archiveBin: "jdk-21.0.12.1+1/bin/java.exe",
+    manual:
+      "Temurin 21 zip. GPL-2.0 with the classpath exception. Checksum from Adoptium on 2026-10-08.",
+  }),
+  T("FRIDAY GitHub CLI", "Developer Tools", {
+    url: "https://cli.github.com/",
+    source: "cli.github.com",
+    installerUrl:
+      "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_windows_amd64.zip",
+    sha256: "ae64e556ecc240b200f7eba60d550e4bb60d78e860e69dd88c449405b86067f4",
+    needBytes: 15512013,
+    archiveBin: "bin/gh.exe",
+    manual: "GitHub CLI 2.102.0. MIT. Checksum file read 2026-10-08.",
+  }),
+  T("w64devkit", "Developer Tools", {
+    url: "https://github.com/skeeto/w64devkit",
+    source: "github.com/skeeto/w64devkit",
+    installerUrl:
+      "https://github.com/skeeto/w64devkit/releases/download/v2.10.0/w64devkit-x64-2.10.0.7z.exe",
+    sha256: "18d0a4c71a166f8401ab6305781bec5882b40b5e06ba9807c61cb5f3b3c6325e",
+    needBytes: 67127496,
+    archiveBin: "w64devkit-x64-2.10.0.7z.exe",
+    storeOnly: true,
+    manual:
+      "w64devkit 2.10.0. The kit contains GCC (GPL-3.0). Stored, not executed. Hashed 2026-10-08.",
+  }),
+  T("pip", "Python AI Libraries", {
+    cmd: PY,
+    args: ["-m", "pip", "--version"],
+    url: "https://pip.pypa.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pip" },
+    pip: "pip",
+    required: true,
+  }),
+  T("Bun", "Languages & Runtimes", {
+    cmd: "bun",
+    args: ["-v"],
+    winget: "Oven-sh.Bun",
+    url: "https://bun.sh/",
+    source: "bun.sh",
+    latest: { kind: "github", ref: "oven-sh/bun" },
+  }),
+  T("pnpm", "Languages & Runtimes", {
+    cmd: "pnpm",
+    args: ["-v"],
+    npm: "pnpm",
+    url: "https://pnpm.io/",
+    source: "pnpm.io",
+    latest: { kind: "npm", ref: "pnpm" },
+  }),
+  T("Yarn", "Languages & Runtimes", {
+    cmd: "yarn",
+    args: ["-v"],
+    npm: "yarn",
+    url: "https://yarnpkg.com/",
+    source: "yarnpkg.com",
+    latest: { kind: "npm", ref: "yarn" },
+  }),
+  T("Rust", "Languages & Runtimes", {
+    cmd: "rustc",
+    args: ["--version"],
+    winget: "Rustlang.Rustup",
+    // winget installs rustup, which has no compiler until a toolchain is added. Rust counts as
+    // installed only when rustc runs, and the install adds the stable toolchain.
+    requireCommand: true,
+    postInstall: "rustup-stable",
+    // The official rustup-init (SHA-256 from rust-lang.org) installs per user with -y and needs
+    // no administrator rights and no prompt, so it goes before winget, which may only drop the
+    // launcher and Chocolatey, which needs administrator rights.
+    vendorFirst: true,
+    fallbackBins: [
+      path.join(process.env.CARGO_HOME || path.join(os.homedir(), ".cargo"), "bin", "rustc.exe"),
+      path.join(os.homedir(), ".cargo", "bin", "rustc.exe"),
+    ],
+    url: "https://www.rust-lang.org/tools/install",
+    source: "rust-lang.org",
+  }),
+  T("Go", "Languages & Runtimes", {
+    cmd: "go",
+    args: ["version"],
+    winget: "GoLang.Go",
+    url: "https://go.dev/dl/",
+    source: "go.dev",
+  }),
+  T("OpenJDK (Temurin)", "Languages & Runtimes", {
+    cmd: "java",
+    args: ["-version"],
+    winget: "EclipseAdoptium.Temurin.21.JDK",
+    url: "https://adoptium.net/",
+    source: "adoptium.net",
+  }),
+  T("Gradle", "Languages & Runtimes", {
+    cmd: "gradle",
+    args: ["-v"],
+    winget: "Gradle.Gradle",
+    url: "https://gradle.org/install/",
+    source: "gradle.org",
+  }),
+  T(".NET SDK", "Languages & Runtimes", {
+    cmd: "dotnet",
+    args: ["--version"],
+    winget: "Microsoft.DotNet.SDK.8",
+    url: "https://dotnet.microsoft.com/download",
+    source: "microsoft.com",
+  }),
+  T("CMake", "Developer Tools", {
+    cmd: "cmake",
+    args: ["--version"],
+    winget: "Kitware.CMake",
+    url: "https://cmake.org/download/",
+    source: "cmake.org",
+    latest: { kind: "github", ref: "Kitware/CMake" },
+  }),
+  T("Ninja", "Developer Tools", {
+    cmd: "ninja",
+    args: ["--version"],
+    winget: "Ninja-build.Ninja",
+    url: "https://ninja-build.org/",
+    source: "ninja-build.org",
+    latest: { kind: "github", ref: "ninja-build/ninja" },
+  }),
+  T("LLVM / Clang", "Developer Tools", {
+    cmd: "clang",
+    args: ["--version"],
+    winget: "LLVM.LLVM",
+    url: "https://releases.llvm.org/",
+    source: "llvm.org",
+  }),
+  T("MSYS2", "Developer Tools", {
+    cmd: "gcc",
+    args: ["--version"],
+    winget: "MSYS2.MSYS2",
+    url: "https://www.msys2.org/",
+    source: "msys2.org",
+  }),
+  T("VS Build Tools", "Developer Tools", {
+    cmd: "cl",
+    args: [],
+    winget: "Microsoft.VisualStudio.2022.BuildTools",
+    // The Visual Studio installer always needs an elevated process.
+    elevate: true,
+    noVersionProbe: true,
+    wingetArgs: [
+      "--override",
+      "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended",
+    ],
+    url: "https://visualstudio.microsoft.com/downloads/",
+    source: "microsoft.com",
+  }),
+  T("VC++ Redistributable", "Developer Tools", {
+    // Detected by the runtime DLL Windows installs into System32.
+    file: WIN
+      ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "vcruntime140.dll")
+      : null,
+    winget: "Microsoft.VCRedist.2015+.x64",
+    elevate: true,
+    url: "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
+    source: "microsoft.com",
+  }),
+
+  // --- vcs / shells ---------------------------------------------------------
+  T("Git", "Developer Tools", {
+    cmd: "git",
+    args: ["--version"],
+    winget: "Git.Git",
+    url: "https://git-scm.com/downloads",
+    source: "git-scm.com",
+    required: true,
+  }),
+  T("Git LFS", "Developer Tools", {
+    cmd: "git-lfs",
+    args: ["--version"],
+    winget: "GitHub.GitLFS",
+    url: "https://git-lfs.com/",
+    source: "git-lfs.com",
+    latest: { kind: "github", ref: "git-lfs/git-lfs" },
+  }),
+  T("GitHub CLI", "Developer Tools", {
+    cmd: "gh",
+    args: ["--version"],
+    winget: "GitHub.cli",
+    url: "https://cli.github.com/",
+    source: "cli.github.com",
+    latest: { kind: "github", ref: "cli/cli" },
+  }),
+  T("PowerShell 7", "Automation", {
+    cmd: "pwsh",
+    args: ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+    winget: "Microsoft.PowerShell",
+    url: "https://github.com/PowerShell/PowerShell",
+    source: "microsoft.com",
+    latest: { kind: "github", ref: "PowerShell/PowerShell" },
+  }),
+  T("Windows Terminal", "Developer Tools", {
+    // `wt --version` is a GUI app alias: running it pops a native modal dialog
+    // that steals focus from FRIDAY. Presence-only detection instead.
+    cmd: "wt",
+    noVersionProbe: true,
+    winget: "Microsoft.WindowsTerminal",
+    url: "https://aka.ms/terminal",
+    source: "microsoft.com",
+  }),
+  T("Visual Studio Code", "Developer Tools", {
+    cmd: "code",
+    args: ["--version"],
+    winget: "Microsoft.VisualStudioCode",
+    url: "https://code.visualstudio.com/",
+    source: "code.visualstudio.com",
+  }),
+
+  // --- AI runtimes ----------------------------------------------------------
+  T("Ollama", "AI Runtimes", {
+    cmd: "ollama",
+    args: ["--version"],
+    winget: "Ollama.Ollama",
+    url: "https://ollama.com/download",
+    source: "ollama.com",
+    latest: { kind: "github", ref: "ollama/ollama" },
+    service: "http://127.0.0.1:11434/api/tags",
+    // The client version, not a still-running older daemon's: right after an
+    // update the daemon line is stale until it restarts and would keep the row
+    // on "Update available".
+    versionPattern: /client version is\s+v?(\d+(?:\.\d+)+)/i,
+    // A per-user install is not always on this process's PATH yet.
+    fallbackBins: WIN
+      ? [
+          process.env.LOCALAPPDATA &&
+            path.join(process.env.LOCALAPPDATA, "Programs", "Ollama", "ollama.exe"),
+          process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Ollama", "ollama.exe"),
+        ].filter(Boolean)
+      : [],
+    // The newest official release (config/local-runners.json, sha256 from the
+    // release itself), downloaded in parallel ranges before winget is tried.
+    release: "ollama",
+    installerArgs: ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"],
+    installerMirrors: ["https://ollama.com/download/OllamaSetup.exe"],
+    startAfter: ["ollama", ["serve"]],
+  }),
+  T("llama.cpp", "AI Runtimes", {
+    cmd: "llama-server",
+    args: ["--version"],
+    winget: "ggml.llamacpp",
+    url: "https://github.com/ggml-org/llama.cpp",
+    source: "github.com/ggml-org",
+    latest: { kind: "github", ref: "ggml-org/llama.cpp" },
+    installerUrl:
+      "https://github.com/ggml-org/llama.cpp/releases/download/b11243/llama-b11243-bin-win-cpu-x64.zip",
+    sha256: "29f91327f4e98fcac93e3b44e6cc54beda26468eb9ffeb804a08cfa67bda8c5b",
+    needBytes: 19161151,
+    archiveBin: "llama-server.exe",
+    manual: "Windows CPU zip, hashed 2026-10-07. CUDA and DirectML builds are not this pin. MIT.",
+  }),
+
+  T("LM Studio", "AI Runtimes", {
+    cmd: "lms",
+    args: ["version"],
+    winget: "ElementLabs.LMStudio",
+    url: "https://lmstudio.ai/",
+    source: "lmstudio.ai",
+    // The desktop app registers `lms` only after its first launch, so a fresh
+    // winget install is verified through the winget package list instead.
+    noVersionProbe: false,
+  }),
+  T("LocalAI", "AI Runtimes", {
+    cmd: "local-ai",
+    args: ["--help"],
+    url: "https://localai.io/docs/getting-started/",
+    source: "localai.io",
+    latest: { kind: "github", ref: "mudler/LocalAI" },
+    service: "http://127.0.0.1:8081/v1/models",
+    // Native Windows EXE is not in vendor docs (Docker is). Linux/macOS have
+    // `local-ai run`. Never report a fake winget install.
+    manual:
+      "LocalAI has no native Windows EXE in the vendor docs (Docker or a local-ai binary on PATH). FRIDAY starts `local-ai run --address 127.0.0.1:8081` when that binary exists.",
+  }),
+  T("Jan", "AI Runtimes", {
+    cmd: "jan",
+    args: ["help"],
+    winget: "Jan.Jan",
+    url: "https://jan.ai/",
+    source: "jan.ai",
+    latest: { kind: "github", ref: "janhq/jan" },
+    service: "http://127.0.0.1:1337/v1/models",
+  }),
+  ...(process.platform === "darwin"
+    ? [
+        T("MLX-LM", "AI Runtimes", {
+          cmd: "mlx_lm.server",
+          args: ["--help"],
+          pipDist: "mlx-lm",
+          pip: "mlx-lm",
+          pipImport: "mlx_lm",
+          url: "https://pypi.org/project/mlx-lm/",
+          source: "pypi.org",
+          latest: { kind: "pypi", ref: "mlx-lm" },
+        }),
+      ]
+    : []),
+
+  // --- GPU ------------------------------------------------------------------
+  T("NVIDIA Driver", "GPU Support", {
+    cmd: "nvidia-smi",
+    args: ["--query-gpu=driver_version", "--format=csv,noheader"],
+    url: "https://www.nvidia.com/Download/index.aspx",
+    source: "nvidia.com",
+    manual: "install via GeForce Experience or the NVIDIA driver package",
+  }),
+  T("CUDA Toolkit", "GPU Support", {
+    cmd: "nvcc",
+    args: ["--version"],
+    winget: "Nvidia.CUDA",
+    elevate: true,
+    url: "https://developer.nvidia.com/cuda-downloads",
+    source: "developer.nvidia.com",
+  }),
+  T("PyTorch (CUDA)", "GPU Support", {
+    // Real CUDA wheels come from the official PyTorch index, not plain PyPI.
+    pipDist: "torch",
+    pip: "torch",
+    pipIndex: "https://download.pytorch.org/whl/cu121",
+    url: "https://pytorch.org/get-started/locally/",
+    source: "download.pytorch.org",
+    latest: { kind: "pypi", ref: "torch" },
+  }),
+
+  // --- python libraries -----------------------------------------------------
+  ...[
+    ["PyYAML (YAML)", "PyYAML"],
+    ["Whisper", "openai-whisper"],
+    ["OpenCV (Python)", "opencv-python"],
+    ["Playwright", "playwright"],
+  ].map(([id, dist]) =>
+    T(id, "Python AI Libraries", {
+      pipDist: dist,
+      pip: dist,
+      url: `https://pypi.org/project/${dist}/`,
+      source: "pypi.org",
+      latest: { kind: "pypi", ref: dist },
+    }),
+  ),
+
+  // --- device control (cable / Bluetooth / WiFi) ---------------------------
+  T("Android Platform Tools (adb)", "Device Control", {
+    cmd: "adb",
+    args: ["version"],
+    winget: "Google.PlatformTools",
+    url: "https://developer.android.com/tools/releases/platform-tools",
+    source: "developer.android.com",
+  }),
+  T("Android SDK cmdline-tools", "Languages & Runtimes", {
+    cmd: "sdkmanager",
+    args: ["--version"],
+    url: "https://developer.android.com/studio#command-line-tools-only",
+    source: "developer.android.com",
+    manual: "Official command-line tools only — not a second Android Studio inside FRIDAY.",
+  }),
+  T("scrcpy (phone screen mirroring)", "Device Control", {
+    cmd: "scrcpy",
+    args: ["--version"],
+    winget: "Genymobile.scrcpy",
+    url: "https://github.com/Genymobile/scrcpy",
+    source: "github.com/Genymobile",
+    latest: { kind: "github", ref: "Genymobile/scrcpy" },
+  }),
+  // electron/remote-access.cjs probes for this binary to offer the phone
+  // companion off-LAN; without a catalog row the owner could see "Tailscale is
+  // not installed" with no way to install it from inside FRIDAY.
+  T("Tailscale", "Device Control", {
+    cmd: "tailscale",
+    args: ["version"],
+    winget: "tailscale.tailscale",
+    url: "https://tailscale.com/download/windows",
+    source: "tailscale.com",
+    latest: { kind: "github", ref: "tailscale/tailscale" },
+  }),
+  T("bleak (Bluetooth LE)", "Device Control", {
+    pipDist: "bleak",
+    pip: "bleak",
+    url: "https://github.com/hbldh/bleak",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "bleak" },
+  }),
+  T("zeroconf (mDNS discovery)", "Device Control", {
+    pipDist: "zeroconf",
+    pip: "zeroconf",
+    url: "https://github.com/python-zeroconf/python-zeroconf",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "zeroconf" },
+  }),
+
+  // --- media / containers / db ---------------------------------------------
+  T("FFmpeg", "Media Tools", {
+    cmd: "ffmpeg",
+    args: ["-version"],
+    winget: "Gyan.FFmpeg",
+    url: "https://ffmpeg.org/download.html",
+    source: "ffmpeg.org",
+  }),
+  T("7-Zip", "Media Tools", {
+    cmd: "7z",
+    args: ["i"],
+    winget: "7zip.7zip",
+    url: "https://www.7-zip.org/",
+    source: "7-zip.org",
+  }),
+  T("Tesseract OCR", "Computer Vision", {
+    cmd: "tesseract",
+    args: ["--version"],
+    winget: "UB-Mannheim.TesseractOCR",
+    url: "https://github.com/UB-Mannheim/tesseract/wiki",
+    source: "github.com/UB-Mannheim",
+    installerUrl:
+      "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
+    sha256: "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
+    needBytes: 50175248,
+  }),
+  T("Docker Desktop", "Developer Tools", {
+    cmd: "docker",
+    args: ["--version"],
+    winget: "Docker.DockerDesktop",
+    url: "https://www.docker.com/products/docker-desktop/",
+    source: "docker.com",
+  }),
+  T("Podman", "Developer Tools", {
+    cmd: "podman",
+    args: ["--version"],
+    winget: "RedHat.Podman",
+    url: "https://podman.io/",
+    source: "podman.io",
+    latest: { kind: "github", ref: "containers/podman" },
+  }),
+  T("Sandboxie-Plus", "Developer Tools", {
+    cmd: "Start.exe",
+    args: ["/box:DefaultBox", "/terminate_all"],
+    winget: "Sandboxie.Plus",
+    url: "https://sandboxie-plus.com/",
+    source: "sandboxie-plus.com",
+    latest: { kind: "github", ref: "sandboxie-plus/Sandboxie" },
+  }),
+  T("QEMU", "Developer Tools", {
+    cmd: "qemu-system-x86_64",
+    args: ["--version"],
+    winget: "SoftwareFreedomConservancy.QEMU",
+    url: "https://www.qemu.org/",
+    source: "qemu.org",
+  }),
+  T("Docker Compose", "Developer Tools", {
+    cmd: "docker",
+    args: ["compose", "version"],
+    url: "https://docs.docker.com/compose/",
+    source: "docker.com",
+    manual: "bundled with Docker Desktop",
+    // Compose is part of Docker Desktop: installing it installs that.
+    installVia: "Docker Desktop",
+    noUninstall: true,
+  }),
+  T("SQLite", "Databases", {
+    cmd: "sqlite3",
+    args: ["--version"],
+    winget: "SQLite.SQLite",
+    url: "https://www.sqlite.org/download.html",
+    source: "sqlite.org",
+  }),
+  T("SQLite (engine)", "Databases", {
+    pythonStdlib: "sqlite3",
+    builtin: true,
+    url: "https://docs.python.org/3/library/sqlite3.html",
+    source: "Python standard library",
+    manual: "bundled with Python",
+  }),
+  T("JSON workflow engine", "Automation", {
+    pythonStdlib: "json",
+    builtin: true,
+    url: "https://docs.python.org/3/library/json.html",
+    source: "FRIDAY kernel",
+    manual: "bundled with Python",
+  }),
+  T("YAML workflow engine", "Automation", {
+    pipDist: "PyYAML",
+    pip: "PyYAML",
+    url: "https://pyyaml.org/",
+    source: "FRIDAY kernel",
+    latest: { kind: "pypi", ref: "PyYAML" },
+  }),
+  T("Cron scheduler", "Automation", {
+    // FRIDAY schedules work through the operating system scheduler, which is
+    // always present — there is nothing to download.
+    cmd: WIN ? "schtasks" : "crontab",
+    noVersionProbe: true,
+    builtin: true,
+    url: WIN
+      ? "https://learn.microsoft.com/windows-server/administration/windows-commands/schtasks"
+      : "https://man7.org/linux/man-pages/man5/crontab.5.html",
+    source: WIN ? "Windows Task Scheduler" : "cron",
+    manual: "built into the operating system — no install required",
+  }),
+
+  T("n8n", "Automation", {
+    cmd: "n8n",
+    args: ["--version"],
+    npm: "n8n",
+    url: "https://n8n.io/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "n8n" },
+  }),
+  T("WSL 2", "Developer Tools", {
+    cmd: "wsl",
+    args: ["--version"],
+    url: "https://learn.microsoft.com/windows/wsl/install",
+    source: "microsoft.com",
+    manual: "run `wsl --install` in an elevated terminal",
+    // Microsoft's own command, run with the owner's UAC approval. Windows
+    // usually wants a restart before the feature answers.
+    customCommand: async () => (WIN ? ["wsl", ["--install", "--no-distribution"]] : null),
+    elevate: true,
+    restartMayBeNeeded: true,
+    noUninstall: true,
+  }),
+
+  // --- FRIDAY build & packaging toolchain -----------------------------------
+  T("Electron", "Languages & Runtimes", {
+    cmd: "electron",
+    args: ["--version"],
+    npm: "electron",
+    url: "https://www.electronjs.org/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "electron" },
+    manual: "bundled with FRIDAY — install globally only for development",
+  }),
+  T("Windows SDK", "Developer Tools", {
+    cmd: "signtool",
+    args: [],
+    winget: "Microsoft.WindowsSDK.10.0.22621",
+    url: "https://developer.microsoft.com/windows/downloads/windows-sdk/",
+    source: "microsoft.com",
+    noVersionProbe: true,
+  }),
+  T("jq (JSON)", "Developer Tools", {
+    cmd: "jq",
+    args: ["--version"],
+    winget: "jqlang.jq",
+    url: "https://jqlang.github.io/jq/",
+    source: "jqlang.github.io",
+    latest: { kind: "github", ref: "jqlang/jq" },
+  }),
+  T("yq (YAML)", "Developer Tools", {
+    cmd: "yq",
+    args: ["--version"],
+    winget: "MikeFarah.yq",
+    url: "https://github.com/mikefarah/yq",
+    source: "github.com/mikefarah",
+    latest: { kind: "github", ref: "mikefarah/yq" },
+  }),
+
+  // --- additional runtimes, engines, databases and sandboxing ---------------
+  T("Ruby", "Languages & Runtimes", {
+    cmd: "ruby",
+    args: ["--version"],
+    winget: "RubyInstallerTeam.Ruby.3.4",
+    url: "https://rubyinstaller.org/",
+    source: "rubyinstaller.org",
+  }),
+  T("PHP", "Languages & Runtimes", {
+    cmd: "php",
+    args: ["-v"],
+    winget: "PHP.PHP.8.4",
+    url: "https://windows.php.net/",
+    source: "windows.php.net",
+  }),
+  T("Zig", "Languages & Runtimes", {
+    cmd: "zig",
+    args: ["version"],
+    winget: "zig.zig",
+    url: "https://ziglang.org/",
+    source: "ziglang.org",
+    latest: { kind: "github", ref: "ziglang/zig" },
+  }),
+  T("Perl", "Languages & Runtimes", {
+    cmd: "perl",
+    args: ["--version"],
+    winget: "StrawberryPerl.StrawberryPerl",
+    url: "https://strawberryperl.com/",
+    source: "strawberryperl.com",
+  }),
+  T("Julia", "Languages & Runtimes", {
+    cmd: "julia",
+    args: ["--version"],
+    winget: "Julialang.Julia",
+    url: "https://julialang.org/",
+    source: "julialang.org",
+    latest: { kind: "github", ref: "JuliaLang/julia" },
+  }),
+  T("Lua", "Languages & Runtimes", {
+    cmd: "lua",
+    args: ["-v"],
+    winget: "DEVCOM.Lua",
+    url: "https://www.lua.org/",
+    source: "lua.org",
+  }),
+  T("Maven", "Developer Tools", {
+    cmd: "mvn",
+    args: ["-v"],
+    winget: "Apache.Maven",
+    url: "https://maven.apache.org/",
+    source: "maven.apache.org",
+  }),
+  T("Terraform", "Developer Tools", {
+    cmd: "terraform",
+    args: ["version"],
+    winget: "Hashicorp.Terraform",
+    url: "https://developer.hashicorp.com/terraform",
+    source: "hashicorp.com",
+    latest: { kind: "github", ref: "hashicorp/terraform" },
+  }),
+  T("kubectl", "Developer Tools", {
+    cmd: "kubectl",
+    args: ["version", "--client"],
+    winget: "Kubernetes.kubectl",
+    url: "https://kubernetes.io/docs/tasks/tools/",
+    source: "kubernetes.io",
+    latest: { kind: "github", ref: "kubernetes/kubernetes" },
+  }),
+  T("Helm", "Developer Tools", {
+    cmd: "helm",
+    args: ["version", "--short"],
+    winget: "Helm.Helm",
+    url: "https://helm.sh/",
+    source: "helm.sh",
+    latest: { kind: "github", ref: "helm/helm" },
+  }),
+  T("AWS CLI", "Developer Tools", {
+    cmd: "aws",
+    args: ["--version"],
+    winget: "Amazon.AWSCLI",
+    url: "https://aws.amazon.com/cli/",
+    source: "aws.amazon.com",
+  }),
+  T("soundfile", "Voice", {
+    pipDist: "soundfile",
+    pip: "soundfile",
+    url: "https://pypi.org/project/soundfile/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "soundfile" },
+  }),
+  T("KoboldCpp", "AI Runtimes", {
+    // One self-contained executable; it still needs a model file to start, so it
+    // is stored under runtime\\ and run from there, never registered as a service.
+    url: "https://github.com/LostRuins/koboldcpp",
+    source: "github.com/LostRuins",
+    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
+    sha256: "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38",
+    needBytes: 642223685,
+    storeOnly: true,
+    archiveBin: "koboldcpp.exe",
+    latest: { kind: "github", ref: "LostRuins/koboldcpp" },
+    manual: "needs a GGUF model file to start; FRIDAY detects it on port 5001 once it runs",
+  }),
+  T("Hugging Face runner", "AI Runtimes", {
+    // `transformers serve` in its own virtual environment under runtime\\ (PyTorch
+    // is too large for the kernel's environment). The folder is the proof.
+    url: "https://huggingface.co/docs/transformers/serve-cli/serving",
+    source: "huggingface.co",
+    latest: { kind: "pypi", ref: "transformers" },
+    detect: ({ root } = {}) => hfRunner.detect(root),
+    customCommand: async (_action, opts = {}) => hfRunnerInstallCommand(opts.root),
+    noUninstall: true,
+    manual:
+      "installs PyTorch and Transformers into the FRIDAY folder (large download); models are served offline",
+  }),
+  T("Deno", "Languages & Runtimes", {
+    cmd: "deno",
+    args: ["-V"],
+    winget: "DenoLand.Deno",
+    url: "https://deno.com/",
+    source: "deno.com",
+    latest: { kind: "github", ref: "denoland/deno" },
+  }),
+  T("uv (Python)", "Languages & Runtimes", {
+    cmd: "uv",
+    args: ["--version"],
+    winget: "astral-sh.uv",
+    url: "https://docs.astral.sh/uv/",
+    source: "astral.sh",
+    latest: { kind: "github", ref: "astral-sh/uv" },
+  }),
+  T("vLLM", "AI Runtimes", {
+    pipDist: "vllm",
+    pip: "vllm",
+    url: "https://docs.vllm.ai/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "vllm" },
+  }),
+  T("Text Generation WebUI (llama-cpp-python)", "AI Runtimes", {
+    pipDist: "llama-cpp-python",
+    pip: "llama-cpp-python",
+    pipImport: "llama_cpp",
+    strategy: llamaCppStrategy,
+    url: "https://github.com/abetlen/llama-cpp-python",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "llama-cpp-python" },
+  }),
+  T("Hugging Face CLI", "AI Runtimes", {
+    cmd: "hf",
+    args: ["version"],
+    detect: detectHuggingFace,
+    pipDist: "huggingface-hub",
+    pip: "huggingface_hub",
+    pipImport: "huggingface_hub",
+    url: "https://huggingface.co/docs/huggingface_hub",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "huggingface-hub" },
+  }),
+
+  T("cuDNN", "GPU Support", {
+    pipDist: "nvidia-cudnn-cu12",
+    pip: "nvidia-cudnn-cu12",
+    url: "https://developer.nvidia.com/cudnn",
+    source: "developer.nvidia.com",
+    latest: { kind: "pypi", ref: "nvidia-cudnn-cu12" },
+  }),
+  T("ONNX Runtime (GPU)", "GPU Support", {
+    pipDist: "onnxruntime-gpu",
+    pip: "onnxruntime-gpu",
+    url: "https://onnxruntime.ai/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "onnxruntime-gpu" },
+  }),
+  // n8n is defined once, above, in the Automation group.
+
+  T("PostgreSQL", "Databases", {
+    cmd: "psql",
+    args: ["--version"],
+    winget: "PostgreSQL.PostgreSQL.16",
+    url: "https://www.postgresql.org/download/windows/",
+    source: "postgresql.org",
+  }),
+  T("Redis (Memurai)", "Databases", {
+    cmd: "redis-cli",
+    args: ["--version"],
+    winget: "Memurai.MemuraiDeveloper",
+    url: "https://www.memurai.com/",
+    source: "memurai.com",
+  }),
+  T("DuckDB", "Databases", {
+    cmd: "duckdb",
+    args: ["--version"],
+    winget: "DuckDB.cli",
+    url: "https://duckdb.org/",
+    source: "duckdb.org",
+    latest: { kind: "github", ref: "duckdb/duckdb" },
+  }),
+  T("Qdrant (client)", "Vector Databases", {
+    pipDist: "qdrant-client",
+    pip: "qdrant-client",
+    url: "https://qdrant.tech/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "qdrant-client" },
+  }),
+  T("FAISS", "Vector Databases", {
+    pipDist: "faiss-cpu",
+    pip: "faiss-cpu",
+    url: "https://faiss.ai/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "faiss-cpu" },
+  }),
+  T("LanceDB", "Vector Databases", {
+    pipDist: "lancedb",
+    pip: "lancedb",
+    url: "https://lancedb.com/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "lancedb" },
+  }),
+  T("Piper TTS", "Voice", {
+    pipDist: "piper-tts",
+    pip: "piper-tts",
+    url: "https://github.com/rhasspy/piper",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "piper-tts" },
+    manual:
+      "Current PyPI piper-tts is GPL-3.0-or-later. FRIDAY does not install it for the voice runtime.",
+  }),
+  T("faster-whisper", "Voice", {
+    pipDist: "faster-whisper",
+    pip: "faster-whisper",
+    url: "https://github.com/SYSTRAN/faster-whisper",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "faster-whisper" },
+  }),
+  T("supertonic", "Voice", {
+    pipDist: "supertonic",
+    pip: "supertonic",
+    url: "https://pypi.org/project/supertonic/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "supertonic" },
+    manual:
+      "Code is MIT. Supertonic 3 weights are OpenRAIL-M and download on demand. They are not bundled in the EXE.",
+  }),
+  T("moonshine-voice", "Voice", {
+    pipDist: "moonshine-voice",
+    pip: "moonshine-voice",
+    url: "https://pypi.org/project/moonshine-voice/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "moonshine-voice" },
+    manual:
+      "MIT package. Only the English streaming weights are downloaded. Non-English Moonshine weights are not used.",
+  }),
+  T("pyrnnoise", "Voice", {
+    pipDist: "pyrnnoise",
+    pip: "pyrnnoise",
+    url: "https://pypi.org/project/pyrnnoise/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pyrnnoise" },
+  }),
+  T("ONNX DirectML", "Voice", {
+    url: "https://pypi.org/project/onnxruntime-directml/",
+    source: "pypi.org",
+    manual:
+      "Windows only. Installing onnxruntime-directml replaces the CPU onnxruntime wheel, so FRIDAY does not install it from requirements. CPUExecutionProvider stays the fallback.",
+  }),
+  T("Playwright browsers", "Web Automation", {
+    url: "https://playwright.dev/python/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "playwright" },
+    // The browsers are a download Playwright makes into the user's cache, so the
+    // folder is the proof, not a command on PATH.
+    detect: () => detectPlaywrightBrowsers(),
+    // One interpreter installs the package and then fetches Chromium, so a
+    // fresh machine needs no second click and no terminal.
+    customCommand: async () => {
+      const python = await resolvePython(path.join(__dirname, ".."));
+      if (!python) return null;
+      const code =
+        "import subprocess,sys;" +
+        "subprocess.check_call([sys.executable,'-m','pip','install','--upgrade','playwright']);" +
+        "subprocess.check_call([sys.executable,'-m','playwright','install','chromium'])";
+      return [python.exe, [...python.prefix, "-c", code]];
+    },
+    noUninstall: true,
+  }),
+  T("Sandbox runner (Windows Sandbox)", "Developer Tools", {
+    cmd: "WindowsSandbox",
+    detect: detectWindowsSandbox,
+    optionalFeature: true,
+    // The Isolation Engines panel already knows how to enable this feature
+    // (DISM + elevation + restart tracking); the Install Queue reuses it
+    // instead of falling back to a misleading "open the vendor page".
+    engineId: "windows-sandbox",
+    noVersionProbe: true,
+    url: "https://learn.microsoft.com/windows/security/application-security/application-isolation/windows-sandbox/",
+    source: "microsoft.com",
+    manual: "enable the Windows Sandbox optional feature (Windows Pro/Enterprise)",
+  }),
+
+  // --- packaging & release (what "Build EXE" actually needs) ----------------
+  T("NSIS", "Build & Packaging", {
+    cmd: "makensis",
+    args: ["/VERSION"],
+    winget: "NSIS.NSIS",
+    url: "https://nsis.sourceforge.io/",
+    source: "nsis.sourceforge.io",
+    manual: "electron-builder downloads its own copy; install this for offline builds",
+  }),
+  T("electron-builder", "Build & Packaging", {
+    cmd: "electron-builder",
+    args: ["--version"],
+    npm: "electron-builder",
+    url: "https://www.electron.build/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "electron-builder" },
+  }),
+  T("rcedit", "Build & Packaging", {
+    cmd: "rcedit",
+    args: ["--help"],
+    npm: "rcedit",
+    detect: detectRcedit,
+    noVersionProbe: true,
+    url: "https://github.com/electron/rcedit",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "rcedit" },
+  }),
+
+  T("TypeScript", "Build & Packaging", {
+    cmd: "tsc",
+    args: ["-v"],
+    npm: "typescript",
+    url: "https://www.typescriptlang.org/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "typescript" },
+  }),
+  T("WebView2 Runtime", "Windows Integration", {
+    winget: "Microsoft.EdgeWebView2Runtime",
+    detect: detectWebView2,
+    // Official Microsoft bootstrapper — the docs page is not an installer.
+    installerUrl: "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+    installerArgs: ["/silent", "/install"],
+    noVersionProbe: true,
+    url: "https://developer.microsoft.com/microsoft-edge/webview2/",
+    source: "microsoft.com",
+  }),
+
+  T("aria2", "Developer Tools", {
+    cmd: "aria2c",
+    args: ["--version"],
+    winget: "aria2.aria2",
+    url: "https://aria2.github.io/",
+    source: "aria2.github.io",
+    manual: "used for fast, resumable model downloads",
+  }),
+  T("ripgrep", "Developer Tools", {
+    cmd: "rg",
+    args: ["--version"],
+    winget: "BurntSushi.ripgrep.MSVC",
+    url: "https://github.com/BurntSushi/ripgrep",
+    source: "github.com",
+    latest: { kind: "github", ref: "BurntSushi/ripgrep" },
+  }),
+  // --- code quality: what the self-development pipeline needs to lint, format,
+  // type-check and test real code before it is ever applied -------------------
+  T("ESLint", "Developer Tools", {
+    cmd: "eslint",
+    args: ["--version"],
+    npm: "eslint",
+    url: "https://eslint.org/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "eslint" },
+    manual: "used by the self-development pipeline to lint JS/TS before applying a change",
+  }),
+  T("Prettier", "Developer Tools", {
+    cmd: "prettier",
+    args: ["--version"],
+    npm: "prettier",
+    url: "https://prettier.io/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "prettier" },
+  }),
+  T("Vitest", "Developer Tools", {
+    cmd: "vitest",
+    args: ["--version"],
+    npm: "vitest",
+    url: "https://vitest.dev/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "vitest" },
+    manual: "the test runner this repository already uses for its own suite",
+  }),
+  T("Ruff", "Developer Tools", {
+    cmd: "ruff",
+    args: ["--version"],
+    pipDist: "ruff",
+    pip: "ruff",
+    url: "https://docs.astral.sh/ruff/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "ruff" },
+    manual: "Python linter used to check the kernel before a change is applied",
+  }),
+  T("Black", "Developer Tools", {
+    cmd: "black",
+    args: ["--version"],
+    pipDist: "black",
+    pip: "black",
+    url: "https://black.readthedocs.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "black" },
+  }),
+  T("mypy", "Developer Tools", {
+    cmd: "mypy",
+    args: ["--version"],
+    pipDist: "mypy",
+    pip: "mypy",
+    url: "https://mypy-lang.org/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "mypy" },
+  }),
+  T("pytest", "Developer Tools", {
+    cmd: "pytest",
+    args: ["--version"],
+    pipDist: "pytest",
+    pip: "pytest",
+    url: "https://docs.pytest.org/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pytest" },
+    manual: "runs kernel/tests — the Python half of FRIDAY's own verification",
+  }),
+  T("git-delta (diff viewer)", "Developer Tools", {
+    cmd: "delta",
+    args: ["--version"],
+    winget: "dandavison.delta",
+    url: "https://github.com/dandavison/delta",
+    source: "github.com",
+    latest: { kind: "github", ref: "dandavison/delta" },
+    manual: "readable diffs for self-development reviews; patches are applied with `git apply`",
+  }),
+
+  T("Pandoc", "Developer Tools", {
+    cmd: "pandoc",
+    args: ["--version"],
+    winget: "JohnMacFarlane.Pandoc",
+    url: "https://pandoc.org/",
+    source: "pandoc.org",
+  }),
+  T("Graphviz", "Developer Tools", {
+    cmd: "dot",
+    args: ["-V"],
+    winget: "Graphviz.Graphviz",
+    url: "https://graphviz.org/",
+    source: "graphviz.org",
+    installerUrl:
+      "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/16.1.0/windows_10_cmake_Release_graphviz-install-16.1.0-win64.exe",
+    sha256: "46f3b8b412a79915cf8e08bdce6542401bd9efca98ce282f3c5c5b56211e1761",
+    needBytes: 8070590,
+    installerArgs: ["/S"],
+  }),
+  T("D2", "Developer Tools", {
+    cmd: "d2",
+    args: ["--version"],
+    url: "https://github.com/terrastruct/d2",
+    source: "github.com",
+    installerUrl:
+      "https://github.com/terrastruct/d2/releases/download/v0.9.0/d2-v0.9.0-windows-amd64.msi",
+    sha256: "dbac13edaec26878d36c79c2bcd91d57927cae8878204e3b9816e6c0f32aae1b",
+    needBytes: 15527936,
+  }),
+
+  // --- Windows control & awareness (agents, tools, screen vision) -----------
+  T("pywin32", "Windows Integration", {
+    pipDist: "pywin32",
+    pip: "pywin32",
+    url: "https://github.com/mhammond/pywin32",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pywin32" },
+  }),
+  T("comtypes", "Windows Integration", {
+    pipDist: "comtypes",
+    pip: "comtypes",
+    url: "https://github.com/enthought/comtypes",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "comtypes" },
+  }),
+  T("psutil", "Windows Integration", {
+    pipDist: "psutil",
+    pip: "psutil",
+    url: "https://github.com/giampaolo/psutil",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "psutil" },
+  }),
+  T("PyAutoGUI", "Windows Integration", {
+    pipDist: "PyAutoGUI",
+    pip: "pyautogui",
+    url: "https://pyautogui.readthedocs.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pyautogui" },
+  }),
+  T("mss (screen capture)", "Windows Integration", {
+    pipDist: "mss",
+    pip: "mss",
+    url: "https://python-mss.readthedocs.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "mss" },
+  }),
+  T("watchdog (file watcher)", "Windows Integration", {
+    pipDist: "watchdog",
+    pip: "watchdog",
+    url: "https://github.com/gorakhargosh/watchdog",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "watchdog" },
+  }),
+  T("pytesseract", "Windows Integration", {
+    pipDist: "pytesseract",
+    pip: "pytesseract",
+    url: "https://github.com/madmaze/pytesseract",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "pytesseract" },
+    manual: "needs the Tesseract OCR engine as well",
+  }),
+
+  // --- voice ----------------------------------------------------------------
+  T("edge-tts", "Voice", {
+    pipDist: "edge-tts",
+    pip: "edge-tts",
+    url: "https://github.com/rany2/edge-tts",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "edge-tts" },
+  }),
+  T("Azure Speech SDK", "Voice", {
+    pipDist: "azure-cognitiveservices-speech",
+    pip: "azure-cognitiveservices-speech",
+    url: "https://learn.microsoft.com/azure/ai-services/speech-service/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "azure-cognitiveservices-speech" },
+    manual: "required for the hi-IN Swara neural voice",
+  }),
+  T("sounddevice", "Voice", {
+    pipDist: "sounddevice",
+    pip: "sounddevice",
+    url: "https://python-sounddevice.readthedocs.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "sounddevice" },
+  }),
+  T("openWakeWord", "Voice", {
+    pipDist: "openwakeword",
+    pip: "openwakeword",
+    url: "https://github.com/dscripka/openWakeWord",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "openwakeword" },
+  }),
+
+  // --- brain, memory & models ----------------------------------------------
+  T("transformers", "Python AI Libraries", {
+    pipDist: "transformers",
+    pip: "transformers",
+    url: "https://huggingface.co/docs/transformers",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "transformers" },
+  }),
+  T("sentence-transformers", "Python AI Libraries", {
+    pipDist: "sentence-transformers",
+    pip: "sentence-transformers",
+    url: "https://www.sbert.net/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "sentence-transformers" },
+    manual: "powers FRIDAY's local memory embeddings",
+  }),
+  T("accelerate", "Python AI Libraries", {
+    pipDist: "accelerate",
+    pip: "accelerate",
+    url: "https://huggingface.co/docs/accelerate",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "accelerate" },
+  }),
+  T("chromadb", "Databases & Memory", {
+    pipDist: "chromadb",
+    pip: "chromadb",
+    url: "https://www.trychroma.com/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "chromadb" },
+  }),
+  T("openai (SDK)", "Python AI Libraries", {
+    pipDist: "openai",
+    pip: "openai",
+    url: "https://github.com/openai/openai-python",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "openai" },
+  }),
+  T("anthropic (SDK)", "Python AI Libraries", {
+    pipDist: "anthropic",
+    pip: "anthropic",
+    url: "https://github.com/anthropics/anthropic-sdk-python",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "anthropic" },
+  }),
+
+  /* ---------------------------------------------------------------------
+   * Catalog-backed components. Every row the Install Manager catalog offers
+   * needs a real detector and a real install command here, otherwise the row
+   * can only ever report "Unknown" and its buttons fail with "unknown
+   * package". These use the same pip/npm/winget pattern as everything above.
+   * ------------------------------------------------------------------- */
+  ...[
+    ["FastAPI", "fastapi", "fastapi"],
+    ["Uvicorn", "uvicorn", "uvicorn"],
+    ["Pydantic", "pydantic", "pydantic"],
+    ["NumPy", "numpy", "numpy"],
+    ["SciPy", "scipy", "scipy"],
+    ["Pandas", "pandas", "pandas"],
+    ["Pillow", "pillow", "pillow"],
+    ["LangChain", "langchain", "langchain"],
+    ["Requests", "requests", "requests"],
+    ["HTTPX", "httpx", "httpx"],
+    ["BeautifulSoup", "beautifulsoup4", "beautifulsoup4"],
+    ["lxml (XML/HTML)", "lxml", "lxml"],
+    ["PyMuPDF (PDF)", "pymupdf", "pymupdf"],
+    ["openpyxl (XLSX)", "openpyxl", "openpyxl"],
+    ["python-docx (DOCX)", "python-docx", "python-docx"],
+    ["python-pptx (PPTX)", "python-pptx", "python-pptx"],
+    ["Scrapy", "scrapy", "scrapy"],
+    ["GGUF", "gguf", "gguf"],
+    ["virtualenv", "virtualenv", "virtualenv"],
+    ["Diffusers", "diffusers", "diffusers"],
+    // Required by kernel/finetune_lora.py — LoRA/QLoRA training set loader.
+    ["datasets", "datasets", "datasets"],
+    ["PEFT", "peft", "peft"],
+    ["BitsAndBytes", "bitsandbytes", "bitsandbytes"],
+    ["AutoGPTQ", "auto-gptq", "auto-gptq"],
+    ["TensorFlow", "tensorflow", "tensorflow"],
+    ["LlamaIndex", "llama-index", "llama-index"],
+    ["Milvus", "pymilvus", "pymilvus"],
+    ["PyAV", "av", "av"],
+    ["markitdown (MD/HTML)", "markitdown", "markitdown"],
+    ["py7zr (7Z)", "py7zr", "py7zr"],
+    ["pyzbar (barcodes)", "pyzbar", "pyzbar"],
+    ["qrcode", "qrcode", "qrcode"],
+    ["rarfile (RAR)", "rarfile", "rarfile"],
+    ["ffmpeg-python", "ffmpeg-python", "ffmpeg-python"],
+  ].map(([id, dist, pip]) =>
+    T(id, "Python AI Libraries", {
+      pipDist: dist,
+      pip,
+      url: `https://pypi.org/project/${dist}/`,
+      source: "pypi.org",
+      latest: { kind: "pypi", ref: dist },
+    }),
+  ),
+  T("ONNX Runtime", "AI Runtimes", {
+    pipDist: "onnxruntime",
+    pip: "onnxruntime",
+    url: "https://onnxruntime.ai/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "onnxruntime" },
+  }),
+  T("Intel OpenVINO", "GPU Support", {
+    pipDist: "openvino",
+    pip: "openvino",
+    url: "https://docs.openvino.ai/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "openvino" },
+  }),
+  T("DirectML", "GPU Support", {
+    pipDist: "torch-directml",
+    pip: "torch-directml",
+    url: "https://learn.microsoft.com/windows/ai/directml/dml",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "torch-directml" },
+  }),
+  T("YOLO (Ultralytics)", "Computer Vision", {
+    pipDist: "ultralytics",
+    pip: "ultralytics",
+    url: "https://docs.ultralytics.com/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "ultralytics" },
+  }),
+  T("Vosk", "Voice", {
+    pipDist: "vosk",
+    pip: "vosk",
+    url: "https://alphacephei.com/vosk/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "vosk" },
+  }),
+  T("Coqui TTS", "Voice", {
+    pipDist: "coqui-tts",
+    pip: "coqui-tts",
+    url: "https://pypi.org/project/coqui-tts/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "coqui-tts" },
+  }),
+  T("SpeechRecognition", "Voice", {
+    pipDist: "SpeechRecognition",
+    pip: "SpeechRecognition",
+    url: "https://pypi.org/project/SpeechRecognition/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "SpeechRecognition" },
+  }),
+  T("Selenium", "Web Automation", {
+    pipDist: "selenium",
+    pip: "selenium",
+    url: "https://www.selenium.dev/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "selenium" },
+  }),
+  T("Node-RED", "Automation", {
+    cmd: "node-red",
+    npm: "node-red",
+    url: "https://nodered.org/",
+    source: "npmjs.com",
+    latest: { kind: "npm", ref: "node-red" },
+  }),
+  T("ImageMagick", "Media Tools", {
+    cmd: "magick",
+    winget: "ImageMagick.ImageMagick",
+    url: "https://imagemagick.org/",
+    source: "imagemagick.org",
+  }),
+  T("Android Studio", "Developer Tools", {
+    winget: "Google.AndroidStudio",
+    url: "https://developer.android.com/studio",
+    source: "developer.android.com",
+  }),
+  T("Visual Studio", "Developer Tools", {
+    winget: "Microsoft.VisualStudio.2022.Community",
+    url: "https://visualstudio.microsoft.com/downloads/",
+    source: "visualstudio.microsoft.com",
+  }),
+  T("MongoDB", "Databases", {
+    cmd: "mongod",
+    winget: "MongoDB.Server",
+    url: "https://www.mongodb.com/try/download/community",
+    source: "mongodb.com",
+  }),
+  T("MySQL", "Databases", {
+    cmd: "mysql",
+    winget: "Oracle.MySQL",
+    url: "https://dev.mysql.com/downloads/",
+    source: "mysql.com",
+  }),
+  T("MariaDB", "Databases", {
+    cmd: "mariadb",
+    winget: "MariaDB.Server",
+    url: "https://mariadb.org/download/",
+    source: "mariadb.org",
+  }),
+  T("Whisper.cpp", "AI Runtimes", {
+    cmd: "whisper-cli",
+    url: "https://github.com/ggml-org/whisper.cpp",
+    source: "github.com/ggml-org",
+    latest: { kind: "github", ref: "ggml-org/whisper.cpp" },
+    manual: "build from the whisper.cpp repository — no unattended Windows package",
+    // The same engine FRIDAY unpacks for herself from the pinned release.
+    installVia: "whisper.cpp",
+    noUninstall: true,
+  }),
+  T("AMD ROCm", "GPU Support", {
+    cmd: "rocminfo",
+    url: "https://www.amd.com/en/products/software/rocm.html",
+    source: "amd.com",
+    manual: "ROCm ships as an AMD vendor installer for supported hardware only",
+  }),
+  T("OpenCL Runtime", "GPU Support", {
+    file: WIN ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "OpenCL.dll") : null,
+    builtin: true,
+    url: "https://www.khronos.org/opencl/",
+    source: "GPU driver",
+  }),
+  T("TensorRT", "GPU Support", {
+    pipDist: "tensorrt",
+    pip: "tensorrt",
+    url: "https://developer.nvidia.com/tensorrt",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "tensorrt" },
+  }),
+  T("Segment Anything", "Computer Vision", {
+    pipDist: "segment-anything-py",
+    pip: "segment-anything-py",
+    url: "https://github.com/facebookresearch/segment-anything",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "segment-anything-py" },
+  }),
+  T("MCP server/client", "Automation", {
+    pipDist: "mcp",
+    pip: "mcp",
+    url: "https://modelcontextprotocol.io/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "mcp" },
+  }),
+];
+
+/**
+ * Catalog rows whose display name differs from the real component id above.
+ * One component, one installer — the alias keeps the UI name working without
+ * a second, duplicate tool definition.
+ */
+const CATALOG_ALIAS = new Map([
+  ["OpenCV", "OpenCV (Python)"],
+  ["Accelerate", "accelerate"],
+  ["Transformers", "transformers"],
+  ["SentenceTransformers", "sentence-transformers"],
+  ["ChromaDB", "chromadb"],
+  ["uv", "uv (Python)"],
+  ["Qdrant", "Qdrant (client)"],
+  ["Redis", "Redis (Memurai)"],
+  ["Redis (server)", "Redis (Memurai)"],
+  ["PostgreSQL + pgvector", "PostgreSQL"],
+  ["Android SDK + ADB", "Android Platform Tools (adb)"],
+  ["Tesseract OCR engine", "Tesseract OCR"],
+]);
+
+/** Catalog names a real component answers for (one component, many rows). */
+const DISPLAY_IDS = new Map();
+for (const [shown, real] of CATALOG_ALIAS) {
+  DISPLAY_IDS.set(real, [...(DISPLAY_IDS.get(real) || []), shown]);
+}
+
+/**
+ * Tools FRIDAY unpacks from a pinned archive are the packs of
+ * config/toolchain-manifest.json. The pack carries the pinned version and the
+ * extra download hosts, so the tool row knows both without a second copy.
+ */
+const PACK_OF_TOOL = {
+  "FRIDAY Python": "python-standalone",
+  "FRIDAY Python embed": "python-embed",
+  "FRIDAY pip bootstrap": "get-pip",
+  "FRIDAY Node": "node-win",
+  "whisper.cpp": "whisper-cpp",
+  "ggml-base": "ggml-base",
+  "ggml-tiny": "ggml-tiny",
+  MinGit: "mingit",
+  "Temurin JDK zip": "temurin-jdk",
+  "FRIDAY GitHub CLI": "gh-cli",
+  w64devkit: "w64devkit",
+};
+try {
+  const packs = require("./toolchain-pack.cjs").readManifest().packs || [];
+  for (const tool of TOOLS) {
+    const pack = packs.find((p) => p.id === PACK_OF_TOOL[tool.id]);
+    if (!pack) continue;
+    tool.packId = pack.id;
+    tool.pinVersion = pack.version;
+    const mirrors = (pack.mirrors || []).filter((url) => url && url !== tool.installerUrl);
+    if (mirrors.length) {
+      tool.installerMirrors = [...new Set([...(tool.installerMirrors || []), ...mirrors])];
+    }
+  }
+} catch {
+  /* a missing manifest leaves the pins written on the tools themselves */
+}
+
+const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
+
+/** Resolve either the real component id or the catalog display name. */
+function toolById(id) {
+  return TOOL_BY_ID.get(id) || TOOL_BY_ID.get(CATALOG_ALIAS.get(id)) || null;
+}
+
+/* ---------------------------------------------------------------- detection */
+
+let pipFreeze = { at: 0, map: new Map() };
+let wingetList = { at: 0, text: "" };
+
+async function loadWingetList(force = false) {
+  if (!WIN) return "";
+  if (!force && Date.now() - wingetList.at < 30_000) return wingetList.text;
+  const text =
+    (await run(
+      "winget",
+      ["list", "--accept-source-agreements", "--disable-interactivity"],
+      30_000,
+    )) || "";
+  wingetList = { at: Date.now(), text };
+  return text;
+}
+
+function wingetPackage(tool, text) {
+  if (!tool.winget || !text) return null;
+  const line = text.split(/\r?\n/).find((candidate) => {
+    const at = candidate.indexOf(tool.winget);
+    if (at < 0) return false;
+    const next = candidate[at + tool.winget.length];
+    return !next || /\s/.test(next);
+  });
+  if (!line) return null;
+  const tail = line.slice(line.indexOf(tool.winget) + tool.winget.length).trim();
+  return { version: semver(tail) || null, path: "installed Windows package" };
+}
+
+async function loadPipFreeze(force = false) {
+  if (!force && Date.now() - pipFreeze.at < 30_000) return pipFreeze.map;
+  const python = await resolvePython(path.join(__dirname, ".."));
+  const out = python
+    ? await run(python.exe, [...python.prefix, "-m", "pip", "list", "--format=freeze"], 25_000)
+    : null;
+  const map = new Map();
+  if (out) {
+    out.split(/\r?\n/).forEach((line) => {
+      const [name, version] = line.split("==");
+      if (name && version) map.set(name.trim().toLowerCase(), version.trim());
+    });
+  }
+  pipFreeze = { at: Date.now(), map };
+  return map;
+}
+
+function safeToolDir(id) {
+  const clean = String(id || "tool").replace(/[^\w.-]+/g, "_");
+  return clean || "tool";
+}
+
+/** Where a pinned zip is unpacked. The archive is not executed. */
+function archiveInstallCommand(file, root, tool) {
+  const dest = path.join(root || os.tmpdir(), "runtime", safeToolDir(tool?.id));
+  return {
+    dest,
+    command: [process.execPath, ["-e", "process.exit(0)"]],
+    bin: tool?.archiveBin || null,
+  };
+}
+
+/** Unpack a zip into dest. Entries that leave dest are skipped. */
+function extractZip(file, dest) {
+  const buf = fs.readFileSync(file);
+  const base = path.resolve(dest);
+  const place = (name, method, data) => {
+    if (!name || name.endsWith("/")) return;
+    const rel = name.replace(/\\/g, "/");
+    if (rel.startsWith("/") || rel.split("/").includes("..")) return;
+    const target = path.resolve(dest, rel);
+    const fromRoot = path.relative(base, target);
+    if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    if (method === 0) fs.writeFileSync(target, data);
+    else if (method === 8) fs.writeFileSync(target, zlib.inflateRawSync(data));
+    else throw new Error(`unsupported zip method ${method}`);
+  };
+  // The central directory at the end of the file always carries the real sizes;
+  // a local header may say 0 and put them in a data descriptor after the data
+  // (many vendor zips do), so the directory is the one to read.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i -= 1) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd >= 0) {
+    const count = buf.readUInt16LE(eocd + 10);
+    let at = buf.readUInt32LE(eocd + 16);
+    for (let n = 0; n < count; n += 1) {
+      if (buf.readUInt32LE(at) !== 0x02014b50) break;
+      const method = buf.readUInt16LE(at + 10);
+      const compSize = buf.readUInt32LE(at + 20);
+      const nameLen = buf.readUInt16LE(at + 28);
+      const extraLen = buf.readUInt16LE(at + 30);
+      const commentLen = buf.readUInt16LE(at + 32);
+      const localAt = buf.readUInt32LE(at + 42);
+      const name = buf.slice(at + 46, at + 46 + nameLen).toString("utf8");
+      at += 46 + nameLen + extraLen + commentLen;
+      if (compSize === 0xffffffff || localAt === 0xffffffff)
+        throw new Error("zip64 is not supported");
+      const dataAt = localAt + 30 + buf.readUInt16LE(localAt + 26) + buf.readUInt16LE(localAt + 28);
+      place(name, method, buf.slice(dataAt, dataAt + compSize));
+    }
+    return;
+  }
+  // No directory: walk the local headers (archives FRIDAY writes itself).
+  let offset = 0;
+  while (offset + 30 <= buf.length) {
+    if (buf.readUInt32LE(offset) !== 0x04034b50) break;
+    if (buf.readUInt16LE(offset + 6) & 0x8) throw new Error("zip data descriptor is not supported");
+    const method = buf.readUInt16LE(offset + 8);
+    const compSize = buf.readUInt32LE(offset + 18);
+    const nameLen = buf.readUInt16LE(offset + 26);
+    const extraLen = buf.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const name = buf.slice(nameStart, nameStart + nameLen).toString("utf8");
+    const dataStart = nameStart + nameLen + extraLen;
+    place(name, method, buf.slice(dataStart, dataStart + compSize));
+    offset = dataStart + compSize;
+  }
+}
+
+async function probeTool(tool, freeze, installedPackages = "", root = "") {
+  // Components with a real machine-level detector (registry, optional Windows
+  // feature, packaged executable) decide their own state.
+  if (typeof tool.detect === "function") {
+    let found = null;
+    try {
+      found = await tool.detect({ root });
+    } catch (err) {
+      found = { installed: false, status: "Error", note: String(err && err.message) };
+    }
+    return {
+      id: tool.id,
+      category: tool.category,
+      installed: Boolean(found.installed),
+      version: found.version || null,
+      path: found.path || null,
+      source: tool.source,
+      url: tool.url,
+      manager: tool.winget ? "winget" : tool.npm ? "npm" : tool.pip ? "pip" : "vendor",
+      required: Boolean(tool.required),
+      manual: found.manual || tool.manual || null,
+      status: found.status || (found.installed ? "Ready" : "Missing"),
+      // A feature this Windows edition cannot have (Windows Sandbox on Home) is not a failed install.
+      ...(found.unsupported ? { unsupported: true } : {}),
+      ...(found.note ? { note: found.note } : {}),
+    };
+  }
+  if (tool.pythonStdlib) {
+    const python = await resolvePython(path.join(__dirname, ".."));
+    const out = python
+      ? await run(
+          python.exe,
+          [
+            ...python.prefix,
+            "-c",
+            `import ${tool.pythonStdlib};print(getattr(${tool.pythonStdlib}, '__version__', '1.0'))`,
+          ],
+          8000,
+        )
+      : null;
+    return {
+      id: tool.id,
+      category: tool.category,
+      installed: Boolean(out),
+      version: semver(out) || (out ? "1.0" : null),
+      path: out ? python.executable : null,
+      source: tool.source,
+      url: tool.url,
+      manager: "builtin",
+      required: Boolean(tool.required),
+      manual: tool.manual || null,
+      status: out ? "Ready" : "Missing",
+    };
+  }
+  if (tool.pipDist) {
+    const version = freeze.get(tool.pipDist.toLowerCase()) || null;
+    return {
+      id: tool.id,
+      category: tool.category,
+      installed: Boolean(version),
+      version,
+      path: version ? "site-packages" : null,
+      source: tool.source,
+      url: tool.url,
+      manager: "pip",
+      required: Boolean(tool.required),
+      manual: tool.manual || null,
+      status: version ? "Ready" : "Missing",
+    };
+  }
+  // Some components are files Windows installs rather than commands on PATH.
+  if (tool.file) {
+    const present = Boolean(tool.file) && fs.existsSync(tool.file);
+    return {
+      id: tool.id,
+      category: tool.category,
+      installed: present,
+      version: null,
+      path: present ? tool.file : null,
+      source: tool.source,
+      url: tool.url,
+      manager: tool.winget ? "winget" : "vendor",
+      required: Boolean(tool.required),
+      manual: tool.manual || null,
+      status: present ? "Ready" : "Missing",
+    };
+  }
+  if (tool.archiveBin && root) {
+    const found = require("./managed-install.cjs").installedBin(root, tool);
+    if (found) {
+      return {
+        id: tool.id,
+        category: tool.category,
+        installed: true,
+        version: found.version,
+        path: found.bin,
+        source: tool.source,
+        url: tool.url,
+        manager: "vendor",
+        required: Boolean(tool.required),
+        manual: tool.manual || null,
+        status: "Ready",
+      };
+    }
+  }
+  let bin = tool.cmd ? await which(tool.cmd) : null;
+  let command = tool.cmd;
+  if (!bin && Array.isArray(tool.fallbackBins)) {
+    const found = tool.fallbackBins.find((file) => fs.existsSync(file));
+    if (found) {
+      bin = found;
+      command = found;
+    }
+  }
+  const packageHit = !bin && !tool.requireCommand ? wingetPackage(tool, installedPackages) : null;
+  let version = packageHit?.version || null;
+  let status = bin || packageHit ? "Ready" : "Missing";
+
+  if (bin && !tool.noVersionProbe) {
+    const out = await run(command, tool.args || ["--version"], 8000);
+    version = (tool.versionPattern && tool.versionPattern.exec(out || "")?.[1]) || semver(out);
+    if (!version && !out) status = "Error";
+    if (tool.requireCommand && !out) {
+      // The launcher exists but runs nothing (rustup without a toolchain): not installed.
+      return {
+        id: tool.id,
+        category: tool.category,
+        installed: false,
+        version: null,
+        path: bin,
+        source: tool.source,
+        url: tool.url,
+        manager: tool.winget ? "winget" : "vendor",
+        required: Boolean(tool.required),
+        manual: tool.manual || null,
+        status: "Error",
+        note: "the launcher is installed but has no working toolchain",
+      };
+    }
+  }
+
+  if (bin && tool.service) {
+    const alive = await ping(tool.service);
+    status = alive ? "Running" : "Ready";
+  }
+  return {
+    id: tool.id,
+    category: tool.category,
+    installed: Boolean(bin || packageHit),
+    version,
+    path: bin || packageHit?.path || null,
+    source: tool.source,
+    url: tool.url,
+    manager: tool.winget ? "winget" : tool.npm ? "npm" : tool.pip ? "pip" : "vendor",
+    required: Boolean(tool.required),
+    manual: tool.manual || null,
+    status,
+  };
+}
+
+/**
+ * Reachability through the same network stack provider calls use (Chromium in
+ * the app: system proxy and Windows certificates). Node's bare fetch ignores
+ * both and called an online PC offline.
+ */
+async function ping(url, timeout = 1200) {
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), timeout);
+  try {
+    const res = await fetchCompat(url, { signal: c.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Online when any one of several independent hosts answers. */
+async function anyReachable(urls, timeout = 6000) {
+  const results = await Promise.all(urls.map((url) => ping(url, timeout)));
+  return results.some(Boolean);
+}
+
+async function pool(items, size, worker) {
+  const out = [];
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await worker(items[i]);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+let detectInflight = null;
+let lastDetect = { at: 0, tools: [], root: null };
+
+/** Detect every catalog tool. Concurrent, de-duplicated, never blocks twice. */
+async function detectTools({ force = false, root: rootArg, only = null } = {}) {
+  // A caller that needs a handful of tools (the build-time toolkit step) probes
+  // just those and leaves the app's full-scan cache alone.
+  if (Array.isArray(only) && only.length) {
+    const want = new Set(only);
+    const root = rootArg ?? fridayPaths.root() ?? "";
+    const [freeze, installedPackages] = await Promise.all([
+      loadPipFreeze(force),
+      loadWingetList(force),
+    ]);
+    const probed = await pool(
+      TOOLS.filter((t) => want.has(t.id)),
+      6,
+      (t) => probeTool(t, freeze, installedPackages, root),
+    );
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
+    return { at: Date.now(), tools: probed, root };
+  }
+  // FRIDAY's own installs live under <root>\runtime; without the root a tool she
+  // unpacked there read "Missing" on every scan and was downloaded again.
+  const root = rootArg ?? fridayPaths.root() ?? "";
+  if (lastDetect.root !== root) force = true;
+  if (!force && Date.now() - lastDetect.at < 15_000) return lastDetect;
+  if (detectInflight) {
+    // A forced scan (after an install or update) must not adopt a scan that
+    // began before the change: wait for it, then read the machine again.
+    const running = detectInflight;
+    if (!force) return running;
+    await running.catch(() => {});
+    if (detectInflight) return detectInflight;
+  }
+  detectInflight = (async () => {
+    const [freeze, installedPackages] = await Promise.all([
+      loadPipFreeze(force),
+      loadWingetList(force),
+    ]);
+    const probed = await pool(TOOLS, 6, (t) => probeTool(t, freeze, installedPackages, root));
+    // A component that several catalog rows share is reported once per row, so
+    // every row carries the same real machine state instead of "Unknown".
+    const tools = probed.flatMap((p) => {
+      const shown = DISPLAY_IDS.get(p.id) || [];
+      const aliases = shown.map((id) => ({ ...p, id, aliasOf: p.id }));
+      return [{ ...p, alsoKnownAs: shown }, ...aliases];
+    });
+
+    lastDetect = { at: Date.now(), tools, root };
+    try {
+      require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+    } catch {
+      /* a PATH addition is a convenience */
+    }
+    return lastDetect;
+  })().finally(() => {
+    detectInflight = null;
+  });
+  return detectInflight;
+}
+
+/* --------------------------------------------------------- latest versions */
+
+const latestCache = new Map(); // id -> { at, version }
+const LATEST_TTL = 30 * 60 * 1000;
+
+/** JSON through the app's network stack (system proxy, Windows certificates). */
+async function jsonFrom(url, headers = {}) {
+  const { fetchCompat } = require("./net-fetch.cjs");
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetchCompat(url, {
+      signal: c.signal,
+      headers: { "user-agent": "FRIDAY-InstallManager", ...headers },
+    });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** One registry lookup, each with a second official host when the first does not answer. */
+async function latestFromSpec(spec) {
+  if (spec.kind === "npm") {
+    const hosts = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
+    for (const host of hosts) {
+      const version = (await jsonFrom(`${host}/${spec.ref}/latest`))?.version;
+      if (version) return version;
+    }
+    return null;
+  }
+  if (spec.kind === "pypi") {
+    return (await jsonFrom(`https://pypi.org/pypi/${spec.ref}/json`))?.info?.version || null;
+  }
+  if (spec.kind === "github") {
+    const release = await require("./vendor-sources.cjs").githubRelease(spec.ref);
+    return release?.tag ? semver(release.tag) : null;
+  }
+  return null;
+}
+
+/**
+ * Installed packages that winget says have a newer version: Id -> available.
+ * One `winget upgrade` answers for every winget-managed tool at once, and it is
+ * the version `winget upgrade --id` would install, so "update available" and the
+ * Update button agree.
+ */
+let wingetUpgradeCache = { at: 0, table: {} };
+async function wingetUpgrades(force = false) {
+  if (!WIN) return {};
+  if (!force && Date.now() - wingetUpgradeCache.at < LATEST_TTL) return wingetUpgradeCache.table;
+  const text = await run(
+    "winget",
+    ["upgrade", "--accept-source-agreements", "--disable-interactivity"],
+    60_000,
+  );
+  const table = text ? require("./vendor-sources.cjs").parseWingetUpgrade(text) : {};
+  wingetUpgradeCache = { at: Date.now(), table };
+  return table;
+}
+
+/**
+ * The newest version of one tool, from the first source that answers: its own
+ * registry (npm, PyPI, GitHub), the vendor's release feed, then winget.
+ */
+async function latestFor(tool, context = {}) {
+  const hit = latestCache.get(tool.id);
+  if (hit && Date.now() - hit.at < LATEST_TTL) return hit.version;
+  let version = null;
+  try {
+    if (tool.latest) version = await latestFromSpec(tool.latest);
+    const vendor = require("./vendor-sources.cjs");
+    if (!version && vendor.hasFeed(tool.id))
+      version = (await vendor.resolveFeed(tool.id))?.version || null;
+    if (!version && tool.winget) version = (context.wingetTable || {})[tool.winget] || null;
+  } catch {
+    version = null;
+  }
+  if (version) latestCache.set(tool.id, { at: Date.now(), version });
+  return version;
+}
+
+async function latestVersions() {
+  const vendor = require("./vendor-sources.cjs");
+  const wingetTable = await wingetUpgrades().catch(() => ({}));
+  const withSource = TOOLS.filter((t) => t.latest || vendor.hasFeed(t.id) || t.winget);
+  const results = await pool(withSource, 5, async (t) => [
+    t.id,
+    await latestFor(t, { wingetTable }),
+  ]);
+  const map = Object.fromEntries(results.filter(([, v]) => v));
+  // Shared components publish their version under every catalog row name too.
+  for (const [real, shown] of DISPLAY_IDS) {
+    if (map[real]) shown.forEach((id) => (map[id] = map[real]));
+  }
+  return map;
+}
+
+/** Start a tool's background service detached and wait briefly for it to answer. */
+async function startService(tool, exe) {
+  const [cmd, args] = tool.startAfter;
+  try {
+    const child = spawn(exe && fs.existsSync(exe) ? exe : cmd, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    return false;
+  }
+  for (let i = 0; i < 10; i += 1) {
+    if (await ping(tool.service, 1500)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
+/**
+ * Repair the WinGet source in place.
+ *
+ * `winget source reset --force` + `winget source update` is exactly what the
+ * error text used to ask the OWNER to type. FRIDAY runs it herself (elevated
+ * when needed) so an install like Redis/Memurai does not stop on a manual step.
+ */
+async function repairedWingetSource(id, action, emit) {
+  if (!WIN) return false;
+  emit({ id, action, phase: "Running", line: "repairing the WinGet source (reset + update)" });
+  try {
+    const elevate = !(await isElevated());
+    const runOne = async (args) => {
+      const [cmd, cmdArgs] = elevate ? elevatedCommand("winget", args) : ["winget", args];
+      return run(cmd, cmdArgs, 180_000);
+    };
+    await runOne(["source", "reset", "--force"]);
+    await runOne(["source", "update"]);
+    const health = await wingetHealth();
+    emit({
+      id,
+      action,
+      phase: "Running",
+      line: health.available
+        ? "WinGet source repaired — retrying the install"
+        : `WinGet source still unavailable — ${health.reason}`,
+    });
+    return health.available;
+  } catch (error) {
+    emit({
+      id,
+      action,
+      phase: "Running",
+      line: `WinGet source repair failed: ${String(error.message || error)}`,
+    });
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------- jobs */
+
+const jobs = new Map(); // key `${id}:${action}` -> child process
+
+async function commandFor(tool, action, opts = {}) {
+  const winget = tool.winget;
+  if (action === "uninstall" && tool.noUninstall) return null;
+  if (typeof tool.customCommand === "function" && action !== "uninstall") {
+    return tool.customCommand(action, opts);
+  }
+  if (action === "uninstall") {
+    if (winget)
+      return ["winget", ["uninstall", "--id", winget, "--silent", "--accept-source-agreements"]];
+    if (tool.npm) return [WIN ? "npm.cmd" : "npm", ["uninstall", "-g", tool.npm]];
+    if (tool.pip) {
+      const python = await resolvePython(path.join(__dirname, ".."));
+      return python
+        ? [python.exe, [...python.prefix, "-m", "pip", "uninstall", "-y", tool.pip]]
+        : null;
+    }
+    return null;
+  }
+  if (winget) {
+    const base = [
+      "install",
+      "--id",
+      winget,
+      "--silent",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+      "--disable-interactivity",
+      "--source",
+      "winget",
+    ];
+    base.push(...(tool.wingetArgs || []));
+    if (action === "update")
+      return [
+        "winget",
+        [
+          "upgrade",
+          "--id",
+          winget,
+          "--silent",
+          "--accept-package-agreements",
+          "--accept-source-agreements",
+          "--disable-interactivity",
+          "--source",
+          "winget",
+        ],
+      ];
+    if (action === "repair") return ["winget", [...base, "--force"]];
+    return ["winget", base];
+  }
+  if (tool.npm)
+    return [
+      WIN ? "npm.cmd" : "npm",
+      ["install", "-g", action === "update" ? `${tool.npm}@latest` : tool.npm],
+    ];
+  if (tool.pip) {
+    if (voiceInstall.blockedPip(tool.manual)) return null;
+    let python = opts.python || (await resolvePython(path.join(__dirname, "..")));
+    if (!python) python = await ensureManagedPython("3.12");
+    if (!python) return null;
+    const args = [...python.prefix, "-m", "pip", "install", "--prefer-binary"];
+    if (action === "update") args.push("--upgrade");
+    if (action === "repair") args.push("--force-reinstall");
+    // Wheels that only exist on a vendor index (CUDA PyTorch, for example).
+    if (tool.pipIndex) args.push("--index-url", tool.pipIndex);
+    // Hardware-specific wheel index chosen by the tool's own strategy
+    // (llama-cpp-python CUDA builds, for example).
+    if (opts.extraIndex) args.push("--extra-index-url", opts.extraIndex);
+    args.push(tool.pip);
+    return [python.exe, args];
+  }
+
+  return null;
+}
+
+/* ------------------------------------------------------------- elevation */
+let elevated = null;
+
+/** True when FRIDAY already runs with administrator rights. */
+async function isElevated() {
+  if (elevated !== null) return elevated;
+  if (!WIN) {
+    elevated = typeof process.getuid === "function" ? process.getuid() === 0 : false;
+    return elevated;
+  }
+  const out = await run("net", ["session"], 4000);
+  elevated = Boolean(out !== null && !/access is denied/i.test(out));
+  return elevated;
+}
+
+/**
+ * Re-issue a command through a UAC prompt. FRIDAY itself stays a normal
+ * (asInvoker) process; only the installers that genuinely need administrator
+ * rights ask for them, one at a time.
+ */
+/**
+ * Windows batch launchers (`npm.cmd`, `yarn.cmd`, …) are not executables:
+ * since Node 20 `spawn` refuses them without a shell (EINVAL), which is why
+ * npm-based installs such as n8n failed instantly with no output. Route those
+ * through the command processor while every real .exe still spawns directly.
+ */
+/** Run a command with administrator rights (one UAC prompt); resolves {ok, error}. */
+function runElevated(cmd, args) {
+  return new Promise((resolve) => {
+    const [exe, exeArgs] = elevatedCommand(cmd, args || []);
+    let child;
+    try {
+      child = spawnCommand(exe, exeArgs);
+    } catch (err) {
+      resolve({ ok: false, error: String((err && err.message) || err) });
+      return;
+    }
+    let output = "";
+    child.stderr?.on("data", (chunk) => (output += String(chunk)));
+    child.on("error", (err) => resolve({ ok: false, error: String(err.message) }));
+    child.on("close", (code) =>
+      resolve(
+        code === 0
+          ? { ok: true }
+          : {
+              ok: false,
+              error: /canceled by the user|operation was canceled/i.test(output)
+                ? "administrator approval was declined"
+                : output.trim().slice(-200) || `exit code ${code}`,
+            },
+      ),
+    );
+  });
+}
+
+/**
+ * Installers run without a keyboard: stdin is closed, so a "Do you want to
+ * continue?" prompt can never wait for an answer nobody can type. Every
+ * command below passes its own yes flags instead.
+ */
+function spawnCommand(cmd, args) {
+  const { loadWinSpawn } = require("./load-win-spawn.cjs");
+  return loadWinSpawn(__dirname).spawnChild(cmd, args || [], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function elevatedCommand(cmd, args) {
+  const list = args.map((a) => `'${String(a).replace(/'/g, "''")}'`).join(",");
+  const script =
+    `$ErrorActionPreference='Stop';` +
+    `$p=Start-Process -FilePath '${cmd.replace(/'/g, "''")}'` +
+    (args.length ? ` -ArgumentList @(${list})` : "") +
+    ` -Verb RunAs -Wait -PassThru; exit $p.ExitCode`;
+  return ["powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]];
+}
+
+/** The verified machine state is authoritative; winget uses non-zero codes for
+ * benign states such as "already installed" and "no upgrade available". */
+const WINGET_NO_UPGRADE = 2316632107; // 0x8A15002B: no newer version is available
+const WINGET_NOT_MANAGED = 2316632084; // 0x8A150014: no package installed by winget matches
+const WINGET_BENIGN_CODES = new Set([WINGET_NO_UPGRADE, WINGET_NOT_MANAGED]);
+
+function jobSucceeded(code, action, probe) {
+  const desiredState = action === "uninstall" ? !probe.installed : probe.installed;
+  return Boolean(desiredState && (code === 0 || WINGET_BENIGN_CODES.has(code)));
+}
+
+/**
+ * The rustup-init launcher winget leaves behind, wherever it put it. winget reports the package
+ * as installed ("existing package found") while its folder is not on this process's PATH, so the
+ * launcher is also looked for in winget's link folder, its package folders and the cargo folder.
+ */
+function rustupInitCandidates({
+  env = process.env,
+  home = os.homedir(),
+  readdir = (dir) => fs.readdirSync(dir),
+} = {}) {
+  const local = env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const winget = path.join(local, "Microsoft", "WinGet");
+  const out = [path.join(winget, "Links", "rustup-init.exe")];
+  try {
+    for (const name of readdir(path.join(winget, "Packages"))) {
+      if (/^Rustlang\.Rustup/i.test(name)) {
+        out.push(path.join(winget, "Packages", name, "rustup-init.exe"));
+      }
+    }
+  } catch {
+    /* no winget package folder on this PC */
+  }
+  out.push(path.join(env.CARGO_HOME || path.join(home, ".cargo"), "bin", "rustup-init.exe"));
+  return out;
+}
+
+/** rustup itself (not the rustup-init launcher), on PATH or in the cargo folder. */
+async function findRustup() {
+  const cargoHome = process.env.CARGO_HOME || path.join(os.homedir(), ".cargo");
+  const cargoBin = path.join(cargoHome, "bin", WIN ? "rustup.exe" : "rustup");
+  return (await which("rustup")) || (fs.existsSync(cargoBin) ? cargoBin : null);
+}
+
+/**
+ * Steps a package manager cannot do. rustup (winget Rustlang.Rustup) is only the
+ * launcher: the stable toolchain, which holds rustc and cargo, is added here, and
+ * an update brings the toolchain itself up to date.
+ */
+async function runPostInstall(tool, action, say) {
+  if (tool.postInstall !== "rustup-stable") return;
+  let rustup = await findRustup();
+  if (!rustup) {
+    // winget's Rustlang.Rustup package can leave only the launcher (rustup-init), on PATH or not.
+    // Running it installs rustup itself, per user, without a prompt.
+    const init =
+      (await which("rustup-init")) || rustupInitCandidates().find((file) => fs.existsSync(file));
+    if (init) {
+      say("running rustup-init (per user, no prompt)");
+      await run(init, ["-y", "--default-toolchain", "stable", "--profile", "minimal"], 15 * 60_000);
+      rustup = await findRustup();
+    }
+  }
+  if (!rustup) {
+    say("rustup was not found after the install, so the Rust toolchain was not added");
+    return;
+  }
+  say("adding the stable Rust toolchain (rustup default stable)");
+  await run(rustup, ["default", "stable"], 15 * 60_000);
+  if (action === "update") {
+    say("bringing the stable Rust toolchain up to date (rustup update stable)");
+    await run(rustup, ["update", "stable"], 15 * 60_000);
+  }
+}
+
+/**
+ * Run an install/update/repair/uninstall/verify job.
+ * `emit(event)` streams { id, action, phase, line, ok }.
+ */
+/** Human label for the package-manager method a tool declares. */
+function pmMethodLabel(tool) {
+  if (tool.winget) return "winget";
+  if (tool.npm) return "npm";
+  if (tool.pip) return "pip";
+  if (tool.cargo) return "cargo";
+  return "package manager";
+}
+
+/**
+ * Second install method: the vendor's own installer, taken from the `url`
+ * field the tool list already records. Only direct installer downloads
+ * qualify — a documentation page is not something we can run.
+ */
+function directInstaller(tool) {
+  // An explicit installerUrl is a vendor bootstrapper we trust even when the
+  // link carries no file extension (Microsoft fwlink, for example).
+  if (tool.installerUrl && /^https:\/\//i.test(tool.installerUrl)) {
+    return { url: tool.installerUrl };
+  }
+  const url = tool.url;
+  if (!url || !/^https:\/\//i.test(url)) return null;
+  if (!/\.(exe|msi|msixbundle|zip)(\?|$)/i.test(url)) return null;
+  return { url };
+}
+
+function diskRoom(dir) {
+  try {
+    const stat = fs.statfsSync(dir || os.tmpdir());
+    const free = Number(stat.bavail) * Number(stat.bsize);
+    return Number.isFinite(free) ? free : null;
+  } catch {
+    return null;
+  }
+}
+
+function fileSha256(file) {
+  return require("crypto").createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
+
+/** Keep a downloaded installer only when its SHA-256 matches the pin. */
+function acceptPinnedFile(file, tool, options = {}) {
+  const expected = String(tool?.sha256 || "").toLowerCase();
+  if (!expected) return { ok: true, reason: "" };
+  if (options.checkDisk !== false) {
+    const need = Number(tool.needBytes || 0);
+    const room = diskRoom(path.dirname(file));
+    if (room === null)
+      return { ok: false, reason: "Disk space is unknown. The installer was not kept." };
+    if (need > 0 && room < need + 64 * 1024 * 1024) {
+      return { ok: false, reason: "Not enough free disk for this installer." };
+    }
+  }
+  let hash = "";
+  try {
+    hash = fileSha256(file);
+  } catch {
+    return { ok: false, reason: "The installer could not be read." };
+  }
+  if (hash !== expected) {
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      /* already gone */
+    }
+    return { ok: false, reason: "The installer hash did not match the pin." };
+  }
+  return { ok: true, reason: "" };
+}
+
+function cachedInstaller(url, root) {
+  const name = decodeURIComponent(
+    String(url || "")
+      .split("?")[0]
+      .split("/")
+      .pop() || "",
+  );
+  if (!name) return "";
+  return path.join(installerDir(root), name);
+}
+
+/**
+ * Download an installer into the FRIDAY root's downloads folder through the
+ * app's one verified downloader (electron/model-download.cjs): allowlisted
+ * HTTPS hosts only, parallel range connections for big files, resume of a
+ * partial file, and the SHA-256 check when the tool pins one. `report` gets
+ * the downloader's progress events (percent, speed, ETA).
+ */
+async function downloadInstaller(url, root, report, { sha256, needBytes, label, signal } = {}) {
+  const name = decodeURIComponent(url.split("?")[0].split("/").pop() || "installer.exe");
+  const target = path.join(installerDir(root), name);
+  await require("./model-download.cjs").downloadUrl(url, target, {
+    onEvent: report,
+    signal,
+    sha256,
+    needBytes,
+    label: label || name,
+    // The URL is one FRIDAY's own tool table or an official release feed named;
+    // without this only GitHub and Hugging Face downloads were accepted and
+    // every other vendor's installer was refused as "off allowlist".
+    extraHosts: [url],
+  });
+  return target;
+}
+
+/**
+ * A tool that names a launcher in config/local-runners.json installs the
+ * newest official release: its URL, size and sha256 replace the pin, and the
+ * pin is used when the lookup fails or is offline.
+ */
+/** The vendor feed's installer for a tool, or null (no feed, no answer, no digest). */
+async function vendorFeedInstall(tool) {
+  try {
+    const feed = await require("./vendor-sources.cjs").resolveFeed(tool.id);
+    return feed?.install ? feed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The tool with the feed's installer, digest and arguments in place of any pin. */
+function applyFeed(tool, feed) {
+  return {
+    ...tool,
+    installerUrl: feed.install.url,
+    sha256: feed.install.sha256,
+    needBytes: feed.bytes || 0,
+    installerMirrors: [...(feed.mirrors || []), ...(tool.installerMirrors || [])],
+    ...(feed.installerArgs ? { installerArgs: feed.installerArgs } : {}),
+    ...(feed.bin ? { feedBin: feed.bin, archiveBin: feed.bin } : {}),
+    releaseTag: feed.version,
+    verifySignature: feed.kind === "exe" || feed.kind === "msi",
+    ...(feed.allowUnsigned ? { allowUnsigned: true } : {}),
+  };
+}
+
+async function withLatestRelease(tool) {
+  if (!tool.release) return tool;
+  let latest = null;
+  try {
+    latest = await require("./local-library.cjs").latestOfficialRelease(tool.release);
+  } catch {
+    latest = null;
+  }
+  if (!latest?.url) return tool;
+  return {
+    ...tool,
+    installerUrl: latest.url,
+    sha256: latest.sha256 || tool.sha256,
+    needBytes: latest.bytes || tool.needBytes,
+    releaseTag: latest.tag,
+  };
+}
+
+/** Silent-run command for a downloaded installer. A zip is unpacked, not executed. */
+function installerCommand(file, tool, root) {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === ".msi") {
+    return ["msiexec", ["/i", file, "/qn", "/norestart"]];
+  }
+  if (ext === ".zip") {
+    const plan = archiveInstallCommand(file, root, tool);
+    fs.mkdirSync(plan.dest, { recursive: true });
+    extractZip(file, plan.dest);
+    if (tool.embedPth) require("./toolchain-pack.cjs").writeEmbedPth(plan.dest);
+    return plan.command;
+  }
+  if (ext === ".gz" || file.toLowerCase().endsWith(".tar.gz")) {
+    const plan = archiveInstallCommand(file, root, tool);
+    fs.mkdirSync(plan.dest, { recursive: true });
+    extractTarArchive(file, plan.dest);
+    return plan.command;
+  }
+  const args = Array.isArray(tool.installerArgs) ? [...tool.installerArgs] : ["/S"];
+  // Only tools that document a target-path switch get one, pointed at the
+  // FRIDAY root the owner selected.
+  if (tool.installerPathArg && root) {
+    args.push(`${tool.installerPathArg}${path.join(root, "runtime", tool.id || "tool")}`);
+  }
+  return [file, args];
+}
+
+function runJob({ id, action, root }, emit) {
+  let tool = toolById(id);
+  const key = `${id}:${action}`;
+  if (!tool) {
+    emit({ id, action, phase: "Failed", error: `unknown package "${id}"` });
+    return Promise.resolve({ ok: false });
+  }
+  if (jobs.has(key)) {
+    emit({ id, action, phase: "Running", line: "job already running — reusing it" });
+    return Promise.resolve({ ok: true, reused: true });
+  }
+
+  // A component that is part of another tool (Compose in Docker Desktop, the
+  // Whisper.cpp row in FRIDAY's own whisper.cpp) installs through that tool.
+  if (tool.installVia && action !== "uninstall" && action !== "verify") {
+    const target = toolById(tool.installVia);
+    if (target && target.id !== tool.id) {
+      emit({
+        id,
+        action,
+        phase: "Running",
+        line: `${tool.id} comes with ${target.id} — installing that`,
+      });
+      return runJob({ id: target.id, action, root }, (event) => emit({ ...event, id }));
+    }
+  }
+
+  // Components that ship with the operating system or with FRIDAY itself have
+  // nothing to download: report their real presence instead of a fake failure.
+  if (tool.builtin && action !== "uninstall") {
+    return (async () => {
+      const probe = await probeTool(tool, await loadPipFreeze(false));
+      emit({
+        id,
+        action,
+        ok: probe.installed,
+        phase: probe.installed ? "Done" : "Failed",
+        line: probe.installed
+          ? `provided by ${tool.source} — nothing to install`
+          : `${tool.source} is not available on this machine`,
+        ...(probe.installed ? {} : { error: `${tool.source} not found` }),
+      });
+      return { ok: probe.installed };
+    })();
+  }
+
+  if (action === "verify") {
+    return (async () => {
+      const freeze = await loadPipFreeze(true);
+      const probe = await probeTool(tool, freeze, await loadWingetList(true), root);
+      emit({
+        id,
+        action,
+        phase: probe.installed ? "Done" : "Failed",
+        line: probe.installed
+          ? `verified ${probe.version || "installed"} at ${probe.path || "site-packages"}`
+          : "not present on this machine",
+        version: probe.version,
+        ok: probe.installed,
+      });
+      return { ok: probe.installed, version: probe.version };
+    })();
+  }
+
+  return (async () => {
+    // Optional Windows features have no unattended installer: state the real
+    // machine state instead of running a doomed package install.
+    if (tool.optionalFeature && action !== "uninstall") {
+      const probe = await probeTool(tool, await loadPipFreeze(false));
+      // A Windows optional feature that the sandbox engine manager can enable
+      // is enabled here for real — DISM, elevation and the restart banner —
+      // rather than reported as a manual step the owner has to perform.
+      if (!probe.installed && tool.engineId && WIN) {
+        const engines = require("./sandbox-engines.cjs");
+        const result = await engines.install(tool.engineId, (event) =>
+          emit({ id, action, phase: event.phase || "Installing", line: event.line }),
+        );
+        if (result?.ok) {
+          const after = await probeTool(tool, await loadPipFreeze(false));
+          emit({
+            id,
+            action,
+            ok: true,
+            restartRequired: Boolean(result.restartRequired),
+            phase: result.restartRequired ? "Restart required" : "Done",
+            line: result.restartRequired
+              ? `enabled — ${engines.RESTART_MESSAGE} to finish enabling ${tool.name || id}`
+              : after.path
+                ? `enabled — ${after.path}`
+                : "enabled",
+          });
+          return { ok: true, restartRequired: Boolean(result.restartRequired) };
+        }
+        if (result?.declined) {
+          emit({ id, action, ok: false, phase: "Declined", line: engines.DECLINED_MESSAGE });
+          return { ok: false, error: engines.DECLINED_MESSAGE };
+        }
+        emit({
+          id,
+          action,
+          ok: false,
+          phase: "Failed",
+          error: result?.error || `could not enable ${tool.name || id}`,
+        });
+        return { ok: false, error: result?.error || `could not enable ${tool.name || id}` };
+      }
+      emit({
+        id,
+        action,
+        ok: probe.installed,
+        manual: !probe.installed,
+        phase: probe.installed ? "Done" : "Manual",
+        line: probe.installed
+          ? `already enabled — ${probe.path}`
+          : probe.manual || "enable this Windows optional feature from Windows Features",
+      });
+      return { ok: probe.installed, manual: !probe.installed };
+    }
+
+    if (action !== "uninstall") tool = await withLatestRelease(tool);
+    // A pinned archive (Node, MinGit, gh, Temurin) installs the newest release
+    // its vendor publishes with a digest; the pin in the manifest is what is used
+    // when the feed does not answer.
+    if (action !== "uninstall" && tool.archiveBin && vendorSources.hasFeed(tool.id)) {
+      const feed = await vendorFeedInstall(tool);
+      if (feed) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `newest official release is ${feed.version} (${feed.source})`,
+        });
+        tool = applyFeed(tool, feed);
+      }
+    }
+
+    // Packages whose installability depends on the real machine (Python
+    // version, GPU, available wheels) decide their strategy before we spend a
+    // download on an install that cannot succeed.
+    let installOpts = { root };
+    if (typeof tool.strategy === "function" && action !== "uninstall") {
+      const plan = await tool.strategy();
+      if (!plan.ok) {
+        emit({ id, action, ok: false, manual: true, phase: "Manual", line: plan.reason });
+        return { ok: false, manual: true, error: plan.reason };
+      }
+      if (plan.note) emit({ id, action, phase: "Running", line: plan.note });
+      if (plan.extraIndex) installOpts = { ...installOpts, extraIndex: plan.extraIndex };
+      // A strategy may hand back a dedicated interpreter (a managed Python
+      // 3.12 runtime for wheels that are not published for a newer Python).
+      if (plan.python) installOpts = { ...installOpts, python: plan.python };
+    }
+
+    // A broken WinGet source is not a package failure; say so before trying.
+    if (tool.winget && action !== "uninstall") {
+      const health = await wingetHealth();
+      if (!health.available) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `package manager unavailable — ${health.reason}`,
+        });
+      }
+    }
+
+    const pmCmd = await commandFor(tool, action, installOpts);
+    const fallback = action === "uninstall" ? null : directInstaller(tool);
+
+    const vendorFeeds = require("./vendor-sources.cjs");
+    const inventory = require("./install-inventory.cjs");
+    const altManagers =
+      action === "uninstall" ? [] : require("./alt-package-managers.cjs").managersFor(tool.id);
+    if (!pmCmd && !fallback && !vendorFeeds.hasFeed(tool.id) && !altManagers.length) {
+      const vendorOnly = Boolean(tool.manual) && !tool.pip;
+      const outcome = voiceInstall.installOutcome({
+        pythonFound: false,
+        vendorOnly: vendorOnly || voiceInstall.blockedPip(tool.manual),
+        vendorStep: tool.manual
+          ? `${tool.manual} (${tool.url})`
+          : `no automated ${action} for ${tool.name || id} — ${tool.url}`,
+        log: "",
+        importOk: false,
+        cause: tool.pip && !voiceInstall.blockedPip(tool.manual) ? "no-python" : "vendor-manual",
+      });
+      emit({
+        id,
+        action,
+        manual: outcome.manual,
+        ok: false,
+        phase: outcome.phase,
+        cause: outcome.cause,
+        ...(outcome.manual ? { line: outcome.error } : { error: outcome.error }),
+      });
+      return { ok: false, manual: outcome.manual, error: outcome.error, cause: outcome.cause };
+    }
+
+    const wasRunning =
+      Boolean(tool.service) && action !== "uninstall" ? await ping(tool.service) : false;
+
+    /** Run one attempt to completion and report its raw exit code. */
+    const attempt = async (label, cmd) => {
+      let command = cmd;
+      // Installers that write to Program Files need administrator rights. FRIDAY
+      // stays a normal process and asks for elevation only for those jobs.
+      // A downloaded .msi installs for the whole PC (Go, Node, Pandoc), which msiexec refuses
+      // without administrator rights, so it asks once, the way winget does for the same package.
+      // The same goes for an update of a copy that lives under Program Files: an installer run
+      // without rights would put a second, per-user copy next to it.
+      const wantsAdmin = tool.elevate || machineWide || /^msiexec(\.exe)?$/i.test(String(cmd[0]));
+      if (WIN && wantsAdmin && !(await isElevated())) {
+        emit({ id, action, phase: "Running", line: "requesting administrator rights (UAC)…" });
+        command = elevatedCommand(command[0], command[1]);
+      }
+      emit({
+        id,
+        action,
+        phase: "Running",
+        line: `[${label}] ${command[0]} ${command[1].join(" ")}`,
+      });
+      const code = await new Promise((resolve) => {
+        let child;
+        try {
+          child = spawnCommand(command[0], command[1]);
+        } catch (err) {
+          emit({ id, action, phase: "Running", line: `[${label}] ${String(err && err.message)}` });
+          resolve(-1);
+          return;
+        }
+        jobs.set(key, child);
+        const feed = (chunk) => {
+          String(chunk)
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .slice(-4)
+            .forEach((line) => emit({ id, action, phase: "Running", line }));
+        };
+        child.stdout?.on("data", feed);
+        child.stderr?.on("data", feed);
+        child.on("error", (err) => {
+          jobs.delete(key);
+          emit({ id, action, phase: "Running", line: `[${label}] ${String(err.message)}` });
+          resolve(-1);
+        });
+        child.on("close", (code) => {
+          jobs.delete(key);
+          resolve(code);
+        });
+      });
+      // Pick up any PATH entries the installer just wrote before verifying,
+      // otherwise a successful install can still report "Missing".
+      if (await refreshPathFromRegistry()) {
+        emit({ id, action, phase: "Running", line: `[${label}] PATH refreshed` });
+      }
+      if (
+        tool.postInstall &&
+        action !== "uninstall" &&
+        (code === 0 || WINGET_BENIGN_CODES.has(code))
+      ) {
+        await runPostInstall(tool, action, (line) =>
+          emit({ id, action, phase: "Running", line: `[${label}] ${line}` }),
+        );
+        await refreshPathFromRegistry();
+      }
+      const freeze = await loadPipFreeze(true);
+      let probe = await probeTool(tool, freeze, await loadWingetList(true), root);
+      let ok = jobSucceeded(code, action, probe);
+      // A tool just unpacked under <root>\runtime is on PATH from now on, for
+      // FRIDAY's own terminal, agents and the kernel, without a restart.
+      if (ok && action !== "uninstall") {
+        try {
+          require("./managed-path.cjs").applyManagedPath(root, TOOLS);
+        } catch {
+          /* convenience only */
+        }
+      }
+      // A service that was answering before the job (Ollama) is started again
+      // by the same install, so it comes back on the version just installed.
+      if (ok && wasRunning && tool.startAfter && probe.status !== "Running") {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `[${label}] starting ${tool.name || id} again`,
+        });
+        await startService(tool, probe.path);
+        probe = await probeTool(tool, freeze, await loadWingetList(false), root);
+      }
+      // A pip exit code of 0 is not proof: import the module with the SAME
+      // interpreter pip installed into before calling it installed.
+      if (ok && tool.pipImport && action !== "uninstall") {
+        const python = await resolvePython(path.join(__dirname, ".."));
+        const out = python
+          ? await run(
+              python.exe,
+              [
+                ...python.prefix,
+                "-c",
+                `import ${tool.pipImport};print(getattr(${tool.pipImport}, '__version__', 'ok'))`,
+              ],
+              30_000,
+            )
+          : null;
+        if (!out) {
+          ok = false;
+          probe.status = "Failed";
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `[${label}] verification failed — \`import ${tool.pipImport}\` did not succeed in ${python ? python.exe : "the managed Python runtime"}`,
+          });
+        } else {
+          probe.version = semver(out) || probe.version;
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `[${label}] verified \`import ${tool.pipImport}\` → ${out.trim()}`,
+          });
+        }
+      }
+      // Windows features (WSL) answer only after a restart: a clean exit then
+      // is success, said as such, not a failure to retry.
+      let restartRequired = false;
+      if (!ok && code === 0 && tool.restartMayBeNeeded && action !== "uninstall") {
+        ok = true;
+        restartRequired = true;
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `[${label}] finished — restart Windows to finish enabling ${tool.name || id}`,
+        });
+      }
+      const sourceProblem = !ok ? wingetSourceFailure(code) : null;
+      return {
+        code,
+        probe,
+        ok,
+        // winget found nothing newer: the installed version is the newest it offers.
+        ...(ok && action !== "uninstall" && code === WINGET_NO_UPGRADE ? { upToDate: true } : {}),
+        // winget does not manage this install (Git LFS inside Git for Windows): left as it is.
+        ...(ok && action === "update" && code === WINGET_NOT_MANAGED
+          ? { outsideWinget: true }
+          : {}),
+        ...(restartRequired ? { restartRequired } : {}),
+        ...(sourceProblem ? { sourceProblem } : {}),
+      };
+    };
+
+    const tried = [];
+    let last = null;
+    // The official release installer is tried first when the tool names one:
+    // it downloads in parallel from the vendor and is checked against the
+    // digest GitHub published. The package manager stays as the fallback.
+    const vendorFirst = Boolean(
+      (tool.release && fallback) || (tool.vendorFirst && vendorFeeds.hasFeed(tool.id)),
+    );
+
+    // The installed copy, when winget says it is the newest winget offers but the vendor's own
+    // feed lists a newer release: the official installer is tried for the update, and if it cannot
+    // finish, this copy stays and the job still succeeds (an update is never worse than staying).
+    let keptCurrent = null;
+    let machineWide = false;
+
+    const tryPackageManager = async () => {
+      if (!pmCmd) return null;
+      last = await attempt(pmMethodLabel(tool), pmCmd);
+      tried.push(`${pmMethodLabel(tool)} (exit ${last.code})`);
+      // A refused/stale WinGet source is a package-manager problem FRIDAY can
+      // repair herself: reset + update the source once, then retry the same
+      // install instead of telling the owner to open a terminal.
+      if (!last.ok && last.sourceProblem && tool.winget) {
+        const repaired = await repairedWingetSource(id, action, emit);
+        if (repaired) {
+          last = await attempt(`${pmMethodLabel(tool)} (after source reset)`, pmCmd);
+          tried.push(`${pmMethodLabel(tool)} retry (exit ${last.code})`);
+        }
+      }
+      if (!last.ok) return null;
+      const finished = {
+        ok: true,
+        code: last.code,
+        version: last.probe.version,
+        ...(last.upToDate ? { upToDate: true } : {}),
+        ...(last.outsideWinget ? { outsideWinget: true } : {}),
+        ...(last.restartRequired ? { restartRequired: true } : {}),
+      };
+      if (action === "update" && last.upToDate && vendorFeeds.hasFeed(tool.id)) {
+        const feed = await vendorFeedInstall(tool);
+        if (feed && inventory.newer(feed.version, last.probe.version)) {
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `winget has nothing newer, but ${feed.source} lists ${feed.version} (installed ${last.probe.version || "unknown"}) — updating from the official installer`,
+          });
+          keptCurrent = finished;
+          machineWide = /[\\/]Program Files/i.test(String(last.probe.path || ""));
+          return null;
+        }
+      }
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: last.restartRequired ? "Restart required" : "Done",
+        ...(last.restartRequired ? { restartRequired: true } : {}),
+        version: last.probe.version,
+        line: `exit code ${last.code} · health check: ${last.probe.status}`,
+      });
+      return finished;
+    };
+
+    const tryVendorInstaller = async () => {
+      let direct = fallback;
+      // No pinned installer: ask the vendor's own feed, which gives the newest
+      // installer and its SHA-256. Without a digest nothing is downloaded.
+      if (!direct && vendorFeeds.hasFeed(tool.id)) {
+        const feed = await vendorFeedInstall(tool);
+        if (feed) {
+          tool = applyFeed(tool, feed);
+          direct = { url: feed.install.url };
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line:
+              vendorFirst || keptCurrent
+                ? `using the official ${feed.source} installer ${feed.version}`
+                : `${pmMethodLabel(tool)} did not install it — using the official ${feed.source} installer ${feed.version}`,
+          });
+        } else {
+          // Never go quiet: say why the official feed gave nothing, then move to the next source.
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `the official feed for ${tool.name || id} gave no installer (${vendorFeeds.feedFailure(tool.id) || "it published no SHA-256"}); trying the next source`,
+          });
+        }
+      }
+      if (!direct) return null;
+      const sources = [direct.url, ...(tool.installerMirrors || [])];
+      emit({
+        id,
+        action,
+        phase: "Running",
+        line:
+          pmCmd && !vendorFirst && !keptCurrent
+            ? `${pmMethodLabel(tool)} failed — falling back to the vendor installer at ${direct.url}`
+            : `downloading the vendor installer${tool.releaseTag ? ` ${tool.releaseTag}` : ""} from ${direct.url}`,
+      });
+      let file = null;
+      let usedUrl = direct.url;
+      for (const url of sources) {
+        usedUrl = url;
+        const cached = cachedInstaller(url, root);
+        if (tool.sha256 && cached && fs.existsSync(cached)) {
+          const ready = acceptPinnedFile(cached, tool, { checkDisk: false });
+          if (ready.ok) {
+            file = cached;
+            break;
+          }
+        }
+        if (tool.sha256) {
+          const room = diskRoom(installerDir(root));
+          const need = Number(tool.needBytes || 0);
+          if (room === null || (need > 0 && room < need + 64 * 1024 * 1024)) {
+            emit({
+              id,
+              action,
+              phase: "Running",
+              line:
+                room === null
+                  ? "Disk space is unknown. The download did not start."
+                  : "Not enough free disk for this installer.",
+            });
+            tried.push("disk check (failed)");
+            break;
+          }
+        }
+        try {
+          file = await downloadInstaller(
+            url,
+            root,
+            (event) =>
+              emit({
+                id,
+                action,
+                phase: "Downloading",
+                line: `${event.status || "downloading"}${event.percent != null ? ` ${event.percent}%` : ""}`,
+                percent: event.percent,
+                gbDone: event.gbDone,
+                gbTotal: event.gbTotal,
+                speedMbps: event.speedMbps,
+                etaSeconds: event.etaSeconds,
+                source: new URL(url).hostname,
+              }),
+            {
+              sha256: tool.sha256,
+              needBytes: tool.needBytes,
+              label: `Downloading ${tool.name || id}`,
+            },
+          );
+          break;
+        } catch (err) {
+          const why = String((err && err.message) || err);
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `download from ${new URL(url).hostname} failed: ${why}`,
+          });
+          tried.push(`download from ${url} (failed)`);
+          file = null;
+          if (err && err.code === "ENOSPC") break;
+        }
+      }
+      if (file && tool.sha256) {
+        emit({
+          id,
+          action,
+          phase: "Verifying",
+          line: "checking the SHA-256 against the official release",
+        });
+        const pinned = acceptPinnedFile(file, tool, { checkDisk: false });
+        if (!pinned.ok) {
+          emit({ id, action, phase: "Running", line: pinned.reason });
+          tried.push("sha256 (failed)");
+          file = null;
+        }
+      }
+      if (file && WIN && (tool.release || tool.verifySignature) && /\.(exe|msi)$/i.test(file)) {
+        const signed = require("./download-safety.cjs").authenticodeStatus(file);
+        // A vendor that publishes no signature (rustup-init.exe) is accepted on its SHA-256 from
+        // the vendor's own HTTPS site; a signature that is present but not valid never is.
+        const unsignedOk = Boolean(
+          tool.allowUnsigned && tool.sha256 && String(signed.reason) === "NotSigned",
+        );
+        emit({
+          id,
+          action,
+          phase: "Verifying",
+          line: signed.ok
+            ? "Windows signature is valid"
+            : unsignedOk
+              ? "the vendor does not sign this installer; its SHA-256 from the vendor's own site matched"
+              : `Windows signature check: ${signed.reason}`,
+        });
+        if (!signed.ok && !unsignedOk) {
+          tried.push("signature (failed)");
+          file = null;
+        }
+      }
+      if (file && tool.storeOnly) {
+        const destDir = path.join(root || os.tmpdir(), "runtime", safeToolDir(tool.id));
+        fs.mkdirSync(destDir, { recursive: true });
+        const target = path.join(destDir, tool.archiveBin || path.basename(file));
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(file, target);
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.archiveBin || path.basename(file),
+          url: usedUrl,
+        });
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: "Done",
+          line: `stored ${path.basename(target)} after the hash check`,
+        });
+        return { ok: true, via: "store" };
+      }
+      if (!file) return null;
+      emit({ id, action, phase: "Installing", line: `running ${path.basename(file)}` });
+      last = await attempt("vendor installer", installerCommand(file, tool, root));
+      tried.push(`vendor installer (exit ${last.code})`);
+      if (!last.ok) return null;
+      // An unpacked archive records what it is, so the next scan finds it, knows
+      // its version and can tell when a newer one exists.
+      if (tool.archiveBin && /\.(zip|gz)$/i.test(file)) {
+        require("./managed-install.cjs").writeMarker(root, tool, {
+          version: tool.releaseTag || tool.pinVersion,
+          bin: tool.feedBin || tool.archiveBin,
+          url: usedUrl,
+        });
+      }
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: last.probe.version,
+        line: `installed from ${usedUrl} · health check: ${last.probe.status}`,
+      });
+      return { ok: true, code: last.code, version: last.probe.version, via: "url" };
+    };
+
+    // Chocolatey and Scoop are last resorts, used only when already on this PC.
+    const tryAlternateManagers = async () => {
+      // An update that only could not use the newer official installer leaves the working copy.
+      if (keptCurrent) return null;
+      const alt = require("./alt-package-managers.cjs");
+      for (const manager of altManagers) {
+        const cmd = alt.commandFor(manager, tool.id, action);
+        if (!cmd || !(await which(manager))) continue;
+        // Chocolatey writes to C:\ProgramData and prompts "Do you want to continue?" when it
+        // is not elevated; with no keyboard attached that can only fail, so it is skipped.
+        if (WIN && alt.needsAdmin(manager) && !(await isElevated())) {
+          emit({
+            id,
+            action,
+            phase: "Running",
+            line: `${manager} needs administrator rights and FRIDAY is not elevated, so it was not used`,
+          });
+          tried.push(`${manager} (skipped, needs administrator)`);
+          continue;
+        }
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the earlier sources did not install it — trying ${manager}`,
+        });
+        last = await attempt(manager, cmd);
+        tried.push(`${manager} (exit ${last.code})`);
+        if (!last.ok) continue;
+        emit({
+          id,
+          action,
+          ok: true,
+          phase: last.restartRequired ? "Restart required" : "Done",
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+          version: last.probe.version,
+          line: `installed with ${manager} · health check: ${last.probe.status}`,
+        });
+        return {
+          ok: true,
+          code: last.code,
+          version: last.probe.version,
+          via: manager,
+          ...(last.restartRequired ? { restartRequired: true } : {}),
+        };
+      }
+      return null;
+    };
+
+    // A tool whose launcher is already on this PC (rustup without a toolchain, or a working
+    // rustup that only needs `rustup update`) is finished in place: nothing is downloaded.
+    const tryExisting = async () => {
+      if (tool.postInstall !== "rustup-stable" || action === "uninstall") return null;
+      if (!(await findRustup())) return null;
+      emit({
+        id,
+        action,
+        phase: "Running",
+        line: "rustup is already on this PC — using it, nothing to download",
+      });
+      await runPostInstall(tool, action, (line) =>
+        emit({ id, action, phase: "Running", line: `[rustup] ${line}` }),
+      );
+      await refreshPathFromRegistry();
+      const probe = await probeTool(
+        tool,
+        await loadPipFreeze(true),
+        await loadWingetList(true),
+        root,
+      );
+      if (!probe.installed) return null;
+      tried.push("existing rustup");
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: probe.version,
+        line: `existing rustup · health check: ${probe.status}`,
+      });
+      return { ok: true, code: 0, version: probe.version, via: "existing" };
+    };
+
+    for (const step of [
+      tryExisting,
+      ...(vendorFirst
+        ? [tryVendorInstaller, tryPackageManager, tryAlternateManagers]
+        : [tryPackageManager, tryVendorInstaller, tryAlternateManagers]),
+    ]) {
+      const done = await step();
+      if (done) return done;
+    }
+
+    if (keptCurrent) {
+      const why = tried.filter((entry) => !entry.startsWith(pmMethodLabel(tool))).join(", ");
+      emit({
+        id,
+        action,
+        ok: true,
+        phase: "Done",
+        version: keptCurrent.version,
+        line: `the newer official installer did not finish${why ? ` (${why})` : ""}; the installed ${keptCurrent.version || "copy"} stays and works`,
+      });
+      return { ...keptCurrent, vendorUpdateFailed: why || "the official installer did not finish" };
+    }
+
+    // Everything failed: name the tool and give the owner a real next step.
+    // A WinGet source problem is reported as such, not as a package failure.
+    const pmProblem = last?.sourceProblem || null;
+    const error = pmProblem
+      ? `Windows package manager unavailable — ${pmProblem}. ` +
+        `Run \`winget source reset --force\` in an administrator terminal, then retry, ` +
+        `or install ${tool.name || id} manually from ${tool.url}.`
+      : `${tool.name || id} could not be ${action === "update" ? "updated" : `${action}ed`}. ` +
+        `Tried: ${tried.join(", ") || "no method available"}. ` +
+        `Install it manually from ${tool.url}` +
+        (tool.manual ? ` — ${tool.manual}` : "") +
+        `.`;
+    // A broken/absent Windows package manager is an environment limitation on
+    // this machine, not a failed install of the tool. It is reported as the
+    // manual step it really is, with the vendor page, so it stops sitting in
+    // the queue as a red failure the owner cannot retry into success.
+    emit({
+      id,
+      action,
+      ok: false,
+      phase: pmProblem ? "Manual" : "Failed",
+      version: last?.probe?.version,
+      ...(pmProblem ? { manual: true, line: error } : { error }),
+      ...(pmProblem ? { reason: "package-manager-unavailable" } : {}),
+      manualUrl: tool.url,
+      tool: tool.name || id,
+    });
+    return {
+      ok: false,
+      error,
+      ...(pmProblem ? { manual: true, reason: "package-manager-unavailable" } : {}),
+      manualUrl: tool.url,
+      tool: tool.name || id,
+    };
+  })();
+}
+
+function cancelJob({ id, action }) {
+  const child = jobs.get(`${id}:${action}`);
+  if (!child) return false;
+  try {
+    if (WIN) killProcessTree(child.pid);
+    else child.kill("SIGTERM");
+  } catch {
+    /* already gone */
+  }
+  jobs.delete(`${id}:${action}`);
+  return true;
+}
+
+function activeJobs() {
+  return [...jobs.keys()];
+}
+
+/** Where the installer keeps its own metadata inside the FRIDAY workspace. */
+function installerDir(root) {
+  const dir = path.join(root || os.tmpdir(), "temporary", "downloads");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    /* non-fatal */
+  }
+  return dir;
+}
+
+module.exports = {
+  runElevated,
+  lastDetected: () => lastDetect,
+  applyManagedPath: (root) => require("./managed-path.cjs").applyManagedPath(root, TOOLS),
+  anyReachable,
+  TOOLS,
+  toolById,
+  CATALOG_ALIAS,
+  detectTools,
+  latestVersions,
+  latestFor,
+  wingetUpgrades,
+  runJob,
+  cancelJob,
+  activeJobs,
+  installerDir,
+  probeTool,
+  which,
+  run,
+  ping,
+  pool,
+  semver,
+  jobSucceeded,
+  wingetSourceFailure,
+  wingetHealth,
+  detectWebView2,
+  detectWindowsSandbox,
+  detectRcedit,
+  detectHuggingFace,
+  llamaCppStrategy,
+  repairedWingetSource,
+  ensureManagedPython,
+  useBundledEmbedDirect,
+  managedRuntimeChoice,
+  acceptPinnedFile,
+  diskRoom,
+  fileSha256,
+  archiveInstallCommand,
+  extractZip,
+  rustupInitCandidates,
+};

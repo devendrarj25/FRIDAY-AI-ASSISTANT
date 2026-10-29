@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Duration ms",
+  "description": "Convert milliseconds to hours, minutes, seconds, and a compact label.",
+  "category": "time",
+  "inputs": [
+    "ms"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to CONVERT a DURATION in milliseconds. Allow this?",
+  "keywords": [
+    "duration",
+    "elapsed",
+    "ms"
+  ]
+}

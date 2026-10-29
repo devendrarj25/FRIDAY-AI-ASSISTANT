@@ -1,0 +1,16 @@
+{
+  "id": "rsn-pros-cons",
+  "name": "Pros and cons matrix",
+  "summary": "Split pasted notes into pro / con / unsure columns using leading +/-/? or keywords.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Lines starting with + or the word pro go to benefits; −/con to costs. Helps a decision; it does not make it for you."
+}

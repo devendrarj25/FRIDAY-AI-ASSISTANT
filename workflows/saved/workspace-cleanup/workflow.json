@@ -1,0 +1,71 @@
+{
+  "id": "workspace-cleanup",
+  "name": "Workspace cleanup chain",
+  "version": "1.0.0",
+  "description": "Long hygiene pass: empty folders, zero-byte files, leftover extracts, desktop clutter, downloads, then a dry-run cache trim. Mutating steps stay approval-gated.",
+  "category": "files",
+  "risk": "write",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Sunday 10:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Find empty folders",
+      "kind": "agent",
+      "ref": "agents/core/empty-folder-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find zero-byte files",
+      "kind": "agent",
+      "ref": "agents/core/zero-byte-file-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find leftover extract folders",
+      "kind": "agent",
+      "ref": "agents/core/leftover-extract-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Sort desktop clutter by name",
+      "kind": "agent",
+      "ref": "agents/core/desktop-clutter-sorter",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Plan downloads cleanup",
+      "kind": "agent",
+      "ref": "agents/core/downloads-cleanup",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "List duplicate filenames",
+      "kind": "tool",
+      "ref": "tools/filesystem/find-duplicates",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Plan cache trim (approval required to write)",
+      "kind": "agent",
+      "ref": "agents/core/cache-trim",
+      "risk": "write"
+    },
+    {
+      "id": "s8",
+      "label": "Summarise the cleanup plan",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    }
+  ]
+}

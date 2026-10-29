@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Hostname info",
+  "description": "Return os.hostname(), platform, arch, and release. No network probe.",
+  "category": "health",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ HOSTNAME AND PLATFORM. Allow this?",
+  "keywords": [
+    "hostname",
+    "platform",
+    "arch"
+  ]
+}

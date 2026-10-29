@@ -1,0 +1,12 @@
+{
+  "name": "Disk space watcher",
+  "version": "1.0.0",
+  "description": "Reads free and used space for a folder's filesystem (the FRIDAY workspace or a path you name) and reports when usage crosses a threshold. Read-only; never deletes files.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": ["folder", "warnPct"],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY reports disk usage on “{folder}” is at or above the warning threshold. This is a read-only snapshot — allow to record it in the approval queue. No files will be deleted."
+}

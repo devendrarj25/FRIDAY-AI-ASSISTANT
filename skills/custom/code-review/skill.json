@@ -1,0 +1,14 @@
+{
+  "id": "code-review",
+  "name": "Code review helper",
+  "summary": "Review a source file or diff for risky patterns: hardcoded secrets, shell injection, missing error handling, long functions and TODO debt.",
+  "category": "developer",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["code", "filename"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Static review of pasted code or a diff. Runs in FRIDAY's sandbox with no network and no file access."
+}

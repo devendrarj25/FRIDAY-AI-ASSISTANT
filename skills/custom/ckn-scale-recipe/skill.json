@@ -1,0 +1,18 @@
+{
+  "id": "ckn-scale-recipe",
+  "name": "Recipe scaler",
+  "summary": "Scale ingredient amounts in 'qty unit name' lines from one yield to another.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "from",
+    "to",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Kitchen math. Taste and food safety still need your judgement."
+}

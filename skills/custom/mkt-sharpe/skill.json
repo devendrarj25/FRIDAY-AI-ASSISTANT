@@ -1,0 +1,17 @@
+{
+  "id": "mkt-sharpe",
+  "name": "Sharpe ratio from returns",
+  "summary": "Sample Sharpe = (mean excess return) / stdev of pasted period returns.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "rf"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Excess = return − rf (rf default 0). Not annualised unless your returns already are. Not a live performance GIPS report."
+}

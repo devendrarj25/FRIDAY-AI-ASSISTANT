@@ -1,0 +1,19 @@
+{
+  "name": "empty-dirs",
+  "version": "1.0.0",
+  "description": "Find directories that contain no files (subdirs may exist). Skips .git and node_modules. Read-only; does not delete.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Empty dirs",
+    "icon": "folder"
+  }
+}

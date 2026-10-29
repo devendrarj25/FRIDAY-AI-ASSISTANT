@@ -1,0 +1,17 @@
+{
+  "id": "com-ask-update",
+  "name": "Polite chase email",
+  "summary": "Draft a short, polite chase for an overdue reply with optional due context.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "item"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. FRIDAY does not send the chase email or open your inbox."
+}

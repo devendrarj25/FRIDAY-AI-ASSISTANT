@@ -1,0 +1,16 @@
+{
+  "id": "rsn-five-whys",
+  "name": "Five-whys root cause",
+  "summary": "Walk a problem statement through five why-layers, using extra pasted lines as answers if present.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "If you paste numbered answers, they fill why-1…why-5. Otherwise the skill returns the empty ladder to complete."
+}

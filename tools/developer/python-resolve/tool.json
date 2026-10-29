@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Python resolve",
+  "description": "Resolve the shared FRIDAY Python interpreter via electron/python.cjs. Honest miss if none.",
+  "category": "developer",
+  "inputs": [
+    "root"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to RESOLVE the PYTHON INTERPRETER on this machine. Allow this?",
+  "keywords": [
+    "python",
+    "interpreter",
+    "resolve"
+  ]
+}

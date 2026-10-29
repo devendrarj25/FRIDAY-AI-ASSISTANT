@@ -1,0 +1,64 @@
+{
+  "id": "gst-invoice-filename-pass",
+  "name": "GST invoice filename pass",
+  "version": "1.0.0",
+  "description": "List GST invoice filenames, invoices, CSV expense totals — a hisab draft, not a GST portal filing.",
+  "category": "bookkeeping",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "List GST invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/gst-invoice-filename-lister",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Total CSV expenses",
+      "kind": "agent",
+      "ref": "agents/core/csv-expense-total",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory spreadsheets",
+      "kind": "agent",
+      "ref": "agents/core/spreadsheet-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Preview a CSV",
+      "kind": "tool",
+      "ref": "tools/filesystem/csv-preview",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Draft a books status",
+      "kind": "skill",
+      "ref": "skills/custom/com-status-update",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the hisab draft local — not a filing",
+      "kind": "note",
+      "ref": "gst-draft",
+      "risk": "safe"
+    }
+  ]
+}

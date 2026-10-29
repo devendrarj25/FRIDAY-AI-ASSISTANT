@@ -1,0 +1,17 @@
+{
+  "name": "SSH folder permission auditor",
+  "version": "1.0.0",
+  "description": "Checks ~/.ssh (or a chosen folder) POSIX modes. Flags a directory that is group/world readable. Never dumps key bytes. Honest no-op on Windows.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY checked SSH folder modes ({count} finding(s)). Read-only. Modes will not be changed. Key bytes are not printed."
+}

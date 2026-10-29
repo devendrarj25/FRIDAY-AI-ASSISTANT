@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Word count",
+  "description": "Count characters, words, and lines in text. Node string ops only.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to COUNT WORDS in text you provide. Allow this?",
+  "keywords": [
+    "word",
+    "count",
+    "wc"
+  ]
+}

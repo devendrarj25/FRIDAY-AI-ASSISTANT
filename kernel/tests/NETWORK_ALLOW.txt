@@ -1,0 +1,4 @@
+# Public-network allow-list for kernel tests.
+# One pytest node id per line. Blank lines and # comments are ignored.
+# An empty list means no test may open a public DNS lookup or a public socket.
+# Loopback (127.0.0.1, ::1, localhost) stays available for local stubs.

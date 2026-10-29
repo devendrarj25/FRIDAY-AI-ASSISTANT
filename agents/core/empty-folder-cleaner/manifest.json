@@ -1,0 +1,18 @@
+{
+  "name": "Empty folder cleaner",
+  "version": "1.0.0",
+  "description": "Finds directories that contain no files and can remove those empty folders after you approve. Never deletes a folder that still has files.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to remove {count} empty folder(s) under \u201c{folder}\u201d. Only empty directories are listed. Review the list before allowing."
+}

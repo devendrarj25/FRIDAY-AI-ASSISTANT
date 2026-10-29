@@ -1,0 +1,24 @@
+{
+  "name": "Type text",
+  "version": "1.0.0",
+  "description": "Send real keystrokes to the focused window, or to a window you name. It can type into any window it is pointed at \u2014 including editors, terminals, browsers and login forms.",
+  "category": "automation",
+  "entry": "index.cjs",
+  "kernelTool": "input.type",
+  "inputs": [
+    "text",
+    "target",
+    "hwnd",
+    "interval"
+  ],
+  "permissions": [
+    "devices",
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "requires": [
+    "PyAutoGUI"
+  ],
+  "approvalPrompt": "FRIDAY wants to TYPE on your keyboard into the window \u201c{target}\u201d:\n\n    {text}\n\nThese are real keystrokes: they can send messages, edit files, or run commands if the target window is a terminal. Allow this?"
+}

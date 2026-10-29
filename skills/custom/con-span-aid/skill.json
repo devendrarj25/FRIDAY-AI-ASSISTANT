@@ -1,0 +1,18 @@
+{
+  "id": "con-span-aid",
+  "name": "Simple span educational aid",
+  "summary": "Compare a span/depth ratio to rough rules of thumb for timber or steel — educational only.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "span",
+    "depth",
+    "material"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Rule of thumb only (e.g. timber floor joists often cited around L/15–L/20). Never use this output as a member design."
+}

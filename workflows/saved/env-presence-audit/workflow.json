@@ -1,0 +1,50 @@
+{
+  "id": "env-presence-audit",
+  "name": "Env presence audit",
+  "version": "1.0.0",
+  "description": "Audit env files, gitignore, env-example gaps, secret filenames — keys/names only.",
+  "category": "privacy",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Audit env presence",
+      "kind": "agent",
+      "ref": "agents/core/env-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Env-example gaps",
+      "kind": "agent",
+      "ref": "agents/core/env-example-gap-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "gitignore vs env",
+      "kind": "agent",
+      "ref": "agents/core/gitignore-env-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Secret filenames",
+      "kind": "agent",
+      "ref": "agents/core/secret-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep names only",
+      "kind": "note",
+      "ref": "env-audit",
+      "risk": "safe"
+    }
+  ]
+}

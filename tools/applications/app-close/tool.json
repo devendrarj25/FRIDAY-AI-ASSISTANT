@@ -1,0 +1,18 @@
+{
+  "name": "Close a window",
+  "version": "1.0.0",
+  "description": "Ask another application's window to close. The application decides what to do with unsaved work \u2014 it may prompt, or it may lose changes.",
+  "category": "applications",
+  "entry": "index.cjs",
+  "kernelTool": "app.close",
+  "inputs": [
+    "title",
+    "hwnd"
+  ],
+  "permissions": [
+    "process.exec"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to CLOSE the window \u201c{title}\u201d. Unsaved work in that application can be lost. Allow this?"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "web.read",
+  "name": "Read a page",
+  "summary": "Open a URL and return its readable text and links through FRIDAY's built-in browser engine.",
+  "category": "web",
+  "capabilities": ["web.access"],
+  "risk": "safe",
+  "inputs": ["url", "render", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": ["web.access"],
+  "description": "Read-only page fetch. Runs as the built-in web.read skill (electron/skills.cjs → electron/browser.cjs sessionFetch). No second HTTP client. Catalog pack stays disabled until the owner enables it; the builtin remains available to agents."
+}

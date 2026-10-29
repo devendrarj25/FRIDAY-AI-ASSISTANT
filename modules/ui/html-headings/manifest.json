@@ -1,0 +1,19 @@
+{
+  "name": "html-headings",
+  "version": "1.0.0",
+  "description": "Extract h1\u2013h6 text from an HTML file with stdlib html.parser. Read-only.",
+  "category": "ui",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "HTML headings",
+    "icon": "heading"
+  }
+}

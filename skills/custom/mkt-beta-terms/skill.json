@@ -1,0 +1,16 @@
+{
+  "id": "mkt-beta-terms",
+  "name": "Beta and volatility glossary",
+  "summary": "Define beta, idiosyncratic vs systematic risk, and optionally compute sample variance of pasted returns.",
+  "category": "markets",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Glossary plus sample variance of a return list. Beta versus a benchmark is not estimated unless you paste two aligned series into mkt-return-correlation."
+}

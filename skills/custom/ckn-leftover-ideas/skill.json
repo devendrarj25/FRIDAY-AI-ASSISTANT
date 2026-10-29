@@ -1,0 +1,16 @@
+{
+  "id": "ckn-leftover-ideas",
+  "name": "Leftover idea list",
+  "summary": "Suggest reuse ideas (wrap, fried rice, soup) based on leftover keywords you type.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Keyword ideas only — not full recipes with times, temperatures, or food-safety steps."
+}

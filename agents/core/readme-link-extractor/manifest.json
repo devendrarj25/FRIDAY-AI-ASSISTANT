@@ -1,0 +1,17 @@
+{
+  "name": "README link extractor",
+  "version": "1.0.0",
+  "description": "Extracts Markdown links from README files so a workspace\u2019s documented URLs are listed without opening every file.",
+  "category": "research",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY extracted {count} README link(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

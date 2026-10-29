@@ -1,0 +1,19 @@
+{
+  "id": "con-excavation-volume",
+  "name": "Excavation volume",
+  "summary": "Cut volume with an optional bulking percent for hauled material.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "length",
+    "width",
+    "depth",
+    "bulkingPct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "bank = L×W×D; hauled = bank × (1+bulkingPct/100). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Soil classification and shoring are not inferred."
+}

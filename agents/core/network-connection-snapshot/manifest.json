@@ -1,0 +1,12 @@
+{
+  "name": "Network connection snapshot",
+  "version": "1.0.0",
+  "description": "Takes a read-only snapshot of listening/established sockets (netstat or ss). Never opens, closes, or probes a remote host.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY captured a network-connection snapshot ({count} rows). This is read-only — allow to keep it in the approval queue. No connection will be changed."
+}

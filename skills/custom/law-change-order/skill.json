@@ -1,0 +1,16 @@
+{
+  "id": "law-change-order",
+  "name": "Change-order fields",
+  "summary": "Fields for a simple change order (what changed, price, time, approval).",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

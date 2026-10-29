@@ -1,0 +1,17 @@
+{
+  "name": "Disk hotspot walker",
+  "version": "1.0.0",
+  "description": "Ranks immediate subfolders by estimated size so you can see which project or dump is eating the disk. Report only; does not delete.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY ranked {count} subfolder(s) by size under \u201c{folder}\u201d. Read-only. Allow to keep the hotspot list. Nothing will be deleted."
+}

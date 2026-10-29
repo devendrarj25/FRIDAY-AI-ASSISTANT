@@ -1,0 +1,17 @@
+{
+  "name": "License file finder",
+  "version": "1.0.0",
+  "description": "Finds LICENSE/COPYING files in a workspace so the project\u2019s license identity is visible without guessing.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} license file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "hlt-sleep-debt",
+  "name": "Sleep-debt sketch",
+  "summary": "Compare logged sleep hours against a target and show the gap for the week.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "target"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

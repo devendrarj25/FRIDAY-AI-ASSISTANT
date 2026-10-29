@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "node-modules-presence-idle",
+  "name": "node_modules presence idle",
+  "description": "On idle, check whether node_modules exists at the workspace root (walk skips inside it).",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-idle"
+  ]
+}

@@ -1,0 +1,2546 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
+import { toast } from "sonner";
+import {
+  Activity,
+  Boxes,
+  CheckCircle2,
+  Cpu,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  Gauge,
+  KeyRound,
+  Link2,
+  MonitorCog,
+  Play,
+  Plus,
+  RadioTower,
+  RefreshCw,
+  Search,
+  Square,
+  Trash2,
+  Upload,
+  X,
+  Zap,
+} from "lucide-react";
+import { AppShell } from "@/components/friday/AppShell";
+import {
+  DataTable,
+  FilterTabs,
+  HudPanel,
+  MetricBar,
+  StatTile,
+  StatusPill,
+  toneForStatus,
+} from "@/components/friday/ui";
+import {
+  modelSourceLine,
+  providerKnowledgeLine,
+  PROVIDER_KNOWLEDGE_VIEW,
+} from "@/lib/friday/knowledge-age";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  explainChoice,
+  probeOwnerMessage,
+  refreshOwnerMessage,
+  signupGuide,
+} from "@/lib/friday/free-board";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  categories,
+  checkSupport,
+  modelCatalog,
+  modelById,
+  providerById,
+  providers,
+  routingTasks,
+  supportedFormats,
+  UNSUPPORTED_CLOUD,
+  type ModelCategory,
+  type ModelSpec,
+  type ProviderId,
+  type RoutingTask,
+} from "@/lib/friday/model-catalog";
+import {
+  formatEta,
+  formatGb,
+  isJobActive,
+  jobName,
+  models as engine,
+  type Job,
+} from "@/lib/friday/models-engine";
+import { billing, type AccessTier } from "@/lib/friday/billing";
+import { useBilling } from "@/lib/friday/use-billing";
+import { desktopApi, type LocalModelStatus } from "@/lib/friday/desktop";
+import { installer, isJobActive as isInstallJobActive } from "@/lib/friday/installer-engine";
+import { useInstaller } from "@/lib/friday/use-installer";
+import { ModelsLivePanel } from "@/components/friday/ModelsLivePanel";
+import { modelRegistry } from "@/lib/friday/model-registry";
+import { useModelRegistry } from "@/lib/friday/use-model-registry";
+import { useLivePoll } from "@/lib/friday/use-live-poll";
+import { ErrorState } from "@/components/friday/PageStates";
+import { sourceCount } from "@/lib/friday/model-sources";
+import { useModels } from "@/lib/friday/use-models";
+import runnersFile from "../../config/local-runners.json";
+import {
+  MODEL_SECTIONS,
+  arrangeByFit,
+  firstPage,
+  isModelSection,
+  knowledgeLine,
+  launcherLines,
+  runnerPackage,
+  pinAgeLabel,
+  normaliseLocalAnswer,
+  onlineFit,
+  selectCloud,
+  tabsForSection,
+  modalityOf,
+  CLOUD_KINDS,
+  capabilityLine,
+  cloudKindOf,
+  countKinds,
+  MODALITY_FILTERS,
+  type FitFilter,
+  type ModelSection,
+} from "@/lib/friday/model-sections";
+
+const modelsPageClock = Date.now();
+
+export const Route = createFileRoute("/models")({
+  head: () => ({
+    meta: [
+      { title: "Models Manager — FRIDAY" },
+      {
+        name: "description",
+        content:
+          "Detect, download, import, connect, benchmark and route every local and cloud AI model FRIDAY uses — Ollama, LM Studio, llama.cpp, vLLM, OpenAI, Claude, Gemini and more.",
+      },
+      { property: "og:title", content: "Models Manager — FRIDAY" },
+      {
+        property: "og:description",
+        content:
+          "One orchestration layer for local engines and cloud providers, with live telemetry and task routing.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: ModelsPage,
+});
+
+const TABS = [
+  { key: "catalog", label: "Catalog" },
+  { key: "installed", label: "Installed" },
+  { key: "providers", label: "Providers" },
+  { key: "live", label: "Live Status" },
+  { key: "routing", label: "Routing & Modes" },
+  { key: "runtime", label: "Live Runtime" },
+  { key: "benchmarks", label: "Benchmarks" },
+  { key: "connect", label: "Import & Connect" },
+  { key: "activity", label: "Activity" },
+];
+
+const logTone = {
+  info: "text-muted-foreground",
+  ok: "text-success",
+  warn: "text-warning",
+  error: "text-destructive",
+} as const;
+
+function phaseTone(phase: Job["phase"]) {
+  if (phase === "Failed") return "destructive" as const;
+  if (phase === "Cancelled" || phase === "Queued") return "muted" as const;
+  if (phase === "Done") return "accent" as const;
+  return "primary" as const;
+}
+
+/** ComfyUI stays a separate local program. FRIDAY queues an API-format workflow and saves the images. */
+function ComfyPanel() {
+  const [line, setLine] = useState(() =>
+    desktopApi()?.comfyuiStatus
+      ? "Checking ComfyUI…"
+      : "ComfyUI runs in the desktop app on this PC.",
+  );
+  const [graph, setGraph] = useState("");
+  const [files, setFiles] = useState<string[]>([]);
+  const [running, setRunning] = useState(false);
+  const check = async () => {
+    const row = await desktopApi()?.comfyuiStatus?.();
+    if (!row) return;
+    setLine(
+      row.online
+        ? `ComfyUI ${row.version || ""} is running at ${row.endpoint}${row.device ? ` on ${row.device}` : ""}.`
+        : row.reason,
+    );
+  };
+  // ComfyUI is a separate program: follow it starting and stopping.
+  useLivePoll("models.comfyui", check, 20_000, Boolean(desktopApi()?.comfyuiStatus));
+  return (
+    <HudPanel title="ComfyUI" hint="image graphs on this PC, through its local API">
+      <p className="text-note text-muted-foreground">{line}</p>
+      <textarea
+        aria-label="ComfyUI workflow in API format"
+        value={graph}
+        onChange={(event) => setGraph(event.target.value)}
+        placeholder="Paste a workflow saved with ComfyUI's Save (API)."
+        className="hud-tile mt-2 h-24 w-full rounded-ctl border border-primary/25 bg-transparent px-2.5 py-1.5 text-meta text-foreground"
+      />
+      <div className="mt-2 flex flex-wrap gap-1">
+        <Button size="sm" variant="outline" onClick={check}>
+          Check ComfyUI
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={running || !graph.trim()}
+          onClick={() => {
+            const api = desktopApi();
+            let workflow: unknown;
+            try {
+              workflow = JSON.parse(graph);
+            } catch {
+              setLine("That is not valid JSON. Export the workflow with Save (API).");
+              return;
+            }
+            if (!api?.comfyuiRun) {
+              setLine("ComfyUI runs in the desktop app on this PC.");
+              return;
+            }
+            setRunning(true);
+            setLine("Queued in ComfyUI…");
+            void api
+              .comfyuiRun(workflow)
+              .then((row) => {
+                setFiles(row.files);
+                setLine(row.ok ? `Saved ${row.files.length} file(s).` : row.reason);
+              })
+              .finally(() => setRunning(false));
+          }}
+        >
+          {running ? "Running…" : "Run workflow"}
+        </Button>
+      </div>
+      {files.length ? (
+        <ul className="mt-2 space-y-1" aria-label="ComfyUI outputs">
+          {files.map((file) => (
+            <li key={file} className="truncate text-meta-sm text-muted-foreground" title={file}>
+              {file}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </HudPanel>
+  );
+}
+
+function LocalRunners() {
+  const [status, setStatus] = useState<LocalModelStatus | null>(null);
+  const [confirming, setConfirming] = useState<string>("");
+  const [installing, setInstalling] = useState<string>("");
+  const [starting, setStarting] = useState<string>("");
+  const refreshStatus = () => {
+    const api = desktopApi();
+    if (!api?.localModelStatus) return;
+    void api.localModelStatus().then((row) => setStatus(row));
+  };
+  useEffect(refreshStatus, []);
+  // A finished install job changes what is installed: read the runner status again.
+  const finishedInstalls = useInstaller().jobs.filter(
+    (job) => !isInstallJobActive(job.phase),
+  ).length;
+  useEffect(refreshStatus, [finishedInstalls]);
+  const [clicked, setClicked] = useState<Record<string, boolean>>({});
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [releaseNote, setReleaseNote] = useState<Record<string, string>>({});
+  const pinLine = pinAgeLabel(runnersFile.checked, modelsPageClock);
+  return (
+    <div className="grid gap-4">
+      <HudPanel title="Runners" hint="official launchers, not started from here">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {runnersFile.runners.map((runner) => {
+            const lines = launcherLines(runner, clicked[runner.id] === true);
+            return (
+              <div key={runner.id} className="hud-tile min-w-0 rounded-surface px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-medium" title={runner.name}>
+                    {runner.name}
+                  </p>
+                  <Badge variant="outline" className="label-xs">
+                    {runner.catalog === "none" ? "no catalog" : runner.catalog}
+                  </Badge>
+                </div>
+                <p
+                  className="mt-1 truncate text-meta-sm text-muted-foreground"
+                  title={lines.source}
+                >
+                  {lines.source}
+                </p>
+                <p className="truncate text-note text-muted-foreground" title={runner.catalogNote}>
+                  {runner.catalogNote}
+                </p>
+                {(() => {
+                  const live = status?.runners.find((row) => row.id === runner.id);
+                  return live ? (
+                    <p
+                      className="mt-1 text-note text-foreground/80"
+                      title={live.line}
+                      data-runner-state={live.state}
+                    >
+                      {live.line}
+                    </p>
+                  ) : null;
+                })()}
+                <p
+                  className="mt-1 text-note text-muted-foreground"
+                  title={note[runner.id] || lines.check}
+                >
+                  {note[runner.id] || lines.check}
+                </p>
+                <p
+                  className="mt-1 text-note text-muted-foreground"
+                  title={releaseNote[runner.id] || pinLine}
+                >
+                  {releaseNote[runner.id] || pinLine}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Download ${runner.name}`}
+                    onClick={() =>
+                      setNote((prev) => ({
+                        ...prev,
+                        [runner.id]: `${lines.source} · ${lines.size || "size not pinned"} · ${lines.check}`,
+                      }))
+                    }
+                  >
+                    Download
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Check ${runner.name} for a newer official release`}
+                    onClick={() => {
+                      const api = desktopApi();
+                      if (!api?.checkLauncherRelease) {
+                        setReleaseNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `${pinLine} · check for update runs in the desktop app`,
+                        }));
+                        return;
+                      }
+                      void api.checkLauncherRelease(runner.id).then((row) => {
+                        setReleaseNote((prev) => ({
+                          ...prev,
+                          [runner.id]: row?.label || pinLine,
+                        }));
+                      });
+                    }}
+                  >
+                    Check for update
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Install ${runner.name}`}
+                    title={launcherLines(runner, true).check}
+                    onClick={() => {
+                      setClicked((prev) => ({ ...prev, [runner.id]: true }));
+                      const pkg = runnerPackage(runner.id);
+                      if (!pkg) {
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `${runner.name} installs from its official page: ${runner.officialPage}`,
+                        }));
+                        return;
+                      }
+                      if (installing !== runner.id) {
+                        setInstalling(runner.id);
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `FRIDAY will download ${runner.name} from its official source and install it through the Install Manager. Click Install again to allow it.`,
+                        }));
+                        return;
+                      }
+                      setInstalling("");
+                      const job = installer.enqueue(pkg, "install");
+                      setNote((prev) => ({
+                        ...prev,
+                        [runner.id]: job
+                          ? `Installing ${runner.name}. Progress is in the Install Manager; the status above updates when it finishes.`
+                          : `${runner.name} could not be queued.`,
+                      }));
+                    }}
+                  >
+                    {installing === runner.id ? "Confirm install" : "Install"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Start ${runner.name}`}
+                    disabled={starting === runner.id}
+                    onClick={() => {
+                      const api = desktopApi();
+                      if (!api?.startModelEngine) {
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: "Start runs in the desktop app on this PC.",
+                        }));
+                        return;
+                      }
+                      if (confirming !== runner.id) {
+                        setConfirming(runner.id);
+                        setNote((prev) => ({
+                          ...prev,
+                          [runner.id]: `FRIDAY will launch ${runner.name} on this PC. Click Start again to allow it.`,
+                        }));
+                        return;
+                      }
+                      setConfirming("");
+                      setStarting(runner.id);
+                      setNote((prev) => ({ ...prev, [runner.id]: `Starting ${runner.name}…` }));
+                      void api
+                        .startModelEngine(runner.id)
+                        .then((result) =>
+                          setNote((prev) => ({
+                            ...prev,
+                            [runner.id]: result.ok
+                              ? `${runner.name} is running. Its models are now routable.`
+                              : `failed: ${result.error || "it did not start"}`,
+                          })),
+                        )
+                        .finally(() => {
+                          setStarting("");
+                          refreshStatus();
+                        });
+                    }}
+                  >
+                    {confirming === runner.id ? "Confirm start" : "Start"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Stop ${runner.name}`}
+                    onClick={() => setNote((prev) => ({ ...prev, [runner.id]: runner.stopHint }))}
+                  >
+                    Stop
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Open ${runner.name}`}
+                    onClick={() => {
+                      void desktopApi()?.openExternalUrl?.(runner.officialPage);
+                    }}
+                  >
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Uninstall help for ${runner.name}`}
+                    onClick={() =>
+                      setNote((prev) => ({ ...prev, [runner.id]: runner.uninstallHint }))
+                    }
+                  >
+                    Uninstall help
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {status?.models.length ? (
+          <ul className="mt-3 space-y-1" aria-label="Local model status">
+            {status.models.map((row) => (
+              <li
+                key={row.id}
+                className="text-note text-muted-foreground"
+                data-model-state={row.state}
+              >
+                {row.line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </HudPanel>
+      <ComfyPanel />
+      <HudPanel title="Curated library" hint="official page plus a manual import">
+        <ul className="space-y-1.5">
+          {runnersFile.curated.map((row) => (
+            <li key={row.id} className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm" title={row.name}>
+                {row.name}
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Open ${row.name}`}
+                onClick={() => {
+                  void desktopApi()?.openExternalUrl?.(row.officialPage);
+                }}
+              >
+                Official page
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </HudPanel>
+    </div>
+  );
+}
+
+function CloudSelection({
+  models,
+}: {
+  models: {
+    id: string;
+    type?: string;
+    access?: string;
+    displayName?: string;
+    modelName?: string;
+    capabilities?: Record<string, unknown>;
+  }[];
+}) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [kindFilter, setKindFilter] = useState("all");
+  const [paidOn, setPaidOn] = useState(false);
+  const [note, setNote] = useState(
+    "No selection saved: every connected model your cost policy allows can be used.",
+  );
+  // Show what is really saved, so Save never replaces it with an empty page.
+  useEffect(() => {
+    let live = true;
+    void desktopApi()
+      ?.modelAllowlist?.()
+      .then((saved) => {
+        if (!live || !saved?.saved) return;
+        setPicked(saved.ids);
+        setPaidOn(saved.paidEnabled);
+        setNote("Only the selected models are ever used.");
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const [shown, setShown] = useState(24);
+  const cloud = models
+    .filter((model) => model.type === "cloud")
+    .filter((model) => kindFilter === "all" || cloudKindOf(model.capabilities) === kindFilter);
+  const kinds = countKinds(models);
+  const visible = cloud.slice(0, shown);
+  const apply = (mode: "free" | "paid" | "both") => {
+    const next = selectCloud(models, mode, paidOn);
+    setPicked(next.ids);
+    setNote(next.refused || "Only the selected models are ever used.");
+  };
+  return (
+    <HudPanel title="Cloud models" hint="selected models are the allowlist">
+      <p className="mb-2 text-note text-muted-foreground">{note}</p>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label className="text-note text-muted-foreground" htmlFor="cloud-kind">
+          Show
+        </label>
+        <select
+          id="cloud-kind"
+          className="rounded-surface border border-input bg-background px-2 py-1 text-sm"
+          value={kindFilter}
+          onChange={(event) => {
+            setKindFilter(event.target.value);
+            setShown(24);
+          }}
+        >
+          <option value="all">All kinds ({[...kinds.values()].reduce((a, b) => a + b, 0)})</option>
+          {CLOUD_KINDS.filter((kind) => kinds.get(kind)).map((kind) => (
+            <option key={kind} value={kind}>
+              {kind} ({kinds.get(kind)})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1">
+        <Button size="sm" variant="outline" onClick={() => apply("free")}>
+          Select all free
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => apply("paid")}>
+          Select all paid
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => apply("both")}>
+          Select both
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label="Confirm paid models"
+          onClick={() => {
+            setPaidOn(true);
+            setNote("Paid is on for the models you select. A budget cap still applies.");
+          }}
+        >
+          Confirm paid
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void desktopApi()
+              ?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn })
+              .then((saved) =>
+                setNote(
+                  saved.cleared
+                    ? "Nothing selected, so no restriction is saved: every connected model your cost policy allows can be used."
+                    : paidOn
+                      ? "Saved. Paid models you selected still need a budget."
+                      : "Saved. Only the selected models are ever used.",
+                ),
+              )
+              .catch((err: Error) => setNote(`Not saved — ${err.message}`));
+          }}
+        >
+          Save selection
+        </Button>
+      </div>
+      {cloud.length === 0 ? (
+        <p className="py-4 text-center text-sm text-muted-foreground">
+          No cloud models detected yet. Connect a key, then refresh.
+        </p>
+      ) : (
+        <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+          {visible.map((model) => {
+            const label = model.displayName || model.modelName || model.id;
+            return (
+              <li key={model.id} className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm" title={label}>
+                    {label}
+                  </p>
+                  <p
+                    className="truncate text-meta-sm text-muted-foreground"
+                    title={capabilityLine(model.capabilities)}
+                  >
+                    {[
+                      model.access || "unknown",
+                      cloudKindOf(model.capabilities),
+                      capabilityLine(model.capabilities),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <Switch
+                  checked={picked.includes(model.id)}
+                  onCheckedChange={() =>
+                    setPicked((prev) =>
+                      prev.includes(model.id)
+                        ? prev.filter((id) => id !== model.id)
+                        : [...prev, model.id],
+                    )
+                  }
+                  aria-label={`Use ${label}`}
+                  title={
+                    model.access === "paid" && !paidOn
+                      ? "Confirm paid before this model is used"
+                      : label
+                  }
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {cloud.length > shown ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mt-2"
+          onClick={() => setShown((count) => count + 24)}
+        >
+          More
+        </Button>
+      ) : null}
+    </HudPanel>
+  );
+}
+
+function ModelsPage() {
+  const state = useModels();
+  const registry = useModelRegistry();
+  const [section, setSection] = useState<ModelSection>("local");
+  const [tab, setTab] = useState("catalog");
+  const [category, setCategory] = useState<"all" | ModelCategory>("all");
+  const [kind, setKind] = useState<"all" | "local" | "cloud">("all");
+  const [modality, setModality] = useState("all");
+  const [query, setQuery] = useState("");
+  // Local models that cannot run on this PC stay out of the list until asked for.
+  const [fit, setFit] = useState<FitFilter>("runs");
+  // Filtering a long list follows typing at low priority, so the field never lags.
+  const deferredQuery = useDeferredValue(query);
+  const [catalogPages, setCatalogPages] = useState(1);
+  const [catalogStamp, setCatalogStamp] = useState("");
+  const [foundPages, setFoundPages] = useState(1);
+  const [foundStamp, setFoundStamp] = useState("");
+  const [routeDraft, setRouteDraft] = useState("");
+  const [routePreview, setRoutePreview] = useState("No dry run yet.");
+  const [notified, setNotified] = useState<string[]>([]);
+  const [catalogueNote, setCatalogueNote] = useState("Catalogue status is not loaded yet.");
+  const [catalogueChanges, setCatalogueChanges] = useState<string[]>([]);
+  const [knowledgeLines, setKnowledgeLines] = useState<string[]>([]);
+  const loadKnowledge = () => {
+    const status = desktopApi()?.knowledgeStatus;
+    if (!status) return;
+    void status()
+      .then((rows) => setKnowledgeLines(Array.isArray(rows) ? rows.map(knowledgeLine) : []))
+      .catch(() => setKnowledgeLines([]));
+  };
+  useEffect(loadKnowledge, []);
+
+  useEffect(() => {
+    const status = desktopApi()?.catalogueStatus;
+    if (!status) return;
+    void status()
+      .then((row) => {
+        if (!row) return;
+        setCatalogueNote(row.summary || "Catalogue status is unavailable in this window.");
+        setCatalogueChanges(Array.isArray(row.changes) ? row.changes : []);
+      })
+      .catch(() => setCatalogueNote("Catalogue status is unavailable in this window."));
+  }, []);
+
+  useEffect(() => {
+    const fresh = state.jobs.filter((j) => !isJobActive(j.phase) && !notified.includes(j.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((j) => {
+      const name = jobName(j);
+      if (j.phase === "Done") toast.success(`${name} — ${j.detail}`);
+      else if (j.phase === "Failed") toast.error(`${name} failed`, { description: j.error });
+      else toast(`${name} cancelled`);
+    });
+    const ids = fresh.map((j) => j.id);
+    queueMicrotask(() => setNotified((prev) => [...prev, ...ids].slice(-60)));
+  }, [state.jobs, notified]);
+
+  const statuses = useMemo(() => {
+    // statusOf reads the shared registry; these revisions keep it synchronized.
+    void state.installed;
+    void state.providerState;
+    return new Map(modelCatalog.map((m) => [m.id, engine.statusOf(m.id)] as const));
+  }, [state.installed, state.providerState]);
+
+  const { filtered, tooBig } = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase();
+    const matching = modelCatalog.filter((m) => {
+      if (kind !== "all" && m.kind !== kind) return false;
+      if (category !== "all" && m.category !== category) return false;
+      if (modality !== "all" && modalityOf(m).key !== modality) return false;
+      if (tab === "installed" && statuses.get(m.id) === "Not installed") return false;
+      if (tab === "installed" && m.kind === "cloud" && statuses.get(m.id) === "Available")
+        return false;
+      if (!q) return true;
+      return `${m.name} ${m.provider} ${m.category} ${m.params} ${m.format} ${m.license}`
+        .toLowerCase()
+        .includes(q);
+    });
+    // What is installed always stays; the rest is ordered by how well it runs here.
+    const arranged = arrangeByFit(matching, (m) => checkSupport(m, state.system).level, {
+      fit: tab === "installed" ? "all" : fit,
+      measured: Boolean(state.system.probedAt),
+      installed: (m) => Boolean(state.installed[m.id]) && m.kind === "local",
+    });
+    return { filtered: arranged.shown, tooBig: arranged.hidden };
+  }, [deferredQuery, kind, category, modality, tab, statuses, fit, state.system, state.installed]);
+
+  const catalogKey = `${query}\u001f${kind}\u001f${category}\u001f${modality}\u001f${tab}\u001f${fit}`;
+  const foundKey = `${state.discoveryAt ?? 0}:${state.discovered.length}`;
+  const catalogWindow = firstPage(filtered, (catalogStamp === catalogKey ? catalogPages : 1) * 40);
+  const foundArranged = useMemo(
+    () =>
+      arrangeByFit(state.discovered, (d) => onlineFit(d, state.system).level, {
+        fit,
+        measured: Boolean(state.system.probedAt),
+        installed: (d) => Boolean(d.installedLocally),
+      }),
+    [state.discovered, state.system, fit],
+  );
+  const foundWindow = firstPage(
+    foundArranged.shown,
+    (foundStamp === foundKey ? foundPages : 1) * 40,
+  );
+
+  // Nothing in the catalogue matches what was typed: look online without another click.
+  useEffect(() => {
+    const text = deferredQuery.trim();
+    if (text.length < 3 || filtered.length > 0 || state.discovering) return;
+    if (!desktopApi()?.searchModels) return;
+    const timer = window.setTimeout(() => void engine.discover(text), 700);
+    return () => window.clearTimeout(timer);
+  }, [deferredQuery, filtered.length, state.discovering]);
+
+  /**
+   * What this exact PC can run well today — measured against the detected
+   * VRAM/RAM — and what it could run with a bigger card. Both lists only
+   * contain models FRIDAY has a real download source for.
+   */
+  const { recommended, stretch } = useMemo(() => {
+    const local = modelCatalog.filter((m) => m.kind === "local" && sourceCount(m.id) > 0);
+    const fits = local
+      .filter((m) => {
+        const level = checkSupport(m, state.system).level;
+        return level === "Supported" || level === "Optimal";
+      })
+      .sort((a, b) => b.sizeGb - a.sizeGb)
+      .slice(0, 6);
+    const bigger = local
+      .filter((m) => !fits.includes(m) && m.vramGb > state.system.vramGb)
+      .sort((a, b) => a.vramGb - b.vramGb)
+      .slice(0, 5);
+    return { recommended: fits, stretch: bigger };
+  }, [state.system]);
+
+  const counts = useMemo(() => {
+    const values = [...statuses.values()];
+    const local = modelCatalog.filter((m) => m.kind === "local" && state.installed[m.id]);
+    return {
+      total: modelCatalog.length,
+      installed: local.length,
+      updates: values.filter((v) => v === "Update available").length,
+      cloud: providers.filter((p) => p.kind === "cloud" && state.providerState[p.id]?.apiKey)
+        .length,
+      diskGb: local.reduce((sum, m) => sum + m.sizeGb, 0),
+      running: Object.values(state.runtimes).filter((r) => r.state === "Running").length,
+    };
+  }, [statuses, state.installed, state.providerState, state.runtimes]);
+
+  const activeJobs = state.jobs.filter((j) => isJobActive(j.phase));
+  const vramUsed = Object.values(state.runtimes).reduce((s, r) => s + r.vramGb, 0);
+  const totalTps = Object.values(state.runtimes).reduce((s, r) => s + r.tokensPerSec, 0);
+
+  return (
+    <AppShell
+      title="Models Manager"
+      subtitle="Universal orchestration for local engines and cloud providers"
+      live={{ at: registry.at || null, everyMs: 120_000 }}
+      actions={
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => engine.probeSystem()}>
+            <MonitorCog className="size-4" />
+            Check system
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => engine.scan()}
+            disabled={state.scanning}
+          >
+            <RefreshCw className={state.scanning ? "size-4 animate-spin" : "size-4"} />
+            {state.scanning ? `Scanning ${Math.round(state.scanProgress)}%` : "Detect models"}
+          </Button>
+          <Button size="sm" onClick={() => engine.updateAll()}>
+            <Download className="size-4" />
+            Update all
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {registry.error ? (
+          <ErrorState
+            title="The model list could not refresh"
+            error={registry.error}
+            onRetry={() => modelRegistry.refresh(true)}
+          />
+        ) : null}
+        {/* -------------------------------------------------------- overview */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <StatTile
+            icon={<Boxes className="size-3.5" />}
+            label="Catalog"
+            value={counts.total}
+            state={`${providers.length} providers`}
+          />
+          <StatTile
+            icon={<CheckCircle2 className="size-3.5" />}
+            label="Installed"
+            value={counts.installed}
+            state={formatGb(counts.diskGb)}
+            tone="accent"
+          />
+          <StatTile
+            icon={<Download className="size-3.5" />}
+            label="Updates"
+            value={counts.updates}
+            state={counts.updates ? "action needed" : "up to date"}
+            tone={counts.updates ? "warning" : "accent"}
+          />
+          <StatTile
+            icon={<KeyRound className="size-3.5" />}
+            label="Cloud keys"
+            value={counts.cloud}
+            state="connected"
+            tone="magenta"
+          />
+          <StatTile
+            icon={<Zap className="size-3.5" />}
+            label="Running"
+            value={counts.running}
+            state={`${totalTps.toFixed(0)} tok/s`}
+            tone="accent"
+          />
+          <StatTile
+            icon={<Cpu className="size-3.5" />}
+            label="VRAM"
+            value={`${vramUsed.toFixed(1)}G`}
+            state={`of ${state.system.vramGb || "—"} GB`}
+            tone="warning"
+          />
+        </div>
+
+        {/* ------------------------------------------------------ active jobs */}
+        {activeJobs.length > 0 ? (
+          <HudPanel title="Transfer queue" hint={`${activeJobs.length} active`}>
+            <div className="space-y-3">
+              {activeJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <StatusPill label={job.phase} tone={phaseTone(job.phase)} />
+                      <span className="truncate text-sm">{jobName(job)}</span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${job.progress}%`, boxShadow: "0 0 8px currentColor" }}
+                      />
+                    </div>
+                    <p className="mt-1 truncate text-meta-sm text-muted-foreground">{job.detail}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Pause keeps the partial file"
+                    aria-label={`Pause ${job.modelId}`}
+                    onClick={() => {
+                      void desktopApi()?.transferModel?.(job.id, "pause");
+                    }}
+                  >
+                    Pause
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Cancel download"
+                    title="Cancel download"
+                    onClick={() => engine.cancel(job.id)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </HudPanel>
+        ) : null}
+
+        <FilterTabs
+          tabs={MODEL_SECTIONS.map((item) => ({ key: item.key, label: item.label }))}
+          value={section}
+          onChange={(key) => {
+            if (!isModelSection(key)) return;
+            setSection(key);
+            const next = tabsForSection(key);
+            if (!next.includes(tab)) setTab(next[0] || "catalog");
+          }}
+        />
+        {section === "local" ? (
+          <>
+            <HudPanel
+              title="System support"
+              hint={
+                state.system.probedAt
+                  ? `probed ${new Date(state.system.probedAt).toLocaleTimeString()}`
+                  : "not probed"
+              }
+              actions={
+                <StatusPill
+                  label={state.bridge === "desktop" ? "kernel bridge" : "preview mode"}
+                  tone={state.bridge === "desktop" ? "accent" : "muted"}
+                />
+              }
+            >
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["Operating system", state.system.os],
+                    [
+                      "CPU",
+                      state.system.probedAt
+                        ? `${state.system.cpu} · ${state.system.cores} threads`
+                        : "unknown",
+                    ],
+                    [
+                      "System RAM",
+                      state.system.probedAt && state.system.ramGb
+                        ? `${state.system.ramGb} GB`
+                        : "unknown",
+                    ],
+                    ["GPU", state.system.gpu],
+                    [
+                      "VRAM",
+                      state.system.probedAt
+                        ? state.system.vramGb
+                          ? `${state.system.vramGb} GB`
+                          : "unknown"
+                        : "unknown",
+                    ],
+                    ["Accelerator", state.system.cuda ?? "unknown"],
+                    [
+                      "Free disk",
+                      state.system.probedAt && state.system.diskFreeGb
+                        ? `${state.system.diskFreeGb} GB`
+                        : "unknown",
+                    ],
+                    ["Execution device", state.device],
+                  ].map(([k, v]) => (
+                    <div key={k} className="hud-tile rounded-surface px-3 py-2">
+                      <p className="label-xs text-muted-foreground">{k}</p>
+                      <p className="truncate text-meta text-foreground">{v}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-3">
+                  <MetricBar
+                    label="VRAM in use"
+                    value={
+                      state.system.vramGb
+                        ? Math.min(100, Math.round((vramUsed / state.system.vramGb) * 100))
+                        : 0
+                    }
+                    detail={`${vramUsed.toFixed(1)} GB resident across ${counts.running} loaded model(s)`}
+                    tone="warning"
+                  />
+                  <MetricBar
+                    label="Model storage"
+                    value={
+                      state.system.diskFreeGb > 0
+                        ? Math.min(100, Math.round((counts.diskGb / state.system.diskFreeGb) * 100))
+                        : 0
+                    }
+                    detail={
+                      state.system.diskFreeGb > 0
+                        ? `${formatGb(counts.diskGb)} of ${state.system.diskFreeGb} GB free disk`
+                        : "free disk unknown"
+                    }
+                    tone="primary"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="label-xs text-muted-foreground">Device</span>
+                    <FilterTabs
+                      tabs={[
+                        { key: "auto", label: "Auto" },
+                        { key: "gpu", label: "GPU" },
+                        { key: "cpu", label: "CPU" },
+                      ]}
+                      value={state.device}
+                      onChange={(k) => engine.setDevice(k as typeof state.device)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {supportedFormats.map((f) => (
+                      <Badge key={f.format} variant="outline" className="label-xs" title={f.note}>
+                        {f.format}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </HudPanel>
+
+            <LocalRunners />
+          </>
+        ) : null}
+        {section === "cloud" ? (
+          <>
+            <HudPanel
+              title="Free models"
+              actions={
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => toast(refreshOwnerMessage())}>
+                    Refresh free list
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => toast(probeOwnerMessage())}>
+                    Test my free models
+                  </Button>
+                </div>
+              }
+            >
+              <p className="text-xs text-muted-foreground">{explainChoice("chat")}</p>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {signupGuide().map((row) => (
+                  <li key={row.id}>
+                    <a className="underline" href={row.href} target="_blank" rel="noreferrer">
+                      {row.label}
+                    </a>
+                    <span> — {row.dataUse}</span>
+                  </li>
+                ))}
+              </ul>
+            </HudPanel>
+            <HudPanel
+              title="Catalogue"
+              actions={
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void (async () => {
+                        const api = desktopApi();
+                        const refreshed = await api?.catalogueRefresh?.();
+                        const row = await api?.catalogueStatus?.();
+                        const summary =
+                          row?.summary || refreshed?.plan?.reason || "Catalogue refresh requested";
+                        const knowledge = refreshed?.knowledge;
+                        const pricing = knowledge?.skipped
+                          ? ` Pricing sources kept as cached (${knowledge.skipped}).`
+                          : knowledge?.applied?.length
+                            ? ` Pricing re-read for ${knowledge.applied.join(", ")}.`
+                            : knowledge?.kept?.length
+                              ? ` Pricing sources kept as cached (${knowledge.kept[0]?.reason || "no change"}).`
+                              : "";
+                        setCatalogueNote(`${summary}${pricing}`);
+                        setCatalogueChanges(Array.isArray(row?.changes) ? row.changes : []);
+                        loadKnowledge();
+                        toast(`${summary}${pricing}`);
+                      })();
+                    }}
+                  >
+                    Refresh now
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void desktopApi()
+                        ?.verifyCapabilities?.("")
+                        .then((row) => {
+                          toast(row?.reason || "Capability checks stay on a free-verified model.");
+                        });
+                    }}
+                  >
+                    Verify capabilities
+                  </Button>
+                </div>
+              }
+            >
+              <p className="text-xs text-muted-foreground">{catalogueNote}</p>
+              {knowledgeLines.length > 0 ? (
+                <ul
+                  className="mt-2 space-y-1 text-xs text-muted-foreground"
+                  aria-label="Pricing evidence"
+                >
+                  {knowledgeLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {catalogueChanges.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {catalogueChanges.slice(0, 8).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </HudPanel>
+            <CloudSelection models={registry.models} />
+          </>
+        ) : null}
+
+        <FilterTabs
+          tabs={TABS.filter((item) => tabsForSection(section).includes(item.key))}
+          value={tab}
+          onChange={setTab}
+        />
+
+        {/* --------------------------------------------------------- catalog */}
+        {(tab === "catalog" || tab === "installed") && (
+          <HudPanel
+            title={tab === "installed" ? "Installed models" : "Master catalog"}
+            hint={`${filtered.length} of ${modelCatalog.length}${
+              tooBig ? ` · ${tooBig} too big for this PC hidden` : ""
+            }`}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-40 flex-1 sm:flex-none">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void engine.discover(query);
+                    }}
+                    placeholder="Search models… (Enter searches online)"
+                    aria-label="Search models"
+                    className="h-8 w-full pl-7 font-mono text-xs sm:w-72"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={state.discovering}
+                  onClick={() => engine.discover(query)}
+                >
+                  {state.discovering ? "Searching online…" : "Search online"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={state.discovering}
+                  onClick={() => engine.discover(query, "latest")}
+                  title="Newest releases first, straight from the public index"
+                >
+                  Latest
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={state.discovering}
+                  onClick={() => engine.aiRefreshCatalog(query)}
+                  title="Let FRIDAY's cloud model suggest current models — each one verified before it is listed"
+                >
+                  <Zap className="size-3.5" />
+                  AI refresh
+                </Button>
+              </div>
+            }
+          >
+            {state.discovered.length > 0 || state.discoveryError ? (
+              <div className="mb-3 rounded-surface border border-border/60 bg-muted/20 p-2">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="label-xs text-muted-foreground">
+                    {state.discoveryError
+                      ? state.discoveryError
+                      : `${foundArranged.shown.length} models found online${
+                          foundArranged.hidden
+                            ? ` (${foundArranged.hidden} too big for this PC hidden)`
+                            : ""
+                        }${
+                          state.discoveryAt
+                            ? ` · ${new Date(state.discoveryAt).toLocaleTimeString()}`
+                            : ""
+                        }`}
+                  </span>
+                  {state.discovered.length ? (
+                    <Button size="sm" variant="ghost" onClick={() => engine.clearDiscovery()}>
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="max-h-56 space-y-1 overflow-y-auto">
+                  {foundWindow.rows.map((d) => (
+                    <div
+                      key={d.id}
+                      className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{d.name}</div>
+                        <div className="truncate text-meta text-muted-foreground">
+                          {d.vendor} · {d.format} · {d.params} · {d.source}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span title={onlineFit(d, state.system).reason}>
+                          <StatusPill
+                            label={onlineFit(d, state.system).level}
+                            tone={onlineFit(d, state.system).tone}
+                          />
+                        </span>
+                        <Badge variant="outline" className="label-xs">
+                          {d.category}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => engine.installDiscovered(d)}
+                        >
+                          {d.installedLocally ? "Refresh" : "Install"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {foundWindow.more ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setFoundStamp(foundKey);
+                        setFoundPages((pages) => (foundStamp === foundKey ? pages + 1 : 2));
+                      }}
+                    >
+                      Show more
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {tab === "catalog" && (recommended.length > 0 || stretch.length > 0) ? (
+              <div className="mb-3 grid gap-2 lg:grid-cols-2">
+                <div className="rounded-surface border border-border/60 bg-muted/20 p-2">
+                  <p className="label-xs mb-1.5 text-muted-foreground">
+                    Recommended for this PC · {state.system.gpu || "CPU"} · {state.system.vramGb} GB
+                    VRAM · {state.system.ramGb} GB RAM
+                  </p>
+                  <div className="space-y-1">
+                    {recommended.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-muted/40"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{m.name}</div>
+                          <div className="truncate text-meta-sm text-muted-foreground">
+                            {m.category} · {formatGb(m.sizeGb)} · {sourceCount(m.id)} source(s)
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={Boolean(state.installed[m.id])}
+                          onClick={() => engine.install(m.id)}
+                        >
+                          {state.installed[m.id] ? "Installed" : "Download"}
+                        </Button>
+                      </div>
+                    ))}
+                    {recommended.length === 0 ? (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">
+                        No catalog model fits this machine yet — run a hardware scan.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="rounded-surface border border-border/60 bg-muted/20 p-2">
+                  <p className="label-xs mb-1.5 text-muted-foreground">
+                    Bigger rigs · downloadable, needs more VRAM/RAM
+                  </p>
+                  <div className="space-y-1">
+                    {stretch.map((m) => (
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 rounded px-2 py-1 text-xs hover:bg-muted/40"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{m.name}</div>
+                          <div className="truncate text-meta-sm text-muted-foreground">
+                            {m.category} · {formatGb(m.sizeGb)} · wants {m.vramGb} GB VRAM
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Install ${m.name}`}
+                          title="Install"
+                          onClick={() => engine.install(m.id)}
+                        >
+                          <Download className="size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <div className="mb-3 space-y-2">
+              <FilterTabs
+                tabs={[
+                  { key: "runs", label: "Runs on this PC" },
+                  { key: "all", label: "Everything" },
+                ]}
+                value={fit}
+                onChange={(k) => setFit(k as FitFilter)}
+              />
+              <FilterTabs
+                tabs={[
+                  { key: "all", label: "All sources" },
+                  { key: "local", label: "Local" },
+                  { key: "cloud", label: "Cloud" },
+                ]}
+                value={kind}
+                onChange={(k) => setKind(k as typeof kind)}
+              />
+              <FilterTabs
+                tabs={[
+                  { key: "all", label: "All types" },
+                  ...categories.map((c) => ({ key: c, label: c })),
+                ]}
+                value={category}
+                onChange={(k) => setCategory(k as typeof category)}
+              />
+              <FilterTabs
+                tabs={[
+                  { key: "all", label: "Any input → output" },
+                  ...MODALITY_FILTERS.map((f) => ({ key: f.key, label: f.label })),
+                ]}
+                value={modality}
+                onChange={setModality}
+              />
+            </div>
+
+            <DataTable
+              columns={["Model", "Provider", "Type", "Size / Ctx", "Support", "Status", "Actions"]}
+              rows={catalogWindow.rows.map((m) => {
+                const status = statuses.get(m.id)!;
+                const support = checkSupport(m, state.system);
+                const runtime = state.runtimes[m.id];
+                const busy = state.jobs.some((j) => j.modelId === m.id && isJobActive(j.phase));
+                return [
+                  <div key="n" className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-medium">{m.name}</span>
+                      {m.caps.includes("vision") ? (
+                        <Badge variant="outline" className="label-xs">
+                          vision
+                        </Badge>
+                      ) : null}
+                      {m.caps.includes("tools") ? (
+                        <Badge variant="outline" className="label-xs">
+                          tools
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="truncate text-meta-sm text-muted-foreground">
+                      {m.params} · {m.quant} · {m.format} · {m.license}
+                      {m.kind === "local" ? ` · ${sourceCount(m.id)} download source(s)` : ""}
+                    </p>
+                    <p className="truncate text-note-sm text-muted-foreground">
+                      {modelSourceLine(m, modelsPageClock)}
+                    </p>
+                  </div>,
+                  <span key="p" className="text-meta text-muted-foreground">
+                    {providerById.get(m.provider)?.name}
+                  </span>,
+                  <span key="c" className="text-meta text-muted-foreground">
+                    {m.category}
+                    <span className="block text-meta-sm" title="input → output">
+                      {modalityOf(m).label}
+                    </span>
+                  </span>,
+                  <span key="s" className="text-meta text-muted-foreground">
+                    {m.kind === "cloud" ? "hosted" : formatGb(m.sizeGb)} · {m.ctxK}k
+                  </span>,
+                  <span key="sup" title={support.reason}>
+                    <StatusPill label={support.level} tone={support.tone} />
+                  </span>,
+                  <span key="st" className="flex items-center gap-1.5">
+                    <StatusPill
+                      label={status}
+                      tone={toneForStatus(
+                        status === "Installed" || status === "Connected" ? "ready" : status,
+                      )}
+                    />
+                    {runtime ? (
+                      <StatusPill
+                        label={runtime.state}
+                        tone={runtime.state === "Running" ? "accent" : "primary"}
+                      />
+                    ) : null}
+                  </span>,
+                  <div key="a" className="flex items-center gap-1">
+                    {m.kind === "local" && status !== "Installed" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => engine.install(m.id)}
+                      >
+                        <Download className="size-3.5" />
+                        {status === "Update available" ? "Update" : "Download"}
+                      </Button>
+                    ) : null}
+                    {runtime ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => engine.unload(m.id)}
+                        title="Unload"
+                      >
+                        <Square className="size-3.5" />
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => engine.load(m.id)}
+                        title="Load"
+                      >
+                        <Play className="size-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => engine.benchmark(m.id)}
+                      title="Benchmark"
+                    >
+                      <Gauge className="size-3.5" />
+                    </Button>
+                    {m.kind === "local" && state.installed[m.id] ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => engine.remove(m.id)}
+                        title="Delete"
+                      >
+                        <Trash2 className="size-3.5 text-destructive" />
+                      </Button>
+                    ) : null}
+                    <a
+                      href={m.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="grid size-8 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
+                      title="Official source"
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </div>,
+                ];
+              })}
+            />
+            {catalogWindow.more ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-2"
+                onClick={() => {
+                  setCatalogStamp(catalogKey);
+                  setCatalogPages((pages) => (catalogStamp === catalogKey ? pages + 1 : 2));
+                }}
+              >
+                Show more
+              </Button>
+            ) : null}
+          </HudPanel>
+        )}
+
+        {/* -------------------------------------------------------- providers */}
+        {tab === "providers" && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="lg:col-span-2">
+              <BillingPanel />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
+              <Button size="sm" variant="outline" onClick={() => engine.syncKnowledge()}>
+                <RefreshCw className="size-4" />
+                Sync now
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => engine.healProviders()}>
+                Heal
+              </Button>
+              {registry.hint ? (
+                <p className="text-meta-sm text-muted-foreground">{registry.hint}</p>
+              ) : null}
+            </div>
+            {(["local", "cloud"] as const).map((group) => (
+              <HudPanel
+                key={group}
+                title={group === "local" ? "Local providers" : "Cloud providers"}
+                hint={`${providers.filter((p) => p.kind === group).length} supported`}
+              >
+                <ul className="space-y-2.5">
+                  {providers
+                    .filter((p) => p.kind === group)
+                    .map((p) => {
+                      const ps = state.providerState[p.id]!;
+                      return (
+                        <li key={p.id} className="hud-tile rounded-surface px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium">{p.name}</span>
+                                <StatusPill
+                                  label={
+                                    ps.checking ? "Checking…" : ps.online ? "Online" : "Offline"
+                                  }
+                                  tone={ps.checking ? "warning" : ps.online ? "accent" : "muted"}
+                                />
+                                {ps.apiKey ? <StatusPill label="key set" tone="magenta" /> : null}
+                              </div>
+                              <p className="truncate text-meta-sm text-muted-foreground">
+                                {ps.endpoint}
+                              </p>
+                              <p className="truncate text-meta-sm text-muted-foreground">
+                                {p.detect} · {ps.models} model(s) ·{" "}
+                                {ps.latencyMs != null ? `${ps.latencyMs} ms` : ps.error}
+                              </p>
+                              <p className="truncate text-note-sm text-muted-foreground">
+                                {providerKnowledgeLine(
+                                  PROVIDER_KNOWLEDGE_VIEW[p.id],
+                                  modelsPageClock,
+                                )}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => engine.testProvider(p.id)}
+                                title="Health check"
+                              >
+                                <RadioTower className="size-3.5" />
+                              </Button>
+                              {p.docs ? (
+                                <a
+                                  href={p.docs}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="grid size-8 place-items-center rounded-ctl text-muted-foreground hover:text-primary"
+                                >
+                                  <ExternalLink className="size-3.5" />
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                          <p className="mt-1 text-note text-muted-foreground">{p.notes}</p>
+                          <ProviderUse
+                            providerId={p.id}
+                            name={p.name}
+                            checking={Boolean(ps.checking)}
+                            connected={Boolean(ps.apiKey) || (group === "local" && ps.online)}
+                            found={ps.models}
+                            models={registry.models}
+                            cloud={group === "cloud"}
+                          />
+                        </li>
+                      );
+                    })}
+                </ul>
+              </HudPanel>
+            ))}
+          </div>
+        )}
+
+        {/* ---------------------------------------------------------- routing */}
+        {tab === "routing" && (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+            <HudPanel title="Task routing" hint="one model per job">
+              <div className="space-y-2">
+                {routingTasks.map((task) => {
+                  const options = modelCatalog.filter(
+                    (m) =>
+                      task.accepts.includes(m.category) &&
+                      (!task.only || task.only.includes(m.id)) &&
+                      engine.statusOf(m.id) !== "Not installed" &&
+                      engine.statusOf(m.id) !== "Available",
+                  );
+                  const current = state.routing[task.key];
+                  return (
+                    <div
+                      key={task.key}
+                      className="hud-tile grid grid-cols-[minmax(0,1fr)_minmax(0,14rem)] items-center gap-3 rounded-surface px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 truncate text-sm">
+                          {task.label}
+                          <StatusPill
+                            label={
+                              task.effect === "turns"
+                                ? "chat + voice turns"
+                                : task.effect === "voice"
+                                  ? "voice mode"
+                                  : "not used yet"
+                            }
+                            tone={task.effect === "none" ? "muted" : "primary"}
+                          />
+                        </p>
+                        <p className="text-meta-sm text-muted-foreground">{task.hint}</p>
+                      </div>
+                      <select
+                        value={current ?? ""}
+                        onChange={(e) =>
+                          engine.assign(task.key as RoutingTask, e.target.value || null)
+                        }
+                        className="h-8 w-full rounded-ctl border border-border bg-surface px-2 text-meta text-foreground outline-none focus:border-primary/50"
+                      >
+                        <option value="">
+                          {task.key === "speech" ? "— Auto —" : "— unassigned —"}
+                        </option>
+                        {options.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({providerById.get(m.provider)?.name})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </HudPanel>
+
+            <HudPanel
+              title="Multi-model mode"
+              hint={`${state.multiModel.length} selected`}
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="label-xs text-muted-foreground">parallel</span>
+                  <Switch
+                    checked={state.parallel}
+                    onCheckedChange={(v) => engine.setParallel(v)}
+                    aria-label="Parallel execution"
+                  />
+                  <select
+                    aria-label="Local answer strategy"
+                    value={state.localAnswer}
+                    onChange={(event) =>
+                      engine.setLocalAnswer(normaliseLocalAnswer(event.target.value))
+                    }
+                    className="h-8 rounded-ctl border border-border bg-surface px-2 text-meta text-foreground outline-none focus:border-primary/50"
+                  >
+                    <option value="show-all">Show all</option>
+                    <option value="first-good">First good</option>
+                    <option value="majority">Majority</option>
+                    <option value="judged">Judged</option>
+                  </select>
+                </div>
+              }
+            >
+              <p className="mb-2 text-note text-muted-foreground">
+                Selected models answer the same prompt together in the chat panel —{" "}
+                {state.parallel ? "fanned out in parallel" : "run one after another"}.
+              </p>
+              <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+                {modelCatalog
+                  .filter(
+                    (m) =>
+                      ["Chat", "Reasoning", "Coding", "Multimodal"].includes(m.category) &&
+                      engine.statusOf(m.id) !== "Not installed" &&
+                      engine.statusOf(m.id) !== "Available",
+                  )
+                  .map((m) => (
+                    <li key={m.id} className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm">{m.name}</p>
+                        <p className="truncate text-meta-sm text-muted-foreground">
+                          {providerById.get(m.provider)?.name} · {m.category}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={state.multiModel.includes(m.id)}
+                        onCheckedChange={() => engine.toggleMulti(m.id)}
+                        aria-label={`Use ${m.name} in multi-model mode`}
+                      />
+                    </li>
+                  ))}
+              </ul>
+            </HudPanel>
+            <div className="lg:col-span-2">
+              <HudPanel title="Routing playground" hint="dry run, no model is called">
+                <div className="space-y-2">
+                  <textarea
+                    value={routeDraft}
+                    onChange={(event) => setRouteDraft(event.target.value)}
+                    placeholder="Ask something. This only builds a route plan."
+                    className="h-20 w-full rounded-ctl border border-border bg-surface px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/50"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      void engine.previewPrompt(routeDraft).then(setRoutePreview);
+                    }}
+                  >
+                    Dry run
+                  </Button>
+                  <p className="text-meta text-muted-foreground">{routePreview}</p>
+                </div>
+              </HudPanel>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------ live status */}
+        {tab === "live" && <ModelsLivePanel />}
+
+        {/* ---------------------------------------------------------- runtime */}
+        {tab === "runtime" && (
+          <HudPanel title="Loaded models — live telemetry" hint={`${counts.running} running`}>
+            {Object.keys(state.runtimes).length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No model loaded. Press <Play className="inline size-3.5" /> on any installed model
+                to bring it online.
+              </p>
+            ) : (
+              <DataTable
+                columns={[
+                  "Model",
+                  "State",
+                  "Tokens/s",
+                  "Latency",
+                  "VRAM",
+                  "CPU / GPU",
+                  "Requests",
+                  "",
+                ]}
+                rows={Object.values(state.runtimes).map((rt) => {
+                  const m = modelById.get(rt.modelId)!;
+                  return [
+                    <div key="n" className="min-w-0">
+                      <p className="truncate font-medium">{m.name}</p>
+                      <p className="text-meta-sm text-muted-foreground">
+                        {providerById.get(m.provider)?.name} · ctx {m.ctxK}k
+                      </p>
+                    </div>,
+                    <StatusPill
+                      key="s"
+                      label={rt.state}
+                      tone={rt.state === "Running" ? "accent" : "primary"}
+                    />,
+                    <span key="t" className="text-meta text-accent">
+                      {rt.tokensPerSec.toFixed(1)}
+                    </span>,
+                    <span key="l" className="text-meta text-muted-foreground">
+                      {rt.latencyMs} ms
+                    </span>,
+                    <span key="v" className="text-meta text-warning">
+                      {rt.vramGb.toFixed(1)} GB
+                    </span>,
+                    <span key="c" className="text-meta text-muted-foreground">
+                      {rt.cpuPct}% / {rt.gpuPct}%
+                    </span>,
+                    <span key="r" className="text-meta text-muted-foreground">
+                      {rt.requests}
+                    </span>,
+                    <Button
+                      key="a"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => engine.unload(rt.modelId)}
+                    >
+                      <Square className="size-3.5" />
+                      Unload
+                    </Button>,
+                  ];
+                })}
+              />
+            )}
+          </HudPanel>
+        )}
+
+        {/* ------------------------------------------------------- benchmarks */}
+        {tab === "benchmarks" && (
+          <HudPanel
+            title="Benchmarks & comparison"
+            hint={`${Object.keys(state.benchmarks).length} measured`}
+          >
+            {Object.keys(state.benchmarks).length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No benchmark yet — press <Gauge className="inline size-3.5" /> on a model in the
+                catalog.
+              </p>
+            ) : (
+              <DataTable
+                columns={[
+                  "Model",
+                  "Tokens/s",
+                  "First token",
+                  "Prompt tok/s",
+                  "Quality",
+                  "Peak VRAM",
+                  "Measured",
+                ]}
+                rows={Object.values(state.benchmarks)
+                  .sort((a, b) => b.tokensPerSec - a.tokensPerSec)
+                  .map((b) => {
+                    const m = modelById.get(b.modelId)!;
+                    return [
+                      <span key="n" className="font-medium">
+                        {m.name}
+                      </span>,
+                      <span key="t" className="text-meta text-accent">
+                        {b.tokensPerSec}
+                      </span>,
+                      <span key="f" className="text-meta text-muted-foreground">
+                        {b.firstTokenMs} ms
+                      </span>,
+                      <span key="p" className="text-meta text-muted-foreground">
+                        {b.promptTokensPerSec}
+                      </span>,
+                      <span key="q" className="text-meta text-primary">
+                        {b.scoreQuality}
+                      </span>,
+                      <span key="v" className="text-meta text-warning">
+                        {b.peakVramGb} GB
+                      </span>,
+                      <span key="a" className="text-meta-sm text-muted-foreground">
+                        {new Date(b.at).toLocaleTimeString()}
+                      </span>,
+                    ];
+                  })}
+              />
+            )}
+          </HudPanel>
+        )}
+
+        {/* --------------------------------------------------- import/connect */}
+        {tab === "connect" && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ConnectPanel state={state} />
+            <ImportPanel state={state} />
+          </div>
+        )}
+
+        {/* --------------------------------------------------------- activity */}
+        {tab === "activity" && (
+          <HudPanel
+            title="Model activity log"
+            hint={`${state.log.length} lines`}
+            actions={
+              <StatusPill
+                label={
+                  state.lastScanAt
+                    ? `scanned ${new Date(state.lastScanAt).toLocaleTimeString()}`
+                    : "never scanned"
+                }
+                tone="muted"
+              />
+            }
+          >
+            <ul className="max-h-[28rem] space-y-1 overflow-y-auto text-data">
+              {state.log.map((l) => (
+                <li key={l.id} className="flex gap-2">
+                  <span className="shrink-0 text-muted-foreground/70">{l.at}</span>
+                  <span className={logTone[l.level]}>{l.line}</span>
+                </li>
+              ))}
+            </ul>
+          </HudPanel>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+/* --------------------------------------------------------------- sub-panels */
+
+function ProviderUse({
+  providerId,
+  name,
+  connected,
+  checking = false,
+  found,
+  models,
+  cloud,
+}: {
+  providerId: string;
+  name: string;
+  connected: boolean;
+  checking?: boolean;
+  found: number;
+  models: ReturnType<typeof useModelRegistry>["models"];
+  cloud: boolean;
+}) {
+  const rows = models.filter((model) => model.providerId === providerId);
+  const usable = rows.filter(
+    (model) => model.visibility === "show" || (model.visibility == null && model.eligible),
+  );
+  const cooling = rows.filter((model) => model.visibility === "disabled");
+  const hidden = rows.filter((model) => model.visibility === "hide");
+  const reasons = new Map<string, number>();
+  for (const row of [...hidden, ...cooling]) {
+    const reason = row.disabledReason || row.reason || "hidden";
+    reasons.set(reason, (reasons.get(reason) || 0) + 1);
+  }
+  const localWhy = !cloud && !connected ? "engine not running" : "";
+  const reasonLine = [...reasons.entries()]
+    .map(([reason, count]) => `${reason} ×${count}`)
+    .join(", ");
+  const pick = usable[0];
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="text-meta-sm text-muted-foreground">
+        {checking ? "checking the connection…" : connected ? "connected" : "not connected"} ·{" "}
+        {found} found · USABLE NOW {usable.length} · HIDDEN {hidden.length}
+        {cooling.length ? ` · limited ${cooling.length}` : ""}
+        {reasonLine ? ` · ${reasonLine}` : ""}
+        {localWhy ? ` · ${localWhy}` : ""}
+      </p>
+      {providerId === "groq" ? (
+        <p className="text-meta-sm text-muted-foreground">
+          Groq publishes Developer prices, not a free-model list. If this account is on the Free
+          plan (no payment method added), press Treat key as free tier: FRIDAY then uses every Groq
+          model inside its free limits, and a model that hits a limit rests only for the wait Groq
+          names before another one answers. Do not press it on a paid account.
+        </p>
+      ) : null}
+      {cloud ? (
+        <div className="flex flex-wrap gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void billing.setOwnerDeclaration(providerId, { ownerFreeTier: true }).then(() => {
+                void modelRegistry.refresh(true);
+                toast.success(`${name} — this key is treated as the free tier`);
+              });
+            }}
+          >
+            Treat key as free tier
+          </Button>
+          {rows.some((model) => model.reason === "pricing-stale") ? (
+            <p className="text-meta-sm text-muted-foreground">pricing info is stale, refresh now</p>
+          ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!(rows.find((model) => model.access !== "free") || pick)}
+            onClick={() => {
+              const target = rows.find((model) => model.access !== "free") || pick;
+              if (!target) return;
+              const modelId = target.id.includes(":")
+                ? target.id.split(":").slice(1).join(":")
+                : target.id;
+              void billing.setOwnerDeclaration(providerId, { modelId, mark: "free" }).then(() => {
+                void modelRegistry.refresh(true);
+                toast.success(`${name} — ${modelId} is marked free for this account`);
+              });
+            }}
+          >
+            Mark this model free
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void billing.setPaidAccess(true);
+              toast.success("Paid access is on. Paid and cost-unknown models can appear.");
+            }}
+          >
+            Allow paid
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!pick}
+            onClick={() => {
+              if (!pick) return;
+              void modelRegistry.setRouteMode("manual").then(() => {
+                modelRegistry.clearSelection();
+                modelRegistry.toggle(pick.id);
+                toast.success(`${pick.choiceLabel || pick.label} is the manual pick`);
+              });
+            }}
+          >
+            Pick model
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => engine.testProviderChat(providerId as ProviderId)}
+          >
+            Test chat
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const selected = modelRegistry
+                .selectedIds()
+                .filter((id) => id.startsWith(`${providerId}:`));
+              if (!selected.length) {
+                toast("Select models in the allowlist, then test them.");
+                return;
+              }
+              engine.testSelectedModels(selected);
+            }}
+          >
+            Test selected models
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectPanel({ state }: { state: ReturnType<typeof useModels> }) {
+  const cloud = providers.filter((p) => p.kind === "cloud");
+  const [provider, setProvider] = useState<ProviderId>(cloud[0]!.id);
+  const [key, setKey] = useState("");
+  const [endpoint, setEndpoint] = useState("");
+
+  const selected = providerById.get(provider)!;
+  const ps = state.providerState[provider]!;
+  const tier = useBilling().tiers[provider] || "auto";
+  const unsupported = UNSUPPORTED_CLOUD.has(provider);
+
+  return (
+    <HudPanel title="Connect a cloud provider" hint="your key, stored locally">
+      <div className="space-y-3">
+        <div>
+          <p className="label-xs mb-1 text-muted-foreground">Provider</p>
+          <select
+            value={provider}
+            onChange={(e) => {
+              const id = e.target.value as ProviderId;
+              setProvider(id);
+              setEndpoint("");
+              setKey("");
+            }}
+            className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+          >
+            {cloud.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {UNSUPPORTED_CLOUD.has(p.id) ? " (no connector yet)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <p className="label-xs mb-1 text-muted-foreground">API base URL</p>
+          <Input
+            value={endpoint}
+            onChange={(e) => setEndpoint(e.target.value)}
+            placeholder={selected.endpoint}
+            className="h-9 font-mono text-xs"
+          />
+        </div>
+        <div>
+          <p className="label-xs mb-1 text-muted-foreground">
+            {selected.auth === "cloud-iam" ? "Access credentials" : "API key"}
+          </p>
+          <Input
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            type="password"
+            placeholder="sk-…"
+            className="h-9 font-mono text-xs"
+          />
+        </div>
+        <div>
+          <p className="label-xs mb-1 text-muted-foreground">Models to use from this provider</p>
+          <select
+            value={tier}
+            onChange={(e) => {
+              const next = e.target.value as AccessTier;
+              void billing.setProviderTier(provider, next);
+              toast.success(
+                next === "free"
+                  ? `${selected.name} — free models only`
+                  : next === "paid"
+                    ? `${selected.name} — paid models only (still needs paid access on)`
+                    : `${selected.name} — automatic free/paid detection`,
+              );
+            }}
+            className="h-9 w-full rounded-ctl border border-border bg-surface px-2 font-mono text-xs outline-none focus:border-primary/50"
+          >
+            <option value="auto">Auto — detect free and paid models</option>
+            <option value="free">Free models only</option>
+            <option value="paid">Paid models only</option>
+          </select>
+          <p className="mt-1 text-note text-muted-foreground">
+            A stored key never authorises spending on its own — paid models stay blocked until paid
+            AI access is turned on below.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            disabled={unsupported || ps.checking}
+            title={unsupported ? `${selected.name} has no connector in FRIDAY yet` : undefined}
+            onClick={() => {
+              if (!key.trim()) {
+                toast.error("Enter a key first");
+                return;
+              }
+              const name = selected.name;
+              setKey("");
+              void engine.connectProvider(provider, key, endpoint).then((result) => {
+                if (result.ok) toast.success(`${name} connected — ${result.models} model(s) ready`);
+                else toast.error(`${name} did not connect`, { description: result.error ?? "" });
+              });
+            }}
+          >
+            <Link2 className="size-4" />
+            {ps.checking ? "Checking…" : "Connect"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={unsupported}
+            onClick={() => engine.testProvider(provider)}
+          >
+            <RadioTower className="size-4" />
+            Test
+          </Button>
+          {ps.apiKey ? (
+            <Button size="sm" variant="ghost" onClick={() => engine.disconnectProvider(provider)}>
+              <Trash2 className="size-4 text-destructive" />
+              Disconnect
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-note text-muted-foreground">
+          {selected.notes} Auth: {selected.auth}. Health check:{" "}
+          <span className="font-mono">{selected.detect}</span>.
+        </p>
+
+        <div className="border-t border-border pt-3">
+          <p className="label-xs mb-2 text-muted-foreground">Connected</p>
+          <div className="flex flex-wrap gap-1.5">
+            {cloud
+              .filter((p) => state.providerState[p.id]?.apiKey)
+              .map((p) => {
+                const live = state.providerState[p.id]!;
+                return (
+                  <span
+                    key={p.id}
+                    title={
+                      live.checking
+                        ? "checking the key…"
+                        : live.online
+                          ? "key accepted"
+                          : (live.error ?? "not accepted")
+                    }
+                  >
+                    <StatusPill
+                      label={
+                        live.checking
+                          ? `${p.name} · checking…`
+                          : live.online
+                            ? p.name
+                            : `${p.name} · not accepted`
+                      }
+                      tone={live.checking ? "muted" : live.online ? "magenta" : "warning"}
+                    />
+                  </span>
+                );
+              })}
+            {cloud.every((p) => !state.providerState[p.id]?.apiKey) ? (
+              <span className="text-note text-muted-foreground">
+                No cloud provider connected yet.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </HudPanel>
+  );
+}
+
+function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [over, setOver] = useState(false);
+  const desktop = state.bridge === "desktop" && Boolean(desktopApi()?.importModel);
+
+  const addAll = (paths: string[], displayName?: string) => {
+    const clean = paths.map((p) => p.trim()).filter(Boolean);
+    if (!clean.length) return;
+    clean.forEach(
+      (file) =>
+        void engine.importModel({
+          path: file,
+          ...(clean.length === 1 && displayName ? { name: displayName } : {}),
+        }),
+    );
+    toast(`${clean.length} model${clean.length > 1 ? "s" : ""} importing…`);
+  };
+
+  const pick = async (mode: "file" | "folder") => {
+    const api = desktopApi();
+    if (!api?.pickModelFiles) {
+      toast("Choosing files needs the desktop app — paste the path below.");
+      return;
+    }
+    setPicking(true);
+    try {
+      const picked = await api.pickModelFiles(mode);
+      if (picked?.ok) addAll(picked.paths, name.trim());
+      if (picked?.ok) setName("");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setOver(false);
+    const api = desktopApi();
+    const paths = Array.from(event.dataTransfer.files)
+      .map((file) => api?.pathForFile?.(file) || "")
+      .filter(Boolean);
+    if (!paths.length) {
+      toast.error("Could not read the dropped file — use Choose model files instead.");
+      return;
+    }
+    addAll(paths, name.trim());
+    setName("");
+  };
+
+  const tone = (m: (typeof state.imported)[number]) =>
+    m.state === "ready"
+      ? "accent"
+      : m.state === "importing"
+        ? "primary"
+        : m.state === "failed" || m.state === "not-responding"
+          ? "destructive"
+          : "muted";
+
+  return (
+    <HudPanel title="Add your own model" hint="GGUF · Safetensors · ONNX · PyTorch">
+      <div className="space-y-3">
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={onDrop}
+          className={`rounded-surface border border-dashed p-4 text-center ${
+            over ? "border-primary bg-primary/5" : "border-border/70"
+          }`}
+        >
+          <p className="text-sm">Drop model files here, or choose them</p>
+          <p className="mt-1 text-note text-muted-foreground">
+            A GGUF is stored in your FRIDAY folder, registered with the local engine and tested; it
+            then shows up in the model list ready to use.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <Button size="sm" disabled={picking || !desktop} onClick={() => void pick("file")}>
+              <Upload className="size-4" />
+              Choose model files
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={picking || !desktop}
+              onClick={() => void pick("folder")}
+            >
+              <FolderOpen className="size-4" />
+              Choose a model folder
+            </Button>
+          </div>
+          {!desktop ? (
+            <p className="mt-2 text-note text-muted-foreground">
+              Importing needs the desktop app; this preview cannot read files.
+            </p>
+          ) : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
+          <div>
+            <p className="label-xs mb-1 text-muted-foreground">Display name (optional)</p>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My fine-tune 7B"
+              className="h-9 text-xs"
+            />
+          </div>
+          <div>
+            <p className="label-xs mb-1 text-muted-foreground">Or paste a file or folder path</p>
+            <Input
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && path.trim()) {
+                  addAll([path], name.trim());
+                  setPath("");
+                  setName("");
+                }
+              }}
+              placeholder="C:\Models\my-model.gguf"
+              className="h-9 font-mono text-xs"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              size="sm"
+              disabled={!path.trim() || !desktop}
+              onClick={() => {
+                addAll([path], name.trim());
+                setPath("");
+                setName("");
+              }}
+            >
+              <Plus className="size-4" />
+              Import model
+            </Button>
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-3">
+          <p className="label-xs mb-2 text-muted-foreground">Imported ({state.imported.length})</p>
+          {state.imported.length === 0 ? (
+            <p className="text-note text-muted-foreground">Nothing imported yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {state.imported.map((m) => (
+                <li key={m.id} className="rounded-surface border border-border/60 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm">{m.name}</p>
+                        <StatusPill label={m.state ?? "stored"} tone={tone(m)} />
+                      </div>
+                      <p className="truncate text-meta-sm text-muted-foreground">
+                        {m.format} · {m.sizeGb ? formatGb(m.sizeGb) : "size unknown"} · {m.path}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {m.state && m.state !== "ready" && m.state !== "importing" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Try ${m.name} again`}
+                          title="Try again"
+                          onClick={() => void engine.importModel({ path: m.path, name: m.name })}
+                        >
+                          <RefreshCw className="size-3.5" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="Remove imported model"
+                        title="Remove imported model"
+                        onClick={() => engine.removeImport(m.id)}
+                      >
+                        <Trash2 className="size-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                  {m.state === "importing" ? (
+                    <div className="mt-1.5">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${m.progress ?? 0}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 truncate text-meta-sm text-muted-foreground">{m.status}</p>
+                    </div>
+                  ) : m.note ? (
+                    <p className="mt-1 text-note text-muted-foreground">{m.note}</p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </HudPanel>
+  );
+}
+
+/**
+ * Billing safety. FRIDAY must never spend money on her own: paid inference is
+ * locked here, in the main process, and a stored API key does not unlock it.
+ */
+function BillingPanel() {
+  const state = useBilling();
+  const desktop = state.bridge === "desktop";
+
+  return (
+    <HudPanel title="Billing safety" hint={state.summary}>
+      <div className="grid gap-3 md:grid-cols-3">
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Paid AI access</span>
+            <span className="block text-note text-muted-foreground">
+              Off by default. While off, only free and local models can answer.
+            </span>
+          </span>
+          <Switch
+            checked={state.billing.paidAccess}
+            disabled={!desktop || state.billing.killSwitch}
+            onCheckedChange={(on) => {
+              void billing.setPaidAccess(on);
+              toast[on ? "warning" : "success"](
+                on ? "Paid AI access enabled — models may now bill" : "Paid AI access disabled",
+              );
+            }}
+          />
+        </label>
+
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Automatic paid routing</span>
+            <span className="block text-note text-muted-foreground">
+              Let Auto mode pick a paid model. Off = only models you pick explicitly may bill.
+            </span>
+          </span>
+          <Switch
+            checked={state.billing.autoPaidUsage}
+            disabled={!desktop || !state.billing.paidAccess || state.billing.killSwitch}
+            onCheckedChange={(on) => void billing.setAutoPaidUsage(on)}
+          />
+        </label>
+
+        <label className="hud-tile flex items-start justify-between gap-3 rounded-surface px-3 py-2.5">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Emergency kill switch</span>
+            <span className="block text-note text-muted-foreground">
+              Blocks every paid model instantly, whatever else is set.
+            </span>
+          </span>
+          <Switch
+            checked={state.billing.killSwitch}
+            disabled={!desktop}
+            onCheckedChange={(on) => {
+              void billing.setKillSwitch(on);
+              toast[on ? "warning" : "success"](
+                on ? "Kill switch engaged — paid models blocked" : "Kill switch released",
+              );
+            }}
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <StatusPill
+          label={`Effective policy: ${state.policy}`}
+          tone={
+            state.policy === "allow-paid" || state.policy === "paid-only" ? "magenta" : "accent"
+          }
+        />
+        {state.billing.grantScope !== "off" ? (
+          <StatusPill label={`Grant: ${state.billing.grantScope}`} tone="magenta" />
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!desktop || state.billing.killSwitch}
+          onClick={() => {
+            void billing.grant("session");
+            toast.warning("Paid models unlocked for this session (1 hour)");
+          }}
+        >
+          <KeyRound className="size-4" />
+          Allow paid for 1 hour
+        </Button>
+        {state.billing.grantScope !== "off" ? (
+          <Button size="sm" variant="ghost" onClick={() => billing.grant("off")}>
+            <X className="size-4" />
+            Revoke grant
+          </Button>
+        ) : null}
+        {!desktop ? (
+          <span className="text-note text-muted-foreground">
+            Preview mode — paid access can only be changed in the desktop app.
+          </span>
+        ) : null}
+        {state.billing.killSwitch ? (
+          <span className="text-note text-muted-foreground">
+            Kill switch is on, so paid access stays locked.
+          </span>
+        ) : null}
+      </div>
+    </HudPanel>
+  );
+}

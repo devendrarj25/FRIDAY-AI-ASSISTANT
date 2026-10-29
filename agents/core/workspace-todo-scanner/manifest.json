@@ -1,0 +1,17 @@
+{
+  "name": "Workspace TODO scanner",
+  "version": "1.0.0",
+  "description": "Scans text/code files for TODO, FIXME and HACK markers and lists the file plus a short line. Report only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} TODO/FIXME/HACK hit(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list. No file will be edited."
+}

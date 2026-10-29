@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Git push",
+  "description": "Push the current branch to a git remote. Writes to the remote. Exec-tier, never auto-enabled.",
+  "category": "developer",
+  "inputs": ["remote", "branch", "root", "probe"],
+  "permissions": ["network", "fs.write"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to git PUSH this repository to {remote} {branch}. That updates the remote. Allow this push?"
+}

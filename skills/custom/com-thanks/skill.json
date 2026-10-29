@@ -1,0 +1,17 @@
+{
+  "id": "com-thanks",
+  "name": "Thank-you note",
+  "summary": "Draft a thank-you note naming the specific help and one concrete result.",
+  "category": "communication",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "help",
+    "result"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Draft only. FRIDAY does not send the thank-you note or post it anywhere."
+}

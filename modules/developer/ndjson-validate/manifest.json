@@ -1,0 +1,19 @@
+{
+  "name": "ndjson-validate",
+  "version": "1.0.0",
+  "description": "Validate each line of an NDJSON/JSONL file as JSON. Reports ok count, first errors, and object-vs-array mix. Distinct from table-inspect. Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "NDJSON validate",
+    "icon": "list"
+  }
+}

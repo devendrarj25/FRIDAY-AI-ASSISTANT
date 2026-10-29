@@ -1,0 +1,17 @@
+FRIDAY — Personal AI Assistant
+End User License
+
+FRIDAY runs entirely on this computer. It does not upload your files,
+conversations or memory anywhere. Any cloud AI provider you configure yourself
+is contacted directly by this machine using the key you supply.
+
+1. You may install and use FRIDAY on computers you own or control.
+2. FRIDAY can read, write and execute on your machine only within the
+   permissions you grant at runtime. You are responsible for the actions you
+   approve.
+3. The FRIDAY data folder you choose during setup belongs to you. Uninstalling
+   FRIDAY removes the application only; your data folder is left untouched.
+4. The software is provided "as is", without warranty of any kind. The authors
+   are not liable for any damage or data loss arising from its use.
+
+By installing FRIDAY you accept these terms.

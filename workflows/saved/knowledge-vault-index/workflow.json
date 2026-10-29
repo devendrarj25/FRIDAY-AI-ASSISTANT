@@ -1,0 +1,71 @@
+{
+  "id": "knowledge-vault-index",
+  "name": "Knowledge vault index",
+  "version": "1.0.0",
+  "description": "Index local notes: markdown headings, harvested URLs, HTML bookmarks, README links, JSON configs, then a local research brief. No live web search.",
+  "category": "research",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Saturday 10:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Index markdown files",
+      "kind": "agent",
+      "ref": "agents/core/markdown-index-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Harvest URLs from the folder",
+      "kind": "agent",
+      "ref": "agents/core/url-harvest-from-folder",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Parse bookmark HTML",
+      "kind": "agent",
+      "ref": "agents/core/bookmark-html-parser",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Extract README links",
+      "kind": "agent",
+      "ref": "agents/core/readme-link-extractor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Inventory JSON configs",
+      "kind": "agent",
+      "ref": "agents/core/json-config-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Build a markdown TOC",
+      "kind": "module",
+      "ref": "modules/communication/markdown-toc",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Draft a research outline",
+      "kind": "skill",
+      "ref": "skills/custom/wrt-outline",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the vault index local",
+      "kind": "note",
+      "ref": "knowledge-vault",
+      "risk": "safe"
+    }
+  ]
+}

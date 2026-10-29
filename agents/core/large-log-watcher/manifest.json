@@ -1,0 +1,18 @@
+{
+  "name": "Large log watcher",
+  "version": "1.0.0",
+  "description": "Finds .log files over a size threshold so a noisy service cannot fill the disk unnoticed. Report only (log-rotation-cleanup is the deleter).",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "largeMb",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} large .log file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the watch list. Nothing will be deleted."
+}

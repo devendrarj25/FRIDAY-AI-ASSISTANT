@@ -1,0 +1,14 @@
+{
+  "id": "law-lease-questions",
+  "name": "Rental question list",
+  "summary": "Questions to ask before signing a rental (deposit, repairs, notice) — not a lease.",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

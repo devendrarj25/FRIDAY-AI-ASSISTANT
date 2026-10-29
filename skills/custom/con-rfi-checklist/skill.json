@@ -1,0 +1,16 @@
+{
+  "id": "con-rfi-checklist",
+  "name": "RFI and submittal checklist",
+  "summary": "Prompt list for a complete RFI: drawing ref, spec clause, question, options, needed-by date.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Extracts drawing/spec-looking tokens from pasted text and lists missing RFI fields. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

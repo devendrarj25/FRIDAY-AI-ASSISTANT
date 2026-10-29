@@ -1,0 +1,16 @@
+{
+  "id": "trv-timezone-span",
+  "name": "Timezone hour offsets",
+  "summary": "Show hour offsets from UTC for a short static list of city timezones you name.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas. Offsets ignore DST; confirm before a call."
+}

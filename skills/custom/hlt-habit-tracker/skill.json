@@ -1,0 +1,16 @@
+{
+  "id": "hlt-habit-tracker",
+  "name": "Habit tracker grid",
+  "summary": "Build a 7-day habit grid from habit names so you can print or copy it.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

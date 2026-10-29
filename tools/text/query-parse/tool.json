@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Query parse",
+  "description": "Parse a URL query string (with or without ?) into keys and values.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PARSE a URL QUERY STRING in memory. Allow this?",
+  "keywords": [
+    "query",
+    "qs",
+    "searchparams"
+  ]
+}

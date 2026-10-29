@@ -1,0 +1,17 @@
+{
+  "name": "Markdown index agent",
+  "version": "1.0.0",
+  "description": "Indexes Markdown files with word counts so notes and research dumps have a real table of contents.",
+  "category": "documents",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY indexed {count} Markdown file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the index."
+}

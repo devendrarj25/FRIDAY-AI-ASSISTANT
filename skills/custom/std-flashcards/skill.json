@@ -1,0 +1,16 @@
+{
+  "id": "std-flashcards",
+  "name": "Flashcards from pairs",
+  "summary": "Turn term:definition lines into a flashcard list you can quiz later.",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Local study cards. It does not sync Anki."
+}

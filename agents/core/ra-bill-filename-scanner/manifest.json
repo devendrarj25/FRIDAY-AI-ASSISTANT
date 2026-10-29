@@ -1,0 +1,17 @@
+{
+  "name": "RA bill filename scanner",
+  "version": "1.0.0",
+  "description": "Finds running-account / RA bill named files used in construction billing folders.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} RA-bill-named file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

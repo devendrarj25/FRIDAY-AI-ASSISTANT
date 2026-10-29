@@ -1,0 +1,12 @@
+{
+  "name": "Recurring task nudger",
+  "version": "1.0.0",
+  "description": "Reads FRIDAY personal-desk tasks (passed in, or a JSON file) and lists overdue items that are not done. Never invents reminders. Report only until you approve recording the nudge.",
+  "category": "reminders",
+  "entry": "index.cjs",
+  "inputs": ["tasks", "file", "now"],
+  "permissions": ["fs.read"],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY found {count} overdue personal-desk task(s) from your own data. This is a reminder list only — allow to keep it in the approval queue. Nothing will be marked done."
+}

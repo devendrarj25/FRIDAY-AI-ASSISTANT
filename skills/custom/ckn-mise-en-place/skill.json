@@ -1,0 +1,16 @@
+{
+  "id": "ckn-mise-en-place",
+  "name": "Mise en place list",
+  "summary": "Split a recipe into prep (chop, measure) versus cook steps from verb hints.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Splits pasted recipe lines into prep versus cook from verb hints. It does not start a timer."
+}

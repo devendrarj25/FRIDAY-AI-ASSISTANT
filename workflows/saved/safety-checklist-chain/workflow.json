@@ -1,0 +1,57 @@
+{
+  "id": "safety-checklist-chain",
+  "name": "Safety checklist chain",
+  "version": "1.0.0",
+  "description": "Electrical, general, and heights safety checklists plus RFI — templates, not a certified audit.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Safety-electrical checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-safety-electrical",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Safety-general checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-safety-general",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Safety-heights checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-safety-heights",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "RFI checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-rfi-checklist",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Phase checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-phase-checklist",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the filled checklist local — not a certified audit",
+      "kind": "note",
+      "ref": "safety-check",
+      "risk": "safe"
+    }
+  ]
+}

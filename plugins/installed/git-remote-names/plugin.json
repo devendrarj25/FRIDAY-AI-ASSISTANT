@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "git-remote-names",
+  "name": "Git remote names",
+  "description": "Parse .git/config for [remote \"name\"] section titles only. Remote URLs are not stored.",
+  "category": "git",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-app-start"
+  ]
+}

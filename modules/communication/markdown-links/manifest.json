@@ -1,0 +1,19 @@
+{
+  "name": "markdown-links",
+  "version": "1.0.0",
+  "description": "Extract Markdown [text](url) links and classify relative vs http(s). Read-only; does not fetch.",
+  "category": "communication",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Markdown links",
+    "icon": "link-2"
+  }
+}

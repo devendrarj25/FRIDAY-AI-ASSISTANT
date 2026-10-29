@@ -1,0 +1,14 @@
+{
+  "id": "web.search",
+  "name": "Web search",
+  "summary": "Search the public web and return ranked titles, URLs and snippets through FRIDAY's built-in browser engine.",
+  "category": "web",
+  "capabilities": ["web.access"],
+  "risk": "safe",
+  "inputs": ["query", "limit", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": ["web.access"],
+  "description": "Read-only web search. Runs as the built-in web.search skill (electron/skills.cjs → electron/browser.cjs DuckDuckGo HTML). No second HTTP client. Catalog pack stays disabled until the owner enables it; the builtin remains available to agents."
+}

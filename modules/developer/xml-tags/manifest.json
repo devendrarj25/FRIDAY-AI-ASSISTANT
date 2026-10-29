@@ -1,0 +1,19 @@
+{
+  "name": "xml-tags",
+  "version": "1.0.0",
+  "description": "Count XML element tags and attributes with stdlib ElementTree. Read-only. Not for PDF/DOCX.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "XML tags",
+    "icon": "code"
+  }
+}

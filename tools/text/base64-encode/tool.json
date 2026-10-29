@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Base64 encode",
+  "description": "Encode UTF-8 text as base64 with Node Buffer. No extra crypto library.",
+  "category": "text",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to BASE64-ENCODE text in memory. Allow this?"
+}

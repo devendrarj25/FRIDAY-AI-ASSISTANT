@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Join lines",
+  "description": "Join an array of lines with a separator.",
+  "category": "text",
+  "inputs": [
+    "lines",
+    "sep"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to JOIN lines in memory. Allow this?"
+}

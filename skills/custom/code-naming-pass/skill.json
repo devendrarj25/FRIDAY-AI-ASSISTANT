@@ -1,0 +1,16 @@
+{
+  "id": "code-naming-pass",
+  "name": "Naming consistency notes",
+  "summary": "Collect identifiers and flag mixed camelCase / snake_case in one paste.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Tokenises likely identifiers. Style notes only; it does not rename symbols on disk."
+}

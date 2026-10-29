@@ -1,0 +1,16 @@
+{
+  "id": "code-pr-checklist",
+  "name": "Pull-request checklist",
+  "summary": "Standard PR hygiene list ticked against a pasted description or diff header.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Tests, docs, rollback, secrets, and scope. Does not post on GitHub."
+}

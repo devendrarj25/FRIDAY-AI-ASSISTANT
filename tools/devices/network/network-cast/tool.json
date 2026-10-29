@@ -1,0 +1,26 @@
+{
+  "name": "Cast media to a network device",
+  "version": "1.0.0",
+  "description": "Play a media URL on a DLNA/UPnP renderer (TV or speaker) that advertised itself on this network.",
+  "category": "devices",
+  "entry": "index.cjs",
+  "kernelTool": "network.cast",
+  "inputs": [
+    {
+      "name": "controlUrl",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "mediaUrl",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "exec",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to play media on a device on your WiFi network. Allow this?"
+}

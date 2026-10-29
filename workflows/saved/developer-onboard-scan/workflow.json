@@ -1,0 +1,78 @@
+{
+  "id": "developer-onboard-scan",
+  "name": "Developer onboard scan",
+  "version": "1.0.0",
+  "description": "New-clone onboard: README, tsconfig, lockfile, gitignore vs env, license, package scripts, env-key names, JSON configs, then a local onboarding note.",
+  "category": "git",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Check tsconfig presence",
+      "kind": "agent",
+      "ref": "agents/core/tsconfig-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Check lockfile presence",
+      "kind": "agent",
+      "ref": "agents/core/lockfile-presence-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Audit gitignore vs env names",
+      "kind": "agent",
+      "ref": "agents/core/gitignore-env-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Find license files",
+      "kind": "agent",
+      "ref": "agents/core/license-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Inventory package scripts",
+      "kind": "agent",
+      "ref": "agents/core/package-script-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Audit env key names (not values)",
+      "kind": "module",
+      "ref": "modules/developer/env-key-audit",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Inventory JSON configs",
+      "kind": "agent",
+      "ref": "agents/core/json-config-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the onboard note local",
+      "kind": "note",
+      "ref": "dev-onboard",
+      "risk": "safe"
+    }
+  ]
+}

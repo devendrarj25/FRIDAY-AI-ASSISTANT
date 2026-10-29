@@ -1,0 +1,57 @@
+{
+  "id": "overdue-dated-filename",
+  "name": "Overdue dated-filename chain",
+  "version": "1.0.0",
+  "description": "Flag overdue dated filenames, invoices, contracts, then a nudge note.",
+  "category": "bookkeeping",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "daily 09:30",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Flag overdue dated filenames",
+      "kind": "agent",
+      "ref": "agents/core/overdue-dated-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/invoice-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan contract filenames",
+      "kind": "agent",
+      "ref": "agents/core/contract-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Nudge recurring tasks",
+      "kind": "agent",
+      "ref": "agents/core/recurring-task-nudger",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft a follow-up",
+      "kind": "skill",
+      "ref": "skills/custom/com-follow-up",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the nudge local",
+      "kind": "note",
+      "ref": "overdue-nudge",
+      "risk": "safe"
+    }
+  ]
+}

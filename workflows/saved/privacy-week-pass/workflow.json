@@ -1,0 +1,71 @@
+{
+  "id": "privacy-week-pass",
+  "name": "Privacy week pass",
+  "version": "1.0.0",
+  "description": "Filename-only privacy week: secret names, git secret names, SSH folder mode, private-key paths, world-writable, hosts file, then a local hygiene note. No secret values are read.",
+  "category": "privacy",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Friday 18:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan secret filenames",
+      "kind": "agent",
+      "ref": "agents/core/secret-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan secret filenames in git",
+      "kind": "module",
+      "ref": "modules/developer/secret-filename-scan",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Audit SSH folder permissions",
+      "kind": "agent",
+      "ref": "agents/core/ssh-folder-permission-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Alert on private-key paths",
+      "kind": "agent",
+      "ref": "agents/core/private-key-path-alert",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Scan world-writable paths",
+      "kind": "agent",
+      "ref": "agents/core/world-writable-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Snapshot hosts file",
+      "kind": "agent",
+      "ref": "agents/core/hosts-file-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Load password-hygiene checklist",
+      "kind": "skill",
+      "ref": "skills/custom/sec-password-hygiene",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the privacy note local",
+      "kind": "note",
+      "ref": "privacy-week",
+      "risk": "safe"
+    }
+  ]
+}

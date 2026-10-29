@@ -1,0 +1,14 @@
+{
+  "id": "sec-2fa-plan",
+  "name": "2FA rollout checklist",
+  "summary": "Order-of-operations checklist for turning on 2FA (mail, bank, password manager first).",
+  "category": "security-hygiene",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
+}

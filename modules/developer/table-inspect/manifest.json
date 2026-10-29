@@ -1,0 +1,14 @@
+{
+  "name": "table-inspect",
+  "version": "1.0.0",
+  "description": "Inspect CSV, JSON, or NDJSON and report columns, types, row count, and a sample. Read-only. Office PDF/DOCX bytes stay on the existing document-extract engine — this module does not reimplement them.",
+  "category": "data",
+  "permissions": ["fs.read"],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": { "export": "self_test", "input": {} },
+  "ui": {
+    "page": "Table inspect",
+    "icon": "table"
+  }
+}

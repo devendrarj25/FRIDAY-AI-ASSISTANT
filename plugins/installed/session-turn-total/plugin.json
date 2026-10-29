@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "session-turn-total",
+  "name": "Session turn total",
+  "description": "Count turns this process and stamp the total again on quit.",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-turn-complete",
+    "on-app-quit"
+  ]
+}

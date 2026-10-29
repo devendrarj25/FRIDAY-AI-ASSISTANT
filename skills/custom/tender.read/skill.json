@@ -1,0 +1,14 @@
+{
+  "id": "tender.read",
+  "name": "Read a tender",
+  "summary": "Extract stated tender/RFP clauses (scope, eligibility, deadline, BOQ) from a document, URL or pasted text.",
+  "category": "documents",
+  "capabilities": ["fs.read", "web.access"],
+  "risk": "safe",
+  "inputs": ["path", "url", "filename", "text", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": ["fs.read", "web.access"],
+  "description": "Read-only tender extract. Document bytes/URLs run as the built-in tender.read skill, which calls docs.extract then the shared field extractor (electron/tender-extract.cjs). This sandbox pack extracts from pasted text so capability-verify can run offline. Missing clauses stay missing."
+}

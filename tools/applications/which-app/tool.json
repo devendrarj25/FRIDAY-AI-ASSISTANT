@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Find an application on PATH",
+  "description": "Resolve an executable name with electron/toolchain.cjs which() — the same lookup the Install Manager uses. Does not launch the app (use Launch application for that).",
+  "category": "applications",
+  "inputs": [
+    "app"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to look up whether “{app}” is installed on PATH. Allow this?"
+}

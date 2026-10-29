@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Open a web page",
+  "description": "Fetch a public http(s) page through FRIDAY's browser engine and return its title, readable text and discovered links. JavaScript-heavy pages can request a Chromium render when Electron is available.",
+  "category": "browser",
+  "inputs": [
+    "url",
+    "render",
+    "maxChars"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to OPEN and read “{url}” in her browser engine. The page is fetched from the internet. Allow this?"
+}

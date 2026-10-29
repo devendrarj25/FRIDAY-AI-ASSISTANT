@@ -1,0 +1,16 @@
+{
+  "id": "code-stale-comments",
+  "name": "Stale comment finder",
+  "summary": "List TODO/FIXME/HACK comments and commented-out code-looking lines.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "code"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Line scan only. Does not delete comments."
+}

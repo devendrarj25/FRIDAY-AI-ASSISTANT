@@ -1,0 +1,17 @@
+{
+  "name": "Package script inventory",
+  "version": "1.0.0",
+  "description": "Reads package.json scripts keys (not running them) so a workspace\u2019s npm/pnpm entrypoints are listed.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} package.json script(s) under \u201c{folder}\u201d. Read-only. Scripts are not executed."
+}

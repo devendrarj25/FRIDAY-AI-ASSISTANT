@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "session-uptime-idle",
+  "name": "Session uptime idle",
+  "description": "Write a boot timestamp on start and report process uptime on idle.",
+  "category": "session",
+  "permissions": [],
+  "hooks": [
+    "on-app-start",
+    "on-idle"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "con-safety-heights",
+  "name": "Working-at-height checklist",
+  "summary": "Reference checklist for ladders, scaffolds, edges, and harness use — not a permit.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Does not issue a working-at-height permit or certify scaffold."
+}

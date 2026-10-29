@@ -1,0 +1,19 @@
+{
+  "name": "extension-histogram",
+  "version": "1.0.0",
+  "description": "Count files by extension in a folder tree. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "Extension histogram",
+    "icon": "pie-chart"
+  }
+}

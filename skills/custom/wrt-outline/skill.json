@@ -1,0 +1,17 @@
+{
+  "id": "wrt-outline",
+  "name": "Piece outline",
+  "summary": "Nest pasted bullets into a hierarchical outline (I / A / 1) for an essay or brief.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "title"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Structure helper. It does not publish the piece."
+}

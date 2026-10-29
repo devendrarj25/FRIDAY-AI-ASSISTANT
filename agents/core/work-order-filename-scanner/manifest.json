@@ -1,0 +1,17 @@
+{
+  "name": "Work order filename scanner",
+  "version": "1.0.0",
+  "description": "Finds work-order / WO / PO named files so commercial folders can be listed from names.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} work-order/PO-named file(s) under \u201c{folder}\u201d. Read-only. Allow to keep the list."
+}

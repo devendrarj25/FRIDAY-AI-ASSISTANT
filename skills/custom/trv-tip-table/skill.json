@@ -1,0 +1,16 @@
+{
+  "id": "trv-tip-table",
+  "name": "Tip percent table",
+  "summary": "Build a tip amount table for 10/12/15/18/20 percent on a bill you type.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "amount"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Arithmetic only. Customs vary; this is not a rule."
+}

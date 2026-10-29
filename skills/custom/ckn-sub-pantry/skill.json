@@ -1,0 +1,16 @@
+{
+  "id": "ckn-sub-pantry",
+  "name": "Pantry substitution notes",
+  "summary": "Static common substitutions (buttermilk, egg wash, starch) when you name an ingredient.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Kitchen folklore, not food-science certification."
+}

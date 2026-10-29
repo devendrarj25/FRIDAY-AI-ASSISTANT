@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "FFmpeg transcode",
+  "description": "Transcode audio or video with the FFmpeg binary on PATH. Fails honestly when ffmpeg is not installed. Does not invent media.",
+  "category": "media",
+  "inputs": ["input", "output", "args", "probe"],
+  "permissions": ["process.exec", "fs.write"],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to RUN ffmpeg to transcode “{input}” into “{output}”. That overwrites the destination file. Allow this transcode?"
+}

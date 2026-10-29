@@ -1,0 +1,82 @@
+# FRIDAY - dependency updates.
+#
+# Dependabot opens PULL REQUESTS only. Nothing here merges anything: every
+# dependency change goes through PR Validation (tests, typecheck, audits, real
+# Windows build) and owner review, exactly like any other change.
+#
+# GitHub cannot put npm, pip and Actions into one pull request. Each ecosystem
+# is one wildcard group and at most one open version-update pull request, so a
+# monthly run costs one validation per ecosystem instead of one per package.
+# Security updates stay immediate and ungrouped: a vulnerability fix must not
+# wait for the monthly batch.
+#
+# Every ecosystem ignores semver majors. A major is a planned upgrade.
+# The monthly group is minor and patch only. TypeScript 7 landed through that
+# group and npm ci could not install it beside typescript-eslint.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    versioning-strategy: increase
+    labels:
+      - dependencies
+      - build
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      npm-monthly:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: electron
+        update-types: ["version-update:semver-major"]
+      - dependency-name: electron-builder
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - build
+    commit-message:
+      prefix: "chore(actions)"
+    groups:
+      actions-monthly:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: pip
+    directory: "/kernel"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - build
+    commit-message:
+      prefix: "chore(kernel-deps)"
+    groups:
+      kernel-monthly:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

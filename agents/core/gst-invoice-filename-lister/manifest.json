@@ -1,0 +1,17 @@
+{
+  "name": "GST invoice filename lister",
+  "version": "1.0.0",
+  "description": "Lists files whose names mention GST, tax-invoice or GSTR so hisab folders can be triaged. Does not read PAN/GSTIN values out of file bytes.",
+  "category": "office",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} GST/tax-invoice-named file(s) under \u201c{folder}\u201d. Names only. Allow to keep the list."
+}

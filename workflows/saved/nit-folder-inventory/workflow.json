@@ -1,0 +1,64 @@
+{
+  "id": "nit-folder-inventory",
+  "name": "NIT folder inventory",
+  "version": "1.0.0",
+  "description": "Inventory a tender folder: PDFs, spreadsheets, zip archives, URLs, then a local index.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan tender filenames",
+      "kind": "agent",
+      "ref": "agents/core/tender-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Inventory PDFs",
+      "kind": "agent",
+      "ref": "agents/core/pdf-inventory-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Inventory spreadsheets",
+      "kind": "agent",
+      "ref": "agents/core/spreadsheet-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory zip archives",
+      "kind": "agent",
+      "ref": "agents/core/zip-archive-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Harvest URLs from the folder",
+      "kind": "agent",
+      "ref": "agents/core/url-harvest-from-folder",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Walk the folder tree",
+      "kind": "tool",
+      "ref": "tools/filesystem/file-tree",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Keep the inventory local",
+      "kind": "note",
+      "ref": "nit-index",
+      "risk": "safe"
+    }
+  ]
+}

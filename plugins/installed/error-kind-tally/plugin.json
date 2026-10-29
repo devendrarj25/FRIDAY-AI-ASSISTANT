@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "error-kind-tally",
+  "name": "Error kind tally",
+  "description": "Classify on-error messages into timeout / network / permission / other. Stores the kind, not a dump.",
+  "category": "diagnostics",
+  "permissions": [],
+  "hooks": [
+    "on-error"
+  ]
+}

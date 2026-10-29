@@ -1,0 +1,18 @@
+{
+  "id": "trv-itinerary",
+  "name": "Day itinerary skeleton",
+  "summary": "Turn a city-plus-days note into a blank morning/afternoon/evening itinerary.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "city",
+    "days",
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
+}

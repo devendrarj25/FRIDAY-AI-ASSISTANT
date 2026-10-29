@@ -1,0 +1,71 @@
+{
+  "id": "research-harvest-week",
+  "name": "Research harvest week",
+  "version": "1.0.0",
+  "description": "Harvest local research: URLs, markdown links, bookmarks, README links, email addresses in files, then an outline and local brief. No live web results are invented.",
+  "category": "research",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Friday 17:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Harvest URLs from the folder",
+      "kind": "agent",
+      "ref": "agents/core/url-harvest-from-folder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "List markdown links",
+      "kind": "module",
+      "ref": "modules/communication/markdown-links",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Parse bookmark HTML",
+      "kind": "agent",
+      "ref": "agents/core/bookmark-html-parser",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Extract README links",
+      "kind": "agent",
+      "ref": "agents/core/readme-link-extractor",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Harvest emails from files",
+      "kind": "module",
+      "ref": "modules/communication/email-harvest",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Index markdown files",
+      "kind": "agent",
+      "ref": "agents/core/markdown-index-agent",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Draft a research outline",
+      "kind": "skill",
+      "ref": "skills/custom/wrt-outline",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the research brief local",
+      "kind": "note",
+      "ref": "research-harvest",
+      "risk": "safe"
+    }
+  ]
+}

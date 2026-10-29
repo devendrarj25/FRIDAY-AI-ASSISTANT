@@ -1,0 +1,18 @@
+{
+  "id": "con-daily-site-log",
+  "name": "Daily site log template",
+  "summary": "Turn rough daily notes into a structured site log: weather, workforce, work done, delays, safety.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "date",
+    "weather"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Buckets lines into workforce/work/delay/safety using keywords. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
+}

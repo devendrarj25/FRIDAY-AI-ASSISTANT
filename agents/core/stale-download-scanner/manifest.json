@@ -1,0 +1,12 @@
+{
+  "name": "Stale download scanner",
+  "version": "1.0.0",
+  "description": "Reports files in Downloads with known-risky extensions (executables, scripts, installers) that are older than a cutoff. Never deletes unless you approve the exact list.",
+  "category": "security",
+  "entry": "index.cjs",
+  "inputs": ["folder", "olderThanDays", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} stale download(s) with risky extensions ({size}) from “{folder}”. This is permanent. Review the previewed list before allowing."
+}

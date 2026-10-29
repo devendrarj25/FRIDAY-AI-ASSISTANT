@@ -1,0 +1,43 @@
+{
+  "id": "music-download-inventory",
+  "name": "Music download inventory",
+  "version": "1.0.0",
+  "description": "Inventory music downloads, Downloads extensions, stale downloads — inspect only.",
+  "category": "home",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Inventory music downloads",
+      "kind": "agent",
+      "ref": "agents/core/music-download-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Downloads extension breakdown",
+      "kind": "agent",
+      "ref": "agents/core/downloads-extension-breakdown",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Stale downloads",
+      "kind": "agent",
+      "ref": "agents/core/stale-download-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Keep the music census local",
+      "kind": "note",
+      "ref": "music-dl",
+      "risk": "safe"
+    }
+  ]
+}

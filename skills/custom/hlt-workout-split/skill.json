@@ -1,0 +1,16 @@
+{
+  "id": "hlt-workout-split",
+  "name": "Workout split template",
+  "summary": "Map a day-count onto a simple push/pull/legs or full-body split template.",
+  "category": "health-education",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "days"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
+}

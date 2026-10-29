@@ -1,0 +1,17 @@
+{
+  "id": "code-changelog",
+  "name": "Changelog drafter",
+  "summary": "Group pasted bullets into Added / Changed / Fixed / Security for a Keep-a-Changelog draft.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "version"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Keyword-sorts your notes. Does not overwrite CHANGELOG.md; FRIDAY version authority stays in config/friday-version.json."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "sec-permission-review",
+  "name": "App permission questions",
+  "summary": "Questions for reviewing app permissions (camera, files, location) on a device you name.",
+  "category": "security-hygiene",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "app"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
+}

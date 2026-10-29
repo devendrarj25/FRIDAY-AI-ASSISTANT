@@ -1,0 +1,16 @@
+{
+  "id": "trv-phrase-card",
+  "name": "Traveller phrase card",
+  "summary": "Static courtesy phrases (please, thanks, help, water) for a few language codes.",
+  "category": "travel",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "lang"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas. Not a translator for complex speech."
+}

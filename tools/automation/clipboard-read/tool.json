@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Read clipboard",
+  "description": "Read the desktop clipboard via Electron's clipboard module. Outside the FRIDAY desktop app this fails honestly — there is no fake clipboard store.",
+  "category": "automation",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ the current clipboard text. Whatever is copied right now will be visible to her. Allow this?"
+}

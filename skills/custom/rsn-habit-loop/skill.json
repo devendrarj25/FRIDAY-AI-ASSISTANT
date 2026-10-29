@@ -1,0 +1,16 @@
+{
+  "id": "rsn-habit-loop",
+  "name": "Habit loop planner",
+  "summary": "Cue / routine / reward / craving slots from a pasted habit description.",
+  "category": "reasoning",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Keyword fill. Not medical or therapy advice."
+}

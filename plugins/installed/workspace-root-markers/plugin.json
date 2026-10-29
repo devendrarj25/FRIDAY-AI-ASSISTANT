@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "workspace-root-markers",
+  "name": "Workspace root markers",
+  "description": "One start stamp of common project markers (package.json, .git, src, kernel, skills).",
+  "category": "workspace",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-app-start"
+  ]
+}

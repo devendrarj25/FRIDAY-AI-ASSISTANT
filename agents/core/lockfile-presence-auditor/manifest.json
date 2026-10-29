@@ -1,0 +1,17 @@
+{
+  "name": "Lockfile presence auditor",
+  "version": "1.0.0",
+  "description": "Lists package-lock.json / yarn.lock / pnpm-lock.yaml / poetry.lock / Cargo.lock so mixed package managers are visible.",
+  "category": "developer",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} lockfile(s) under \u201c{folder}\u201d. Read-only. Allow to keep the inventory."
+}

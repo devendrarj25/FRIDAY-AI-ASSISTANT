@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "consecutive-ok-streak",
+  "name": "Consecutive ok streak",
+  "description": "Track a running streak of successful on-turn-complete events (ok !== false).",
+  "category": "activity",
+  "permissions": [],
+  "hooks": [
+    "on-turn-complete"
+  ]
+}

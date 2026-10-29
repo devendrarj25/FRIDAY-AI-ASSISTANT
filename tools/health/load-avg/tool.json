@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Load average",
+  "description": "Return os.loadavg() (1/5/15 minute). On Windows this is often zeros — reported honestly.",
+  "category": "health",
+  "inputs": [],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ OS LOAD AVERAGE. Allow this?",
+  "keywords": [
+    "load",
+    "loadavg"
+  ]
+}

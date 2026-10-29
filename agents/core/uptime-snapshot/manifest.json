@@ -1,0 +1,16 @@
+{
+  "name": "Uptime snapshot",
+  "version": "1.0.0",
+  "description": "Reports host uptime in hours using Node os.uptime. Read-only.",
+  "category": "monitoring",
+  "entry": "index.cjs",
+  "inputs": [
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY captured host uptime ({count} hours). Read-only. Allow to keep the snapshot. Nothing will be changed."
+}

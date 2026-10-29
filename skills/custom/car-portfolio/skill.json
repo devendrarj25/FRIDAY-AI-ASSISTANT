@@ -1,0 +1,16 @@
+{
+  "id": "car-portfolio",
+  "name": "Portfolio outline",
+  "summary": "Outline a portfolio: 3–5 pieces with problem, what you did, and proof.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Outline only. It does not publish a site."
+}

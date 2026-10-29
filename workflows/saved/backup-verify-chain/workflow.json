@@ -1,0 +1,71 @@
+{
+  "id": "backup-verify-chain",
+  "name": "Backup verify chain",
+  "version": "1.0.0",
+  "description": "Verify backup posture from names and ages: copy plan, archive checksum gaps, config backup age, zip census, old archives, stale backup folders, 3-2-1 checklist, then a local verify note. No restore is run.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "monthly 1st 10:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Plan a folder copy backup",
+      "kind": "agent",
+      "ref": "agents/core/folder-copy-planner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find archive checksum gaps",
+      "kind": "agent",
+      "ref": "agents/core/archive-checksum-gap-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Remind stale config backups",
+      "kind": "agent",
+      "ref": "agents/core/config-backup-reminder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Inventory zip archives",
+      "kind": "agent",
+      "ref": "agents/core/zip-archive-inventory",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Find old archives",
+      "kind": "agent",
+      "ref": "agents/core/old-archive-cleaner",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Scan stale backup folders",
+      "kind": "agent",
+      "ref": "agents/core/stale-backup-folder-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Load 3-2-1 backup checklist",
+      "kind": "skill",
+      "ref": "skills/custom/sec-backup-321",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Keep the backup verify note local",
+      "kind": "note",
+      "ref": "backup-verify",
+      "risk": "safe"
+    }
+  ]
+}

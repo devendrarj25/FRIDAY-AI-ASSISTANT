@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "file-change-counter",
+  "name": "File change counter",
+  "description": "Counts on-file-change events in this plugin's data/count.json. Does not read file contents.",
+  "category": "logging",
+  "permissions": [],
+  "hooks": [
+    "on-file-change"
+  ]
+}

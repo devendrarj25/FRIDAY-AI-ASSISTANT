@@ -1,0 +1,50 @@
+{
+  "id": "folder-growth-snapshot",
+  "name": "Folder growth snapshot",
+  "version": "1.0.0",
+  "description": "Snapshot folder growth, documents folder size, disk space, hotspots.",
+  "category": "files",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Snapshot folder growth",
+      "kind": "agent",
+      "ref": "agents/core/folder-growth-snapshot",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Documents folder size",
+      "kind": "agent",
+      "ref": "agents/core/documents-folder-size",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Watch disk space",
+      "kind": "agent",
+      "ref": "agents/core/disk-space-watcher",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Walk disk hotspots",
+      "kind": "agent",
+      "ref": "agents/core/disk-hotspot-walker",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the growth note local",
+      "kind": "note",
+      "ref": "folder-growth",
+      "risk": "safe"
+    }
+  ]
+}

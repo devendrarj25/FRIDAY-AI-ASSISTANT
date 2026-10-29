@@ -1,0 +1,50 @@
+{
+  "id": "readme-link-extract",
+  "name": "README link extract",
+  "version": "1.0.0",
+  "description": "Extract README links, missing README scan, license files, then a local map.",
+  "category": "research",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Extract README links",
+      "kind": "agent",
+      "ref": "agents/core/readme-link-extractor",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Scan missing README",
+      "kind": "agent",
+      "ref": "agents/core/missing-readme-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Find license files",
+      "kind": "agent",
+      "ref": "agents/core/license-file-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Markdown TOC",
+      "kind": "module",
+      "ref": "modules/communication/markdown-toc",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the map local",
+      "kind": "note",
+      "ref": "readme-map",
+      "risk": "safe"
+    }
+  ]
+}

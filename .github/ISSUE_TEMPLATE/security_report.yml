@@ -1,0 +1,33 @@
+name: Security hardening task (non-sensitive)
+description: Hardening work that is NOT an exploitable vulnerability
+title: "[security] "
+labels: ["security", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report an exploitable vulnerability here.** Use a private
+        advisory or contact the owner directly - see `SECURITY.md`.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Secrets / credential storage
+        - Workflow permissions
+        - Update verification (SHA256, signing)
+        - Tool permission gate / sandbox
+        - Dependency / supply chain
+        - Other hardening
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: What should be hardened and why
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk if left as-is

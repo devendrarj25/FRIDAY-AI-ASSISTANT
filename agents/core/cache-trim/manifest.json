@@ -1,0 +1,12 @@
+{
+  "name": "Cache trim",
+  "version": "1.0.0",
+  "description": "Measures cache-like files in a folder you name (or a local cache directory) and proposes trimming the stale ones. Always previews the exact file list first (dry run) and only deletes after you approve.",
+  "category": "maintenance",
+  "entry": "index.cjs",
+  "inputs": ["folder", "olderThanDays", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to DELETE {count} cache file(s) ({size}) from “{folder}” older than {olderThanDays} days. This is permanent. Review the previewed list before allowing."
+}

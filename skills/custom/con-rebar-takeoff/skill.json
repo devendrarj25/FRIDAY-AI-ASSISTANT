@@ -1,0 +1,18 @@
+{
+  "id": "con-rebar-takeoff",
+  "name": "Rebar length takeoff",
+  "summary": "Total rebar length from bar count, each length, and an optional lap percent.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "bars",
+    "lengthEach",
+    "lapPct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "total = bars × lengthEach × (1 + lapPct/100). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Spacing, cover, and diameter selection stay with the design engineer."
+}

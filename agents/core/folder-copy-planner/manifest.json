@@ -1,0 +1,19 @@
+{
+  "name": "Folder copy planner",
+  "version": "1.0.0",
+  "description": "Plans copying files from a source folder to a destination (default ~/FRIDAY-backups/<date>). Same dry-run then approved copy path as config-backup-reminder, for any folder.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dest",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to COPY {count} file(s) from \u201c{folder}\u201d to the backup destination. Review the list before allowing."
+}

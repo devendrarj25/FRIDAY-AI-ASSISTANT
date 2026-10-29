@@ -1,0 +1,17 @@
+{
+  "id": "hom-packing-list",
+  "name": "Trip packing list",
+  "summary": "Build a packing list from trip nights plus climate (hot, cold, rain).",
+  "category": "home",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "nights",
+    "climate"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Household planning helper. It does not control devices or place orders."
+}

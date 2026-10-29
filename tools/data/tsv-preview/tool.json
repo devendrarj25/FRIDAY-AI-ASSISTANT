@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "TSV preview",
+  "description": "Preview tab-separated text using document-extract.parseCsv (tab delimiter detection).",
+  "category": "data",
+  "inputs": [
+    "text",
+    "limit"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PREVIEW TSV text in memory. Allow this?"
+}

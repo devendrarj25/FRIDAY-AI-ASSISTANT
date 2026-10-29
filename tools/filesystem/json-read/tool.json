@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Read JSON",
+  "description": "Parse a JSON file inside the FRIDAY folder. Invalid JSON fails honestly.",
+  "category": "filesystem",
+  "inputs": [
+    "path",
+    "root"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ and parse JSON from “{path}”. Allow this?"
+}

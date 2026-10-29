@@ -1,0 +1,19 @@
+{
+  "name": "bom-report",
+  "version": "1.0.0",
+  "description": "Find UTF-8 / UTF-16 byte-order marks at the start of text files. Read-only.",
+  "category": "developer",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "BOM report",
+    "icon": "binary"
+  }
+}

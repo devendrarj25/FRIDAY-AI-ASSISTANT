@@ -1,0 +1,17 @@
+{
+  "name": "Missing README scanner",
+  "version": "1.0.0",
+  "description": "Lists project-like folders (with package.json, pyproject.toml or .git) that have no README so backups and handoffs are incomplete.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": [
+    "folder",
+    "dryRun"
+  ],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY listed {count} project folder(s) missing a README under \u201c{folder}\u201d. Read-only."
+}

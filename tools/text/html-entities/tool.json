@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "HTML entities",
+  "description": "Decode or encode a small set of HTML entities in text.",
+  "category": "text",
+  "inputs": [
+    "text",
+    "mode"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to DECODE OR ENCODE HTML ENTITIES in text. Allow this?",
+  "keywords": [
+    "html",
+    "entities",
+    "unescape"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "css-class-scan",
+  "version": "1.0.0",
+  "description": "Collect CSS class selectors from .css files (naive .classname tokenizer). Read-only. Does not restyle FRIDAY.",
+  "category": "ui",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "CSS class scan",
+    "icon": "palette"
+  }
+}

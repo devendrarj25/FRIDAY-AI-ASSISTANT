@@ -1,0 +1,16 @@
+{
+  "id": "car-offer-questions",
+  "name": "Offer review questions",
+  "summary": "Questions to ask before answering an offer (scope, pay timing, equipment) — not negotiation theatre.",
+  "category": "career",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Questions only. FRIDAY does not negotiate with an employer."
+}

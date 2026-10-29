@@ -1,0 +1,19 @@
+{
+  "name": "ini-inspect",
+  "version": "1.0.0",
+  "description": "Parse INI/CFG with configparser: section names and key names only (values omitted when a key looks like password/token/secret). Read-only.",
+  "category": "data",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "INI inspect",
+    "icon": "file"
+  }
+}

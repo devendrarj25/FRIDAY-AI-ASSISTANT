@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Screenshot a web page",
+  "description": "Capture a PNG data URL of a public page in FRIDAY's Chromium session. Requires the desktop app; outside Electron it fails honestly instead of inventing an image.",
+  "category": "browser",
+  "inputs": [
+    "url"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to SCREENSHOT the page at “{url}” in her browser. The page is loaded and captured. Allow this?"
+}

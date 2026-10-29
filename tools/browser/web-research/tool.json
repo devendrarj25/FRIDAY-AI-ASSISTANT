@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Research a question",
+  "description": "Search the web, then open the strongest hits and return their page text — the same research helper as FRIDAY's browser engine, implemented by composing search() and open().",
+  "category": "browser",
+  "inputs": [
+    "query",
+    "depth"
+  ],
+  "permissions": [
+    "network"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to RESEARCH “{query}” by searching the web and reading the top pages. Allow this?"
+}

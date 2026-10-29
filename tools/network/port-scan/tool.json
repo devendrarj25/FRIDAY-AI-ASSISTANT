@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Port scanner",
+  "description": "TCP-connect check a host on an explicit port list. Refuses ranges larger than 64 ports. Never a stealth/SYN scan. Exec-tier, never auto-enabled.",
+  "category": "network",
+  "inputs": ["host", "ports", "timeoutMs"],
+  "permissions": ["network"],
+  "risk": "exec",
+  "approvalPrompt": "FRIDAY wants to TCP-SCAN {host} on ports {ports}. That probes another machine. Allow this scan?"
+}

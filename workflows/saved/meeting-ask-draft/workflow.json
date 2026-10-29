@@ -1,0 +1,57 @@
+{
+  "id": "meeting-ask-draft",
+  "name": "Meeting-ask draft chain",
+  "version": "1.0.0",
+  "description": "ICS + calendars if connected + meeting-ask + intro blurb. No calendar invite send unless a connected write is approved.",
+  "category": "calendar",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Read ICS titles",
+      "kind": "agent",
+      "ref": "agents/core/ics-upcoming-events",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Google Calendar if connected",
+      "kind": "connector",
+      "ref": "google-calendar",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Draft a meeting ask",
+      "kind": "skill",
+      "ref": "skills/custom/com-meeting-ask",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Draft an intro blurb",
+      "kind": "skill",
+      "ref": "skills/custom/com-intro-blurb",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Draft an email body",
+      "kind": "skill",
+      "ref": "skills/custom/com-email-draft",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Keep the ask local until you send",
+      "kind": "note",
+      "ref": "meeting-ask",
+      "risk": "safe"
+    }
+  ]
+}

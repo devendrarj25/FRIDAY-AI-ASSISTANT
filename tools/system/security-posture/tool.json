@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Windows security posture",
+  "description": "Read-only Windows Defender / firewall / BitLocker / Hello snapshot via electron/hardware.cjs detectSecurity(). On Linux it reports unsupported honestly.",
+  "category": "system",
+  "inputs": [],
+  "permissions": [
+    "fs.read"
+  ],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to READ this PC's Windows Security posture (Defender, firewall, BitLocker, Hello). Nothing is changed. Allow this?"
+}

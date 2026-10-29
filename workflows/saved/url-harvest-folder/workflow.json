@@ -1,0 +1,50 @@
+{
+  "id": "url-harvest-folder",
+  "name": "URL harvest folder chain",
+  "version": "1.0.0",
+  "description": "Harvest URLs, bookmarks, markdown links, then a local link list.",
+  "category": "research",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "on demand",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Harvest URLs from a folder",
+      "kind": "agent",
+      "ref": "agents/core/url-harvest-from-folder",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Parse bookmark HTML",
+      "kind": "agent",
+      "ref": "agents/core/bookmark-html-parser",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Extract README links",
+      "kind": "agent",
+      "ref": "agents/core/readme-link-extractor",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Markdown links via module",
+      "kind": "module",
+      "ref": "modules/communication/markdown-links",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "Keep the link list local",
+      "kind": "note",
+      "ref": "url-list",
+      "risk": "safe"
+    }
+  ]
+}

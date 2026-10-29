@@ -1,0 +1,17 @@
+{
+  "id": "dat-histogram-bins",
+  "name": "Histogram bins",
+  "summary": "Bin a numeric series into equal-width counts so you can see the shape of the data.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "bins"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Equal-width counts only. It does not plot a chart file."
+}

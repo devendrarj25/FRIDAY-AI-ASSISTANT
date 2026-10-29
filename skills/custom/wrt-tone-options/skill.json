@@ -1,0 +1,16 @@
+{
+  "id": "wrt-tone-options",
+  "name": "Tone rewrite options",
+  "summary": "Offer the same message in formal, plain, and warm tones so you can pick one.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Three local rewrites of text you paste. It does not send the message."
+}

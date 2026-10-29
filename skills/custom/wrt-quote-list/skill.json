@@ -1,0 +1,16 @@
+{
+  "id": "wrt-quote-list",
+  "name": "Quoted-text list",
+  "summary": "Extract quoted phrases from a draft so you can check attribution later.",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Pulls quote marks only. It does not verify a source."
+}

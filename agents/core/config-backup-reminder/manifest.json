@@ -1,0 +1,12 @@
+{
+  "name": "Config backup reminder",
+  "version": "1.0.0",
+  "description": "Plans a copy of named folders (FRIDAY config or paths you pass) into a backup destination. Lists every file first; copies only after you approve. Never copies silently.",
+  "category": "backup",
+  "entry": "index.cjs",
+  "inputs": ["folders", "dest", "dryRun"],
+  "permissions": ["fs.read", "fs.write"],
+  "risk": "write",
+  "enabled": false,
+  "approvalPrompt": "FRIDAY wants to COPY {count} file(s) ({size}) from the planned source folders into “{folder}”. Existing files at the destination with the same relative path will be overwritten. Review the previewed list before allowing."
+}

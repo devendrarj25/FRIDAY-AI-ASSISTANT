@@ -1,0 +1,78 @@
+{
+  "id": "construction-weekly-pack",
+  "name": "Construction weekly pack",
+  "version": "1.0.0",
+  "description": "Friday site pack from filenames only: tender/NIT names, BOQ sheets, RA bills, drawings, GST invoices, work orders, ISO naming, then a local go/no-go note.",
+  "category": "tender",
+  "risk": "safe",
+  "enabled": false,
+  "permissions": [],
+  "inputs": [],
+  "schedule": "weekly Friday 16:00",
+  "author": "FRIDAY library",
+  "steps": [
+    {
+      "id": "s1",
+      "label": "Scan tender filenames",
+      "kind": "agent",
+      "ref": "agents/core/tender-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s2",
+      "label": "Find BOQ spreadsheets",
+      "kind": "agent",
+      "ref": "agents/core/boq-spreadsheet-finder",
+      "risk": "safe"
+    },
+    {
+      "id": "s3",
+      "label": "Scan RA bill filenames",
+      "kind": "agent",
+      "ref": "agents/core/ra-bill-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s4",
+      "label": "Scan drawing revisions",
+      "kind": "agent",
+      "ref": "agents/core/drawing-revision-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s5",
+      "label": "List GST invoice filenames",
+      "kind": "agent",
+      "ref": "agents/core/gst-invoice-filename-lister",
+      "risk": "safe"
+    },
+    {
+      "id": "s6",
+      "label": "Scan work-order filenames",
+      "kind": "agent",
+      "ref": "agents/core/work-order-filename-scanner",
+      "risk": "safe"
+    },
+    {
+      "id": "s7",
+      "label": "Audit ISO naming",
+      "kind": "agent",
+      "ref": "agents/core/iso-naming-auditor",
+      "risk": "safe"
+    },
+    {
+      "id": "s8",
+      "label": "Load a phase checklist",
+      "kind": "skill",
+      "ref": "skills/custom/con-phase-checklist",
+      "risk": "safe"
+    },
+    {
+      "id": "s9",
+      "label": "Keep the weekly site pack local",
+      "kind": "note",
+      "ref": "construction-weekly",
+      "risk": "safe"
+    }
+  ]
+}

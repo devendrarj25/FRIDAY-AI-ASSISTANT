@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Replace in a file",
+  "description": "Replace every occurrence of a substring in a UTF-8 file inside the FRIDAY folder. Preview with dryRun (default true) before writing.",
+  "category": "automation",
+  "inputs": [
+    "path",
+    "find",
+    "replace",
+    "dryRun",
+    "root"
+  ],
+  "permissions": [
+    "fs.read",
+    "fs.write"
+  ],
+  "risk": "write",
+  "approvalPrompt": "FRIDAY wants to REPLACE “{find}” with “{replace}” in “{path}” inside the FRIDAY folder. Allow this write?"
+}

@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "name": "Parse CSV text",
+  "description": "Parse CSV or TSV text into rows using electron/document-extract.cjs parseCsv — the same parser docs.extract uses.",
+  "category": "data",
+  "inputs": [
+    "text"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "approvalPrompt": "FRIDAY wants to PARSE CSV text in memory. Allow this?"
+}

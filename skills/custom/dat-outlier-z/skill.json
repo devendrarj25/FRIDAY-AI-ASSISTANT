@@ -1,0 +1,17 @@
+{
+  "id": "dat-outlier-z",
+  "name": "Z-score outlier flags",
+  "summary": "Flag values whose absolute z-score is above a threshold in a numeric series.",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "threshold"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Descriptive flags on your numbers. Not a statistical test of causation."
+}

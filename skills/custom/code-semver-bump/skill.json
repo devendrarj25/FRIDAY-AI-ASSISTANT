@@ -1,0 +1,17 @@
+{
+  "id": "code-semver-bump",
+  "name": "SemVer bump suggestion",
+  "summary": "Suggest major/minor/patch from changelog language against a starting SemVer.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "version"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "breaking → major, feat → minor, fix → patch. Does not write config/friday-version.json."
+}

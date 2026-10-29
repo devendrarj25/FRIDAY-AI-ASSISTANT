@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT/src/lib/friday/flow-graph.schema.json",
+  "title": "FRIDAY flow graph",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "title", "nodes", "edges", "groups", "trusted"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "trusted": { "type": "boolean" },
+    "enabled": { "type": "boolean" },
+    "nodes": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 4000,
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "nodeIds"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "nodeIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxNodes": { "type": "integer", "minimum": 1 },
+        "maxSteps": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "label", "status", "risk", "privacy", "ports", "detail", "source"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,80}$" },
+        "kind": {
+          "enum": [
+            "layer",
+            "module",
+            "skill",
+            "tool",
+            "agent",
+            "plugin",
+            "pack",
+            "connector",
+            "workflow",
+            "model",
+            "note",
+            "approval",
+            "condition",
+            "parallel",
+            "loop",
+            "trigger",
+            "subflow",
+            "error"
+          ]
+        },
+        "label": { "type": "string", "maxLength": 200 },
+        "layer": { "type": "string" },
+        "module": { "type": "string" },
+        "status": {
+          "enum": [
+            "idle",
+            "queued",
+            "running",
+            "ok",
+            "failed",
+            "blocked",
+            "awaiting-approval",
+            "dry-run",
+            "unknown",
+            "unwired",
+            "disabled"
+          ]
+        },
+        "risk": { "enum": ["safe", "write", "exec"] },
+        "privacy": { "enum": ["public", "standard", "sensitive"] },
+        "locked": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "approvesSelf": { "type": "boolean" },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "direction", "type"],
+            "properties": {
+              "id": { "type": "string" },
+              "direction": { "enum": ["in", "out"] },
+              "type": { "type": "string" }
+            }
+          }
+        },
+        "detail": { "type": "string", "maxLength": 500 },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adapter", "ref"],
+          "properties": {
+            "adapter": { "type": "string" },
+            "ref": { "type": "string" }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "target", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "kind": { "enum": ["data", "control", "approval", "event"] },
+        "sourcePort": { "type": "string" },
+        "targetPort": { "type": "string" },
+        "when": { "enum": ["always", "previous-ok", "previous-failed"] }
+      }
+    }
+  }
+}

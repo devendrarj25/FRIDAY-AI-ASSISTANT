@@ -1,0 +1,18 @@
+{
+  "id": "con-roofing-squares",
+  "name": "Roofing squares estimator",
+  "summary": "Roofing squares from plan area, a pitch multiplier, and waste.",
+  "category": "construction",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "area",
+    "pitchFactor",
+    "wastePct"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "squares = planArea × pitchFactor × (1+waste) / 100 (if area in ft²). Pass pitchFactor as a number (e.g. 1.12). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Not a structural roof design."
+}

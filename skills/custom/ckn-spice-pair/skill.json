@@ -1,0 +1,16 @@
+{
+  "id": "ckn-spice-pair",
+  "name": "Spice pairing notes",
+  "summary": "Static pairing notes (cumin-coriander, chilli-lime, garlic-parsley) for a spice you name.",
+  "category": "cooking",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Culinary notes, not a flavour-chemistry paper."
+}

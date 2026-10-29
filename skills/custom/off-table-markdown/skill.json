@@ -1,0 +1,16 @@
+{
+  "id": "off-table-markdown",
+  "name": "CSV to markdown table",
+  "summary": "Convert pasted CSV or TSV rows into a GitHub-flavoured markdown table.",
+  "category": "office",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Text conversion only. It does not open Excel or write a spreadsheet file."
+}

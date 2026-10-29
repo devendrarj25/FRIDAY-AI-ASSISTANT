@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "startup-config-presence",
+  "name": "Startup config presence",
+  "description": "On app start, checks whether workspace config/ exists (inspect only) and writes the boolean into this plugin's data/config-presence.json. Needs fs.read.",
+  "category": "diagnostics",
+  "permissions": [
+    "fs.read"
+  ],
+  "hooks": [
+    "on-app-start"
+  ]
+}

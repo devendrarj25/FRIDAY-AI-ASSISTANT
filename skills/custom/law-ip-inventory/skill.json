@@ -1,0 +1,16 @@
+{
+  "id": "law-ip-inventory",
+  "name": "IP inventory template",
+  "summary": "Blank inventory of what you created (code, docs, marks) versus third-party material.",
+  "category": "legal-templates",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
+}

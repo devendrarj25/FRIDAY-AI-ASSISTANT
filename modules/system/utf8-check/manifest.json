@@ -1,0 +1,19 @@
+{
+  "name": "utf8-check",
+  "version": "1.0.0",
+  "description": "Try UTF-8 strict decode on text-looking files and list those that fail. Read-only.",
+  "category": "system",
+  "permissions": [
+    "fs.read"
+  ],
+  "entry": "main.py",
+  "enabled": false,
+  "selfTest": {
+    "export": "self_test",
+    "input": {}
+  },
+  "ui": {
+    "page": "UTF-8 check",
+    "icon": "check"
+  }
+}

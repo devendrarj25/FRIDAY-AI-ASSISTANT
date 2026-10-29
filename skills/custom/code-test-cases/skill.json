@@ -1,0 +1,16 @@
+{
+  "id": "code-test-cases",
+  "name": "Test-case prompt builder",
+  "summary": "Turn a function spec or pasted code into happy-path, edge, and error test case bullets.",
+  "category": "coding",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": false,
+  "permissions": [],
+  "description": "Looks for parameters and branches (if/throw/return) in the pasted text and lists cases to cover. It does not execute the suite."
+}
