@@ -2410,6 +2410,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "redacted_thinking",
+      file: "kernel/reasoning_control.py",
+    },
+    {
       kind: "retry",
       file: "kernel/main.py",
     },
@@ -2436,6 +2440,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "task",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "thinking",
+      file: "kernel/reasoning_control.py",
     },
     {
       kind: "wav",
