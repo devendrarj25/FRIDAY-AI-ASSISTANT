@@ -122,8 +122,8 @@ The same rule reads three more things: a commit message or pull request text
 that carries a `Generated with/by` line, a robot mark, a `claude.ai/code`
 session link or a `Claude-Session` style trailer; and a file or folder an AI
 tool leaves behind (`.claude/`, `.cursor/`, `.windsurf/`, `.codex/`, `.gemini/`,
-`.continue/`, `.aider*`, `.cursorrules`, `.github/copilot-instructions.md`,
-`GEMINI.md`) in `scripts/check-added-files.cjs`. Some pull request tools append
+`.continue/`, `.aider*`, `.cursorrules`, a Copilot instructions file under
+`.github`, a Gemini rules file at the root) in `scripts/check-added-files.cjs`. Some pull request tools append
 such a footer to the body on their own, so the body is read back after it is
 written (AGENTS.md, Identity). `npm run setup:hooks` also installs a
 `commit-msg` hook that refuses the same message on the owner's clone, and the
