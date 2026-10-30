@@ -4,10 +4,11 @@
  * Paste a failure and see the cause she reasons out, the evidence, where in the code it points and
  * the safest next step, in short Hinglish or English. The brain check runs the fixed offline
  * tasks and shows the numbers with their caveat. Both run in this window; nothing is sent out and
- * nothing is changed on this PC.
+ * nothing is changed on this PC. The model comparison is the one exception: it asks the owner's own
+ * model a fixed set of questions, so it runs only when he presses its button.
  */
 import { useMemo, useState } from "react";
-import { Play, Stethoscope } from "lucide-react";
+import { Play, Scale, Stethoscope } from "lucide-react";
 import { ActionButton, EmptyState, HudPanel, StatusPill } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
 import {
@@ -16,6 +17,13 @@ import {
   looksLikeFailure,
   prefersHinglish,
 } from "@/lib/friday/brain/error-intelligence";
+import { askFriday, canAsk } from "@/lib/friday/ask";
+import {
+  INSTRUCTION_TASKS,
+  describeInstructionEval,
+  runInstructionEval,
+  type InstructionEvalReport,
+} from "@/lib/friday/self/instruction-eval";
 import {
   EVAL_CLASSES,
   describeEval,
@@ -152,6 +160,69 @@ export function BrainCheckPanel() {
           </p>
           <p className="text-meta-sm text-muted-foreground">{describeEval(report)}</p>
         </div>
+      )}
+    </HudPanel>
+  );
+}
+
+export function ModelComparePanel() {
+  const [report, setReport] = useState<InstructionEvalReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const available = canAsk();
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setReport(
+        await runInstructionEval({
+          rungs: [{ id: "default", label: "your configured models", modelIds: [] }],
+          ask: (prompt) => askFriday(prompt, { timeoutMs: 60_000 }),
+          onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
+        }),
+      );
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
+  return (
+    <HudPanel
+      title="Brain against my model"
+      hint={`${INSTRUCTION_TASKS.length} fixed asks · uses your models`}
+      actions={
+        <ActionButton
+          icon={Scale}
+          label="Compare"
+          labelMode="inline"
+          title="Ask your configured model the fixed asks, as it is and through FRIDAY's check-and-fix loop"
+          busy={busy}
+          disabled={!available}
+          onClick={() => void run()}
+        />
+      }
+    >
+      {!available ? (
+        <EmptyState
+          title="Needs the desktop app"
+          hint="The comparison asks your configured models, which the browser preview does not have."
+        />
+      ) : error ? (
+        <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
+      ) : !report ? (
+        <EmptyState
+          title={busy ? (progress ?? "Starting…") : "Not run yet"}
+          hint="Sends about 20 to 45 short questions to the model you have set up (local models cost nothing; a paid cloud model may). Each is answered as it is, then through the loop that checks the rules of the ask and fixes a miss. Nothing is sent until you press Compare."
+        />
+      ) : (
+        <p className="whitespace-pre-wrap text-data text-foreground">
+          {describeInstructionEval(report)}
+        </p>
       )}
     </HudPanel>
   );

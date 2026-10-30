@@ -7,7 +7,7 @@
     "2025-11-25",
     "2026-07-28"
   ],
-  "kernelTools": 71,
+  "kernelTools": 76,
   "exposedTools": [
     {
       "name": "friday.ask",
@@ -580,6 +580,20 @@
       }
     },
     {
+      "name": "kernel.fs.make",
+      "risk": "write",
+      "scopes": [
+        "write",
+        "files"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "kernel.fs.mkdir",
       "risk": "write",
       "scopes": [
@@ -768,6 +782,45 @@
       }
     },
     {
+      "name": "kernel.media.convert",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.media.frames",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.media.probe",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "kernel.node.run",
       "risk": "exec",
       "scopes": [
@@ -898,6 +951,19 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.sqlite.query",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       }
     },

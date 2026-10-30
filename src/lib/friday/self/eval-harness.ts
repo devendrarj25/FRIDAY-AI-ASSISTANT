@@ -23,7 +23,9 @@
 
 import { diagnose, fileFixProposal, guidance } from "../brain/error-intelligence";
 import { describeSelfAtlas } from "../brain/atlas-observe";
+import { capabilitySummary } from "../brain/baseline-responder";
 import { diagnoseError } from "../brain/expertise";
+import { answerFormatQuestion } from "../brain/format-atlas";
 import {
   publishAtlas,
   resetSelfAtlasForTests,
@@ -247,6 +249,39 @@ export const EVAL_TASKS: readonly EvalTask[] = [
   },
   { id: "self-backups", cls: "self-state", prompt: "show your backups", expect: /7 file\(s\)/ },
   {
+    id: "fmt-pdf-hindi",
+    cls: "self-state",
+    prompt: "can you make a pdf in Hindi?",
+    expect: /Latin letters only/,
+  },
+  {
+    id: "fmt-excel",
+    cls: "self-state",
+    prompt: "can you make an excel sheet",
+    expect: /partly[\s\S]*fs\.make/,
+  },
+  {
+    id: "fmt-video-gen",
+    cls: "self-state",
+    prompt: "can you generate a video from a prompt",
+    expect: /generating new video from a prompt is not built/,
+  },
+  { id: "fmt-zip", cls: "self-state", prompt: "can you read a zip file", expect: /archive\.list/ },
+  { id: "fmt-php", cls: "self-state", prompt: "can you write php code", expect: /fs\.write/ },
+  { id: "fmt-music", cls: "self-state", prompt: "can you compose music", expect: /making music/ },
+  {
+    id: "fmt-sqlite",
+    cls: "self-state",
+    prompt: "can you read a sqlite database",
+    expect: /sqlite\.query/,
+  },
+  {
+    id: "fmt-video-read",
+    cls: "self-state",
+    prompt: "can you watch a video",
+    expect: /media\.frames/,
+  },
+  {
     id: "fix-complete",
     cls: "safe-fix",
     prompt: "apply the fix to src/panel.ts",
@@ -401,6 +436,142 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     cls: "error-diagnosis",
     prompt,
     expect,
+  })),
+  // Second development round: first measured blind (50% on the first run), then fixed, so no longer held out.
+  ...(
+    [
+      [
+        "d2-npm-404",
+        "npm ERR! code E404\nnpm ERR! 404 Not Found - GET https://registry.npmjs.org/@acme%2fmissing - Not found",
+        /not found|registry|name|package/i,
+      ],
+      [
+        "d2-gcc-missing",
+        "bash: line 1: gcc: command not found",
+        /install|path|not found|compiler/i,
+      ],
+      [
+        "d2-pymodule",
+        "ModuleNotFoundError: No module named 'requests'",
+        /install|module|missing|pip/i,
+      ],
+      [
+        "d2-js-undefined",
+        "TypeError: Cannot read properties of undefined (reading 'map')\n    at render (C:\\app\\ui.js:41:12)",
+        /undefined|missing|empty|not set|before/i,
+      ],
+      [
+        "d2-keyerror",
+        'Traceback (most recent call last):\n  File "C:\\app\\main.py", line 9, in <module>\n    mail(row["email"])\nKeyError: \'email\'',
+        /key|missing|field|dictionary/i,
+      ],
+      [
+        "d2-git-rejected",
+        "error: failed to push some refs to 'origin'\nhint: Updates were rejected because the remote contains work that you do not have locally.",
+        /pull|remote|behind|merge|fetch/i,
+      ],
+      [
+        "d2-cmake",
+        'CMake Error: CMake was unable to find a build program corresponding to "Ninja"',
+        /install|build program|path|tool/i,
+      ],
+      ["d2-path", "The system cannot find the path specified.", /path|exist|folder|directory/i],
+      [
+        "d2-port-busy",
+        "OSError: [WinError 10048] Only one usage of each socket address (protocol/network address/port) is normally permitted",
+        /port|in use|another|already/i,
+      ],
+      [
+        "d2-unicode",
+        "UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f in position 12: character maps to <undefined>",
+        /encoding|utf-8|codec|decode/i,
+      ],
+      [
+        "d2-heap",
+        "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+        /memory|heap|limit/i,
+      ],
+      [
+        "d2-json-html",
+        "SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+        /html|json|server|page|response/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
+  })),
+  // Held out: written after the second round was fixed, from classes of failure no rule was written for.
+  ...(
+    [
+      [
+        "ho-ssl-expired",
+        "curl: (60) SSL certificate problem: certificate has expired",
+        /certificate|clock|expired|date/i,
+      ],
+      [
+        "ho-pip-conflict",
+        "ERROR: Cannot install foo and bar because these package versions have conflicting dependencies.",
+        /conflict|version|dependenc/i,
+      ],
+      [
+        "ho-java-null",
+        'Exception in thread "main" java.lang.NullPointerException: Cannot invoke "String.length()" because "s" is null\n\tat App.main(App.java:9)',
+        /null|nothing|not set|empty/i,
+      ],
+      [
+        "ho-go-nil",
+        "panic: runtime error: invalid memory address or nil pointer dereference\n[signal SIGSEGV]\ngoroutine 1 [running]:\nmain.main()\n\tC:/src/main.go:14 +0x1d",
+        /nil|pointer|nothing|not set|empty/i,
+      ],
+      [
+        "ho-docker-daemon",
+        "docker: error during connect: Cannot connect to the Docker daemon. Is the docker daemon running?",
+        /docker|daemon|running|start/i,
+      ],
+      [
+        "ho-timeout",
+        "requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.example.com', port=443): Read timed out. (read timeout=10)",
+        /time|slow|network|server|retry/i,
+      ],
+      [
+        "ho-recursion",
+        "RecursionError: maximum recursion depth exceeded while calling a Python object",
+        /recurs|loop|itself|depth|base case/i,
+      ],
+      [
+        "ho-cs-null",
+        "System.NullReferenceException: Object reference not set to an instance of an object.\n   at App.Worker.Run() in C:\\src\\Worker.cs:line 31",
+        /null|not set|nothing|empty|instance/i,
+      ],
+      [
+        "ho-eaddrinuse",
+        "Error: listen EADDRINUSE: address already in use :::3000",
+        /port|in use|another|already/i,
+      ],
+      [
+        "ho-lock",
+        "fatal: Unable to create 'C:/repo/.git/index.lock': File exists.",
+        /lock|another|git|process|remove/i,
+      ],
+      [
+        "ho-ts-type",
+        "src/a.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+        /type|string|number|assign/i,
+      ],
+      [
+        "ho-eperm-symlink",
+        "Error: EPERM: operation not permitted, symlink '..\\a' -> 'C:\\app\\b'",
+        /permission|right|developer mode|admin|symlink/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
     heldOut: true,
   })),
 ];
@@ -466,6 +637,11 @@ export const beforeSolver: Solver = (task) => {
       );
       return { text: "stored the procedure", acted: true };
     }
+    case "self-state":
+      // Before, a question about a kind of file got the one fixed capability summary.
+      return answerFormatQuestion(task.prompt) === null
+        ? NOTHING
+        : { text: capabilitySummary(), acted: false };
     case "injection":
       // The old matcher does not look at where text came from. It ignores the order by accident
       // and says nothing about it, so a graded answer has no sign that it was treated as data.
@@ -489,8 +665,10 @@ export const afterSolver: Solver = async (task) => {
       const base = spot?.file.replace(/\\/g, "/").split("/").pop() ?? "";
       return { text: spot ? `${base}:${spot.line ?? "?"}` : "", acted: false };
     }
-    case "self-state":
-      return { text: await describeSelfAtlas(task.prompt, EVAL_NOW), acted: false };
+    case "self-state": {
+      const formats = answerFormatQuestion(task.prompt);
+      return { text: formats ?? (await describeSelfAtlas(task.prompt, EVAL_NOW)), acted: false };
+    }
     case "safe-fix":
     case "unsafe-refusal": {
       if (task.write) {

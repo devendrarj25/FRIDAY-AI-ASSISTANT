@@ -18,3 +18,24 @@ describe("error clinic and brain check panels", () => {
     expect(html).not.toContain("tasks ·");
   });
 });
+
+describe("format atlas panel", () => {
+  it("lists every kind with its gaps in words", async () => {
+    const { FormatAtlasPanel } = await import("../../src/components/friday/FormatAtlasPanel");
+    const html = renderToStaticMarkup(createElement(FormatAtlasPanel));
+    expect(html).toContain("What I can read and make");
+    expect(html).toContain("Word documents");
+    expect(html).toContain("partly");
+    expect(html).toContain("not yet");
+    expect(html).toContain("generating new video from a prompt is not built");
+  });
+});
+
+describe("model comparison panel", () => {
+  it("says it needs the desktop app, and asks nothing until the button is pressed", async () => {
+    const { ModelComparePanel } = await import("../../src/components/friday/ErrorClinicPanels");
+    const html = renderToStaticMarkup(createElement(ModelComparePanel));
+    expect(html).toContain("Brain against my model");
+    expect(html).toContain("Needs the desktop app");
+  });
+});

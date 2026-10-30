@@ -78,6 +78,7 @@ import {
 import { openLoopDigest } from "./open-loops";
 import { noteUnderstanding } from "./decision-trace";
 import { readWorldInsight } from "./world-model";
+import { checkAnswer } from "./answer-checks";
 import {
   reviewAssumptions,
   evaluateAnswer,
@@ -1494,6 +1495,10 @@ class CoreBrain {
     }
     if (cognition.sources.length && !/https?:\/\//i.test(text)) {
       issues.push("web sources were retrieved but not cited in the answer");
+    }
+    // What the ask required and can be counted or parsed (limits, bullets, JSON, language, a sum).
+    for (const failure of checkAnswer(cognition.prompt, text).failures) {
+      if (failure.id !== "identity") issues.push(failure.message);
     }
     let selfEvalRan = false;
     turnMark("verify", "self-eval");

@@ -21,3 +21,5 @@ known-first-party = ["memory", "modules", "tools"]
 "kernel/tests/**" = ["S101", "S105", "S107"]
 # The phone page is one HTML document. Wrapping those source lines would edit CSS and JS.
 "kernel/companion.py" = ["E501"]
+# The Office parts are fixed XML templates. Wrapping those source lines would edit the XML.
+"kernel/doc_writer.py" = ["E501"]

@@ -1,0 +1,319 @@
+{
+  "$comment": "What FRIDAY can read and make, by kind of file. 'built' has a tool and a test; 'needs-tool' also needs an installed program; 'partial' says in 'note' what is missing; 'not-built' is the honest gap. The brain answers 'can you read or make X' from this file and from the tools that are really installed.",
+  "formats": [
+    {
+      "id": "text-code",
+      "label": "Text and source code",
+      "match": [
+        "txt",
+        "md",
+        "py",
+        "js",
+        "ts",
+        "tsx",
+        "jsx",
+        "php",
+        "html",
+        "css",
+        "json",
+        "yaml",
+        "yml",
+        "toml",
+        "xml",
+        "sql",
+        "sh",
+        "ps1",
+        "cmd",
+        "bat",
+        "c",
+        "cpp",
+        "h",
+        "cs",
+        "java",
+        "go",
+        "rs",
+        "rb",
+        "kt",
+        "swift",
+        "ini",
+        "log",
+        "csv"
+      ],
+      "words": [
+        "code",
+        "script",
+        "source",
+        "python",
+        "javascript",
+        "typescript",
+        "php",
+        "text file",
+        "markdown",
+        "program"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "fs.read, fs.extract, code.map",
+        "note": "any language; the code map covers the languages in kernel/code_languages.json"
+      },
+      "make": {
+        "status": "built",
+        "tool": "fs.write, fs.make",
+        "note": "fs.make writes html, md, txt, csv and json from a description; fs.write writes any text or code"
+      },
+      "run": {
+        "status": "built",
+        "tool": "python.exec, node.run, cpp.build, java.run, test.run",
+        "note": "after the owner's approval, in the sandbox where one is set up"
+      }
+    },
+    {
+      "id": "word",
+      "label": "Word documents",
+      "match": [
+        "docx",
+        "doc",
+        "odt",
+        "rtf"
+      ],
+      "words": [
+        "word",
+        "word document",
+        "docx"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "fs.extract",
+        "note": "docx, odt and rtf; old binary .doc is not read"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "fs.make",
+        "note": "docx is made from a description and reads back here; opening it in Word was not checked; odt and rtf are not made"
+      }
+    },
+    {
+      "id": "excel",
+      "label": "Spreadsheets",
+      "match": [
+        "xlsx",
+        "xlsm",
+        "xls",
+        "ods",
+        "csv",
+        "tsv"
+      ],
+      "words": [
+        "excel",
+        "spreadsheet",
+        "sheet"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "fs.extract",
+        "note": "xlsx, xlsm, ods, csv, tsv"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "fs.make",
+        "note": "xlsx and csv from rows; text is stored as text and no formula is written; opening it in Excel was not checked"
+      }
+    },
+    {
+      "id": "slides",
+      "label": "Presentations",
+      "match": [
+        "pptx",
+        "ppt",
+        "odp"
+      ],
+      "words": [
+        "powerpoint",
+        "slides",
+        "presentation",
+        "deck"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "fs.extract",
+        "note": "pptx and odp text"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "fs.make",
+        "note": "pptx with a title and bullets per slide; no pictures or charts; opening it in PowerPoint was not checked"
+      }
+    },
+    {
+      "id": "pdf",
+      "label": "PDF",
+      "match": [
+        "pdf"
+      ],
+      "words": [
+        "pdf"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "fs.extract",
+        "note": "text with PyMuPDF; a scanned page is read with OCR when it is installed"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "fs.make",
+        "note": "text pages in Latin letters only; other scripts such as Hindi become '?' and the result says so; use docx or html for those"
+      }
+    },
+    {
+      "id": "archive",
+      "label": "Archives",
+      "match": [
+        "zip",
+        "tar",
+        "gz",
+        "tgz",
+        "bz2",
+        "xz",
+        "7z",
+        "rar"
+      ],
+      "words": [
+        "zip",
+        "archive",
+        "compress"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "archive.list, archive.extract",
+        "note": "unsafe names and bombs are refused; rar is read only"
+      },
+      "make": {
+        "status": "built",
+        "tool": "archive.create",
+        "note": "zip, tar, tar.gz, tar.bz2, tar.xz; 7z and rar are not made"
+      }
+    },
+    {
+      "id": "image",
+      "label": "Images",
+      "match": [
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "bmp",
+        "svg",
+        "tiff",
+        "ico"
+      ],
+      "words": [
+        "image",
+        "picture",
+        "photo",
+        "screenshot",
+        "logo",
+        "drawing"
+      ],
+      "read": {
+        "status": "partial",
+        "tool": "fs.identify, screen.read_text, a vision model",
+        "note": "size and type always; the words in a picture with OCR; what is in it needs a vision-capable model"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "image generation with a connected cloud provider",
+        "note": "needs a connected provider and the billing and privacy gates; no local image model yet; svg can be written as text"
+      }
+    },
+    {
+      "id": "audio",
+      "label": "Audio",
+      "match": [
+        "mp3",
+        "wav",
+        "m4a",
+        "ogg",
+        "flac",
+        "opus",
+        "aac"
+      ],
+      "words": [
+        "audio",
+        "sound",
+        "voice",
+        "song",
+        "music",
+        "recording",
+        "podcast"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "speech to text, media.probe",
+        "note": "faster-whisper on this PC; media.probe needs ffmpeg"
+      },
+      "make": {
+        "status": "partial",
+        "tool": "text to speech, media.convert",
+        "note": "she speaks aloud and media.convert makes audio files from audio or video with ffmpeg; saving a spoken reply to a file and making music are not built"
+      }
+    },
+    {
+      "id": "video",
+      "label": "Video",
+      "match": [
+        "mp4",
+        "mkv",
+        "mov",
+        "webm",
+        "avi",
+        "m4v"
+      ],
+      "words": [
+        "video",
+        "clip",
+        "movie",
+        "film"
+      ],
+      "read": {
+        "status": "needs-tool",
+        "tool": "media.probe, media.frames",
+        "note": "length and streams with ffmpeg, and up to 12 evenly spaced still pictures a vision model can look at; there is no live video watching and no sound-and-picture understanding in one step"
+      },
+      "make": {
+        "status": "needs-tool",
+        "tool": "media.convert",
+        "note": "convert, cut, extract audio or a frame, and join pictures into a slideshow with ffmpeg; generating new video from a prompt is not built"
+      }
+    },
+    {
+      "id": "data-stores",
+      "label": "Databases and binaries",
+      "match": [
+        "db",
+        "sqlite",
+        "sqlite3",
+        "exe",
+        "dll",
+        "msi",
+        "ipynb"
+      ],
+      "words": [
+        "database",
+        "sqlite",
+        "executable",
+        "notebook"
+      ],
+      "read": {
+        "status": "built",
+        "tool": "sqlite.query, fs.identify",
+        "note": "SQLite files: list tables and run one read-only SELECT (limited rows, a time limit, nothing can change the file); Windows programs and other databases are identified from their headers only and never executed; a notebook reads as json"
+      },
+      "make": {
+        "status": "not-built",
+        "tool": "",
+        "note": "no database or program is made from a description"
+      }
+    }
+  ]
+}

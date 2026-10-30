@@ -575,8 +575,9 @@ const RULES: Rule[] = [
   {
     id: "permission-denied",
     test: (n, raw) =>
-      /EACCES|EPERM|permission denied|access is denied|operation not permitted/i.test(raw) ||
-      hasCode(n, "5", "0x80070005", "0xc0000022"),
+      /EACCES|EPERM|permission denied|access is denied|operation not permitted|UnauthorizedAccessException|access to the path .{1,260} is denied/i.test(
+        raw,
+      ) || hasCode(n, "5", "0x80070005", "0xc0000022"),
     cause: "the account running this has no right to that file, folder or key",
     base: 0.7,
     check: "read the rights on the path (icacls <path>); nothing is changed",
@@ -889,7 +890,7 @@ const RULES: Rule[] = [
     test: (n) =>
       /SyntaxError|IndentationError|TabError|Unexpected token|Unexpected end of/i.test(
         n.errorType + " " + n.message,
-      ),
+      ) && !/is not valid JSON|JSON\.parse|JSONDecodeError/i.test(n.message),
     cause: "the file at the named line is not valid code (a missing bracket, quote or indent)",
     base: 0.9,
     check: "open the file at the named line and the line above it; nothing is changed",
@@ -1079,6 +1080,194 @@ const RULES: Rule[] = [
         "run the tests, then continue the merge",
       ],
       risk: "needs-approval",
+    },
+  },
+  {
+    id: "program-not-found",
+    test: (_n, raw) => /\bspawn(?:Sync)?\s+\S+\s+ENOENT|ENOENT[^\n]*\bspawn\b/i.test(raw),
+    cause: "the program this step tried to start is not installed or is not on PATH",
+    base: 0.8,
+    check: "look the program up on PATH (where <name>); nothing is changed",
+    fix: {
+      summary: "install the program, or give its full path, then run the step again",
+      steps: [
+        "find the program name in the error line after 'spawn'",
+        "install it from the Install Manager, or add its folder to PATH",
+        "close and reopen the app so the new PATH is read, then retry",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "dotnet-assembly-missing",
+    test: (_n, raw) =>
+      /Could not load file or assembly|FileNotFoundException[^\n]*assembly/i.test(raw),
+    cause: "a .NET library the program needs is missing, or is not the version it asks for",
+    base: 0.78,
+    check: "list the program's folder and compare the library file with the version in the error",
+    fix: {
+      summary:
+        "put the right version of that library next to the program, or reinstall the program",
+      steps: [
+        "read the library name and version from the error",
+        "reinstall the program, or restore the library from its package",
+        "if two versions are in use, align them in the project's package references",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "rust-ownership",
+    test: (_n, raw) =>
+      /error\[E0(?:382|499|502|505|506|507|373|596|597)\]|borrow of moved value|use of moved value|cannot borrow/i.test(
+        raw,
+      ),
+    cause:
+      "Rust's ownership rule: a value was used after it moved, or it is borrowed in two conflicting ways at once",
+    base: 0.8,
+    check: "read the lines the compiler points at; nothing is changed",
+    fix: {
+      summary:
+        "borrow the value (&) instead of moving it, clone it if a copy is fine, or end the first borrow earlier",
+      steps: [
+        "find where the value moved, which the compiler marks with 'value moved here'",
+        "pass a reference (&name) or call .clone() if a second copy is acceptable",
+        "run cargo check to see the next message, if any",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "package-not-found",
+    test: (_n, raw) =>
+      /npm ERR! (?:code E404|404)|npm error (?:code E404|404)|E404[^\n]*Not Found/i.test(raw),
+    cause: "the registry has no package or version with that exact name",
+    base: 0.8,
+    check: "search the registry for the name (npm view <name>); nothing is changed",
+    fix: {
+      summary: "correct the package name or version, or sign in if it is a private package",
+      steps: [
+        "compare the name in the error with the one in package.json, character by character",
+        "for a private @scope package, check the registry and token for that scope",
+        "run the install again",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "git-push-rejected",
+    test: (_n, raw) =>
+      /failed to push some refs|Updates were rejected because|non-fast-forward|fetch first/i.test(
+        raw,
+      ),
+    cause: "the remote branch has commits this clone does not have, so git will not overwrite them",
+    base: 0.82,
+    check: "git fetch, then compare with git log HEAD..origin/<branch>; nothing is changed",
+    fix: {
+      summary: "bring the remote work in (merge it), then push again; never force-push over it",
+      steps: [
+        "git fetch origin",
+        "git merge origin/<branch>, and resolve any conflict",
+        "run the checks, then push",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "build-tool-missing",
+    test: (_n, raw) =>
+      /unable to find a build program|Could not find CMAKE_\w+_COMPILER|CMAKE_CXX_COMPILER not set|command not found|is not recognized as an internal or external command/i.test(
+        raw,
+      ),
+    cause: "a build tool or compiler this step needs is not installed or is not on PATH",
+    base: 0.78,
+    check: "look the tool up on PATH (where <name>); nothing is changed",
+    fix: {
+      summary: "install the tool from the Install Manager, reopen the app, and run the step again",
+      steps: [
+        "read the tool name in the error (gcc, Ninja, cmake, MSBuild...)",
+        "install it from the Install Manager or its official site",
+        "reopen the terminal or app so PATH is read again, then retry",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "path-not-found",
+    test: (_n, raw) =>
+      /The system cannot find the (?:path|file) specified|ENOENT: no such file or directory|No such file or directory|FileNotFoundError|DirectoryNotFoundException/i.test(
+        raw,
+      ),
+    cause: "the file or folder the step names does not exist at that path",
+    base: 0.7,
+    check: "list the parent folder of the path in the error; nothing is changed",
+    fix: {
+      summary: "fix the path, or create the missing folder or file, then run the step again",
+      steps: [
+        "copy the exact path from the error",
+        "check each part exists: the drive, the folder, the file name, the extension",
+        "if the file should have been made by an earlier step, run that step first",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "out-of-memory",
+    test: (_n, raw) =>
+      /heap out of memory|Reached heap limit|OutOfMemoryError|MemoryError|std::bad_alloc|Cannot allocate memory/i.test(
+        raw,
+      ),
+    cause: "the program ran out of memory",
+    base: 0.8,
+    check: "read free memory (Self Atlas or Task Manager); nothing is changed",
+    fix: {
+      summary: "close other heavy programs, or give this one a bigger limit, then run it again",
+      steps: [
+        "close browsers and other large programs, then retry",
+        "for Node.js raise the limit with --max-old-space-size=<MB>; for Java use -Xmx",
+        "if it still fails, the input is too large: process it in smaller pieces",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "json-got-html",
+    test: (_n, raw) =>
+      /Unexpected token '?<'?|<!DOCTYPE[^\n]*is not valid JSON|JSONDecodeError: Expecting value: line 1 column 1/i.test(
+        raw,
+      ),
+    cause:
+      "a web address that should answer JSON answered an HTML page instead (an error page, a sign-in page, or the wrong URL)",
+    base: 0.78,
+    check: "open the same address and read the first lines of what comes back; nothing is changed",
+    fix: {
+      summary: "fix the address or the sign-in, and handle a non-JSON answer before parsing it",
+      steps: [
+        "print the status code and the first 200 characters of the response",
+        "check the URL, the method and the token or key",
+        "only parse the body as JSON when the content type says it is JSON",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "python-bad-number",
+    test: (_n, raw) =>
+      /ValueError:\s*(?:invalid literal for (?:int|float)\(\)|could not convert string to float)/i.test(
+        raw,
+      ),
+    cause: "text that is not a number was converted with int() or float()",
+    base: 0.8,
+    check: "print the value just before the conversion; nothing is changed",
+    fix: {
+      summary:
+        "check or clean the text before converting, and handle the case where it is not a number",
+      steps: [
+        "strip spaces and thousands separators from the text",
+        "test it with str.isdigit() or wrap the conversion in try/except ValueError",
+        "decide what the program should do with a value that is not a number",
+      ],
+      risk: "low",
     },
   },
 ];

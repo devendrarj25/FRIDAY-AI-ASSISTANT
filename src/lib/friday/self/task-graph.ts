@@ -106,6 +106,10 @@ export type GraphNode = {
   idempotencyKey?: string;
   /** Scoped capability that may replace this one if the tool fails. */
   alternative?: string;
+  /** Independent pieces the owner asked to run at the same time. One node, run together. */
+  parts?: string[];
+  /** Pieces of `parts` that already finished, so a retry never repeats them. */
+  partsDone?: number[];
   startedAt?: number;
   endedAt?: number;
   error?: string;
@@ -236,10 +240,56 @@ export function baselineMethodSteps(
  * a numbered/bulleted list first, then "then/after that/next" clauses, then
  * sentences. Never invents work that was not asked for.
  */
-export function planNodes(
-  request: string,
-): { title: string; instruction: string; purpose: "action" | "outcome" }[] {
+const PARALLEL_MARK =
+  /\b(?:at the same time|at once|simultaneously|in parallel|parallel(?:ly)?|same time|ek saath|ek sath|saath me|saath mein|ek hi samay)\b[\s,:-]*/gi;
+
+/** The independent pieces when the owner asked for them together ("do A and B at the same time"). */
+export function parallelParts(request: string): string[] | null {
+  const text = String(request || "").trim();
+  PARALLEL_MARK.lastIndex = 0;
+  if (!PARALLEL_MARK.test(text)) return null;
+  PARALLEL_MARK.lastIndex = 0;
+  const stripped = text
+    .replace(PARALLEL_MARK, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+  const listed = stripped
+    .split(STEP_SPLIT)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const raw =
+    listed.length > 1 ? listed : stripped.split(/\s*(?:,|;|&|\+|\band\b|\baur\b|\bplus\b)\s*/i);
+  const parts = raw
+    .map((part) =>
+      part
+        .trim()
+        .replace(/^(?:\d+[.)]|[-*•])\s+/, "")
+        .replace(/^(?:also|and|aur|please)\s+/i, "")
+        .replace(/[.:]+$/, ""),
+    )
+    .filter((part) => part.length >= 2);
+  return parts.length >= 2 && parts.length <= 6 ? parts : null;
+}
+
+export function planNodes(request: string): {
+  title: string;
+  instruction: string;
+  purpose: "action" | "outcome";
+  parts?: string[];
+}[] {
   const text = request.trim();
+  const together = parallelParts(text);
+  if (together) {
+    const title = `Together: ${together.join(" · ")}`;
+    return [
+      {
+        title: title.length > 68 ? `${title.slice(0, 65)}…` : title,
+        instruction: text,
+        purpose: "action",
+        parts: together,
+      },
+    ];
+  }
   const listed = text
     .split(STEP_SPLIT)
     .map((part) => part.trim())
@@ -405,6 +455,68 @@ export class TaskGraphEngine {
     graph.updatedAt = Date.now();
   }
 
+  /**
+   * Runs the pieces of one node together, a few at a time, with the same runner a single piece would
+   * use. A piece that finished is remembered on the node, so a retry or a resume only does what is
+   * left. The node is done when every piece is; it fails if any piece fails or is not checked.
+   */
+  private groupRunner(base: NodeRunner): NodeRunner {
+    return async (context) => {
+      const parts = context.node.parts ?? [];
+      const done = new Set(context.node.partsDone ?? []);
+      const limit = Math.max(1, Math.min(4, autonomy.getSnapshot().maxConcurrentTasks || 1));
+      const results: (RunnerResult | void)[] = [];
+      const errors: string[] = [];
+      const queue = parts.map((_, index) => index).filter((index) => !done.has(index));
+      const worker = async () => {
+        for (let index = queue.shift(); index !== undefined; index = queue.shift()) {
+          if (context.signal.aborted) return;
+          const piece = parts[index] ?? "";
+          const pieceNode: GraphNode = { ...context.node, title: piece, instruction: piece };
+          delete pieceNode.parts;
+          const sub: RunnerContext = {
+            ...context,
+            node: pieceNode,
+            log: (line, level) => context.log(`[${index + 1}] ${line}`, level),
+            checkpoint: () => undefined,
+          };
+          try {
+            const result = await base(sub);
+            if (result && result.ok === false)
+              errors.push(`${piece}: ${result.result ?? "failed"}`);
+            else if (result && result.waiting) errors.push(`${piece}: waiting on the owner`);
+            else {
+              done.add(index);
+              context.node.partsDone = [...done];
+              results.push(result);
+            }
+          } catch (error) {
+            errors.push(`${piece}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
+      const finished = results.filter((row): row is RunnerResult => Boolean(row));
+      const unique = (key: "files" | "tools") =>
+        Array.from(new Set(finished.flatMap((row) => row[key] ?? [])));
+      const waitingOnly =
+        errors.length > 0 && errors.every((line) => line.endsWith("waiting on the owner"));
+      return {
+        ok: errors.length === 0,
+        waiting: waitingOnly,
+        result: errors.length
+          ? `${done.size} of ${parts.length} done. ${errors.join("; ")}`
+          : finished
+              .map((row) => row.result)
+              .filter(Boolean)
+              .join(" | ") || `${parts.length} done together`,
+        files: unique("files"),
+        tools: unique("tools"),
+        checked: done.size === parts.length && finished.every((row) => row.checked === true),
+      };
+    };
+  }
+
   /* ----------------------------------------------------------- runners */
 
   registerRunner(kind: string, runner: NodeRunner): void {
@@ -461,6 +573,9 @@ export class TaskGraphEngine {
       kind: (step as { kind?: string }).kind ?? kind,
       purpose:
         (step as { purpose?: "action" | "outcome" }).purpose ?? stepPurpose(step.instruction),
+      ...((step as { parts?: string[] }).parts?.length
+        ? { parts: (step as { parts?: string[] }).parts }
+        : {}),
       dependsOn: index === 0 ? [] : [`${graphId}-n${index}`],
       state: index === 0 ? "ready" : "pending",
       attempts: 0,
@@ -825,7 +940,8 @@ export class TaskGraphEngine {
       return true;
     }
 
-    const runner = this.runners.get(node.kind);
+    const single = this.runners.get(node.kind);
+    const runner = single && node.parts?.length ? this.groupRunner(single) : single;
     if (!runner) {
       node.state = "failed";
       node.error = `no runner registered for "${node.kind}"`;

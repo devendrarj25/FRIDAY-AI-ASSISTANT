@@ -525,3 +525,32 @@ describe("in the chat", () => {
     expect(looksLikeFailure("I made an error in my budget")).toBe(false);
   });
 });
+
+describe("rules added for common failures", () => {
+  const cause = (text: string) => diagnose({ text }).hypotheses[0]?.cause ?? "";
+  it("names the cause of ten everyday errors", () => {
+    expect(cause("Error: spawn ffmpeg ENOENT")).toMatch(/not installed|PATH/);
+    expect(cause("Could not load file or assembly 'Foo, Version=1.0.0.0'")).toMatch(
+      /\.NET library/,
+    );
+    expect(cause("error[E0382]: borrow of moved value: `v`")).toMatch(/ownership/);
+    expect(cause("ValueError: invalid literal for int() with base 10: 'x'")).toMatch(
+      /not a number/,
+    );
+    expect(
+      cause("System.UnauthorizedAccessException: Access to the path 'C:\\x' is denied."),
+    ).toMatch(/no right/);
+    expect(
+      cause("npm ERR! code E404\nnpm ERR! 404 Not Found - GET https://registry.npmjs.org/zzz"),
+    ).toMatch(/no package/);
+    expect(cause("error: failed to push some refs to 'origin'")).toMatch(/remote branch/);
+    expect(cause("bash: line 1: gcc: command not found")).toMatch(/build tool/);
+    expect(cause("FATAL ERROR: Reached heap limit Allocation failed")).toMatch(/memory/);
+  });
+
+  it("does not call a JSON parse error a mistake in the code", () => {
+    const text = "SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON";
+    expect(cause(text)).toMatch(/HTML page/);
+    expect(cause("SyntaxError: invalid syntax")).toMatch(/not valid code/);
+  });
+});

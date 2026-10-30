@@ -139,7 +139,7 @@ describe("the report", () => {
     expect(report.heldOut.after).toBeGreaterThanOrEqual(report.heldOut.before);
     expect(report.heldOut.after).toBeLessThan(report.after);
     expect(report.heldOut.after).toBeGreaterThanOrEqual(0.5);
-    expect(report.heldOut.failed.every((id) => id.startsWith("h-"))).toBe(true);
+    expect(report.heldOut.failed.every((id) => id.startsWith("ho-"))).toBe(true);
   });
 
   it("says plainly what the offline numbers do not mean", async () => {
