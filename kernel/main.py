@@ -162,7 +162,12 @@ KERNEL_AUTOMATION = load_kernel_automation()
 # One shared authority: the desktop mints owner-approved tool tokens with the
 # same secret, and the planner mints them for steps the owner approved.
 authority = Authority()
-tools = ToolRegistry(storage, workspace=DATA_DIR.parent / "workspace", authority=authority)
+tools = ToolRegistry(
+    storage,
+    workspace=DATA_DIR.parent / "workspace",
+    authority=authority,
+    root=Path(WORKSPACE_ROOT) if WORKSPACE_ROOT else DATA_DIR.parent,
+)
 modules = ModuleRegistry(Path(__file__).resolve().parent.parent / "modules", storage)
 runtimes = RuntimeManager(DATA_DIR / "runtimes", storage)
 # The router can call FRIDAY's read-only tools mid-answer; anything that

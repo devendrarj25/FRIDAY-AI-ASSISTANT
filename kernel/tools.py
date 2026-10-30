@@ -241,11 +241,13 @@ def from_wire_name(name: str) -> str:
 
 
 class ToolRegistry:
-    def __init__(self, storage, workspace: Path, authority: Authority | None = None) -> None:
+    def __init__(self, storage, workspace: Path, authority: Authority | None = None, root: Path | None = None) -> None:
         self.storage = storage
         self.authority = authority or Authority()
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
+        #: The FRIDAY folder. Read tools may look inside it (never at its security folder).
+        self.root = Path(root) if root else None
 
     def describe(self) -> list[dict]:
         enabled = self.storage.enabled_tools()
@@ -321,6 +323,51 @@ class ToolRegistry:
             raise PermissionError("path escapes the workspace root")
         return target
 
+    def read_roots(self) -> list[Path]:
+        """The folders the read-only tools may open: the tool workspace, the FRIDAY folder, the
+        owner's chosen workspace and any folder he added to the ``read_roots`` setting."""
+        wanted: list[object] = [self.workspace, self.root]
+        try:
+            settings = self.storage.settings()
+        except Exception:
+            settings = {}
+        wanted.append(settings.get("workspace_root"))
+        extra = settings.get("read_roots")
+        if isinstance(extra, list):
+            wanted.extend(extra)
+        roots: list[Path] = []
+        for item in wanted:
+            if not isinstance(item, (str, Path)) or not str(item).strip():
+                continue
+            try:
+                resolved = Path(item).resolve()
+            except OSError:
+                continue
+            if resolved.is_dir() and resolved not in roots:
+                roots.append(resolved)
+        return roots
+
+    def _resolve_read(self, raw: object) -> tuple[Path, Path]:
+        """(path, the root that contains it) for a read-only tool.
+
+        A relative path stays inside the tool workspace, as before. An absolute path is accepted only
+        inside a read root, and a credential file or the FRIDAY security folder is never opened."""
+        text = str(raw or ".")
+        if Path(text).is_absolute():
+            target = Path(text).resolve()
+            roots = self.read_roots()
+        else:
+            target = self._resolve(text)
+            roots = [self.workspace.resolve()]
+        root = next((r for r in roots if target == r or r in target.parents), None)
+        if root is None:
+            raise PermissionError("that path is outside the folders FRIDAY may read")
+        friday = self.root.resolve() if self.root else None
+        inside_security = friday is not None and (friday / "security") in (target, *target.parents)
+        if file_tools.is_sensitive(target) or inside_security:
+            raise PermissionError("that file holds credentials, so FRIDAY does not read it")
+        return target, root
+
     async def _app_restart(self, args: dict) -> dict:
         return {
             "ok": False,
@@ -357,10 +404,17 @@ class ToolRegistry:
             return {"ok": False, "error": str(exc)}
 
     async def _fs_read(self, args: dict) -> dict:
-        path = self._resolve(args["path"])
+        path, _ = self._resolve_read(args["path"])
         if path.is_dir():
             return {"ok": True, "entries": sorted(p.name for p in path.iterdir())}
-        return {"ok": True, "content": path.read_text(encoding="utf-8", errors="replace")}
+        limit = file_tools.MAX_TEXT_BYTES
+        with path.open("rb") as handle:
+            data = handle.read(limit + 1)
+        return {
+            "ok": True,
+            "content": data[:limit].decode("utf-8", errors="replace"),
+            "truncated": len(data) > limit,
+        }
 
     async def _fs_write(self, args: dict) -> dict:
         path = self._resolve(args["path"])
@@ -636,28 +690,31 @@ class ToolRegistry:
     def _under(self, args: dict, key: str = "path", default: str = ".") -> Path:
         return self._resolve(str(args.get(key) or default))
 
+    def _under_read(self, args: dict, key: str = "path") -> tuple[Path, Path]:
+        return self._resolve_read(args.get(key) or ".")
+
     async def _fs_list(self, args: dict) -> dict:
-        return await asyncio.to_thread(
-            file_tools.list_dir, self._under(args), self.workspace.resolve(), int(args.get("depth") or 1)
-        )
+        path, root = self._under_read(args)
+        return await asyncio.to_thread(file_tools.list_dir, path, root, int(args.get("depth") or 1))
 
     async def _fs_info(self, args: dict) -> dict:
-        return await asyncio.to_thread(file_tools.info, self._under(args))
+        return await asyncio.to_thread(file_tools.info, self._under_read(args)[0])
 
     async def _fs_identify(self, args: dict) -> dict:
-        return await asyncio.to_thread(file_tools.identify, self._under(args))
+        return await asyncio.to_thread(file_tools.identify, self._under_read(args)[0])
 
     async def _fs_find(self, args: dict) -> dict:
+        path, root = self._under_read(args)
         return await asyncio.to_thread(
             file_tools.find,
-            self._under(args),
-            self.workspace.resolve(),
+            path,
+            root,
             str(args.get("pattern") or "*"),
             str(args.get("contains") or ""),
         )
 
     async def _fs_extract(self, args: dict) -> dict:
-        return await asyncio.to_thread(file_tools.extract_text, self._under(args))
+        return await asyncio.to_thread(file_tools.extract_text, self._under_read(args)[0])
 
     async def _fs_mkdir(self, args: dict) -> dict:
         return await asyncio.to_thread(file_tools.make_dir, self._under(args))

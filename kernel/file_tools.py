@@ -32,6 +32,38 @@ FIND_LIMIT = 200
 TRASH = ".friday-trash"
 HIDDEN = {TRASH, ".friday-sandbox"}
 
+# Folders and file names that hold credentials. A read tool never opens these,
+# whatever root it was pointed at: the model sees tool output as data and a
+# cloud model may be the one asking.
+SENSITIVE_FOLDERS = {".ssh", ".gnupg", ".aws", ".azure", ".kube"}
+SENSITIVE_NAMES = (
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "*.kdbx",
+    "*.keystore",
+    "*.token",
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "credentials",
+    "credentials.*",
+    "secrets.*",
+    "provider-keys*",
+)
+
+
+def is_sensitive(path: Path) -> bool:
+    """True for a credential folder or file name; the content is never read."""
+    if SENSITIVE_FOLDERS & {part.lower() for part in path.parts}:
+        return True
+    name = path.name.lower()
+    return any(fnmatch.fnmatch(name, pattern) for pattern in SENSITIVE_NAMES)
+
+
 ZIP_EXT = {".zip", ".jar", ".apk", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".whl", ".nupkg"}
 TAR_MODES = {
     ".tar": "",
@@ -229,7 +261,7 @@ def find(path: Path, root: Path, pattern: str = "*", contains: str = "") -> dict
             continue
         row = {"path": item.relative_to(root).as_posix(), "bytes": item.stat().st_size}
         if needle:
-            if item.stat().st_size > MAX_TEXT_BYTES:
+            if item.stat().st_size > MAX_TEXT_BYTES or is_sensitive(item):
                 continue
             try:
                 text = item.read_text(encoding="utf-8", errors="ignore").lower()
