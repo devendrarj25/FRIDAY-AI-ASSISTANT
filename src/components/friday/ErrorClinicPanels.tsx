@@ -18,6 +18,10 @@ import {
   prefersHinglish,
 } from "@/lib/friday/brain/error-intelligence";
 import { askFriday, canAsk } from "@/lib/friday/ask";
+import { coreBrain } from "@/lib/friday/brain/core-brain";
+import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
+import { modelRegistry } from "@/lib/friday/brain/model-registry";
+import { routeRefs } from "@/lib/friday/model-catalog";
 import {
   INSTRUCTION_TASKS,
   describeInstructionEval,
@@ -170,19 +174,39 @@ export function ModelComparePanel() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState("");
   const available = canAsk();
+  const models = useMemo(
+    () => modelRegistry.available().map((record) => ({ id: record.id, name: record.name })),
+    [],
+  );
+  const stats = coreBrain.modelStats();
+  const measured = models
+    .map((model) => ({ model, profile: profileOf(model.id, stats) }))
+    .filter((row) => row.profile.measured);
 
   const run = async () => {
     setBusy(true);
     setError(null);
     try {
-      setReport(
-        await runInstructionEval({
-          rungs: [{ id: "default", label: "your configured models", modelIds: [] }],
-          ask: (prompt) => askFriday(prompt, { timeoutMs: 60_000 }),
-          onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
-        }),
-      );
+      // One chosen model, or whichever FRIDAY routes to when none is chosen.
+      const modelIds = chosen ? routeRefs([chosen]) : [];
+      const result = await runInstructionEval({
+        rungs: [{ id: chosen || "default", label: chosen || "your configured models", modelIds }],
+        ask: (prompt) =>
+          askFriday(prompt, { timeoutMs: 60_000, ...(modelIds.length ? { modelIds } : {}) }),
+        onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
+      });
+      setReport(result);
+      // A comparison is kept only for a model that was actually named, and only if it answered.
+      if (chosen && result.unanswered === 0) {
+        recordCompare(chosen, {
+          tasks: result.tasks,
+          bare: result.bare,
+          loop: result.brain,
+          calls: result.calls,
+        });
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -200,7 +224,7 @@ export function ModelComparePanel() {
           icon={Scale}
           label="Compare"
           labelMode="inline"
-          title="Ask your configured model the fixed asks, as it is and through FRIDAY's check-and-fix loop"
+          title="Ask the chosen model the fixed asks, as it is and through FRIDAY's check-and-fix loop"
           busy={busy}
           disabled={!available}
           onClick={() => void run()}
@@ -212,17 +236,55 @@ export function ModelComparePanel() {
           title="Needs the desktop app"
           hint="The comparison asks your configured models, which the browser preview does not have."
         />
-      ) : error ? (
-        <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
-      ) : !report ? (
-        <EmptyState
-          title={busy ? (progress ?? "Starting…") : "Not run yet"}
-          hint="Sends about 20 to 45 short questions to the model you have set up (local models cost nothing; a paid cloud model may). Each is answered as it is, then through the loop that checks the rules of the ask and fixes a miss. Nothing is sent until you press Compare."
-        />
       ) : (
-        <p className="whitespace-pre-wrap text-data text-foreground">
-          {describeInstructionEval(report)}
-        </p>
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-meta text-muted-foreground">
+            Model to compare (a named model keeps its result in its profile)
+            <select
+              className="rounded-surface border border-border bg-background p-2 text-foreground"
+              value={chosen}
+              onChange={(event) => setChosen(event.target.value)}
+              aria-label="Model to compare"
+            >
+              <option value="">Whichever FRIDAY routes to</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {error ? (
+            <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
+          ) : !report ? (
+            <EmptyState
+              title={busy ? (progress ?? "Starting…") : "Not run yet"}
+              hint="Sends about 20 to 45 short questions to the model (local models cost nothing; a paid cloud model may). Each is answered as it is, then through the loop that checks the rules of the ask and fixes a miss. Nothing is sent until you press Compare."
+            />
+          ) : (
+            <p className="whitespace-pre-wrap text-data text-foreground">
+              {describeInstructionEval(report)}
+            </p>
+          )}
+          {measured.length ? (
+            <ul className="grid gap-1" aria-label="Measured model profiles">
+              {measured.map(({ model, profile }) => (
+                <li key={model.id} className="text-data text-muted-foreground">
+                  {model.name}: {profile.runs} live run(s)
+                  {profile.passRate === null ? "" : ` · ${pct(profile.passRate)} passed her checks`}
+                  {profile.avgMs === null ? "" : ` · ${profile.avgMs} ms`}
+                  {profile.rulesKept === null
+                    ? " · not compared"
+                    : ` · rules kept ${pct(profile.rulesKept)} as it is, ${pct(profile.rulesKeptWithLoop ?? 0)} with the loop`}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-meta-sm text-muted-foreground">
+              No model has a measured profile yet. Profiles come from real runs and from Compare.
+            </p>
+          )}
+        </div>
       )}
     </HudPanel>
   );

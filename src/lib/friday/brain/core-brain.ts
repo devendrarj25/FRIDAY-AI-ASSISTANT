@@ -79,6 +79,7 @@ import { openLoopDigest } from "./open-loops";
 import { noteUnderstanding } from "./decision-trace";
 import { readWorldInsight } from "./world-model";
 import { checkAnswer } from "./answer-checks";
+import { compareOf, MIN_COMPARE_TASKS } from "./model-profile";
 import {
   reviewAssumptions,
   evaluateAnswer,
@@ -287,6 +288,12 @@ class CoreBrain {
     this.listeners.forEach((fn) => fn());
   }
 
+  /** The measured per-task-kind stats of each model (`kind|modelId`), copied. */
+  modelStats(): Record<string, { runs: number; ok: number; ms: number }> {
+    this.load();
+    return { ...this.state.models };
+  }
+
   /** Ordered model preference this brain has measured for a kind of task. */
   preferred(kind: string, ids: string[]): string[] {
     this.load();
@@ -300,7 +307,16 @@ class CoreBrain {
       const stat = this.state.models[`${kind}|${id}`];
       const measured = !stat || stat.runs < 2 ? 0 : stat.ok / stat.runs;
       const fromLedger = ledgerId && id === ledgerId ? 0.08 : 0;
-      return measured + fromLedger;
+      // What the model kept of the rules of a fixed set of asks (Compare), and how fast it is, count a
+      // little. A model with no such record adds nothing, exactly as before.
+      const compare = compareOf(id);
+      const rules =
+        compare && compare.tasks >= MIN_COMPARE_TASKS ? 0.1 * (compare.bare / compare.tasks) : 0;
+      const own = Object.entries(this.state.models).filter(([key]) => key.endsWith(`|${id}`));
+      const runs = own.reduce((n, [, row]) => n + row.runs, 0);
+      const avg = runs >= 2 ? own.reduce((n, [, row]) => n + row.ms * row.runs, 0) / runs : 0;
+      const slow = Math.min(0.05, avg / 120_000);
+      return measured + fromLedger + rules - slow;
     };
     return [...ids].sort((a, b) => score(b) - score(a));
   }
