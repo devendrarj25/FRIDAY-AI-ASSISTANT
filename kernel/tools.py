@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 
+import code_map
 import control
 import devices_android
 import devices_bluetooth
@@ -89,6 +90,8 @@ RISK = {
     "fs.info": "safe",
     "fs.identify": "safe",
     "fs.find": "safe",
+    "code.map": "safe",
+    "code.impact": "safe",
     "fs.extract": "safe",
     "fs.mkdir": "write",
     "fs.copy": "write",
@@ -164,6 +167,8 @@ SUMMARY = {
     "fs.info": "Size, date and real file type of one file or folder",
     "fs.identify": "Tell what a file really is from its first bytes, not its name",
     "fs.find": "Find files by name pattern, or by a phrase inside them",
+    "code.map": "Ranked map of a code folder: symbols per file, what uses what (any language, offline)",
+    "code.impact": "Which files use a given file, directly and through others",
     "fs.extract": "Read the text of a document: docx, xlsx, pptx, pdf, csv, json, html, text",
     "fs.mkdir": "Create a workspace folder",
     "fs.copy": "Copy a workspace file or folder",
@@ -201,6 +206,26 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
             "path": {"type": "string", "description": "Folder relative to the FRIDAY workspace root."},
             "depth": {"type": "integer", "description": "How many levels to list (1-6)."},
         },
+    },
+    "code.map": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Folder to map; defaults to the workspace root."},
+            "budget": {"type": "integer", "description": "Approximate token budget for the map (200-20000)."},
+            "focus": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "File path fragments or symbol names to rank first.",
+            },
+        },
+    },
+    "code.impact": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Folder the file lives in; defaults to the workspace root."},
+            "file": {"type": "string", "description": "File inside that folder, as a relative path."},
+        },
+        "required": ["file"],
     },
     "fs.identify": {
         "type": "object",
@@ -712,6 +737,20 @@ class ToolRegistry:
             str(args.get("pattern") or "*"),
             str(args.get("contains") or ""),
         )
+
+    async def _code_map(self, args: dict) -> dict:
+        path, _ = self._under_read(args)
+        focus = args.get("focus")
+        return await asyncio.to_thread(
+            code_map.build_map,
+            path,
+            int(args.get("budget") or 2000),
+            [str(item) for item in focus] if isinstance(focus, list) else [],
+        )
+
+    async def _code_impact(self, args: dict) -> dict:
+        path, _ = self._under_read(args)
+        return await asyncio.to_thread(code_map.impact, path, str(args["file"]))
 
     async def _fs_extract(self, args: dict) -> dict:
         return await asyncio.to_thread(file_tools.extract_text, self._under_read(args)[0])

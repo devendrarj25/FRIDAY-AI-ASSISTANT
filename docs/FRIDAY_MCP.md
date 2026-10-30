@@ -64,7 +64,7 @@ Tool, resource, and prompt names below are generated. Edit the catalog, then run
 
 <!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->
 
-Protocol `2026-07-28`. Kernel tools in the risk table: 69.
+Protocol `2026-07-28`. Kernel tools in the risk table: 71.
 
 | Tool | Risk | Scopes |
 | --- | --- | --- |
@@ -96,6 +96,8 @@ Protocol `2026-07-28`. Kernel tools in the risk table: 69.
 | `kernel.archive.extract` | write | write, files |
 | `kernel.archive.list` | safe | read, files |
 | `kernel.ci.run` | exec | exec, sandbox |
+| `kernel.code.impact` | safe | read |
+| `kernel.code.map` | safe | read |
 | `kernel.cpp.build` | exec | exec, sandbox |
 | `kernel.cpp.run` | exec | exec, sandbox |
 | `kernel.docker.pull` | write | write |

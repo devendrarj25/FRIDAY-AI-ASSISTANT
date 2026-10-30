@@ -1,6 +1,7 @@
 """Read-only tools: which folders they may open, and the files they never open."""
 
 import asyncio
+import importlib
 import sys
 from pathlib import Path
 
@@ -12,7 +13,8 @@ import file_tools  # noqa: E402
 from authority import Authority  # noqa: E402
 
 pytest.importorskip("httpx", reason="tool registry needs the kernel runtime deps")
-from tools import ToolRegistry  # noqa: E402
+# Loaded by name: the repository root also has a ``tools`` folder that a static checker prefers.
+ToolRegistry = importlib.import_module("tools").ToolRegistry
 
 
 class _Storage:

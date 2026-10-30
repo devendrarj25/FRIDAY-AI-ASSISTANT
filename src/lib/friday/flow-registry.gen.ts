@@ -2326,7 +2326,19 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "gif",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "jpeg",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "json",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "jupyter-notebook",
       file: "kernel/file_tools.py",
     },
     {
@@ -2336,6 +2348,14 @@ export const FLOW_REGISTRY = {
     {
       kind: "model-missing",
       file: "kernel/stt.py",
+    },
+    {
+      kind: "mp3",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "mp4",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "paid",
@@ -2348,6 +2368,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "planned",
       file: "kernel/main.py",
+    },
+    {
+      kind: "png",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "pptx",
@@ -2370,12 +2394,24 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "sqlite",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "tar",
       file: "kernel/file_tools.py",
     },
     {
       kind: "task",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "wav",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "windows-executable",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "xlsx",

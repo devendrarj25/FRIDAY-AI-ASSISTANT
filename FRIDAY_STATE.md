@@ -37,7 +37,7 @@ Counted from the files named in the last column. `docs:sync` rewrites the six di
 | Workflows | 117 `workflow.json` | disk |
 | Modules | 76 `manifest.json` | disk |
 | Connectors | 113 | `electron/connectors.cjs` `CONNECTORS` |
-| Kernel tools | 69 | `kernel/tools.py` `RISK` |
+| Kernel tools | 71 | `kernel/tools.py` `RISK` |
 | Cloud providers | 20 | `electron/models.cjs` `CLOUD` |
 | Local engines | Ollama + LM Studio + llama.cpp + vLLM + LocalAI + Jan (MLX-LM live on darwin only) | `LOCAL_ENGINES` + Ollama |
 | Workflows (GitHub) | 11 YAML files | `.github/workflows` |
