@@ -18,7 +18,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { SelfAtlasPanels } from "@/components/friday/SelfAtlasPanels";
-import { BrainCheckPanel, ErrorClinicPanel } from "@/components/friday/ErrorClinicPanels";
+import {
+  BrainCheckPanel,
+  ErrorClinicPanel,
+  ModelComparePanel,
+} from "@/components/friday/ErrorClinicPanels";
 import { FormatAtlasPanel } from "@/components/friday/FormatAtlasPanel";
 import { SelfAutonomyPanels } from "@/components/friday/SelfAutonomyPanels";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
@@ -256,6 +260,7 @@ function SelfManagementPage() {
         <div className="grid gap-4 xl:grid-cols-2">
           <ErrorClinicPanel />
           <BrainCheckPanel />
+          <ModelComparePanel />
         </div>
 
         <FormatAtlasPanel />

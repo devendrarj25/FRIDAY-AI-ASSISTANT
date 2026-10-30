@@ -52,6 +52,21 @@ describe("FRIDAY Core Brain", () => {
     expect(failed.ok).toBe(false);
   });
 
+  it("holds an answer to the limits the owner wrote, with no model", async () => {
+    const cognition = await coreBrain.cognize("explain closures in at most 6 words", {
+      mode: "manual",
+      allowTools: false,
+    });
+    const long = coreBrain.verify(
+      cognition,
+      "A closure keeps the variables of the place it was made.",
+      true,
+    );
+    expect(long.ok).toBe(false);
+    expect(long.issues.join(" ")).toMatch(/at most 6 words/);
+    expect(coreBrain.verify(cognition, "It remembers its surrounding scope.", true).ok).toBe(true);
+  });
+
   it("keeps measured routing preferences deterministic", () => {
     const ordered = coreBrain.preferred("code", ["a", "b"]);
     expect(ordered).toHaveLength(2);

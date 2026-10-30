@@ -6,6 +6,8 @@
  * that are already configured. This wraps the existing `chat:send` bridge —
  * it never opens a second pipeline or talks to a provider directly.
  */
+import { runVerified, type Rung, type VerifiedResult } from "./brain/verified-run";
+
 const uid = () => `ask_${Math.random().toString(36).slice(2, 10)}`;
 
 export type AskOptions = {
@@ -83,5 +85,28 @@ export async function askFriday(prompt: string, options: AskOptions = {}): Promi
     } catch (error) {
       finish(() => reject(error instanceof Error ? error : new Error("Could not reach a model.")));
     }
+  });
+}
+
+/**
+ * Ask, and hold the answer to what the ask required. A requirement that can be checked without a model
+ * (a word or line limit, a bullet count, JSON with named keys, a language, a calculation) is checked;
+ * a failing answer is fixed by the same model once, then by the next rung. With nothing checkable this
+ * is a single `askFriday`. `rungs` run in order, cheapest first.
+ */
+export async function askVerified(
+  prompt: string,
+  options: AskOptions & { rungs?: Rung[]; retriesPerRung?: number } = {},
+): Promise<VerifiedResult> {
+  const { rungs, retriesPerRung, ...base } = options;
+  const ladder: Rung[] = rungs?.length
+    ? rungs
+    : [{ id: "default", label: "configured models", modelIds: base.modelIds ?? [] }];
+  return runVerified({
+    prompt,
+    rungs: ladder,
+    ...(retriesPerRung !== undefined ? { retriesPerRung } : {}),
+    ask: (text, rung) =>
+      askFriday(text, { ...base, ...(rung.modelIds.length ? { modelIds: rung.modelIds } : {}) }),
   });
 }

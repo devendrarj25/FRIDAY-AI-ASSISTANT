@@ -13,7 +13,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { askFriday, canAsk } from "@/lib/friday/ask";
+import { askVerified, canAsk } from "@/lib/friday/ask";
 import { notifications, type Notification } from "@/lib/friday/notifications";
 import { stage } from "@/lib/friday/stage";
 import { wireNotifications } from "@/lib/friday/notification-wiring";
@@ -100,7 +100,7 @@ export function NotificationCenter() {
     if (item.advice || !canAsk()) return;
     setAsking(item.id);
     try {
-      const answer = await askFriday(
+      const result = await askVerified(
         [
           "One of my own subsystems raised this alert. Explain it to my owner.",
           `Source: ${item.source}`,
@@ -113,7 +113,10 @@ export function NotificationCenter() {
         ].join("\n"),
         { system: "You are FRIDAY explaining your own system alerts.", timeoutMs: 60_000 },
       );
-      notifications.attachAdvice(item.id, answer);
+      if (!result.answer) {
+        throw new Error(result.attempts.at(-1)?.error ?? "no model answered");
+      }
+      notifications.attachAdvice(item.id, result.answer);
     } catch (error) {
       notifications.attachAdvice(
         item.id,

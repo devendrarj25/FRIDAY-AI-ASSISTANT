@@ -30,3 +30,12 @@ describe("format atlas panel", () => {
     expect(html).toContain("generating new video from a prompt is not built");
   });
 });
+
+describe("model comparison panel", () => {
+  it("says it needs the desktop app, and asks nothing until the button is pressed", async () => {
+    const { ModelComparePanel } = await import("../../src/components/friday/ErrorClinicPanels");
+    const html = renderToStaticMarkup(createElement(ModelComparePanel));
+    expect(html).toContain("Brain against my model");
+    expect(html).toContain("Needs the desktop app");
+  });
+});
