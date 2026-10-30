@@ -22,7 +22,23 @@ export type DeskTask = {
   createdAt: number;
   doneAt: number | null;
   remindedAt: number | null;
+  /** Set once the heads-up before the due time has been shown. Older stored tasks have none. */
+  warnedAt?: number | null;
 };
+
+/** How long before the due time the heads-up is shown. */
+export const HEADS_UP_MS = 60 * 60_000;
+
+/** Where a task stands against its deadline: nothing to say yet, a heads-up is due, or the time has come. */
+export function deadlineStage(
+  task: Pick<DeskTask, "done" | "dueAt" | "remindedAt" | "warnedAt">,
+  now: number,
+): "none" | "heads-up" | "due" {
+  if (task.done || task.dueAt == null) return "none";
+  if (task.dueAt <= now) return task.remindedAt ? "none" : "due";
+  if (task.dueAt - now <= HEADS_UP_MS && !task.warnedAt) return "heads-up";
+  return "none";
+}
 
 export type DeskState = {
   tasks: DeskTask[];
@@ -165,9 +181,20 @@ class PersonalDesk {
       solicited: true,
     });
     if (!gate.offer) return [];
-    const due = this.tasks.filter(
-      (task) => !task.done && task.dueAt != null && task.dueAt <= now && !task.remindedAt,
-    );
+    const soon = this.tasks.filter((task) => deadlineStage(task, now) === "heads-up");
+    for (const task of soon) {
+      task.warnedAt = now;
+      const minutes = Math.max(1, Math.round(((task.dueAt ?? now) - now) / 60_000));
+      notifications.push({
+        id: `desk-headsup:${task.id}`,
+        level: "info",
+        title: `Coming up in ${minutes} min: ${task.title}`,
+        detail: "A heads-up before the time you set. Nothing is done for you.",
+        source: "Personal desk",
+        route: "/chat",
+      });
+    }
+    const due = this.tasks.filter((task) => deadlineStage(task, now) === "due");
     for (const task of due) {
       task.remindedAt = now;
       notifications.push({
@@ -179,7 +206,7 @@ class PersonalDesk {
         route: "/chat",
       });
     }
-    if (due.length) this.emit();
+    if (due.length || soon.length) this.emit();
     return due;
   }
 

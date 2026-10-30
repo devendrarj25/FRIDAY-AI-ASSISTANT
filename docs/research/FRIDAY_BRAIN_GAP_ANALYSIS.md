@@ -2,7 +2,13 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-What FRIDAY's Brain already has, what is partial, missing, outdated or duplicated, what should and should not be integrated, and what each gap needs to be closed. Written 2026-10-30 from the audit in [FRIDAY_BRAIN_CAPABILITY_MATRIX.md](FRIDAY_BRAIN_CAPABILITY_MATRIX.md) and the research in [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md). The matrix counts 122 rows: 52 DONE, 56 PARTIAL, 4 MISSING and 10 that are the model's own ability.
+What FRIDAY's Brain already has, what is partial, missing, outdated or duplicated, what should and should not be integrated, and what each gap needs to be closed. Written 2026-10-30 from the audit in [FRIDAY_BRAIN_CAPABILITY_MATRIX.md](FRIDAY_BRAIN_CAPABILITY_MATRIX.md) and the research in [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md). The first audit counted 122 rows: 52 DONE, 56 PARTIAL, 4 MISSING and 10 that are the model's own ability. After the build described in the status section below the same rows count 58 DONE, 53 PARTIAL, 1 MISSING and 10 model. The counts are recomputed from the rows in the matrix.
+
+## 0. Status after the build
+
+Closed in code, with tests, on this branch: provider reasoning control (record, effort per route, request field per provider), repair of a counted miss on the streaming chat, a measured model profile used when ranking, time-aware and Hinglish-aware retrieval, web source kind and citation check, shared context between task steps, retrieval, routing and long-horizon suites with pass-k and history, the Brain now panel, the `dev.check` sandbox, `media.transcribe`, the deadline heads-up and the trainer's guards. Still open: a cross-encoder reranker (optional download), message passing between agents and A2A, calling `dev.check` automatically on every proposal, a single sound-and-picture pass, realtime multimodal, and a real fine-tuning run. Every provider field not checked against a live server is listed in `FRIDAY_STATE.md`.
+
+Two claims in the first audit were wrong and are corrected below: the retrieval already had a lexical index, fusion, MMR and entity folding (what was missing was time and tense awareness and a Hinglish bridge), and the streaming chat already had a repair stage (what was missing was a check on the counted rules and a same-engine retry before moving to another engine).
 
 ## 1. Already strong (do not rebuild)
 
@@ -17,9 +23,9 @@ What FRIDAY's Brain already has, what is partial, missing, outdated or duplicate
 
 | Gap | What exists | What is missing | Evidence |
 | --- | --- | --- | --- |
-| Provider reasoning control | strategy modes chosen by FRIDAY | the model's own control is never sent | no `enable_thinking`, `reasoning_effort`, `budget_tokens` or adaptive-thinking setting anywhere in `electron/`, `kernel/`, `src/` |
-| Verification on the live path | `answer-checks`, `verified-run`, `core-brain.verify` | the streaming chat and Auto mode call one model once | `ask.ts` is a one-shot helper; the chat path does not call `askVerified` |
-| Retrieval quality | query expansion, fusion, late interaction; hashed n-gram or Chroma vectors | reranker, entity link, recency-aware ranking for "current state" | `kernel/memory.py`, `retrieval.ts` |
+| Provider reasoning control (closed in code, see the status section) | strategy modes chosen by FRIDAY; now the model's own control too | live-server checks of the Ollama, vLLM and OpenAI fields | the first audit found no `enable_thinking`, `reasoning_effort`, `budget_tokens` or adaptive-thinking setting anywhere; `kernel/reasoning_control.py` now writes them |
+| Verification on the live path | `answer-checks`, `verified-run`, `core-brain.verify`; the streaming chat repairs a counted miss on the same engine, then another | Auto mode and the Hub still call one model once | `planRepair` in `brain-engine.ts` |
+| Retrieval quality | query expansion, lexical plus bm25Lite, fusion, MMR, late interaction, entity folding; now also time and tense fit and a Hinglish bridge; hashed n-gram or Chroma vectors | cross-encoder reranker (optional) | `kernel/memory.py`, `retrieval.ts` |
 | Per-model measured profile | per-task-kind run, ok, ms per model; capability records | pass rate, latency and cost per model kept over time and used to rank | `coreBrain.state.models` only |
 | Agent runtime | 99 agent folders, router, scheduler | agents inspect and plan; shared context and handoffs; measured advantage per specialist | `agent-scheduler.ts` header |
 | Research | live search, CRAG-style grading, cited URL required | source reliability, citation correctness, research projects and reports | `research.ts`, `core-brain.verify` |
@@ -33,8 +39,8 @@ What FRIDAY's Brain already has, what is partial, missing, outdated or duplicate
 ## 3. Missing
 
 1. Agent-to-agent shared context and message passing (and any A2A interoperability).
-2. Source reliability scoring for research.
-3. Automated branch, test and benchmark sandbox for FRIDAY's own source changes.
+2. (Now built as `web-sources.ts`: kinds and agreement, not fact checking.)
+3. (Now built as the `dev.check` tool; not yet called automatically on every proposal.)
 4. Realtime multimodal interaction.
 
 ## 4. Outdated or at risk of going stale

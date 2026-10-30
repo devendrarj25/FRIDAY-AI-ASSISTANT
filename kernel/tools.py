@@ -10,6 +10,7 @@ from pathlib import Path
 
 import code_map
 import control
+import dev_check
 import devices_android
 import devices_bluetooth
 import devices_network
@@ -34,7 +35,9 @@ RISK = {
     "http.fetch": "write",
     "fs.write": "write",
     "fs.make": "write",
+    "dev.check": "exec",
     "media.probe": "safe",
+    "media.transcribe": "safe",
     "sqlite.query": "safe",
     "media.convert": "write",
     "media.frames": "write",
@@ -125,6 +128,8 @@ SUMMARY = {
     "fs.read": "Read files and directories inside allowed roots",
     "fs.write": "Create and edit files",
     "sqlite.query": "Read a SQLite database: list its tables, or run one SELECT (read-only, limited rows)",
+    "dev.check": "Try a proposed change (a diff) on a throwaway copy of HEAD and run one fixed check before and after",
+    "media.transcribe": "Turn the speech in an audio or video file into text (on this PC; nothing is uploaded)",
     "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
     "media.frames": "Save a few evenly spaced still pictures from a video, so they can be looked at",
     "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
@@ -258,6 +263,14 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Audio, video or image file relative to the workspace root."}
+        },
+        "required": ["path"],
+    },
+    "media.transcribe": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Audio or video file relative to the workspace root."},
+            "language": {"type": "string", "description": "Optional language code such as hi or en."},
         },
         "required": ["path"],
     },
@@ -803,6 +816,19 @@ class ToolRegistry:
             bool(args.get("overwrite")),
         )
 
+    async def _dev_check(self, args: dict) -> dict:
+        diff = str(args.get("diff") or "")
+        if not diff.strip():
+            return {"ok": False, "error": "diff is empty: give the proposal as a unified diff"}
+        repo = Path(__file__).resolve().parents[1]
+        return await asyncio.to_thread(
+            dev_check.check_proposal,
+            repo,
+            diff,
+            str(args.get("check") or "pytest"),
+            args.get("baseline") is not False,
+        )
+
     async def _sqlite_query(self, args: dict) -> dict:
         return await asyncio.to_thread(
             sqlite_read.query,
@@ -813,6 +839,11 @@ class ToolRegistry:
 
     async def _media_probe(self, args: dict) -> dict:
         return await asyncio.to_thread(media_tools.probe, self._under_read(args)[0])
+
+    async def _media_transcribe(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            media_tools.transcribe, self._under_read(args)[0], str(args.get("language") or "")
+        )
 
     async def _media_frames(self, args: dict) -> dict:
         source = self._under(args, "from")

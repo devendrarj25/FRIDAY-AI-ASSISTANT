@@ -129,7 +129,7 @@ async def test_claude_thinking_is_sent_and_kept_across_a_tool_round(monkeypatch)
     client = Scripted([first, second])
     monkeypatch.setattr(router, "_client", lambda: client)
     engine = ModelRouter(Store())
-    engine.tools = Tools()
+    engine.tools = Tools()  # pyright: ignore[reportAttributeAccessIssue]
     model = Model(
         id="claude-opus-5-5",
         label="c",

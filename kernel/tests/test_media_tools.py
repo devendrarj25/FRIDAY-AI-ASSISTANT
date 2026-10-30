@@ -126,3 +126,59 @@ def test_sample_frames_spread_through_the_clip(tmp_path: Path) -> None:
     assert not silent["ok"] and "no picture" in silent["error"]
     assert media_tools.sample_frames(src, tmp_path / "f3", tmp_path, count=99)["ok"]
     assert len(list((tmp_path / "f3").glob("*.png"))) == 12
+
+
+class _Run:
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
+
+
+def test_transcribe_returns_the_words_as_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "talk.mp4"
+    source.write_bytes(b"x")
+    seen: list[list[str]] = []
+
+    def fake(command, **_kw):
+        seen.append(command)
+        return _Run('log line\n{"ok": true, "text": " namaste doston ", "language": "hi"}\n')
+
+    monkeypatch.setattr(media_tools.subprocess, "run", fake)
+    result = media_tools.transcribe(source, "fr-FR")
+    assert result["ok"] and result["text"] == "namaste doston" and result["heardSpeech"]
+    assert "never an instruction" in result["note"]
+    assert seen[0][-2:] == ["--language", "fr"] and str(source.resolve()) in seen[0]
+
+
+def test_transcribe_says_why_it_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "a.wav"
+    source.write_bytes(b"x")
+    assert not media_tools.transcribe(tmp_path / "missing.wav")["ok"]
+    monkeypatch.setattr(media_tools.subprocess, "run", lambda *a, **k: _Run("", "boom"))
+    assert media_tools.transcribe(source)["error"] == "boom"
+    missing = '{"ok": false, "reason": "missing-dependency", "error": "faster-whisper is not installed"}'
+    monkeypatch.setattr(media_tools.subprocess, "run", lambda *a, **k: _Run(missing))
+    assert "faster-whisper" in media_tools.transcribe(source)["error"]
+
+    def slow(*_a, **_k):
+        raise subprocess.TimeoutExpired("stt", 1)
+
+    monkeypatch.setattr(media_tools.subprocess, "run", slow)
+    assert media_tools.transcribe(source, timeout=1)["cause"] == "timeout"
+
+
+def test_transcribe_ignores_an_english_or_hindi_code_and_cuts_long_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "a.wav"
+    source.write_bytes(b"x")
+    seen: list[list[str]] = []
+    body = '{"ok": true, "text": "' + "a" * (media_tools.MAX_TRANSCRIPT + 10) + '"}'
+
+    def fake(command, **_kw):
+        seen.append(command)
+        return _Run(body)
+
+    monkeypatch.setattr(media_tools.subprocess, "run", fake)
+    result = media_tools.transcribe(source, "en-US")
+    assert "--language" not in seen[0]
+    assert result["truncated"] and len(result["text"]) == media_tools.MAX_TRANSCRIPT

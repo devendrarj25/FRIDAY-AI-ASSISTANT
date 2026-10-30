@@ -2,9 +2,26 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-The phased plan for the Brain evolution, written 2026-10-30. Phase 0 (the audit, research and these five documents) is done by this change. Phases 1 to 12 are **a planning structure over existing owners, not permission to create new subsystems**. Each phase is a separate pull request on its own `upgrade/…` branch, and none starts without the owner's go-ahead for that phase.
+The phased plan for the Brain evolution, written 2026-10-30. Phase 0 (the audit, research and these five documents) was the first step; the owner then asked for the code itself, so one pull request carries the documents and the delivered parts of the phases below. The phases are **a planning structure over existing owners, not permission to create new subsystems**.
 
 Inputs: [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md), [FRIDAY_ULTIMATE_BRAIN_ARCHITECTURE.md](FRIDAY_ULTIMATE_BRAIN_ARCHITECTURE.md), [FRIDAY_BRAIN_CAPABILITY_MATRIX.md](FRIDAY_BRAIN_CAPABILITY_MATRIX.md), [FRIDAY_BRAIN_GAP_ANALYSIS.md](FRIDAY_BRAIN_GAP_ANALYSIS.md).
+
+## Delivered so far
+
+| Phase | Delivered in code | Still open |
+| --- | --- | --- |
+| 1 Contracts | model record `reasoningControl` with its source; the model profile store | parity test between the main-process record and the renderer registry |
+| 2 Reasoning and context | per-model reasoning control, effort per route, same-engine repair on the streaming chat | Auto mode and the Hub still call once |
+| 3 Memory | time and tense aware ranking, Hinglish bridge, folded owner forms | per-fact validity period, entity link, optional reranker |
+| 4 Model fusion | measured profile feeds ranking | role assignment by measured strength |
+| 5 Agents and tasks | shared earlier results between steps (data, not instructions), parallel groups | free message passing, A2A (deferred) |
+| 6 Research | source kinds, agreement, citation check | MCP revision comparison (docs host blocked) |
+| 7 Learning | trainer guards tested | failure-pattern mining across runs, a real training run |
+| 8 Self-development | `dev.check` sandbox | called automatically on every own-work proposal |
+| 9 Multimodal | `media.transcribe` joins frames and probe as the video method | one sound-and-picture pass, realtime |
+| 10 Proactive | quiet heads-up before a desk deadline | event rules, load and battery awareness |
+| 11 Benchmarking | retrieval, routing, long-horizon suites, pass-k, history | pass-k inside the instruction comparison |
+| 12 Observability | Brain now panel | OpenTelemetry-shaped export (off by default) |
 
 ## 1. How phases are ranked
 
@@ -49,9 +66,9 @@ Phase 10 proactive         needs Phase 5 and 7
 
 For every phase: owners are the existing modules named; the work is done in the order tasks, contracts, implementation, tests, relevant checks, regression run, owning-document update, `FRIDAY_STATE.md` update, report.
 
-### Phase 0 — Repository audit and research (done in this change)
+### Phase 0 — Repository audit and research (done)
 
-Deliverable: these five documents, registered in the documentation index. No code changed. Hosted Actions unverified. The blocked doc hosts (see the research document) are the only open research item.
+Deliverable: these five documents, registered in the documentation index. Hosted Actions unverified. The blocked doc hosts (see the research document) are the only open research item.
 
 ### Phase 1 — Cognitive core and unified intelligence contracts
 

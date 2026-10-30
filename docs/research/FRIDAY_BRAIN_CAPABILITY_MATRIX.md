@@ -36,27 +36,27 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | 15 | Creative thinking | MODEL | none FRIDAY-side | not measured |
 | 16 | Counterfactual reasoning | MODEL | strategy `simulation` | not measured |
 | 17 | Hypothesis generation | PARTIAL | strategy `hypothesis`; `error-intelligence.ts` ranks hypotheses with evidence (36 tests) | failures only |
-| 18 | Evidence-based decisions | PARTIAL | `retrieval.ts` grades retrieval (CRAG-style), `decision-engine.ts` | no citation correctness check |
+| 18 | Evidence-based decisions | PARTIAL | `retrieval.ts` grades retrieval (CRAG-style), `decision-engine.ts`, `core-brain.verify` checks that a cited claim is in the source snippet | citation check is word overlap, not understanding |
 | 19 | Uncertainty estimation | DONE | `cognitive-mind.ts` five uncertainty kinds with behaviours (proceed, retrieve, clarify, observe, withhold) | 1 direct test file |
 | 20 | Confidence calibration | PARTIAL | `confidence.ts` weakest-link from the capability matrix (46 test files reach it) | never compared with outcomes (no calibration curve) |
 | 21 | Contradiction detection | PARTIAL | `memory-fabric.ts` `meaningsDisagree`, `reconciler.ts` | not across retrieved web sources |
 | 22 | Knowledge synthesis | PARTIAL | `knowledge-base.ts`, `knowledge-graph.ts` (200 lines) | graph is small |
 | 23 | Problem decomposition | DONE | `task-graph.ts` `planNodes` (list, then, parallel), strategy `decomposition` | dependencies are a chain except parallel groups |
 | 24 | Complex problem solving | PARTIAL | task graph with checkpoints, retry, replan | long-horizon reliability unmeasured |
-| 25 | Adaptive reasoning | PARTIAL | `cognitive-control.ts` proposes a different mode after a miss | provider thinking controls not sent (see B) |
+| 25 | Adaptive reasoning | DONE | `cognitive-control.ts` proposes a different mode after a miss; effort follows the route (`reasoningEffortFor`) | none FRIDAY-side |
 
 ## B. Advanced thinking engine
 
 | Capability | Status | Evidence | Gap |
 | --- | --- | --- | --- |
 | Fast path for simple tasks | DONE | `cognitive-route.ts` simple → fast-path; `baseline-responder.ts` answers many asks with no model | none |
-| Deep reasoning for hard tasks | PARTIAL | route `deep-reasoning`, `reasoning.ts` modes | the model's own thinking control (effort, `enable_thinking`, budget) is **never sent**; searched `electron/`, `kernel/`, `src/` |
+| Deep reasoning for hard tasks | DONE | route `deep-reasoning`, `reasoning.ts` modes; the model's own control is sent per model (`reasoningControl` in `electron/model-capabilities.cjs`, `kernel/reasoning_control.py`, 6 + 11 tests) | Ollama `think`, `chat_template_kwargs` and OpenAI `reasoning_effort` are not checked against a live server |
 | Multi-perspective analysis | PARTIAL | strategy `debate`; `multi-model.ts` second opinions | only on owner ask or a capability gap |
 | Parallel solution exploration | PARTIAL | `selectParallel` in `electron/main.cjs` runs several models; best-of-N not used | no objective chooser except answer checks |
 | Hypothesis generation and testing | PARTIAL | see A17 | failures only |
 | Planning and replanning | DONE | `task-graph.ts` replan with remaining titles; `cognitive-mind.ts` replanning | none |
-| Evidence verification | PARTIAL | `retrieval.ts` grading, `verify` | no source-reliability score |
-| Self-critique, independent evaluation | PARTIAL | `meta-reasoner.evaluateAnswer`, `answer-checks.ts`, `verified-run.ts` | loop not on streaming chat or Auto |
+| Evidence verification | PARTIAL | `retrieval.ts` grading, `verify` | agreement and source kind are rule-based, not a fact check |
+| Self-critique, independent evaluation | PARTIAL | `meta-reasoner.evaluateAnswer`, `answer-checks.ts`, `verified-run.ts`; the streaming chat repairs a counted miss once on the same engine (`planRepair`) | checks cover the rules that can be counted; Auto mode and the Hub still use one call |
 | Error correction | DONE | `verified-run.ts` fix once then escalate (9 tests); `error-intelligence.ts` | not on main chat |
 | Final synthesis, confidence reporting | PARTIAL | `reconciler.ts`; confidence notes in cognition | not shown per answer |
 | Token, time, cost, latency budgets | PARTIAL | `cost-policy.ts` spend rules, `context-engine.ts` token budget, `task-graph` budgets (`budgetBlock`) | no per-turn latency budget that changes the strategy |
@@ -69,7 +69,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Specialist agents (planning, research, coding, analysis, browser, computer-use, memory, verification, testing, docs, automation, business) | PARTIAL | 99 core agent folders plus manifests under `agents/`; `agent-router.ts`; `orchestrator.ts` roles (planner, coder, reviewer, tester, reasoner, vision, audio) | agents **plan and inspect**; they mutate only after approval via `agent-scheduler.ts` (3 test files). No measured advantage per specialist. |
 | Dynamic agent selection, delegation | PARTIAL | `agent-router.ts`, `agent-forge.ts` | handoff versus agent-as-tool is not distinguished |
 | Parallel execution | PARTIAL | new: pieces of an "at the same time" node run together, capped by `maxConcurrentTasks` (7 tests) | queued graphs still run one after another |
-| Agent communication, shared context | MISSING | the ledger is shared; no message passing between agents | Phase 5 |
+| Agent communication, shared context | PARTIAL | the ledger is shared; task steps now receive earlier steps' results as labelled data (`withEarlier`, 8 tests) | no free message passing between agents; A2A deferred |
 | Structured outputs | PARTIAL | tool schemas in `kernel/tools.py`; runner results are typed | agent outputs are not schema-validated |
 | Supervision, verification, retry, recovery | DONE | `task-graph.ts` bounded retry, quarantine, `failure-guard`, sealed events | none |
 | Cancellation, checkpointing, persistence, long-running | DONE | abort signal, `Checkpoint`, persisted graphs, resume rule that never repeats a side effect | none |
@@ -89,11 +89,11 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Associative memory, knowledge graph memory | PARTIAL | `knowledge-graph.ts` 200 lines | small and not queried by retrieval |
 | External knowledge memory | DONE | `knowledge-base.ts`, `knowledge-ingest.ts` | none |
 | Extraction, classification | DONE | `classifyMemoryKind`, `memory-fabric.ts` | none |
-| Semantic, hybrid, context-aware retrieval | PARTIAL | `retrieval.ts` query expansion, fusion, late-interaction without embeddings; `kernel/memory.py` hashed or Chroma | no BM25 index in the vector path, no entity link, no reranker |
+| Semantic, hybrid, context-aware retrieval | PARTIAL | `retrieval.ts` query expansion, lexical plus bm25Lite, reciprocal-rank fusion, MMR, late interaction, entity and tense fit, Hinglish bridge; `kernel/memory.py` hashed or Chroma | no cross-encoder reranker (optional, needs a model download) |
 | Consolidation, duplicates | DONE | `memory-consolidate.ts`, `memoriesSimilar`, `distinct` option | none |
 | Contradiction resolution | DONE | `meaningsDisagree`, supersede and archive keep history | none |
 | Importance and freshness | PARTIAL | usage and recency in `rankByRetrieval`; staleness in `world-model.ts` | no per-fact validity period |
-| Temporal memory | PARTIAL | superseded facts stay for historical questions | time-aware ranking for "current state" asks is missing |
+| Temporal memory | DONE | superseded facts stay for historical questions; `temporalIntent` and `recencyWeightFor` rank "now" and "used to" questions differently (retrieval suite, 7 tests) | none |
 | Forgetting and retention | DONE | per-tier caps, expiry, ranked forgetting in `cognitive-runtime.ts` | none |
 | Provenance and privacy | DONE | `redactForExport`, `secretStaysOutOfMemory`, provenance on skills | none |
 
@@ -106,11 +106,11 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Dynamic model discovery | DONE | each provider's list endpoint and the Hugging Face search in `models.cjs` | none |
 | Capability profiles | DONE | `model-capabilities.cjs` (declared → curated → heuristic, each labelled) | reasoning control and measured profile fields missing |
 | Task-based, cost-aware routing | DONE | `electron/model-router.cjs` free-first, billing policy, scoring (35 test files) | none |
-| Latency-aware, quality-aware routing | PARTIAL | per-task-kind stats (`coreBrain.state.models` runs, ok, ms) | not used to rank beyond a preference |
+| Latency-aware, quality-aware routing | DONE | per-task-kind stats plus the measured model profile (Compare result per model, `model-profile.ts`) feed `preferred()` | needs the owner to press Compare on his own models before it changes anything |
 | Context-window, tool, vision, audio awareness | DONE | capability keys in `model-capabilities.cjs` | none |
 | Structured output, streaming compatibility | PARTIAL | streaming is handled; structured-output support is not a capability key | add key |
 | Fallbacks, health, cooldown | DONE | `model-registry.ts` coolingDown, `pickHealthyModelId` | none |
-| Benchmarking, performance history | PARTIAL | `intelligence-benchmark.ts`, new Compare run | per-model, not stored over time |
+| Benchmarking, performance history | DONE | `intelligence-benchmark.ts`, Compare run kept per model, suite history in `eval-suites.ts` | none |
 | Secure credentials | DONE | Electron `safeStorage` | none |
 | Model collaboration A researches, B analyses, C verifies | PARTIAL | `multi-model.ts` + `reconciler.ts`, owner-triggered or gap-triggered | role assignment is not by measured strength |
 
@@ -122,10 +122,10 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Failed-task analysis | PARTIAL | `error-intelligence.ts`, `limitation-loop.ts` | not summarised across tasks |
 | Skill discovery, evaluation, versions, rollback | DONE | `skill-loop.ts` (credit, screening, versions, rollback) | none |
 | Learning history, feedback analysis | PARTIAL | experiences and skill versions stored | no trend view |
-| Performance comparison | PARTIAL | eval harness before, after; Compare run | not stored over time |
+| Performance comparison | DONE | eval harness before and after; Compare run and suite history stored over time | trend is a list, not a graph |
 | User-controlled memory settings | DONE | Settings → memory controls (`settings-runtime.ts`) | none |
 | Distinguish memory updates from weight training | DONE | `finetune.ts` states adapters only, governed, per run | wording audit in Phase 7 |
-| Local adapter training | PARTIAL | `finetune.ts`, `electron/finetune.cjs`, `kernel/finetune_lora.py` (235 lines) | the Python trainer has **no test**; unverified here |
+| Local adapter training | PARTIAL | `finetune.ts`, `electron/finetune.cjs`, `kernel/finetune_lora.py`; its guards are tested with stand-in libraries (5 tests) | a real training run is unverified here (needs torch, a base model and time) |
 
 ## G. Self-improvement and self-development
 
@@ -133,7 +133,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | --- | --- | --- | --- |
 | Identify weaknesses, recurring failures | PARTIAL | `limitation-loop.ts`, `mastery.ts`, capability matrix | no trace mining across runs |
 | Improvement proposals | DONE | `governance.ts` discovered → approval, `own-work.ts` | none |
-| Isolated branches, run tests, benchmark before and after | MISSING | proposals are diffs; no automated branch-and-test sandbox for FRIDAY's own source | Phase 8 |
+| Isolated branches, run tests, benchmark before and after | PARTIAL | `kernel/dev_check.py` behind exec-tier `dev.check`: a diff on a throwaway worktree of HEAD, one fixed check before and after, protected files refused (12 tests) | not called automatically on every own-work proposal; uncommitted changes are not in the copy |
 | Security analysis of a change | PARTIAL | `own-work.proposeDiff` blocks protected files; `error-intelligence.scanRisks` | not applied to every proposal |
 | Authorization, apply, rollback | DONE | governance gate, backup, undo journal | none |
 | Never rewrite security rules silently | DONE | `PROTECTED_POLICY_FILES`, always-ask `code-change` | none |
@@ -144,8 +144,8 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | --- | --- | --- | --- |
 | Web research, multi-source | PARTIAL | `research.ts` (27 test files reach it), `browser-engine.ts` | depth and parallel sources limited |
 | Research planning, project tracking, reports | PARTIAL | autonomous research on the idle cycle; Hub | no research-project object or report builder |
-| Source reliability, fact verification | MISSING | none | Phase 6 |
-| Citation management | PARTIAL | `core-brain.verify` requires a cited URL when sources were retrieved | no citation correctness check |
+| Source reliability, fact verification | PARTIAL | `web-sources.ts` classes a result (official, documentation, repository, reference, news, forum, unknown), notes agreeing sites; `research.ts` ranks with it (9 tests) | fact checking itself is the model's |
+| Citation management | PARTIAL | `core-brain.verify` requires a cited URL when sources were retrieved and checks the claim against the snippet (`checkCitations`) | snippet only; a page that was not fetched is not read |
 | Contradiction analysis | PARTIAL | see A21 | web sources |
 | RAG, hybrid search, reranking | PARTIAL | see D | reranker |
 | Knowledge freshness | PARTIAL | `world-model.ts` factFreshness, pricing freshness | per-source |
@@ -168,7 +168,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Text, document, OCR | DONE | `electron/document-extract.cjs`, `kernel/document_ocr.py`, `fs.extract` | none |
 | Image understanding | PARTIAL | `screen-vision.cjs`, vision role in routing | needs a vision-capable model; chat IPC was text-only per `modality.ts` |
 | Audio, speech recognition, text-to-speech | DONE | faster-whisper, edge-tts, Supertonic, wake word | real-microphone feel unverified |
-| Video understanding | PARTIAL | `media.frames` samples stills; no live video | not joined to sound |
+| Video understanding | PARTIAL | `media.frames` stills, `media.transcribe` words from the sound track, `media.probe` facts; the model joins them | no single sound-and-picture pass |
 | Image and file generation | PARTIAL | cloud image generation; `fs.make` documents | no local image model |
 | Screen understanding | DONE | `screen-observe.ts`, `kernel` UIA | none |
 | Real-time multimodal interaction | MISSING | no realtime API integration | Phase 9 |
@@ -198,7 +198,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Goal management, persistent continuation | DONE | `horizon-goals.ts`, persisted graphs, resume | none |
 | Project monitoring, scheduled and event tasks | PARTIAL | `autonomous-core.ts` idle cycle, `agent-scheduler.ts`; no event triggers beyond notifications | event rules |
 | Background research | PARTIAL | idle research cycle | bounded depth |
-| Deadline awareness, opportunity identification | PARTIAL | `extractDeadline` in intake | no deadline monitor |
+| Deadline awareness, opportunity identification | PARTIAL | `extractDeadline` in intake; a quiet heads-up an hour before a desk task is due, then the reminder (`deadlineStage`) | a deadline found in free text is not tracked until it is made a task |
 | Proactive suggestions within permissions | DONE | `atlas-notices.ts` throttled notices, governance queue | none |
 | Resource-aware scheduling | PARTIAL | idle grace, `admitResources` | no battery or load awareness |
 
@@ -206,19 +206,19 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 
 | Group | DONE | PARTIAL | MISSING | MODEL | Rows |
 | --- | --- | --- | --- | --- | --- |
-| A Core cognitive intelligence | 4 | 11 | 0 | 10 | 25 |
-| B Advanced thinking engine | 3 | 8 | 0 | 0 | 11 |
-| C Autonomous agent intelligence | 3 | 6 | 1 | 0 | 10 |
-| D Advanced memory intelligence | 11 | 5 | 0 | 0 | 16 |
-| E Multi-model intelligence fusion | 8 | 4 | 0 | 0 | 12 |
-| F Continuous learning | 4 | 4 | 0 | 0 | 8 |
-| G Self-improvement and self-development | 3 | 2 | 1 | 0 | 6 |
-| H Research and knowledge intelligence | 0 | 6 | 1 | 0 | 7 |
+| A Core cognitive intelligence | 5 | 10 | 0 | 10 | 25 |
+| B Advanced thinking engine | 4 | 7 | 0 | 0 | 11 |
+| C Autonomous agent intelligence | 3 | 7 | 0 | 0 | 10 |
+| D Advanced memory intelligence | 12 | 4 | 0 | 0 | 16 |
+| E Multi-model intelligence fusion | 10 | 2 | 0 | 0 | 12 |
+| F Continuous learning | 5 | 3 | 0 | 0 | 8 |
+| G Self-improvement and self-development | 3 | 3 | 0 | 0 | 6 |
+| H Research and knowledge intelligence | 0 | 7 | 0 | 0 | 7 |
 | I Universal tool and capability intelligence | 5 | 1 | 0 | 0 | 6 |
 | J Multimodal intelligence | 3 | 3 | 1 | 0 | 7 |
 | K Computer and environment autonomy | 3 | 1 | 0 | 0 | 4 |
 | L Metacognition and self-awareness | 3 | 1 | 0 | 0 | 4 |
 | M Proactive and long-term intelligence | 2 | 4 | 0 | 0 | 6 |
-| **All** | 52 | 56 | 4 | 10 | 122 |
+| **All** | 58 | 53 | 1 | 10 | 122 |
 
 This table counts rows, not units of intelligence. It is the checklist the roadmap works from, and each phase re-marks the rows it changes with the test that proves it.
