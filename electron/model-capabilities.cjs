@@ -354,6 +354,67 @@ function liveContextTokens(model) {
   return 0;
 }
 
+/* ------------------------------------------------------------------ reasoning control */
+
+/** The ways a provider lets a caller steer how much a model thinks. */
+const REASONING_CONTROLS = ["effort", "enable_thinking", "budget", "always", "none"];
+
+/**
+ * Which thinking control a model takes, so the request can carry it. Order of trust is the same as
+ * for capabilities: what the source declared, then this reviewed table, then nothing. Nothing means
+ * the request carries no thinking field at all, which every provider accepts.
+ *
+ * The table is deliberately narrow. Sources read when it was written (2026-10-30):
+ *  - Anthropic's extended-thinking page: a token `budget_tokens` is deprecated from the 4.6 models
+ *    and rejected (HTTP 400) from 4.7 on; those take adaptive thinking with an `effort` level.
+ *    Thinking blocks must be passed back across tool turns.
+ *  - Qwen3's README: thinking is on by default and `enable_thinking` switches it; serving stacks
+ *    that drop `reasoning_content` hurt multi-step tool use.
+ *  - DeepSeek-R1's README: the model reasons by itself and has no switch.
+ * The OpenAI `reasoning_effort` field for o-series and gpt-5 models is from the vendor's public API
+ * and was not re-read in this session, so it is marked unverified in the record.
+ */
+function resolveReasoning(model) {
+  const declared = model?.meta?.reasoningControl || model?.reasoningControl;
+  if (declared && typeof declared === "object" && REASONING_CONTROLS.includes(declared.control)) {
+    return {
+      control: declared.control,
+      keepAcrossToolTurns: Boolean(declared.keepAcrossToolTurns),
+      source: "declared",
+    };
+  }
+  const name = normaliseName(model);
+  const none = { control: "none", keepAcrossToolTurns: false, source: "none" };
+  if (!name) return none;
+  const claude = /claude[-_/ ]?(opus|sonnet|haiku|fable|mythos)?[-_ ]?(\d+)(?:[-_.](\d+))?/.exec(
+    name,
+  );
+  if (/claude/.test(name) && /mythos/.test(name)) {
+    return { control: "effort", keepAcrossToolTurns: true, source: "curated" };
+  }
+  if (/claude/.test(name) && claude) {
+    const major = Number(claude[2]);
+    const minor = Number(claude[3] || 0);
+    if (/mythos/.test(name) || major >= 5 || (major === 4 && minor >= 6)) {
+      return { control: "effort", keepAcrossToolTurns: true, source: "curated" };
+    }
+    if ((major === 4 && minor >= 0) || (major === 3 && minor >= 7)) {
+      return { control: "budget", keepAcrossToolTurns: true, source: "curated" };
+    }
+    return none;
+  }
+  if (/deepseek-(r1|reasoner)|^r1(-|$)|r1-distill/.test(name)) {
+    return { control: "always", keepAcrossToolTurns: false, source: "curated" };
+  }
+  if (/qwen3/.test(name) && !/instruct-2507/.test(name)) {
+    return { control: "enable_thinking", keepAcrossToolTurns: true, source: "curated" };
+  }
+  if (/^(o[134])(-|$)|^gpt-5|gpt-oss/.test(name)) {
+    return { control: "effort", keepAcrossToolTurns: false, source: "curated-unverified" };
+  }
+  return none;
+}
+
 /** The registry record for a model name, or null when nothing matches. */
 function registryEntry(name) {
   if (!name) return null;
@@ -462,6 +523,7 @@ function resolveCapabilities(model) {
     sources,
     proof,
     kind: kindOf(caps),
+    reasoningControl: resolveReasoning(model),
   };
 }
 
@@ -522,7 +584,9 @@ function resolveQualityProfile(model, capabilities = null, telemetry = {}) {
 module.exports = {
   CAPABILITY_KEYS,
   REGISTRY,
+  REASONING_CONTROLS,
   resolveCapabilities,
+  resolveReasoning,
   kindOf,
   resolveQualityProfile,
   registryEntry,

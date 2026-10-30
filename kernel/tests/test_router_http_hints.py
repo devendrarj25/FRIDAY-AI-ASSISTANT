@@ -45,7 +45,7 @@ def test_privacy_mode_never_calls_a_cloud_model():
     router = ModelRouter(FakeStorage())
     called = []
 
-    async def fake_stream(model, messages, explicit_paid=False, privacy_confirmed=False):
+    async def fake_stream(model, messages, explicit_paid=False, privacy_confirmed=False, **_kwargs):
         called.append(model.id)
         yield "ok"
 

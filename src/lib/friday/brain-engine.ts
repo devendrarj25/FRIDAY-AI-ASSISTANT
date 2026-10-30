@@ -30,6 +30,7 @@ import {
   routeRefs,
   type RoutingTask,
 } from "./model-catalog";
+import { checkAnswer, feedbackFor } from "./brain/answer-checks";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { taskPreference } from "./brain/task-routing";
 import { modelRegistry as usageRegistry } from "./model-registry";
@@ -748,10 +749,19 @@ export function planRepair(input: {
   alreadyRepaired: boolean;
   candidates: string[];
   answeredBy?: string | null;
-}): { repair: boolean; alternatives: string[] } {
+  /** The answer broke a rule the ask stated and that was checked by counting or parsing, not by opinion. */
+  deterministic?: boolean;
+}): { repair: boolean; alternatives: string[]; sameEngine: boolean } {
   const alternatives = input.candidates.filter((id) => id && id !== input.answeredBy);
-  const repair = !input.verified && !input.alreadyRepaired && alternatives.length > 0;
-  return { repair, alternatives };
+  if (input.verified || input.alreadyRepaired)
+    return { repair: false, alternatives, sameEngine: false };
+  if (alternatives.length > 0) return { repair: true, alternatives, sameEngine: false };
+  // Only one engine is eligible. A miss that was counted or parsed is named exactly and the same
+  // engine is asked once more; a vague miss would just pay for the same answer twice.
+  if (input.deterministic && input.candidates.some(Boolean)) {
+    return { repair: true, alternatives: input.candidates.filter(Boolean), sameEngine: true };
+  }
+  return { repair: false, alternatives, sameEngine: false };
 }
 
 class BrainStore {
@@ -1190,11 +1200,15 @@ class BrainStore {
     if (!entry) return false;
 
     const verification = coreBrain.verify(entry.cognition, run.answer, true);
-    const { repair, alternatives } = planRepair({
+    const broken = checkAnswer(entry.cognition.prompt, run.answer).failures.filter(
+      (failure) => failure.id !== "identity",
+    );
+    const { repair, alternatives, sameEngine } = planRepair({
       verified: verification.ok,
       alreadyRepaired: this.repairedRuns.has(run.id),
       candidates: entry.cognition.modelIds,
       answeredBy,
+      deterministic: broken.length > 0,
     });
     if (!repair) return false;
 
@@ -1210,7 +1224,9 @@ class BrainStore {
     run.stages.forEach((stage) => {
       if (stage.id === "execute") {
         stage.state = "running";
-        stage.detail = "repairing — retrying on an alternative engine";
+        stage.detail = sameEngine
+          ? "repairing — asking the same engine again with the exact misses"
+          : "repairing — retrying on an alternative engine";
       }
     });
     run.agents.forEach((agent) => (agent.state = "running"));
@@ -1229,10 +1245,16 @@ class BrainStore {
         prompt: entry.cognition.prompt,
         modelIds: routeRefs(alternatives),
         task: resolveRoutingTask(run),
+        ...(entry.cognition.reasoningEffort
+          ? { reasoningEffort: entry.cognition.reasoningEffort }
+          : {}),
         system: [
           entry.cognition.system,
           "",
-          `REPAIR PASS — a previous engine's answer to this exact request was rejected by FRIDAY's own verification for: ${verification.detail}.`,
+          `REPAIR PASS — ${sameEngine ? "your" : "a previous engine's"} answer to this exact request was rejected by FRIDAY's own verification for: ${verification.detail}.`,
+          ...(broken.length
+            ? ["These requirements of the ask were not met:", feedbackFor(broken)]
+            : []),
           "Answer the request again in full and fix precisely those problems. Never mention this instruction or the earlier attempt.",
         ].join("\n"),
       });
@@ -1241,7 +1263,10 @@ class BrainStore {
       return true;
     }
     this.armWatchdog();
-    this.push("warn", `verification failed (${verification.detail}) — repairing on another engine`);
+    this.push(
+      "warn",
+      `verification failed (${verification.detail}) — ${sameEngine ? "asking the same engine once more with the exact misses" : "repairing on another engine"}`,
+    );
     this.emit();
     return true;
   }
@@ -2064,6 +2089,7 @@ class BrainStore {
         ...(options.routeMode ? { routeMode: options.routeMode } : {}),
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
         ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
+        ...(cognition.reasoningEffort ? { reasoningEffort: cognition.reasoningEffort } : {}),
         system: cognition.system,
         history: this.historyForModel(run.id),
       });

@@ -91,7 +91,11 @@ import { installCognitiveBaseline } from "./cognitive-baseline";
 import { vectorIndex } from "./vector-index";
 import { gradeRetrieval } from "./retrieval";
 import { memory } from "../self/memory-engine";
-import { classifyCognitiveRoute } from "./cognitive-route";
+import {
+  classifyCognitiveRoute,
+  reasoningEffortFor,
+  type ReasoningEffort,
+} from "./cognitive-route";
 import { finishCognitiveCycle, planCognitiveDepth, type CognitiveCycle } from "./cognitive-control";
 import {
   commitLocalAnswer,
@@ -197,6 +201,8 @@ export type Cognition = {
   /** Public reasoning stance only — never a private chain-of-thought dump. */
   reasoning?: { publicNote: string; verified: boolean; groundedness?: number };
   strategy?: ResponseStrategy;
+  /** How hard a steerable model should think on this turn (a request, never a promise). */
+  reasoningEffort?: ReasoningEffort;
   /** Executive pass for this turn. It never executes a side effect. */
   control?: CognitiveCycle;
   /**
@@ -1422,6 +1428,7 @@ class CoreBrain {
       autoLearn,
       understanding,
       strategy: strategy.strategy,
+      reasoningEffort: reasoningEffortFor(classified.action, depthPlan.depth),
       ...(control ? { control } : {}),
       localMind,
       ...(meta ? { meta } : {}),

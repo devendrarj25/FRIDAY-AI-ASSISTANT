@@ -121,3 +121,21 @@ export function classifyCognitiveRoute(input: {
     reason: "one best measured model — no hardcoded superiority",
   };
 }
+
+export type ReasoningEffort = "low" | "medium" | "high";
+
+/**
+ * How hard a model that can be steered should think for this turn. A simple ask does not pay for
+ * deep thinking; a hard or high-stakes ask does. It is only a request: a model whose record says it
+ * has no thinking control ignores it, and the kernel sends nothing for it.
+ */
+export function reasoningEffortFor(
+  action: CognitiveAction,
+  depth?: "fast" | "deliberative" | "metacognitive",
+): ReasoningEffort {
+  if (action === "fast-path" || action === "reuse-result") return "low";
+  if (action === "deep-reasoning" || action === "multi-verify") return "high";
+  if (depth === "metacognitive") return "high";
+  if (depth === "fast") return "low";
+  return "medium";
+}
