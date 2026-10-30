@@ -1,0 +1,20 @@
+/** The clinic and brain check panels render their empty states first, with no window and no network. */
+import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { BrainCheckPanel, ErrorClinicPanel } from "../../src/components/friday/ErrorClinicPanels";
+
+describe("error clinic and brain check panels", () => {
+  it("clinic starts empty and says the pasted text is only read", () => {
+    const html = renderToStaticMarkup(createElement(ErrorClinicPanel));
+    expect(html).toContain("Nothing pasted yet");
+    expect(html).toContain("never run");
+  });
+
+  it("brain check starts unrun, with a Run control and no number shown", () => {
+    const html = renderToStaticMarkup(createElement(BrainCheckPanel));
+    expect(html).toContain("Not run yet");
+    expect(html).toContain("Run");
+    expect(html).not.toContain("tasks ·");
+  });
+});

@@ -1,0 +1,158 @@
+/**
+ * FRIDAY · error clinic and brain check panels
+ *
+ * Paste a failure and see the cause she reasons out, the evidence, where in the code it points and
+ * the safest next step, in short Hinglish or English. The brain check runs the fixed offline
+ * tasks and shows the numbers with their caveat. Both run in this window; nothing is sent out and
+ * nothing is changed on this PC.
+ */
+import { useMemo, useState } from "react";
+import { Play, Stethoscope } from "lucide-react";
+import { ActionButton, EmptyState, HudPanel, StatusPill } from "@/components/friday/ui";
+import { ErrorState } from "@/components/friday/PageStates";
+import {
+  diagnose,
+  guidance,
+  looksLikeFailure,
+  prefersHinglish,
+} from "@/lib/friday/brain/error-intelligence";
+import {
+  EVAL_CLASSES,
+  describeEval,
+  runEvalHarness,
+  type EvalReport,
+} from "@/lib/friday/self/eval-harness";
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+export function ErrorClinicPanel() {
+  const [text, setText] = useState("");
+  const result = useMemo(() => {
+    const raw = text.trim();
+    if (!raw) return null;
+    if (!looksLikeFailure(raw)) return { quiet: true as const };
+    const diagnosis = diagnose({ text: raw });
+    return {
+      quiet: false as const,
+      diagnosis,
+      reply: guidance(diagnosis, prefersHinglish(raw) ? "hinglish" : "english"),
+    };
+  }, [text]);
+
+  return (
+    <HudPanel title="Error clinic" hint="paste a failure · nothing leaves this PC">
+      <div className="grid gap-3">
+        <label className="grid gap-1 text-meta text-muted-foreground">
+          The error, log lines or a traceback
+          <textarea
+            className="h-28 rounded-surface border border-border bg-background p-2 text-data text-foreground"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Traceback (most recent call last): …"
+            aria-label="Error text"
+          />
+        </label>
+        {!result ? (
+          <EmptyState
+            title="Nothing pasted yet"
+            hint="She names the likely cause with the evidence, where it points, and the safest next step. The pasted text is read as data, never run."
+          />
+        ) : result.quiet ? (
+          <EmptyState
+            title="That does not read like a failure"
+            hint="Paste the error line or the traceback itself."
+          />
+        ) : (
+          <div className="grid gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Stethoscope className="size-4 text-accent" aria-hidden />
+              <StatusPill
+                label={`${pct(result.diagnosis.confidence)} sure`}
+                tone={result.diagnosis.confidence >= 0.6 ? "accent" : "warning"}
+              />
+              <StatusPill
+                label={result.diagnosis.retryable ? "a retry may help" : "a retry will not help"}
+                tone={result.diagnosis.retryable ? "muted" : "warning"}
+              />
+            </div>
+            <pre className="whitespace-pre-wrap break-words text-data text-foreground">
+              {result.reply}
+            </pre>
+            {result.diagnosis.unknown.length ? (
+              <p className="text-meta-sm text-muted-foreground">
+                Not known: {result.diagnosis.unknown.join("; ")}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </HudPanel>
+  );
+}
+
+export function BrainCheckPanel() {
+  const [report, setReport] = useState<EvalReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      setReport(await runEvalHarness());
+      setError(null);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <HudPanel
+      title="Brain check"
+      hint="fixed offline tasks"
+      actions={
+        <ActionButton
+          icon={Play}
+          label="Run"
+          labelMode="inline"
+          title="Run the fixed tasks once"
+          busy={busy}
+          onClick={() => void run()}
+        />
+      }
+    >
+      {error ? (
+        <ErrorState title="The brain check failed" error={error} onRetry={() => void run()} />
+      ) : !report ? (
+        <EmptyState
+          title="Not run yet"
+          hint="Compares what FRIDAY had before, what she has now and a bare model on the same tasks. Offline, repeatable, no network."
+        />
+      ) : (
+        <div className="grid gap-2">
+          <p className="text-sm text-foreground">
+            {report.tasks} tasks · before {pct(report.before)} · now {pct(report.after)} · bare{" "}
+            {pct(report.bare)}
+          </p>
+          <ul className="grid gap-1">
+            {EVAL_CLASSES.map((cls) => {
+              const row = report.byClass[cls];
+              return (
+                <li key={cls} className="text-data text-muted-foreground">
+                  {cls}: {row.before}/{row.total} → {row.after}/{row.total} (bare {row.bare})
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-data text-warning">
+            Held-out ({report.heldOut.tasks} tasks never used to tune): before{" "}
+            {pct(report.heldOut.before)} · now {pct(report.heldOut.after)}
+            {report.heldOut.failed.length ? ` · missed: ${report.heldOut.failed.join(", ")}` : ""}
+          </p>
+          <p className="text-meta-sm text-muted-foreground">{describeEval(report)}</p>
+        </div>
+      )}
+    </HudPanel>
+  );
+}
