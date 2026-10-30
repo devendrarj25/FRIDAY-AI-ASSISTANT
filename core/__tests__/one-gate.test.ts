@@ -56,6 +56,7 @@ const HOST: Record<string, "pr" | "pr-and-publish" | "evidence" | "pipeline" | "
   version: "pr-and-publish",
   "tests-required": "pr",
   provenance: "pr",
+  "added-files": "pr",
   lint: "pr",
   actionlint: "pr",
   arrange: "pr-and-publish",
@@ -79,6 +80,7 @@ const PR_NEEDLE: Record<string, string> = {
   version: "npm run verify:version",
   "tests-required": "tests-required.cjs",
   provenance: "check-provenance.cjs",
+  "added-files": "check-added-files.cjs",
   lint: "npm run lint",
   actionlint: "run-actionlint.cjs",
   arrange: "arrange-project.cjs",
@@ -132,6 +134,10 @@ describe("one gate parity", () => {
   });
 
   it("classifies a code change without running the Windows pack", () => {
+    const always = preflight.changedGateIds(["README.md"]);
+    for (const id of ["provenance", "added-files", "tests-required"]) {
+      expect(always.has(id), id).toBe(true);
+    }
     const ids = preflight.changedGateIds(["electron/updater.cjs"]);
     expect(ids.has("typecheck")).toBe(true);
     expect(ids.has("test-fast")).toBe(true);

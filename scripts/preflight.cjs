@@ -83,6 +83,14 @@ const GATES = [
     reproduce: "node scripts/check-provenance.cjs origin/main",
   }),
   gate({
+    id: "added-files",
+    name: "no build output, caches or oversized files added",
+    tier: "static",
+    command: nodeBin,
+    args: ["scripts/check-added-files.cjs", "origin/main"],
+    reproduce: "node scripts/check-added-files.cjs origin/main",
+  }),
+  gate({
     id: "lint",
     name: "eslint and kernel ruff",
     tier: "static",
@@ -266,7 +274,8 @@ function changedFiles(opts = {}) {
 }
 
 function changedGateIds(files) {
-  const ids = new Set(["heal-check"]);
+  // Cheap, and a mistake here comes from the commits, not from the files: always run.
+  const ids = new Set(["heal-check", "tests-required", "provenance", "added-files"]);
   const blob = files.join("\n");
   if (/\.(ts|tsx|js|cjs|mjs|jsx)$/.test(blob)) {
     ids.add("typecheck");
@@ -289,7 +298,7 @@ function changedGateIds(files) {
     ids.add("audit");
     ids.add("actionlint");
   }
-  if (ids.size === 1) {
+  if (ids.size === 4) {
     for (const id of [
       "typecheck",
       "docs",
@@ -312,7 +321,7 @@ function provenanceSkip() {
     stdio: "ignore",
   });
   if (result.status === 0) return null;
-  return "origin/main is not in this clone; provenance skipped";
+  return "origin/main is not in this clone; provenance and added-file checks skipped";
 }
 
 function buildPlan(opts = {}) {
@@ -329,7 +338,7 @@ function buildPlan(opts = {}) {
     if (row.tier === "windows" && !wantWindows) continue;
     if (selected && !selected.has(row.id)) continue;
     let skip = null;
-    if (row.id === "provenance") skip = provenanceSkip();
+    if (row.id === "provenance" || row.id === "added-files") skip = provenanceSkip();
     if (row.tier === "windows" && !runWindows) skip = WINDOWS_SKIP;
     steps.push({ ...row, skip });
   }
