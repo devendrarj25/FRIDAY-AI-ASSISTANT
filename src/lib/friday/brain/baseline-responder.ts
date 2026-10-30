@@ -24,6 +24,7 @@ import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
 import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
 import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
+import { answerFormatQuestion } from "./format-atlas";
 import {
   describeSelfReport,
   inspectSelf,
@@ -700,6 +701,12 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
           ].join("\n"),
       0.85,
     );
+  }
+
+  // 6b. "can you read or make X" — answered from the format registry, not from memory
+  {
+    const formats = answerFormatQuestion(text, prefersHinglish(text));
+    if (formats) return reply("capabilities", formats, 0.9);
   }
 
   // 7. pasted errors — matched against her built-in error signatures ---------

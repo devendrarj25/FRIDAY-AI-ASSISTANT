@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
 import { SelfAtlasPanels } from "@/components/friday/SelfAtlasPanels";
 import { BrainCheckPanel, ErrorClinicPanel } from "@/components/friday/ErrorClinicPanels";
+import { FormatAtlasPanel } from "@/components/friday/FormatAtlasPanel";
 import { SelfAutonomyPanels } from "@/components/friday/SelfAutonomyPanels";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
 
@@ -256,6 +257,8 @@ function SelfManagementPage() {
           <ErrorClinicPanel />
           <BrainCheckPanel />
         </div>
+
+        <FormatAtlasPanel />
 
         {abilities.scores.length > 0 && (
           <HudPanel

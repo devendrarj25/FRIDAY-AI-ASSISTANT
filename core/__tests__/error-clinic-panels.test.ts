@@ -18,3 +18,15 @@ describe("error clinic and brain check panels", () => {
     expect(html).not.toContain("tasks ·");
   });
 });
+
+describe("format atlas panel", () => {
+  it("lists every kind with its gaps in words", async () => {
+    const { FormatAtlasPanel } = await import("../../src/components/friday/FormatAtlasPanel");
+    const html = renderToStaticMarkup(createElement(FormatAtlasPanel));
+    expect(html).toContain("What I can read and make");
+    expect(html).toContain("Word documents");
+    expect(html).toContain("partly");
+    expect(html).toContain("not yet");
+    expect(html).toContain("generating new video from a prompt is not built");
+  });
+});
