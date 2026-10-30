@@ -4,6 +4,7 @@ requires explicit approval from the desktop UI before it executes."""
 from __future__ import annotations
 
 import asyncio
+import re
 import subprocess
 from pathlib import Path
 
@@ -12,8 +13,10 @@ import control
 import devices_android
 import devices_bluetooth
 import devices_network
+import doc_writer
 import file_tools
 import httpx
+import media_tools
 import sandbox_runner
 import toolchain_gate
 from authority import Authority
@@ -29,6 +32,9 @@ RISK = {
     # token; models cannot call this mid-answer.
     "http.fetch": "write",
     "fs.write": "write",
+    "fs.make": "write",
+    "media.probe": "safe",
+    "media.convert": "write",
     "git": "write",
     "shell.cmd": "exec",
     "shell.powershell": "exec",
@@ -109,9 +115,15 @@ RISK = {
 }
 
 
+#: Words that say nothing about which tool is wanted.
+_FILLER = frozenset({"the", "and", "for", "from", "with", "that", "this", "into", "please", "then"})
+
 SUMMARY = {
     "fs.read": "Read files and directories inside allowed roots",
     "fs.write": "Create and edit files",
+    "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
+    "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
+    "fs.make": "Make a Word, Excel, PowerPoint, PDF, HTML, Markdown, CSV or JSON file from a plain description",
     "shell.cmd": "Run a Windows cmd command",
     "shell.powershell": "Run a PowerShell script block",
     "git": "Clone, branch, commit, diff, push",
@@ -237,6 +249,13 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
         "properties": {"path": {"type": "string", "description": "Document relative to the workspace root."}},
         "required": ["path"],
     },
+    "media.probe": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Audio, video or image file relative to the workspace root."}
+        },
+        "required": ["path"],
+    },
     "archive.list": {
         "type": "object",
         "properties": {"path": {"type": "string", "description": "Archive relative to the workspace root."}},
@@ -284,14 +303,16 @@ class ToolRegistry:
     def shortlist(self, intent: str, limit: int = 8) -> list[dict]:
         """Tools for this goal only. The planner does not send the whole catalog."""
         catalog = [tool for tool in self.describe() if tool.get("enabled", True)]
-        words = {word.lower() for word in str(intent or "").split() if len(word) > 2}
+        words = {w for w in re.findall(r"[a-z0-9]+", str(intent or "").lower()) if len(w) > 2 and w not in _FILLER}
         cap = max(1, int(limit))
         if not words:
             return catalog[:cap]
         scored = []
         for tool in catalog:
-            hay = f"{tool['name']} {tool['summary']}".lower()
-            score = sum(1 for word in words if word in hay)
+            name_words = set(re.findall(r"[a-z0-9]+", tool["name"].lower()))
+            summary = tool["summary"].lower()
+            # A word in the tool's own name says more than a word somewhere in its description.
+            score = sum(3 if word in name_words else 1 for word in words if word in name_words or word in summary)
             if score:
                 scored.append((score, tool["name"], tool))
         scored.sort(key=lambda row: (-row[0], row[1]))
@@ -754,6 +775,37 @@ class ToolRegistry:
 
     async def _fs_extract(self, args: dict) -> dict:
         return await asyncio.to_thread(file_tools.extract_text, self._under_read(args)[0])
+
+    async def _fs_make(self, args: dict) -> dict:
+        spec = args.get("spec")
+        if not isinstance(spec, dict):
+            return {"ok": False, "error": "spec must be an object; see kernel/doc_writer.py for the shape of each kind"}
+        return await asyncio.to_thread(
+            doc_writer.write_document,
+            self._under(args),
+            self.workspace.resolve(),
+            spec,
+            str(args["kind"]) if args.get("kind") else None,
+            bool(args.get("overwrite")),
+        )
+
+    async def _media_probe(self, args: dict) -> dict:
+        return await asyncio.to_thread(media_tools.probe, self._under_read(args)[0])
+
+    async def _media_convert(self, args: dict) -> dict:
+        raw = args.get("from")
+        names = [str(raw)] if isinstance(raw, str) else [str(item) for item in (raw or [])]
+        raw_options = args.get("options")
+        options: dict = raw_options if isinstance(raw_options, dict) else {}
+        return await asyncio.to_thread(
+            media_tools.convert,
+            str(args.get("operation") or "convert"),
+            [self._resolve(name) for name in names],
+            self._under(args, "to"),
+            self.workspace.resolve(),
+            options,
+            bool(args.get("overwrite")),
+        )
 
     async def _fs_mkdir(self, args: dict) -> dict:
         return await asyncio.to_thread(file_tools.make_dir, self._under(args))

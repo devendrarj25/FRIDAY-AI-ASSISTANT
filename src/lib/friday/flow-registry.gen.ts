@@ -2282,6 +2282,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/companion.py",
     },
     {
+      kind: "bullets",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "camera",
       file: "kernel/companion.py",
     },
@@ -2292,6 +2296,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "chat",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "code",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "command",
@@ -2311,11 +2319,11 @@ export const FLOW_REGISTRY = {
     },
     {
       kind: "csv",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "docx",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "done",
@@ -2330,12 +2338,20 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "heading",
+      file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "html",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "jpeg",
       file: "kernel/file_tools.py",
     },
     {
       kind: "json",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "jupyter-notebook",
@@ -2344,6 +2360,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "local",
       file: "kernel/billing.py",
+    },
+    {
+      kind: "md",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "model-missing",
@@ -2358,12 +2378,20 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "numbered",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "paid",
       file: "kernel/billing.py",
     },
     {
+      kind: "paragraph",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "pdf",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "planned",
@@ -2375,7 +2403,7 @@ export const FLOW_REGISTRY = {
     },
     {
       kind: "pptx",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "rar",
@@ -2398,6 +2426,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "table",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "tar",
       file: "kernel/file_tools.py",
     },
@@ -2415,7 +2447,7 @@ export const FLOW_REGISTRY = {
     },
     {
       kind: "xlsx",
-      file: "kernel/file_tools.py",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "zip",
