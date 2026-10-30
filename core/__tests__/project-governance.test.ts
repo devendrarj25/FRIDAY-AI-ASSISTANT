@@ -108,6 +108,17 @@ describe("dependency policy", () => {
     expect(ecosystems).toContain("github-actions");
   });
 
+  it("keeps the hand-kept av range out of Dependabot's reach", () => {
+    // Dependabot raised only the floor (av>=17.1.0,<19), which broke
+    // scripts/verify-deps.cjs and the tests that pin av>=17.0.0,<19.
+    const pip = doc.updates.find((u: any) => u["package-ecosystem"] === "pip");
+    const av = (pip.ignore ?? []).find((i: any) => i["dependency-name"] === "av");
+    expect(av["update-types"]).toEqual(
+      expect.arrayContaining(["version-update:semver-minor", "version-update:semver-patch"]),
+    );
+    expect(read("kernel/requirements.txt")).toMatch(/^av>=17\.0\.0,<19$/m);
+  });
+
   it("never auto-merges and puts each ecosystem's version updates in one pull request", () => {
     const src = read(file);
     expect(src).not.toMatch(/auto-?merge/i);

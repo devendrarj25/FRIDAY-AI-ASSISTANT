@@ -8,6 +8,6 @@
 -r requirements.txt
 
 pytest>=9.1.1
-pytest-asyncio>=1.4.0
-ruff>=0.15.0
-pyright>=1.1.400
+pytest-asyncio>=1.4.1
+ruff>=0.17.2
+pyright>=1.1.414

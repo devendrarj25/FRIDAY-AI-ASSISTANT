@@ -103,7 +103,10 @@ at most one version pull request per ecosystem. GitHub cannot put those three
 ecosystems into a single pull request. Security updates stay ungrouped and
 immediate; they do not wait for the monthly batch. Semver majors are ignored in
 every ecosystem, including `electron`, `electron-builder`, `vite`, and
-TypeScript. A major is a planned upgrade. Nothing auto-merges. Dependabot runs use a
+TypeScript. A major is a planned upgrade. The kernel pip ecosystem also ignores
+minor and patch updates of `av`, because `av>=17.0.0,<19` is one hand-kept range
+(`kernel/stt.py`, `scripts/verify-deps.cjs`) and Dependabot raising only its floor
+broke both. Nothing auto-merges. Dependabot runs use a
 read-only token and cannot publish the `PR Validation` status: run **PR Validation**
 from the Actions tab with that commit's SHA.
 

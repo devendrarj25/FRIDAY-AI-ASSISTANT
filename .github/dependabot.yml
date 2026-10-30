@@ -80,3 +80,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # av>=17.0.0,<19 is one hand-kept contract (kernel/stt.py, the Fix voice
+      # text, scripts/verify-deps.cjs). Dependabot raising only the floor
+      # rewrites that line and fails verify-deps and its tests.
+      - dependency-name: av
+        update-types: ["version-update:semver-minor", "version-update:semver-patch"]

@@ -116,12 +116,18 @@ function checkRequires({ root = ROOT, asarFiles }) {
   return failures;
 }
 
+// minimatch is electron-builder's own dependency, hoisted by npm. Version 3
+// exports the matcher itself; version 10 exports it as `minimatch`.
+function matcherFrom(loaded) {
+  return typeof loaded === "function" ? loaded : loaded.minimatch;
+}
+
 function filesFromPatterns(root, patterns) {
   const positive = patterns.filter((pattern) => pattern && !String(pattern).startsWith("!"));
   const negative = patterns
     .filter((pattern) => String(pattern).startsWith("!"))
     .map((pattern) => String(pattern).slice(1));
-  const minimatch = require("minimatch");
+  const minimatch = matcherFrom(require("minimatch"));
   const matched = [];
   const skip = new Set(["node_modules", ".git", "release", ".cache", "runtime"]);
   function visit(dir) {
@@ -233,6 +239,7 @@ module.exports = {
   PACKED_FILES,
   checkRequires,
   filesFromPatterns,
+  matcherFrom,
   findAsar,
   listAsar,
   formatFailure,

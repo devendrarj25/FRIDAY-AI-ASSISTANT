@@ -11,6 +11,12 @@ ignore = [
   "S607",
 ]
 
+[lint.isort]
+# kernel/main.py imports the repository-root packages after the kernel's own
+# modules. Naming them keeps the import order the same whether or not the
+# memory/ folder is present in the checkout.
+known-first-party = ["memory", "modules", "tools"]
+
 [lint.per-file-ignores]
 "kernel/tests/**" = ["S101", "S105", "S107"]
 # The phone page is one HTML document. Wrapping those source lines would edit CSS and JS.
