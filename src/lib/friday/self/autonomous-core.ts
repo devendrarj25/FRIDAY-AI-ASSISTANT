@@ -37,6 +37,7 @@ import { ledger } from "./task-ledger";
 import { selfBridgeAvailable, selfHealth } from "./maintenance-bridge";
 import { desktopAgentHost, reviewEnabledAgents, type AgentSchedulerHost } from "./agent-scheduler";
 import { dispatchPluginHook } from "../plugin-hooks";
+import { planStudy } from "./skill-loop";
 
 export type CoreCycle = {
   at: number;
@@ -118,6 +119,7 @@ class AutonomousCore {
         discovered += await this.checkHealth();
         discovered += await this.reviewProject();
         researched = await this.research(settings.researchDepth);
+        discovered += this.study(settings);
       }
     } finally {
       this.busy = false;
@@ -273,6 +275,52 @@ class AutonomousCore {
       title: check.label,
       reason: `${check.label} is ${check.status}: ${check.detail || "no local fix known yet"}.`,
     }));
+  }
+
+  /* --------------------------------------------------------------- study */
+
+  private lastStudyAt = 0;
+
+  /**
+   * Idle study: tasks that failed in the last day become practice items, filed through the same
+   * approval queue. It rides this one idle timer, never starts its own, and does nothing while the
+   * kill switch is on. Nothing here runs or applies work; the owner approves what gets done.
+   */
+  private study(settings: ReturnType<typeof autonomy.getSnapshot>): number {
+    const day = Date.now() - 86_400_000;
+    const findings = ledger
+      .list()
+      .filter((t) => t.startedAt > day && (t.status === "failed" || t.status === "timeout"))
+      .map((t) => ({ id: `study-${t.kind}`, title: t.title }));
+    const plan = planStudy({
+      findings,
+      level:
+        settings.approvalLevel === "strict"
+          ? "ask"
+          : settings.approvalLevel === "full"
+            ? "full"
+            : "balanced",
+      busy: false,
+      killSwitch: settings.halted,
+      idleCycleMinutes: settings.idleCycleMinutes,
+      lastRunAt: this.lastStudyAt,
+      now: Date.now(),
+    });
+    const tasks = [...plan.run, ...plan.propose];
+    if (!tasks.length) return 0;
+    this.lastStudyAt = Date.now();
+    let queued = 0;
+    for (const task of tasks) {
+      queued += this.propose({
+        id: task.id,
+        kind: "skill",
+        title: `Practise: ${task.title}`,
+        rationale: `${task.task} (${plan.reason}). It failed in the last day; practising it in the sandbox is the next step.`,
+        risk: "review",
+        evidence: [`band ${task.band}`],
+      });
+    }
+    return queued;
   }
 
   /* ----------------------------------------------------------- proposals */

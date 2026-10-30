@@ -25,6 +25,12 @@ import { terminalSnapshot } from "../terminal-awareness";
 import { browserSnapshot } from "../browser-awareness";
 import { library } from "../library-engine";
 import { projectWorkspaces } from "../project-workspace-engine";
+import {
+  atlasWorldLine,
+  latestAtlas,
+  latestReliability,
+  reliabilityWorldLine,
+} from "../self-atlas";
 
 export type WorldDomain =
   | "owner"
@@ -37,7 +43,9 @@ export type WorldDomain =
   | "capabilities"
   | "events"
   | "approvals"
-  | "risks";
+  | "risks"
+  | "self"
+  | "pc";
 
 export type WorldFreshness = "verified" | "unknown" | "stale";
 
@@ -63,6 +71,8 @@ export const WORLD_TTL_MS: Record<WorldDomain, number> = {
   events: 60 * 1000,
   approvals: 10 * 1000,
   risks: 30 * 1000,
+  self: 30 * 1000,
+  pc: 5 * 60 * 1000,
 };
 
 export type WorldSnapshot = {
@@ -279,6 +289,31 @@ export function readWorldState(now = Date.now()): WorldSnapshot {
     return { value: bits.join("; "), freshness: "verified" };
   });
 
+  // FRIDAY herself and the PC she runs on: counts only here (no paths, no names). The detail with
+  // its sources is in self-atlas.ts and is read by the owner's questions, not pushed into prompts.
+  const atlas = latestAtlas();
+  facts.push(
+    fact(
+      "self",
+      "atlas",
+      atlasWorldLine(atlas),
+      "self-atlas.ts (electron/self-atlas.cjs probes)",
+      atlas ? "verified" : "unknown",
+      atlas ? atlas.readAt : now,
+    ),
+  );
+  const reliability = latestReliability();
+  facts.push(
+    fact(
+      "pc",
+      "reliability",
+      reliabilityWorldLine(reliability),
+      "self-atlas.ts (electron/hardware.cjs reliability probes)",
+      reliability && reliability.supported ? "verified" : "unknown",
+      reliability ? reliability.detectedAt : now,
+    ),
+  );
+
   const stale = facts.filter((entry) => entry.freshness === "unknown").length;
   const summary = facts.map((entry) => `${entry.domain}:${entry.freshness}`).join(" · ");
 
@@ -335,6 +370,9 @@ export function readWorldInsight(now = Date.now()): WorldInsight {
     }
     if (row.domain === "approvals") happening.push(`approvals: ${row.value}`);
     if (row.domain === "risks") atRisk.push(row.value);
+    if (row.domain === "self" && (latestAtlas()?.counts.bad ?? 0) > 0) {
+      atRisk.push(`self: ${latestAtlas()?.counts.bad} atlas fact(s) are bad`);
+    }
     if (live === "verified" && row.ttlMs > 0 && now - row.at > row.ttlMs * 0.8) {
       atRisk.push(`${row.domain} nearing stale`);
     }

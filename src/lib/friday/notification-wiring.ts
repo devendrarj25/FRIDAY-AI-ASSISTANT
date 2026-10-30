@@ -21,6 +21,8 @@ function describeProblem(problem: SelfProblem): string {
   return lines.join("\n");
 }
 
+import { atlasNotices, newNoticeMemory } from "./atlas-notices";
+import { latestReliability, subscribeSelfAtlas } from "./self-atlas";
 import { onGithubUpdate } from "./github-updates";
 import { networkMeter } from "./network";
 import { notifications } from "./notifications";
@@ -54,6 +56,15 @@ export function wireNotifications(): void {
         source: "Doctor",
         route: "/doctor",
       });
+    }
+  });
+
+  /* ------------------------------------------------------ PC reliability */
+  // Event-driven on the shared atlas poller: a row is raised when it turns worse, then stays quiet.
+  const atlasMemory = newNoticeMemory();
+  subscribeSelfAtlas(() => {
+    for (const notice of atlasNotices(latestReliability(), atlasMemory, Date.now())) {
+      notifications.push({ ...notice, source: "PC health", route: "/self-management" });
     }
   });
 

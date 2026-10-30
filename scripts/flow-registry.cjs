@@ -79,6 +79,12 @@ const STRUCTURES = [
     group: "doctor",
   },
   {
+    id: "doctor.atlas",
+    label: "Self Atlas",
+    module: "electron/self-atlas.cjs",
+    group: "doctor",
+  },
+  {
     id: "governance.queue",
     label: "Approval queue",
     module: "src/lib/friday/self/governance.ts",

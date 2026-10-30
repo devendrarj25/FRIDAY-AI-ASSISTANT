@@ -18,9 +18,12 @@ import json
 import lzma
 import re
 import shutil
+import struct
 import tarfile
 import time
 import zipfile
+from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from xml.etree import ElementTree as ET
 
@@ -31,6 +34,38 @@ LIST_LIMIT = 2_000
 FIND_LIMIT = 200
 TRASH = ".friday-trash"
 HIDDEN = {TRASH, ".friday-sandbox"}
+
+# Folders and file names that hold credentials. A read tool never opens these,
+# whatever root it was pointed at: the model sees tool output as data and a
+# cloud model may be the one asking.
+SENSITIVE_FOLDERS = {".ssh", ".gnupg", ".aws", ".azure", ".kube"}
+SENSITIVE_NAMES = (
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.pfx",
+    "*.p12",
+    "*.kdbx",
+    "*.keystore",
+    "*.token",
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "credentials",
+    "credentials.*",
+    "secrets.*",
+    "provider-keys*",
+)
+
+
+def is_sensitive(path: Path) -> bool:
+    """True for a credential folder or file name; the content is never read."""
+    if SENSITIVE_FOLDERS & {part.lower() for part in path.parts}:
+        return True
+    name = path.name.lower()
+    return any(fnmatch.fnmatch(name, pattern) for pattern in SENSITIVE_NAMES)
+
 
 ZIP_EXT = {".zip", ".jar", ".apk", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".whl", ".nupkg"}
 TAR_MODES = {
@@ -81,35 +116,280 @@ class ArchiveRefused(ValueError):
 # --------------------------------------------------------------- identify
 
 
+# What an extension promises, to compare with what the bytes say.
+EXT_KIND = {
+    ".pdf": "pdf",
+    ".png": "png",
+    ".jpg": "jpeg",
+    ".jpeg": "jpeg",
+    ".gif": "gif",
+    ".webp": "webp",
+    ".zip": "zip",
+    ".docx": "docx",
+    ".xlsx": "xlsx",
+    ".pptx": "pptx",
+    ".jar": "jar",
+    ".7z": "7z",
+    ".rar": "rar",
+    ".gz": "gzip",
+    ".mp3": "mp3",
+    ".wav": "wav",
+    ".mp4": "mp4",
+    ".sqlite": "sqlite",
+    ".sqlite3": "sqlite",
+    ".db": "sqlite",
+    ".exe": "windows-executable",
+    ".dll": "windows-executable",
+    ".sys": "windows-executable",
+    ".scr": "windows-executable",
+    ".ocx": "windows-executable",
+}
+EXECUTABLE_EXT = {".exe", ".dll", ".sys", ".scr", ".ocx", ".cpl", ".drv", ".efi", ".mui", ".tsp", ".so", ".elf", ""}
+ZIP_FAMILY = {"zip", "docx", "xlsx", "pptx", "jar"}
+TEXT_BY_SUFFIX = {
+    ".json": ("json", "application/json"),
+    ".csv": ("csv", "text/csv"),
+    ".md": ("markdown", "text/markdown"),
+    ".html": ("html", "text/html"),
+    ".htm": ("html", "text/html"),
+    ".xml": ("xml", "application/xml"),
+    ".yaml": ("yaml", "application/yaml"),
+    ".yml": ("yaml", "application/yaml"),
+    ".py": ("python", "text/x-python"),
+    ".js": ("javascript", "text/javascript"),
+    ".ts": ("typescript", "text/typescript"),
+    ".ipynb": ("jupyter-notebook", "application/x-ipynb+json"),
+    ".log": ("log", "text/plain"),
+    ".pem": ("certificate-or-key", "application/x-pem-file"),
+    ".crt": ("certificate-or-key", "application/x-pem-file"),
+}
+LOG_LINE = re.compile(r"^\[?\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}|\b(?:INFO|WARN(?:ING)?|ERROR|DEBUG|FATAL)\b")
+PE_MACHINES = {0x14C: "x86", 0x8664: "x64", 0xAA64: "ARM64", 0x1C4: "ARM"}
+PE_SUBSYSTEMS = {1: "native", 2: "Windows GUI", 3: "console", 9: "Windows CE", 10: "EFI application"}
+
+
+def _pe_details(path: Path) -> dict | None:
+    """Headers of a Windows executable, read and never run. None when it is not a PE file."""
+    with path.open("rb") as handle:
+        dos = handle.read(64)
+        if len(dos) < 64 or dos[:2] != b"MZ":
+            return None
+        offset = struct.unpack_from("<I", dos, 0x3C)[0]
+        if offset < 64 or offset > 1 << 20:
+            return {"format": "MZ (no PE header)"}
+        handle.seek(offset)
+        coff = handle.read(24)
+        if len(coff) < 24 or coff[:4] != b"PE\x00\x00":
+            return {"format": "MZ (no PE header)"}
+        machine, sections, stamp, _, _, optional_size, flags = struct.unpack_from("<HHIIIHH", coff, 4)
+        optional = handle.read(min(optional_size, 240))
+    magic = struct.unpack_from("<H", optional, 0)[0] if len(optional) >= 2 else 0
+    subsystem = struct.unpack_from("<H", optional, 68)[0] if len(optional) >= 70 else None
+    table = 96 if magic == 0x10B else 112
+    signature_bytes = struct.unpack_from("<I", optional, table + 4 * 8 + 4)[0] if len(optional) >= table + 40 else 0
+    return {
+        "format": "PE32+" if magic == 0x20B else "PE32" if magic == 0x10B else "PE",
+        "machine": PE_MACHINES.get(machine, f"0x{machine:x}"),
+        "kind": "DLL" if flags & 0x2000 else "program",
+        "subsystem": PE_SUBSYSTEMS.get(subsystem or 0, "unknown"),
+        "sections": sections,
+        "linkerTime": datetime.fromtimestamp(stamp, UTC).strftime("%Y-%m-%d") if stamp else None,
+        "signatureBlock": signature_bytes > 0,
+        "note": "headers only; a signature block is present or absent here, it is not verified",
+    }
+
+
+def _sqlite_details(head: bytes) -> dict:
+    page = struct.unpack_from(">H", head, 16)[0] if len(head) >= 18 else 0
+    pages = struct.unpack_from(">I", head, 28)[0] if len(head) >= 32 else 0
+    encoding = struct.unpack_from(">I", head, 56)[0] if len(head) >= 60 else 0
+    return {
+        "pageSize": 65536 if page == 1 else page,
+        "pages": pages,
+        "encoding": {1: "UTF-8", 2: "UTF-16le", 3: "UTF-16be"}.get(encoding, "unknown"),
+        "note": "header only; the database was not opened",
+    }
+
+
+def _jpeg_size(path: Path) -> tuple[int, int] | None:
+    with path.open("rb") as handle:
+        data = handle.read(262_144)
+    position = 2
+    while position + 9 < len(data):
+        if data[position] != 0xFF:
+            position += 1
+            continue
+        marker = data[position + 1]
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            position += 2
+            continue
+        length = struct.unpack_from(">H", data, position + 2)[0]
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            height, width = struct.unpack_from(">HH", data, position + 5)
+            return width, height
+        position += 2 + max(length, 2)
+    return None
+
+
+def _wav_details(head: bytes) -> dict | None:
+    position = 12
+    fmt: tuple[int, int, int, int] | None = None
+    while position + 8 <= len(head):
+        chunk = head[position : position + 4]
+        size = struct.unpack_from("<I", head, position + 4)[0]
+        if chunk == b"fmt " and position + 24 <= len(head):
+            _, channels, rate, byte_rate, _, bits = struct.unpack_from("<HHIIHH", head, position + 8)
+            fmt = (channels, rate, byte_rate, bits)
+        elif chunk == b"data" and fmt:
+            return {
+                "channels": fmt[0],
+                "sampleRate": fmt[1],
+                "bitsPerSample": fmt[3],
+                "seconds": round(size / fmt[2], 2) if fmt[2] else None,
+            }
+        position += 8 + size + (size & 1)
+    return {"channels": fmt[0], "sampleRate": fmt[1], "bitsPerSample": fmt[3]} if fmt else None
+
+
+def _media_details(kind: str, path: Path, head: bytes) -> dict | None:
+    if kind == "png" and len(head) >= 24:
+        width, height = struct.unpack_from(">II", head, 16)
+        return {"width": width, "height": height}
+    if kind == "gif" and len(head) >= 10:
+        width, height = struct.unpack_from("<HH", head, 6)
+        return {"width": width, "height": height}
+    if kind == "jpeg":
+        size = _jpeg_size(path)
+        return {"width": size[0], "height": size[1]} if size else None
+    if kind == "wav":
+        return _wav_details(head)
+    if kind == "mp4":
+        return {"brand": head[8:12].decode("ascii", errors="replace")}
+    if kind == "mp3" and len(head) >= 6:
+        return {"id3Version": f"2.{head[3]}.{head[4]}"}
+    return None
+
+
+def _notebook_details(path: Path) -> dict | None:
+    try:
+        if path.stat().st_size > MAX_TEXT_BYTES:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or "nbformat" not in data or not isinstance(data.get("cells"), list):
+        return None
+    cells = Counter(str(cell.get("cell_type", "?")) for cell in data["cells"] if isinstance(cell, dict))
+    spec = (data.get("metadata") or {}).get("kernelspec") or {}
+    return {"nbformat": data.get("nbformat"), "cells": dict(cells), "language": spec.get("language")}
+
+
+def _pem_kind(head: bytes) -> tuple[str, str, str | None] | None:
+    text = head.decode("ascii", errors="ignore").lstrip()
+    if text.startswith("-----BEGIN CERTIFICATE-----"):
+        return "certificate", "application/x-x509-ca-cert", None
+    if text.startswith("-----BEGIN") and "PRIVATE KEY" in text[:60]:
+        return "private-key", "application/x-pem-file", "this file holds a private key; FRIDAY does not open it"
+    if text.startswith("-----BEGIN"):
+        return "pem", "application/x-pem-file", None
+    return None
+
+
+def _looks_like_log(head: bytes) -> bool:
+    lines = [line for line in head.decode("utf-8", errors="ignore").splitlines() if line.strip()][:50]
+    return len(lines) >= 3 and sum(1 for line in lines if LOG_LINE.search(line)) / len(lines) >= 0.4
+
+
 def identify(path: Path) -> dict:
+    """What a file is: from its first bytes, then its name, then its content, with the basis.
+
+    ``basis`` says which of the three decided and ``confidence`` how far to trust it. The file is
+    read, never run, opened as a database or unpacked. Old callers keep using kind, mime, text, bytes.
+    """
     if not path.exists():
         return {"ok": False, "error": f"{path.name} does not exist"}
     if path.is_dir():
-        return {"ok": True, "kind": "folder", "mime": "inode/directory", "text": False}
+        return {
+            "ok": True,
+            "kind": "folder",
+            "mime": "inode/directory",
+            "text": False,
+            "basis": "filesystem",
+            "confidence": 1.0,
+        }
     with path.open("rb") as handle:
         head = handle.read(4096)
     size = path.stat().st_size
-    kind, mime = "", ""
+    suffix = path.suffix.lower()
+    kind, mime, basis, confidence = "", "", "", 0.0
+    warnings: list[str] = []
     for magic, name, content_type in MAGIC:
         if head.startswith(magic):
-            kind, mime = name, content_type
+            kind, mime, basis, confidence = name, content_type, "magic", 0.95
             break
     if not kind and head[:4] == b"RIFF" and head[8:12] == b"WAVE":
-        kind, mime = "wav", "audio/wav"
+        kind, mime, basis, confidence = "wav", "audio/wav", "magic", 0.95
     if not kind and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
-        kind, mime = "webp", "image/webp"
+        kind, mime, basis, confidence = "webp", "image/webp", "magic", 0.95
     if not kind and head[4:8] == b"ftyp":
-        kind, mime = "mp4", "video/mp4"
+        kind, mime, basis, confidence = "mp4", "video/mp4", "magic", 0.9
     if not kind and len(head) > 262 and head[257:262] == b"ustar":
-        kind, mime = "tar", "application/x-tar"
+        kind, mime, basis, confidence = "tar", "application/x-tar", "magic", 0.95
+    if not kind:
+        pem = _pem_kind(head)
+        if pem:
+            kind, mime, basis, confidence = pem[0], pem[1], "content", 0.9
+            if pem[2]:
+                warnings.append(pem[2])
     if kind == "zip":
         kind, mime = _zip_flavour(path, kind, mime)
+    result: dict = {"ok": True, "text": False, "bytes": size}
     if kind:
-        return {"ok": True, "kind": kind, "mime": mime, "text": False, "bytes": size}
-    text_kind = _text_kind(head, path.suffix.lower())
-    if text_kind:
-        return {"ok": True, "kind": text_kind[0], "mime": text_kind[1], "text": True, "bytes": size}
-    return {"ok": True, "kind": "binary", "mime": "application/octet-stream", "text": False, "bytes": size}
+        result.update(kind=kind, mime=mime)
+    else:
+        text_kind = _text_kind(head, suffix)
+        if text_kind:
+            kind, mime = text_kind
+            basis = "extension" if suffix in TEXT_BY_SUFFIX else "content"
+            confidence = 0.7 if basis == "extension" else (0.6 if kind != "text" else 0.5)
+            if kind in ("text", "json", "xml") and _looks_like_log(head):
+                kind, mime, basis, confidence = "log", "text/plain", "content", 0.6
+            result.update(kind=kind, mime=mime, text=True)
+        else:
+            kind, mime, basis, confidence = "binary", "application/octet-stream", "content", 0.3
+            result.update(kind=kind, mime=mime)
+
+    details: dict | None = None
+    if kind == "windows-executable":
+        details = _pe_details(path)
+    elif kind == "sqlite":
+        details = _sqlite_details(head)
+    elif kind == "jupyter-notebook":
+        details = _notebook_details(path)
+        if details is None:
+            result.update(kind="json", mime="application/json")
+    else:
+        details = _media_details(kind, path, head)
+    if details:
+        result["details"] = details
+
+    expected = EXT_KIND.get(suffix)
+    if kind in ("windows-executable", "elf-executable") and suffix not in EXECUTABLE_EXT:
+        warnings.append(f"the content is a program but the name says {suffix or 'no extension'}: it may be disguised")
+    elif expected and result["kind"] != expected and not ({expected, result["kind"]} <= ZIP_FAMILY):
+        warnings.append(f"the extension says {suffix} but the content looks like {result['kind']}")
+    from code_map import load_registry  # a lazy import: code_map reads files through this module
+
+    language = load_registry().for_path(path)
+    if language and result.get("text"):
+        result["language"] = language.name
+        result["languageId"] = language.id
+        if result["kind"] in ("text", "markdown", "yaml", "json", "xml", "html", "log"):
+            pass  # the structural kind stays; the language says how a map reads it
+    result.update(basis=basis, confidence=confidence)
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _zip_flavour(path: Path, kind: str, mime: str) -> tuple[str, str]:
@@ -137,21 +417,8 @@ def _text_kind(head: bytes, suffix: str) -> tuple[str, str] | None:
         except UnicodeDecodeError:
             return None
     stripped = sample.lstrip()
-    by_suffix = {
-        ".json": ("json", "application/json"),
-        ".csv": ("csv", "text/csv"),
-        ".md": ("markdown", "text/markdown"),
-        ".html": ("html", "text/html"),
-        ".htm": ("html", "text/html"),
-        ".xml": ("xml", "application/xml"),
-        ".yaml": ("yaml", "application/yaml"),
-        ".yml": ("yaml", "application/yaml"),
-        ".py": ("python", "text/x-python"),
-        ".js": ("javascript", "text/javascript"),
-        ".ts": ("typescript", "text/typescript"),
-    }
-    if suffix in by_suffix:
-        return by_suffix[suffix]
+    if suffix in TEXT_BY_SUFFIX:
+        return TEXT_BY_SUFFIX[suffix]
     if stripped.startswith("<?xml"):
         return "xml", "application/xml"
     if stripped[:15].lower().startswith(("<!doctype html", "<html")):
@@ -229,7 +496,7 @@ def find(path: Path, root: Path, pattern: str = "*", contains: str = "") -> dict
             continue
         row = {"path": item.relative_to(root).as_posix(), "bytes": item.stat().st_size}
         if needle:
-            if item.stat().st_size > MAX_TEXT_BYTES:
+            if item.stat().st_size > MAX_TEXT_BYTES or is_sensitive(item):
                 continue
             try:
                 text = item.read_text(encoding="utf-8", errors="ignore").lower()

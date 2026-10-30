@@ -22,7 +22,8 @@ import { identity } from "./identity";
 import { brainKnowledge } from "./knowledge-base";
 import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
-import { diagnoseError, formatEntry, looksLikeError, searchExpertise } from "./expertise";
+import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
+import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import {
   describeSelfReport,
   inspectSelf,
@@ -73,6 +74,12 @@ import { observeTerminalState, terminalLookRequested } from "./terminal-observe"
 import { extractSandboxRun } from "../sandbox-command";
 import { observeSandboxState, sandboxLookRequested } from "./sandbox-observe";
 import { observeLogsState, logsLookRequested } from "./logs-observe";
+import {
+  atlasLookRequested,
+  describePcHealth,
+  describeSelfAtlas,
+  pcHealthLookRequested,
+} from "./atlas-observe";
 import { observeTasksState, tasksLookRequested } from "./tasks-observe";
 import { observeDoctorState, doctorLookRequested } from "./doctor-observe";
 import { observeInstallerState, installerLookRequested } from "./installer-observe";
@@ -571,6 +578,14 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
     return live(async () => observeTasksState().extra, 0.9);
   }
 
+  if (atlasLookRequested(text)) {
+    return live(() => describeSelfAtlas(text), 0.92);
+  }
+
+  if (pcHealthLookRequested(text)) {
+    return live(() => describePcHealth(), 0.9);
+  }
+
   if (doctorLookRequested(text)) {
     return live(async () => observeDoctorState().extra, 0.9);
   }
@@ -688,19 +703,29 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   }
 
   // 7. pasted errors — matched against her built-in error signatures ---------
-  if (looksLikeError(text)) {
+  if (looksLikeFailure(text)) {
     const hits = diagnoseError(text);
+    const diagnosis = diagnose({ text });
+    const analysed =
+      diagnosis.hypotheses.length > 0 || diagnosis.codes.length > 0 || diagnosis.frames.length > 0;
+    const guide = analysed
+      ? guidance(diagnosis, prefersHinglish(text) ? "hinglish" : "english")
+      : "";
     if (hits.length) {
       return reply(
         "expertise",
         [
           "I recognise this one.",
           ...hits.map(formatEntry),
+          guide,
           "If that doesn't clear it, paste the next error and I'll keep narrowing it down.",
-        ].join("\n\n"),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         0.85,
       );
     }
+    if (analysed) return reply("diagnosis", guide, 0.82);
   }
 
   // 8. tools, sources, guides, language/coding knowledge --------------------

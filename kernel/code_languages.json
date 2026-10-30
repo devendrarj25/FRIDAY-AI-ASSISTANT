@@ -1,0 +1,612 @@
+{
+  "version": 1,
+  "note": "Language registry for kernel/code_map.py. Add a language here; no code changes. support: parsed = a real parser, outline = line patterns. graph: false keeps a data format out of the reference graph.",
+  "languages": [
+    {
+      "id": "python",
+      "name": "Python",
+      "support": "parsed",
+      "extensions": [
+        ".py",
+        ".pyi",
+        ".pyw"
+      ],
+      "filenames": [],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "class",
+          "pattern": "^\\s*class\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "def",
+          "pattern": "^\\s*(?:async\\s+)?def\\s+([A-Za-z_]\\w*)"
+        }
+      ],
+      "imports": [
+        "^\\s*import\\s+([A-Za-z_][\\w.]*)",
+        "^\\s*from\\s+([A-Za-z_.][\\w.]*)\\s+import"
+      ],
+      "graph": true
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript / JavaScript",
+      "support": "outline",
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "class",
+          "pattern": "^\\s*(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?class\\s+([A-Za-z_$][\\w$]*)"
+        },
+        {
+          "kind": "interface",
+          "pattern": "^\\s*(?:export\\s+)?interface\\s+([A-Za-z_$][\\w$]*)"
+        },
+        {
+          "kind": "type",
+          "pattern": "^\\s*(?:export\\s+)?type\\s+([A-Za-z_$][\\w$]*)\\s*(?:<[^=]*>)?\\s*="
+        },
+        {
+          "kind": "enum",
+          "pattern": "^\\s*(?:export\\s+)?(?:const\\s+)?enum\\s+([A-Za-z_$][\\w$]*)"
+        },
+        {
+          "kind": "function",
+          "pattern": "^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?function\\s*\\*?\\s*([A-Za-z_$][\\w$]*)"
+        },
+        {
+          "kind": "const",
+          "pattern": "^\\s*(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*(?::[^=]+)?=\\s*(?:async\\s*)?(?:\\([^)]*\\)|[A-Za-z_$][\\w$]*)\\s*(?::[^=]+)?=>"
+        }
+      ],
+      "imports": [
+        "^\\s*import\\s+(?:[^'\"]+\\s+from\\s+)?['\"]([^'\"]+)['\"]",
+        "require\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)"
+      ],
+      "graph": true
+    },
+    {
+      "id": "c",
+      "name": "C / C++",
+      "support": "outline",
+      "extensions": [
+        ".c",
+        ".h",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".hpp",
+        ".hh",
+        ".hxx"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "class",
+          "pattern": "^\\s*(?:class|struct)\\s+([A-Za-z_]\\w*)\\s*(?::|\\{|$)"
+        },
+        {
+          "kind": "enum",
+          "pattern": "^\\s*enum\\s+(?:class\\s+)?([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "namespace",
+          "pattern": "^\\s*namespace\\s+([A-Za-z_][\\w:]*)"
+        },
+        {
+          "kind": "function",
+          "pattern": "^[A-Za-z_][\\w\\s\\*&:<>,]*?[\\s\\*&]([A-Za-z_~][\\w:]*)\\s*\\([^;]*\\)\\s*(?:const\\s*)?(?:\\{|$)"
+        }
+      ],
+      "imports": [
+        "^\\s*#\\s*include\\s*[<\"]([^>\"]+)[>\"]"
+      ],
+      "graph": true
+    },
+    {
+      "id": "csharp",
+      "name": "C#",
+      "support": "outline",
+      "extensions": [
+        ".cs"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "class",
+          "pattern": "^\\s*(?:public|internal|private|protected|static|abstract|sealed|partial|\\s)*\\s*(?:class|record|struct)\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "interface",
+          "pattern": "^\\s*(?:public|internal|private|protected|partial|\\s)*\\s*interface\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "enum",
+          "pattern": "^\\s*(?:public|internal|private|protected|\\s)*\\s*enum\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "method",
+          "pattern": "^\\s*(?:public|internal|private|protected|static|virtual|override|async|abstract|\\s)+[\\w<>\\[\\],\\.?]+\\s+([A-Za-z_]\\w*)\\s*\\([^;]*\\)\\s*(?:\\{|=>|$)"
+        }
+      ],
+      "imports": [
+        "^\\s*using\\s+(?:static\\s+)?([A-Za-z_][\\w.]*)\\s*;"
+      ],
+      "graph": true
+    },
+    {
+      "id": "java",
+      "name": "Java / Kotlin",
+      "support": "outline",
+      "extensions": [
+        ".java",
+        ".kt",
+        ".kts"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "class",
+          "pattern": "^\\s*(?:public|private|protected|static|final|abstract|sealed|open|data|\\s)*\\s*(?:class|object)\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "interface",
+          "pattern": "^\\s*(?:public|private|protected|sealed|\\s)*\\s*interface\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "enum",
+          "pattern": "^\\s*(?:public|private|protected|\\s)*\\s*enum\\s+(?:class\\s+)?([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "method",
+          "pattern": "^\\s*(?:public|private|protected|static|final|abstract|synchronized|\\s)+[\\w<>\\[\\],\\.?]+\\s+([A-Za-z_]\\w*)\\s*\\([^;]*\\)\\s*(?:throws[^{]*)?\\{"
+        },
+        {
+          "kind": "fun",
+          "pattern": "^\\s*(?:public|private|internal|override|suspend|inline|\\s)*fun\\s+(?:<[^>]*>\\s*)?(?:[\\w.]+\\.)?([A-Za-z_]\\w*)"
+        }
+      ],
+      "imports": [
+        "^\\s*import\\s+(?:static\\s+)?([A-Za-z_][\\w.*]*)"
+      ],
+      "graph": true
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "support": "outline",
+      "extensions": [
+        ".go"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "func",
+          "pattern": "^func\\s+(?:\\([^)]*\\)\\s*)?([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "type",
+          "pattern": "^type\\s+([A-Za-z_]\\w*)"
+        }
+      ],
+      "imports": [
+        "^\\s*(?:import\\s+)?(?:[A-Za-z_.]+\\s+)?\"([\\w./-]+)\"\\s*$"
+      ],
+      "graph": true
+    },
+    {
+      "id": "rust",
+      "name": "Rust",
+      "support": "outline",
+      "extensions": [
+        ".rs"
+      ],
+      "filenames": [],
+      "comment": [
+        "//",
+        "*",
+        "/*"
+      ],
+      "symbols": [
+        {
+          "kind": "fn",
+          "pattern": "^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?(?:unsafe\\s+)?(?:const\\s+)?fn\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "struct",
+          "pattern": "^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?struct\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "enum",
+          "pattern": "^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?enum\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "trait",
+          "pattern": "^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?trait\\s+([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "impl",
+          "pattern": "^\\s*impl(?:<[^>]*>)?\\s+(?:[\\w:<>]+\\s+for\\s+)?([A-Za-z_]\\w*)"
+        },
+        {
+          "kind": "mod",
+          "pattern": "^\\s*(?:pub\\s+)?mod\\s+([A-Za-z_]\\w*)"
+        }
+      ],
+      "imports": [
+        "^\\s*use\\s+([A-Za-z_][\\w:]*)"
+      ],
+      "graph": true
+    },
+    {
+      "id": "powershell",
+      "name": "PowerShell",
+      "support": "outline",
+      "extensions": [
+        ".ps1",
+        ".psm1",
+        ".psd1"
+      ],
+      "filenames": [],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "function",
+          "pattern": "(?i)^\\s*function\\s+([A-Za-z_][\\w-]*)"
+        },
+        {
+          "kind": "class",
+          "pattern": "(?i)^\\s*class\\s+([A-Za-z_]\\w*)"
+        }
+      ],
+      "imports": [
+        "(?i)^\\s*Import-Module\\s+['\"]?([\\w.-]+)",
+        "^\\s*\\.\\s+['\"]?([\\w./\\\\$-]+\\.ps1)"
+      ],
+      "graph": true
+    },
+    {
+      "id": "batch",
+      "name": "Batch / CMD",
+      "support": "outline",
+      "extensions": [
+        ".cmd",
+        ".bat"
+      ],
+      "filenames": [],
+      "comment": [
+        "rem ",
+        "::",
+        "REM "
+      ],
+      "symbols": [
+        {
+          "kind": "label",
+          "pattern": "^:([A-Za-z_][\\w-]*)\\s*$"
+        }
+      ],
+      "imports": [
+        "(?i)^\\s*call\\s+\"?([\\w./\\\\%~-]+\\.(?:cmd|bat))"
+      ],
+      "graph": false
+    },
+    {
+      "id": "shell",
+      "name": "Shell",
+      "support": "outline",
+      "extensions": [
+        ".sh",
+        ".bash",
+        ".zsh"
+      ],
+      "filenames": [],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "function",
+          "pattern": "^\\s*(?:function\\s+)?([A-Za-z_][\\w-]*)\\s*\\(\\)\\s*\\{?"
+        },
+        {
+          "kind": "function",
+          "pattern": "^\\s*function\\s+([A-Za-z_][\\w-]*)\\s*\\{"
+        }
+      ],
+      "imports": [
+        "^\\s*(?:source|\\.)\\s+['\"]?([\\w./$-]+)"
+      ],
+      "graph": true
+    },
+    {
+      "id": "sql",
+      "name": "SQL",
+      "support": "outline",
+      "extensions": [
+        ".sql"
+      ],
+      "filenames": [],
+      "comment": [
+        "--",
+        "/*",
+        "*"
+      ],
+      "symbols": [
+        {
+          "kind": "table",
+          "pattern": "(?i)^\\s*create\\s+(?:temp(?:orary)?\\s+)?table\\s+(?:if\\s+not\\s+exists\\s+)?[\"`\\[]?([\\w.]+)"
+        },
+        {
+          "kind": "view",
+          "pattern": "(?i)^\\s*create\\s+(?:or\\s+replace\\s+)?(?:materialized\\s+)?view\\s+[\"`\\[]?([\\w.]+)"
+        },
+        {
+          "kind": "function",
+          "pattern": "(?i)^\\s*create\\s+(?:or\\s+replace\\s+)?(?:function|procedure)\\s+[\"`\\[]?([\\w.]+)"
+        },
+        {
+          "kind": "index",
+          "pattern": "(?i)^\\s*create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?[\"`\\[]?([\\w.]+)"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "html",
+      "name": "HTML",
+      "support": "outline",
+      "extensions": [
+        ".html",
+        ".htm"
+      ],
+      "filenames": [],
+      "comment": [
+        "<!--"
+      ],
+      "symbols": [
+        {
+          "kind": "id",
+          "pattern": "<[a-zA-Z][\\w-]*[^>]*\\sid=[\"']([\\w-]+)[\"']"
+        }
+      ],
+      "imports": [
+        "<script[^>]*\\ssrc=[\"']([^\"']+)[\"']",
+        "<link[^>]*\\shref=[\"']([^\"']+\\.css)[\"']"
+      ],
+      "graph": false
+    },
+    {
+      "id": "css",
+      "name": "CSS",
+      "support": "outline",
+      "extensions": [
+        ".css",
+        ".scss",
+        ".less"
+      ],
+      "filenames": [],
+      "comment": [
+        "/*",
+        "*",
+        "//"
+      ],
+      "symbols": [
+        {
+          "kind": "rule",
+          "pattern": "^([.#]?[A-Za-z_][\\w-]*(?:[ >+~.#:][\\w-]+)*)\\s*\\{"
+        }
+      ],
+      "imports": [
+        "^\\s*@import\\s+(?:url\\()?['\"]?([^'\")]+)"
+      ],
+      "graph": false
+    },
+    {
+      "id": "yaml",
+      "name": "YAML",
+      "support": "outline",
+      "extensions": [
+        ".yaml",
+        ".yml"
+      ],
+      "filenames": [],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "key",
+          "pattern": "^([A-Za-z_][\\w.-]*):(?:\\s|$)"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "toml",
+      "name": "TOML / INI",
+      "support": "outline",
+      "extensions": [
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf"
+      ],
+      "filenames": [],
+      "comment": [
+        "#",
+        ";"
+      ],
+      "symbols": [
+        {
+          "kind": "section",
+          "pattern": "^\\[{1,2}([^\\]]+)\\]{1,2}\\s*$"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "json",
+      "name": "JSON",
+      "support": "outline",
+      "extensions": [
+        ".json",
+        ".jsonc"
+      ],
+      "filenames": [],
+      "comment": [
+        "//"
+      ],
+      "symbols": [
+        {
+          "kind": "key",
+          "pattern": "^(?:  |\\t)?\"([^\"]+)\"\\s*:"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "xml",
+      "name": "XML / project files",
+      "support": "outline",
+      "extensions": [
+        ".xml",
+        ".csproj",
+        ".vcxproj",
+        ".props",
+        ".targets",
+        ".xaml",
+        ".svg"
+      ],
+      "filenames": [],
+      "comment": [
+        "<!--"
+      ],
+      "symbols": [
+        {
+          "kind": "element",
+          "pattern": "^<([A-Za-z_][\\w:.-]*)(?:\\s|>|/)"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "dockerfile",
+      "name": "Dockerfile",
+      "support": "outline",
+      "extensions": [
+        ".dockerfile"
+      ],
+      "filenames": [
+        "Dockerfile",
+        "Containerfile"
+      ],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "stage",
+          "pattern": "(?i)^\\s*FROM\\s+\\S+\\s+AS\\s+([\\w.-]+)"
+        },
+        {
+          "kind": "from",
+          "pattern": "(?i)^\\s*FROM\\s+(?!\\S+\\s+AS\\s)(\\S+)"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    },
+    {
+      "id": "makefile",
+      "name": "Makefile",
+      "support": "outline",
+      "extensions": [
+        ".mk"
+      ],
+      "filenames": [
+        "Makefile",
+        "makefile",
+        "GNUmakefile"
+      ],
+      "comment": [
+        "#"
+      ],
+      "symbols": [
+        {
+          "kind": "target",
+          "pattern": "^([A-Za-z0-9_][\\w./-]*)\\s*:(?!=)"
+        }
+      ],
+      "imports": [
+        "^\\s*-?include\\s+(\\S+)"
+      ],
+      "graph": false
+    },
+    {
+      "id": "markdown",
+      "name": "Markdown",
+      "support": "outline",
+      "extensions": [
+        ".md",
+        ".markdown",
+        ".rst",
+        ".txt"
+      ],
+      "filenames": [],
+      "comment": [],
+      "symbols": [
+        {
+          "kind": "heading",
+          "pattern": "^#{1,3}\\s+(.+?)\\s*#*$"
+        }
+      ],
+      "imports": [],
+      "graph": false
+    }
+  ]
+}

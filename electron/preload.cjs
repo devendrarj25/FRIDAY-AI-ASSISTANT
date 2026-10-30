@@ -121,6 +121,8 @@ contextBridge.exposeInMainWorld("friday", {
   detectHardware: () => ipcRenderer.invoke("hardware:detect"),
   detectSensors: () => ipcRenderer.invoke("system:sensors"),
   detectSecurity: () => ipcRenderer.invoke("system:security"),
+  detectReliability: () => ipcRenderer.invoke("system:reliability"),
+  selfAtlas: () => ipcRenderer.invoke("self:atlas"),
   openWindowsSecurity: () => ipcRenderer.invoke("system:open-security"),
 
   // Live measured telemetry (one shared sampler in the main process).

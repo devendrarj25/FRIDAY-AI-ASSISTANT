@@ -1784,6 +1784,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "self:atlas",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "self:health",
       file: "electron/main.cjs",
     },
@@ -1913,6 +1917,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "system:open-security",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "system:reliability",
       file: "electron/main.cjs",
     },
     {
@@ -2318,7 +2326,19 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "gif",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "jpeg",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "json",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "jupyter-notebook",
       file: "kernel/file_tools.py",
     },
     {
@@ -2328,6 +2348,14 @@ export const FLOW_REGISTRY = {
     {
       kind: "model-missing",
       file: "kernel/stt.py",
+    },
+    {
+      kind: "mp3",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "mp4",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "paid",
@@ -2340,6 +2368,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "planned",
       file: "kernel/main.py",
+    },
+    {
+      kind: "png",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "pptx",
@@ -2362,12 +2394,24 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "sqlite",
+      file: "kernel/file_tools.py",
+    },
+    {
       kind: "tar",
       file: "kernel/file_tools.py",
     },
     {
       kind: "task",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "wav",
+      file: "kernel/file_tools.py",
+    },
+    {
+      kind: "windows-executable",
+      file: "kernel/file_tools.py",
     },
     {
       kind: "xlsx",
@@ -8627,6 +8671,13 @@ export const FLOW_REGISTRY = {
       present: true,
     },
     {
+      id: "doctor.atlas",
+      label: "Self Atlas",
+      module: "electron/self-atlas.cjs",
+      group: "doctor",
+      present: true,
+    },
+    {
       id: "governance.queue",
       label: "Approval queue",
       module: "src/lib/friday/self/governance.ts",
@@ -8648,8 +8699,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 469,
-      total: 469,
+      mapped: 471,
+      total: 471,
     },
     kernel: {
       mapped: 14,
