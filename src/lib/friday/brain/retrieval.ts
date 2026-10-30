@@ -280,6 +280,29 @@ export type VectorSnippet = {
 
 export type RankedHit<T> = { item: T; score: number };
 
+const CURRENT_ASK =
+  /\b(current(?:ly)?|now|latest|today|these days|right now|newest|recent(?:ly)?|abhi|aaj|filhaal|ab ka)\b/i;
+const HISTORY_ASK =
+  /\b(originally|earlier|before|used to|previous(?:ly)?|history|at that time|back then|first time|pehle|purana|puraana|tab)\b/i;
+
+/**
+ * Whether a question is about how things are now, how they were, or neither. A question about now
+ * should be answered from the newest record; a question about the past must not be pushed toward
+ * the newest one; anything else keeps the default balance.
+ */
+export function temporalIntent(query: string): "current" | "history" | "neutral" {
+  const text = String(query || "");
+  if (HISTORY_ASK.test(text)) return "history";
+  if (CURRENT_ASK.test(text)) return "current";
+  return "neutral";
+}
+
+/** Weight of recency in the mixed score for a question. The neutral value is the long-standing 0.12. */
+export function recencyWeightFor(query: string): number {
+  const intent = temporalIntent(query);
+  return intent === "current" ? 0.3 : intent === "history" ? 0 : 0.12;
+}
+
 export function recencyScore(at: number, now = Date.now()): number {
   const ageDays = Math.max(0, (now - at) / 86_400_000);
   return 1 / (1 + ageDays / 14);
@@ -337,7 +360,7 @@ export function retrievalScore(
     semantic * 0.32 +
     entity * 0.08 +
     task * 0.12 +
-    recency * 0.12 +
+    recency * recencyWeightFor(query) +
     item.confidence * 0.1 +
     quality * 0.1 +
     scope * 0.04 +
