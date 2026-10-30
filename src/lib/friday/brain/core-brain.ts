@@ -79,6 +79,7 @@ import { openLoopDigest } from "./open-loops";
 import { noteUnderstanding } from "./decision-trace";
 import { readWorldInsight } from "./world-model";
 import { checkAnswer } from "./answer-checks";
+import { checkCitations } from "./web-sources";
 import { compareOf, MIN_COMPARE_TASKS } from "./model-profile";
 import {
   reviewAssumptions,
@@ -177,7 +178,7 @@ export type BrainToolUse = {
   detail: string;
 };
 
-export type BrainSource = { title: string; url: string };
+export type BrainSource = { title: string; url: string; snippet?: string };
 
 export type Cognition = {
   taskId: string;
@@ -890,7 +891,11 @@ class CoreBrain {
                 });
               } else {
                 judged.usable.slice(0, 6).forEach((result) => {
-                  sources.push({ title: result.title, url: result.url });
+                  sources.push({
+                    title: result.title,
+                    url: result.url,
+                    ...(result.snippet ? { snippet: result.snippet } : {}),
+                  });
                 });
                 evidence = researchNote(judged.usable);
                 tools.push({
@@ -1518,6 +1523,12 @@ class CoreBrain {
     }
     if (cognition.sources.length && !/https?:\/\//i.test(text)) {
       issues.push("web sources were retrieved but not cited in the answer");
+    }
+    // A sentence that carries a link must be about what that source says.
+    if (cognition.sources.length) {
+      for (const problem of checkCitations(text, cognition.sources).slice(0, 2)) {
+        issues.push(`a citation does not hold: ${problem.reason} (${problem.url})`);
+      }
     }
     // What the ask required and can be counted or parsed (limits, bullets, JSON, language, a sum).
     for (const failure of checkAnswer(cognition.prompt, text).failures) {
