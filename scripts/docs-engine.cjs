@@ -150,6 +150,56 @@ const DOCUMENTS = [
     topic: "Providers, credentials, billing and privacy firewalls",
   },
   {
+    file: "docs/research/FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md",
+    title: "FRIDAY — Brain Intelligence Research",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "What the best documented AI systems do that FRIDAY's Brain does not yet do, with sources, how each was read, and what is and is not adopted",
+    topic: "Brain research with sources and decisions",
+    inMap: false,
+  },
+  {
+    file: "docs/research/FRIDAY_ULTIMATE_BRAIN_ARCHITECTURE.md",
+    title: "FRIDAY — Ultimate Brain Architecture",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "How the existing Brain maps onto the target cognitive lifecycle, which module owns each capability, and where the evolution attaches",
+    topic: "Brain architecture and canonical ownership",
+    inMap: false,
+  },
+  {
+    file: "docs/research/FRIDAY_BRAIN_CAPABILITY_MATRIX.md",
+    title: "FRIDAY — Brain Capability Matrix",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "What the Brain does today against the thirteen capability groups, each marked done, partial, missing or the model's own",
+    topic: "Brain capability inventory with status",
+    inMap: false,
+  },
+  {
+    file: "docs/research/FRIDAY_BRAIN_GAP_ANALYSIS.md",
+    title: "FRIDAY — Brain Gap Analysis",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "What is partial, missing, outdated or duplicated in the Brain, what to integrate or not, and what each gap needs",
+    topic: "Brain gaps, overlaps and integration decisions",
+    inMap: false,
+  },
+  {
+    file: "docs/research/FRIDAY_BRAIN_IMPLEMENTATION_ROADMAP.md",
+    title: "FRIDAY — Brain Implementation Roadmap",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "The phased plan for the Brain evolution with owners, dependencies, benchmark plan, risks and the recommended first phase",
+    topic: "Brain phases, benchmark plan and first step",
+    inMap: false,
+  },
+  {
     file: "docs/FRIDAY_MCP.md",
     title: "FRIDAY — Model Context Protocol",
     section: "architecture",

@@ -29,6 +29,11 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | [docs/FRIDAY_MASTER_FLOW.md](FRIDAY_MASTER_FLOW.md) | The owner operating loop and which live module owns each stage | developers, contributors |
 | [docs/FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md) | The single FRIDAY root, what Setup may replace, and what uninstall may delete | developers, contributors |
 | [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](FRIDAY_PROVIDERS_AND_SECRETS.md) | Local model engines, cloud providers, encrypted keys, billing firewall, and privacy egress | owner, developers |
+| [docs/research/FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](research/FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md) | What the best documented AI systems do that FRIDAY's Brain does not yet do, with sources, how each was read, and what is and is not adopted | owner, developers |
+| [docs/research/FRIDAY_ULTIMATE_BRAIN_ARCHITECTURE.md](research/FRIDAY_ULTIMATE_BRAIN_ARCHITECTURE.md) | How the existing Brain maps onto the target cognitive lifecycle, which module owns each capability, and where the evolution attaches | owner, developers |
+| [docs/research/FRIDAY_BRAIN_CAPABILITY_MATRIX.md](research/FRIDAY_BRAIN_CAPABILITY_MATRIX.md) | What the Brain does today against the thirteen capability groups, each marked done, partial, missing or the model's own | owner, developers |
+| [docs/research/FRIDAY_BRAIN_GAP_ANALYSIS.md](research/FRIDAY_BRAIN_GAP_ANALYSIS.md) | What is partial, missing, outdated or duplicated in the Brain, what to integrate or not, and what each gap needs | owner, developers |
+| [docs/research/FRIDAY_BRAIN_IMPLEMENTATION_ROADMAP.md](research/FRIDAY_BRAIN_IMPLEMENTATION_ROADMAP.md) | The phased plan for the Brain evolution with owners, dependencies, benchmark plan, risks and the recommended first phase | owner, developers |
 | [docs/FRIDAY_MCP.md](FRIDAY_MCP.md) | How FRIDAY speaks MCP as a local server and as a client, including pairing, scopes, and the exposed tools | owner, developers |
 
 ## 3. Build, version, release and update
