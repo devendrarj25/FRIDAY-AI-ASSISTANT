@@ -29,6 +29,14 @@ const STRAY_PATH = [
   /\.(exe|msi|nupkg|blockmap)$/i,
 ];
 
+/** Folders and files an AI tool or editor agent leaves behind. They never belong in the repository. */
+const AGENT_PATH = [
+  /(^|\/)\.(claude|claude-plugin|cursor|windsurf|codex|gemini|continue|aider[^/]*|roo|kiro|trae|junie|augment)(\/|$)/,
+  /(^|\/)\.(cursorrules|windsurfrules|clinerules|cursorignore)$/,
+  /^\.github\/(copilot-instructions\.md|instructions\/)/,
+  /^GEMINI\.md$/,
+];
+
 function git(args, cwd) {
   return execFileSync("git", args, {
     cwd,
@@ -44,6 +52,11 @@ function problemsFor(file, size, limit = MAX_BYTES) {
   const normal = String(file).replace(/\\/g, "/");
   if (STRAY_PATH.some((pattern) => pattern.test(normal))) {
     problems.push(`${normal} is build output, a cache, a log or a scratch file`);
+  }
+  if (AGENT_PATH.some((pattern) => pattern.test(normal))) {
+    problems.push(
+      `${normal} is an AI tool or agent file; the rulebook is AGENTS.md and nothing else is kept`,
+    );
   }
   if (Number.isFinite(size) && size > limit) {
     problems.push(

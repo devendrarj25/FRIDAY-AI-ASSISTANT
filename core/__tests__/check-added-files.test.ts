@@ -52,6 +52,23 @@ function repoWith(files: Record<string, string | Buffer>) {
 }
 
 describe("added-file guard", () => {
+  it("refuses the files an AI tool or editor agent leaves behind", () => {
+    for (const file of [
+      ".claude/settings.json",
+      ".cursor/rules/x.mdc",
+      ".cursorrules",
+      ".windsurf/rules.md",
+      ".github/copilot-instructions.md",
+      "GEMINI.md",
+      "sub/.aider.chat.history.md",
+    ]) {
+      expect(guard.problemsFor(file, 10).length, file).toBeGreaterThan(0);
+    }
+    for (const file of ["AGENTS.md", "CLAUDE.md", "src/cursor.ts", "docs/FRIDAY_MCP.md"]) {
+      expect(guard.problemsFor(file, 10), file).toEqual([]);
+    }
+  });
+
   it("judges a path by name and size", () => {
     expect(guard.problemsFor("src/app.ts", 1200)).toEqual([]);
     expect(guard.problemsFor("node_modules/x/index.js", 10)[0]).toContain("build output");

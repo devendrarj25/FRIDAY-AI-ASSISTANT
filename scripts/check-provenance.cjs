@@ -63,6 +63,7 @@ const PR_TEXT_MARKS = [
   /\b(?:generated|created|written|made|authored)\s+(?:with|by)\s+\[?\s*(?:claude|cursor|copilot|chatgpt|codex|gemini|aider|cline|lovable|windsurf|anthropic|openai)\b/i,
   /🤖/,
   /claude\.ai\/code/i,
+  /^\s*(?:claude|cursor|codex|copilot|gemini|aider)[- ](?:session|task|run)\s*:/im,
 ];
 
 /** Problems in a pull request title or body. */
@@ -93,6 +94,22 @@ function assistantIdentity(name, email) {
   return ASSISTANT_NAME.test(name || "") || ASSISTANT_EMAIL.test(email || "");
 }
 
+/** Problems in a commit message: a generated mark, a tool credit, a session link or trailer, or a tool co-author. */
+function messageProblems(label, body) {
+  const problems = [];
+  const text = String(body || "");
+  if (GENERATED.test(text)) problems.push(`${label} message says it was generated`);
+  for (const mark of PR_TEXT_MARKS) {
+    if (mark.test(text) && !GENERATED.test(text))
+      problems.push(`${label} message carries an assistant credit (${mark.source.slice(0, 40)}…)`);
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (allowedDependencyTrailer(line)) continue;
+    if (COAUTHOR.test(line)) problems.push(`${label} ${line.trim()}`);
+  }
+  return problems;
+}
+
 function problemsIn(sha, author, authorEmail, committer, committerEmail, body) {
   const problems = [];
   if (assistantIdentity(author, authorEmail)) {
@@ -101,11 +118,7 @@ function problemsIn(sha, author, authorEmail, committer, committerEmail, body) {
   if (assistantIdentity(committer, committerEmail)) {
     problems.push(`${sha} committer ${committer} <${committerEmail}>`);
   }
-  if (GENERATED.test(body || "")) problems.push(`${sha} message says it was generated`);
-  for (const line of String(body || "").split(/\r?\n/)) {
-    if (allowedDependencyTrailer(line)) continue;
-    if (COAUTHOR.test(line)) problems.push(`${sha} ${line.trim()}`);
-  }
+  problems.push(...messageProblems(sha, body));
   return problems;
 }
 
@@ -158,6 +171,7 @@ function main() {
 
 module.exports = {
   checkRange,
+  messageProblems,
   textProblems,
   problemsIn,
   assistantIdentity,

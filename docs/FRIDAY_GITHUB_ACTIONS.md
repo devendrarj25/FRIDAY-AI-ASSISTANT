@@ -118,6 +118,18 @@ may appear on a co-author trailer. A sign-off of `dependabot[bot]` with
 other bot, still fails. Any tool-named author or trailer, and a message
 that says the change was generated, still fail.
 
+The same rule reads three more things: a commit message or pull request text
+that carries a `Generated with/by` line, a robot mark, a `claude.ai/code`
+session link or a `Claude-Session` style trailer; and a file or folder an AI
+tool leaves behind (`.claude/`, `.cursor/`, `.windsurf/`, `.codex/`, `.gemini/`,
+`.continue/`, `.aider*`, `.cursorrules`, `.github/copilot-instructions.md`,
+`GEMINI.md`) in `scripts/check-added-files.cjs`. Some pull request tools append
+such a footer to the body on their own, so the body is read back after it is
+written (AGENTS.md, Identity). `npm run setup:hooks` also installs a
+`commit-msg` hook that refuses the same message on the owner's clone, and the
+`pre-push` hook runs preflight; both are `sh` shims over a `.cjs` body because
+the package is ESM.
+
 **One open draft, then one validation.** `main` stays protected, so every change
 is still a pull request. Work continues on the latest open draft into
 `main`, and a new draft opens only when none exists. The owner marks that draft
