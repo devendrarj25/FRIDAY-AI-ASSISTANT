@@ -22,6 +22,9 @@ const checker = require_(path.join(ROOT, "scripts/packaged-requires.cjs")) as {
     tried: string[];
   }[];
   filesFromPatterns: (root: string, patterns: string[]) => string[];
+  matcherFrom: (
+    loaded: unknown,
+  ) => (file: string, pattern: string, options: { dot: true }) => boolean;
   formatFailure: (row: { file: string; spec: string; tried: string[] }) => string;
   listAsar: (file: string) => string[];
 };
@@ -67,11 +70,7 @@ function copyTree(from: string, to: string, filters?: string[]) {
   const negative = (filters || [])
     .filter((item) => item.startsWith("!"))
     .map((item) => item.slice(1));
-  const minimatch = require_("minimatch") as (
-    file: string,
-    pattern: string,
-    options: { dot: true },
-  ) => boolean;
+  const minimatch = checker.matcherFrom(require_("minimatch"));
   const visit = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -213,6 +212,17 @@ describe("packaged config load", () => {
     expect(checker.formatFailure(row)).toContain("electron/sample.cjs");
     expect(checker.formatFailure(row)).toContain("config/download-hosts.json");
     expect(checker.LAZY_GUARDED).toEqual([]);
+  });
+
+  it("reads the glob matcher from both minimatch export shapes", () => {
+    // minimatch 3 exports the matcher itself, minimatch 10 as `minimatch`.
+    // Which one is hoisted to the top level is electron-builder's choice.
+    const match = (file: string) => file.startsWith("electron/");
+    expect(checker.matcherFrom(match)).toBe(match);
+    expect(checker.matcherFrom({ minimatch: match })).toBe(match);
+    const real = checker.matcherFrom(require_("minimatch"));
+    expect(real("electron/main.cjs", "electron/**", { dot: true })).toBe(true);
+    expect(real("config/kernel.yaml", "electron/**", { dot: true })).toBe(false);
   });
 
   it("keeps every electron relative require inside the packaged files set", () => {

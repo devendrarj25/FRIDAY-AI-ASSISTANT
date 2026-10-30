@@ -51,7 +51,11 @@ release-notes.md
 /data/
 /voices/
 /downloads/
-/memory/
+# Stored memories are runtime data; only the .gitkeep that keeps each canonical
+# folder in a fresh clone is tracked (config/project-structure.json).
+/memory/**
+!/memory/*/
+!/memory/*/.gitkeep
 /state/
 /knowledge/
 /library/
