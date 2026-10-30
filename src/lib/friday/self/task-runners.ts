@@ -14,7 +14,7 @@
 import kernelApi from "../kernel-api";
 import { autonomousCore } from "./autonomous-core";
 import { autonomy } from "./autonomy";
-import { taskGraph } from "./task-graph";
+import { parallelParts, taskGraph } from "./task-graph";
 import { extractDeadline, looksLikeHorizonGoal } from "./horizon-goals";
 import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
 import { timelineFromEvidence } from "./run-receipt";
@@ -153,7 +153,8 @@ export function considerLongTask(text: string): Intake {
     /\bthen\b/i.test(message) ||
     LONG_HINT.test(message) ||
     /\bmeanwhile\b/i.test(message) ||
-    /\band (also|then)\b/i.test(message);
+    /\band (also|then)\b/i.test(message) ||
+    parallelParts(message) !== null;
   // A running background job must not capture ordinary conversation. Only a
   // second real job (numbered / "then" / explicit background hint) or a long
   // action sentence queues while she is already busy.

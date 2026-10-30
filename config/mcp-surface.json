@@ -7,7 +7,7 @@
     "2025-11-25",
     "2026-07-28"
   ],
-  "kernelTools": 74,
+  "kernelTools": 76,
   "exposedTools": [
     {
       "name": "friday.ask",
@@ -795,6 +795,19 @@
       }
     },
     {
+      "name": "kernel.media.frames",
+      "risk": "write",
+      "scopes": [
+        "write"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "kernel.media.probe",
       "risk": "safe",
       "scopes": [
@@ -938,6 +951,19 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.sqlite.query",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       }
     },

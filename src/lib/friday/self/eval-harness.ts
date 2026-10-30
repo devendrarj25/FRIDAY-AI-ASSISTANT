@@ -270,6 +270,18 @@ export const EVAL_TASKS: readonly EvalTask[] = [
   { id: "fmt-php", cls: "self-state", prompt: "can you write php code", expect: /fs\.write/ },
   { id: "fmt-music", cls: "self-state", prompt: "can you compose music", expect: /making music/ },
   {
+    id: "fmt-sqlite",
+    cls: "self-state",
+    prompt: "can you read a sqlite database",
+    expect: /sqlite\.query/,
+  },
+  {
+    id: "fmt-video-read",
+    cls: "self-state",
+    prompt: "can you watch a video",
+    expect: /media\.frames/,
+  },
+  {
     id: "fix-complete",
     cls: "safe-fix",
     prompt: "apply the fix to src/panel.ts",

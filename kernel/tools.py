@@ -18,6 +18,7 @@ import file_tools
 import httpx
 import media_tools
 import sandbox_runner
+import sqlite_read
 import toolchain_gate
 from authority import Authority
 
@@ -34,7 +35,9 @@ RISK = {
     "fs.write": "write",
     "fs.make": "write",
     "media.probe": "safe",
+    "sqlite.query": "safe",
     "media.convert": "write",
+    "media.frames": "write",
     "git": "write",
     "shell.cmd": "exec",
     "shell.powershell": "exec",
@@ -121,7 +124,9 @@ _FILLER = frozenset({"the", "and", "for", "from", "with", "that", "this", "into"
 SUMMARY = {
     "fs.read": "Read files and directories inside allowed roots",
     "fs.write": "Create and edit files",
+    "sqlite.query": "Read a SQLite database: list its tables, or run one SELECT (read-only, limited rows)",
     "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
+    "media.frames": "Save a few evenly spaced still pictures from a video, so they can be looked at",
     "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
     "fs.make": "Make a Word, Excel, PowerPoint, PDF, HTML, Markdown, CSV or JSON file from a plain description",
     "shell.cmd": "Run a Windows cmd command",
@@ -253,6 +258,15 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Audio, video or image file relative to the workspace root."}
+        },
+        "required": ["path"],
+    },
+    "sqlite.query": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "SQLite file relative to the workspace root."},
+            "sql": {"type": "string", "description": "One SELECT statement. Leave empty to list the tables."},
+            "limit": {"type": "integer", "description": "Most rows to return (1-200)."},
         },
         "required": ["path"],
     },
@@ -789,8 +803,27 @@ class ToolRegistry:
             bool(args.get("overwrite")),
         )
 
+    async def _sqlite_query(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            sqlite_read.query,
+            self._under_read(args)[0],
+            str(args["sql"]) if args.get("sql") else None,
+            int(args.get("limit") or 50),
+        )
+
     async def _media_probe(self, args: dict) -> dict:
         return await asyncio.to_thread(media_tools.probe, self._under_read(args)[0])
+
+    async def _media_frames(self, args: dict) -> dict:
+        source = self._under(args, "from")
+        return await asyncio.to_thread(
+            media_tools.sample_frames,
+            source,
+            self._under(args, "to", f"{source.stem}-frames"),
+            self.workspace.resolve(),
+            int(args.get("count") or 6),
+            bool(args.get("overwrite")),
+        )
 
     async def _media_convert(self, args: dict) -> dict:
         raw = args.get("from")

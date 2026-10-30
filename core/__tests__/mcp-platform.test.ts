@@ -73,7 +73,7 @@ describe("MCP catalog matches kernel risk", () => {
   const built = catalog.buildCatalog(risk);
 
   it("maps every kernel tool and withholds the ones that must stay on the desktop", () => {
-    expect(Object.keys(risk)).toHaveLength(74);
+    expect(Object.keys(risk)).toHaveLength(76);
     const mapped = (name: string) =>
       built.mappings.find((item: { kernel: string }) => item.kernel === name);
     expect(mapped("archive.extract")).toMatchObject({ tier: "write", exposed: true });

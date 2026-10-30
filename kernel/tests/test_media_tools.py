@@ -109,3 +109,20 @@ def test_existing_output_and_non_media_are_refused(tmp_path: Path) -> None:
     assert not media_tools.probe(tmp_path / "x.txt")["ok"]
     bad = media_tools.convert("convert", [tmp_path / "x.txt"], tmp_path / "n.mp4", tmp_path, {})
     assert not bad["ok"] and not (tmp_path / "n.mp4").exists()
+
+
+@needs_ffmpeg
+def test_sample_frames_spread_through_the_clip(tmp_path: Path) -> None:
+    src = clip(tmp_path)
+    out = media_tools.sample_frames(src, tmp_path / "frames", tmp_path, count=4)
+    assert out["ok"] and len(out["frames"]) == 4
+    for rel in out["frames"]:
+        assert (tmp_path / rel).read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    again = media_tools.sample_frames(src, tmp_path / "frames", tmp_path, count=4)
+    assert not again["ok"] and "overwrite" in again["error"]
+    audio = media_tools.convert("extract_audio", [src], tmp_path / "a.mp3", tmp_path, {})
+    assert audio["ok"]
+    silent = media_tools.sample_frames(tmp_path / "a.mp3", tmp_path / "f2", tmp_path)
+    assert not silent["ok"] and "no picture" in silent["error"]
+    assert media_tools.sample_frames(src, tmp_path / "f3", tmp_path, count=99)["ok"]
+    assert len(list((tmp_path / "f3").glob("*.png"))) == 12

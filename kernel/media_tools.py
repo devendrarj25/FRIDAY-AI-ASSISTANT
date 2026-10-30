@@ -185,3 +185,32 @@ def convert(
         "path": target.relative_to(root).as_posix() if root in target.parents else target.name,
         "bytes": target.stat().st_size,
     }
+
+
+def sample_frames(source: Path, folder: Path, root: Path, count: int = 6, overwrite: bool = False) -> dict:
+    """Save up to ``count`` still pictures spread evenly through a video, so a vision model can look at them."""
+    ffmpeg = _binary("ffmpeg")
+    if not ffmpeg:
+        return missing_tool()
+    if not source.is_file():
+        return {"ok": False, "error": f"{source.name} is not a file"}
+    count = max(1, min(int(count), 12))
+    info = probe(source)
+    if not info.get("ok"):
+        return info
+    length = info.get("duration_seconds") or 0
+    if not any(s.get("type") == "video" for s in info.get("streams", [])):
+        return {"ok": False, "error": f"{source.name} has no picture to sample"}
+    folder.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+    for n in range(count):
+        # Stay a little inside the end: a seek past the last decoded picture gives no frame at all.
+        at = 0 if count == 1 or not length else round(min(length * (n + 0.5) / count, max(length - 0.2, 0)), 3)
+        target = folder / f"{source.stem}-frame{n + 1:02d}.png"
+        out = convert("frame", [source], target, root, {"at": at}, overwrite=overwrite)
+        if not out.get("ok"):
+            if saved and "already exists" not in str(out.get("error")):
+                break
+            return out
+        saved.append(out["path"])
+    return {"ok": True, "frames": saved, "duration_seconds": length}

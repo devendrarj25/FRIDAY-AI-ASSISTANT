@@ -33,7 +33,7 @@ describe("the registry", () => {
         if (!ability) continue;
         if (ability.status === "built") expect(ability.tool, `${row.id}.${side}`).not.toBe("");
         for (const tool of ability.tool.match(/\b[a-z]+\.[a-z_]+\b/g) ?? []) {
-          if (/^(?:code|fs|archive|media|python|node|cpp|java|test|screen)\./.test(tool)) {
+          if (/^(?:code|fs|archive|media|sqlite|python|node|cpp|java|test|screen)\./.test(tool)) {
             expect(known.has(tool), `${row.id}.${side}: ${tool}`).toBe(true);
           }
         }
@@ -59,6 +59,7 @@ describe("the registry", () => {
     expect(gaps.some((gap) => gap.id === "pdf" && gap.side === "make")).toBe(true);
     expect(gaps.some((gap) => gap.id === "data-stores" && gap.side === "make")).toBe(true);
     expect(gaps.some((gap) => gap.id === "text-code")).toBe(false);
+    expect(gaps.some((gap) => gap.id === "data-stores" && gap.side === "read")).toBe(false);
   });
 });
 
