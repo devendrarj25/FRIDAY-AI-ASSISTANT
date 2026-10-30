@@ -1091,11 +1091,11 @@ const clamp = (value: number): number =>
 function rankHypotheses(n: NormalizedError, raw: string, evidence: Evidence): Hypothesis[] {
   const rows: Hypothesis[] = [];
   for (const rule of RULES) {
-    let matched = false;
+    let matched: boolean;
     try {
       matched = rule.test(n, raw);
     } catch {
-      matched = false;
+      continue;
     }
     if (!matched) continue;
     const notes: string[] = [];
