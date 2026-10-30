@@ -19,7 +19,8 @@
  */
 
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
-import { learning, recallProcedure, rememberProcedure } from "./learning-engine";
+import { learning, recallProcedure } from "./learning-engine";
+import { findSkill, reflectOnUse, writeSkill } from "./skill-loop";
 import { COGNITIVE_BASELINE } from "../brain/cognitive-baseline";
 import { autonomy, type ApprovalLevel } from "./autonomy";
 import { classifyFailure, failureDomain, recoverFailure } from "../failure-guard";
@@ -284,6 +285,9 @@ export function graphProgress(graph: TaskGraph): {
 
 /* --------------------------------------------------------------- engine */
 
+/** Which learned skill planned which running graph, so the outcome can credit it. */
+const skillOfGraph = new Map<string, string>();
+
 export class TaskGraphEngine {
   private graphs: TaskGraph[] = [];
   private runners = new Map<string, NodeRunner>();
@@ -437,12 +441,18 @@ export class TaskGraphEngine {
     });
     if (!opened.ok) return { id: "", position: 0, queued: false };
     const explicit = options.nodes ? null : planNodes(request);
-    const recalled =
-      !options.nodes && priority === "owner" ? (recallProcedure(request)?.steps ?? null) : null;
+    // A learned skill with credit first, then an older stored procedure; unrelated work gets neither.
+    const skill = !options.nodes && priority === "owner" ? findSkill(request) : null;
+    const recalled = skill
+      ? skill.steps
+      : !options.nodes && priority === "owner"
+        ? (recallProcedure(request)?.steps ?? null)
+        : null;
     // A shorter memory must not drop a step the owner wrote out.
     const reused = recalled && recalled.length >= (explicit?.length ?? 1) ? recalled : null;
     const planned = options.nodes ?? reused ?? explicit ?? planNodes(request);
     const graphId = newId(priority === "idle" ? "idle" : "graph");
+    if (skill && recalled === skill.steps && reused) skillOfGraph.set(graphId, skill.id);
 
     const nodes: GraphNode[] = planned.map((step, index) => ({
       id: `${graphId}-n${index + 1}`,
@@ -1141,12 +1151,29 @@ export class TaskGraphEngine {
             : (graph.error ?? "task failed"),
         tools: [...new Set(graph.nodes.flatMap((node) => node.checkpoint?.tools ?? []))],
       });
-      if (state === "completed" && verified && graph.nodes.length >= 2) {
-        rememberProcedure(
-          graph.request,
-          graph.nodes.map((node) => ({ title: node.title, instruction: node.instruction })),
-          `task-graph/${graph.id}`,
-        );
+      // Read -> act -> reflect -> write: a skill that was used earns or loses credit from this
+      // outcome; a verified run with no skill behind it may teach one, through the same write gate.
+      const usedSkill = skillOfGraph.get(graph.id);
+      skillOfGraph.delete(graph.id);
+      if (usedSkill) {
+        reflectOnUse({
+          skillId: usedSkill,
+          success: state === "completed",
+          verified: state === "completed" ? verified : state === "failed",
+        });
+      } else if (
+        state === "completed" &&
+        verified &&
+        graph.nodes.length >= 2 &&
+        !findSkill(graph.request)
+      ) {
+        writeSkill({
+          goal: graph.request,
+          steps: graph.nodes.map((node) => ({ title: node.title, instruction: node.instruction })),
+          origin: "verified-run",
+          verified: true,
+          source: `task-graph/${graph.id}`,
+        });
       }
     }
     this.emit();

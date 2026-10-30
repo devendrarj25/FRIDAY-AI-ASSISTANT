@@ -346,6 +346,11 @@ export type RememberInput = {
   relevance?: number;
   /** Secret rows are refused. They are never written into ordinary memory. */
   sensitivity?: "public" | "internal" | "private" | "secret";
+  /**
+   * A versioned record (a learned skill revision): never merged into a similar row, so the older
+   * version stays whole and can be restored.
+   */
+  distinct?: boolean;
 };
 
 class MemoryEngine {
@@ -475,7 +480,7 @@ class MemoryEngine {
             ),
         )
       : undefined;
-    const candidate = exactBody ?? similar ?? sameTitle[0];
+    const candidate = input.distinct ? undefined : (exactBody ?? similar ?? sameTitle[0]);
     const clashes =
       Boolean(candidate) &&
       candidate!.text.trim().toLowerCase() !== input.text.trim().toLowerCase() &&

@@ -22,7 +22,8 @@ import { identity } from "./identity";
 import { brainKnowledge } from "./knowledge-base";
 import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
-import { diagnoseError, formatEntry, looksLikeError, searchExpertise } from "./expertise";
+import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
+import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import {
   describeSelfReport,
   inspectSelf,
@@ -702,19 +703,29 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   }
 
   // 7. pasted errors — matched against her built-in error signatures ---------
-  if (looksLikeError(text)) {
+  if (looksLikeFailure(text)) {
     const hits = diagnoseError(text);
+    const diagnosis = diagnose({ text });
+    const analysed =
+      diagnosis.hypotheses.length > 0 || diagnosis.codes.length > 0 || diagnosis.frames.length > 0;
+    const guide = analysed
+      ? guidance(diagnosis, prefersHinglish(text) ? "hinglish" : "english")
+      : "";
     if (hits.length) {
       return reply(
         "expertise",
         [
           "I recognise this one.",
           ...hits.map(formatEntry),
+          guide,
           "If that doesn't clear it, paste the next error and I'll keep narrowing it down.",
-        ].join("\n\n"),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         0.85,
       );
     }
+    if (analysed) return reply("diagnosis", guide, 0.82);
   }
 
   // 8. tools, sources, guides, language/coding knowledge --------------------

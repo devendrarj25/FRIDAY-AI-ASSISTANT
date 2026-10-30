@@ -37,6 +37,8 @@ export type ReliabilityItem = {
   state: AtlasStatus;
   detail: string;
   count?: number;
+  /** Crash rows only: which programs crashed, and how often. */
+  apps?: { app: string; count: number }[];
 };
 
 export type ReliabilityReport = {
