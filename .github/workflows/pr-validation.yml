@@ -249,6 +249,35 @@ jobs:
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
+      # Cheap hygiene first. These three read only git history and the diff, so they
+      # need no dependencies and fail within a minute of the start instead of after
+      # npm ci and the type check.
+      - name: Tests changed with the code (warn only)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/tests-required.cjs "origin/$BASE_REF"
+
+      # Commits, and the pull request's own title and body (through env, never
+      # spliced into the shell line), must carry no assistant's name or credit.
+      - name: Commit provenance
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-provenance.cjs "origin/$BASE_REF"
+
+      # Build output, caches, logs, installers and files over 5 MiB do not belong in the repository.
+      - name: No build output, caches or oversized files added
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-added-files.cjs "origin/$BASE_REF"
+
       - name: Install dependencies (npm ci — package-lock is authoritative)
         shell: bash
         run: npm ci
@@ -331,32 +360,6 @@ jobs:
         run: |
           npm run docs:check
           npm run verify:version
-
-      - name: Tests changed with the code (warn only)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: node scripts/tests-required.cjs "origin/$BASE_REF"
-
-      # Commits, and the pull request's own title and body (through env, never
-      # spliced into the shell line), must carry no assistant's name or credit.
-      - name: Commit provenance
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: node scripts/check-provenance.cjs "origin/$BASE_REF"
-
-      # Build output, caches, logs, installers and files over 5 MiB do not belong in the repository.
-      - name: No build output, caches or oversized files added
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: node scripts/check-added-files.cjs "origin/$BASE_REF"
 
       - name: Python for lint
         uses: ./.github/actions/python
@@ -812,21 +815,9 @@ jobs:
       - name: Node toolchain (from package.json engines)
         uses: ./.github/actions/friday-node
 
-      - name: Install dependencies
-        shell: bash
-        run: npm ci
-
-      - name: Documentation, version and type checks
-        shell: bash
-        run: |
-          node scripts/release-engine.cjs heal --check || {
-            echo "::error::documentation is out of sync - run 'npm run release:heal' locally and push"
-            exit 1
-          }
-          npm run docs:check
-          npm run verify:version
-          npm run typecheck
-
+      # Cheap hygiene first. These three read only git history and the diff, so they
+      # need no dependencies and fail within a minute of the start instead of after
+      # npm ci and the type check.
       - name: Tests changed with the code (warn only)
         if: github.event_name == 'pull_request'
         shell: bash
@@ -852,6 +843,21 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: node scripts/check-added-files.cjs "origin/$BASE_REF"
+
+      - name: Install dependencies
+        shell: bash
+        run: npm ci
+
+      - name: Documentation, version and type checks
+        shell: bash
+        run: |
+          node scripts/release-engine.cjs heal --check || {
+            echo "::error::documentation is out of sync - run 'npm run release:heal' locally and push"
+            exit 1
+          }
+          npm run docs:check
+          npm run verify:version
+          npm run typecheck
 
       - name: Run tests
         shell: bash

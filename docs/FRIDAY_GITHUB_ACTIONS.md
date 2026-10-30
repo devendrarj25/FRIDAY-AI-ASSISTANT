@@ -110,6 +110,8 @@ broke both. Nothing auto-merges. Dependabot runs use a
 read-only token and cannot publish the `PR Validation` status: run **PR Validation**
 from the Actions tab with that commit's SHA.
 
+In `static` and `docs-only` the three hygiene steps (tests-required note, commit provenance, added-file check) run right after the toolchain step and before `npm ci`, so a provenance or stray-file mistake fails within about a minute of the start.
+
 Commit provenance allows that dependency-update account only when the author
 or committer name is `dependabot[bot]` and the email is
 `49699333+dependabot[bot]@users.noreply.github.com`, both exact. The same pair
