@@ -31,7 +31,8 @@ const ALLOWED_NAMES = new Set([
 const ASSISTANT_NAME =
   /\b(cursor|claude|anthropic|openai|copilot|codex|gemini|lovable|windsurf|chatgpt|aider|cline)\b|\[bot\]/i;
 const ASSISTANT_EMAIL = /@(?:anthropic|cursor|openai)\.com|cursoragent|noreply@anthropic\.com/i;
-const GENERATED = /generated with|🤖/i;
+/** A footer line: it starts with "Generated with/by", or carries the robot mark. Prose like "generated with npm run docs:sync" is fine. */
+const GENERATED = /^\s*generated\s+(?:with|by)\b|🤖/im;
 const COAUTHOR =
   /^co-authored-by:.*(?:noreply@anthropic\.com|@cursor\.com|@openai\.com|cursoragent|\b(?:cursor|claude|chatgpt|copilot|codex|lovable|windsurf|aider|cline|gemini|bolt|replit)\b|\[bot\])/i;
 
@@ -63,6 +64,7 @@ const PR_TEXT_MARKS = [
   /\b(?:generated|created|written|made|authored)\s+(?:with|by)\s+\[?\s*(?:claude|cursor|copilot|chatgpt|codex|gemini|aider|cline|lovable|windsurf|anthropic|openai)\b/i,
   /🤖/,
   /claude\.ai\/code/i,
+  /^\s*(?:claude|cursor|codex|copilot|gemini|aider)[- ](?:session|task|run)\s*:/im,
 ];
 
 /** Problems in a pull request title or body. */
@@ -93,6 +95,31 @@ function assistantIdentity(name, email) {
   return ASSISTANT_NAME.test(name || "") || ASSISTANT_EMAIL.test(email || "");
 }
 
+/** Problems in a commit message: a generated mark, a tool credit, a session link or trailer, or a tool co-author. */
+function messageProblems(label, body, options = {}) {
+  const problems = [];
+  const text = String(body || "");
+  if (options.thirdPartyNotes) {
+    // A dependency-update commit quotes the release notes of other projects, which may
+    // contain any wording. Only a tool named as co-author is still refused.
+    for (const line of text.split(/\r?\n/)) {
+      if (allowedDependencyTrailer(line)) continue;
+      if (COAUTHOR.test(line)) problems.push(`${label} ${line.trim()}`);
+    }
+    return problems;
+  }
+  if (GENERATED.test(text)) problems.push(`${label} message says it was generated`);
+  for (const mark of PR_TEXT_MARKS) {
+    if (mark.test(text) && !GENERATED.test(text))
+      problems.push(`${label} message carries an assistant credit (${mark.source.slice(0, 40)}…)`);
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (allowedDependencyTrailer(line)) continue;
+    if (COAUTHOR.test(line)) problems.push(`${label} ${line.trim()}`);
+  }
+  return problems;
+}
+
 function problemsIn(sha, author, authorEmail, committer, committerEmail, body) {
   const problems = [];
   if (assistantIdentity(author, authorEmail)) {
@@ -101,11 +128,9 @@ function problemsIn(sha, author, authorEmail, committer, committerEmail, body) {
   if (assistantIdentity(committer, committerEmail)) {
     problems.push(`${sha} committer ${committer} <${committerEmail}>`);
   }
-  if (GENERATED.test(body || "")) problems.push(`${sha} message says it was generated`);
-  for (const line of String(body || "").split(/\r?\n/)) {
-    if (allowedDependencyTrailer(line)) continue;
-    if (COAUTHOR.test(line)) problems.push(`${sha} ${line.trim()}`);
-  }
+  problems.push(
+    ...messageProblems(sha, body, { thirdPartyNotes: exactDependabot(author, authorEmail) }),
+  );
   return problems;
 }
 
@@ -119,6 +144,7 @@ function checkRange(base, cwd = process.cwd()) {
     return { ok: false, missing: true, problems: [detail || `cannot read ${spec}`] };
   }
   const problems = [];
+  let dependencyUpdate = false;
   for (const sha of hashes
     .split("\n")
     .map((line) => line.trim())
@@ -128,9 +154,10 @@ function checkRange(base, cwd = process.cwd()) {
     const committer = git(["show", "-s", "--format=%cn", sha], cwd).trim();
     const committerEmail = git(["show", "-s", "--format=%ce", sha], cwd).trim();
     const body = git(["show", "-s", "--format=%B", sha], cwd);
+    if (exactDependabot(author, authorEmail)) dependencyUpdate = true;
     problems.push(...problemsIn(sha, author, authorEmail, committer, committerEmail, body));
   }
-  return { ok: problems.length === 0, missing: false, problems };
+  return { ok: problems.length === 0, missing: false, problems, dependencyUpdate };
 }
 
 function main() {
@@ -145,10 +172,14 @@ function main() {
     process.exit(2);
   }
   const problems = [...result.problems];
+  // A dependency-update pull request body quotes other projects' release notes.
+  const judge = result.dependencyUpdate
+    ? (label, text) => messageProblems(label, text, { thirdPartyNotes: true })
+    : textProblems;
   if (process.env.PR_TITLE !== undefined)
-    problems.push(...textProblems("pull request title", process.env.PR_TITLE));
+    problems.push(...judge("pull request title", process.env.PR_TITLE));
   if (process.env.PR_BODY !== undefined)
-    problems.push(...textProblems("pull request body", process.env.PR_BODY));
+    problems.push(...judge("pull request body", process.env.PR_BODY));
   if (problems.length) {
     console.error(problems.join("\n"));
     process.exit(1);
@@ -158,6 +189,7 @@ function main() {
 
 module.exports = {
   checkRange,
+  messageProblems,
   textProblems,
   problemsIn,
   assistantIdentity,

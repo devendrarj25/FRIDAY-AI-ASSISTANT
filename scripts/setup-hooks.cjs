@@ -21,9 +21,12 @@ function main() {
     console.error(result.stderr || "git config core.hooksPath failed");
     process.exit(result.status || 1);
   }
-  fs.chmodSync(path.join(root, hooks, "pre-push"), 0o755);
+  for (const hook of ["pre-push", "commit-msg"]) fs.chmodSync(path.join(root, hooks, hook), 0o755);
   console.log(`git hooks path is ${hooks}`);
-  console.log("pre-push runs npm run preflight. Unset core.hooksPath to turn it off.");
+  console.log(
+    "pre-push runs npm run preflight. commit-msg refuses an assistant credit or trailer.",
+  );
+  console.log("Unset core.hooksPath to turn them off.");
 }
 
 if (require.main === module) main();

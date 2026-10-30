@@ -1,0 +1,3 @@
+#!/bin/sh
+# Shim: the package is ESM, so the hook body lives in commit-msg.cjs.
+exec node "$(dirname "$0")/commit-msg.cjs" "$@"

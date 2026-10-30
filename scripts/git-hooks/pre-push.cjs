@@ -1,0 +1,7 @@
+/**
+ * Owner opt-in. Registered by `npm run setup:hooks`.
+ * A red preflight blocks the push.
+ */
+const path = require("node:path");
+const { main } = require(path.join(__dirname, "..", "preflight.cjs"));
+main();
