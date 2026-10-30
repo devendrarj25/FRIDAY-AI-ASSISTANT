@@ -78,7 +78,7 @@ import {
 import { openLoopDigest } from "./open-loops";
 import { noteUnderstanding } from "./decision-trace";
 import { readWorldInsight } from "./world-model";
-import { checkAnswer } from "./answer-checks";
+import { checkAnswer, checksFor } from "./answer-checks";
 import { checkCitations } from "./web-sources";
 import { compareOf, MIN_COMPARE_TASKS } from "./model-profile";
 import {
@@ -178,6 +178,22 @@ export type BrainToolUse = {
   detail: string;
 };
 
+/** The last turn in plain terms, kept in memory only, for the Brain page. Never written to disk. */
+export type LastTurn = {
+  at: number;
+  prompt: string;
+  route: string;
+  effort: string;
+  models: string[];
+  routing: string;
+  notes: string[];
+  checked: string[];
+  issues: string[];
+  verified: boolean | null;
+  sources: number;
+  tools: string[];
+};
+
 export type BrainSource = { title: string; url: string; snippet?: string };
 
 export type Cognition = {
@@ -259,6 +275,7 @@ export function taskKind(prompt: string): string {
 class CoreBrain {
   private state: CoreBrainState = { ...EMPTY, models: {} };
   private loaded = false;
+  private last: LastTurn | null = null;
   private listeners = new Set<() => void>();
 
   subscribe = (fn: () => void) => {
@@ -287,6 +304,11 @@ class CoreBrain {
     this.state = { ...this.state, lastAt: Date.now() };
     writeState(STORAGE_KEY, this.state);
     this.listeners.forEach((fn) => fn());
+  }
+
+  /** The last turn as the Brain page shows it, or null before any turn. */
+  lastTurn(): LastTurn | null {
+    return this.last;
   }
 
   /** The measured per-task-kind stats of each model (`kind|modelId`), copied. */
@@ -1425,6 +1447,24 @@ class CoreBrain {
     }
 
     this.state.turns += 1;
+    this.last = {
+      at: Date.now(),
+      prompt: prompt.length > 140 ? `${prompt.slice(0, 137)}…` : prompt,
+      route: `${classified.klass} → ${classified.action}`,
+      effort: reasoningEffortFor(classified.action, depthPlan.depth),
+      models: modelIds,
+      routing: localMind.skipModel
+        ? "local mind — model stayed idle"
+        : pinned.length
+          ? `${pinned.length} model(s) pinned by owner`
+          : dispatch.routing,
+      notes: notes.slice(-14),
+      checked: checksFor(prompt),
+      issues: [],
+      verified: null,
+      sources: sources.length,
+      tools: tools.map((tool) => `${tool.tool}${tool.ok ? "" : " (failed)"}`),
+    };
     this.emit();
 
     return {
@@ -1603,6 +1643,16 @@ class CoreBrain {
       issues.push("a tool failed but the answer does not mention it");
     }
     const score = Math.max(0, 1 - issues.length * 0.34);
+    if (this.last && this.last.prompt.startsWith(cognition.prompt.slice(0, 40))) {
+      this.last = {
+        ...this.last,
+        issues: issues.slice(0, 6),
+        verified: ok && Boolean(text) && issues.length === 0,
+        checked: [
+          ...new Set([...this.last.checked, ...checkAnswer(cognition.prompt, text).checked]),
+        ],
+      };
+    }
     return {
       ok: ok && Boolean(text) && issues.length === 0,
       score,

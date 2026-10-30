@@ -39,3 +39,25 @@ describe("model comparison panel", () => {
     expect(html).toContain("Needs the desktop app");
   });
 });
+
+describe("brain now panel", () => {
+  it("starts empty with a reason, and shows the last turn and its check once there is one", async () => {
+    const { BrainNowPanel } = await import("../../src/components/friday/BrainNowPanel");
+    const { coreBrain } = await import("../../src/lib/friday/brain/core-brain");
+    const empty = renderToStaticMarkup(createElement(BrainNowPanel));
+    expect(empty).toContain("Brain now");
+    expect(empty).toContain("Nothing is running in the background");
+    const cognition = await coreBrain.cognize("explain closures in at most 6 words", {
+      mode: "manual",
+      allowTools: false,
+    });
+    expect(coreBrain.lastTurn()?.checked).toContain("max-words");
+    coreBrain.verify(cognition, "A closure keeps the variables of the place it was made.", true);
+    expect(coreBrain.lastTurn()).toMatchObject({ verified: false });
+    expect(coreBrain.lastTurn()?.issues.join(" ")).toContain("at most 6 words");
+    const html = renderToStaticMarkup(createElement(BrainNowPanel));
+    expect(html).toContain("explain closures");
+    expect(html).toContain("check failed");
+    expect(html).toContain("thinking");
+  });
+});

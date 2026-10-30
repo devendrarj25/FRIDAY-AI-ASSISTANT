@@ -23,6 +23,12 @@ import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
 import { modelRegistry } from "@/lib/friday/brain/model-registry";
 import { routeRefs } from "@/lib/friday/model-catalog";
 import {
+  describeSuites,
+  runAllSuites,
+  suiteHistory,
+  type SuiteReport,
+} from "@/lib/friday/self/eval-suites";
+import {
   INSTRUCTION_TASKS,
   describeInstructionEval,
   runInstructionEval,
@@ -104,6 +110,7 @@ export function ErrorClinicPanel() {
 
 export function BrainCheckPanel() {
   const [report, setReport] = useState<EvalReport | null>(null);
+  const [suites, setSuites] = useState<SuiteReport[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +118,7 @@ export function BrainCheckPanel() {
     setBusy(true);
     try {
       setReport(await runEvalHarness());
+      setSuites(await runAllSuites());
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -163,6 +171,25 @@ export function BrainCheckPanel() {
             {report.heldOut.failed.length ? ` · missed: ${report.heldOut.failed.join(", ")}` : ""}
           </p>
           <p className="text-meta-sm text-muted-foreground">{describeEval(report)}</p>
+          {suites.length ? (
+            <div className="grid gap-1" aria-label="More suites">
+              <p className="whitespace-pre-wrap text-data text-foreground">
+                {describeSuites(suites)}
+              </p>
+              <p className="text-meta-sm text-muted-foreground">
+                Earlier runs (passed of tasks, newest last):{" "}
+                {suites
+                  .map((suite) => {
+                    const past = suiteHistory(suite.suite)
+                      .slice(-6)
+                      .map((row) => `${row.passed}/${row.tasks}`)
+                      .join(" → ");
+                    return `${suite.suite} ${past}`;
+                  })
+                  .join(" · ")}
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
     </HudPanel>
