@@ -14,7 +14,7 @@
 import kernelApi from "../kernel-api";
 import { autonomousCore } from "./autonomous-core";
 import { autonomy } from "./autonomy";
-import { parallelParts, taskGraph } from "./task-graph";
+import { parallelParts, taskGraph, withEarlier } from "./task-graph";
 import { extractDeadline, looksLikeHorizonGoal } from "./horizon-goals";
 import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
 import { timelineFromEvidence } from "./run-receipt";
@@ -25,13 +25,13 @@ export function registerTaskRunners(): void {
   if (wired) return;
   wired = true;
 
-  taskGraph.registerRunner("goal", async ({ node, signal, log }) => {
+  taskGraph.registerRunner("goal", async ({ node, signal, log, earlier }) => {
     const desktop = typeof window !== "undefined" ? window.friday : undefined;
     if (!desktop) {
       return { ok: false, result: "the kernel is only available in the desktop app" };
     }
     log(`running "${node.title}" through the kernel task planner`);
-    const outcome = await kernelApi.tasks.run(node.instruction);
+    const outcome = await kernelApi.tasks.run(withEarlier(node.instruction, earlier));
     if (signal.aborted) return { ok: false, result: "paused before the result was recorded" };
     const done = Boolean((outcome as { done?: boolean } | null)?.done);
     return {
@@ -43,11 +43,11 @@ export function registerTaskRunners(): void {
     };
   });
 
-  taskGraph.registerRunner("desktop", async ({ node, signal, log }) => {
+  taskGraph.registerRunner("desktop", async ({ node, signal, log, earlier }) => {
     const settings = autonomy.getSnapshot();
     log(`desktop step "${node.title}"`);
     const report = await runComputerUse({
-      request: node.instruction,
+      request: withEarlier(node.instruction, earlier),
       source: "task",
       level: settings.approvalLevel,
       halted: settings.halted || signal.aborted,
