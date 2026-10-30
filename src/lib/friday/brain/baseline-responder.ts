@@ -73,6 +73,12 @@ import { observeTerminalState, terminalLookRequested } from "./terminal-observe"
 import { extractSandboxRun } from "../sandbox-command";
 import { observeSandboxState, sandboxLookRequested } from "./sandbox-observe";
 import { observeLogsState, logsLookRequested } from "./logs-observe";
+import {
+  atlasLookRequested,
+  describePcHealth,
+  describeSelfAtlas,
+  pcHealthLookRequested,
+} from "./atlas-observe";
 import { observeTasksState, tasksLookRequested } from "./tasks-observe";
 import { observeDoctorState, doctorLookRequested } from "./doctor-observe";
 import { observeInstallerState, installerLookRequested } from "./installer-observe";
@@ -569,6 +575,14 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
 
   if (tasksLookRequested(text)) {
     return live(async () => observeTasksState().extra, 0.9);
+  }
+
+  if (atlasLookRequested(text)) {
+    return live(() => describeSelfAtlas(text), 0.92);
+  }
+
+  if (pcHealthLookRequested(text)) {
+    return live(() => describePcHealth(), 0.9);
   }
 
   if (doctorLookRequested(text)) {

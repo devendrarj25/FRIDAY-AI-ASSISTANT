@@ -1784,6 +1784,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "self:atlas",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "self:health",
       file: "electron/main.cjs",
     },
@@ -1913,6 +1917,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "system:open-security",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "system:reliability",
       file: "electron/main.cjs",
     },
     {
@@ -8627,6 +8635,13 @@ export const FLOW_REGISTRY = {
       present: true,
     },
     {
+      id: "doctor.atlas",
+      label: "Self Atlas",
+      module: "electron/self-atlas.cjs",
+      group: "doctor",
+      present: true,
+    },
+    {
       id: "governance.queue",
       label: "Approval queue",
       module: "src/lib/friday/self/governance.ts",
@@ -8648,8 +8663,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 469,
-      total: 469,
+      mapped: 471,
+      total: 471,
     },
     kernel: {
       mapped: 14,

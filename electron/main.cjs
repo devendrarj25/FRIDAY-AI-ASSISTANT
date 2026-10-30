@@ -6334,6 +6334,78 @@ ipcMain.handle("system:security", async () => {
     });
   return securityJob;
 });
+// Self Atlas: where FRIDAY is, what she is and what state she is in, read from real probes.
+// One shared job, cached for 10 seconds, so a page that polls never stacks probes.
+let atlasCache = { at: 0, value: null };
+let atlasJob = null;
+ipcMain.handle("self:atlas", async () => {
+  if (atlasCache.value && Date.now() - atlasCache.at < 10000) return atlasCache.value;
+  atlasJob ??= (async () => {
+    const root = getWorkspaceRoot() || paths.root() || "";
+    const resourcePaths = require("./resource-paths.cjs");
+    const value = await require("./self-atlas.cjs").buildAtlas({
+      root,
+      appDir: root ? paths.programDir() : "",
+      exePath: app.getPath("exe"),
+      isPackaged: app.isPackaged,
+      portableDir: process.env.PORTABLE_EXECUTABLE_DIR || "",
+      channel: BUILD_CHANNEL.isTest ? "test" : "production",
+      version: productVersion(),
+      epoch: fridayVersion.identity().epoch,
+      runtime: {
+        electron: process.versions.electron,
+        node: process.versions.node,
+        chrome: process.versions.chrome,
+      },
+      pid: process.pid,
+      kernel: async () => {
+        try {
+          const response = await fetch(`http://${KERNEL_HOST}:${KERNEL_PORT}/health`, {
+            signal: AbortSignal.timeout(1500),
+          });
+          if (!response.ok) return { reachable: false, error: `HTTP ${response.status}` };
+          return {
+            reachable: true,
+            health: await response.json().catch(() => ({})),
+            port: KERNEL_PORT,
+            pid: kernel && kernel.pid ? kernel.pid : null,
+          };
+        } catch (error) {
+          return { reachable: false, error: error.message };
+        }
+      },
+      services: async () => ((await serviceHealth.snapshot()) || {}).services || [],
+      shippedConfig: (name) => resourcePaths.resolveConfigFile(name),
+      databaseFile: root ? paths.databaseFile() : "",
+      inventory: () => (root ? require("./install-inventory.cjs").readInventory(root) : null),
+    });
+    atlasCache = { at: Date.now(), value };
+    return value;
+  })().finally(() => {
+    atlasJob = null;
+  });
+  return atlasJob;
+});
+// PC reliability: crashes, WER reports, restart pending, startup, services, updates, processes.
+// Read-only PowerShell probes are slow, so one shared job is cached for two minutes.
+let reliabilityCache = { at: 0, value: null };
+let reliabilityJob = null;
+ipcMain.handle("system:reliability", async () => {
+  const { detectReliability } = require("./hardware.cjs");
+  if (reliabilityCache.value && Date.now() - reliabilityCache.at < 120000) {
+    return reliabilityCache.value;
+  }
+  reliabilityJob ??= detectReliability()
+    .then((value) => {
+      reliabilityCache = { at: Date.now(), value };
+      return value;
+    })
+    .catch(() => reliabilityCache.value)
+    .finally(() => {
+      reliabilityJob = null;
+    });
+  return reliabilityJob;
+});
 ipcMain.handle("system:open-security", () => {
   const { openWindowsSecurity } = require("./hardware.cjs");
   return { ok: openWindowsSecurity() };

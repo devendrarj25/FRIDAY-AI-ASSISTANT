@@ -17,6 +17,7 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/friday/AppShell";
+import { SelfAtlasPanels } from "@/components/friday/SelfAtlasPanels";
 import { SelfAutonomyPanels } from "@/components/friday/SelfAutonomyPanels";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
 
@@ -247,6 +248,8 @@ function SelfManagementPage() {
             {currentDiagnosis()}
           </p>
         </HudPanel>
+
+        <SelfAtlasPanels />
 
         {abilities.scores.length > 0 && (
           <HudPanel
