@@ -114,7 +114,51 @@ export function expandQuery(query: string): string[] {
     variants.add(`${related[1].trim()} ${related[2].trim()}`);
     variants.add(`${related[1].trim()} owned-by`);
   }
+  const bridged = bridgeHinglish(text);
+  if (bridged && bridged !== text.toLowerCase()) variants.add(bridged);
   return [...variants].slice(0, 8);
+}
+
+/** The few Hinglish words that carry a question, mapped to the English words stored facts use. */
+const HINGLISH: Record<string, string> = {
+  abhi: "now current",
+  aaj: "today",
+  kahan: "where",
+  kaha: "where",
+  rehta: "live",
+  rehti: "live",
+  rehte: "live",
+  rahta: "live",
+  kaun: "who",
+  kya: "what",
+  kitna: "how much",
+  kitni: "how much",
+  kab: "when",
+  pehle: "earlier before",
+  purana: "old previous",
+  naya: "new",
+  mera: "my owner",
+  meri: "my owner",
+  mere: "my owner",
+  hai: "",
+  hain: "",
+  tha: "was",
+  thi: "was",
+  ka: "",
+  ki: "",
+  ke: "",
+};
+
+function bridgeHinglish(text: string): string {
+  const words = String(text || "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  if (!words.some((word) => word in HINGLISH)) return "";
+  return words
+    .map((word) => (word in HINGLISH ? HINGLISH[word] : word))
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -280,6 +324,9 @@ export type VectorSnippet = {
 
 export type RankedHit<T> = { item: T; score: number };
 
+const PAST_CUE =
+  /\b(before|earlier|previous(?:ly)?|used to|formerly|originally|first|old|lived|used|was|were|had|pehle|purana)\b/i;
+
 const CURRENT_ASK =
   /\b(current(?:ly)?|now|latest|today|these days|right now|newest|recent(?:ly)?|abhi|aaj|filhaal|ab ka)\b/i;
 const HISTORY_ASK =
@@ -317,7 +364,10 @@ export function retrievalScore(
   const understood = understandQuery(query);
   const words = understood.terms;
   const taskWords = retrievalTerms(taskHint);
-  const hay = `${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`.toLowerCase();
+  // Folded like the query terms, or a query word such as "owner" (folded to "owned") would never be found.
+  const hay = `${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`
+    .toLowerCase()
+    .replace(/\b(owns|owner|owned)\b/g, "owned");
   const hayTerms = retrievalTerms(hay);
   const overlap = words.filter((word) => hay.includes(word)).length;
   const jaccard = termJaccard(words, hayTerms);
@@ -351,6 +401,8 @@ export function retrievalScore(
       : 0.45;
   const usage = Math.min(0.18, ((item.uses ?? 0) + (item.hits ?? 0)) * 0.02);
   const pin = item.pinned || item.permanent ? (semantic >= 0.35 ? 0.1 : 0.02) : 0;
+  // A question about the past is answered by a record that speaks of the past.
+  const tense = temporalIntent(query) === "history" && PAST_CUE.test(hay) ? 0.1 : 0;
   const preferred = item.preferred ? 0.12 : 0;
   const related = Math.min(0.12, item.relatedBoost ?? 0);
   const importance = Math.min(0.08, item.importance ?? 0);
@@ -366,6 +418,7 @@ export function retrievalScore(
     scope * 0.04 +
     verified * 0.08 +
     usage +
+    tense +
     pin +
     preferred +
     related +
