@@ -60,6 +60,7 @@ import {
   runPersonalEval,
   type PersonalRun,
 } from "@/lib/friday/self/personal-eval";
+import { STARTER_TASKS } from "@/lib/friday/self/personal-starter";
 import { describeWays, type WayResult } from "@/lib/friday/self/retrieval-ab";
 import { runRetrievalAb } from "@/lib/friday/self/retrieval-ab-run";
 import { allSkills, type Skill } from "@/lib/friday/self/skill-loop";
@@ -315,6 +316,15 @@ export function PersonalEvalPanel() {
           className="w-full rounded-md border border-border bg-background p-2 text-data text-foreground"
           aria-label="Your requests and what each answer must contain"
         />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-border px-2 py-1 text-meta-sm text-muted-foreground hover:text-foreground"
+            onClick={() => setText(STARTER_TASKS)}
+          >
+            Load the starter set (25 typical requests, not yours)
+          </button>
+        </div>
         <label className="flex items-center gap-2 text-meta-sm text-muted-foreground">
           Tries per request
           <select
@@ -373,10 +383,15 @@ export function RetrievalAbPanel() {
   const [out, setOut] = useState<{ cases: number; results: WayResult[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [judge, setJudge] = useState("");
+  const locals = useMemo(
+    () => modelRegistry.available().map((record) => ({ id: record.id, name: record.name })),
+    [],
+  );
   const run = async () => {
     setBusy(true);
     try {
-      setOut(await runRetrievalAb());
+      setOut(await runRetrievalAb(30, judge));
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -399,6 +414,23 @@ export function RetrievalAbPanel() {
         />
       }
     >
+      <label className="mb-2 flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground">
+        Judge model to try
+        <select
+          value={judge}
+          onChange={(event) => setJudge(event.target.value)}
+          className="rounded-md border border-border bg-background px-1 text-data"
+          aria-label="Local chat model to use as the rerank judge for this comparison"
+        >
+          <option value="">the one assigned to Rerank (if any)</option>
+          {locals.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+        <span>A small installed model is enough; only this comparison uses it.</span>
+      </label>
       {error ? (
         <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
       ) : !out ? (

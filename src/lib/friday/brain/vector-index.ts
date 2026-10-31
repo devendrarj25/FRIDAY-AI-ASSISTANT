@@ -209,7 +209,12 @@ class VectorIndex {
     this.emit();
   }
 
-  async queryHits(query: string, k = 8, rerank: RerankMode = "auto"): Promise<VectorHit[]> {
+  async queryHits(
+    query: string,
+    k = 8,
+    rerank: RerankMode = "auto",
+    judgeOverride?: string,
+  ): Promise<VectorHit[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
     const variants = expandQuery(trimmed);
@@ -219,13 +224,13 @@ class VectorIndex {
     });
     if (!first) return [];
     const hits = first.results ?? [];
-    if (hits.length) return this.reorder(trimmed, hits, rerank);
+    if (hits.length) return this.reorder(trimmed, hits, rerank, judgeOverride);
     if (variants.length < 2) return hits;
     const second = await this.call<{ results: VectorHit[] }>("memory.search", {
       query: variants[1]!,
       k,
     });
-    return this.reorder(trimmed, second?.results ?? [], rerank);
+    return this.reorder(trimmed, second?.results ?? [], rerank, judgeOverride);
   }
 
   /**
@@ -236,10 +241,11 @@ class VectorIndex {
     query: string,
     hits: VectorHit[],
     mode: RerankMode = "auto",
+    judgeOverride?: string,
   ): Promise<VectorHit[]> {
     if (hits.length < 2 || mode === "none") return hits;
     const model = mode === "judge" ? null : this.embeddingModel();
-    const judge = mode === "embedding" ? null : this.rerankModel();
+    const judge = mode === "embedding" ? null : (judgeOverride ?? this.rerankModel());
     if (mode === "judge" && !judge) return hits;
     const ranked = await this.call<{ ok: boolean; scores?: number[] }>("memory.rerank", {
       query,
