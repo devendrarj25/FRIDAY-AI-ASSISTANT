@@ -3591,7 +3591,22 @@ function runJob({ id, action, root }, emit) {
         }
       }
       if (!direct) return null;
-      const sources = [direct.url, ...(tool.installerMirrors || [])];
+      // Same pinned digest for every source, so the fastest one right now goes first (one source: unchanged).
+      const ranked = await require("./download-probe.cjs").orderByRate([
+        direct.url,
+        ...(tool.installerMirrors || []),
+      ]);
+      const sources = ranked.urls.length
+        ? ranked.urls
+        : [direct.url, ...(tool.installerMirrors || [])];
+      if (ranked.probes.some((p) => p.ok) && sources[0] !== direct.url) {
+        emit({
+          id,
+          action,
+          phase: "Running",
+          line: `the fastest source right now is ${new URL(sources[0]).hostname}`,
+        });
+      }
       emit({
         id,
         action,
