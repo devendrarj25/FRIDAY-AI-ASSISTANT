@@ -21,6 +21,8 @@ import { personalDesk } from "../personal-desk";
 import { deliverDigest } from "../proactive-digest";
 import { dreamNow } from "./dreaming";
 import { scanFolders } from "../folder-watch";
+import { refreshWatch } from "../connector-watch";
+import { listConnectors } from "../connectors";
 import {
   prefNumber,
   prefOn,
@@ -121,6 +123,12 @@ class BackgroundTasks {
       label: "New files in shared folders",
       everyMinutes: 10,
       run: async () => (await scanFolders()).note,
+    });
+    this.register({
+      id: "connectors",
+      label: "Mail and calendar",
+      everyMinutes: 30,
+      run: async () => (await refreshWatch(await listConnectors())).note,
     });
     this.register({
       id: "dreaming",
