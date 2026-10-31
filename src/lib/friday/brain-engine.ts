@@ -70,6 +70,7 @@ import {
   persistAndResetConversation,
 } from "./brain/conversation-state";
 import { promisesIn } from "./brain/commitments";
+import { failureText } from "./brain/failure-text";
 import { noteObserve, observeBrain } from "./brain/observe";
 import { affect } from "./brain/affect";
 import { currentPolicy } from "./brain/cost-policy";
@@ -1355,7 +1356,8 @@ class BrainStore {
     });
     const settled = settleInterrupted(run.answer, error);
     if (!(settled.keep && settled.text == null)) {
-      const text = settled.text ?? error;
+      const text =
+        settled.text ?? failureText(error, { attempts: this.repairedRuns.has(run.id) ? 2 : 0 });
       if (settled.keep) {
         this.replaceAnswer(run, text);
         const shown = this.state.messages.some(
