@@ -72,13 +72,14 @@ export type TimelineRow = {
 /** Secret-looking `name: value` pairs replaced, nothing else changed. */
 export function scrubSecrets(value: string): string {
   return String(value || "").replace(
-    /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi,
+    /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?\S+/gi,
     "[redacted]",
   );
 }
 
 export function redactRunText(value: string): string {
-  const secret = /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*\S+/gi;
+  const secret =
+    /(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?\S+/gi;
   const dataUrl = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
   const text = String(value || "")
     .replace(dataUrl, "[image omitted]")

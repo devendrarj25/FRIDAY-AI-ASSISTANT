@@ -181,7 +181,7 @@ export function preferPattern(
 }
 
 const INJECTION =
-  /\b(ignore (all |any |previous |your )?instructions|system prompt|you must (now )?click|type the password|disregard the owner)\b/i;
+  /\b(ignore (?:(?:all|any|previous|prior|above|your|the|these|those) )*instructions|disregard (?:(?:all|any|previous|prior|above|your|the) )*(?:instructions|rules)|system prompt|you must (now )?click|type the password|disregard the owner)\b/i;
 
 const DESKTOP_ASK =
   /(?:^|\n)\s*(?:please\s+)?(launch|focus|click|type|press|scroll|drag|copy|paste|close)\b|\b(on (my|the) desktop|on (my|the) screen)\b/i;

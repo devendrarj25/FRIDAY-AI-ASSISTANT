@@ -412,7 +412,7 @@ const PAST_CUE =
 const CURRENT_ASK =
   /\b(current(?:ly)?|now|latest|today|these days|right now|newest|recent(?:ly)?|abhi|aaj|filhaal|ab ka)\b/i;
 const HISTORY_ASK =
-  /\b(originally|earlier|before|used to|previous(?:ly)?|history|at that time|back then|first time|pehle|purana|puraana|tab)\b/i;
+  /\b(originally|earlier|before|used to|previous(?:ly)?|history|at that time|back then|first time|old|ago|former(?:ly)?|pehle|purana|puraana|tab)\b/i;
 
 /**
  * Whether a question is about how things are now, how they were, or neither. A question about now
