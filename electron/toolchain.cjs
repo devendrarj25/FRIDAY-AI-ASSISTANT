@@ -1940,6 +1940,7 @@ const TOOLS = [
     ["BeautifulSoup", "beautifulsoup4", "beautifulsoup4"],
     ["lxml (XML/HTML)", "lxml", "lxml"],
     ["PyMuPDF (PDF)", "pymupdf", "pymupdf"],
+    ["HarfBuzz (text shaping)", "uharfbuzz", "uharfbuzz"],
     ["openpyxl (XLSX)", "openpyxl", "openpyxl"],
     ["python-docx (DOCX)", "python-docx", "python-docx"],
     ["python-pptx (PPTX)", "python-pptx", "python-pptx"],

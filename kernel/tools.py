@@ -19,8 +19,10 @@ import doc_writer
 import file_tools
 import httpx
 import media_tools
+import office_tools
 import sandbox_runner
 import sqlite_read
+import tool_repair
 import toolchain_gate
 from authority import Authority
 
@@ -36,6 +38,7 @@ RISK = {
     "http.fetch": "write",
     "fs.write": "write",
     "fs.make": "write",
+    "doc.work": "write",
     "dev.check": "exec",
     "media.probe": "safe",
     "media.transcribe": "safe",
@@ -134,6 +137,7 @@ SUMMARY = {
     "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
     "media.frames": "Save a few evenly spaced still pictures from a video, so they can be looked at",
     "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
+    "doc.work": "Merge or split PDFs, clean a CSV or Excel table, or make an invoice (totals worked out by code)",
     "fs.make": "Make a Word, Excel, PowerPoint, PDF, HTML, Markdown, CSV, JSON, RTF, ODT or EPUB file",
     "shell.cmd": "Run a Windows cmd command",
     "shell.powershell": "Run a PowerShell script block",
@@ -213,6 +217,22 @@ SUMMARY = {
 #: authorization first. A model can therefore look things up by itself, but it
 #: can never act on the PC without the owner's approval.
 MODEL_TOOL_PARAMS: dict[str, dict] = {
+    "doc.work": {
+        "type": "object",
+        "properties": {
+            "op": {"type": "string", "enum": ["merge", "split", "clean", "invoice"], "description": "The job."},
+            "paths": {"type": "array", "items": {"type": "string"}, "description": "merge: the PDFs, in order."},
+            "path": {"type": "string", "description": "split or clean: the input file."},
+            "pages": {"type": "string", "description": "split: pages to cut out, like 1-3, 5, 7-."},
+            "out": {"type": "string", "description": "merge, clean, invoice: the file to make. split: a folder."},
+            "data": {
+                "type": "object",
+                "description": "invoice: number, date, from, to, currency, tax_percent, notes, items.",
+            },
+            "overwrite": {"type": "boolean", "description": "Replace an existing output file."},
+        },
+        "required": ["op"],
+    },
     "fs.read": {
         "type": "object",
         "properties": {
@@ -466,9 +486,32 @@ class ToolRegistry:
                 roots.append(resolved)
         return roots
 
+    def read_only_roots(self) -> list[Path]:
+        """Folders the owner marked ``read_only_roots``: nothing is written inside them, workspace or not."""
+        try:
+            wanted = self.storage.settings().get("read_only_roots")
+        except Exception:
+            wanted = None
+        out: list[Path] = []
+        for item in wanted if isinstance(wanted, list) else []:
+            if isinstance(item, (str, Path)) and str(item).strip():
+                try:
+                    out.append(Path(item).resolve())
+                except OSError:
+                    continue
+        return out
+
     def _resolve(self, rel: str) -> Path:
         """Where a write-capable tool may work: the workspace, or an absolute path inside a folder the
-        owner listed in ``write_roots``. A credential file or the security folder is never a target."""
+        owner listed in ``write_roots``. A credential file or the security folder is never a target, and
+        neither is anything inside a folder he marked read-only."""
+        target = self._resolve_target(rel)
+        for locked in self.read_only_roots():
+            if target == locked or locked in target.parents:
+                raise PermissionError(f"{locked.name or locked} is marked read-only, so nothing is written there")
+        return target
+
+    def _resolve_target(self, rel: str) -> Path:
         if not Path(str(rel)).is_absolute():
             return self._resolve_workspace(rel)
         target = Path(str(rel)).resolve()
@@ -541,6 +584,10 @@ class ToolRegistry:
         }
 
     async def execute(self, name: str, args: dict, authorization: str | None = None) -> dict:
+        """Run one tool; a failed result carries a short ``hint`` for the model's next step."""
+        return tool_repair.with_hint(name, await self._execute(name, args, authorization))
+
+    async def _execute(self, name: str, args: dict, authorization: str | None = None) -> dict:
         """Run one tool.
 
         Anything above the "safe" tier needs a signed, single-use
@@ -903,6 +950,52 @@ class ToolRegistry:
             str(args["kind"]) if args.get("kind") else None,
             bool(args.get("overwrite")),
         )
+
+    async def _doc_work(self, args: dict) -> dict:
+        op = str(args.get("op") or "")
+        overwrite = bool(args.get("overwrite"))
+
+        def target(key: str = "out") -> Path:
+            if not args.get(key):
+                raise office_tools.JobError(f"say where to save the result ({key})")
+            path = self._resolve(str(args[key]))
+            if path.exists() and not overwrite and op != "split":
+                raise office_tools.JobError(f"{path.name} already exists; say overwrite to replace it")
+            return path
+
+        def source(key: str = "path") -> Path:
+            if not args.get(key):
+                raise office_tools.JobError(f"say which file to use ({key})")
+            return self._resolve_read(args[key])[0]
+
+        def run() -> dict:
+            if op == "merge":
+                paths = args.get("paths")
+                if not isinstance(paths, list):
+                    raise office_tools.JobError("paths must be a list of PDF files")
+                out = target()
+                done = office_tools.pdf_merge([self._resolve_read(p)[0] for p in paths], out)
+            elif op == "split":
+                done = office_tools.pdf_split(source(), str(args.get("pages") or ""), target())
+            elif op == "clean":
+                done = office_tools.clean_table(source(), target())
+            elif op == "invoice":
+                data = args.get("data")
+                if not isinstance(data, dict):
+                    raise office_tools.JobError("data must be an object with the invoice details")
+                spec, totals = office_tools.invoice_spec(data)
+                made = doc_writer.write_document(target(), self.workspace.resolve(), spec, None, overwrite)
+                if not made.get("ok"):
+                    return made
+                done = {**made, "totals": totals}
+            else:
+                raise office_tools.JobError("op must be merge, split, clean or invoice")
+            return done
+
+        try:
+            return await asyncio.to_thread(run)
+        except office_tools.JobError as exc:
+            return {"ok": False, "error": str(exc)}
 
     async def _dev_check(self, args: dict) -> dict:
         diff = str(args.get("diff") or "")

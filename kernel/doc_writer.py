@@ -33,12 +33,14 @@ import io
 import json
 import re
 import textwrap
+import unicodedata
 import zipfile
 from html import escape as _html_escape
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape as _xml_escape
 
+import file_tools
 import pdf_font
 
 KINDS = ("docx", "xlsx", "pptx", "pdf", "html", "md", "txt", "csv", "json", "rtf", "odt", "epub")
@@ -657,6 +659,14 @@ def _unicode_font(spec: dict, blocks: list[dict]):
     return pdf_font.first_usable()
 
 
+def _shaping_font(spec: dict, blocks: list[dict]):
+    """A font for text that needs shaping, when HarfBuzz and an installed font that holds it are both there."""
+    text = _all_text(spec, blocks)
+    if not any(pdf_font.needs_shaping(ch) for ch in text) or pdf_font.harfbuzz() is None:
+        return None
+    return pdf_font.covering(text)
+
+
 def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
     out, lost = [], 0
     for ch in value.replace("\t", "    "):
@@ -677,7 +687,9 @@ def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
 
 def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
     lost_total = 0
-    uni = _unicode_font(spec, blocks)
+    shaping_font = _shaping_font(spec, blocks)
+    uni = shaping_font or _unicode_font(spec, blocks)
+    shaped = shaping_font is not None
     used: dict[int, str] = {}
     # (font, size, text) lines in reading order; font F1 body, F2 bold, F3 mono.
     lines: list[tuple[str, int, str]] = []
@@ -730,6 +742,40 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
         y -= leading
         pages[-1].append((font, size, text, y))
 
+    # Page streams first: shaping fills ``used`` (glyph id -> text) that the font's objects need.
+    streams: list[bytes] = []
+    for page in pages:
+        stream = bytearray()
+        for font, size, text, ypos in page:
+            if not text.strip():
+                continue
+            if uni and shaped:
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                glyphs = pdf_font.shape_line(uni, text)
+                body = pdf_font.draw_shaped(uni, glyphs, size, used)
+                head = f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td\n".encode()
+                if any(unicodedata.bidirectional(ch) in ("R", "AL") for ch in text):
+                    # Right-to-left lines extract correctly from the glyph map; ActualText would be reversed twice.
+                    stream += head + body + b"ET\n"
+                else:
+                    # ActualText: the line in reading order, so copy and search get the real text, not glyph order.
+                    actual = ("\ufeff" + text).encode("utf-16-be").hex().upper()
+                    stream += head + f"/Span << /ActualText <{actual}> >> BDC\n".encode() + body + b"EMC\nET\n"
+                continue
+            if uni:
+                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
+                continue
+            stream += (
+                b"BT /"
+                + font.encode()
+                + f" {size} Tf {_MARGIN} {ypos:.2f} Td (".encode()
+                + _pdf_escape(text)
+                + b") Tj ET\n"
+            )
+        streams.append(bytes(stream))
+
     objects: list[bytes] = []
 
     def new(body: bytes) -> int:
@@ -748,23 +794,7 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
             new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
         ]
     page_ids: list[int] = []
-    for page in pages:
-        stream = bytearray()
-        for font, size, text, ypos in page:
-            if not text.strip():
-                continue
-            if uni:
-                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
-                mode = "2 Tr 0.4 w " if font == "F2" else ""
-                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
-                continue
-            stream += (
-                b"BT /"
-                + font.encode()
-                + f" {size} Tf {_MARGIN} {ypos:.2f} Td (".encode()
-                + _pdf_escape(text)
-                + b") Tj ET\n"
-            )
+    for stream in streams:
         content = new(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + bytes(stream) + b"\nendstream")
         page_ids.append(
             new(
@@ -986,7 +1016,8 @@ def render(kind: str, spec: dict) -> tuple[bytes, list[str]]:
             if lost:
                 warnings.append(
                     f"{lost} character(s) became '?': a PDF made here keeps Latin, Greek, Cyrillic and symbols "
-                    "(through a font on this PC) but not scripts that need shaping, such as Devanagari or Arabic; "
+                    "(through a font on this PC) but needs the HarfBuzz module (uharfbuzz) and an installed font "
+                    "that holds the letters to keep scripts that need shaping, such as Devanagari or Arabic; "
                     "use .docx or .html to keep every character"
                 )
             return data, warnings
@@ -1023,13 +1054,92 @@ def write_document(path: Path, root: Path, spec: dict, kind: str | None = None, 
         return {"ok": False, "error": f"{path.name} already exists; say overwrite to replace it"}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+    verified, check = verify_written(path, chosen, spec)
     return {
         "ok": True,
         "kind": chosen,
         "path": path.relative_to(root).as_posix() if root in path.parents else path.name,
         "bytes": len(data),
         "warnings": warnings,
+        "verified": verified,
+        "check": check,
     }
+
+
+def _expected_snippets(chosen: str, spec: dict) -> list[str]:
+    """A few short pieces of text the finished file must contain, taken from what was asked for."""
+    snippets: list[str] = []
+
+    def add(value: object) -> None:
+        text = re.sub(r"\s+", " ", _text(value)).strip()[:24].strip()
+        if len(text) >= 3:
+            snippets.append(text)
+
+    if chosen in {"csv"}:
+        rows = spec.get("rows")
+        if isinstance(rows, list) and rows and isinstance(rows[0], list) and rows[0]:
+            add(rows[0][0])
+        return snippets
+    if chosen == "xlsx":
+        sheets = spec.get("sheets")
+        if isinstance(sheets, list) and sheets and isinstance(sheets[0], dict):
+            rows = sheets[0].get("rows")
+            if isinstance(rows, list) and rows and isinstance(rows[0], list) and rows[0]:
+                add(rows[0][0])
+        return snippets
+    if chosen == "pptx":
+        slides = spec.get("slides")
+        if isinstance(slides, list) and slides and isinstance(slides[0], dict):
+            add(slides[0].get("title"))
+        return snippets
+    add(spec.get("title"))
+    raw = spec.get("blocks")
+    if isinstance(raw, list):
+        for block in raw[:3]:
+            if isinstance(block, dict):
+                add(block.get("text") or (block.get("items") or [""])[0])
+    elif spec.get("text"):
+        add(spec["text"])
+    return snippets
+
+
+def verify_written(path: Path, chosen: str, spec: dict) -> tuple[bool | None, str]:
+    """Open the file again as a reader would and look for what was asked for.
+
+    A writer that returns ``ok`` has only said it wrote bytes. This reads the bytes back through the same
+    extractor FRIDAY uses for any document and checks a few opening pieces of text, so a corrupt or empty
+    file is reported rather than handed over. Text a PDF could not keep (shown as ``?``) is not expected.
+    ``None`` means the reader needed for this kind is not installed, so nothing was checked either way."""
+    if chosen == "json":
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return False, f"the file is not valid JSON ({type(exc).__name__})"
+        return True, "read back as valid JSON"
+    snippets = _expected_snippets(chosen, spec)
+    if chosen in {"md", "txt", "html"}:
+        try:
+            body = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return False, f"the file could not be read back ({type(exc).__name__})"
+    else:
+        got = file_tools.extract_text(path)
+        if not got.get("ok"):
+            reason = str(got.get("error", "unknown"))
+            if "needs PyMuPDF" in reason:
+                return None, f"not checked: {reason}"
+            return False, f"the file could not be read back: {reason}"
+        body = _text(got.get("text"))
+    # Whitespace differs between formats (a line break may become nothing in a Word run), so compare without it.
+    flat = re.sub(r"\s+", "", body)
+    if not flat:
+        return False, "the file opens but holds no text"
+    if chosen == "pdf":
+        snippets = [s for s in snippets if "?" not in s and all(ord(c) < 0x250 for c in s)]
+    missing = [s for s in snippets if re.sub(r"\s+", "", s).lower() not in flat.lower()]
+    if missing:
+        return False, "read back, but this was not found in it: " + "; ".join(repr(s) for s in missing[:3])
+    return True, f"read back and found {len(snippets)} opening piece(s) of the text"
 
 
 def spec_example(kind: str) -> Any:

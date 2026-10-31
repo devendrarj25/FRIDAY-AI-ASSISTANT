@@ -190,3 +190,27 @@ def test_a_write_through_the_tool_lands_in_the_listed_root(world):
     tools = _registry_with_writes(root, [project])
     out = run(tools._fs_write({"path": str(project / "made.txt"), "content": "hello"}))
     assert out["ok"] and (project / "made.txt").read_text() == "hello"
+
+
+def test_a_read_only_folder_is_never_written_even_inside_a_writable_one(world):
+    root, project, _ = world
+    settings = {"write_roots": [str(project)], "read_only_roots": [str(project / "frozen")]}
+    (project / "frozen").mkdir()
+    tools = ToolRegistry(_Storage(settings), root / "workspace", Authority("secret"), root=root)
+    assert tools._resolve(str(project / "ok.txt"))
+    with pytest.raises(PermissionError, match="read-only"):
+        tools._resolve(str(project / "frozen" / "x.txt"))
+    with pytest.raises(PermissionError, match="read-only"):
+        run(tools._fs_write({"path": str(project / "frozen" / "x.txt"), "content": "no"}))
+    assert not (project / "frozen" / "x.txt").exists()
+
+
+def test_the_workspace_itself_can_be_marked_read_only(world):
+    root, _, _ = world
+    settings = {"read_only_roots": [str(root / "workspace" / "archive")]}
+    (root / "workspace" / "archive").mkdir()
+    tools = ToolRegistry(_Storage(settings), root / "workspace", Authority("secret"), root=root)
+    with pytest.raises(PermissionError, match="read-only"):
+        tools._resolve("archive/old.txt")
+    assert tools._resolve("new.txt")
+    assert tools._resolve_read("archive")  # reading it is still allowed

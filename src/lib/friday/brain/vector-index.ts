@@ -38,6 +38,9 @@ export function blendEmbeddingScores(hits: VectorHit[], similarity: number[]): V
     .map(({ hit, blended }) => ({ ...hit, score: Number(blended.toFixed(4)) }));
 }
 
+/** auto: judge if one is assigned, else embeddings. The others force one way, for measuring them apart. */
+export type RerankMode = "auto" | "none" | "embedding" | "judge";
+
 export type VectorIndexState = {
   /** "chroma" | "numpy" | "none" | null while unknown. */
   backend: string | null;
@@ -206,7 +209,12 @@ class VectorIndex {
     this.emit();
   }
 
-  async queryHits(query: string, k = 8): Promise<VectorHit[]> {
+  async queryHits(
+    query: string,
+    k = 8,
+    rerank: RerankMode = "auto",
+    judgeOverride?: string,
+  ): Promise<VectorHit[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
     const variants = expandQuery(trimmed);
@@ -216,23 +224,29 @@ class VectorIndex {
     });
     if (!first) return [];
     const hits = first.results ?? [];
-    if (hits.length) return this.reorder(trimmed, hits);
+    if (hits.length) return this.reorder(trimmed, hits, rerank, judgeOverride);
     if (variants.length < 2) return hits;
     const second = await this.call<{ results: VectorHit[] }>("memory.search", {
       query: variants[1]!,
       k,
     });
-    return this.reorder(trimmed, second?.results ?? []);
+    return this.reorder(trimmed, second?.results ?? [], rerank, judgeOverride);
   }
 
   /**
    * Re-order found candidates with the owner's local embedding model when he has one running. The kernel
    * answers `ok: false` when Ollama or the model is missing, and then the order from the index stands.
    */
-  private async reorder(query: string, hits: VectorHit[]): Promise<VectorHit[]> {
-    if (hits.length < 2) return hits;
-    const model = this.embeddingModel();
-    const judge = this.rerankModel();
+  private async reorder(
+    query: string,
+    hits: VectorHit[],
+    mode: RerankMode = "auto",
+    judgeOverride?: string,
+  ): Promise<VectorHit[]> {
+    if (hits.length < 2 || mode === "none") return hits;
+    const model = mode === "judge" ? null : this.embeddingModel();
+    const judge = mode === "embedding" ? null : (judgeOverride ?? this.rerankModel());
+    if (mode === "judge" && !judge) return hits;
     const ranked = await this.call<{ ok: boolean; scores?: number[] }>("memory.rerank", {
       query,
       texts: hits.map((hit) => `${hit.title}\n${hit.snippet}`),

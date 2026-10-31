@@ -39,6 +39,8 @@ moonshine-voice>=0.1.5
 pyrnnoise>=0.4.5
 soundfile>=0.14.0
 pymupdf>=1.28.2
+# Shaping for Devanagari and Arabic text in PDFs made by doc_writer (optional: without it those scripts stay a '?').
+uharfbuzz>=0.57.0
 # Archives: 7z read/write for the archive.* agent tools (zip, tar and gz are stdlib).
 py7zr>=1.1.4
 Pillow>=12.3.0

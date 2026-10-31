@@ -67,13 +67,16 @@ def test_pptx_reads_back(tmp_path: Path) -> None:
     assert "Intro" in text and "two & three" in text and "End" in text
 
 
-def test_pdf_is_a_valid_pdf_and_says_what_it_could_not_keep(tmp_path: Path) -> None:
+def test_pdf_is_a_valid_pdf_and_says_what_it_could_not_keep(tmp_path: Path, monkeypatch) -> None:
+    import pdf_font
+
+    monkeypatch.setattr(pdf_font, "harfbuzz", lambda: None)  # the same answer whether or not HarfBuzz is installed
     spec = {
         "title": "Plan",
         "blocks": [{"type": "paragraph", "text": "word " * 4000}, {"type": "paragraph", "text": "नमस्ते"}],
     }
     result = make(tmp_path, "p.pdf", spec)
-    assert result["ok"] and result["warnings"] and "shaping" in result["warnings"][0]
+    assert result["ok"] and result["warnings"] and "HarfBuzz" in result["warnings"][0]
     assert "6 character" in result["warnings"][0]
     data = (tmp_path / "p.pdf").read_bytes()
     assert data.startswith(b"%PDF-1.4") and data.rstrip().endswith(b"%%EOF")
@@ -226,10 +229,56 @@ def test_pdf_embeds_a_font_for_cyrillic_and_greek():
     assert warnings == []
 
 
-def test_pdf_still_refuses_devanagari_honestly():
+def test_pdf_refuses_devanagari_honestly_when_shaping_is_not_available(monkeypatch):
+    import pdf_font
+
+    monkeypatch.setattr(pdf_font, "harfbuzz", lambda: None)
     data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": "नमस्ते"}]})
     assert b"/CIDFontType2" not in data
-    assert warnings and "shaping" in warnings[0]
+    assert warnings and "HarfBuzz" in warnings[0] and "6 character" in warnings[0]
+
+
+def test_bidi_runs_put_arabic_runs_right_to_left_and_keep_latin_and_digits_in_order():
+    import pdf_font
+
+    assert pdf_font.bidi_runs("hello world") == [("hello world", "L")]
+    runs = pdf_font.bidi_runs("مرحبا 123 hello")
+    # Right-to-left paragraph: the first words in reading order sit rightmost.
+    assert [d for _, d in runs] == ["L", "R"] or [d for _, d in runs] == ["L", "L", "R"] or runs[-1][1] == "R"
+    assert runs[-1][0].startswith("مرحبا")
+    assert pdf_font.needs_shaping("न") and pdf_font.needs_shaping("م") and not pdf_font.needs_shaping("a")
+
+
+def _shaping_ready(text):
+    pytest.importorskip("uharfbuzz", reason="shaped scripts need the optional HarfBuzz module")
+    import pdf_font
+
+    if pdf_font.covering(text) is None:
+        pytest.skip("no installed font holds these letters")
+    return pdf_font
+
+
+def test_devanagari_is_shaped_into_fewer_glyphs_than_letters_and_marked_with_its_real_text():
+    text = "नमस्ते क्षमा"
+    pdf_font = _shaping_ready(text)
+    font = pdf_font.covering(text)
+    assert font is not None
+    glyphs = pdf_font.shape_line(font, text)
+    assert 0 < len(glyphs) < len(text)  # conjuncts and vowel signs join into fewer glyphs
+    data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": text}]})
+    assert warnings == [] and b"/CIDFontType2" in data and b"/ActualText" in data
+    assert ("\ufeff" + text).encode("utf-16-be").hex().upper().encode() in data
+
+
+def test_arabic_is_shaped_and_drawn_without_a_second_reversal():
+    text = "مرحبا بالعالم"
+    pdf_font = _shaping_ready(text)
+    font = pdf_font.covering(text)
+    assert font is not None
+    glyphs = pdf_font.shape_line(font, text)
+    assert glyphs and all(g.gid > 0 for g in glyphs)
+    data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": text}]})
+    assert warnings == [] and b"/CIDFontType2" in data and b"/ActualText" not in data
 
 
 def test_pdf_font_reader_maps_basic_letters():
@@ -240,3 +289,37 @@ def test_pdf_font_reader_maps_basic_letters():
         pytest.skip("no TrueType font on this machine")
     assert font.gid("A") > 0 and font.gid("Ж") > 0
     assert font.width(font.gid("A")) > 0
+
+
+def test_a_written_file_is_read_back_and_checked(tmp_path: Path) -> None:
+    for name, spec in {
+        "a.docx": {
+            "title": "Quarterly plan",
+            "blocks": [{"type": "paragraph", "text": "Revenue targets for the team"}],
+        },
+        "b.pdf": {"title": "Quarterly plan", "blocks": [{"type": "paragraph", "text": "Revenue targets for the team"}]},
+        "c.xlsx": {"sheets": [{"name": "S", "rows": [["Region", "Total"], ["North", 3]]}]},
+        "d.csv": {"rows": [["Region", "Total"], ["North", 3]]},
+        "e.json": {"data": {"a": 1}},
+        "f.md": {"title": "Notes", "blocks": [{"type": "paragraph", "text": "hello there"}]},
+    }.items():
+        result = make(tmp_path, name, spec)
+        assert result["ok"], (name, result)
+        if name.endswith(".pdf") and result["verified"] is None:
+            assert "not checked" in result["check"]
+            continue
+        assert result["verified"] is True, (name, result["check"])
+
+
+def test_a_file_that_cannot_be_read_back_is_not_called_verified(tmp_path: Path) -> None:
+    path = tmp_path / "bad.docx"
+    path.write_bytes(b"this is not a zip")
+    ok, note = doc_writer.verify_written(path, "docx", {"title": "Quarterly plan"})
+    assert ok is False and ("could not be read back" in note or "holds no text" in note or "not found" in note)
+    empty = tmp_path / "empty.md"
+    empty.write_text("   ")
+    assert doc_writer.verify_written(empty, "md", {"title": "Plan"})[0] is False
+    wrong = tmp_path / "wrong.md"
+    wrong.write_text("something else entirely")
+    ok, note = doc_writer.verify_written(wrong, "md", {"title": "Quarterly plan"})
+    assert ok is False and "Quarterly plan" in note

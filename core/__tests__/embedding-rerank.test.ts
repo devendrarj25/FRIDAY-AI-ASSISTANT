@@ -30,3 +30,17 @@ describe("embedding reorder", () => {
     expect(vectorIndex.embeddingModelProvider()).toBe("bge-m3");
   });
 });
+
+describe("judge model chosen for one comparison", () => {
+  it("the comparison way uses the chosen model, not the routing assignment", async () => {
+    const { realWays } = await import("../../src/lib/friday/self/retrieval-ab-run");
+    const ways = realWays("tiny-judge");
+    const judge = ways.find((way) => way.id === "judge")!;
+    expect(judge.label).toContain("tiny-judge");
+    expect(realWays().find((way) => way.id === "judge")!.label).toBe(
+      "hashed vectors + rerank judge",
+    );
+    // With no kernel connected the hashed list is empty, so the way reports itself as not run rather than failing.
+    expect(await judge.rank("anything")).toBeNull();
+  });
+});

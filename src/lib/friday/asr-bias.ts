@@ -1,9 +1,33 @@
+import { readLocalState, writeState } from "./persist";
+
 export type Correction = { from: string; to: string };
 
+/**
+ * What the owner corrected, kept across restarts: a word the recogniser keeps getting wrong should not have to
+ * be taught again after every launch. The store is the same one `STORE` always was, now read from and saved to
+ * local state. A secret is never kept (see `learnCorrection`).
+ */
+const KEY = "friday.asr-corrections.v1";
 const STORE: Correction[] = [];
+let loaded = false;
+
+function load(): void {
+  if (loaded) return;
+  loaded = true;
+  const stored = readLocalState<Correction[]>(KEY);
+  if (!Array.isArray(stored)) return;
+  for (const row of stored.slice(-40)) {
+    if (row && typeof row.from === "string" && typeof row.to === "string")
+      STORE.push({ from: row.from, to: row.to });
+  }
+}
+
+const save = () => writeState(KEY, STORE);
 
 export function resetCorrections(): void {
+  loaded = true;
   STORE.length = 0;
+  save();
 }
 
 export function biasPrompt(vocab: readonly string[], base: string): string {
@@ -22,15 +46,22 @@ export function learnCorrection(heard: string, fixed: string): Correction | null
   const to = String(fixed || "").trim();
   if (!from || !to || from === to.toLowerCase()) return null;
   if (/password|token|api[_-]?key/i.test(`${from} ${to}`)) return null;
+  load();
   const row = { from, to };
+  // The same mishearing taught again replaces the old fix instead of piling up.
+  const at = STORE.findIndex((existing) => existing.from === from);
+  if (at >= 0) STORE.splice(at, 1);
   STORE.push(row);
   if (STORE.length > 40) STORE.shift();
+  save();
   return row;
 }
 
-export function applyCorrections(text: string, pairs: readonly Correction[] = STORE): string {
+export function applyCorrections(text: string, pairs?: readonly Correction[]): string {
+  load();
   let next = String(text || "");
-  for (const pair of pairs) {
+  const list = pairs ?? STORE;
+  for (const pair of list) {
     if (!pair.from) continue;
     const escaped = pair.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     next = next.replace(new RegExp(escaped, "ig"), pair.to);

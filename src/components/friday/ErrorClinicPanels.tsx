@@ -17,7 +17,7 @@ import {
   looksLikeFailure,
   prefersHinglish,
 } from "@/lib/friday/brain/error-intelligence";
-import { askFriday, canAsk } from "@/lib/friday/ask";
+import { askFriday, askVerified, canAsk } from "@/lib/friday/ask";
 import {
   CATEGORIES,
   coverage,
@@ -51,6 +51,18 @@ import {
   type EvalReport,
 } from "@/lib/friday/self/eval-harness";
 
+import {
+  comparePersonalRuns,
+  describePersonalRun,
+  parsePersonalTasks,
+  personalHistory,
+  recordPersonalRun,
+  runPersonalEval,
+  type PersonalRun,
+} from "@/lib/friday/self/personal-eval";
+import { STARTER_TASKS } from "@/lib/friday/self/personal-starter";
+import { describeWays, type WayResult } from "@/lib/friday/self/retrieval-ab";
+import { runRetrievalAb } from "@/lib/friday/self/retrieval-ab-run";
 import { allSkills, type Skill } from "@/lib/friday/self/skill-loop";
 import { exportSkillMd, importSkillMd } from "@/lib/friday/self/skills-standard";
 
@@ -237,6 +249,208 @@ export function BrainCheckPanel() {
               </p>
             </div>
           ) : null}
+        </div>
+      )}
+    </HudPanel>
+  );
+}
+
+const PERSONAL_HINT = `One request per line:
+kal ki meeting kab hai || must: kal, meeting || not: pata nahi || tag: calendar
+2 plus 2 kitna hota hai || re: \\b4\\b || verified`;
+
+export function PersonalEvalPanel() {
+  const [text, setText] = useState("");
+  const [repeats, setRepeats] = useState(1);
+  const [run, setRun] = useState<PersonalRun | null>(() => personalHistory().at(-1) ?? null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const parsed = useMemo(() => parsePersonalTasks(text), [text]);
+  const history = personalHistory();
+  const previous = history.length > 1 ? history[history.length - 2] : null;
+  const diff = run && previous ? comparePersonalRuns(previous, run) : null;
+
+  const start = async () => {
+    if (!parsed.tasks.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await runPersonalEval(
+        parsed.tasks,
+        (prompt) => askVerified(prompt, { timeoutMs: 90_000 }),
+        { repeats, onProgress: (done, total) => setProgress(`${done}/${total}`) },
+      );
+      recordPersonalRun(result);
+      setRun(result);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
+  return (
+    <HudPanel
+      title="My tasks"
+      hint="your own requests, scored by rules"
+      actions={
+        <ActionButton
+          icon={Play}
+          label="Run"
+          labelMode="inline"
+          title="Ask each request once and score the answers"
+          busy={busy}
+          disabled={!canAsk() || !parsed.tasks.length}
+          onClick={() => void start()}
+        />
+      }
+    >
+      <div className="grid gap-2">
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          rows={6}
+          placeholder={PERSONAL_HINT}
+          className="w-full rounded-md border border-border bg-background p-2 text-data text-foreground"
+          aria-label="Your requests and what each answer must contain"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-border px-2 py-1 text-meta-sm text-muted-foreground hover:text-foreground"
+            onClick={() => setText(STARTER_TASKS)}
+          >
+            Load the starter set (25 typical requests, not yours)
+          </button>
+        </div>
+        <label className="flex items-center gap-2 text-meta-sm text-muted-foreground">
+          Tries per request
+          <select
+            value={repeats}
+            onChange={(event) => setRepeats(Number(event.target.value))}
+            className="rounded-md border border-border bg-background px-1 text-data"
+          >
+            {[1, 2, 3].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span>{parsed.tasks.length} request(s) read</span>
+        </label>
+        {parsed.problems.length ? (
+          <ul className="grid gap-1 text-meta-sm text-warning">
+            {parsed.problems.slice(0, 5).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : null}
+        {!canAsk() ? (
+          <p className="text-meta-sm text-muted-foreground">
+            No model is ready to answer, so nothing can be run yet.
+          </p>
+        ) : null}
+        {progress ? <p className="text-data text-muted-foreground">Running {progress}…</p> : null}
+        {error ? (
+          <ErrorState title="The run failed" error={error} onRetry={() => void start()} />
+        ) : null}
+        {run ? (
+          <div className="grid gap-1">
+            <pre className="whitespace-pre-wrap break-words text-data text-foreground">
+              {describePersonalRun(run)}
+            </pre>
+            {diff ? (
+              <p className="text-meta-sm text-muted-foreground">
+                Since the run before: {diff.fixed.length} fixed, {diff.broke.length} broke
+                {diff.p < 0.05 ? " (a real change)" : " (no measurable difference yet)"}.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState
+            title="No run yet"
+            hint="Put 20 to 30 of your real requests here. A request with nothing to check is refused, because it could never fail."
+          />
+        )}
+      </div>
+    </HudPanel>
+  );
+}
+
+export function RetrievalAbPanel() {
+  const [out, setOut] = useState<{ cases: number; results: WayResult[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [judge, setJudge] = useState("");
+  const locals = useMemo(
+    () => modelRegistry.available().map((record) => ({ id: record.id, name: record.name })),
+    [],
+  );
+  const run = async () => {
+    setBusy(true);
+    try {
+      setOut(await runRetrievalAb(30, judge));
+      setError(null);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <HudPanel
+      title="Finding memories"
+      hint="which way works on your notes"
+      actions={
+        <ActionButton
+          icon={Scale}
+          label="Compare"
+          labelMode="inline"
+          title="Ask each retrieval way for your own notes and compare"
+          busy={busy}
+          onClick={() => void run()}
+        />
+      }
+    >
+      <label className="mb-2 flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground">
+        Judge model to try
+        <select
+          value={judge}
+          onChange={(event) => setJudge(event.target.value)}
+          className="rounded-md border border-border bg-background px-1 text-data"
+          aria-label="Local chat model to use as the rerank judge for this comparison"
+        >
+          <option value="">the one assigned to Rerank (if any)</option>
+          {locals.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+        <span>A small installed model is enough; only this comparison uses it.</span>
+      </label>
+      {error ? (
+        <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
+      ) : !out ? (
+        <EmptyState
+          title="Not run yet"
+          hint="Uses your saved memories: a question is made from each note's body and the note must come back. The embedding and rerank ways run only when their local model is running."
+        />
+      ) : out.cases < 5 ? (
+        <p className="text-data text-muted-foreground">
+          Only {out.cases} usable memory(ies) so far. Five or more are needed before a comparison
+          means anything.
+        </p>
+      ) : (
+        <div className="grid gap-1">
+          <p className="text-data text-foreground">
+            {out.cases} questions made from your own notes.
+          </p>
+          <pre className="whitespace-pre-wrap break-words text-data text-muted-foreground">
+            {describeWays(out.results)}
+          </pre>
         </div>
       )}
     </HudPanel>
