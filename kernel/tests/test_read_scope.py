@@ -146,3 +146,47 @@ def test_is_sensitive_names():
     assert file_tools.is_sensitive(Path("config/provider-keys.json"))
     assert not file_tools.is_sensitive(Path("docs/security-notes.md"))
     assert not file_tools.is_sensitive(Path("src/keyboard.ts"))
+
+
+def _registry_with_writes(root, folders):
+    settings = {"write_roots": [str(p) for p in folders]}
+    return ToolRegistry(_Storage(settings), root / "workspace", Authority("secret"), root=root)
+
+
+def test_write_roots_default_to_nothing_outside_the_workspace(world):
+    root, project, _ = world
+    tools = registry(root, project)
+    with pytest.raises(PermissionError):
+        tools._resolve(str(project / "new.txt"))
+
+
+def test_an_absolute_path_works_only_inside_a_listed_write_root(world):
+    root, project, outside = world
+    tools = _registry_with_writes(root, [project])
+    assert tools._resolve(str(project / "new.txt")) == (project / "new.txt").resolve()
+    with pytest.raises(PermissionError):
+        tools._resolve(str(outside / "new.txt"))
+    with pytest.raises(PermissionError):
+        tools._resolve(str(project / ".." / "elsewhere" / "x.txt"))
+
+
+def test_a_listed_root_still_refuses_credential_files_and_the_security_folder(world):
+    root, project, _ = world
+    tools = _registry_with_writes(root, [project, root])
+    with pytest.raises(PermissionError):
+        tools._resolve(str(project / ".env"))
+    with pytest.raises(PermissionError):
+        tools._resolve(str(root / "security" / "vault.txt"))
+
+
+def test_a_drive_root_or_the_home_folder_is_never_a_write_root(world):
+    root, _, _ = world
+    tools = _registry_with_writes(root, [Path(Path.home().anchor), Path.home()])
+    assert tools.write_roots() == []
+
+
+def test_a_write_through_the_tool_lands_in_the_listed_root(world):
+    root, project, _ = world
+    tools = _registry_with_writes(root, [project])
+    out = run(tools._fs_write({"path": str(project / "made.txt"), "content": "hello"}))
+    assert out["ok"] and (project / "made.txt").read_text() == "hello"

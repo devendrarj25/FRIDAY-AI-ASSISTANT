@@ -433,7 +433,7 @@ class ToolRegistry:
     def risk(self, name: str) -> str:
         return RISK.get(name, "exec")
 
-    def _resolve(self, rel: str) -> Path:
+    def _resolve_workspace(self, rel: str) -> Path:
         """Contain a path inside the workspace.
 
         A string prefix test is not containment: "<root>-evil" starts with
@@ -443,6 +443,42 @@ class ToolRegistry:
         target = (root / rel).resolve()
         if target != root and root not in target.parents:
             raise PermissionError("path escapes the workspace root")
+        return target
+
+    def write_roots(self) -> list[Path]:
+        """Folders the owner listed under the ``write_roots`` setting. Agent file work may reach them by
+        absolute path; nothing else outside the workspace. Each must be an existing folder, and never the
+        drive root, the home folder or the FRIDAY security folder."""
+        try:
+            wanted = self.storage.settings().get("write_roots")
+        except Exception:
+            wanted = None
+        roots: list[Path] = []
+        for item in wanted if isinstance(wanted, list) else []:
+            if not isinstance(item, (str, Path)) or not str(item).strip():
+                continue
+            try:
+                resolved = Path(item).resolve()
+            except OSError:
+                continue
+            too_broad = resolved == Path(resolved.anchor) or resolved == Path.home().resolve()
+            if resolved.is_dir() and not too_broad and resolved not in roots:
+                roots.append(resolved)
+        return roots
+
+    def _resolve(self, rel: str) -> Path:
+        """Where a write-capable tool may work: the workspace, or an absolute path inside a folder the
+        owner listed in ``write_roots``. A credential file or the security folder is never a target."""
+        if not Path(str(rel)).is_absolute():
+            return self._resolve_workspace(rel)
+        target = Path(str(rel)).resolve()
+        root = next((r for r in self.write_roots() if target == r or r in target.parents), None)
+        if root is None:
+            raise PermissionError("that path is outside the workspace and the folders the owner listed for writing")
+        friday = self.root.resolve() if self.root else None
+        inside_security = friday is not None and (friday / "security") in (target, *target.parents)
+        if file_tools.is_sensitive(target) or inside_security:
+            raise PermissionError("that file holds credentials, so FRIDAY does not write it")
         return target
 
     def read_roots(self) -> list[Path]:
@@ -479,7 +515,7 @@ class ToolRegistry:
             target = Path(text).resolve()
             roots = self.read_roots()
         else:
-            target = self._resolve(text)
+            target = self._resolve_workspace(text)
             roots = [self.workspace.resolve()]
         root = next((r for r in roots if target == r or r in target.parents), None)
         if root is None:

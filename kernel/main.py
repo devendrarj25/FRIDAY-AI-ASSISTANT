@@ -737,6 +737,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             "version": app.version,
             "dataDir": str(DATA_DIR),
             "gpu": runtimes.gpu_info(),
+            "inference": runtimes.inference_runtimes(),
         }
     if method == "model.list":
         return {"models": [m.public() for m in router.models()]}
