@@ -31,7 +31,7 @@ function score(control: DeskControl, wanted: string, role?: DeskControl["role"])
   const target = wanted.toLowerCase().trim();
   if (!name || !target) return 0;
   if (control.selector && control.selector === wanted) return 100;
-  let value = 0;
+  let value: number;
   if (name === target) value = 90;
   else {
     const have = new Set(words(name));
