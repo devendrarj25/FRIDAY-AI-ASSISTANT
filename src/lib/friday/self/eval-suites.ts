@@ -19,7 +19,7 @@ import { evaluateChange, PROTECTED_POLICY_FILES } from "./governance";
 import { TaskGraphEngine } from "./task-graph";
 
 export type SuiteReport = {
-  suite: "retrieval" | "routing" | "long-horizon" | "reliability" | "gates";
+  suite: "retrieval" | "routing" | "long-horizon" | "reliability" | "gates" | "horizon";
   tasks: number;
   passed: number;
   /** One line per task that failed, so the miss can be read. */
@@ -377,6 +377,60 @@ export function describeSuites(reports: SuiteReport[]): string {
       }`;
     })
     .join("\n");
+}
+
+/* ------------------------------------------------------------- horizon ladder */
+
+/**
+ * Success against task length: chains of 3, 6, 12 and 24 steps, each with one transient failure in the
+ * middle. A step that did not fail must run exactly once, the failing one twice, and the chain must finish.
+ * The result is a curve, so the owner sees how far her work holds up rather than one pass rate.
+ */
+export async function runHorizonLadder(lengths: readonly number[] = [3, 6, 12, 24]): Promise<{
+  report: SuiteReport;
+  curve: { steps: number; ok: boolean }[];
+}> {
+  const curve: { steps: number; ok: boolean }[] = [];
+  const misses: string[] = [];
+  for (const steps of lengths) {
+    const engine = new TaskGraphEngine();
+    const runs: Record<string, number> = {};
+    const flaky = `step ${Math.ceil(steps / 2)}`;
+    engine.registerRunner("goal", async ({ node }) => {
+      runs[node.title] = (runs[node.title] ?? 0) + 1;
+      if (node.title === flaky && runs[node.title] === 1) throw new Error("socket hang up");
+      return { result: `done ${node.title}`, checked: true };
+    });
+    const request = Array.from({ length: steps }, (_, i) =>
+      i === 0 ? "step 1" : `${i + 1}. step ${i + 1}`,
+    ).join("\n");
+    const { id } = engine.submit(request);
+    const end = Date.now() + 6000;
+    while (Date.now() < end) {
+      await sleep(5);
+      if (!engine.list().some((g) => g.state === "running" || g.state === "queued")) break;
+    }
+    const onceEach = Object.entries(runs).every(([title, n]) =>
+      title === flaky ? n === 2 : n === 1,
+    );
+    const ok =
+      engine.get(id)?.state === "completed" && Object.keys(runs).length === steps && onceEach;
+    curve.push({ steps, ok });
+    if (!ok)
+      misses.push(
+        `${steps} steps: state ${engine.get(id)?.state}, ran ${Object.keys(runs).length}`,
+      );
+  }
+  return {
+    report: {
+      suite: "horizon",
+      tasks: lengths.length,
+      passed: curve.filter((row) => row.ok).length,
+      misses,
+      extra: { longest: Math.max(0, ...curve.filter((row) => row.ok).map((row) => row.steps)) },
+    },
+    curve,
+  };
 }
 
 /* ------------------------------------------------------------- security gates */

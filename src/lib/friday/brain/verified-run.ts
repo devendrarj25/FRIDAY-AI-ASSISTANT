@@ -13,6 +13,7 @@
  */
 
 import { checkAnswer, checksFor, feedbackFor, type CheckFailure } from "./answer-checks";
+import { checkWithTools, toolChecksFor, type ToolPort } from "./tool-checks";
 
 export type Rung = { id: string; label: string; modelIds: string[] };
 
@@ -57,11 +58,13 @@ export async function runVerified(input: {
   ask: (prompt: string, rung: Rung) => Promise<string>;
   /** Extra tries on the same rung before moving up. Default 1. */
   retriesPerRung?: number;
+  /** Tools for the checks that need doing something (run the code, find the file). Absent: those are skipped. */
+  tools?: ToolPort;
 }): Promise<VerifiedResult> {
   const rungs = input.rungs.length
     ? input.rungs
     : [{ id: "default", label: "default", modelIds: [] }];
-  const plan = checksFor(input.prompt);
+  const plan = [...checksFor(input.prompt), ...(input.tools ? toolChecksFor(input.prompt) : [])];
   const retries = Math.max(0, Math.min(3, input.retriesPerRung ?? 1));
   const attempts: Attempt[] = [];
   let best: { answer: string; rung: string; failures: CheckFailure[] } | null = null;
@@ -96,7 +99,13 @@ export async function runVerified(input: {
           note: "nothing in the ask could be checked without a model; answered once",
         };
       }
-      const result = checkAnswer(input.prompt, answer);
+      const base = checkAnswer(input.prompt, answer);
+      const toolRun = await checkWithTools(input.prompt, answer, input.tools);
+      const result = {
+        checked: [...base.checked, ...toolRun.checked],
+        failures: [...base.failures, ...toolRun.failures],
+        ok: base.ok && toolRun.failures.length === 0,
+      };
       attempts.push({ rung: rung.id, attempt, failures: result.failures.map((f) => f.message) });
       if (!best || result.failures.length < best.failures.length) {
         best = { answer, rung: rung.id, failures: result.failures };

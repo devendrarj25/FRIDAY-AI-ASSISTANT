@@ -6,6 +6,9 @@
  * that are already configured. This wraps the existing `chat:send` bridge —
  * it never opens a second pipeline or talks to a provider directly.
  */
+import { sandboxToolPort } from "./sandbox-agent";
+import { autonomy } from "./self/autonomy";
+import type { ToolPort } from "./brain/tool-checks";
 import { runVerified, type Rung, type VerifiedResult } from "./brain/verified-run";
 
 const uid = () => `ask_${Math.random().toString(36).slice(2, 10)}`;
@@ -96,9 +99,9 @@ export async function askFriday(prompt: string, options: AskOptions = {}): Promi
  */
 export async function askVerified(
   prompt: string,
-  options: AskOptions & { rungs?: Rung[]; retriesPerRung?: number } = {},
+  options: AskOptions & { rungs?: Rung[]; retriesPerRung?: number; tools?: ToolPort } = {},
 ): Promise<VerifiedResult> {
-  const { rungs, retriesPerRung, ...base } = options;
+  const { rungs, retriesPerRung, tools, ...base } = options;
   const ladder: Rung[] = rungs?.length
     ? rungs
     : [{ id: "default", label: "configured models", modelIds: base.modelIds ?? [] }];
@@ -106,6 +109,16 @@ export async function askVerified(
     prompt,
     rungs: ladder,
     ...(retriesPerRung !== undefined ? { retriesPerRung } : {}),
+    ...((tools ??
+    sandboxToolPort(autonomy.getSnapshot().approvalLevel, autonomy.getSnapshot().halted))
+      ? {
+          tools: (tools ??
+            sandboxToolPort(
+              autonomy.getSnapshot().approvalLevel,
+              autonomy.getSnapshot().halted,
+            )) as ToolPort,
+        }
+      : {}),
     ask: (text, rung) =>
       askFriday(text, { ...base, ...(rung.modelIds.length ? { modelIds: rung.modelIds } : {}) }),
   });

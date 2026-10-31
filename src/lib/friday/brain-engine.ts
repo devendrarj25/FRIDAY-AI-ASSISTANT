@@ -31,6 +31,9 @@ import {
   type RoutingTask,
 } from "./model-catalog";
 import { checkAnswer, feedbackFor } from "./brain/answer-checks";
+import { compactHistory } from "./brain/history-compact";
+import { QUICK_SYSTEM, quickLaneEligible } from "./brain/quick-lane";
+import { askFriday, canAsk } from "./ask";
 import { parseModelRequest, type NamedModel, type NamedProvider } from "./brain/model-request";
 import { taskPreference } from "./brain/task-routing";
 import { modelRegistry as usageRegistry } from "./model-registry";
@@ -467,7 +470,7 @@ export type ScheduledJob = {
  */
 export type SendResult = {
   accepted: boolean;
-  reason: "accepted" | "empty" | "busy";
+  reason: "accepted" | "empty" | "busy" | "quick-lane";
   message: string | null;
 };
 
@@ -1535,6 +1538,13 @@ class BrainStore {
     const text = prompt.trim();
     if (!text) return { accepted: false, reason: "empty", message: "I didn't catch anything." };
     if (this.state.activeRunId) {
+      if (
+        quickLaneEligible({ text, busy: true, hasExtra: Boolean(rawOptions.extra) }).ok &&
+        canAsk()
+      ) {
+        void this.answerQuick(text, surface);
+        return { accepted: true, reason: "quick-lane", message: null };
+      }
       return {
         accepted: false,
         reason: "busy",
@@ -2139,21 +2149,52 @@ class BrainStore {
    * error line is not something FRIDAY said), and lines that look sensitive are
    * flagged so the kernel keeps them off cloud models.
    */
+  /**
+   * A short question asked while a long run is going: one plain model call, shown in the thread beside the
+   * running work. It never touches the run, its tools or memory; a failure says so in one line.
+   */
+  private async answerQuick(text: string, surface: "voice" | "chat"): Promise<void> {
+    this.state.messages = [
+      ...this.state.messages,
+      { id: nextId("msg"), role: "user", text, at: Date.now(), source: surface },
+    ];
+    this.emit();
+    let reply: string;
+    try {
+      reply = (await askFriday(text, { system: QUICK_SYSTEM, timeoutMs: 45_000 })).trim();
+    } catch {
+      reply = "I couldn't answer that right now; I'm still on the last task.";
+    }
+    this.state.messages = [
+      ...this.state.messages,
+      {
+        id: nextId("msg"),
+        role: "friday",
+        text: reply || "I don't know that one.",
+        at: Date.now(),
+        source: surface,
+      },
+    ];
+    this.emit();
+  }
+
   private historyForModel(runId: string): {
     role: "user" | "friday";
     text: string;
     sensitive?: boolean;
   }[] {
     const failed = new Set(this.state.runs.filter((r) => r.state === "failed").map((r) => r.id));
-    return this.state.messages
-      .filter((m) => !(m.role === "friday" && m.runId && failed.has(m.runId)))
-      .filter((m) => !(m.role === "user" && m.runId === runId))
-      .slice(-30)
-      .map((m) => ({
-        role: m.role,
-        text: m.text,
-        ...(looksSensitive(m.text) ? { sensitive: true as const } : {}),
-      }));
+    return compactHistory(
+      this.state.messages
+        .filter((m) => !(m.role === "friday" && m.runId && failed.has(m.runId)))
+        .filter((m) => !(m.role === "user" && m.runId === runId))
+        .slice(-30)
+        .map((m) => ({
+          role: m.role,
+          text: m.text,
+          ...(looksSensitive(m.text) ? { sensitive: true as const } : {}),
+        })),
+    );
   }
 
   /**

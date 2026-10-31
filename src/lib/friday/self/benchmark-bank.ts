@@ -31,6 +31,7 @@ import { screenSkill } from "./skill-loop";
 import { comparePaired, DOMAIN_WEIGHTS, promotionVerdict } from "./eval-stats";
 import { runEvalHarness, type EvalClass } from "./eval-harness";
 import {
+  runHorizonLadder,
   runLongHorizonSuite,
   runRetrievalSuite,
   runRoutingSuite,
@@ -449,6 +450,9 @@ export const CATEGORIES: Category[] = [
   ),
   app("long-horizon-resume", "agents", "Resume without repeating a side effect", async () =>
     suite(await runLongHorizonSuite()),
+  ),
+  app("horizon-ladder", "agents", "Chains of 3 to 24 steps finish with one retry", async () =>
+    (await runHorizonLadder()).curve.map((row) => row.ok),
   ),
   app("child-authority", "agents", "A child never holds more than its parent", () => {
     const parent = { capabilities: ["a", "b"], network: true, spend: 2, risk: "write" as const };

@@ -7,6 +7,7 @@
  * production FRIDAY source from here — applying stays behind the owner's
  * explicit approval in the Sandbox section.
  */
+import type { ToolPort } from "@/lib/friday/brain/tool-checks";
 import {
   createProject,
   diffToSource,
@@ -137,3 +138,23 @@ export async function sandboxDigest(): Promise<string> {
 
 /** FRIDAY never applies on her own — the owner approves in the Sandbox section. */
 export const AUTONOMOUS_APPLY_ALLOWED = false;
+
+/**
+ * The tools the answer checks may use, only when the owner's dial already lets work run without a prompt
+ * (Trusted or Full) and nothing is halted. Code runs in FRIDAY's scratch project, never in her own source.
+ */
+export function sandboxToolPort(
+  level: "strict" | "balanced" | "trusted" | "full",
+  halted: boolean,
+): ToolPort | undefined {
+  if (halted || !sandboxAvailable() || (level !== "trusted" && level !== "full")) return undefined;
+  return {
+    runCode: async (language, code) => {
+      const file = language === "python" ? "answer_check.py" : "answer_check.mjs";
+      const command = language === "python" ? "python answer_check.py" : "node answer_check.mjs";
+      const run = await experiment({ edits: { [file]: code }, commands: [command] });
+      const detail = run.steps.map((step) => step.detail).join("\n") || run.error || "";
+      return { ok: run.ok, detail };
+    },
+  };
+}
