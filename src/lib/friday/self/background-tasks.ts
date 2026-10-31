@@ -18,6 +18,7 @@ import { memory } from "./memory-engine";
 import { taskGraph } from "./task-graph";
 import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
+import { deliverDigest } from "../proactive-digest";
 import {
   prefNumber,
   prefOn,
@@ -102,6 +103,15 @@ class BackgroundTasks {
         if (kept) return `${kept} memories backed up`;
         if (dropped) return `${dropped} memories compacted`;
         return "nothing new to back up";
+      },
+    });
+    this.register({
+      id: "digest",
+      label: "Morning and evening digest",
+      everyMinutes: 20,
+      run: async () => {
+        const out = deliverDigest();
+        return out.delivered ? `${out.lines.length} line(s) offered` : out.reason;
       },
     });
     this.register({

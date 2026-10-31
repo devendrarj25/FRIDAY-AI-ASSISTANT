@@ -26,7 +26,8 @@ describe("idle study", () => {
     await autonomousCore.cycle();
     const item = governance.list().find((row) => row.title.startsWith("Practise:"));
     expect(item).toBeTruthy();
-    expect(item?.stage).toBe("discovered");
+    expect(item?.stage).toBe("waiting-approval");
+    expect(item?.stage).not.toBe("applied");
     expect(autonomousCore.appliesDirectly()).toBe(false);
   });
 
