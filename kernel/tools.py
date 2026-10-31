@@ -133,7 +133,7 @@ SUMMARY = {
     "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
     "media.frames": "Save a few evenly spaced still pictures from a video, so they can be looked at",
     "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
-    "fs.make": "Make a Word, Excel, PowerPoint, PDF, HTML, Markdown, CSV, JSON, RTF, ODT or EPUB file from a plain description",
+    "fs.make": "Make a Word, Excel, PowerPoint, PDF, HTML, Markdown, CSV, JSON, RTF, ODT or EPUB file",
     "shell.cmd": "Run a Windows cmd command",
     "shell.powershell": "Run a PowerShell script block",
     "git": "Clone, branch, commit, diff, push",
