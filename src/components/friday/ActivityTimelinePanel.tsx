@@ -5,6 +5,8 @@ import { timeline } from "@/lib/friday/self/activity-timeline";
 import { ledger } from "@/lib/friday/self/task-ledger";
 
 const empty = { tasks: [] };
+/** Read outside the render body so the panel stays a pure function of the records it shows. */
+const timelineNow = () => Date.now();
 
 /** What FRIDAY did with the owner and what he finished, by day. Read from the ledger and the to-do list only. */
 export function ActivityTimelinePanel() {
@@ -14,7 +16,7 @@ export function ActivityTimelinePanel() {
     () => empty,
   );
   const groups = useMemo(
-    () => timeline({ runs: ledger.list(), todos: desk.tasks }, Date.now()),
+    () => timeline({ runs: ledger.list(), todos: desk.tasks }, timelineNow()),
     [desk.tasks],
   );
   return (

@@ -81,7 +81,7 @@ export async function evaluateWays(
     let rr = 0;
     let available = true;
     for (const item of cases) {
-      let ranked: string[] | null = null;
+      let ranked: string[] | null;
       try {
         ranked = await way.rank(item.query);
       } catch {
