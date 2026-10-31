@@ -42,3 +42,21 @@ describe("the Brain check remembers its last run", () => {
     expect(lines).toMatch(/unscored|enough task-runs/);
   });
 });
+
+describe("what got worse is kept for the approval of a change to FRIDAY herself", () => {
+  it("lists the worse categories of the latest check, and only changes to FRIDAY herself are held to it", async () => {
+    const { latestRegressions, SELF_CHANGE_KINDS } =
+      await import("../../src/lib/friday/self/bank-history");
+    const results = await runBank();
+    recordBankRun(results);
+    expect(latestRegressions()).toEqual([]);
+    const target = results.find((row) => row.total >= 6 && row.passed === row.total)!;
+    const worse = results.map((row) =>
+      row.id === target.id ? { ...row, passed: 0, outcomes: row.outcomes.map(() => false) } : row,
+    );
+    recordBankRun(worse);
+    expect(latestRegressions()).toEqual([target.id]);
+    expect(SELF_CHANGE_KINDS.has("self-upgrade")).toBe(true);
+    expect(SELF_CHANGE_KINDS.has("research")).toBe(false);
+  });
+});

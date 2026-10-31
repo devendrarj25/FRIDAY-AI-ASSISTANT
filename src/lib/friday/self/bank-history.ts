@@ -32,10 +32,33 @@ export function previousBankRun(): BankRun | null {
   return last;
 }
 
+const WORSE_KEY = "friday.bank-regressions.v1";
+let worse: string[] | null = null;
+
 export function recordBankRun(results: readonly CategoryResult[]): void {
+  // What got worse is worked out against the run being replaced, then kept so an approval can look at it.
+  const before = previousBankRun();
+  worse = before
+    ? compareBankRuns(before, toRun(results))
+        .filter((row) => row.verdict === "worse")
+        .map((row) => row.id)
+    : [];
+  writeState(WORSE_KEY, worse);
   last = toRun(results);
   writeState(KEY, last);
 }
+
+/** The categories that scored worse in the latest Brain check than in the one before it. */
+export function latestRegressions(): string[] {
+  if (worse === null) {
+    const stored = readLocalState<string[]>(WORSE_KEY);
+    worse = Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : [];
+  }
+  return worse;
+}
+
+/** Kinds of proposal that change FRIDAY herself. They are not approved on a Brain check that just got worse unnoticed. */
+export const SELF_CHANGE_KINDS: ReadonlySet<string> = new Set(["self-upgrade", "code-change"]);
 
 export function domainResults(results: readonly CategoryResult[]): DomainResult[] {
   const by = new Map<string, DomainResult>();
@@ -94,5 +117,7 @@ export function describeBankReport(report: BankReport): string[] {
 
 export function resetBankHistoryForTests(): void {
   last = null;
+  worse = [];
   writeState(KEY, null);
+  writeState(WORSE_KEY, []);
 }
