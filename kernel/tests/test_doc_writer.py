@@ -262,6 +262,7 @@ def test_devanagari_is_shaped_into_fewer_glyphs_than_letters_and_marked_with_its
     text = "नमस्ते क्षमा"
     pdf_font = _shaping_ready(text)
     font = pdf_font.covering(text)
+    assert font is not None
     glyphs = pdf_font.shape_line(font, text)
     assert 0 < len(glyphs) < len(text)  # conjuncts and vowel signs join into fewer glyphs
     data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": text}]})
@@ -272,7 +273,9 @@ def test_devanagari_is_shaped_into_fewer_glyphs_than_letters_and_marked_with_its
 def test_arabic_is_shaped_and_drawn_without_a_second_reversal():
     text = "مرحبا بالعالم"
     pdf_font = _shaping_ready(text)
-    glyphs = pdf_font.shape_line(pdf_font.covering(text), text)
+    font = pdf_font.covering(text)
+    assert font is not None
+    glyphs = pdf_font.shape_line(font, text)
     assert glyphs and all(g.gid > 0 for g in glyphs)
     data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": text}]})
     assert warnings == [] and b"/CIDFontType2" in data and b"/ActualText" not in data
