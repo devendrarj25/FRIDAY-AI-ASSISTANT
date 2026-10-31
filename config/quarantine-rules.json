@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "flags": "i",
+  "removedLine": "[a line that read as an order to an AI was removed]",
+  "orders": [
+    "\\b(ignore|disregard|forget|override)\\b[^.\\n]{0,40}\\b(previous|prior|above|earlier|all|your)\\b[^.\\n]{0,30}\\b(instructions?|rules?|prompts?|guidelines?)\\b",
+    "\\b(you are now|from now on you|new instructions?|system prompt|developer message)\\b",
+    "\\b(assistant|ai|friday|model|agent)\\b[^.\\n]{0,25}\\b(must|should|need to|has to|will now)\\b",
+    "\\b(do not|don't|never)\\b[^.\\n]{0,25}\\b(tell|inform|show|mention)\\b[^.\\n]{0,20}\\b(the )?(user|owner)\\b",
+    "\\b(run|execute|invoke|call)\\b[^.\\n]{0,30}\\b(this|the following|command|script|tool)\\b",
+    "\\b(send|email|upload|post|forward|exfiltrate)\\b[^.\\n]{0,50}\\b(to|at)\\b[^.\\n]{0,30}(https?:\\/\\/|@\\w)",
+    "\\b(delete|erase|wipe|format)\\b[^.\\n]{0,30}\\b(all|every|files?|drive|disk|folder)\\b",
+    "\\b(reveal|print|output|leak)\\b[^.\\n]{0,30}\\b(password|api key|secret|token|credentials?)\\b"
+  ]
+}
