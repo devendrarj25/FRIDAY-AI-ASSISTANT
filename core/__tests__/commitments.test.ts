@@ -32,3 +32,31 @@ describe("promises and limits are kept in the conversation", () => {
     expect(getConversationSession().constraints.join(" ")).toMatch(/do not touch the old folder/);
   });
 });
+
+describe("what the owner saved about himself reaches the turn context when the ask touches it", () => {
+  it("joins the packed facts for a related ask and stays out of an unrelated one", async () => {
+    const { packTurnContext, profileFacts } =
+      await import("../../src/lib/friday/brain/memory-policy");
+    const facts = profileFacts({
+      preferredName: "Devendra",
+      occupation: "software developer",
+      location: "Jaipur",
+    });
+    const related = packTurnContext({
+      transcript: [],
+      facts,
+      ask: "mera occupation kya hai, developer?",
+      now: 1,
+    });
+    expect(related.forModel.facts.map((f) => f.text).join(" ")).toMatch(
+      /occupation is software developer/,
+    );
+    const unrelated = packTurnContext({
+      transcript: [],
+      facts,
+      ask: "convert 5 km to miles",
+      now: 1,
+    });
+    expect(unrelated.forModel.facts).toEqual([]);
+  });
+});

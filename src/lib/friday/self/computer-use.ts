@@ -14,6 +14,7 @@ import { kernelApi } from "../kernel-api";
 import {
   argumentHash,
   bindApproval,
+  consumeApproval,
   budgetBlock,
   idempotencyKey,
   mintIdentity,
@@ -21,6 +22,7 @@ import {
   redactRunText,
   revalidateApproval,
   retryBackoffMs,
+  type ApprovalGrant,
   type EvidenceReceipt,
   type TaskBudget,
 } from "./run-receipt";
@@ -1081,6 +1083,9 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
       return finish(false, true, lines[lines.length - 1] ?? lease.reason, lease.decision);
     }
     const gate = gateAction(input.level, input.halted, step);
+    // The yes the owner gave for this one step, bound to its action, target and arguments. It is checked again
+    // right before the side effect (time may have passed in the queue) and used up once the step has been done.
+    let grant: ApprovalGrant | null = null;
     if (!gate.allow) {
       const approved = input.approve ? await input.approve(gate.reason) : false;
       if (!approved) {
@@ -1088,7 +1093,7 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
         audit.push({ at: now(), action: step.tool, result: "asked" });
         return finish(false, true, lines[lines.length - 1] ?? gate.reason, "approval");
       }
-      const grant = bindApproval({
+      grant = bindApproval({
         taskId: input.request.slice(0, 80),
         action: step.kind,
         args: step.payload,
@@ -1137,9 +1142,22 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
         lines.push(statusLine("ask", detail));
         return finish(false, true, lines[lines.length - 1] ?? "Low confidence.", "low-confidence");
       }
+      if (grant && !already) {
+        const live = revalidateApproval(grant, now(), {
+          action: step.kind,
+          target: step.target,
+          argumentHash: argumentHash(step.payload),
+        });
+        if (!live.ok) {
+          lines.push(statusLine("ask", live.reason));
+          audit.push({ at: now(), action: step.tool, result: live.reason });
+          return finish(false, true, lines[lines.length - 1] ?? live.reason, "approval");
+        }
+      }
       const acted = already
         ? ({ ok: true, detail: "already applied" } satisfies ActOutcome)
         : await desktop.act(step, now());
+      if (grant && acted.ok) grant = consumeApproval(grant);
       let after = await desktop.perceive(now());
       if (
         !already &&

@@ -54,7 +54,7 @@ import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
-import { looksSensitive, packTurnContext } from "./brain/memory-policy";
+import { looksSensitive, packTurnContext, profileFacts } from "./brain/memory-policy";
 import { coreBrain, type Cognition } from "./brain/core-brain";
 import { considerCollaboration, type CollaborationDecision } from "./brain/multi-model";
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
@@ -80,7 +80,7 @@ import { turnDone, turnMark, turnTimingEnabled } from "./brain/turn-timing";
 import { dispatchPluginHook } from "./plugin-hooks";
 import { openingLine, type SocialContext } from "./conversation-style";
 import { recallArc } from "./conversation-arc";
-import { vocative } from "./brain/user-profile";
+import { userProfileDigest, vocative } from "./brain/user-profile";
 import { conversationSight } from "./conversation-sight";
 import { replyKeepsHelp } from "./eval-corpus";
 import { thinkBudget, tracePlan, withinBudget } from "./think-budget";
@@ -1486,13 +1486,17 @@ class BrainStore {
         role: message.role === "user" ? "user" : "assistant",
         text: message.text,
       })),
-      facts: pool.map((m) => ({
-        id: m.id,
-        text: `${m.title} ${m.snippet}`,
-        source: m.layer,
-        at: m.at,
-        pinned: m.pinned,
-      })),
+      facts: [
+        ...pool.map((m) => ({
+          id: m.id,
+          text: `${m.title} ${m.snippet}`,
+          source: m.layer,
+          at: m.at,
+          pinned: m.pinned,
+        })),
+        // What the owner saved about himself (name, work, place, languages) joins when the ask touches it.
+        ...profileFacts(userProfileDigest()),
+      ],
       ask: prompt,
       now,
       maxFacts: k,

@@ -59,3 +59,46 @@ describe("project context for desktop work", () => {
     ).toBe(true);
   });
 });
+
+describe("an approval is checked again right before the action", () => {
+  it("is refused when it expired while the step waited, and the desktop is not touched", async () => {
+    let clock = 1_000;
+    const base = createFakeDesktop();
+    let acted = 0;
+    const desktop = {
+      ...base,
+      perceive: async (at: number) => {
+        clock += 200_000; // the owner said yes, then the queue took longer than the approval lasts
+        return base.perceive(at);
+      },
+      act: async (...args: Parameters<typeof base.act>) => {
+        acted += 1;
+        return base.act(...args);
+      },
+    };
+    const report = await runComputerUse({
+      request: "launch notepad",
+      source: "task",
+      level: "strict" as never,
+      halted: false,
+      desktop,
+      now: () => clock,
+      approve: async () => true,
+    });
+    expect(report.lines.join(" ")).toMatch(/expired/i);
+    expect(acted).toBe(0);
+  });
+
+  it("goes through when it is still fresh", async () => {
+    const report = await runComputerUse({
+      request: "launch notepad",
+      source: "task",
+      level: "strict" as never,
+      halted: false,
+      desktop: createFakeDesktop(),
+      now: () => 1_000,
+      approve: async () => true,
+    });
+    expect(report.ok).toBe(true);
+  });
+});
