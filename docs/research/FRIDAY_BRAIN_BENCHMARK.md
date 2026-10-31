@@ -41,6 +41,22 @@ A fixture (`Fixture`) has an id, a domain, a category, an input and one line say
 
 Five things are kept apart: a knowledge update, a memory change, a skill, a prompt or routing tuning, and weight training. Memory is not training. `promotionVerdict` says whether a learned change may replace what it came from: held-out tasks not worse and at least one gained, no significant regression, no gate failure; it is advice, nothing is applied. `mineFailurePatterns` groups repeated task failures by fingerprint and files each once for review through the existing limitation loop. `devCheckRequest` builds the exact `dev.check` call for a proposal (never for a protected file) and `devCheckAllows` reads its verdict; the run itself is an exec-tier tool the owner approves.
 
-## 9. Not built
+## 9. The category bank and its coverage
 
-The task fixtures for all 74 planned categories (only the retrieval, routing, long-horizon, tool-choice, recall and gate fixtures exist), an automatic A/B run of `main` against a branch, every external benchmark, a judge-model path, a single sound-and-picture pass, realtime multimodal and a real adapter training run. `FRIDAY_STATE.md` lists them under Next priorities.
+`src/lib/friday/self/benchmark-bank.ts` lists all 75 categories of the twelve domains and says where each is checked: **41 are scored in the app** (271 fixtures, no model, no network, one boolean per fixture), 24 by a named test file the app cannot import (kernel, main process, existing suites), 7 need a real model, 1 needs a desktop and 2 belong to an outside benchmark. `coverage()` gives those counts per domain so the number of categories never hides how many can be scored today; a test checks that every pointer names a file that exists. Rules that must always hold are exact (every fixture passes); categories derived from the 85-task harness have a floor (0.8) instead, because they are measured rates. The Brain check panel runs the bank and shows each domain's tasks with its interval. Building the bank found and fixed five real faults: a question that merely contained the word "build" or "install" was routed as an action, "ignore all previous instructions" was not recognised as injected screen text, `Authorization: Bearer <token>` leaked the token through the secret scrub, nothing checked an answer for claiming to be human, and "what was the old plan" was not read as a question about the past.
+
+## 10. One gate report
+
+`core/__tests__/helpers/release-gates.ts` builds a single report from three places: the renderer's gate suite, the main process (sensitive content never goes automatically to a cloud model, local models keep data on the PC, a paid or unknown-cost model is blocked until allowed, a remembered allow never weakens write or exec, a deny wins, authorizations are single-use and bound to their arguments) and the kernel (its authority, privacy and billing tests, run as a child process when Python and the kernel's packages are present; otherwise listed as not checked). `core/__tests__/release-gates.test.ts` fails if any gate fails.
+
+## 11. Comparing two versions
+
+`node scripts/brain-ab.cjs <refA> <refB>` checks each git ref out as a throwaway worktree outside the repository, runs the bank in both, and compares category by category and task by task with the exact paired test. It changes nothing in the repository and uses no model or network. A ref that does not contain the bank cannot be compared and the script says so: `origin/main` cannot be compared with this branch until this branch is merged, after which any two later refs can.
+
+## 12. The outside benchmarks
+
+`src/lib/friday/self/external-eval.ts` holds, for GAIA, STATE-Bench, SWE-bench Verified, OSWorld, WebArena and FrontierMemory, what each needs (licence as read, gated data, keys, Docker, a virtual machine, the hardware its own page names). `checkExternalSetup` refuses a run whose data or results sit inside the repository or FRIDAY's own data, with no spend cap, with no key, without Docker or a virtual machine where needed, or without the dataset terms accepted. `runWithBudget` stops before the task that would pass the cap and marks the result partial. `judgeAnswer` grades against a stored rubric, refuses a judge that is the model under test, records the judge's id and version, keeps one evidence line per criterion and rejects a malformed reply; `judgeAgreement` gives Cohen's kappa against a deterministic check. None of it calls a model: running an outside benchmark needs the owner's keys, a spend cap and accepted terms, and has not been done.
+
+## 13. Not built
+
+An actual run of any outside benchmark, a judge run on a real model, a single sound-and-picture pass, realtime multimodal, a real adapter training run, a cross-encoder model for the reranker hook, and fixtures for the 7 categories that need a model and the 2 that need a desktop. `FRIDAY_STATE.md` lists them under Next priorities.

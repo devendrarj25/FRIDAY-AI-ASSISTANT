@@ -10,7 +10,7 @@ Inputs: [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEAR
 
 | Phase | Delivered in code | Still open |
 | --- | --- | --- |
-| 1 Contracts | model record `reasoningControl` with its source; the model profile store; result record, intervals, fixtures and stage switches (`eval-stats`, `eval-fixtures`, `stage-switches`); a security gate suite | parity test between the main-process record and the renderer registry; folding the Python and Electron gates into the same report |
+| 1 Contracts | model record `reasoningControl` with its source; the model profile store; result record, intervals, fixtures and stage switches (`eval-stats`, `eval-fixtures`, `stage-switches`); a security gate suite | parity test between the main-process record and the renderer registry; none |
 | 2 Reasoning and context | per-model reasoning control, effort per route, same-engine repair on the streaming chat, the Hub on the verified ask | none known |
 | 3 Memory | time and tense aware ranking, Hinglish bridge, folded owner forms, per-fact validity, entity aliases, optional reranker hook, tests for the vector index and for the engine being the authority | an installed cross-encoder model |
 | 4 Model fusion | measured profile feeds ranking, repeated instruction comparison | role assignment by measured strength |
@@ -20,7 +20,7 @@ Inputs: [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEAR
 | 8 Self-development | `dev.check` sandbox, `devCheckRequest` and `devCheckAllows` | the owner runs it per proposal (exec tier, never automatic) |
 | 9 Multimodal | `media.transcribe`, the video method in the turn notes | one sound-and-picture pass, realtime |
 | 10 Proactive | heads-up before a desk deadline, goal deadlines on the desk, battery-aware idle pass, failure mining on the idle cycle | event rules from outside the app, CPU-load awareness |
-| 11 Benchmarking | retrieval, routing, long-horizon, tool-choice and recall fixtures, pass-k, intervals, history, stored results, ablation | task fixtures for all planned categories, external benchmarks |
+| 11 Benchmarking | the 75-category bank (41 scored in the app), retrieval, routing, long-horizon, tool-choice and recall fixtures, pass-k, intervals, history, stored results, ablation, one gate report, A/B script, outside-benchmark rules and judge | running the outside benchmarks and a judge on a real model (the owner's keys); fixtures for model-needing and desktop-needing categories |
 | 12 Observability | Brain now panel, run id to the kernel, local redacted trace (opt-in) | none; the OpenTelemetry exporter stays rejected |
 
 ## 1. How phases are ranked

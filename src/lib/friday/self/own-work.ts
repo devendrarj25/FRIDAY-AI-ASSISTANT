@@ -38,6 +38,19 @@ export function proposeDiff(input: {
   };
 }
 
+/** The file paths a unified diff names, without duplicates. Nothing is applied or read from disk. */
+export function pathsOfDiff(diff: string): string[] {
+  const paths = new Set<string>();
+  for (const line of String(diff || "").split(/\r?\n/)) {
+    const m =
+      /^(?:---|\+\+\+) (?:[ab]\/)?(\S+)/.exec(line) ??
+      /^(?:rename|copy) (?:from|to) (\S+)/.exec(line);
+    const path = m?.[1];
+    if (path && path !== "/dev/null") paths.add(path);
+  }
+  return [...paths];
+}
+
 export type DevCheckName = "pytest" | "typecheck" | "lint" | "test-fast";
 
 /**

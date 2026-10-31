@@ -18,6 +18,14 @@ import {
   prefersHinglish,
 } from "@/lib/friday/brain/error-intelligence";
 import { askFriday, canAsk } from "@/lib/friday/ask";
+import {
+  CATEGORIES,
+  coverage,
+  runBank,
+  type CategoryResult,
+} from "@/lib/friday/self/benchmark-bank";
+import { EXTERNAL_BENCHMARKS } from "@/lib/friday/self/external-eval";
+import { wilson } from "@/lib/friday/self/eval-stats";
 import { coreBrain } from "@/lib/friday/brain/core-brain";
 import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
 import { modelRegistry } from "@/lib/friday/brain/model-registry";
@@ -113,6 +121,7 @@ export function ErrorClinicPanel() {
 export function BrainCheckPanel() {
   const [report, setReport] = useState<EvalReport | null>(null);
   const [suites, setSuites] = useState<SuiteReport[]>([]);
+  const [bank, setBank] = useState<CategoryResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,6 +130,7 @@ export function BrainCheckPanel() {
     try {
       setReport(await runEvalHarness());
       setSuites(await runAllSuites());
+      setBank(await runBank());
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -173,6 +183,38 @@ export function BrainCheckPanel() {
             {report.heldOut.failed.length ? ` · missed: ${report.heldOut.failed.join(", ")}` : ""}
           </p>
           <p className="text-meta-sm text-muted-foreground">{describeEval(report)}</p>
+          {bank.length ? (
+            <div className="grid gap-1" aria-label="Benchmark 1.0 bank">
+              <p className="text-data text-foreground">
+                Benchmark 1.0: {bank.length} of {CATEGORIES.length} categories scored here, no
+                model, no network.
+              </p>
+              <ul className="grid gap-1">
+                {coverage().map((row) => {
+                  const own = bank.filter((item) => item.domain === row.domain);
+                  const passed = own.reduce((sum, item) => sum + item.passed, 0);
+                  const total = own.reduce((sum, item) => sum + item.total, 0);
+                  const ci = wilson(passed, total);
+                  return (
+                    <li key={row.domain} className="text-data text-muted-foreground">
+                      {row.domain}: {passed}/{total} tasks
+                      {total
+                        ? ` [${Math.round(ci.low * 100)}–${Math.round(ci.high * 100)}% at 95%]`
+                        : ""}{" "}
+                      · {row.app} scored here, {row.tests} by tests, {row.model} need a model,{" "}
+                      {row.desktop + row.external} need a desktop or an outside benchmark
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="text-meta-sm text-muted-foreground">
+                Rules that must always hold are exact; the 85-task classes have a floor. A domain
+                needs at least 50 task-runs before it gets a score. Outside benchmarks you run
+                yourself, with your keys and a spend cap:{" "}
+                {EXTERNAL_BENCHMARKS.map((item) => item.title).join(", ")}.
+              </p>
+            </div>
+          ) : null}
           {suites.length ? (
             <div className="grid gap-1" aria-label="More suites">
               <p className="whitespace-pre-wrap text-data text-foreground">

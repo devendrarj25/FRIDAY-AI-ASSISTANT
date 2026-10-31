@@ -59,3 +59,34 @@ describe("a recorded trial joins the pipeline's checks", () => {
     expect(trialAsCheck({ ok: true, verdict: "fixed" })[0]).toMatchObject({ ok: true });
   });
 });
+
+import { pathsOfDiff } from "../../src/lib/friday/self/own-work";
+import { devPipeline } from "../../src/lib/friday/self/dev-pipeline";
+
+describe("trying a pasted diff on a copy", () => {
+  it("reads the paths a diff names", () => {
+    expect(
+      pathsOfDiff(
+        "--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1 +1 @@\n-a\n+b\n--- /dev/null\n+++ b/new.ts\n",
+      ),
+    ).toEqual(["src/x.ts", "new.ts"]);
+    expect(pathsOfDiff("")).toEqual([]);
+  });
+
+  it("makes no call for a protected file and says why", async () => {
+    const result = await devPipeline.tryOnCopy(
+      "none",
+      "--- a/AGENTS.md\n+++ b/AGENTS.md\n@@ -1 +1 @@\n-a\n+b\n",
+    );
+    expect(result).toEqual({ ok: false, detail: "protected" });
+  });
+
+  it("needs the desktop app to run and records nothing without it", async () => {
+    const result = await devPipeline.tryOnCopy(
+      "none",
+      "--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1 +1 @@\n-a\n+b\n",
+    );
+    expect(result.ok).toBe(false);
+    expect(result.detail).toMatch(/needs the desktop app|halted|protected/);
+  });
+});

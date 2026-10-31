@@ -570,6 +570,22 @@ function SelfManagementPage() {
                         </Button>
                       </>
                     )}
+                    {(run.state === "waiting-approval" || run.state === "blocked") && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Paste a unified diff, FRIDAY tries it on a throwaway copy of the last commit and runs the tests before and after. You approve the run."
+                        onClick={() => {
+                          const diff = window.prompt("Paste the diff to try on a copy of HEAD");
+                          if (!diff?.trim()) return;
+                          void devPipeline.tryOnCopy(run.id, diff).then((done) => {
+                            toast[done.ok ? "success" : "error"](done.detail);
+                          });
+                        }}
+                      >
+                        Try on a copy
+                      </Button>
+                    )}
                     {run.state === "applied" && run.backup && (
                       <Button
                         size="sm"

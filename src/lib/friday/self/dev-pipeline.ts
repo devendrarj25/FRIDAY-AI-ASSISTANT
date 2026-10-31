@@ -24,10 +24,12 @@ import {
   ciReport,
   devCheckAllows,
   devCheckRequest,
+  pathsOfDiff,
   proposeDiff,
   registerSkill,
   scaffold,
 } from "./own-work";
+import { autonomy } from "./autonomy";
 import { ledger } from "./task-ledger";
 import { memory } from "./memory-engine";
 import { systemMap } from "../system-map";
@@ -356,6 +358,53 @@ class DevPipeline {
     this.patch(id, {
       stages: run.stages.map((s) => (s.id === stageId ? { ...s, state, detail } : s)),
     });
+  }
+
+  /**
+   * Try a pasted diff on a throwaway copy of HEAD through the kernel's `dev.check`. The desktop permission
+   * gate asks the owner before it runs (exec tier); a protected file, an empty diff or a halted run makes no
+   * call at all. The result is kept on the run so the next verify step counts it.
+   */
+  async tryOnCopy(
+    id: string,
+    diff: string,
+    check: "pytest" | "typecheck" | "lint" | "test-fast" = "test-fast",
+  ): Promise<{ ok: boolean; detail: string }> {
+    const settings = autonomy.getSnapshot();
+    const request = devCheckRequest({
+      paths: pathsOfDiff(diff),
+      diff,
+      level: settings.approvalLevel,
+      halted: settings.halted,
+      check,
+    });
+    if (!request.ok) return { ok: false, detail: request.reason };
+    const bridge = (
+      typeof window === "undefined"
+        ? undefined
+        : (
+            window as unknown as {
+              friday?: { kernel?: (m: string, p?: object) => Promise<unknown> };
+            }
+          ).friday
+    )?.kernel;
+    if (!bridge) return { ok: false, detail: "Trying a change on a copy needs the desktop app." };
+    try {
+      const result = (await bridge("tool.exec", { name: request.tool, args: request.args })) as {
+        ok?: boolean;
+        verdict?: string;
+        error?: string;
+      };
+      const trial = {
+        ok: result.ok === true,
+        ...(result.verdict ? { verdict: result.verdict } : {}),
+      };
+      this.recordTrial(id, trial);
+      const note = devCheckAllows(trial);
+      return { ok: trial.ok, detail: result.error ?? note.reason };
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** Keep the result of an approved `dev.check` run so the next verify step counts it. */
