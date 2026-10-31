@@ -18,6 +18,7 @@
  *    owner is active again.
  */
 
+import { quarantine } from "../brain/quarantined-reader";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure } from "./learning-engine";
 import { findSkill, reflectOnUse, writeSkill } from "./skill-loop";
@@ -348,7 +349,7 @@ export function earlierResults(graph: TaskGraph, node: GraphNode): string[] {
   for (const other of graph.nodes) {
     if (other.id === node.id) continue;
     if (!DONE.includes(other.state)) continue;
-    const result = String(other.checkpoint?.result ?? "").trim();
+    const result = quarantine(String(other.checkpoint?.result ?? "")).text.trim();
     const files = other.checkpoint?.files ?? [];
     if (!result && !files.length) continue;
     const clipped = result.length > EARLIER_CLIP ? `${result.slice(0, EARLIER_CLIP)}…` : result;

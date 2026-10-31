@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import arg_policy
 import code_map
 import control
 import dev_check
@@ -511,6 +512,9 @@ class ToolRegistry:
         minted by the desktop main process (owner policy / approval prompt) or
         by the planner after the owner approved that exact step.
         """
+        refused = arg_policy.check(name, args)
+        if refused:
+            return {"ok": False, "error": refused, "risk": self.risk(name), "policy": True}
         if self.risk(name) != "safe":
             ok, reason = self.authority.verify(authorization, name, args)
             if not ok:
