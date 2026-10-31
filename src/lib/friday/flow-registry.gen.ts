@@ -2463,6 +2463,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "s",
+      file: "kernel/office_tools.py",
+    },
+    {
       kind: "single",
       file: "kernel/file_tools.py",
     },
