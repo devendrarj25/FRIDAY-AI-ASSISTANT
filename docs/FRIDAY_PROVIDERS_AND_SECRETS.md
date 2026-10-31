@@ -225,6 +225,7 @@ Final provider audit, 2026-10-24 (Gemini, OpenRouter, Groq, NVIDIA, Hugging Face
 | `perplexity` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `nebius` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `openrouter` | implemented | documented | yes | no | no | mocked | no |
+| `openai-compatible` | implemented | existing-catalogue | yes | no | no | mocked | no |
 | `ollama` | implemented | documented | yes | no | no | mocked | no |
 | `lmstudio` | implemented | documented | yes | no | no | mocked | no |
 | `llamacpp` | implemented | existing-catalogue | yes | no | no | mocked | no |
