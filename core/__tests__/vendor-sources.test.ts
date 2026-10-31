@@ -220,6 +220,53 @@ describe("vendor feeds", () => {
     expect(bare.install).toBeNull();
   });
 
+  it("Graphviz: newest version from the GitLab release list, never an install", async () => {
+    const net = network({
+      "https://gitlab.com/api/v4/projects/4207231/releases": [
+        { tag_name: "16.1.0", upcoming_release: false },
+      ],
+    });
+    const found = await vendor.resolveFeed("Graphviz", { fetchImpl: net.fetchImpl, force: true });
+    expect(found.version).toBe("16.1.0");
+    expect(found.install).toBeNull();
+    const upcoming = network({
+      "https://gitlab.com/api/v4/projects/4207231/releases": [
+        { tag_name: "17.0.0", upcoming_release: true },
+      ],
+    });
+    expect(
+      await vendor.resolveFeed("Graphviz", { fetchImpl: upcoming.fetchImpl, force: true }),
+    ).toBeNull();
+  });
+
+  it("Docker Desktop: the newest version in the Sparkle appcast", async () => {
+    const xml = `<rss><channel>
+      <item><sparkle:shortVersionString>4.9.0</sparkle:shortVersionString></item>
+      <item><sparkle:shortVersionString>4.41.2</sparkle:shortVersionString></item>
+      <item><enclosure sparkle:shortVersionString="4.40.0" /></item></channel></rss>`;
+    expect(vendor.newestAppcastVersion(xml)).toBe("4.41.2");
+    const net = network({ "https://desktop.docker.com/win/main/amd64/appcast.xml": xml });
+    const found = await vendor.resolveFeed("Docker Desktop", {
+      fetchImpl: net.fetchImpl,
+      force: true,
+    });
+    expect(found.version).toBe("4.41.2");
+    expect(found.install).toBeNull();
+  });
+
+  it("CUDA Toolkit: the highest redistrib version on NVIDIA's page, compared as numbers", async () => {
+    const page =
+      '<a href="redistrib_12.9.1.json">x</a><a href="redistrib_12.10.0.json">y</a><a href="redistrib_9.2.88.json">z</a>';
+    const net = network({ "https://developer.download.nvidia.com/compute/cuda/redist/": page });
+    const found = await vendor.resolveFeed("CUDA Toolkit", {
+      fetchImpl: net.fetchImpl,
+      force: true,
+    });
+    expect(found.version).toBe("12.10.0");
+    expect(found.install).toBeNull();
+    expect(vendor.compareDotted("12.10.0", "12.9.1")).toBeGreaterThan(0);
+  });
+
   it("a feed that does not answer is no answer, and answers are cached", async () => {
     const down = network({});
     expect(await vendor.resolveFeed("Go", { fetchImpl: down.fetchImpl })).toBeNull();
