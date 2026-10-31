@@ -240,3 +240,37 @@ def test_pdf_font_reader_maps_basic_letters():
         pytest.skip("no TrueType font on this machine")
     assert font.gid("A") > 0 and font.gid("Ж") > 0
     assert font.width(font.gid("A")) > 0
+
+
+def test_a_written_file_is_read_back_and_checked(tmp_path: Path) -> None:
+    for name, spec in {
+        "a.docx": {
+            "title": "Quarterly plan",
+            "blocks": [{"type": "paragraph", "text": "Revenue targets for the team"}],
+        },
+        "b.pdf": {"title": "Quarterly plan", "blocks": [{"type": "paragraph", "text": "Revenue targets for the team"}]},
+        "c.xlsx": {"sheets": [{"name": "S", "rows": [["Region", "Total"], ["North", 3]]}]},
+        "d.csv": {"rows": [["Region", "Total"], ["North", 3]]},
+        "e.json": {"data": {"a": 1}},
+        "f.md": {"title": "Notes", "blocks": [{"type": "paragraph", "text": "hello there"}]},
+    }.items():
+        result = make(tmp_path, name, spec)
+        assert result["ok"], (name, result)
+        if name.endswith(".pdf") and result["verified"] is None:
+            assert "not checked" in result["check"]
+            continue
+        assert result["verified"] is True, (name, result["check"])
+
+
+def test_a_file_that_cannot_be_read_back_is_not_called_verified(tmp_path: Path) -> None:
+    path = tmp_path / "bad.docx"
+    path.write_bytes(b"this is not a zip")
+    ok, note = doc_writer.verify_written(path, "docx", {"title": "Quarterly plan"})
+    assert ok is False and ("could not be read back" in note or "holds no text" in note or "not found" in note)
+    empty = tmp_path / "empty.md"
+    empty.write_text("   ")
+    assert doc_writer.verify_written(empty, "md", {"title": "Plan"})[0] is False
+    wrong = tmp_path / "wrong.md"
+    wrong.write_text("something else entirely")
+    ok, note = doc_writer.verify_written(wrong, "md", {"title": "Quarterly plan"})
+    assert ok is False and "Quarterly plan" in note

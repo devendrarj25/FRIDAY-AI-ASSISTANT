@@ -21,6 +21,7 @@ import httpx
 import media_tools
 import sandbox_runner
 import sqlite_read
+import tool_repair
 import toolchain_gate
 from authority import Authority
 
@@ -541,6 +542,10 @@ class ToolRegistry:
         }
 
     async def execute(self, name: str, args: dict, authorization: str | None = None) -> dict:
+        """Run one tool; a failed result carries a short ``hint`` for the model's next step."""
+        return tool_repair.with_hint(name, await self._execute(name, args, authorization))
+
+    async def _execute(self, name: str, args: dict, authorization: str | None = None) -> dict:
         """Run one tool.
 
         Anything above the "safe" tier needs a signed, single-use
