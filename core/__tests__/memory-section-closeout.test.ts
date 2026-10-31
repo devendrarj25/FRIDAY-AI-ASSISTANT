@@ -101,12 +101,22 @@ describe("teach goes through memory admission", () => {
   it("keeps what the owner typed, even a short line, and refuses credential-like text with a reason", () => {
     const short = teachDurable("knowledge", "Pin", "Wifi is in the hall.");
     expect(short.source).toBe("teach");
-    expect(() => teachDurable("knowledge", "Key", "my api key is sk-abcdef1234567890abcdef")).toThrow(/credential|sensitive/i);
+    expect(() =>
+      teachDurable("knowledge", "Key", "my api key is sk-abcdef1234567890abcdef"),
+    ).toThrow(/credential|sensitive/i);
   });
 
   it("returns the record already there when the same words are taught twice", () => {
-    const first = teachDurable("knowledge", "Venue note", "The annual review is held in the Pune office hall.");
-    const again = teachDurable("knowledge", "Venue note", "The annual review is held in the Pune office hall.");
+    const first = teachDurable(
+      "knowledge",
+      "Venue note",
+      "The annual review is held in the Pune office hall.",
+    );
+    const again = teachDurable(
+      "knowledge",
+      "Venue note",
+      "The annual review is held in the Pune office hall.",
+    );
     expect(again.id).toBe(first.id);
   });
 });

@@ -33,7 +33,7 @@ const unreferenced = sources
   .flatMap((file) => {
     const rel = relative(join(ROOT, "src", "lib", "friday"), file).replace(/\\/g, "/");
     return [...readFileSync(file, "utf8").matchAll(EXPORT)]
-      .map((match) => match[1])
+      .map((match) => match[1] as string)
       .filter((name) => (sourceWords.get(name) ?? 0) <= 1)
       .map((name) => ({ key: `${rel}::${name}`, name }));
   });
