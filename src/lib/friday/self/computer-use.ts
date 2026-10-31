@@ -7,6 +7,7 @@
  * captcha or secure-desktop prompt is handed to the owner.
  */
 
+import { pickControl } from "./ui-target";
 import type { ApprovalLevel } from "./autonomy";
 import { kernelApi } from "../kernel-api";
 import {
@@ -549,6 +550,11 @@ function findNamed(controls: DeskControl[], target: string): DeskControl | null 
   return null;
 }
 
+/** An exact name or selector first; otherwise one clear best match, never a guess between near ties. */
+function findControl(controls: DeskControl[], target: string): DeskControl | null {
+  return findNamed(controls, target) ?? pickControl(controls, target).control;
+}
+
 function resolveControl(
   state: DeskState,
   target: string,
@@ -557,14 +563,14 @@ function resolveControl(
     ? state.windows.find((window) => window.id === state.focusedId)
     : state.windows[0];
   if (!focused) return null;
-  const direct = findNamed(focused.controls, target);
+  const direct = findControl(focused.controls, target);
   if (direct && !observationCurrent(Boolean(direct.stale))) {
     return { window: focused, control: direct, problem: "stale" };
   }
   if (direct) return { window: focused, control: direct };
   for (const window of state.windows) {
     if (window.id === focused.id) continue;
-    const elsewhere = findNamed(window.controls, target);
+    const elsewhere = findControl(window.controls, target);
     if (elsewhere) return { window, control: elsewhere, problem: "wrong-window" };
   }
   return null;

@@ -23,6 +23,7 @@ import { isConsequential } from "../brain/action-risk";
 import { normalizeError, prefersHinglish } from "../brain/error-intelligence";
 import { memoriesSimilar, meaningsDisagree, validityState } from "./memory-engine";
 import { gateAction, screenTextIsData, planDesktop } from "./computer-use";
+import { pickControl } from "./ui-target";
 import { childStaysInsideParent, delegatedAuthority, scrubSecrets } from "./run-receipt";
 import { devCheckAllows, devCheckRequest } from "./own-work";
 import { evaluateChange, PROTECTED_POLICY_FILES } from "./governance";
@@ -595,13 +596,41 @@ export const CATEGORIES: Category[] = [
   ]),
 
   /* D9 computer use */
-  elsewhere(
-    "target-selection",
-    "computerUse",
-    "Picks the right control on a recorded UI tree",
-    "desktop",
-    "needs recorded UIA trees or a real desktop",
-  ),
+  app("target-selection", "computerUse", "Picks the right control on a recorded UI tree", () => {
+    const control = (
+      name: string,
+      role: "button" | "edit" | "text" | "password" = "button",
+      extra: { enabled?: boolean } = {},
+    ) => ({
+      id: name,
+      role,
+      name,
+      value: "",
+      bounds: { x: 0, y: 0, w: 10, h: 10 },
+      ...extra,
+    });
+    const saveDialog = [
+      control("File name:", "edit"),
+      control("Save"),
+      control("Cancel"),
+      control("Save as type:", "text"),
+    ];
+    const form = [
+      control("Email", "edit"),
+      control("Password", "password"),
+      control("Sign in"),
+      control("Sign in with Google"),
+      control("Forgot password?"),
+    ];
+    return [
+      pickControl(saveDialog, "Save", "button").control?.name === "Save",
+      pickControl(saveDialog, "cancel").control?.name === "Cancel",
+      pickControl(form, "Sign in").control?.name === "Sign in",
+      pickControl(form, "password", "edit").control === null,
+      pickControl([control("Save", "button", { enabled: false })], "Save").control === null,
+      pickControl(saveDialog, "Delete everything").reason === "no-match",
+    ];
+  }),
   app("plan-correctness-desktop", "computerUse", "Owner words become the right actions", () => {
     const ok = planDesktop("launch notepad then focus notepad");
     const unknown = planDesktop("launch notepad then dance wildly");
