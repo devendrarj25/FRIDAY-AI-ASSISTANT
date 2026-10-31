@@ -191,3 +191,53 @@ describe("FRIDAY stays responsive while a turn is running", () => {
     expect(dispatch.indexOf("whileBusy(")).toBeLessThan(dispatch.indexOf("this.dropPlayback()"));
   });
 });
+
+import { suggestLargerSpeech } from "../../src/lib/friday/voice-session";
+
+describe("a larger speech size, suggested only on repeated doubt", () => {
+  const doubtful = (model: string, lp = -1.1) => ({ model, avgLogprob: lp, text: "heard" });
+  it("suggests the next size after three doubtful transcripts on one size", () => {
+    const out = suggestLargerSpeech({
+      recent: [doubtful("small"), doubtful("small"), doubtful("small")],
+    });
+    expect(out.suggest).toBe("medium");
+    expect(out.reason).toMatch(/last 3 transcripts on small were doubtful/);
+  });
+
+  it("stays quiet for too few turns, a mixed run, a confident turn or an empty one", () => {
+    expect(
+      suggestLargerSpeech({ recent: [doubtful("small"), doubtful("small")] }).suggest,
+    ).toBeNull();
+    expect(
+      suggestLargerSpeech({ recent: [doubtful("small"), doubtful("base"), doubtful("small")] })
+        .suggest,
+    ).toBeNull();
+    expect(
+      suggestLargerSpeech({
+        recent: [doubtful("small"), doubtful("small", -0.2), doubtful("small")],
+      }).suggest,
+    ).toBeNull();
+    expect(
+      suggestLargerSpeech({
+        recent: [
+          doubtful("small"),
+          doubtful("small"),
+          { model: "small", avgLogprob: -1, text: " " },
+        ],
+      }).suggest,
+    ).toBeNull();
+  });
+
+  it("respects the PC's ceiling, the largest size and the battery", () => {
+    const three = (m: string) => [doubtful(m), doubtful(m), doubtful(m)];
+    expect(suggestLargerSpeech({ recent: three("medium") }).suggest).toBeNull();
+    expect(suggestLargerSpeech({ recent: three("medium"), maxSize: "large-v3" }).suggest).toBe(
+      "large-v3",
+    );
+    expect(suggestLargerSpeech({ recent: three("large-v3"), maxSize: "large-v3" }).reason).toMatch(
+      /largest/,
+    );
+    expect(suggestLargerSpeech({ recent: three("small"), battery: true }).suggest).toBeNull();
+    expect(suggestLargerSpeech({ recent: three("tiny") }).suggest).toBe("base");
+  });
+});

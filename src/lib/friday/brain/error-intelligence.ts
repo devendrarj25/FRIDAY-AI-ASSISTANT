@@ -1231,6 +1231,267 @@ const RULES: Rule[] = [
     },
   },
   {
+    id: "pip-resolver-conflict",
+    test: (_n, raw) =>
+      /conflicting dependencies|ResolutionImpossible|Cannot install .+ because these package versions/i.test(
+        raw,
+      ),
+    cause:
+      "two packages ask for versions of the same library that cannot both be installed (a dependency conflict)",
+    base: 0.8,
+    check:
+      "run pip install with --dry-run, or pip check, to list which versions each package wants; nothing is changed",
+    fix: {
+      summary: "pick versions that agree, or install the two packages in separate environments",
+      steps: [
+        "read the lines after the error: they name the package each side needs and the version range",
+        "loosen or pin one of the two so a shared version exists, or upgrade the older package",
+        "if no shared version exists, use a separate virtual environment for each",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "docker-daemon-down",
+    test: (_n, raw) =>
+      /Cannot connect to the Docker daemon|error during connect[^\n]*docker|docker daemon (?:is )?not running/i.test(
+        raw,
+      ),
+    cause:
+      "the Docker engine (daemon) is not running, so the docker command has nothing to talk to",
+    base: 0.85,
+    check: "run docker info; if it fails too, the engine is not running; nothing is changed",
+    fix: {
+      summary:
+        "start Docker Desktop (or the docker service) and wait until it says running, then retry",
+      steps: [
+        "open Docker Desktop and wait for the engine to show running",
+        "on Linux start the service: systemctl start docker",
+        "run docker info to confirm, then run the command again",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "request-timeout",
+    test: (_n, raw) =>
+      /ReadTimeout|ConnectTimeout|Read timed out|TimeoutError|ETIMEDOUT|ESOCKETTIMEDOUT|request timed out|timed out after/i.test(
+        raw,
+      ),
+    cause:
+      "the other server did not answer in time (a timeout): it is slow, busy, or the network is slow",
+    base: 0.72,
+    check: "try the same address in a browser or with a longer timeout; nothing is changed",
+    fix: {
+      summary: "retry later, or give the call a longer timeout and a bounded retry",
+      steps: [
+        "check the network and that the server is up",
+        "raise the timeout a little (not to forever) and add a retry with a short wait",
+        "if it keeps happening, the server side is slow: report it to its owner",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "runaway-recursion",
+    test: (_n, raw) =>
+      /RecursionError|maximum recursion depth|StackOverflowError|Maximum call stack size exceeded|stack overflow/i.test(
+        raw,
+      ),
+    cause:
+      "a function keeps calling itself without stopping (recursion with no base case), so the stack depth ran out",
+    base: 0.85,
+    check:
+      "read the repeated line in the stack trace; that function is calling itself; nothing is changed",
+    fix: {
+      summary: "add or fix the base case so the recursion ends, or turn it into a loop",
+      steps: [
+        "find the function that repeats in the trace",
+        "make sure each call moves toward a stopping condition (a base case)",
+        "for deep but finite work, use a loop or an explicit stack instead",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "git-index-lock",
+    test: (_n, raw) => /Unable to create '[^']*\.lock': File exists|index\.lock/i.test(raw),
+    cause:
+      "another git process is running or crashed and left a lock file behind in the repository",
+    base: 0.85,
+    check:
+      "make sure no git process is running (Task Manager), then look at the .git folder for the lock file; nothing is changed",
+    fix: {
+      summary: "close the other git process, then remove the stale lock file and retry",
+      steps: [
+        "close other git windows, editors with git integration and any running git command",
+        "delete the .lock file named in the error only if no git process is running",
+        "run the command again",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "typescript-type-mismatch",
+    test: (_n, raw) => /\berror TS\d{3,5}\b/i.test(raw),
+    cause:
+      "the types do not match: a value of one type is used where the code declared another (a TypeScript type error)",
+    base: 0.8,
+    check:
+      "open the file and line in the error and compare the declared type with the value; nothing is changed",
+    fix: {
+      summary:
+        "make the value the declared type, or correct the declaration if it is the wrong one",
+      steps: [
+        "read the two types in the message: the one given and the one expected",
+        "convert or fix the value, or widen the declared type when the code is right",
+        "run the type check again",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "sqlite-database-locked",
+    test: (_n, raw) => /database is locked|SQLITE_BUSY|database table is locked/i.test(raw),
+    cause:
+      "another connection or process is writing to the same SQLite file, so this one has to wait (the database is locked)",
+    base: 0.82,
+    check: "see which process has the .db file open; nothing is changed",
+    fix: {
+      summary:
+        "close the other connection, or wait and retry; use a busy timeout and short transactions",
+      steps: [
+        "make sure only one writer has the file open, and close connections you no longer use",
+        "set a busy timeout so a writer waits instead of failing",
+        "keep write transactions short",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "browser-cors-blocked",
+    test: (_n, raw) =>
+      /blocked by CORS policy|Access-Control-Allow-Origin|No 'Access-Control/i.test(raw),
+    cause:
+      "the browser blocked the call because the server did not allow this page's origin (a CORS rule on the server)",
+    base: 0.85,
+    check:
+      "look at the response headers of the call; Access-Control-Allow-Origin should name this origin; nothing is changed",
+    fix: {
+      summary:
+        "allow the origin on the server (the browser cannot override it), or call it through your own backend",
+      steps: [
+        "on the server, add the Access-Control-Allow-Origin header for this page's origin",
+        "handle the preflight OPTIONS request with the allowed methods and headers",
+        "in development you can use a proxy so the browser sees one origin",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "tls-chain-untrusted",
+    test: (_n, raw) =>
+      /unable to verify the first certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN/i.test(
+        raw,
+      ),
+    cause:
+      "the certificate chain could not be trusted: a company proxy or self-signed certificate whose issuing authority this computer does not know",
+    base: 0.8,
+    check: "open the address in a browser and look at the certificate issuer; nothing is changed",
+    fix: {
+      summary:
+        "add the issuing authority's root certificate to the trust store; do not turn verification off",
+      steps: [
+        "find out who issued the certificate (a proxy, an antivirus, an internal authority)",
+        "install that root certificate, or point the tool to it (for Node, NODE_EXTRA_CA_CERTS)",
+        "never disable certificate checks to make the error go away",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
+    id: "division-by-zero",
+    test: (_n, raw) =>
+      /ZeroDivisionError|division by zero|divide by zero|DivideByZeroException|Attempted to divide by zero/i.test(
+        raw,
+      ),
+    cause: "the code divided by zero: the denominator was zero or empty at that moment",
+    base: 0.88,
+    check: "print the denominator just before the division line; nothing is changed",
+    fix: {
+      summary: "check the denominator before dividing and decide what a zero should mean",
+      steps: [
+        "find the division at the line in the trace",
+        "guard it: if the denominator is zero, return a default or raise a clear message",
+        "find why the value was zero or empty (often an empty list or a missing input)",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "http-unauthorized",
+    test: (_n, raw) =>
+      /\b401\b[^\n]*Unauthorized|Unauthorized[^\n]*\b401\b|invalid_api_key|Incorrect API key|authentication failed/i.test(
+        raw,
+      ),
+    cause:
+      "the service did not accept the credentials: the key or token is missing, wrong, expired or for another account",
+    base: 0.82,
+    check:
+      "check the key is set in the right place and has not expired; do not paste it anywhere; nothing is changed",
+    fix: {
+      summary: "re-enter a valid key or sign in again for that service",
+      steps: [
+        "open the provider's page in Settings and re-enter the key (it is stored encrypted)",
+        "make sure the key belongs to the account and plan you are using",
+        "create a new key if the old one was revoked or expired",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "http-server-error",
+    test: (_n, raw) =>
+      /\b5\d\d\b[^\n]*(?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Time-?out)|Internal Server Error/i.test(
+        raw,
+      ),
+    cause:
+      "the problem is on the server's side: it failed while handling the call (a 5xx error), not something wrong in your request",
+    base: 0.75,
+    check: "retry once after a short wait; check the service's status page; nothing is changed",
+    fix: {
+      summary: "retry later with a short wait; if it keeps failing, report it to the service",
+      steps: [
+        "wait a minute and try again",
+        "check the service's status page for an outage",
+        "if only one request fails, send the exact request and time to the service's support",
+      ],
+      risk: "low",
+    },
+  },
+  {
+    id: "windows-virtualization-off",
+    test: (_n, raw) =>
+      /WslRegisterDistribution failed|0x80370102|Virtual Machine Platform|virtualization (?:is )?(?:not )?(?:enabled|disabled)|HYPERV_NOT_PRESENT/i.test(
+        raw,
+      ),
+    cause:
+      "virtualization is off: the Windows feature (Virtual Machine Platform) or the BIOS setting that WSL and Docker need is not enabled",
+    base: 0.85,
+    check:
+      "run systeminfo and read the Hyper-V requirements, or open Task Manager > Performance > CPU and see Virtualization; nothing is changed",
+    fix: {
+      summary:
+        "turn on the Virtual Machine Platform feature and virtualization in the BIOS, then restart",
+      steps: [
+        "enable the Windows feature Virtual Machine Platform (and Windows Subsystem for Linux) and restart",
+        "if it still fails, enable virtualization (Intel VT-x / AMD-V, SVM) in the BIOS",
+        "run the command again",
+      ],
+      risk: "needs-approval",
+    },
+  },
+  {
     id: "json-got-html",
     test: (_n, raw) =>
       /Unexpected token '?<'?|<!DOCTYPE[^\n]*is not valid JSON|JSONDecodeError: Expecting value: line 1 column 1/i.test(

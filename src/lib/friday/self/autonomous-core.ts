@@ -38,6 +38,9 @@ import { selfBridgeAvailable, selfHealth } from "./maintenance-bridge";
 import { desktopAgentHost, reviewEnabledAgents, type AgentSchedulerHost } from "./agent-scheduler";
 import { dispatchPluginHook } from "../plugin-hooks";
 import { planStudy } from "./skill-loop";
+import { askVerified } from "../ask";
+import { sandboxToolPort } from "../sandbox-agent";
+import { practiceInSandbox, studySuccesses } from "./study-practice";
 import { batteryReading } from "../brain/pc-awareness";
 import { shouldPauseOnBattery } from "../settings-runtime";
 import { fileFailurePatterns, mineFailurePatterns } from "./failure-patterns";
@@ -349,20 +352,39 @@ class AutonomousCore {
       idleCycleMinutes: settings.idleCycleMinutes,
       lastRunAt: this.lastStudyAt,
       now: Date.now(),
+      successes: studySuccesses(),
     });
     const tasks = [...plan.run, ...plan.propose];
     if (!tasks.length) return 0;
     this.lastStudyAt = Date.now();
     let queued = 0;
     for (const task of tasks) {
-      queued += this.propose({
-        id: task.id,
-        kind: "skill",
-        title: `Practise: ${task.title}`,
-        rationale: `${task.task} (${plan.reason}). It failed in the last day; practising it in the sandbox is the next step.`,
-        risk: "review",
-        evidence: [`band ${task.band}`],
-      });
+      if (governance.get(task.id)) continue;
+      queued += 1;
+      // The practice itself is real work, so it goes through the approval gate like any other: the owner's
+      // dial decides whether it waits for a yes or runs in idle time.
+      void governance
+        .submit({
+          id: task.id,
+          kind: "skill",
+          title: `Practise: ${task.title}`,
+          rationale: `${task.task} (${plan.reason}). It failed in the last day; practising it in the sandbox is the next step.`,
+          risk: "review",
+          evidence: [`band ${task.band}`],
+          dryRun: async () => ({
+            ok: true,
+            detail:
+              "a short practice program will be written and run in the scratch sandbox once approved",
+          }),
+          apply: async () => {
+            const done = await practiceInSandbox(task, {
+              ask: (prompt, options) => askVerified(prompt, { timeoutMs: 90_000, ...options }),
+              port: sandboxToolPort("full", false),
+            });
+            return done;
+          },
+        })
+        .catch(() => undefined);
     }
     return queued;
   }

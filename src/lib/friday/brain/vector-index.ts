@@ -25,6 +25,19 @@ export type VectorHit = {
   id?: string;
 };
 
+/** Index score and embedding similarity, half and half, so one noisy signal cannot reorder the list alone. */
+export function blendEmbeddingScores(hits: VectorHit[], similarity: number[]): VectorHit[] {
+  if (similarity.length !== hits.length) return hits;
+  const top = Math.max(...hits.map((hit) => hit.score), 1e-9);
+  return hits
+    .map((hit, index) => ({
+      hit,
+      blended: 0.5 * (hit.score / top) + 0.5 * Math.max(0, similarity[index] ?? 0),
+    }))
+    .sort((a, b) => b.blended - a.blended)
+    .map(({ hit, blended }) => ({ ...hit, score: Number(blended.toFixed(4)) }));
+}
+
 export type VectorIndexState = {
   /** "chroma" | "numpy" | "none" | null while unknown. */
   backend: string | null;
@@ -203,12 +216,48 @@ class VectorIndex {
     });
     if (!first) return [];
     const hits = first.results ?? [];
-    if (hits.length || variants.length < 2) return hits;
+    if (hits.length) return this.reorder(trimmed, hits);
+    if (variants.length < 2) return hits;
     const second = await this.call<{ results: VectorHit[] }>("memory.search", {
       query: variants[1]!,
       k,
     });
-    return second?.results ?? [];
+    return this.reorder(trimmed, second?.results ?? []);
+  }
+
+  /**
+   * Re-order found candidates with the owner's local embedding model when he has one running. The kernel
+   * answers `ok: false` when Ollama or the model is missing, and then the order from the index stands.
+   */
+  private async reorder(query: string, hits: VectorHit[]): Promise<VectorHit[]> {
+    if (hits.length < 2) return hits;
+    const model = this.embeddingModel();
+    const judge = this.rerankModel();
+    const ranked = await this.call<{ ok: boolean; scores?: number[] }>("memory.rerank", {
+      query,
+      texts: hits.map((hit) => `${hit.title}\n${hit.snippet}`),
+      ...(judge ? { judge } : model ? { model } : {}),
+    });
+    return ranked?.ok && ranked.scores ? blendEmbeddingScores(hits, ranked.scores) : hits;
+  }
+
+  /** The model assigned to Embedding in Task routing, when it is known. */
+  embeddingModelProvider: () => string | null = () => null;
+  /** The chat model assigned to Rerank in Task routing, when one is. It then judges relevance in place of embeddings. */
+  rerankModelProvider: () => string | null = () => null;
+  private rerankModel(): string | null {
+    try {
+      return this.rerankModelProvider();
+    } catch {
+      return null;
+    }
+  }
+  private embeddingModel(): string | null {
+    try {
+      return this.embeddingModelProvider();
+    } catch {
+      return null;
+    }
   }
 
   async search(query: string, k = 12): Promise<void> {

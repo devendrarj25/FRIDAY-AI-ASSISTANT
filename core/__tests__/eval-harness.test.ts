@@ -135,11 +135,16 @@ describe("the report", () => {
 
   it("reports the held-out set apart, and is honest that it is lower than the tuned tasks", async () => {
     const report = await runEvalHarness();
+    // The held-out batch is renewed each round: once its failures are fixed the tasks join the development
+    // set and a fresh, untuned batch takes their place. The first blind figure of the current batch (h4,
+    // written before any rule for its classes) was 1 of 12 and is reported as it is, not tuned up.
     expect(report.heldOut.tasks).toBeGreaterThanOrEqual(12);
-    expect(report.heldOut.after).toBeGreaterThanOrEqual(report.heldOut.before);
     expect(report.heldOut.after).toBeLessThan(report.after);
-    expect(report.heldOut.after).toBeGreaterThanOrEqual(0.5);
-    expect(report.heldOut.failed.every((id) => id.startsWith("ho-"))).toBe(true);
+    expect(report.heldOut.failed.every((id) => id.startsWith("h4-"))).toBe(true);
+    // Every development task passes: all failures are held-out ones.
+    expect(Math.round(report.after * report.tasks)).toBe(
+      report.tasks - report.heldOut.failed.length,
+    );
   });
 
   it("says plainly what the offline numbers do not mean", async () => {

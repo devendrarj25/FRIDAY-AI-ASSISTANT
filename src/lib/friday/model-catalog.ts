@@ -2893,7 +2893,6 @@ export const UNSUPPORTED_CLOUD: ReadonlySet<string> = new Set([
   "azure-openai",
   "bedrock",
   "vertex",
-  "openai-compatible",
   "custom",
 ]);
 

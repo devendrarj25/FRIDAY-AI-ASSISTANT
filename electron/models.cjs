@@ -61,6 +61,19 @@ if (process.platform === "darwin") {
  * base is listed and testable but never offered for routing.
  */
 const CLOUD = {
+  // Any server that speaks the OpenAI wire (LiteLLM, a company gateway, Azure OpenAI's v1 surface, a vLLM
+  // box on the network). There is no built-in address: the owner enters one, and it is stored and checked
+  // like any other endpoint override (https, or localhost; no secrets in the URL; no metadata addresses).
+  // A gateway that needs no key still takes a placeholder such as "none".
+  "openai-compatible": {
+    name: "OpenAI-compatible endpoint",
+    env: "OPENAI_COMPATIBLE_API_KEY",
+    url: null,
+    chat: null,
+    wire: "online",
+    headers: (k) => (k && k !== "none" ? { Authorization: `Bearer ${k}` } : {}),
+    list: (j) => (Array.isArray(j) ? j : j.data || []).map((m) => m.id),
+  },
   openai: {
     name: "OpenAI",
     env: "OPENAI_API_KEY",

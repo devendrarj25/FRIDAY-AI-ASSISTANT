@@ -26,6 +26,7 @@ const CLOUD = {
   perplexity: require("./perplexity.cjs"),
   nebius: require("./nebius.cjs"),
   openrouter: require("./openrouter.cjs"),
+  "openai-compatible": require("./openai-compatible.cjs"),
 };
 
 const LOCAL = {

@@ -18,6 +18,9 @@ import { memory } from "./memory-engine";
 import { taskGraph } from "./task-graph";
 import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
+import { deliverDigest } from "../proactive-digest";
+import { dreamNow } from "./dreaming";
+import { scanFolders } from "../folder-watch";
 import {
   prefNumber,
   prefOn,
@@ -102,6 +105,32 @@ class BackgroundTasks {
         if (kept) return `${kept} memories backed up`;
         if (dropped) return `${dropped} memories compacted`;
         return "nothing new to back up";
+      },
+    });
+    this.register({
+      id: "digest",
+      label: "Morning and evening digest",
+      everyMinutes: 20,
+      run: async () => {
+        const out = deliverDigest();
+        return out.delivered ? `${out.lines.length} line(s) offered` : out.reason;
+      },
+    });
+    this.register({
+      id: "folders",
+      label: "New files in shared folders",
+      everyMinutes: 10,
+      run: async () => (await scanFolders()).note,
+    });
+    this.register({
+      id: "dreaming",
+      label: "Look back at what worked",
+      everyMinutes: 24 * 60,
+      run: async () => {
+        const out = dreamNow();
+        return out.filed
+          ? `${out.filed} lesson(s) offered for approval`
+          : `${out.found} recurring success(es), none new`;
       },
     });
     this.register({

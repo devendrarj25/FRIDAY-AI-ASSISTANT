@@ -53,6 +53,7 @@ export function registerTaskRunners(): void {
       halted: settings.halted || signal.aborted,
       signal,
       budget: { timeMs: 120_000, maxSteps: 4, spend: 0, tokens: 0 },
+      codeMap: (path, budget) => kernelApi.tools.exec("code.map", { path, budget }),
     });
     const evidenceId = report.evidence[0]?.evidenceId;
     const timeline = timelineFromEvidence(report.evidence);

@@ -18,6 +18,7 @@
  *    owner is active again.
  */
 
+import { quarantine } from "../brain/quarantined-reader";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { learning, recallProcedure } from "./learning-engine";
 import { findSkill, reflectOnUse, writeSkill } from "./skill-loop";
@@ -348,7 +349,7 @@ export function earlierResults(graph: TaskGraph, node: GraphNode): string[] {
   for (const other of graph.nodes) {
     if (other.id === node.id) continue;
     if (!DONE.includes(other.state)) continue;
-    const result = String(other.checkpoint?.result ?? "").trim();
+    const result = quarantine(String(other.checkpoint?.result ?? "")).text.trim();
     const files = other.checkpoint?.files ?? [];
     if (!result && !files.length) continue;
     const clipped = result.length > EARLIER_CLIP ? `${result.slice(0, EARLIER_CLIP)}…` : result;
@@ -356,7 +357,38 @@ export function earlierResults(graph: TaskGraph, node: GraphNode): string[] {
       `${other.title}: ${clipped}${files.length ? ` [files: ${files.slice(0, 4).join(", ")}]` : ""}`.trim(),
     );
   }
-  return lines.slice(-EARLIER_LINES);
+  const results = lines.slice(-EARLIER_LINES);
+  return [...results, ...taskNotes(graph, node)];
+}
+
+const NOTE_CLIP = 160;
+const clipNote = (text: string) =>
+  text.length > NOTE_CLIP ? `${text.slice(0, NOTE_CLIP)}…` : text;
+
+/**
+ * Notes about the run itself, kept outside the model's context so they survive a long task, a restart and
+ * any trimming of history: what already failed (so it is not tried the same way again), why this step is
+ * being retried, and where the last checkpoint said to continue. They are read from the graph's own
+ * records; nothing new is stored. Error text came from tools, so it is data like the results above.
+ */
+export function taskNotes(graph: TaskGraph, node: GraphNode): string[] {
+  const notes: string[] = [];
+  if (node.attempts > 1 && node.error) {
+    notes.push(
+      `note: an earlier attempt at this step failed (${clipNote(node.error)}); do not repeat it unchanged`,
+    );
+  }
+  for (const other of graph.nodes) {
+    if (other.id === node.id || DONE.includes(other.state) || !other.error || other.attempts < 1)
+      continue;
+    notes.push(`note: tried and failed: ${other.title} (${clipNote(other.error)})`);
+  }
+  const resume = graph.nodes
+    .map((other) => other.checkpoint?.nextAction)
+    .filter((next): next is string => Boolean(next && next.trim()))
+    .at(-1);
+  if (resume && node.attempts > 1) notes.push(`note: resume point: ${clipNote(resume)}`);
+  return notes.slice(0, 4);
 }
 
 /** The step's instruction with the earlier results appended and labelled as data. */

@@ -83,6 +83,7 @@ const ORDERS = [
   /\b(?:system|developer)\s+prompt\b/i,
   /you\s+(?:must|should|will)\s+now\b/i,
   /reveal\s+.{0,30}(?:key|token|password|secret|credential)/i,
+  /\b(?:send|post|upload|e-?mail|share|paste|type)\b.{0,40}\b(?:api[_ -]?keys?|passwords?|tokens?|credentials?|secrets?)\b/i,
   /curl[^|\n]{0,200}\|\s*(?:sh|bash|pwsh|powershell)\b/i,
   /Invoke-Expression\s*\(?\s*(?:iwr|irm|Invoke-WebRequest|Invoke-RestMethod)/i,
   /(?:download|fetch)\b.{0,40}\b(?:and|then)\s+(?:run|execute|launch)\b/i,
@@ -287,6 +288,8 @@ export function writeSkill(
     /** The skill this revises. */
     parentId?: string;
     source?: string;
+    /** Wait for held-out cases even though the owner supplied it (a file from outside). */
+    asCandidate?: boolean;
   },
   now = Date.now(),
 ): WriteResult {
@@ -302,7 +305,7 @@ export function writeSkill(
   }
   const revision = Boolean(parent);
   const status: SkillStatus =
-    revision && input.origin !== "owner-correction" ? "candidate" : "active";
+    input.asCandidate || (revision && input.origin !== "owner-correction") ? "candidate" : "active";
   const meta: SkillMeta = {
     version: parent ? parent.meta.version + 1 : 1,
     wins: 0,

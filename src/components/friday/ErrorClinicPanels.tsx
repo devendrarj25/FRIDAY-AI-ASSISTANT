@@ -8,7 +8,7 @@
  * model a fixed set of questions, so it runs only when he presses its button.
  */
 import { useMemo, useState } from "react";
-import { Play, Scale, Stethoscope } from "lucide-react";
+import { BookOpen, Play, Scale, Stethoscope } from "lucide-react";
 import { ActionButton, EmptyState, HudPanel, StatusPill } from "@/components/friday/ui";
 import { ErrorState } from "@/components/friday/PageStates";
 import {
@@ -50,6 +50,9 @@ import {
   runEvalHarness,
   type EvalReport,
 } from "@/lib/friday/self/eval-harness";
+
+import { allSkills, type Skill } from "@/lib/friday/self/skill-loop";
+import { exportSkillMd, importSkillMd } from "@/lib/friday/self/skills-standard";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
@@ -390,6 +393,95 @@ export function ModelComparePanel() {
           )}
         </div>
       )}
+    </HudPanel>
+  );
+}
+
+export function SkillsPanel() {
+  const [skills, setSkills] = useState<Skill[]>(() => allSkills());
+  const [text, setText] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+
+  const refresh = () => setSkills(allSkills());
+  const bring = () => {
+    const done = importSkillMd(text);
+    if (!done.parsed.ok) setNote(done.parsed.errors.join("; "));
+    else if (!done.written?.written) setNote(`Not taken in: ${done.written?.reason ?? "refused"}`);
+    else {
+      setNote("Taken in as a candidate. It is not used until it passes held-out cases.");
+      setText("");
+      refresh();
+    }
+  };
+  const share = async (skill: Skill) => {
+    try {
+      await navigator.clipboard.writeText(exportSkillMd(skill));
+      setNote(`SKILL.md for "${skill.goal}" copied.`);
+    } catch {
+      setNote("The clipboard is not available here.");
+    }
+  };
+
+  return (
+    <HudPanel
+      title="Skills"
+      hint="learned, screened, and the open SKILL.md format"
+      actions={
+        <ActionButton
+          icon={BookOpen}
+          label="Refresh"
+          labelMode="inline"
+          title="Re-read the learned skills"
+          onClick={refresh}
+        />
+      }
+    >
+      <div className="grid gap-3">
+        {skills.length ? (
+          <ul className="grid gap-1" aria-label="Learned skills">
+            {skills.slice(0, 12).map((skill) => (
+              <li key={skill.id} className="flex items-center justify-between gap-2 text-data">
+                <span className="text-foreground">
+                  {skill.goal} · v{skill.meta.version} · {skill.meta.status} · {skill.meta.wins}{" "}
+                  won, {skill.meta.losses} lost · from {skill.meta.origin}
+                </span>
+                <button
+                  type="button"
+                  className="text-meta text-primary underline"
+                  onClick={() => void share(skill)}
+                >
+                  Copy SKILL.md
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            title="No learned skills yet"
+            hint="A skill is learned only from a verified run or your correction. Text from the web, a file, a tool or a model is data, never a lesson."
+          />
+        )}
+        <label className="grid gap-1 text-meta text-muted-foreground">
+          Paste a SKILL.md to take in (it waits as a candidate; its scripts are never run)
+          <textarea
+            className="min-h-24 rounded-surface border border-border bg-background p-2 font-mono text-foreground"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            aria-label="SKILL.md to import"
+          />
+        </label>
+        <div className="flex items-center gap-2">
+          <ActionButton
+            icon={BookOpen}
+            label="Take in"
+            labelMode="inline"
+            title="Check the file against FRIDAY's skill rules and keep it as a candidate"
+            disabled={!text.trim()}
+            onClick={bring}
+          />
+          {note ? <p className="text-meta-sm text-muted-foreground">{note}</p> : null}
+        </div>
+      </div>
     </HudPanel>
   );
 }

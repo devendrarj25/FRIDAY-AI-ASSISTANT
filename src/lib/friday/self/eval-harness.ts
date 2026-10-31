@@ -503,7 +503,7 @@ export const EVAL_TASKS: readonly EvalTask[] = [
     prompt,
     expect,
   })),
-  // Held out: written after the second round was fixed, from classes of failure no rule was written for.
+  // Third development round: first measured blind (4 of 12 with the h3 set, 6 of 12 earlier), then fixed, so no longer held out.
   ...(
     [
       [
@@ -565,6 +565,138 @@ export const EVAL_TASKS: readonly EvalTask[] = [
         "ho-eperm-symlink",
         "Error: EPERM: operation not permitted, symlink '..\\a' -> 'C:\\app\\b'",
         /permission|right|developer mode|admin|symlink/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
+  })),
+  // Written before any rule for these classes and first measured blind: 4 of 12 passed. Fixed since, so development tasks now.
+  ...(
+    [
+      [
+        "h3-kubectl-refused",
+        "Unable to connect to the server: dial tcp 127.0.0.1:6443: connectex: No connection could be made because the target machine actively refused it.",
+        /cluster|kube|server|context|running|start/i,
+      ],
+      [
+        "h3-ssh-publickey",
+        "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+        /ssh|key|access|agent|permission/i,
+      ],
+      [
+        "h3-sqlite-locked",
+        "sqlite3.OperationalError: database is locked",
+        /lock|another|connection|close|writer|wait/i,
+      ],
+      [
+        "h3-cors",
+        "Access to fetch at 'http://localhost:8000/api' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        /cors|origin|header|server|allow/i,
+      ],
+      [
+        "h3-ssl-chain",
+        "Error: unable to verify the first certificate\n    at TLSSocket.onConnectSecure (node:_tls_wrap:1535:34) code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'",
+        /certificate|trust|proxy|chain|authority|root/i,
+      ],
+      [
+        "h3-cuda-oom",
+        "torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB. GPU 0 has a total capacity of 8.00 GiB",
+        /gpu|vram|memory|batch|smaller|model/i,
+      ],
+      [
+        "h3-indent",
+        '  File "app.py", line 12\n    return total\nIndentationError: unexpected indent',
+        /indent|space|tab|line/i,
+      ],
+      ["h3-zero-div", "ZeroDivisionError: division by zero", /zero|divid|denominator|empty/i],
+      [
+        "h3-java-stack",
+        'Exception in thread "main" java.lang.StackOverflowError\n\tat App.walk(App.java:21)\n\tat App.walk(App.java:21)',
+        /recurs|stack|loop|itself|depth|base case/i,
+      ],
+      [
+        "h3-http-401",
+        'HTTP 401 Unauthorized: {"error":"invalid_api_key"}',
+        /key|credential|token|login|auth|sign/i,
+      ],
+      [
+        "h3-http-500",
+        "HTTP 500 Internal Server Error from https://api.example.com/v1/items",
+        /server|their side|retry|later|log|not your/i,
+      ],
+      [
+        "h3-wsl-virt",
+        "WslRegisterDistribution failed with error: 0x80370102\nPlease enable the Virtual Machine Platform Windows feature and ensure virtualization is enabled in the BIOS.",
+        /virtual|bios|enable|feature|hyper/i,
+      ],
+    ] as [string, string, RegExp][]
+  ).map(([id, prompt, expect]): EvalTask => ({
+    id,
+    cls: "error-diagnosis",
+    prompt,
+    expect,
+  })),
+  // Held out, fourth round: written before any rule for these classes. Never used to tune.
+  ...(
+    [
+      [
+        "h4-cargo-version",
+        'error: failed to select a version for the requirement `serde = "^2"`\ncandidate versions found which didn\'t match: 1.0.210',
+        /version|requirement|cargo|dependenc|match/i,
+      ],
+      [
+        "h4-go-checksum",
+        "verifying module: checksum mismatch\n\tdownloaded: h1:abc=\n\tgo.sum:     h1:def=",
+        /checksum|go\.sum|module|verify|changed|tamper/i,
+      ],
+      [
+        "h4-django-no-table",
+        "django.db.utils.OperationalError: no such table: app_item",
+        /table|migrat|database/i,
+      ],
+      [
+        "h4-esm-require",
+        "Error [ERR_REQUIRE_ESM]: require() of ES Module /app/lib/x.mjs from /app/index.js not supported.",
+        /module|esm|import|require/i,
+      ],
+      [
+        "h4-react-hook",
+        "Error: Invalid hook call. Hooks can only be called inside of the body of a function component.",
+        /hook|component|react|call/i,
+      ],
+      [
+        "h4-mysql-denied",
+        "ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)",
+        /password|user|access|credential|login/i,
+      ],
+      ["h4-exit-137", "container exited with code 137 (OOMKilled: true)", /memory|oom|kill|limit/i],
+      [
+        "h4-yaml-scanner",
+        'yaml.scanner.ScannerError: mapping values are not allowed here\n  in "config.yml", line 7, column 14',
+        /yaml|indent|colon|line|syntax/i,
+      ],
+      [
+        "h4-assert-equal",
+        "AssertionError: expected 3 to equal 4\n    at Context.<anonymous> (test/sum.test.js:9:20)",
+        /expected|actual|assert|test|value/i,
+      ],
+      [
+        "h4-too-many-files",
+        "OSError: [Errno 24] Too many open files",
+        /open files|limit|close|descriptor|handle/i,
+      ],
+      [
+        "h4-java-pkix",
+        "javax.net.ssl.SSLHandshakeException: PKIX path building failed: unable to find valid certification path to requested target",
+        /certificate|trust|keystore|path/i,
+      ],
+      [
+        "h4-ps-not-recognized",
+        "The term 'kubectl' is not recognized as the name of a cmdlet, function, script file, or operable program.",
+        /not recognized|install|path|command|program/i,
       ],
     ] as [string, string, RegExp][]
   ).map(([id, prompt, expect]): EvalTask => ({

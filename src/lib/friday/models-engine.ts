@@ -12,6 +12,7 @@
  */
 
 import { isDesktop } from "./bridge";
+import { vectorIndex } from "./brain/vector-index";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { desktopApi, type ModelPullProgress, type OnlineModel } from "./desktop";
 import {
@@ -2067,5 +2068,9 @@ class ModelsStore {
 }
 
 export const models = new ModelsStore();
+
+// Memory search re-orders its candidates with the model assigned to Embedding, when that model is running.
+vectorIndex.embeddingModelProvider = () => models.getSnapshot().routing.embedding;
+vectorIndex.rerankModelProvider = () => models.getSnapshot().routing.rerank;
 
 export { checkSupport, routingTasks };

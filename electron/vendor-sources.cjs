@@ -115,6 +115,76 @@ function githubFeed({ repo, asset, version, kind, installerArgs, bin }) {
   };
 }
 
+/**
+ * GitLab project releases (graphviz/graphviz is published there, not on GitHub). Only the newest version is
+ * read: the project lists installers without digests, so an install is never offered from this feed.
+ */
+function gitlabVersionFeed({ project, source, kind }) {
+  return async (options) => {
+    const list = await getJson(
+      `https://gitlab.com/api/v4/projects/${project}/releases?per_page=1`,
+      options,
+    );
+    const tag = Array.isArray(list) ? list[0]?.tag_name : null;
+    if (!tag || list[0]?.upcoming_release) return null;
+    return { version: String(tag).replace(/^v/, ""), source, kind };
+  };
+}
+
+/**
+ * Docker Desktop publishes a Sparkle appcast; the newest <item> carries the marketing version in
+ * `sparkle:shortVersionString`. Version only: no digest is published there, so no install is offered.
+ */
+function dockerFeed() {
+  return async (options) => {
+    const xml = await getText("https://desktop.docker.com/win/main/amd64/appcast.xml", options);
+    const version = newestAppcastVersion(xml);
+    return version ? { version, source: "desktop.docker.com", kind: "exe" } : null;
+  };
+}
+
+function newestAppcastVersion(xml) {
+  const found = [];
+  const pattern = /sparkle:shortVersionString(?:="|>)\s*([\d.]+)/g;
+  let m = pattern.exec(String(xml || ""));
+  while (m) {
+    found.push(m[1]);
+    m = pattern.exec(String(xml || ""));
+  }
+  return found.sort(compareDotted).pop() || null;
+}
+
+function compareDotted(a, b) {
+  const x = String(a).split(".").map(Number);
+  const y = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/**
+ * NVIDIA publishes one `redistrib_<version>.json` per CUDA release under /compute/cuda/redist/. The directory
+ * page is read for the names and the highest version wins. Version only: the toolkit installer is large and
+ * stays in the Install Manager.
+ */
+function cudaFeed() {
+  return async (options) => {
+    const html = await getText(
+      "https://developer.download.nvidia.com/compute/cuda/redist/",
+      options,
+    );
+    const versions = [...String(html || "").matchAll(/redistrib_(\d+\.\d+\.\d+)\.json/g)].map(
+      (m) => m[1],
+    );
+    const newest = [...new Set(versions)].sort(compareDotted).pop();
+    return newest
+      ? { version: newest, source: "developer.download.nvidia.com", kind: "exe" }
+      : null;
+  };
+}
+
 /* ------------------------------------------------------------ vendor feeds */
 
 /** nodejs.org: index.json lists releases; SHASUMS256.txt carries the digests. */
@@ -304,6 +374,19 @@ const FEEDS = {
     asset: /^pandoc-[\d.]+-windows-x86_64\.msi$/,
     kind: "msi",
   }),
+  "Tesseract OCR": githubFeed({
+    repo: "UB-Mannheim/tesseract",
+    asset: /^tesseract-ocr-w64-setup-[\d.]+\.exe$/,
+    kind: "exe",
+    installerArgs: ["/S"],
+  }),
+  Graphviz: gitlabVersionFeed({
+    project: "4207231",
+    source: "gitlab.com/graphviz/graphviz",
+    kind: "exe",
+  }),
+  "Docker Desktop": dockerFeed(),
+  "CUDA Toolkit": cudaFeed(),
   "LLVM / Clang": githubFeed({
     repo: "llvm/llvm-project",
     asset: /^LLVM-[\d.]+-win64\.exe$/,
@@ -437,4 +520,6 @@ module.exports = {
   feedFailure,
   hashFromSums,
   parseWingetUpgrade,
+  newestAppcastVersion,
+  compareDotted,
 };

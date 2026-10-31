@@ -74,7 +74,8 @@
         "docx",
         "doc",
         "odt",
-        "rtf"
+        "rtf",
+        "epub"
       ],
       "words": [
         "word",
@@ -84,12 +85,12 @@
       "read": {
         "status": "built",
         "tool": "fs.extract",
-        "note": "docx, odt and rtf; old binary .doc is not read"
+        "note": "docx, odt, rtf and epub are read as text (odt, rtf and epub readers were added with their writers); old binary .doc is not read"
       },
       "make": {
         "status": "partial",
         "tool": "fs.make",
-        "note": "docx is made from a description and reads back here; opening it in Word was not checked; odt and rtf are not made"
+        "note": "docx, odt, rtf and epub are made from a description and read back here; rtf, odt and epub keep Hindi and every other character; opening them in Word or LibreOffice was not checked"
       }
     },
     {

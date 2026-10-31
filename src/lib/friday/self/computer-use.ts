@@ -7,6 +7,8 @@
  * captcha or secure-desktop prompt is handed to the owner.
  */
 
+import { codeContextFor, type CodeMapPort } from "./code-context";
+import { pickControl } from "./ui-target";
 import type { ApprovalLevel } from "./autonomy";
 import { kernelApi } from "../kernel-api";
 import {
@@ -148,6 +150,8 @@ export type DesktopRunInput = {
   leaseExpiresAt?: number;
   /** The owner explicitly handed the pointer over for this run. */
   ownerPermitsFocus?: boolean;
+  /** Reads the repo map of a project the request names. Absent means no project context. */
+  codeMap?: CodeMapPort;
 };
 
 const DEFAULT_BUDGET: TaskBudget = { timeMs: 120_000, maxSteps: 8, spend: 0, tokens: 0 };
@@ -549,6 +553,11 @@ function findNamed(controls: DeskControl[], target: string): DeskControl | null 
   return null;
 }
 
+/** An exact name or selector first; otherwise one clear best match, never a guess between near ties. */
+function findControl(controls: DeskControl[], target: string): DeskControl | null {
+  return findNamed(controls, target) ?? pickControl(controls, target).control;
+}
+
 function resolveControl(
   state: DeskState,
   target: string,
@@ -557,14 +566,14 @@ function resolveControl(
     ? state.windows.find((window) => window.id === state.focusedId)
     : state.windows[0];
   if (!focused) return null;
-  const direct = findNamed(focused.controls, target);
+  const direct = findControl(focused.controls, target);
   if (direct && !observationCurrent(Boolean(direct.stale))) {
     return { window: focused, control: direct, problem: "stale" };
   }
   if (direct) return { window: focused, control: direct };
   for (const window of state.windows) {
     if (window.id === focused.id) continue;
-    const elsewhere = findNamed(window.controls, target);
+    const elsewhere = findControl(window.controls, target);
     if (elsewhere) return { window, control: elsewhere, problem: "wrong-window" };
   }
   return null;
@@ -959,6 +968,13 @@ export async function runComputerUse(input: DesktopRunInput): Promise<DesktopRep
   const undos: Array<() => void> = [];
   const planned = planDesktop(input.request);
   const taskId = "desk";
+  if (input.codeMap) {
+    for (const context of await codeContextFor(input.request, input.codeMap)) {
+      lines.push(
+        `project context (${context.folder}, data): ${context.text.split("\n").slice(0, 6).join(" | ")}`,
+      );
+    }
+  }
 
   const note = (
     step: DesktopAction,

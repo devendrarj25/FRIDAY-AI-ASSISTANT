@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import devices_network
+import embedder
+import folder_watch
 import run_trace
 import uvicorn
 import yaml
@@ -737,6 +739,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             "version": app.version,
             "dataDir": str(DATA_DIR),
             "gpu": runtimes.gpu_info(),
+            "inference": runtimes.inference_runtimes(),
         }
     if method == "model.list":
         return {"models": [m.public() for m in router.models()]}
@@ -973,6 +976,23 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return {"ok": True, "sessionId": session_id, "count": count}
     if method == "memory.search":
         return {"results": await memory.search(params["query"], k=params.get("k", 8))}
+    if method == "watch.scan":
+        # Only folders the owner already chose to share, never the tool workspace or the FRIDAY folder itself.
+        skip = {tools.workspace.resolve(), tools.root.resolve() if tools.root else None}
+        roots = [root for root in tools.read_roots() if root not in skip]
+        return await asyncio.to_thread(folder_watch.scan, roots, DATA_DIR / "folder-watch.json")
+    if method == "memory.rerank":
+        if params.get("judge"):
+            return await embedder.judge(
+                str(params.get("query", "")),
+                [str(text) for text in params.get("texts", [])],
+                str(params.get("judge", "")),
+            )
+        return await embedder.rank(
+            str(params.get("query", "")),
+            [str(text) for text in params.get("texts", [])],
+            str(params.get("model", "")),
+        )
     if method == "memory.index":
         return await memory.index_path(params["path"])
     if method == "memory.add":

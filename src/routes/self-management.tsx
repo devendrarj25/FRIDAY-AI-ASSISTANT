@@ -22,6 +22,7 @@ import {
   BrainCheckPanel,
   ErrorClinicPanel,
   ModelComparePanel,
+  SkillsPanel,
 } from "@/components/friday/ErrorClinicPanels";
 import { FormatAtlasPanel } from "@/components/friday/FormatAtlasPanel";
 import { SelfAutonomyPanels } from "@/components/friday/SelfAutonomyPanels";
@@ -261,6 +262,7 @@ function SelfManagementPage() {
           <ErrorClinicPanel />
           <BrainCheckPanel />
           <ModelComparePanel />
+          <SkillsPanel />
         </div>
 
         <FormatAtlasPanel />

@@ -69,6 +69,40 @@ class RuntimeManager:
         except Exception:
             return "unknown GPU"
 
+    def inference_runtimes(self) -> dict:
+        """Which local inference runtimes this Python can use, without importing the heavy ones.
+
+        ONNX Runtime is asked for its execution providers (CPU always; DirectML on Windows, CUDA with an NVIDIA
+        build). Diffusers and torch are only looked up on the import path, because importing them takes seconds
+        and gigabytes. The result tells FRIDAY which optional features can start, not that they have been run."""
+        import importlib.util
+        from importlib import metadata
+
+        def version(dist: str) -> str | None:
+            try:
+                return metadata.version(dist)
+            except metadata.PackageNotFoundError:
+                return None
+
+        onnx: dict = {
+            "installed": version("onnxruntime") or version("onnxruntime-gpu") or version("onnxruntime-directml")
+        }
+        providers: list[str] = []
+        if onnx["installed"]:
+            try:
+                import onnxruntime as ort  # type: ignore
+
+                providers = list(ort.get_available_providers())
+            except Exception:
+                providers = []
+        onnx["providers"] = providers
+        onnx["gpu"] = next((p for p in ("CUDAExecutionProvider", "DmlExecutionProvider") if p in providers), None)
+        return {
+            "onnxruntime": onnx,
+            "diffusers": {"installed": version("diffusers")},
+            "torch": {"installed": version("torch"), "importable": importlib.util.find_spec("torch") is not None},
+        }
+
     def _installed(self, name: str) -> str | None:
         spec = CATALOG[name]
         exe = spec["probe"][0]

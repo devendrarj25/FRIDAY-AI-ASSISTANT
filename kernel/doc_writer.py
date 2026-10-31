@@ -11,15 +11,19 @@ Spec shapes (the ``kind`` comes from the file name):
   ``{"type": "heading", "level": 1-3, "text": str}``, ``{"type": "paragraph", "text": str}``,
   ``{"type": "bullets", "items": [str]}``, ``{"type": "numbered", "items": [str]}``,
   ``{"type": "table", "rows": [[cell]], "header": bool}`` or ``{"type": "code", "text": str}``.
+* rtf, odt, epub: the same ``blocks`` as docx. They keep every character, so they are the way to make a
+  Hindi or Hinglish document that opens in Word, LibreOffice or a reader (a PDF made here is Latin-1 only).
+  An epub may carry ``"language"`` (default ``en``).
 * xlsx: ``{"sheets": [{"name": str, "rows": [[cell]]}]}``. A cell is a string, number or bool.
   Strings are always stored as text, so ``=1+1`` stays text and is never evaluated.
 * pptx: ``{"title": str, "slides": [{"title": str, "bullets": [str]}]}``.
 * csv: ``{"rows": [[cell]]}``. A text cell that starts with ``= + - @`` gets a leading quote.
 * json: ``{"data": any}``. It is written exactly as valid JSON.
 
-The PDF writer uses the built-in Helvetica and Courier fonts, which hold Latin-1 only. Other
-characters (Devanagari, for one) become ``?`` and the result says how many; Word, HTML and
-Markdown keep every character.
+The PDF writer uses the built-in Helvetica and Courier fonts for Latin-1 text. When the text also has Greek,
+Cyrillic, Vietnamese or symbols it embeds one TrueType font from this PC (``pdf_font.py``). Scripts that need
+shaping (Devanagari and the other Indic scripts, Arabic, Thai) become ``?`` and the result says how many;
+Word, HTML and Markdown keep every character.
 """
 
 from __future__ import annotations
@@ -35,7 +39,9 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape as _xml_escape
 
-KINDS = ("docx", "xlsx", "pptx", "pdf", "html", "md", "txt", "csv", "json")
+import pdf_font
+
+KINDS = ("docx", "xlsx", "pptx", "pdf", "html", "md", "txt", "csv", "json", "rtf", "odt", "epub")
 MAX_BLOCKS = 5000
 MAX_CHARS = 2_000_000
 MAX_ROWS = 100_000
@@ -630,16 +636,60 @@ def _pdf_escape(line: str) -> bytes:
     return raw.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
 
 
+def _all_text(spec: dict, blocks: list[dict]) -> str:
+    parts = [str(spec.get("title", ""))]
+    for block in blocks:
+        for key in ("text", "items", "rows"):
+            value = block.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                parts.append(" ".join(_text(c) for row in value for c in (row if isinstance(row, list) else [row])))
+    return "\n".join(parts)
+
+
+def _unicode_font(spec: dict, blocks: list[dict]):
+    """A TrueType font when the text needs more than Latin-1 and has no script that needs shaping."""
+    text = _all_text(spec, blocks)
+    beyond = [ch for ch in text if ord(ch) > 0xFF and ch not in "‘’“”–—•"]
+    if not beyond or any(pdf_font.needs_shaping(ch) for ch in beyond):
+        return None
+    return pdf_font.first_usable()
+
+
+def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
+    out, lost = [], 0
+    for ch in value.replace("\t", "    "):
+        if ch == "\n":
+            out.append(ch)
+            continue
+        gid = font.gid(ch)
+        if gid:
+            used[gid] = ch
+            out.append(ch)
+        else:
+            gid = font.gid("?")
+            used[gid] = "?"
+            out.append("?")
+            lost += 1
+    return "".join(out), lost
+
+
 def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
     lost_total = 0
+    uni = _unicode_font(spec, blocks)
+    used: dict[int, str] = {}
     # (font, size, text) lines in reading order; font F1 body, F2 bold, F3 mono.
     lines: list[tuple[str, int, str]] = []
 
     def add(font: str, size: int, text: str, indent: int = 0, gap: int = 0) -> None:
         nonlocal lost_total
-        text, lost = _latin(text)
+        if uni:
+            text, lost = _shapable(text, uni, used)
+        else:
+            text, lost = _latin(text)
         lost_total += lost
-        width = (_PAGE_W - 2 * _MARGIN - indent) / (size * (0.6 if font == "F3" else 0.52))
+        width = (_PAGE_W - 2 * _MARGIN - indent) / (size * (0.6 if font == "F3" else 0.52 if not uni else 0.6))
         for raw in text.split("\n") or [""]:
             wrapped = textwrap.wrap(raw, max(8, int(width)), drop_whitespace=False, replace_whitespace=False) or [""]
             for piece in wrapped:
@@ -688,16 +738,25 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
 
     new(b"")  # 1 catalog, filled below
     new(b"")  # 2 pages, filled below
-    fonts = [
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
-    ]
+    if uni:
+        one = pdf_font.pdf_objects(uni, used, new)
+        fonts = [one, one, one]
+    else:
+        fonts = [
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
+        ]
     page_ids: list[int] = []
     for page in pages:
         stream = bytearray()
         for font, size, text, ypos in page:
             if not text.strip():
+                continue
+            if uni:
+                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
                 continue
             stream += (
                 b"BT /"
@@ -745,6 +804,160 @@ def _zip(parts: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
+def _zip_mimetype_first(mimetype: str, parts: dict[str, str]) -> bytes:
+    """ODF and EPUB want `mimetype` first and stored without compression so readers can sniff the type."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        first = zipfile.ZipInfo("mimetype", date_time=(2000, 1, 1, 0, 0, 0))
+        first.compress_type = zipfile.ZIP_STORED
+        archive.writestr(first, mimetype.encode("ascii"))
+        for name in sorted(parts):
+            info = zipfile.ZipInfo(name, date_time=(2000, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, parts[name].encode("utf-8"))
+    return buffer.getvalue()
+
+
+def _rtf_text(value: object) -> str:
+    out: list[str] = []
+    for ch in _BAD_XML.sub("", _text(value)):
+        code = ord(ch)
+        if ch in "\\{}":
+            out.append("\\" + ch)
+        elif ch == "\n":
+            out.append("\\line ")
+        elif ch == "\t":
+            out.append("\\tab ")
+        elif code < 128:
+            out.append(ch)
+        elif code <= 0xFFFF:
+            out.append(f"\\u{code - 65536 if code > 32767 else code}?")
+        else:
+            high, low = divmod(code - 0x10000, 0x400)
+            for unit in (0xD800 + high, 0xDC00 + low):
+                out.append(f"\\u{unit - 65536 if unit > 32767 else unit}?")
+    return "".join(out)
+
+
+def _rtf(spec: dict, blocks: list[dict]) -> str:
+    sizes = {1: 40, 2: 32, 3: 28}
+    out = ["{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fswiss Calibri;}{\\f1\\fmodern Courier New;}}\\f0\\fs22"]
+    if spec.get("title"):
+        out.append(f"{{\\pard\\b\\fs48 {_rtf_text(spec['title'])}\\par}}")
+    for block in blocks:
+        kind = block["type"]
+        if kind == "heading":
+            out.append(f"{{\\pard\\b\\fs{sizes[block['level']]} {_rtf_text(block['text'])}\\par}}")
+        elif kind == "paragraph":
+            out.append(f"{{\\pard {_rtf_text(block['text'])}\\par}}")
+        elif kind == "code":
+            out.append(f"{{\\pard\\f1 {_rtf_text(block['text'])}\\par}}")
+        elif kind in {"bullets", "numbered"}:
+            for n, item in enumerate(block["items"], 1):
+                mark = "\\u8226?\\tab " if kind == "bullets" else f"{n}.\\tab "
+                out.append(f"{{\\pard\\li360\\fi-360 {mark}{_rtf_text(item)}\\par}}")
+        elif kind == "table":
+            for row in block["rows"]:
+                out.append("{\\pard " + "\\tab ".join(_rtf_text(c) for c in row) + "\\par}")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+_ODF_NS = (
+    'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+    'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.2"'
+)
+
+
+def _odt(spec: dict, blocks: list[dict]) -> bytes:
+    body: list[str] = []
+    if spec.get("title"):
+        body.append(f'<text:h text:outline-level="1">{_x(spec["title"])}</text:h>')
+    for block in blocks:
+        kind = block["type"]
+        if kind == "heading":
+            level = min(block["level"] + 1, 4)
+            body.append(f'<text:h text:outline-level="{level}">{_x(block["text"])}</text:h>')
+        elif kind in {"paragraph", "code"}:
+            body.append(f"<text:p>{_x(block['text'])}</text:p>")
+        elif kind == "bullets":
+            items = "".join(f"<text:list-item><text:p>{_x(i)}</text:p></text:list-item>" for i in block["items"])
+            body.append(f"<text:list>{items}</text:list>")
+        elif kind == "numbered":
+            for n, item in enumerate(block["items"], 1):
+                body.append(f"<text:p>{n}. {_x(item)}</text:p>")
+        elif kind == "table":
+            rows = block["rows"]
+            width = max((len(r) for r in rows), default=1)
+            cells = lambda row: "".join(  # noqa: E731 - tiny local helper
+                f'<table:table-cell office:value-type="string"><text:p>{_x(_text(c))}</text:p></table:table-cell>'
+                for c in row
+            )
+            body.append(
+                f'<table:table table:name="T{len(body) + 1}"><table:table-column table:number-columns-repeated="{width}"/>'
+                + "".join(f"<table:table-row>{cells(r)}</table:table-row>" for r in rows)
+                + "</table:table>"
+            )
+    content = (
+        f'<?xml version="1.0" encoding="UTF-8"?><office:document-content {_ODF_NS}>'
+        f"<office:body><office:text>{''.join(body)}</office:text></office:body></office:document-content>"
+    )
+    mime = "application/vnd.oasis.opendocument.text"
+    manifest = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">'
+        f'<manifest:file-entry manifest:full-path="/" manifest:version="1.2" manifest:media-type="{mime}"/>'
+        '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+        "</manifest:manifest>"
+    )
+    return _zip_mimetype_first(mime, {"content.xml": content, "META-INF/manifest.xml": manifest})
+
+
+def _epub(spec: dict, blocks: list[dict]) -> bytes:
+    import hashlib
+
+    title = _x(_text(spec.get("title")) or "Document")
+    language = re.sub(r"[^A-Za-z-]", "", _text(spec.get("language")) or "en")[:12] or "en"
+    chapter = _html(spec, blocks)
+    inner = chapter[chapter.index("<body>") + 6 : chapter.index("</body>")]
+    xhtml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="{language}"><head><title>{title}</title></head>'
+        f"<body>{inner}</body></html>"
+    )
+    nav = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">'
+        f'<head><title>{title}</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml">{title}</a></li></ol></nav></body></html>'
+    )
+    ident = "urn:uuid:" + hashlib.sha256(xhtml.encode("utf-8")).hexdigest()[:32]
+    opf = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        f'<dc:identifier id="id">{ident}</dc:identifier><dc:title>{title}</dc:title><dc:language>{language}</dc:language>'
+        '<meta property="dcterms:modified">2000-01-01T00:00:00Z</meta></metadata>'
+        '<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+        '<item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest>'
+        '<spine><itemref idref="c1"/></spine></package>'
+    )
+    container = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+    )
+    return _zip_mimetype_first(
+        "application/epub+zip",
+        {
+            "META-INF/container.xml": container,
+            "OEBPS/content.opf": opf,
+            "OEBPS/nav.xhtml": nav,
+            "OEBPS/chapter.xhtml": xhtml,
+        },
+    )
+
+
 def kind_of(path: Path, kind: str | None = None) -> str:
     chosen = (kind or path.suffix.lstrip(".")).lower()
     chosen = {"markdown": "md", "htm": "html", "text": "txt"}.get(chosen, chosen)
@@ -758,15 +971,22 @@ def render(kind: str, spec: dict) -> tuple[bytes, list[str]]:
     if not isinstance(spec, dict):
         raise SpecError("spec must be an object")
     warnings: list[str] = []
-    if kind in {"docx", "pdf", "html", "md", "txt"}:
+    if kind in {"docx", "pdf", "html", "md", "txt", "rtf", "odt", "epub"}:
         blocks = _blocks(spec)
         if kind == "docx":
             return _docx(spec, blocks), warnings
+        if kind == "rtf":
+            return _rtf(spec, blocks).encode("ascii"), warnings
+        if kind == "odt":
+            return _odt(spec, blocks), warnings
+        if kind == "epub":
+            return _epub(spec, blocks), warnings
         if kind == "pdf":
             data, lost = _pdf(spec, blocks)
             if lost:
                 warnings.append(
-                    f"{lost} character(s) outside Latin-1 became '?': a PDF made here keeps Latin text only; "
+                    f"{lost} character(s) became '?': a PDF made here keeps Latin, Greek, Cyrillic and symbols "
+                    "(through a font on this PC) but not scripts that need shaping, such as Devanagari or Arabic; "
                     "use .docx or .html to keep every character"
                 )
             return data, warnings

@@ -85,6 +85,7 @@ MAGIC: list[tuple[bytes, str, str]] = [
     (b"\xff\xd8\xff", "jpeg", "image/jpeg"),
     (b"GIF87a", "gif", "image/gif"),
     (b"GIF89a", "gif", "image/gif"),
+    (b"{\\rtf", "rtf", "application/rtf"),
     (b"%PDF-", "pdf", "application/pdf"),
     (b"PK\x03\x04", "zip", "application/zip"),
     (b"PK\x05\x06", "zip", "application/zip"),
@@ -392,12 +393,27 @@ def identify(path: Path) -> dict:
     return result
 
 
+def archive_mimetype(path: Path) -> str:
+    """The `mimetype` entry of an OpenDocument or EPUB package (a short ASCII line)."""
+    with zipfile.ZipFile(path) as archive:
+        return archive.read("mimetype")[:100].decode("ascii", "ignore").strip()
+
+
 def _zip_flavour(path: Path, kind: str, mime: str) -> tuple[str, str]:
     try:
         with zipfile.ZipFile(path) as archive:
             names = set(archive.namelist())
     except (zipfile.BadZipFile, OSError):
         return kind, mime
+    if "mimetype" in names:
+        try:
+            declared = archive_mimetype(path)
+        except (zipfile.BadZipFile, OSError, KeyError):
+            declared = ""
+        if declared == "application/vnd.oasis.opendocument.text":
+            return "odt", declared
+        if declared == "application/epub+zip":
+            return "epub", declared
     for marker, flavour in OFFICE.items():
         if marker in names:
             return flavour
@@ -787,6 +803,12 @@ def extract_text(path: Path, max_chars: int = 200_000) -> dict:
                 return text
         elif kind == "csv":
             text = _csv_text(path)
+        elif kind == "odt":
+            text = _odt_text(path)
+        elif kind == "epub":
+            text = _epub_text(path)
+        elif kind == "rtf":
+            text = _rtf_text(path)
         elif meta.get("text"):
             if path.stat().st_size > 50 * 1024**2:
                 return {"ok": False, "error": "the file is larger than 50 MB"}
@@ -817,6 +839,79 @@ def _docx_text(path: Path) -> str:
         if para.tag.rsplit("}", 1)[-1] == "p":
             paragraphs.append("".join(n.text or "" for n in para.iter() if n.tag.rsplit("}", 1)[-1] == "t"))
     return "\n".join(paragraphs)
+
+
+def _odt_text(path: Path) -> str:
+    with zipfile.ZipFile(path) as archive:
+        root = ET.fromstring(archive.read("content.xml"))  # noqa: S314
+    lines = []
+    for node in root.iter():
+        if node.tag.rsplit("}", 1)[-1] in {"p", "h"}:
+            lines.append("".join(node.itertext()))
+    return "\n".join(lines)
+
+
+def _epub_text(path: Path) -> str:
+    out = []
+    with zipfile.ZipFile(path) as archive:
+        for name in sorted(n for n in archive.namelist() if n.lower().endswith((".xhtml", ".html", ".htm"))):
+            if name.endswith("nav.xhtml"):
+                continue
+            root = ET.fromstring(archive.read(name))  # noqa: S314
+            body = next((n for n in root.iter() if n.tag.rsplit("}", 1)[-1] == "body"), root)
+            for node in body.iter():
+                if node.tag.rsplit("}", 1)[-1] in {"p", "h1", "h2", "h3", "h4", "li", "pre", "td", "th"}:
+                    out.append("".join(node.itertext()).strip())
+    return "\n".join(line for line in out if line)
+
+
+def _rtf_text(path: Path) -> str:
+    raw = path.read_bytes().decode("latin-1")
+    out: list[str] = []
+    skip_depth = 0
+    depth = 0
+    i = 0
+    pending_high: int | None = None
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "{":
+            depth += 1
+            m = re.match(r"\{\\(?:\*\\)?(?:fonttbl|colortbl|stylesheet|info|pict)\b", raw[i:])
+            if m and not skip_depth:
+                skip_depth = depth
+        elif ch == "}":
+            if skip_depth and depth == skip_depth:
+                skip_depth = 0
+            depth -= 1
+        elif ch == "\\":
+            m = re.match(r"\\([a-zA-Z]+)(-?\d+)? ?", raw[i:])
+            if m:
+                word, num = m.group(1), m.group(2)
+                i += m.end() - 1
+                if not skip_depth:
+                    if word in {"par", "line"}:
+                        out.append("\n")
+                    elif word == "tab":
+                        out.append("\t")
+                    elif word == "u" and num is not None:
+                        unit = int(num) % 65536
+                        if i + 1 < len(raw) and raw[i + 1] == "?":
+                            i += 1
+                        if 0xD800 <= unit < 0xDC00:
+                            pending_high = unit
+                        elif 0xDC00 <= unit < 0xE000 and pending_high is not None:
+                            out.append(chr(0x10000 + ((pending_high - 0xD800) << 10) + (unit - 0xDC00)))
+                            pending_high = None
+                        else:
+                            out.append(chr(unit))
+            elif i + 1 < len(raw) and raw[i + 1] in "\\{}":
+                i += 1
+                if not skip_depth:
+                    out.append(raw[i])
+        elif not skip_depth and ch not in "\r\n":
+            out.append(ch)
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "".join(out)).strip()
 
 
 def _xlsx_text(path: Path) -> str:

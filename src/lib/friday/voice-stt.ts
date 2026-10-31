@@ -10,6 +10,8 @@
  * It degrades honestly: if the desktop engine is not installed, `available()`
  * returns false and the caller keeps using Web Speech.
  */
+import { notifications } from "./notifications";
+import { suggestLargerSpeech } from "./voice-session";
 import { desktopApi as desktop } from "./desktop";
 import {
   admitUtterance,
@@ -401,6 +403,28 @@ export class DesktopDictation {
   private speaking = false;
   private running = false;
   private busy = false;
+  private recentHearing: { avgLogprob?: number | null; model?: string; text?: string }[] = [];
+  private lastSizeHint = 0;
+
+  /** Three doubtful transcripts in a row on one size earn one quiet suggestion an hour at most. */
+  private noteHearingForSize(audio: HearingAudio | null | undefined, text = "heard") {
+    this.recentHearing = [
+      ...this.recentHearing.slice(-4),
+      { avgLogprob: audio?.avgLogprob ?? null, model: audio?.model ?? "", text },
+    ];
+    const hint = suggestLargerSpeech({ recent: this.recentHearing });
+    if (!hint.suggest || Date.now() - this.lastSizeHint < 3_600_000) return;
+    this.lastSizeHint = Date.now();
+    notifications.push({
+      id: "voice-size-suggest",
+      level: "info",
+      title: `A larger speech model may hear you better (${hint.suggest})`,
+      detail: `${hint.reason}. Choose it under Settings, Voice, speech size; it downloads once. Nothing was changed.`,
+      source: "Voice",
+      route: "/settings",
+    });
+  }
+
   private lastErrorDetail = "";
   /** Utterances captured while whisper was busy, transcribed in order. */
   private queue: Array<{ blob: Blob; wake: WakeProbe | null }> = [];
@@ -1111,6 +1135,7 @@ export class DesktopDictation {
               ms: Date.now() - startedAt,
             });
           }
+          this.noteHearingForSize(result.audio);
           this.options.onFinal(text, {
             wake,
             ms: Date.now() - startedAt,

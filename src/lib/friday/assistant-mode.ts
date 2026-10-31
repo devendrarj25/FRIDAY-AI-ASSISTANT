@@ -101,11 +101,13 @@ import {
   spokenReplyAllowed,
   spokenRouteError,
   takeSpeakable,
+  utteranceIncomplete,
   voiceClaimsAuthority,
   wakeOnCooldown,
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
   confidenceRepeat,
@@ -1620,8 +1622,16 @@ class AssistantModeStore {
       language: preferences.getSnapshot().voice.recognitionLang || "hi-IN",
       deviceId: preferences.getSnapshot().voice.inputDeviceId || null,
       localOnly: true,
-      silenceMs: () =>
-        endpointSilenceMs(Date.now() < this.awakeUntil || this.state.handsFree, this.state.interim),
+      silenceMs: () => {
+        const open = Date.now() < this.awakeUntil || this.state.handsFree;
+        const base = endpointSilenceMs(open, this.state.interim);
+        return realtimeSilenceMs(
+          base,
+          this.realtimeActive(),
+          open,
+          utteranceIncomplete(this.state.interim),
+        );
+      },
       initialPrompt: () => {
         const voice = preferences.getSnapshot().voice;
         return sttInitialPrompt({
@@ -2752,6 +2762,20 @@ class AssistantModeStore {
   }
 
   /** Speak finished sentences of a live answer, then the tail when it ends. */
+  /** The opt-in realtime timing is on, in Auto mode, with listening not paused. */
+  private realtimeActive(): boolean {
+    return realtimeStatus({
+      enabled: preferences.getSnapshot().voice.realtimeExperiment === true,
+      surface: this.state.mode === "auto" ? "auto" : "manual",
+      paused: this.state.paused,
+      gpuVramGb: 0,
+      s2sRuntimeInstalled: false,
+      paidAccess: false,
+      cloudKey: false,
+      privacyMode: true,
+    }).active;
+  }
+
   private speakStreamed(runId: string, text: string, final: boolean) {
     if (!text.trim()) return;
     if (this.voicedRunId !== runId) {
@@ -2766,7 +2790,9 @@ class AssistantModeStore {
     }
     if (text.length < this.voicedChars) return;
     const pending = text.slice(this.voicedChars);
-    const chunk = takeSpeakable(pending, final);
+    let chunk = takeSpeakable(pending, final);
+    if (!chunk.spoken && this.voicedChars === 0 && this.realtimeActive())
+      chunk = earlyClause(pending);
     if (!chunk.spoken) return;
     this.voicedChars += chunk.consumed;
     this.speak(chunk.spoken);

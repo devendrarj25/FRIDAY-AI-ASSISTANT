@@ -301,6 +301,7 @@ export const FLOW_REGISTRY = {
     "voice.pitch",
     "voice.privacyMode",
     "voice.rate",
+    "voice.realtimeExperiment",
     "voice.recognitionLang",
     "voice.speakReplies",
     "voice.speechLang",
@@ -2338,6 +2339,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "epub",
+      file: "kernel/doc_writer.py",
+    },
+    {
       kind: "failed",
       file: "kernel/main.py",
     },
@@ -2378,6 +2383,14 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "message_delta",
+      file: "kernel/router.py",
+    },
+    {
+      kind: "message_start",
+      file: "kernel/router.py",
+    },
+    {
       kind: "model-missing",
       file: "kernel/stt.py",
     },
@@ -2400,6 +2413,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "object",
       file: "kernel/tools.py",
+    },
+    {
+      kind: "odt",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "paid",
@@ -2436,6 +2453,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "retry",
       file: "kernel/main.py",
+    },
+    {
+      kind: "rtf",
+      file: "kernel/doc_writer.py",
     },
     {
       kind: "running",
@@ -8755,8 +8776,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 116,
-      total: 116,
+      mapped: 117,
+      total: 117,
     },
     capabilities: {
       mapped: 1020,

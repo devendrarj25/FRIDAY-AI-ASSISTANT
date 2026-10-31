@@ -7,7 +7,7 @@
  * corrections become semantic/permanent memory.
  */
 
-import { memory } from "./memory-engine";
+import { asOfWindow, memory } from "./memory-engine";
 import { experiences, STRATEGY_SAMPLE_MIN, type ExperienceModel } from "./task-ledger";
 import { ownerContextDigest } from "../brain/identity";
 import { userProfileDigest } from "../brain/user-profile";
@@ -237,6 +237,23 @@ class LearningEngine {
 
   /** Context block handed to the planner before it plans. */
   contextFor(prompt: string, k = 6): { text: string; used: string[] } {
+    const window = asOfWindow(prompt, Date.now());
+    if (window) {
+      const past = memory.retrieveAsOf(prompt, window, k);
+      if (past.length) {
+        return {
+          text: past
+            .map((h) => {
+              const ended = h.item.invalidReason
+                ? ` (no longer current: ${h.item.invalidReason})`
+                : "";
+              return `[as of ${window.label}] ${h.item.title}: ${h.item.text}${ended}`;
+            })
+            .join("\n"),
+          used: past.map((h) => h.item.id),
+        };
+      }
+    }
     const hits = memory.retrieve(prompt, k);
     const reflections = memory
       .retrieve(prompt, Math.max(2, k))

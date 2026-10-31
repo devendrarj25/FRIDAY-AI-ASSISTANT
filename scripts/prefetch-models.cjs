@@ -491,6 +491,7 @@ async function prefetch(
     ollama,
     latest = localLibrary.latestOfficialRelease,
     totalGb,
+    freshnessFetch,
   } = {},
 ) {
   const rows = [];
@@ -536,14 +537,27 @@ async function prefetch(
   // The speech, voice and chat files are independent, so several download at once: one
   // connection per file rarely fills a fast line. Rows keep their order in the result.
   const parallel = prefetchParallelism(env);
+  // Asked only for a real run: a caller that injects its own downloader (the tests) stays offline.
+  const checkFreshness =
+    (!download || Boolean(freshnessFetch)) && env.FRIDAY_MODEL_FRESHNESS !== "0";
   const sizeText = (bytes) =>
     bytes >= 1024 ** 3
       ? `${(bytes / 1024 ** 3).toFixed(2)} GB`
       : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   const outcomes = await mapPool(jobs, parallel, async (row) => {
     if (alreadyThere(row)) {
-      log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
-      return { id: row.id, ok: true, downloaded: false };
+      // One listing request per repository says whether a file here has changed upstream. A network that
+      // cannot answer keeps the folder as it is.
+      const stale = checkFreshness
+        ? await require("../electron/model-freshness.cjs").staleFor(row, {
+            ...(freshnessFetch ? { fetchImpl: freshnessFetch } : {}),
+          })
+        : [];
+      if (!stale.length) {
+        log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
+        return { id: row.id, ok: true, downloaded: false };
+      }
+      log(`[friday] update   ${row.id}: ${stale.length} file(s) changed upstream, fetching them`);
     }
     if (row.minRamGb && ramGb < row.minRamGb) {
       log(

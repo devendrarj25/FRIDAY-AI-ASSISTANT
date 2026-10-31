@@ -557,6 +557,46 @@ export function applySttTier(input: {
   return tier;
 }
 
+const SPEECH_LADDER = ["tiny", "base", "small", "medium", "large-v3"] as const;
+
+/** An average log-probability below this is a transcript the recogniser itself was unsure of. */
+export const LOW_HEARING_LOGPROB = -0.8;
+export const LOW_HEARING_TURNS = 3;
+
+/**
+ * When the last few transcripts were all low-confidence on the same speech size, the next size up may hear
+ * better, which matters most for Hindi and Hinglish. It is only a suggestion: a larger model is a download
+ * and a choice in Settings, so nothing here switches it. `maxSize` is the largest the PC can sensibly run.
+ */
+export function suggestLargerSpeech(input: {
+  recent: { avgLogprob?: number | null; model?: string; text?: string }[];
+  maxSize?: string;
+  battery?: boolean;
+}): { suggest: string | null; reason: string } {
+  const turns = input.recent.slice(-LOW_HEARING_TURNS);
+  if (turns.length < LOW_HEARING_TURNS) return { suggest: null, reason: "too few turns" };
+  const size = turns[0]?.model ?? "";
+  if (!turns.every((t) => t.model === size && (t.text ?? "").trim())) {
+    return { suggest: null, reason: "the size changed or a turn was empty" };
+  }
+  if (!turns.every((t) => typeof t.avgLogprob === "number" && t.avgLogprob < LOW_HEARING_LOGPROB)) {
+    return { suggest: null, reason: "hearing was not repeatedly doubtful" };
+  }
+  const at = SPEECH_LADDER.indexOf(size as (typeof SPEECH_LADDER)[number]);
+  const cap = SPEECH_LADDER.indexOf((input.maxSize ?? "medium") as (typeof SPEECH_LADDER)[number]);
+  const next = SPEECH_LADDER[at + 1];
+  if (at < 0 || !next) return { suggest: null, reason: "already the largest size" };
+  if (at + 1 > cap)
+    return { suggest: null, reason: "this PC is already at its largest sensible size" };
+  if (input.battery && (next === "medium" || next === "large-v3")) {
+    return { suggest: null, reason: "on battery a larger size would drain it" };
+  }
+  return {
+    suggest: next,
+    reason: `the last ${LOW_HEARING_TURNS} transcripts on ${size} were doubtful`,
+  };
+}
+
 /** Feeling labels become a delivery pace. They do not grant a permission. */
 export function prosodyAffect(label: string): "neutral" | "calm" | "urgent" {
   if (label === "hurry" || label === "anger") return "urgent";
