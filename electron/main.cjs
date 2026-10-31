@@ -8842,6 +8842,18 @@ function runStartup() {
   return startupJob;
 }
 
+// ---- Realtime speech engine on this PC (the pipe only; the renderer decides whether a session may start) ----
+const realtimeSessions = require("./realtime-session.cjs").createRealtimeSessions();
+ipcMain.handle("realtime:open", (e, id, url) =>
+  realtimeSessions.start(String(id || ""), String(url || ""), {
+    onOpen: () => e.sender.send("realtime:opened", { id }),
+    onEvent: (event) => e.sender.send("realtime:event", { id, event }),
+    onClose: (reason) => e.sender.send("realtime:closed", { id, reason }),
+  }),
+);
+ipcMain.handle("realtime:send", (_e, id, event) => realtimeSessions.send(String(id || ""), event));
+ipcMain.handle("realtime:close", (_e, id) => realtimeSessions.close(String(id || "")));
+
 ipcMain.handle("startup:state", () => lastStartup);
 ipcMain.handle("startup:run", () => runStartup());
 

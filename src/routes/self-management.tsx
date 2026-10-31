@@ -26,6 +26,8 @@ import {
   RetrievalAbPanel,
   SkillsPanel,
 } from "@/components/friday/ErrorClinicPanels";
+import { ExternalReadinessPanel } from "@/components/friday/ExternalReadinessPanel";
+import { FinetunePanel } from "@/components/friday/FinetunePanel";
 import { FormatAtlasPanel } from "@/components/friday/FormatAtlasPanel";
 import { SelfAutonomyPanels } from "@/components/friday/SelfAutonomyPanels";
 import { HudPanel, StatTile, StatusPill } from "@/components/friday/ui";
@@ -265,6 +267,8 @@ function SelfManagementPage() {
           <BrainCheckPanel />
           <PersonalEvalPanel />
           <RetrievalAbPanel />
+          <FinetunePanel />
+          <ExternalReadinessPanel />
           <ModelComparePanel />
           <SkillsPanel />
         </div>

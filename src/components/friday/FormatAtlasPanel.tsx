@@ -6,7 +6,12 @@
  */
 import { useMemo, useState } from "react";
 import { EmptyState, HudPanel, StatusPill } from "@/components/friday/ui";
-import { FORMAT_ROWS, findFormats, type FormatStatus } from "@/lib/friday/brain/format-atlas";
+import {
+  FORMAT_ROWS,
+  findFormats,
+  formatGaps,
+  type FormatStatus,
+} from "@/lib/friday/brain/format-atlas";
 
 type Tone = "accent" | "warning" | "destructive" | "muted";
 
@@ -37,7 +42,10 @@ export function FormatAtlasPanel() {
   }, [query]);
 
   return (
-    <HudPanel title="What I can read and make" hint={`${FORMAT_ROWS.length} kinds of file`}>
+    <HudPanel
+      title="What I can read and make"
+      hint={`${FORMAT_ROWS.length} kinds of file · ${formatGaps().length} gap(s) said plainly`}
+    >
       <div className="grid gap-3">
         <label className="grid gap-1 text-meta text-muted-foreground">
           Find a kind of file (docx, video, zip, php…)

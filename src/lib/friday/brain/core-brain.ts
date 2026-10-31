@@ -22,6 +22,7 @@
  * produces proposals — governance holds them until the owner approves.
  */
 
+import { pastEvidence } from "./memory-asof";
 import { stageOff } from "./stage-switches";
 import {
   prepareTurn,
@@ -731,6 +732,17 @@ class CoreBrain {
         );
       }
       const reflections = remembered.filter((hit) => hit.item.tags.includes("reflection"));
+      const past = pastEvidence(prompt);
+      if (past) {
+        notes.push(`memory as of ${past.label}: ${past.lines.length} record(s)`);
+        evidence = [
+          evidence,
+          `From stored memory as it was ${past.label} (a question about the past, not guessed):\n` +
+            past.lines.map((row) => `- ${row}`).join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+      }
       if (remembered.length) {
         notes.push(`memory retrieve: ${remembered.length} hit(s)`);
         evidence = [

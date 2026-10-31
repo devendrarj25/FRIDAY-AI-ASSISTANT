@@ -720,7 +720,7 @@ export function applyOwnerCorrection(input: {
     : "supersession";
   let supersededId: string | null = null;
   if (link === "supersession" && prior && prior.text.trim().toLowerCase() !== text.toLowerCase()) {
-    memory.supersede(prior.id);
+    memory.supersede(prior.id, undefined, "corrected by the owner");
     supersededId = prior.id;
   }
   const item = memory.remember({
@@ -736,7 +736,7 @@ export function applyOwnerCorrection(input: {
     ...(input.scope ? { scope: input.scope } : {}),
     ...(input.projectId ? { projectId: input.projectId } : {}),
   });
-  if (supersededId) memory.supersede(supersededId, item.id);
+  if (supersededId) memory.supersede(supersededId, item.id, "corrected by the owner");
   projectBelief(item);
   touchCache();
   persist();
@@ -981,4 +981,54 @@ export function textsContradict(left: string, right: string): boolean {
   const bareA = contradictionBare(a);
   const bareB = contradictionBare(b);
   return bareA.length > 2 && bareA === bareB;
+}
+
+/** The memory part of a backup or export: the records plus what was forgotten, so a restore cannot bring it back. */
+export const exportMemoryBackup = (): string => exportFabricBundle();
+
+/** Restore a backup in either shape (the new bundle or a plain memory export). Returns the records added. */
+export function importMemoryBackup(json: string): number {
+  return restoreFabricBundle(json).restored;
+}
+
+/**
+ * The fabric's upkeep, run with the memory job: verified episodic memories settle into semantic ones, and two
+ * live records that say the same thing with and without a negation ("likes tea", "nahi pasand chai") are marked as
+ * contradicting so the normal review path (ask the owner, never guess) handles them. Returns what it did.
+ */
+export function tidyFabric(): { promoted: number; contradictions: number } {
+  hydrate();
+  let promoted = 0;
+  let contradictions = 0;
+  const live = memory
+    .getSnapshot()
+    .items.filter(
+      (item) => !item.supersededAt && item.tier !== "archived" && !tombstones.has(item.id),
+    );
+  for (const item of live)
+    if (item.tier === "episodic" && promoteIfEvidenced(item).promoted) promoted += 1;
+  // Recent records against every live record: a new fact that negates an old one is the case that matters, and
+  // the cap keeps the pass cheap on a large store.
+  const recent = [...live].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
+  for (const a of recent) {
+    for (const b of live) {
+      if (a.id >= b.id && recent.includes(b)) continue;
+      if (a.id === b.id || (a.contradiction && b.contradiction)) continue;
+      if (!textsContradict(a.text, b.text)) continue;
+      memory.update(a.id, {
+        contradiction: true,
+        relatedIds: [...new Set([...(a.relatedIds ?? []), b.id])],
+      });
+      memory.update(b.id, {
+        contradiction: true,
+        relatedIds: [...new Set([...(b.relatedIds ?? []), a.id])],
+      });
+      contradictions += 1;
+    }
+  }
+  if (promoted || contradictions) {
+    touchCache();
+    persist();
+  }
+  return { promoted, contradictions };
 }
