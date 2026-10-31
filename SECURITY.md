@@ -62,6 +62,25 @@ connect unless that test's node id is listed in `kernel/tests/NETWORK_ALLOW.txt`
 Publisher identity cannot be changed from Settings or chat
 (`src/lib/friday/brain/identity.ts` `lockedIdentityFields`).
 
+## Agent risks (OWASP Top 10 for Agentic Applications, December 2025)
+
+Each risk has a control in this repository and a test that fails if the control goes. The titles of ASI01, ASI02,
+ASI06, ASI09 and ASI10 were read from the OWASP project's published list on 2026-10-31; the titles of ASI03,
+ASI04, ASI05, ASI07 and ASI08 are given from memory and were not re-read, so check them against the official page.
+
+| Risk | Control | Test |
+| --- | --- | --- |
+| ASI01 Agent goal hijack | Text from a page, file, screen, mail or tool is data. Order-like lines are cut by the quarantined reader in the app and in the kernel before a model reads them; the approval gate and the argument policy stand behind it | `core/__tests__/quarantined-reader.test.ts`, `kernel/tests/test_quarantine.py`, `core/__tests__/turn-spine.test.ts` |
+| ASI02 Tool misuse | Every tool call is checked against its schema, then against a deterministic argument policy, then needs a signed single-use authorization for anything above the safe tier | `kernel/tests/test_arg_policy.py`, `kernel/tests/test_authority.py` |
+| ASI03 Identity and privilege abuse | An approval is bound to one action, one target and one argument hash, expires, is checked again right before the action and is used up | `core/__tests__/code-context.test.ts`, `core/__tests__/governance-gate.test.ts` |
+| ASI04 Agentic supply chain | Installers are pinned to a published digest, advisories are audited, optional modules are recorded with their source | `core/__tests__/vendor-sources.test.ts`, `core/__tests__/advisory-audit.test.ts` |
+| ASI05 Unexpected code execution | Code runs only in a scratch sandbox or after exec-tier approval; own-source changes are tried on a throwaway copy first | `kernel/tests/test_sandbox_runner.py`, `kernel/tests/test_dev_check.py` |
+| ASI06 Memory and context poisoning | Writes pass admission (replay, poison, identity and sensitive-attribute rules); an old fact is invalidated with its reason, never silently overwritten; a forgotten fact stays forgotten in projections | `core/__tests__/memory-knowledge-fabric.test.ts`, `core/__tests__/memory-as-of.test.ts` |
+| ASI07 Insecure inter-agent communication | A message between agents is data, length-capped, labelled as another agent's text, and the sender must be enrolled | `core/__tests__/agent-delegation.test.ts` |
+| ASI08 Cascading failures | One repair per run, bounded retries, Stop everything halts all work, the failed turn says what happens next | `core/__tests__/verify-repair.test.ts`, `core/__tests__/failure-text.test.ts` |
+| ASI09 Human-agent trust exploitation | She never claims to be human, labels what is verified and what is not, and reports a result only when a check passed | `core/__tests__/benchmark-bank.test.ts`, `core/__tests__/docs-honesty.test.ts` |
+| ASI10 Rogue agents | Governance gates every self-change; the files that decide whether she may act are protected from self-development; changes are undoable | `core/__tests__/governance-gate.test.ts`, `core/__tests__/project-governance.test.ts` |
+
 ## GitHub Secrets
 
 | Name | Use |
