@@ -804,9 +804,12 @@ function MaintenancePanel() {
   );
 }
 
+/** The week to summarise ends now; read outside the render body so the panel stays a pure function of the record. */
+const auditNow = () => Date.now();
+
 function ApprovalsAuditPanel() {
   const gov = useGovernance();
-  const summary = auditApprovals(gov.items, Date.now());
+  const summary = auditApprovals(gov.items, auditNow());
   return (
     <HudPanel
       title="This week's approvals"
