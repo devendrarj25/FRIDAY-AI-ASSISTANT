@@ -220,6 +220,12 @@ type DesktopApi = {
   onBootStep?: (cb: (s: BootStep) => void) => () => void;
   scanWorkspace?: (force?: boolean) => Promise<WorkspaceScanResult | null>;
   pickFolder?: () => Promise<string | null>;
+  realtimeOpen?: (id: string, url: string) => Promise<{ ok: boolean; error?: string }>;
+  realtimeSend?: (id: string, event: unknown) => Promise<{ ok: boolean; error?: string }>;
+  realtimeClose?: (id: string) => Promise<{ ok: boolean }>;
+  onRealtimeOpened?: (cb: (payload: { id: string }) => void) => () => void;
+  onRealtimeEvent?: (cb: (payload: { id: string; event: { type: string } }) => void) => () => void;
+  onRealtimeClosed?: (cb: (payload: { id: string; reason: string }) => void) => () => void;
   getWorkspaceRoot?: () => Promise<string | null>;
   setWorkspaceRoot?: (path: string) => Promise<string>;
   repairWorkspace?: (path?: string) => Promise<WorkspaceScanResult>;

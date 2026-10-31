@@ -793,8 +793,10 @@ function RealtimeEngineNotes() {
       {status.unavailable.map((row) => (
         <p key={row.engine}>
           {row.engine === "local-speech-to-speech" ? "Local speech-to-speech" : "Cloud realtime"}:
-          not on — {row.why}. The session protocol and its safety gate are built; the audio
-          connection is not switched on in this version.
+          not on — {row.why}.{" "}
+          {row.engine === "local-speech-to-speech"
+            ? "The session protocol, its safety gate and the connection to an engine on this PC are built; no microphone or speaker is attached to it yet."
+            : "The session protocol and its safety gate are built; a cloud connection is not available in this version."}
         </p>
       ))}
     </div>
