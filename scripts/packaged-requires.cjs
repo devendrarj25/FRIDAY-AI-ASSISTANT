@@ -116,10 +116,57 @@ function checkRequires({ root = ROOT, asarFiles }) {
   return failures;
 }
 
-// minimatch is electron-builder's own dependency, hoisted by npm. Version 3
-// exports the matcher itself; version 10 exports it as `minimatch`.
+/**
+ * The glob subset electron-builder `files` entries use: `**`, `*`, `?`, `[abc]` and `{a,b}`, with dot files
+ * matched and `/` as the only separator. Written here so the check does not depend on which minimatch major
+ * npm happened to hoist out of electron-builder.
+ */
+function globToRegExp(pattern) {
+  const text = String(pattern).replace(/^\.\//, "");
+  let out = "";
+  let braces = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "*") {
+      if (text[i + 1] === "*") {
+        i += 1;
+        if (text[i + 1] === "/") {
+          i += 1;
+          out += "(?:.*/)?";
+        } else out += ".*";
+      } else out += "[^/]*";
+    } else if (ch === "?") out += "[^/]";
+    else if (ch === "{") {
+      braces += 1;
+      out += "(?:";
+    } else if (ch === "}" && braces) {
+      braces -= 1;
+      out += ")";
+    } else if (ch === "," && braces) out += "|";
+    else if (ch === "[") {
+      const end = text.indexOf("]", i + 1);
+      if (end < 0) out += "\\[";
+      else {
+        const body = text
+          .slice(i + 1, end)
+          .replace(/^!/, "^")
+          .replace(/\\/g, "\\\\");
+        out += `[${body}]`;
+        i = end;
+      }
+    } else out += ch.replace(/[.+^$()|\\]/g, "\\$&");
+  }
+  return new RegExp(`^${out}$`);
+}
+
+// A minimatch module from electron-builder: version 3 exports the matcher itself, version 10 exports it as
+// `minimatch`. Kept for the tests that compare this file's matcher with the real one.
 function matcherFrom(loaded) {
   return typeof loaded === "function" ? loaded : loaded.minimatch;
+}
+
+function globMatches(rel, pattern) {
+  return globToRegExp(pattern).test(String(rel).split(path.sep).join("/"));
 }
 
 function filesFromPatterns(root, patterns) {
@@ -127,7 +174,6 @@ function filesFromPatterns(root, patterns) {
   const negative = patterns
     .filter((pattern) => String(pattern).startsWith("!"))
     .map((pattern) => String(pattern).slice(1));
-  const minimatch = matcherFrom(require("minimatch"));
   const matched = [];
   const skip = new Set(["node_modules", ".git", "release", ".cache", "runtime"]);
   function visit(dir) {
@@ -145,8 +191,8 @@ function filesFromPatterns(root, patterns) {
         visit(full);
         continue;
       }
-      const yes = positive.some((pattern) => minimatch(rel, pattern, { dot: true }));
-      const no = negative.some((pattern) => minimatch(rel, pattern, { dot: true }));
+      const yes = positive.some((pattern) => globMatches(rel, pattern));
+      const no = negative.some((pattern) => globMatches(rel, pattern));
       if (yes && !no) matched.push(rel);
     }
   }
@@ -240,6 +286,8 @@ module.exports = {
   checkRequires,
   filesFromPatterns,
   matcherFrom,
+  globMatches,
+  globToRegExp,
   findAsar,
   listAsar,
   formatFailure,
