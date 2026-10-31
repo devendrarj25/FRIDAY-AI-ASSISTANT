@@ -28,6 +28,7 @@ import { expertiseContext } from "./brain/expertise";
 import {
   dispatchRole,
   pickHealthyModelId,
+  describePipeline,
   planPipeline,
   recordStep,
   type Pipeline,
@@ -278,7 +279,7 @@ function routeModels(
 
   const selected = multi ? permitted.slice(0, 3) : permitted.slice(0, 1);
   const note = selected.length
-    ? `${selected.length} model(s) · ${pipeline.steps.map((step) => `${step.role}:${step.modelLabel}`).join(", ")} · ${describePolicy(policy)}`
+    ? `${selected.length} model(s) · ${describePipeline(pipeline)} · ${describePolicy(policy)}`
     : "no model available — install a local model or configure a provider";
   return { ids: selected, pipeline, note };
 }

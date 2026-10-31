@@ -21,6 +21,7 @@ import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
 import { deliverDigest } from "../proactive-digest";
 import { dreamNow } from "./dreaming";
+import { consolidateSkills, pruneSkills } from "./skill-loop";
 import { scanFolders } from "../folder-watch";
 import { refreshWatch } from "../connector-watch";
 import { listConnectors } from "../connectors";
@@ -134,6 +135,21 @@ class BackgroundTasks {
       label: "Mail and calendar",
       everyMinutes: 30,
       run: async () => (await refreshWatch(await listConnectors())).note,
+    });
+    this.register({
+      id: "skills-tidy",
+      label: "Tidy learned skills",
+      everyMinutes: 24 * 60,
+      run: async () => {
+        const merged = consolidateSkills().merged;
+        const pruned = pruneSkills();
+        const bits = [
+          merged ? `${merged} near-duplicate skill(s) merged` : "",
+          pruned.archived ? `${pruned.archived} stale skill(s) archived` : "",
+          pruned.expired ? `${pruned.expired} unvalidated candidate(s) retired` : "",
+        ].filter(Boolean);
+        return bits.length ? bits.join(", ") : "skills already tidy";
+      },
     });
     this.register({
       id: "dreaming",

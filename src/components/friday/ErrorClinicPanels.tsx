@@ -25,6 +25,12 @@ import {
   type CategoryResult,
 } from "@/lib/friday/self/benchmark-bank";
 import { EXTERNAL_BENCHMARKS } from "@/lib/friday/self/external-eval";
+import {
+  describeBankReport,
+  recordBankRun,
+  reportBank,
+  type BankReport,
+} from "@/lib/friday/self/bank-history";
 import { wilson } from "@/lib/friday/self/eval-stats";
 import { coreBrain } from "@/lib/friday/brain/core-brain";
 import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
@@ -137,6 +143,7 @@ export function BrainCheckPanel() {
   const [report, setReport] = useState<EvalReport | null>(null);
   const [suites, setSuites] = useState<SuiteReport[]>([]);
   const [bank, setBank] = useState<CategoryResult[]>([]);
+  const [bankReport, setBankReport] = useState<BankReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,7 +152,10 @@ export function BrainCheckPanel() {
     try {
       setReport(await runEvalHarness());
       setSuites(await runAllSuites());
-      setBank(await runBank());
+      const bankResults = await runBank();
+      setBankReport(reportBank(bankResults));
+      recordBankRun(bankResults);
+      setBank(bankResults);
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -204,6 +214,13 @@ export function BrainCheckPanel() {
                 Benchmark 1.0: {bank.length} of {CATEGORIES.length} categories scored here, no
                 model, no network.
               </p>
+              {bankReport
+                ? describeBankReport(bankReport).map((line) => (
+                    <p key={line} className="text-meta-sm text-muted-foreground">
+                      {line}
+                    </p>
+                  ))
+                : null}
               <ul className="grid gap-1">
                 {coverage().map((row) => {
                   const own = bank.filter((item) => item.domain === row.domain);
