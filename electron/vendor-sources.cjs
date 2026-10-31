@@ -304,6 +304,12 @@ const FEEDS = {
     asset: /^pandoc-[\d.]+-windows-x86_64\.msi$/,
     kind: "msi",
   }),
+  "Tesseract OCR": githubFeed({
+    repo: "UB-Mannheim/tesseract",
+    asset: /^tesseract-ocr-w64-setup-[\d.]+\.exe$/,
+    kind: "exe",
+    installerArgs: ["/S"],
+  }),
   "LLVM / Clang": githubFeed({
     repo: "llvm/llvm-project",
     asset: /^LLVM-[\d.]+-win64\.exe$/,

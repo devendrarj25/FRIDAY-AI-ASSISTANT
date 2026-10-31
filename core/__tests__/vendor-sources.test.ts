@@ -187,6 +187,39 @@ describe("vendor feeds", () => {
     expect(pandoc.install).toBeNull();
   });
 
+  it("Tesseract OCR: newest version from the UB-Mannheim release, installer only with a published digest", async () => {
+    const release = (digest: string | null) => ({
+      tag_name: "v5.5.0.20241111",
+      assets: [
+        {
+          name: "tesseract-ocr-w64-setup-5.5.0.20241111.exe",
+          browser_download_url:
+            "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0.20241111/t.exe",
+          size: 50_000_000,
+          ...(digest ? { digest: `sha256:${digest}` } : {}),
+        },
+      ],
+    });
+    const withDigest = network({
+      "https://api.github.com/repos/UB-Mannheim/tesseract": release(H("a")),
+    });
+    const found = await vendor.resolveFeed("Tesseract OCR", {
+      fetchImpl: withDigest.fetchImpl,
+      force: true,
+    });
+    expect(found.version).toBe("5.5.0.20241111");
+    expect(found.install?.sha256).toBe(H("a"));
+    const without = network({
+      "https://api.github.com/repos/UB-Mannheim/tesseract": release(null),
+    });
+    const bare = await vendor.resolveFeed("Tesseract OCR", {
+      fetchImpl: without.fetchImpl,
+      force: true,
+    });
+    expect(bare.version).toBe("5.5.0.20241111");
+    expect(bare.install).toBeNull();
+  });
+
   it("a feed that does not answer is no answer, and answers are cached", async () => {
     const down = network({});
     expect(await vendor.resolveFeed("Go", { fetchImpl: down.fetchImpl })).toBeNull();
