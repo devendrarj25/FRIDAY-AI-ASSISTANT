@@ -75,7 +75,17 @@ USAGE_NOTICE = "\x1eusage:"
 
 def usage_notice(prompt_tokens: object, completion_tokens: object) -> str:
     """The token counts a provider itself reported for one request, carried on the delta channel."""
-    return f"{USAGE_NOTICE}{int(prompt_tokens or 0)},{int(completion_tokens or 0)}"
+
+    def count(value: object) -> int:
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, (int, float)):
+            return max(0, int(value))
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value)
+        return 0
+
+    return f"{USAGE_NOTICE}{count(prompt_tokens)},{count(completion_tokens)}"
 
 
 def fold_stream_piece(model_id: str, delta) -> dict | None:
