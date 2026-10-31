@@ -11,6 +11,7 @@
 import { experiences, type Experience } from "./task-ledger";
 import { governance } from "./governance";
 import { memory } from "./memory-engine";
+import { routinesNow } from "./routines";
 
 export type Dream = {
   id: string;
@@ -107,5 +108,6 @@ export function fileDreams(list: readonly Dream[]): number {
 
 export function dreamNow(now = Date.now()): { found: number; filed: number } {
   const found = dreamsFrom(experiences.list(500), now);
-  return { found: found.length, filed: fileDreams(found) };
+  const routines = routinesNow(now);
+  return { found: found.length + routines.found, filed: fileDreams(found) + routines.filed };
 }
