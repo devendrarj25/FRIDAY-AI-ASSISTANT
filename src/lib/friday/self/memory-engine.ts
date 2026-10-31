@@ -66,6 +66,8 @@ export type MemoryItem = {
   /** The period the fact is true for. Outside it the record is history, not a current answer. */
   validFrom?: number;
   validUntil?: number;
+  /** Why the record stopped being current (replaced, corrected, expired), so a question about the past can say so. */
+  invalidReason?: string;
   /** Who wrote the row. A clash never erases the older provenance. */
   provenance?: string;
 };
@@ -373,6 +375,90 @@ export function validityState(
   return "current";
 }
 
+const MONTHS = [
+  "january|jan|janavari",
+  "february|feb|farvari",
+  "march|mar",
+  "april|apr",
+  "may",
+  "june|jun",
+  "july|jul",
+  "august|aug",
+  "september|sep|sept",
+  "october|oct",
+  "november|nov",
+  "december|dec",
+];
+
+/**
+ * A question about the past ("what did I decide in June", "pichhle mahine kya tay hua", "as of 2025") becomes
+ * a window. Null when the question is about now, so ordinary recall is unchanged.
+ */
+export function asOfWindow(
+  question: string,
+  now: number,
+): { from: number; to: number; label: string } | null {
+  const text = String(question || "").toLowerCase();
+  const today = new Date(now);
+  const startOfMonth = (year: number, month: number) => new Date(year, month, 1).getTime();
+  if (/\b(last month|pichh?le mahine|previous month)\b/.test(text)) {
+    const from = startOfMonth(today.getFullYear(), today.getMonth() - 1);
+    return {
+      from,
+      to: startOfMonth(today.getFullYear(), today.getMonth()) - 1,
+      label: "last month",
+    };
+  }
+  if (/\b(last year|pichh?le saal|previous year)\b/.test(text)) {
+    return {
+      from: new Date(today.getFullYear() - 1, 0, 1).getTime(),
+      to: new Date(today.getFullYear(), 0, 1).getTime() - 1,
+      label: "last year",
+    };
+  }
+  const named = text.match(
+    new RegExp(
+      `\\b(?:in|during|as of|of|on|ke)?\\s*(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?(${MONTHS.map((m) => `(?:${m})`).join("|")})\\b(?:\\s+(\\d{4}))?`,
+    ),
+  );
+  const past =
+    /\b(did i|was|were|had|decided|said|told|used to|earlier|back in|as of|tha|thi|kya tay|pehle)\b/.test(
+      text,
+    );
+  if (named && past) {
+    const index = MONTHS.findIndex((row) => new RegExp(`^(?:${row})$`).test(named[1] ?? ""));
+    if (index >= 0) {
+      let year = named[2] ? Number(named[2]) : today.getFullYear();
+      if (!named[2] && startOfMonth(year, index) > now) year -= 1;
+      return {
+        from: startOfMonth(year, index),
+        to: startOfMonth(year, index + 1) - 1,
+        label: `${named[1]} ${year}`,
+      };
+    }
+  }
+  const year = text.match(/\b(?:in|as of|during)\s+(20\d{2})\b/);
+  if (year && past) {
+    const y = Number(year[1]);
+    return {
+      from: new Date(y, 0, 1).getTime(),
+      to: new Date(y + 1, 0, 1).getTime() - 1,
+      label: String(y),
+    };
+  }
+  return null;
+}
+
+/** True when the record existed and was still the current version at some moment inside the window. */
+export function trueDuring(
+  item: Pick<MemoryItem, "createdAt" | "validFrom" | "validUntil" | "supersededAt">,
+  window: { from: number; to: number },
+): boolean {
+  const begins = item.validFrom ?? item.createdAt;
+  const ends = item.validUntil ?? item.supersededAt ?? Number.POSITIVE_INFINITY;
+  return begins <= window.to && ends > window.from;
+}
+
 class MemoryEngine {
   private items: MemoryItem[] = [];
   private listeners = new Set<() => void>();
@@ -640,13 +726,15 @@ class MemoryEngine {
    * Newest explicit record wins. The older row is archived (not deleted) so
    * provenance remains. Does not invent a resolution for weak clashes.
    */
-  supersede(oldId: string, newerId?: string): boolean {
+  supersede(oldId: string, newerId?: string, reason?: string): boolean {
     this.load();
     const older = this.items.find((item) => item.id === oldId);
     if (!older || older.source === "first-run") return false;
     const now = Date.now();
     older.tier = "archived";
     older.supersededAt = now;
+    if (older.validUntil === undefined) older.validUntil = now;
+    older.invalidReason = reason ?? (newerId ? "replaced by a newer record" : "no longer true");
     older.contradiction = false;
     older.updatedAt = now;
     if (newerId) {
@@ -744,6 +832,18 @@ class MemoryEngine {
   }
 
   /** Context injected before planning. Marks the hits as used. */
+  /** What was true during a past window, including records since replaced. Reads only; it never counts as a use. */
+  retrieveAsOf(
+    query: string,
+    window: { from: number; to: number },
+    k = 6,
+  ): { item: MemoryItem; score: number }[] {
+    this.load();
+    if (!retrievalTerms(query).length) return [];
+    const pool = this.items.filter((i) => !i.projectId && trueDuring(i, window));
+    return rankByRetrieval(pool, query, memorySignals, { k, minScore: 0.22, taskHint: query });
+  }
+
   retrieve(
     query: string,
     k = 6,
