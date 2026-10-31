@@ -486,9 +486,32 @@ class ToolRegistry:
                 roots.append(resolved)
         return roots
 
+    def read_only_roots(self) -> list[Path]:
+        """Folders the owner marked ``read_only_roots``: nothing is written inside them, workspace or not."""
+        try:
+            wanted = self.storage.settings().get("read_only_roots")
+        except Exception:
+            wanted = None
+        out: list[Path] = []
+        for item in wanted if isinstance(wanted, list) else []:
+            if isinstance(item, (str, Path)) and str(item).strip():
+                try:
+                    out.append(Path(item).resolve())
+                except OSError:
+                    continue
+        return out
+
     def _resolve(self, rel: str) -> Path:
         """Where a write-capable tool may work: the workspace, or an absolute path inside a folder the
-        owner listed in ``write_roots``. A credential file or the security folder is never a target."""
+        owner listed in ``write_roots``. A credential file or the security folder is never a target, and
+        neither is anything inside a folder he marked read-only."""
+        target = self._resolve_target(rel)
+        for locked in self.read_only_roots():
+            if target == locked or locked in target.parents:
+                raise PermissionError(f"{locked.name or locked} is marked read-only, so nothing is written there")
+        return target
+
+    def _resolve_target(self, rel: str) -> Path:
         if not Path(str(rel)).is_absolute():
             return self._resolve_workspace(rel)
         target = Path(str(rel)).resolve()

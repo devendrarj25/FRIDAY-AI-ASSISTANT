@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { autonomy, type AutonomySettings } from "@/lib/friday/self/autonomy";
 import { governance, type GovItem } from "@/lib/friday/self/governance";
+import { auditApprovals, describeAudit } from "@/lib/friday/self/approvals-audit";
 import { autonomousCore } from "@/lib/friday/self/autonomous-core";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { self } from "@/lib/friday/self/self-manager";
@@ -803,6 +804,39 @@ function MaintenancePanel() {
   );
 }
 
+function ApprovalsAuditPanel() {
+  const gov = useGovernance();
+  const summary = auditApprovals(gov.items, Date.now());
+  return (
+    <HudPanel
+      title="This week's approvals"
+      hint="what she asked, what was allowed, what was undone"
+    >
+      <div className="grid gap-2">
+        {describeAudit(summary).map((line) => (
+          <p key={line} className="text-data text-foreground">
+            {line}
+          </p>
+        ))}
+        {summary.recent.length ? (
+          <ul className="grid gap-1">
+            {summary.recent.map((row) => (
+              <li key={`${row.at}-${row.title}`} className="text-data text-muted-foreground">
+                {new Date(row.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}{" "}
+                · {row.title} — {row.outcome}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p className="text-meta-sm text-muted-foreground">
+          Counts come from the approval record only. A change that was applied can be undone from
+          the gate above while its checkpoint is kept.
+        </p>
+      </div>
+    </HudPanel>
+  );
+}
+
 export function SelfAutonomyPanels() {
   useSecondsTick(15);
 
@@ -814,6 +848,7 @@ export function SelfAutonomyPanels() {
         <BackgroundPanel />
       </div>
       <GovernancePanel />
+      <ApprovalsAuditPanel />
       <MaintenancePanel />
     </>
   );

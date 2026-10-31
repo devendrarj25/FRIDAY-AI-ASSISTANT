@@ -9,6 +9,7 @@ import { usePreferences } from "@/lib/friday/use-preferences";
 import { desktopApi, revealWorkspaceFolder, useWorkspaceRootState } from "@/lib/friday/desktop";
 import { useKernelStatus } from "@/lib/friday/use-kernel-status";
 import { doctor } from "@/lib/friday/doctor-engine";
+import { FolderAccessSettings } from "@/components/friday/settings/FolderAccessSettings";
 type EncryptionBridge = {
   encryptionStatus?: () => Promise<{ available: boolean } | null>;
 };
@@ -30,111 +31,119 @@ export function SecuritySettings() {
   }, []);
 
   return (
-    <HudPanel title="Friday Security">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <StatusPill
-          label={
-            encryption == null
-              ? "encryption: desktop app"
-              : encryption.available
-                ? "OS encryption available"
-                : "OS encryption unavailable"
-          }
-          tone={encryption?.available ? "accent" : "warning"}
+    <div className="grid gap-4">
+      <HudPanel title="Friday Security">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <StatusPill
+            label={
+              encryption == null
+                ? "encryption: desktop app"
+                : encryption.available
+                  ? "OS encryption available"
+                  : "OS encryption unavailable"
+            }
+            tone={encryption?.available ? "accent" : "warning"}
+          />
+        </div>
+        <p className="mb-3 text-note text-muted-foreground">
+          Secrets are always stored with Electron safeStorage when this PC provides it. The toggle
+          below does not turn OS encryption off — it refuses to keep new secrets if encryption is
+          missing.
+        </p>
+        <ToggleRow
+          label="Refuse new secrets when OS encryption is unavailable"
+          on={isOn("encryption")}
+          onToggle={() => flip("encryption")}
         />
-      </div>
-      <p className="mb-3 text-note text-muted-foreground">
-        Secrets are always stored with Electron safeStorage when this PC provides it. The toggle
-        below does not turn OS encryption off — it refuses to keep new secrets if encryption is
-        missing.
-      </p>
-      <ToggleRow
-        label="Refuse new secrets when OS encryption is unavailable"
-        on={isOn("encryption")}
-        onToggle={() => flip("encryption")}
-      />
-      <p className="mb-2 text-note text-muted-foreground">
-        Outbound calls always use TLS. FRIDAY will not send secrets over plain HTTP.
-      </p>
-      <ToggleRow
-        label="Windows Hello / biometric unlock"
-        on={isOn("biometric")}
-        onToggle={() => {
-          toast.info(
-            "Windows Hello is not wired on this build. Use session lock below to cover the console when idle.",
-          );
-          flip("biometric");
-        }}
-      />
-      <ToggleRow
-        label="Lock FRIDAY after the session timeout"
-        on={isOn("autoLock")}
-        onToggle={() => flip("autoLock")}
-      />
-      <ToggleRow
-        label="Mask API keys and tokens in the UI"
-        on={isOn("maskSecrets")}
-        onToggle={() => flip("maskSecrets")}
-      />
-      <ToggleRow
-        label="Block outbound requests to unapproved hosts"
-        on={isOn("blockUnknownHosts")}
-        onToggle={() => flip("blockUnknownHosts")}
-      />
-      <p className="mt-1 text-note text-muted-foreground">
-        Off keeps the two-tier privacy firewall (sensitive always stops; connected providers send
-        ordinary chat). On, destinations that are not already connected are denied instead of asked.
-      </p>
-      <ToggleRow
-        label="Keep an audit log of every tool call"
-        on={isOn("auditLog")}
-        onToggle={() => flip("auditLog")}
-      />
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <EditField
-          label="Session timeout (minutes)"
-          value={field("sessionTimeout") || "30"}
-          onChange={(value) => preferences.setField("sessionTimeout", value.replace(/[^\d]/g, ""))}
-        />
-        <Field label="Kernel bridge" value={kernelStatus.host} />
-        <Field label="Workspace root" value={workspaceRoot || "unknown"} />
-        <Field label="Data directory" value={kernelStatus.dataDir} />
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => window.dispatchEvent(new Event("friday.session-lock"))}
-        >
-          Lock now
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            void doctor
-              .scan({ deep: true })
-              .then(() => {
-                const checks = doctor.getSnapshot().checks ?? [];
-                const bad = checks.filter(
-                  (c) => c.status !== "Ready" && c.status !== "Running",
-                ).length;
-                toast.success(bad ? `${bad} check(s) need attention` : "All checks passed");
-              })
-              .catch((error) =>
-                toast.error(`Security check failed — ${String((error as Error).message ?? error)}`),
-              )
-              .finally(() => setBusy(false));
+        <p className="mb-2 text-note text-muted-foreground">
+          Outbound calls always use TLS. FRIDAY will not send secrets over plain HTTP.
+        </p>
+        <ToggleRow
+          label="Windows Hello / biometric unlock"
+          on={isOn("biometric")}
+          onToggle={() => {
+            toast.info(
+              "Windows Hello is not wired on this build. Use session lock below to cover the console when idle.",
+            );
+            flip("biometric");
           }}
-        >
-          <ShieldCheck className="size-4" /> Run security check
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => revealWorkspaceFolder("logs")}>
-          <FolderOpen className="size-4" /> Open audit logs
-        </Button>
-      </div>
-    </HudPanel>
+        />
+        <ToggleRow
+          label="Lock FRIDAY after the session timeout"
+          on={isOn("autoLock")}
+          onToggle={() => flip("autoLock")}
+        />
+        <ToggleRow
+          label="Mask API keys and tokens in the UI"
+          on={isOn("maskSecrets")}
+          onToggle={() => flip("maskSecrets")}
+        />
+        <ToggleRow
+          label="Block outbound requests to unapproved hosts"
+          on={isOn("blockUnknownHosts")}
+          onToggle={() => flip("blockUnknownHosts")}
+        />
+        <p className="mt-1 text-note text-muted-foreground">
+          Off keeps the two-tier privacy firewall (sensitive always stops; connected providers send
+          ordinary chat). On, destinations that are not already connected are denied instead of
+          asked.
+        </p>
+        <ToggleRow
+          label="Keep an audit log of every tool call"
+          on={isOn("auditLog")}
+          onToggle={() => flip("auditLog")}
+        />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <EditField
+            label="Session timeout (minutes)"
+            value={field("sessionTimeout") || "30"}
+            onChange={(value) =>
+              preferences.setField("sessionTimeout", value.replace(/[^\d]/g, ""))
+            }
+          />
+          <Field label="Kernel bridge" value={kernelStatus.host} />
+          <Field label="Workspace root" value={workspaceRoot || "unknown"} />
+          <Field label="Data directory" value={kernelStatus.dataDir} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.dispatchEvent(new Event("friday.session-lock"))}
+          >
+            Lock now
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void doctor
+                .scan({ deep: true })
+                .then(() => {
+                  const checks = doctor.getSnapshot().checks ?? [];
+                  const bad = checks.filter(
+                    (c) => c.status !== "Ready" && c.status !== "Running",
+                  ).length;
+                  toast.success(bad ? `${bad} check(s) need attention` : "All checks passed");
+                })
+                .catch((error) =>
+                  toast.error(
+                    `Security check failed — ${String((error as Error).message ?? error)}`,
+                  ),
+                )
+                .finally(() => setBusy(false));
+            }}
+          >
+            <ShieldCheck className="size-4" /> Run security check
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => revealWorkspaceFolder("logs")}>
+            <FolderOpen className="size-4" /> Open audit logs
+          </Button>
+        </div>
+      </HudPanel>
+      <FolderAccessSettings />
+    </div>
   );
 }

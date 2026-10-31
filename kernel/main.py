@@ -21,6 +21,7 @@ from typing import Any
 
 import devices_network
 import embedder
+import folder_access
 import folder_watch
 import run_trace
 import uvicorn
@@ -1038,7 +1039,13 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "settings.get":
         return {"settings": storage.settings()}
     if method == "settings.set":
-        result = storage.set_setting(params["key"], params["value"])
+        value = params["value"]
+        if params["key"] in folder_access.KEYS:
+            try:
+                value = folder_access.normalise(params["key"], value)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        result = storage.set_setting(params["key"], value)
         planner.apply_live_setting(str(params.get("key", "")), params.get("value"))
         return result
     if method == "workspace.get":
