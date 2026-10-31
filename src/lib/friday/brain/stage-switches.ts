@@ -18,6 +18,14 @@ export const MEASURABLE_STAGES = [
 
 export type MeasurableStage = (typeof MEASURABLE_STAGES)[number];
 
+/** The stages that bring stored memory into a turn: switch these off to ask "does memory help". */
+export const MEMORY_STAGES: readonly MeasurableStage[] = [
+  "vector-index",
+  "knowledge-recall",
+  "memory-retrieve",
+  "context-recall",
+];
+
 const off = new Set<MeasurableStage>();
 
 export function stageOff(stage: MeasurableStage): boolean {
