@@ -63,7 +63,13 @@ import { everydayPlan } from "./everyday";
 import { shapeReply, type TalkLevel, type Warmth } from "./response-policy";
 import { understandTurn, toUnderstandingTrace } from "./brain/intent-engine";
 import { decideAction } from "./brain/decision-engine";
-import { bindActiveGraph, persistAndResetConversation } from "./brain/conversation-state";
+import {
+  bindActiveGraph,
+  clearCorrectionStreak,
+  noteCommitment,
+  persistAndResetConversation,
+} from "./brain/conversation-state";
+import { promisesIn } from "./brain/commitments";
 import { noteObserve, observeBrain } from "./brain/observe";
 import { affect } from "./brain/affect";
 import { currentPolicy } from "./brain/cost-policy";
@@ -1087,6 +1093,9 @@ class BrainStore {
       // named. `tryRepair` returns true only when that retry is under way.
       const settle = () => {
         if (this.tryRepair(run, event.modelId ?? null)) return;
+        // The answer was accepted: a run of corrections is over, and a promise in it is kept as a commitment.
+        clearCorrectionStreak();
+        for (const promise of promisesIn(run.answer)) noteCommitment(promise);
         run.agents.forEach((agent) => {
           agent.state = "done";
           agent.output = run.answer;

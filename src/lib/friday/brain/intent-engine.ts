@@ -16,6 +16,7 @@ import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
 import { currentTopic } from "./topic-state";
 import { resolveContext, type ChatTurn, type ResolvedContext } from "./context-engine";
+import { noteConstraint } from "./conversation-state";
 import { ownerContextDigest } from "./identity";
 import { userProfileDigest } from "./user-profile";
 import { readPromptSignals } from "./affect";
@@ -477,6 +478,8 @@ function understandTurnBody(
       ? context.resolved
       : resolvePointer(literal, currentTopic());
   const resolvedIntent = understand(conversationResolved);
+  // A limit the owner named ("sirf free models", "5 minute me") is held for the rest of the talk, not only this turn.
+  if (input.observe !== false && resolvedIntent.constraints.length) noteConstraint(literal);
   const move = conversationalMove(literal);
   resolvedIntent.conversationalMove = move;
   const inferred = inferUnderlyingGoal(literal, context);
