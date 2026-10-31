@@ -30,7 +30,9 @@ import {
   routeRefs,
   type RoutingTask,
 } from "./model-catalog";
-import { checkAnswer, feedbackFor } from "./brain/answer-checks";
+import { checkAnswer, feedbackFor, type CheckFailure } from "./brain/answer-checks";
+import { checkWithTools, claimedFiles, toolChecksFor } from "./brain/tool-checks";
+import { sandboxToolPort } from "./sandbox-agent";
 import { compactHistory } from "./brain/history-compact";
 import { QUICK_SYSTEM, quickLaneEligible } from "./brain/quick-lane";
 import { askFriday, canAsk } from "./ask";
@@ -212,6 +214,7 @@ export function withRoutingDefaults(options: {
 }
 
 import { taskGraph } from "./self/task-graph";
+import { autonomy } from "./self/autonomy";
 import {
   handleQueueCommand,
   considerLongTask,
@@ -1082,13 +1085,19 @@ class BrainStore {
       // final word while another engine can still do better: the turn is
       // re-dispatched once to an alternative engine with the exact defects
       // named. `tryRepair` returns true only when that retry is under way.
-      if (this.tryRepair(run, event.modelId ?? null)) return;
-      run.agents.forEach((agent) => {
-        agent.state = "done";
-        agent.output = run.answer;
-      });
-      this.finish(run);
-      this.activeRequestId = null;
+      const settle = () => {
+        if (this.tryRepair(run, event.modelId ?? null)) return;
+        run.agents.forEach((agent) => {
+          agent.state = "done";
+          agent.output = run.answer;
+        });
+        this.finish(run);
+        this.activeRequestId = null;
+      };
+      // Tool-backed checks (run the code block the ask wanted, look for the file the answer says it made) come
+      // first, but only when the ask or the answer calls for one and the owner's dial lets the sandbox run.
+      if (this.toolCheckApplies(run)) void this.runToolChecks(run).then(settle, settle);
+      else settle();
     });
     window.friday.onChatError?.((event) => {
       if (event.requestId !== this.activeRequestId) return;
@@ -1195,6 +1204,37 @@ class BrainStore {
    * different engine exists — otherwise the same answer would simply be paid
    * for twice. Returns true when a repair pass has been dispatched.
    */
+  /** Failures found by tools for a run (code that did not run, a file that is not there), until it is repaired. */
+  private toolFailures = new Map<string, CheckFailure[]>();
+
+  private toolCheckApplies(run: Run): boolean {
+    const entry = this.lastCognition?.runId === run.id ? this.lastCognition : null;
+    if (!entry || this.repairedRuns.has(run.id)) return false;
+    const wanted =
+      toolChecksFor(entry.cognition.prompt).length > 0 || claimedFiles(run.answer).length > 0;
+    if (!wanted) return false;
+    const dial = autonomy.getSnapshot();
+    return Boolean(sandboxToolPort(dial.approvalLevel, dial.halted));
+  }
+
+  private async runToolChecks(run: Run): Promise<void> {
+    const entry = this.lastCognition?.runId === run.id ? this.lastCognition : null;
+    if (!entry) return;
+    const dial = autonomy.getSnapshot();
+    try {
+      const out = await checkWithTools(
+        entry.cognition.prompt,
+        run.answer,
+        sandboxToolPort(dial.approvalLevel, dial.halted),
+      );
+      if (out.failures.length) this.toolFailures.set(run.id, out.failures);
+      else this.toolFailures.delete(run.id);
+      if (out.checked.length) this.push("info", `checked by tools: ${out.checked.join(", ")}`);
+    } catch {
+      /* a tool that could not run is a check not made, never a reason to fail the answer */
+    }
+  }
+
   private tryRepair(run: Run, answeredBy: string | null): boolean {
     if (typeof window === "undefined") return false;
     const desktop = window.friday;
@@ -1203,11 +1243,16 @@ class BrainStore {
     if (!entry) return false;
 
     const verification = coreBrain.verify(entry.cognition, run.answer, true);
-    const broken = checkAnswer(entry.cognition.prompt, run.answer).failures.filter(
-      (failure) => failure.id !== "identity",
-    );
+    const fromTools = this.toolFailures.get(run.id) ?? [];
+    this.toolFailures.delete(run.id);
+    const broken = [
+      ...checkAnswer(entry.cognition.prompt, run.answer).failures.filter(
+        (failure) => failure.id !== "identity",
+      ),
+      ...fromTools,
+    ];
     const { repair, alternatives, sameEngine } = planRepair({
-      verified: verification.ok,
+      verified: verification.ok && fromTools.length === 0,
       alreadyRepaired: this.repairedRuns.has(run.id),
       candidates: entry.cognition.modelIds,
       answeredBy,

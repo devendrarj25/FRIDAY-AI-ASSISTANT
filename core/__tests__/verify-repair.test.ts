@@ -110,3 +110,28 @@ describe("how hard a steerable model is asked to think", () => {
     expect(["medium", "high"]).toContain(hard.reasoningEffort);
   });
 });
+
+describe("a failure found by a tool is a reason to repair, like a counted miss", () => {
+  it("repairs on the same engine when the code did not run and nothing else is eligible", () => {
+    const plan = planRepair({
+      verified: false, // verification.ok and no tool failures: here a tool failure made it false
+      alreadyRepaired: false,
+      candidates: ["local-a"],
+      answeredBy: "local-a",
+      deterministic: true, // tool failures are exact: a program that did not run, a file that is not there
+    });
+    expect(plan).toMatchObject({ repair: true, sameEngine: true });
+  });
+
+  it("does not repair twice", () => {
+    expect(
+      planRepair({
+        verified: false,
+        alreadyRepaired: true,
+        candidates: ["a", "b"],
+        answeredBy: "a",
+        deterministic: true,
+      }).repair,
+    ).toBe(false);
+  });
+});
