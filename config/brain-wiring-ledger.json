@@ -1,0 +1,21 @@
+{
+  "about": "Exports in src/lib/friday/brain and self that no production file references. Each one is either pinned by a test or listed here with the reason. The list may only shrink.",
+  "pending": {
+    "brain/agent-forge.ts::recentAgentGapDrafts": "read-only accessor for the drafts list; Self-management has no drafts panel yet",
+    "brain/module-forge.ts::recentModuleGapDrafts": "read-only accessor for the drafts list; Self-management has no drafts panel yet",
+    "brain/plugin-forge.ts::recentPluginGapDrafts": "read-only accessor for the drafts list; Self-management has no drafts panel yet",
+    "brain/workflow-forge.ts::recentWorkflowGapDrafts": "read-only accessor for the drafts list; Self-management has no drafts panel yet",
+    "brain/plugin-forge.ts::pluginForgeAvailable": "capability probe; the forge checks the bridge itself before it writes",
+    "brain/workflow-forge.ts::workflowForgeAvailable": "capability probe; the forge checks the bridge itself before it writes",
+    "brain/cognitive-baseline.ts::baselineAlreadyInstalled": "idempotence probe; install guards itself by tag",
+    "brain/cognitive-runtime.ts::lastMark": "per-turn mark accessor for a future turn-detail view",
+    "brain/module-router.ts::lastModuleScoredCount": "router diagnostics counter; shown nowhere yet",
+    "brain/module-router.ts::setModuleInvokeHost": "host seam for a module runner that does not exist on this build",
+    "brain/tool-router.ts::lastToolScoredCount": "router diagnostics counter; shown nowhere yet",
+    "brain/self-diagnosis.ts::lastSourceHealth": "cache accessor for a source-health row in Doctor",
+    "brain/skill-router.ts::routeSkill": "single-skill form of routeSkills, kept for callers that want one",
+    "self/dev-pipeline.ts::devBaseline": "baseline accessor for the dev check panel",
+    "self/horizon-goals.ts::noteHorizonBlocker": "needs a blocker signal from the task runner that does not emit one yet",
+    "self/maintenance-bridge.ts::listSource": "bridge wrapper for a source browser; Self-management has none yet"
+  }
+}
