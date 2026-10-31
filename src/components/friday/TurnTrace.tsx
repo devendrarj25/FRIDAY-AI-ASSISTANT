@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { lastDecision } from "@/lib/friday/brain/decision-trace";
 import { useBrain } from "@/lib/friday/use-brain";
 import { lanesFromSteps, type TraceLaneView } from "@/lib/friday/brain/turn-trace";
+import { buildRunTrace } from "@/lib/friday/brain/run-trace";
 import { chatEvents, chatTurnGraph, rememberRun } from "@/lib/friday/flow-modes";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 import { modelRegistry } from "@/lib/friday/model-registry";
@@ -31,6 +32,9 @@ export function TurnTrace({ runId }: { runId: string }) {
   const isFailed = lanes.some((l) => l.failed);
 
   if (!lanes.length && !isRunning) return null;
+
+  // The turn clock's own record of this run: the three slowest stages, from the redacted run trace.
+  const slowest = [...buildRunTrace(runId).stages].sort((a, b) => b.ms - a.ms).slice(0, 3);
 
   const latestStep = steps[steps.length - 1];
   const totalMs = lanes.reduce((sum, l) => sum + (l.ms ?? 0), 0);
@@ -141,6 +145,14 @@ export function TurnTrace({ runId }: { runId: string }) {
               ))}
             </div>
           )}
+          {slowest.length ? (
+            <p className="mt-2 border-t border-primary/15 pt-2 text-meta-sm text-muted-foreground">
+              Slowest stages:{" "}
+              {slowest
+                .map((row) => `${row.stage} ${row.ms}ms${row.failed ? " (failed)" : ""}`)
+                .join(" · ")}
+            </p>
+          ) : null}
         </PopoverContent>
       </Popover>
     </div>
