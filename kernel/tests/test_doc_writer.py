@@ -143,3 +143,70 @@ def test_the_planner_can_find_the_new_tools(tmp_path: Path) -> None:
     assert "fs.make" in [t["name"] for t in registry.shortlist("make a Word document report")]
     assert "media.convert" in [t["name"] for t in registry.shortlist("convert this video to webm")]
     assert "media.probe" in [t["name"] for t in registry.shortlist("how long is this video")]
+
+
+HINDI = {
+    "title": "रिपोर्ट Report",
+    "blocks": [
+        {"type": "heading", "level": 1, "text": "सारांश"},
+        {"type": "paragraph", "text": "यह एक हिंदी paragraph है. Brace { and \\ slash stay."},
+        {"type": "bullets", "items": ["पहला", "second"]},
+        {"type": "numbered", "items": ["एक", "two"]},
+        {"type": "table", "rows": [["नाम", "Qty"], ["पेन", 3]], "header": True},
+        {"type": "code", "text": "print('hi')"},
+    ],
+}
+
+
+@pytest.mark.parametrize("name", ["note.odt", "note.epub"])
+def test_odf_and_epub_keep_every_character_and_are_well_formed(tmp_path: Path, name: str) -> None:
+    out = make(tmp_path, name, HINDI)
+    assert out["ok"] and out["warnings"] == []
+    path = tmp_path / name
+    with zipfile.ZipFile(path) as archive:
+        first = archive.infolist()[0]
+        assert first.filename == "mimetype" and first.compress_type == zipfile.ZIP_STORED
+        import xml.etree.ElementTree as ET
+
+        for part in archive.namelist():
+            if part.endswith((".xml", ".opf", ".xhtml")):
+                ET.fromstring(archive.read(part))  # noqa: S314 - bytes this test just made
+    text = file_tools.extract_text(path)["text"]
+    for word in ("रिपोर्ट", "सारांश", "हिंदी", "पहला", "पेन", "second"):
+        assert word in text
+
+
+def test_rtf_escapes_unicode_and_control_characters(tmp_path: Path) -> None:
+    out = make(tmp_path, "note.rtf", HINDI)
+    assert out["ok"]
+    raw = (tmp_path / "note.rtf").read_bytes()
+    assert raw.isascii() and raw.startswith(b"{\\rtf1")
+    body = raw.decode("ascii")
+    assert "\\u2352?" in body  # र
+    assert "Brace \\{ and \\\\ slash" in body
+    assert body.count("{") - body.count("\\{") == body.count("}") - body.count("\\}")
+    emoji = make(tmp_path, "emoji.rtf", {"blocks": [{"type": "paragraph", "text": "ok 😀"}]})
+    assert emoji["ok"] and "\\u-10179?\\u-8704?" in (tmp_path / "emoji.rtf").read_text()
+
+
+def test_the_new_kinds_are_listed_and_checked() -> None:
+    for kind in ("rtf", "odt", "epub"):
+        assert kind in doc_writer.KINDS
+    assert doc_writer.render("epub", {"blocks": [{"type": "paragraph", "text": "x"}], "language": "hi"})[0][:2] == b"PK"
+
+
+def test_rtf_reads_back_through_the_same_extractor(tmp_path: Path) -> None:
+    make(tmp_path, "note.rtf", HINDI)
+    got = file_tools.extract_text(tmp_path / "note.rtf")
+    assert got["ok"] and got["kind"] == "rtf"
+    for word in ("रिपोर्ट", "सारांश", "हिंदी", "पेन", "Brace { and \\ slash stay."):
+        assert word in got["text"], word
+    assert "Calibri" not in got["text"] and "fonttbl" not in got["text"]
+    make(tmp_path, "emoji.rtf", {"blocks": [{"type": "paragraph", "text": "ok 😀"}]})
+    assert "😀" in file_tools.extract_text(tmp_path / "emoji.rtf")["text"]
+
+
+def test_identify_names_the_new_kinds(tmp_path: Path) -> None:
+    for name, kind in (("a.odt", "odt"), ("a.epub", "epub"), ("a.rtf", "rtf")):
+        make(tmp_path, name, HINDI)
+        assert file_tools.identify(tmp_path / name)["kind"] == kind
