@@ -15,6 +15,7 @@
  * exact same pending queue.
  */
 
+import { familyOf, noteDecision } from "./suggestion-feedback";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { autonomy } from "./autonomy";
 import { memory } from "./memory-engine";
@@ -426,12 +427,17 @@ class Governance {
     const resolve = this.waiting.get(id);
     if (resolve) {
       this.waiting.delete(id);
+      const asked = this.get(id);
+      const family = asked ? familyOf(asked.id, asked.title) : null;
+      if (family) noteDecision(family, allow);
       resolve(allow);
       return;
     }
     // Item is queued but not awaiting a live promise (e.g. after a restart).
     const item = this.get(id);
     if (!item) return;
+    const family = familyOf(item.id, item.title);
+    if (family) noteDecision(family, allow);
     this.patch(
       id,
       { stage: allow ? "proposed" : "rejected" },
