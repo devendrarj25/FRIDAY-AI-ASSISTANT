@@ -2861,6 +2861,7 @@ async function streamOnce(args) {
       ok: Boolean(result?.ok),
       cancelled: Boolean(result?.cancelled),
       blocked: Boolean(result?.blocked),
+      ...(result?.usage ? { usage: result.usage } : {}),
     });
   } catch (error) {
     log(`model usage was not recorded: ${error?.message || error}`);
@@ -2902,6 +2903,8 @@ async function streamOnceRaw({
     let ready = false;
     let received = false;
     let collected = "";
+    // What the provider itself reported for this request, summed over any tool rounds.
+    let reportedUsage = null;
 
     const startedAt = Date.now();
     let socket;
@@ -2935,7 +2938,12 @@ async function streamOnceRaw({
       } catch {
         /* already closed */
       }
-      resolve({ latencyMs: Date.now() - startedAt, text: collected, ...result });
+      resolve({
+        latencyMs: Date.now() - startedAt,
+        text: collected,
+        ...(reportedUsage ? { usage: reportedUsage } : {}),
+        ...result,
+      });
     }
 
     socket.addEventListener("open", () => {
@@ -2994,6 +3002,16 @@ async function streamOnceRaw({
           if (message.data?.error) {
             done({ ok: false, received, error: message.data.error });
             return;
+          }
+          if (message.data?.usage) {
+            const prompt = Number(message.data.usage.promptTokens) || 0;
+            const completion = Number(message.data.usage.completionTokens) || 0;
+            if (prompt > 0 || completion > 0) {
+              reportedUsage = {
+                promptTokens: (reportedUsage?.promptTokens || 0) + prompt,
+                completionTokens: (reportedUsage?.completionTokens || 0) + completion,
+              };
+            }
           }
           if (message.data?.tool && !collect) {
             const name = String(message.data.tool).slice(0, 120);

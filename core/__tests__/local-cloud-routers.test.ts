@@ -112,7 +112,11 @@ describe("provider handlers", () => {
     expect(mapped.category).toBe("invalid_key");
     expect(JSON.stringify(mapped)).not.toMatch(/sk-/);
     for (const handler of handlers.listHandlers()) {
-      if (handler.kind === "cloud") expect(handler.baseUrl()).toMatch(/^https:\/\//);
+      // The generic OpenAI-compatible provider has no built-in address on purpose: the owner enters one,
+      // and the endpoint check (https, or localhost) applies to what he enters.
+      if (handler.kind === "cloud" && handler.id === "openai-compatible") {
+        expect(handler.baseUrl()).toBe("");
+      } else if (handler.kind === "cloud") expect(handler.baseUrl()).toMatch(/^https:\/\//);
       if (handler.kind === "local" && handler.id !== "mlx" && handler.id !== "local") {
         expect(handler.baseUrl()).toMatch(/^http:\/\/127\.0\.0\.1/);
       }
@@ -361,5 +365,14 @@ describe("single funnel", () => {
     // The chat model leads, the other local model is the next fallback, and
     // verified free cloud is last. Paid never joins the list.
     expect(talking.candidates).toEqual([chatty.id, coder.id, FREE.id]);
+  });
+});
+
+describe("the generic OpenAI-compatible provider", () => {
+  it("is a connector, not an unsupported entry", async () => {
+    const { UNSUPPORTED_CLOUD } = await import("../../src/lib/friday/model-catalog");
+    expect(UNSUPPORTED_CLOUD.has("openai-compatible")).toBe(false);
+    expect(UNSUPPORTED_CLOUD.has("azure-openai")).toBe(true);
+    expect(handlers.getHandler("openai-compatible").id).toBe("openai-compatible");
   });
 });

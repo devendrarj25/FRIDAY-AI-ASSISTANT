@@ -70,6 +70,12 @@ def openai_frame_text(frame: dict) -> str | None:
 
 # A tool notice is not answer text. The record separator never appears in a reply.
 TOOL_NOTICE = "\x1etool:"
+USAGE_NOTICE = "\x1eusage:"
+
+
+def usage_notice(prompt_tokens: object, completion_tokens: object) -> str:
+    """The token counts a provider itself reported for one request, carried on the delta channel."""
+    return f"{USAGE_NOTICE}{int(prompt_tokens or 0)},{int(completion_tokens or 0)}"
 
 
 def fold_stream_piece(model_id: str, delta) -> dict | None:
@@ -79,6 +85,17 @@ def fold_stream_piece(model_id: str, delta) -> dict | None:
         if not name:
             return None
         return {"modelId": model_id, "tool": name}
+    if isinstance(delta, str) and delta.startswith(USAGE_NOTICE):
+        try:
+            prompt_tokens, completion_tokens = (int(x) for x in delta[len(USAGE_NOTICE) :].split(",", 1))
+        except ValueError:
+            return None
+        if prompt_tokens < 0 or completion_tokens < 0 or not (prompt_tokens or completion_tokens):
+            return None
+        return {
+            "modelId": model_id,
+            "usage": {"promptTokens": prompt_tokens, "completionTokens": completion_tokens},
+        }
     if delta is None or delta == "":
         return None
     return {"modelId": model_id, "delta": delta}
@@ -1274,7 +1291,7 @@ class ModelRouter:
                         **effort_kw,
                     ):
                         piece = fold_stream_piece(model.id, delta)
-                        if piece and piece.get("tool") and not piece.get("delta"):
+                        if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
                             yield piece
                             continue
                         produced = True
@@ -1307,7 +1324,7 @@ class ModelRouter:
                     **effort_kw,
                 ):
                     piece = fold_stream_piece(model.id, delta)
-                    if piece and piece.get("tool") and not piece.get("delta"):
+                    if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
                         await queue.put(piece)
                         continue
                     if piece:
@@ -1347,7 +1364,7 @@ class ModelRouter:
                         **effort_kw,
                     ):
                         piece = fold_stream_piece(model.id, delta)
-                        if piece and piece.get("tool") and not piece.get("delta"):
+                        if piece and (piece.get("tool") or piece.get("usage")) and not piece.get("delta"):
                             yield piece
                             continue
                         produced = True
@@ -1457,6 +1474,7 @@ class ModelRouter:
             if thinking.active:
                 reasoning_control.anthropic_fields(thinking, body)
             blocks: dict[int, dict] = {}
+            usage_in = usage_out = 0
             answered = False
             # nullcontext keeps the shared client alive across requests: unlike
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
@@ -1470,6 +1488,10 @@ class ModelRouter:
                         payload = _json.loads(line[6:])
                         kind = payload.get("type")
                         index = int(payload.get("index", 0))
+                        if kind == "message_start":
+                            usage_in = int(((payload.get("message") or {}).get("usage") or {}).get("input_tokens") or 0)
+                        elif kind == "message_delta":
+                            usage_out = int((payload.get("usage") or {}).get("output_tokens") or 0)
                         if kind == "content_block_start":
                             block = payload.get("content_block") or {}
                             keeper.anthropic_start(index, block)
@@ -1489,6 +1511,8 @@ class ModelRouter:
                             partial = delta.get("partial_json")
                             if partial is not None and index in blocks:
                                 blocks[index]["arguments"] += partial
+            if usage_in or usage_out:
+                yield usage_notice(usage_in, usage_out)
             if not blocks:
                 return
             requested = [blocks[i] for i in sorted(blocks)]
@@ -1630,7 +1654,10 @@ class ModelRouter:
             keeper = reasoning_control.ThinkingKeeper()
             if thinking.active:
                 reasoning_control.openai_fields(thinking, body)
+            if "api.openai.com" in url or "openrouter.ai" in url:
+                body["stream_options"] = {"include_usage": True}
             calls: dict[int, dict] = {}
+            usage_seen: tuple[object, object] | None = None
             answered = False
             attempt = 0
             while True:
@@ -1653,6 +1680,11 @@ class ModelRouter:
                                 problem = frame.get("error")
                                 if problem:
                                     raise RuntimeError(_frame_error(model, problem))
+                                reported = frame.get("usage")
+                                if isinstance(reported, dict) and (
+                                    reported.get("prompt_tokens") or reported.get("completion_tokens")
+                                ):
+                                    usage_seen = (reported.get("prompt_tokens"), reported.get("completion_tokens"))
                                 delta = openai_frame_text(frame)
                                 piece = (frame.get("choices") or [{}])[0].get("delta") or {}
                                 keeper.openai_piece(piece)
@@ -1683,6 +1715,8 @@ class ModelRouter:
                         raise
                     attempt += 1
                     await asyncio.sleep(1.5)
+            if usage_seen:
+                yield usage_notice(*usage_seen)
             _turn_debug(
                 "openai.round",
                 ms=(time.perf_counter() - round_t0) * 1000,
@@ -1754,6 +1788,7 @@ class ModelRouter:
                 reasoning_control.ollama_fields(thinking, body)
             content_parts: list[str] = []
             raw_calls: list = []
+            usage_seen: tuple[object, object] | None = None
             answered = False
             # nullcontext keeps the shared client alive across requests: unlike
             # `async with httpx.AsyncClient(...)`, it must not be closed here.
@@ -1773,6 +1808,8 @@ class ModelRouter:
                         problem = data.get("error")
                         if problem:
                             raise RuntimeError(str(problem))
+                        if data.get("done") and (data.get("prompt_eval_count") or data.get("eval_count")):
+                            usage_seen = (data.get("prompt_eval_count"), data.get("eval_count"))
                         message = data.get("message") or {}
                         if not isinstance(message, dict):
                             continue
@@ -1785,6 +1822,8 @@ class ModelRouter:
                         for call in message.get("tool_calls") or []:
                             if isinstance(call, dict):
                                 raw_calls.append(call)
+            if usage_seen:
+                yield usage_notice(*usage_seen)
             calls = ollama_calls_from_message({"tool_calls": raw_calls})
             if not calls:
                 return
