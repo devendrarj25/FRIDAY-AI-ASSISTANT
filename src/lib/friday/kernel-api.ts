@@ -50,6 +50,7 @@ export const KERNEL_METHODS = [
   "memory.index",
   "memory.add",
   "memory.reindex",
+  "watch.scan",
   "memory.status",
   "module.list",
   "module.toggle",
@@ -201,6 +202,16 @@ export const kernelApi = {
       call<{ ok: boolean; backend: string }>("memory.add", { text, kind, title }),
     reindex: () => call<Record<string, unknown>>("memory.reindex"),
     status: () => call<{ backend: string; available: boolean }>("memory.status"),
+  },
+
+  watch: {
+    scan: () =>
+      call<{
+        ok: boolean;
+        files: { folder: string; name: string; new: boolean }[];
+        more: number;
+        baseline: string[];
+      }>("watch.scan"),
   },
 
   modules: {

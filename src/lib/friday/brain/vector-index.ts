@@ -232,16 +232,26 @@ class VectorIndex {
   private async reorder(query: string, hits: VectorHit[]): Promise<VectorHit[]> {
     if (hits.length < 2) return hits;
     const model = this.embeddingModel();
+    const judge = this.rerankModel();
     const ranked = await this.call<{ ok: boolean; scores?: number[] }>("memory.rerank", {
       query,
       texts: hits.map((hit) => `${hit.title}\n${hit.snippet}`),
-      ...(model ? { model } : {}),
+      ...(judge ? { judge } : model ? { model } : {}),
     });
     return ranked?.ok && ranked.scores ? blendEmbeddingScores(hits, ranked.scores) : hits;
   }
 
   /** The model assigned to Embedding in Task routing, when it is known. */
   embeddingModelProvider: () => string | null = () => null;
+  /** The chat model assigned to Rerank in Task routing, when one is. It then judges relevance in place of embeddings. */
+  rerankModelProvider: () => string | null = () => null;
+  private rerankModel(): string | null {
+    try {
+      return this.rerankModelProvider();
+    } catch {
+      return null;
+    }
+  }
   private embeddingModel(): string | null {
     try {
       return this.embeddingModelProvider();

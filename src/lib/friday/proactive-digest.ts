@@ -9,6 +9,7 @@
  */
 
 import { briefSlot, considerLifeTrigger } from "./assistant-conduct";
+import { filesLine, peekPendingFiles, takePendingFiles } from "./folder-watch";
 import { notifications } from "./notifications";
 import { personalDesk, type DeskTask } from "./personal-desk";
 import { readLocalState, writeState } from "./persist";
@@ -23,6 +24,8 @@ export type DigestInput = {
   pendingApprovals: number;
   failedRuns: string[];
   unreadAlerts: number;
+  /** New files in shared folders, as one ready line. */
+  newFilesLine?: string | null;
 };
 
 const HOUR = 3_600_000;
@@ -59,6 +62,7 @@ export function buildDigest(input: DigestInput): { lines: string[]; quiet: boole
     );
   }
   if (input.unreadAlerts) lines.push(`${input.unreadAlerts} alert(s) you have not opened.`);
+  if (input.newFilesLine) lines.push(input.newFilesLine);
   return { lines, quiet: lines.length === 0 };
 }
 
@@ -120,10 +124,12 @@ export function deliverDigest(now = Date.now()): DigestOutcome {
       .filter((task) => task.status === "failed" && task.startedAt >= now - 24 * HOUR)
       .map((task) => task.title),
     unreadAlerts: notifications.getSnapshot().items.filter((item) => !item.read).length,
+    newFilesLine: filesLine(peekPendingFiles()),
   });
   // Marked even when quiet: a day with nothing to say is not asked about again until the next slot.
   delivered = [...done, key].slice(-14);
   writeState(KEY, delivered);
+  takePendingFiles();
   if (digest.quiet) return { delivered: false, reason: "nothing to say" };
   const morning = key.endsWith("morning");
   notifications.push({

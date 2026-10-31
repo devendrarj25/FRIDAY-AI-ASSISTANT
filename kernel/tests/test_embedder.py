@@ -55,3 +55,36 @@ def test_only_a_model_on_this_pc_is_asked():
     embedder.reset()
     out = asyncio.run(embedder.rank("q", ["a"], "m", base="http://example.com"))
     assert out["ok"] is False and "this PC" in out["reason"]
+
+
+class _Judge(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        prompt = body["messages"][0]["content"]
+        reply = "9" if "tart" in prompt.split("Passage:")[1] else "Score: 2 out of 10"
+        data = json.dumps({"message": {"content": reply}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+def test_a_chat_model_can_judge_relevance_as_a_number():
+    embedder.reset()
+    server = HTTPServer(("127.0.0.1", 0), _Judge)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        out = asyncio.run(embedder.judge("apple pie", ["banana bread", "apple tart"], "tiny", base=base))
+    finally:
+        server.shutdown()
+    assert out["ok"] and out["scores"] == [0.2, 0.9]
+
+
+def test_judging_needs_a_model_and_a_local_address():
+    embedder.reset()
+    assert asyncio.run(embedder.judge("q", ["a"], ""))["ok"] is False
+    assert "this PC" in asyncio.run(embedder.judge("q", ["a"], "m", base="http://example.com"))["reason"]

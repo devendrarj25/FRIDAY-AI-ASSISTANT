@@ -20,6 +20,7 @@ import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
 import { deliverDigest } from "../proactive-digest";
 import { dreamNow } from "./dreaming";
+import { scanFolders } from "../folder-watch";
 import {
   prefNumber,
   prefOn,
@@ -114,6 +115,12 @@ class BackgroundTasks {
         const out = deliverDigest();
         return out.delivered ? `${out.lines.length} line(s) offered` : out.reason;
       },
+    });
+    this.register({
+      id: "folders",
+      label: "New files in shared folders",
+      everyMinutes: 10,
+      run: async () => (await scanFolders()).note,
     });
     this.register({
       id: "dreaming",

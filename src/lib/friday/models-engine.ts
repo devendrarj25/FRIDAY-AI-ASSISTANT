@@ -2071,5 +2071,6 @@ export const models = new ModelsStore();
 
 // Memory search re-orders its candidates with the model assigned to Embedding, when that model is running.
 vectorIndex.embeddingModelProvider = () => models.getSnapshot().routing.embedding;
+vectorIndex.rerankModelProvider = () => models.getSnapshot().routing.rerank;
 
 export { checkSupport, routingTasks };
