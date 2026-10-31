@@ -5,15 +5,19 @@ the owner's PC (Windows ships Arial and Segoe UI; Linux usually has DejaVu) as a
 glyph ids. This module reads just enough of the font file with ``struct``: the character map, the advance
 widths and the glyph count. No font library is needed.
 
-Not covered, on purpose: scripts that need shaping (Devanagari and the other Indic scripts, Arabic, Thai,
-Burmese). Drawing those character by character puts vowel signs and joined letters in the wrong places, which
-is worse than saying so. ``needs_shaping`` finds them so the writer can keep its honest ``?`` and warning.
+Scripts that need shaping (Devanagari and the other Indic scripts, Arabic, Thai, Burmese) are drawn only through
+HarfBuzz (``uharfbuzz``, an optional module): the text is shaped into glyphs and positions first, so vowel signs
+and joined letters land where they belong. Without HarfBuzz, or without an installed font that holds the
+characters, they stay an honest ``?`` with a warning, because drawing them character by character would put
+signs in the wrong places. Mixed left-to-right and right-to-left lines are laid out run by run with the
+Unicode bidirectional classes of the standard library; very complex nesting is not handled.
 """
 
 from __future__ import annotations
 
 import os
 import struct
+import unicodedata
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,12 +31,27 @@ def needs_shaping(ch: str) -> bool:
 
 
 def candidates() -> list[Path]:
-    names = ("arial.ttf", "segoeui.ttf", "calibri.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf")
+    names = (
+        "arial.ttf",
+        "segoeui.ttf",
+        "calibri.ttf",
+        "nirmala.ttf",
+        "mangal.ttf",
+        "tahoma.ttf",
+        "DejaVuSans.ttf",
+        "LiberationSans-Regular.ttf",
+        "FreeSans.ttf",
+        "NotoSans-Regular.ttf",
+        "NotoSansDevanagari-Regular.ttf",
+        "NotoNaskhArabic-Regular.ttf",
+    )
     roots = [
         Path(os.environ.get("FRIDAY_PDF_FONT", "")) if os.environ.get("FRIDAY_PDF_FONT") else None,
         Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts",
         Path("/usr/share/fonts/truetype/dejavu"),
         Path("/usr/share/fonts/truetype/liberation"),
+        Path("/usr/share/fonts/truetype/freefont"),
+        Path("/usr/share/fonts/truetype/noto"),
         Path("/usr/share/fonts/TTF"),
     ]
     found: list[Path] = []
@@ -189,3 +208,114 @@ def pdf_objects(font: Font, used: dict[int, str], add) -> int:
 def _utf16(char: str) -> list[int]:
     raw = char.encode("utf-16-be")
     return [int.from_bytes(raw[i : i + 2], "big") for i in range(0, len(raw), 2)]
+
+
+def covering(text: str) -> Font | None:
+    """The first installed font whose character map holds every visible character of ``text``."""
+    need = {ord(ch) for ch in text if not ch.isspace() and ch not in "\u200c\u200d"}
+    for path in candidates():
+        try:
+            font = load(path)
+        except (ValueError, OSError, struct.error):
+            continue
+        if need <= set(font.cmap):
+            return font
+    return None
+
+
+def harfbuzz():
+    """The uharfbuzz module, or ``None`` when it is not installed."""
+    try:
+        import uharfbuzz  # type: ignore
+    except ImportError:
+        return None
+    return uharfbuzz
+
+
+@dataclass
+class Glyph:
+    gid: int
+    advance: int
+    dx: int
+    dy: int
+    text: str
+
+
+def _direction(ch: str) -> str:
+    """'R' for right-to-left letters, 'L' for left-to-right letters and digits, '' for neutrals."""
+    kind = unicodedata.bidirectional(ch)
+    if kind in ("R", "AL"):
+        return "R"
+    if kind in ("L", "EN", "AN"):
+        return "L"
+    return ""
+
+
+def bidi_runs(line: str) -> list[tuple[str, str]]:
+    """(text, direction) runs in visual left-to-right order. Neutrals join the run before them."""
+    runs: list[list[str]] = []
+    base = next((d for d in map(_direction, line) if d), "L")
+    for ch in line:
+        d = _direction(ch) or (runs[-1][1] if runs else base)
+        if runs and runs[-1][1] == d:
+            runs[-1][0] += ch
+        else:
+            runs.append([ch, d])
+    # A neutral run edge (a space between an Arabic run and a Latin run) belongs to the paragraph direction.
+    if base == "R":
+        runs.reverse()
+    return [(text, d) for text, d in runs]
+
+
+def shape_line(font: Font, line: str) -> list[Glyph]:
+    """Glyph ids, advances and offsets for a line, in the order they are drawn left to right."""
+    hb = harfbuzz()
+    if hb is None:
+        raise RuntimeError("uharfbuzz is not installed")
+    face = hb.Face(hb.Blob(font.data))
+    hb_font = hb.Font(face)
+    hb_font.scale = (font.units, font.units)
+    out: list[Glyph] = []
+    for text, direction in bidi_runs(line):
+        buf = hb.Buffer()
+        buf.add_str(text)
+        buf.direction = "rtl" if direction == "R" else "ltr"
+        buf.guess_segment_properties()
+        hb.shape(hb_font, buf, {"kern": True, "liga": True})
+        infos, positions = buf.glyph_infos, buf.glyph_positions
+        clusters = sorted({info.cluster for info in infos})
+        for info, pos in zip(infos, positions, strict=False):
+            at = clusters.index(info.cluster)
+            end = clusters[at + 1] if at + 1 < len(clusters) else len(text)
+            out.append(Glyph(info.codepoint, pos.x_advance, pos.x_offset, pos.y_offset, text[info.cluster : end]))
+    return out
+
+
+def draw_shaped(font: Font, glyphs: list[Glyph], size: float, used: dict[int, str]) -> bytes:
+    """PDF operators (inside BT/ET, font already selected) that draw ``glyphs`` at the current text position."""
+    scale = 1000 / font.units
+    ops = bytearray()
+    batch: list[str] = []
+
+    def flush() -> None:
+        if batch:
+            ops.extend(("[" + " ".join(batch) + "] TJ\n").encode())
+            batch.clear()
+
+    for g in glyphs:
+        used.setdefault(g.gid, g.text)
+        if g.dy:
+            flush()
+            ops.extend(f"{g.dy * size / font.units:.3f} Ts\n".encode())
+        if g.dx:
+            batch.append(f"{-g.dx * scale:.1f}")
+        batch.append(f"<{g.gid:04X}>")
+        # Move on by the shaped advance, taking back the width the font table already adds and the offset.
+        correction = (g.advance - font.width(g.gid)) * scale - g.dx * scale
+        if abs(correction) > 0.05:
+            batch.append(f"{-correction:.1f}")
+        if g.dy:
+            flush()
+            ops.extend(b"0 Ts\n")
+    flush()
+    return bytes(ops)

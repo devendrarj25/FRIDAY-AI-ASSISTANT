@@ -33,6 +33,7 @@ import io
 import json
 import re
 import textwrap
+import unicodedata
 import zipfile
 from html import escape as _html_escape
 from pathlib import Path
@@ -658,6 +659,14 @@ def _unicode_font(spec: dict, blocks: list[dict]):
     return pdf_font.first_usable()
 
 
+def _shaping_font(spec: dict, blocks: list[dict]):
+    """A font for text that needs shaping, when HarfBuzz and an installed font that holds it are both there."""
+    text = _all_text(spec, blocks)
+    if not any(pdf_font.needs_shaping(ch) for ch in text) or pdf_font.harfbuzz() is None:
+        return None
+    return pdf_font.covering(text)
+
+
 def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
     out, lost = [], 0
     for ch in value.replace("\t", "    "):
@@ -678,7 +687,9 @@ def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
 
 def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
     lost_total = 0
-    uni = _unicode_font(spec, blocks)
+    shaping_font = _shaping_font(spec, blocks)
+    uni = shaping_font or _unicode_font(spec, blocks)
+    shaped = shaping_font is not None
     used: dict[int, str] = {}
     # (font, size, text) lines in reading order; font F1 body, F2 bold, F3 mono.
     lines: list[tuple[str, int, str]] = []
@@ -731,6 +742,40 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
         y -= leading
         pages[-1].append((font, size, text, y))
 
+    # Page streams first: shaping fills ``used`` (glyph id -> text) that the font's objects need.
+    streams: list[bytes] = []
+    for page in pages:
+        stream = bytearray()
+        for font, size, text, ypos in page:
+            if not text.strip():
+                continue
+            if uni and shaped:
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                glyphs = pdf_font.shape_line(uni, text)
+                body = pdf_font.draw_shaped(uni, glyphs, size, used)
+                head = f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td\n".encode()
+                if any(unicodedata.bidirectional(ch) in ("R", "AL") for ch in text):
+                    # Right-to-left lines extract correctly from the glyph map; ActualText would be reversed twice.
+                    stream += head + body + b"ET\n"
+                else:
+                    # ActualText: the line in reading order, so copy and search get the real text, not glyph order.
+                    actual = ("\ufeff" + text).encode("utf-16-be").hex().upper()
+                    stream += head + f"/Span << /ActualText <{actual}> >> BDC\n".encode() + body + b"EMC\nET\n"
+                continue
+            if uni:
+                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
+                continue
+            stream += (
+                b"BT /"
+                + font.encode()
+                + f" {size} Tf {_MARGIN} {ypos:.2f} Td (".encode()
+                + _pdf_escape(text)
+                + b") Tj ET\n"
+            )
+        streams.append(bytes(stream))
+
     objects: list[bytes] = []
 
     def new(body: bytes) -> int:
@@ -749,23 +794,7 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
             new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
         ]
     page_ids: list[int] = []
-    for page in pages:
-        stream = bytearray()
-        for font, size, text, ypos in page:
-            if not text.strip():
-                continue
-            if uni:
-                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
-                mode = "2 Tr 0.4 w " if font == "F2" else ""
-                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
-                continue
-            stream += (
-                b"BT /"
-                + font.encode()
-                + f" {size} Tf {_MARGIN} {ypos:.2f} Td (".encode()
-                + _pdf_escape(text)
-                + b") Tj ET\n"
-            )
+    for stream in streams:
         content = new(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + bytes(stream) + b"\nendstream")
         page_ids.append(
             new(
@@ -987,7 +1016,8 @@ def render(kind: str, spec: dict) -> tuple[bytes, list[str]]:
             if lost:
                 warnings.append(
                     f"{lost} character(s) became '?': a PDF made here keeps Latin, Greek, Cyrillic and symbols "
-                    "(through a font on this PC) but not scripts that need shaping, such as Devanagari or Arabic; "
+                    "(through a font on this PC) but needs the HarfBuzz module (uharfbuzz) and an installed font "
+                    "that holds the letters to keep scripts that need shaping, such as Devanagari or Arabic; "
                     "use .docx or .html to keep every character"
                 )
             return data, warnings
