@@ -14,6 +14,7 @@ import { analyseIntent } from "../brain-catalog";
 import { parseWhen } from "../speech-parse";
 import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
+import { currentTopic } from "./topic-state";
 import { resolveContext, type ChatTurn, type ResolvedContext } from "./context-engine";
 import { ownerContextDigest } from "./identity";
 import { userProfileDigest } from "./user-profile";
@@ -243,7 +244,7 @@ export function splitGoals(text: string): string[] {
     return numbered.map((part) => part.replace(/\s+/g, " ").slice(0, 200));
   }
   const parts = trimmed
-    .split(/\s+(?:and then|then|after that|and also|; then)\s+/i)
+    .split(/\s+(?:and then|then|after that|and also|; then|aur phir|phir|uske baad|iske baad)\s+/i)
     .map((part) => part.trim())
     .filter((part) => part.length > 2);
   if (parts.length >= 2) return parts.map((part) => part.slice(0, 200));
@@ -262,19 +263,24 @@ function kindOf(text: string): IntentKind {
 }
 
 /** Single entry: classify this turn. */
+const HINGLISH_POINTER = /\b(usko|uska|usse|wahi file|wahi wala|pehle wala)\b/gi;
+
+/**
+ * A Hinglish pointer ("usko khol do", "wahi file") names the thing the talk was just about. The pointer words are
+ * replaced by that thing and the rest of the sentence is kept, so "usko khol do" becomes "<topic> khol do". A
+ * topic that is a whole earlier sentence is too long to stand in for a noun, and then the text is left alone.
+ */
 export function resolvePointer(text: string, lastNoun: string): string {
-  if (/\b(usko|uska|wahi file|pehle wala)\b/i.test(text) && lastNoun.trim()) return lastNoun.trim();
-  return text.trim();
+  const noun = lastNoun.trim();
+  HINGLISH_POINTER.lastIndex = 0;
+  if (!noun || noun.length > 80 || !HINGLISH_POINTER.test(text)) return text.trim();
+  HINGLISH_POINTER.lastIndex = 0;
+  return text.replace(HINGLISH_POINTER, noun).trim();
 }
 
+/** The same split `understand` uses for goals (English and Hinglish connectors), under its older name. */
 export function splitIntents(text: string): string[] {
-  const parts = String(text || "")
-    .split(/\s+(?:aur|phir|and then)\s+/i)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 2);
-  return parts.length >= 2
-    ? parts.map((part) => part.slice(0, 200))
-    : [text.trim()].filter(Boolean);
+  return splitGoals(text);
 }
 
 export function understand(text: string): UnderstoodIntent {
@@ -466,7 +472,10 @@ function understandTurnBody(
     observe: input.observe !== false,
     ...(input.endpoint ? { endpoint: input.endpoint } : {}),
   });
-  const conversationResolved = context.resolved || literal;
+  const conversationResolved =
+    context.resolved && context.resolved !== literal
+      ? context.resolved
+      : resolvePointer(literal, currentTopic());
   const resolvedIntent = understand(conversationResolved);
   const move = conversationalMove(literal);
   resolvedIntent.conversationalMove = move;

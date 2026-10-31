@@ -64,3 +64,20 @@ describe("chat and voice share one thread", () => {
     expect(spoken.text).toMatch(/[\u0900-\u097F]/);
   });
 });
+
+describe("Hinglish pointers and connectors in the real understanding path", () => {
+  it("keeps the rest of the sentence when it swaps the pointer for the topic", async () => {
+    const { resolvePointer, splitIntents } =
+      await import("../../src/lib/friday/brain/intent-engine");
+    expect(resolvePointer("usko khol do", "budget sheet")).toBe("budget sheet khol do");
+    expect(resolvePointer("wahi file", "budget sheet")).toBe("budget sheet");
+    expect(resolvePointer("usko khol do", "")).toBe("usko khol do");
+    expect(resolvePointer("usko khol do", "x".repeat(120))).toBe("usko khol do");
+    expect(resolvePointer("open chrome", "budget sheet")).toBe("open chrome");
+    expect(splitIntents("chrome kholo aur phir note likho")).toEqual([
+      "chrome kholo",
+      "note likho",
+    ]);
+    expect(splitIntents("chrome kholo uske baad note likho")).toHaveLength(2);
+  });
+});

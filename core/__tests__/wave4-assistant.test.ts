@@ -181,7 +181,9 @@ describe("speech, feeling, and reply", () => {
 describe("mind, loops, and eval", () => {
   it("splits Hinglish, asks once, and keeps a short voice budget", () => {
     expect(splitIntents("chrome kholo aur phir note likho").length).toBeGreaterThan(1);
-    expect(resolvePointer("usko bhej do", "report.pdf")).toBe("report.pdf");
+    // The pointer is replaced by the topic and the rest of the request is kept (it used to keep only the topic).
+    expect(resolvePointer("usko bhej do", "report.pdf")).toBe("report.pdf bhej do");
+    expect(resolvePointer("wahi file", "report.pdf")).toBe("report.pdf");
     expect(looksLikeCorrection("nahi, maine kaha tha report")).toBe(true);
     expect(clarificationChoice({ confidence: 0.2, costWrong: 5, costAsk: 1 }).ask).toBe(true);
     expect(clarificationChoice({ confidence: 0.9, costWrong: 5, costAsk: 1 }).ask).toBe(false);
