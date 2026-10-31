@@ -73,7 +73,8 @@ def test_pdf_is_a_valid_pdf_and_says_what_it_could_not_keep(tmp_path: Path) -> N
         "blocks": [{"type": "paragraph", "text": "word " * 4000}, {"type": "paragraph", "text": "नमस्ते"}],
     }
     result = make(tmp_path, "p.pdf", spec)
-    assert result["ok"] and result["warnings"] and "Latin-1" in result["warnings"][0]
+    assert result["ok"] and result["warnings"] and "shaping" in result["warnings"][0]
+    assert "6 character" in result["warnings"][0]
     data = (tmp_path / "p.pdf").read_bytes()
     assert data.startswith(b"%PDF-1.4") and data.rstrip().endswith(b"%%EOF")
     assert file_tools.identify(tmp_path / "p.pdf")["kind"] == "pdf"
@@ -210,3 +211,32 @@ def test_identify_names_the_new_kinds(tmp_path: Path) -> None:
     for name, kind in (("a.odt", "odt"), ("a.epub", "epub"), ("a.rtf", "rtf")):
         make(tmp_path, name, HINDI)
         assert file_tools.identify(tmp_path / name)["kind"] == kind
+
+
+def test_pdf_embeds_a_font_for_cyrillic_and_greek():
+    import pdf_font
+
+    if pdf_font.first_usable() is None:
+        pytest.skip("no TrueType font on this machine")
+    data, warnings = doc_writer.render(
+        "pdf", {"title": "Привет", "blocks": [{"type": "paragraph", "text": "Γειά σου κόσμε"}]}
+    )
+    assert data.startswith(b"%PDF")
+    assert b"/CIDFontType2" in data and b"/ToUnicode" in data
+    assert warnings == []
+
+
+def test_pdf_still_refuses_devanagari_honestly():
+    data, warnings = doc_writer.render("pdf", {"blocks": [{"type": "paragraph", "text": "नमस्ते"}]})
+    assert b"/CIDFontType2" not in data
+    assert warnings and "shaping" in warnings[0]
+
+
+def test_pdf_font_reader_maps_basic_letters():
+    import pdf_font
+
+    font = pdf_font.first_usable()
+    if font is None:
+        pytest.skip("no TrueType font on this machine")
+    assert font.gid("A") > 0 and font.gid("Ж") > 0
+    assert font.width(font.gid("A")) > 0

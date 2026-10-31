@@ -20,9 +20,10 @@ Spec shapes (the ``kind`` comes from the file name):
 * csv: ``{"rows": [[cell]]}``. A text cell that starts with ``= + - @`` gets a leading quote.
 * json: ``{"data": any}``. It is written exactly as valid JSON.
 
-The PDF writer uses the built-in Helvetica and Courier fonts, which hold Latin-1 only. Other
-characters (Devanagari, for one) become ``?`` and the result says how many; Word, HTML and
-Markdown keep every character.
+The PDF writer uses the built-in Helvetica and Courier fonts for Latin-1 text. When the text also has Greek,
+Cyrillic, Vietnamese or symbols it embeds one TrueType font from this PC (``pdf_font.py``). Scripts that need
+shaping (Devanagari and the other Indic scripts, Arabic, Thai) become ``?`` and the result says how many;
+Word, HTML and Markdown keep every character.
 """
 
 from __future__ import annotations
@@ -37,6 +38,8 @@ from html import escape as _html_escape
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape as _xml_escape
+
+import pdf_font
 
 KINDS = ("docx", "xlsx", "pptx", "pdf", "html", "md", "txt", "csv", "json", "rtf", "odt", "epub")
 MAX_BLOCKS = 5000
@@ -633,16 +636,60 @@ def _pdf_escape(line: str) -> bytes:
     return raw.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
 
 
+def _all_text(spec: dict, blocks: list[dict]) -> str:
+    parts = [str(spec.get("title", ""))]
+    for block in blocks:
+        for key in ("text", "items", "rows"):
+            value = block.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                parts.append(" ".join(_text(c) for row in value for c in (row if isinstance(row, list) else [row])))
+    return "\n".join(parts)
+
+
+def _unicode_font(spec: dict, blocks: list[dict]):
+    """A TrueType font when the text needs more than Latin-1 and has no script that needs shaping."""
+    text = _all_text(spec, blocks)
+    beyond = [ch for ch in text if ord(ch) > 0xFF and ch not in "‘’“”–—•"]
+    if not beyond or any(pdf_font.needs_shaping(ch) for ch in beyond):
+        return None
+    return pdf_font.first_usable()
+
+
+def _shapable(value: str, font, used: dict[int, str]) -> tuple[str, int]:
+    out, lost = [], 0
+    for ch in value.replace("\t", "    "):
+        if ch == "\n":
+            out.append(ch)
+            continue
+        gid = font.gid(ch)
+        if gid:
+            used[gid] = ch
+            out.append(ch)
+        else:
+            gid = font.gid("?")
+            used[gid] = "?"
+            out.append("?")
+            lost += 1
+    return "".join(out), lost
+
+
 def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
     lost_total = 0
+    uni = _unicode_font(spec, blocks)
+    used: dict[int, str] = {}
     # (font, size, text) lines in reading order; font F1 body, F2 bold, F3 mono.
     lines: list[tuple[str, int, str]] = []
 
     def add(font: str, size: int, text: str, indent: int = 0, gap: int = 0) -> None:
         nonlocal lost_total
-        text, lost = _latin(text)
+        if uni:
+            text, lost = _shapable(text, uni, used)
+        else:
+            text, lost = _latin(text)
         lost_total += lost
-        width = (_PAGE_W - 2 * _MARGIN - indent) / (size * (0.6 if font == "F3" else 0.52))
+        width = (_PAGE_W - 2 * _MARGIN - indent) / (size * (0.6 if font == "F3" else 0.52 if not uni else 0.6))
         for raw in text.split("\n") or [""]:
             wrapped = textwrap.wrap(raw, max(8, int(width)), drop_whitespace=False, replace_whitespace=False) or [""]
             for piece in wrapped:
@@ -691,16 +738,25 @@ def _pdf(spec: dict, blocks: list[dict]) -> tuple[bytes, int]:
 
     new(b"")  # 1 catalog, filled below
     new(b"")  # 2 pages, filled below
-    fonts = [
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
-        new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
-    ]
+    if uni:
+        one = pdf_font.pdf_objects(uni, used, new)
+        fonts = [one, one, one]
+    else:
+        fonts = [
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
+            new(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>"),
+        ]
     page_ids: list[int] = []
     for page in pages:
         stream = bytearray()
         for font, size, text, ypos in page:
             if not text.strip():
+                continue
+            if uni:
+                shown = b"".join(uni.gid(ch).to_bytes(2, "big") for ch in text).hex().upper()
+                mode = "2 Tr 0.4 w " if font == "F2" else ""
+                stream += f"BT {mode}/{font} {size} Tf {_MARGIN} {ypos:.2f} Td <{shown}> Tj ET\n".encode()
                 continue
             stream += (
                 b"BT /"
@@ -929,7 +985,8 @@ def render(kind: str, spec: dict) -> tuple[bytes, list[str]]:
             data, lost = _pdf(spec, blocks)
             if lost:
                 warnings.append(
-                    f"{lost} character(s) outside Latin-1 became '?': a PDF made here keeps Latin text only; "
+                    f"{lost} character(s) became '?': a PDF made here keeps Latin, Greek, Cyrillic and symbols "
+                    "(through a font on this PC) but not scripts that need shaping, such as Devanagari or Arabic; "
                     "use .docx or .html to keep every character"
                 )
             return data, warnings
