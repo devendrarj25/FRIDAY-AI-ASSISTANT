@@ -301,6 +301,7 @@ export const FLOW_REGISTRY = {
     "voice.pitch",
     "voice.privacyMode",
     "voice.rate",
+    "voice.realtimeExperiment",
     "voice.recognitionLang",
     "voice.speakReplies",
     "voice.speechLang",
@@ -8775,8 +8776,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 116,
-      total: 116,
+      mapped: 117,
+      total: 117,
     },
     capabilities: {
       mapped: 1020,

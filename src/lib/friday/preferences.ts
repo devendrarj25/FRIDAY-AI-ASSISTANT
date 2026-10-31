@@ -54,6 +54,8 @@ export type VoicePreferences = {
   privacyMode: boolean;
   /** Stay quiet while a known call app is open. */
   pauseDuringCalls: boolean;
+  /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
+  realtimeExperiment: boolean;
   /** faster-whisper size. auto keeps the measured tier. */
   sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
@@ -199,6 +201,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     whisperMode: false,
     privacyMode: false,
     pauseDuringCalls: true,
+    realtimeExperiment: false,
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",

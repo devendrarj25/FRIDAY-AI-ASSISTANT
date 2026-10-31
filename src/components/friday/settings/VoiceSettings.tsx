@@ -275,6 +275,14 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
+          <ToggleRow
+            label="Realtime voice (experimental)"
+            hint="Auto mode only. Closes a pause sooner and starts speaking at the first clause. Nothing leaves this PC; it only moves timing."
+            on={prefs.voice.realtimeExperiment === true}
+            onToggle={() =>
+              preferences.setVoice({ realtimeExperiment: prefs.voice.realtimeExperiment !== true })
+            }
+          />
           <label className="block">
             <span className="label-xs text-muted-foreground">Speech model size</span>
             <select
