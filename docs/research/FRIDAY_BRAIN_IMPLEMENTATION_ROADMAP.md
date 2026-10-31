@@ -21,7 +21,7 @@ Inputs: [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEAR
 | 9 Multimodal | `media.transcribe` joins frames and probe as the video method | one sound-and-picture pass, realtime |
 | 10 Proactive | quiet heads-up before a desk deadline | event rules, load and battery awareness |
 | 11 Benchmarking | retrieval, routing, long-horizon suites, pass-k, history | pass-k inside the instruction comparison |
-| 12 Observability | Brain now panel | OpenTelemetry-shaped export (off by default) |
+| 12 Observability | Brain now panel | a local JSON trace in OpenTelemetry shape (opt-in, redacted; the exporter stays REJECT) |
 
 ## 1. How phases are ranked
 

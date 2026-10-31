@@ -73,7 +73,7 @@ These are overlaps to resolve by consolidation inside the existing files. None i
 | Pass-k reliability and fault-labelled failures (τ-bench idea) | adapt | measure repeated runs and classify failures by who is at fault and what type |
 | Entity and recency fusion, optional cross-encoder | adapt | local, optional, offline-capable |
 | Handoff versus agent-as-tool, per-step trace, checkpoint | adapt into `task-graph.ts` | the common primitives; no framework |
-| OpenTelemetry-shaped trace export | adapt | standard tooling can read it; off by default; local file |
+| OpenTelemetry-shaped trace export | adapt (local file only) | standard tooling can read it; opt-in, redacted, no exporter process and no network; the recorded REJECT of an exporter stays |
 | A2A | defer | no partner agent exists; revisit when an outside agent is needed |
 | LangGraph, CrewAI, ADK, Microsoft Agent Framework, OpenAI Agents SDK | do not integrate | second runtime, second approval model |
 | Learned router | do not integrate | weak generalisation in the reviewed sources |
