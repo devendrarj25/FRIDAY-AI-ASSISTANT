@@ -77,8 +77,10 @@ describe("history", () => {
 
   it("is written by runAllSuites and described in plain lines", async () => {
     const reports = await runAllSuites();
-    expect(suiteHistory()).toHaveLength(3);
+    expect(suiteHistory()).toHaveLength(4);
     const text = describeSuites(reports);
+    expect(text).toMatch(/gates: \d+\/\d+ \(notChecked 1\)/);
+    expect(text).toMatch(/retrieval: \d+\/\d+ \[\d+–\d+% at 95%\]/);
     expect(text).toContain("retrieval:");
     expect(text).toContain("long-horizon: 3/3");
   });

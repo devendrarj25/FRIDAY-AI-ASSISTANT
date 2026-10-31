@@ -22,6 +22,7 @@
  * produces proposals — governance holds them until the owner approves.
  */
 
+import { stageOff } from "./stage-switches";
 import {
   prepareTurn,
   refineTurnWithDispatchRole,
@@ -615,37 +616,45 @@ class CoreBrain {
         /* baseline seed must never break a turn */
       }
       clockStage(markId, "world-insight", stage, "world-insight");
-      try {
-        const world = readWorldInsight();
-        worldSummary = world.snapshot.summary;
-        notes.push(`world state: ${world.snapshot.summary}`);
-        if (world.unknown.length) {
-          notes.push(`world unknown: ${world.unknown.slice(0, 3).join("; ")}`);
+      if (stageOff("world-insight")) {
+        notes.push("world state: switched off for a measurement");
+        turnDone(markId, "world-insight", "off");
+      } else
+        try {
+          const world = readWorldInsight();
+          worldSummary = world.snapshot.summary;
+          notes.push(`world state: ${world.snapshot.summary}`);
+          if (world.unknown.length) {
+            notes.push(`world unknown: ${world.unknown.slice(0, 3).join("; ")}`);
+          }
+          if (world.expected.length) {
+            notes.push(`world expected: ${world.expected[0]}`);
+          }
+          if (world.atRisk.length) {
+            notes.push(`world at-risk: ${world.atRisk[0]}`);
+          }
+          if (world.likelyNext.length) {
+            notes.push(`world likely-next: ${world.likelyNext[0]}`);
+          }
+          turnDone(markId, "world-insight", world.snapshot.summary.slice(0, 80));
+        } catch {
+          notes.push("world state: unreadable");
+          turnDone(markId, "world-insight", "unreadable");
         }
-        if (world.expected.length) {
-          notes.push(`world expected: ${world.expected[0]}`);
-        }
-        if (world.atRisk.length) {
-          notes.push(`world at-risk: ${world.atRisk[0]}`);
-        }
-        if (world.likelyNext.length) {
-          notes.push(`world likely-next: ${world.likelyNext[0]}`);
-        }
-        turnDone(markId, "world-insight", world.snapshot.summary.slice(0, 80));
-      } catch {
-        notes.push("world state: unreadable");
-        turnDone(markId, "world-insight", "unreadable");
-      }
 
       clockStage(markId, "meta-review", stage, "meta-review");
-      try {
-        meta = reviewAssumptions({ text: prompt, intent: understanding.resolvedIntent });
-        notes.push(`meta: ${meta.action} — ${meta.reason}`);
-        turnDone(markId, "meta-review", meta.action);
-      } catch {
-        notes.push("meta: unreadable");
-        turnDone(markId, "meta-review", "unreadable");
-      }
+      if (stageOff("meta-review")) {
+        notes.push("meta: switched off for a measurement");
+        turnDone(markId, "meta-review", "off");
+      } else
+        try {
+          meta = reviewAssumptions({ text: prompt, intent: understanding.resolvedIntent });
+          notes.push(`meta: ${meta.action} — ${meta.reason}`);
+          turnDone(markId, "meta-review", meta.action);
+        } catch {
+          notes.push("meta: unreadable");
+          turnDone(markId, "meta-review", "unreadable");
+        }
     };
 
     if (deep) runWorldPrelude();
@@ -654,6 +663,7 @@ class CoreBrain {
     let recalled: ReturnType<typeof brainKnowledge.recall> = [];
     let vectorHits: { title: string; snippet: string; score: number }[] = [];
     try {
+      if (stageOff("vector-index")) throw new Error("switched off for a measurement");
       vectorHits = await vectorIndex.queryHits(prompt, 8);
       if (vectorHits.length) notes.push(`vector index: ${vectorHits.length} hit(s)`);
       turnDone(markId, "vector-index", `${vectorHits.length} hit(s)`);
@@ -661,8 +671,12 @@ class CoreBrain {
       turnDone(markId, "vector-index", "skipped");
     }
     clockStage(markId, "knowledge-recall", stage, "knowledge-recall");
-    if (!useKnowledge) {
-      notes.push("knowledge: skipped (useKnowledge off)");
+    if (!useKnowledge || stageOff("knowledge-recall")) {
+      notes.push(
+        stageOff("knowledge-recall")
+          ? "knowledge: switched off for a measurement"
+          : "knowledge: skipped (useKnowledge off)",
+      );
     } else {
       try {
         recalled = brainKnowledge.recall(prompt, {

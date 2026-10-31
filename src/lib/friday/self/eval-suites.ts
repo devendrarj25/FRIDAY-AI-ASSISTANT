@@ -13,10 +13,13 @@
 import { classifyCognitiveRoute, reasoningEffortFor } from "../brain/cognitive-route";
 import { rankByRetrieval, type RankSignals } from "../brain/retrieval";
 import { readLocalState, writeState } from "../persist";
+import { DEFAULT_AUTONOMY } from "./autonomy";
+import { wilson } from "./eval-stats";
+import { evaluateChange, PROTECTED_POLICY_FILES } from "./governance";
 import { TaskGraphEngine } from "./task-graph";
 
 export type SuiteReport = {
-  suite: "retrieval" | "routing" | "long-horizon" | "reliability";
+  suite: "retrieval" | "routing" | "long-horizon" | "reliability" | "gates";
   tasks: number;
   passed: number;
   /** One line per task that failed, so the miss can be read. */
@@ -345,7 +348,12 @@ export function clearSuiteHistoryForTests(): void {
 }
 
 export async function runAllSuites(): Promise<SuiteReport[]> {
-  const reports = [runRetrievalSuite(), runRoutingSuite(), await runLongHorizonSuite()];
+  const reports = [
+    runRetrievalSuite(),
+    runRoutingSuite(),
+    await runLongHorizonSuite(),
+    runGateSuite().report,
+  ];
   for (const report of reports) recordSuite(report);
   return reports;
 }
@@ -359,9 +367,85 @@ export function describeSuites(reports: SuiteReport[]): string {
             `${key} ${Number.isInteger(value) ? value : Math.round(value * 100) + "%"}`,
         )
         .join(", ");
-      return `${report.suite}: ${report.passed}/${report.tasks}${extra ? ` (${extra})` : ""}${
+      const ci = wilson(report.passed, report.tasks);
+      const range =
+        report.suite === "gates" || !report.tasks
+          ? ""
+          : ` [${Math.round(ci.low * 100)}–${Math.round(ci.high * 100)}% at 95%]`;
+      return `${report.suite}: ${report.passed}/${report.tasks}${range}${extra ? ` (${extra})` : ""}${
         report.misses.length ? ` · missed: ${report.misses.slice(0, 3).join("; ")}` : ""
       }`;
     })
     .join("\n");
+}
+
+/* ------------------------------------------------------------- security gates */
+
+export type GateResult = { id: string; ok: boolean; detail: string };
+
+/**
+ * Release gates: each is exact, and one failure fails the whole report. They read the real code paths
+ * (the protected-file list, the change verdict at every dial, the shipped defaults); they do not average.
+ * `kernelYaml` is the text of `config/kernel.yaml`, which only a node-side caller can read; without it
+ * that gate is listed as not checked instead of passing.
+ */
+export function runGateSuite(input: { kernelYaml?: string } = {}): {
+  report: SuiteReport;
+  gates: GateResult[];
+  notChecked: string[];
+} {
+  const gates: GateResult[] = [];
+  const notChecked: string[] = [];
+  const levels = ["strict", "balanced", "trusted", "full"] as const;
+  for (const file of PROTECTED_POLICY_FILES) {
+    const refused = levels.every(
+      (level) => evaluateChange({ paths: [file], level }).allow === "refuse",
+    );
+    gates.push({
+      id: `protected-file:${file}`,
+      ok: refused,
+      detail: refused ? "refused at every dial" : "a dial lets it through",
+    });
+  }
+  const staged = levels.map((level) => evaluateChange({ paths: ["docs/notes.md"], level }));
+  gates.push({
+    id: "change-never-applied",
+    ok: staged.every((verdict) => verdict.applied === false && verdict.reversible === true),
+    detail: "a verdict stages or asks, it never applies",
+  });
+  gates.push({
+    id: "halt-refuses",
+    ok: levels.every(
+      (level) =>
+        evaluateChange({ paths: ["docs/notes.md"], level, halted: true }).allow === "refuse",
+    ),
+    detail: "Stop everything refuses a change at every dial",
+  });
+  gates.push({
+    id: "fresh-install-balanced",
+    ok: DEFAULT_AUTONOMY.approvalLevel === "balanced" && DEFAULT_AUTONOMY.halted === false,
+    detail: `default dial is ${DEFAULT_AUTONOMY.approvalLevel}`,
+  });
+  if (input.kernelYaml === undefined) {
+    notChecked.push("kernel-auto-approve-exec-false");
+  } else {
+    const line = /^\s*auto_approve_exec:\s*(\S+)/m.exec(input.kernelYaml);
+    gates.push({
+      id: "kernel-auto-approve-exec-false",
+      ok: line?.[1] === "false",
+      detail: `auto_approve_exec is ${line?.[1] ?? "missing"}`,
+    });
+  }
+  const failed = gates.filter((gate) => !gate.ok);
+  return {
+    report: {
+      suite: "gates",
+      tasks: gates.length,
+      passed: gates.length - failed.length,
+      misses: failed.map((gate) => `${gate.id}: ${gate.detail}`),
+      extra: { notChecked: notChecked.length },
+    },
+    gates,
+    notChecked,
+  };
 }
