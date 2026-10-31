@@ -19,7 +19,15 @@
 
 import { acceptSelfChange } from "./run-receipt";
 import { governance, protectedPolicyPaths, type GovRisk } from "./governance";
-import { adviseDependencies, ciReport, proposeDiff, registerSkill, scaffold } from "./own-work";
+import {
+  adviseDependencies,
+  ciReport,
+  devCheckAllows,
+  devCheckRequest,
+  proposeDiff,
+  registerSkill,
+  scaffold,
+} from "./own-work";
 import { ledger } from "./task-ledger";
 import { memory } from "./memory-engine";
 import { systemMap } from "../system-map";
@@ -71,6 +79,8 @@ export type DevRun = {
   stages: DevStage[];
   /** Versioned before/after evidence for this candidate. */
   candidate?: CandidateVersion;
+  /** The `dev.check` result for this proposal, when the owner approved a run and it was recorded. */
+  trial?: { ok: boolean; verdict?: string };
   /** Restorable snapshot from the last apply, when the desktop bridge returned one. */
   backup?: ApplyResult["backup"];
 };
@@ -175,6 +185,25 @@ export function compareToBaseline(
   };
 }
 
+/** A `dev.check` result as one more check beside the sandbox checks, so a regression on the copy blocks the run. */
+export function trialAsCheck(trial: DevRun["trial"]): {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}[] {
+  if (!trial) return [];
+  const verdict = devCheckAllows(trial);
+  return [
+    {
+      id: "dev.check",
+      label: "Tried on a copy of HEAD",
+      ok: verdict.forward,
+      detail: verdict.reason,
+    },
+  ];
+}
+
 /** The fixed order every self-development run follows. Read-only view. */
 export const devStageIds = (): DevStageId[] => STAGES.map(([id]) => id);
 
@@ -227,6 +256,16 @@ export function planFor(request: string, areas: string[], evidence: string[]): s
     request.includes("http-cache-semantics") ? ["http-cache-semantics"] : [],
   );
   const report = ciReport([{ name: "plan", ok: proposal.allow !== "refuse" }]);
+  const trial = devCheckRequest({
+    paths: ["src/lib/friday/self/dev-pipeline.ts"],
+    diff: request.slice(0, 500),
+    level: "balanced",
+  });
+  plan.push(
+    trial.ok
+      ? "Before it is proposed, try the change on a throwaway copy of HEAD with dev.check (you approve that run)"
+      : `Not tried on a copy: ${trial.reason}`,
+  );
   plan.push(
     `Review only: ${proposal.allow}, ${skill.reason}, ${sample.file}, ${report.status}${notes[0] ? `, ${notes[0]}` : ""}. Nothing is applied.`,
   );
@@ -317,6 +356,11 @@ class DevPipeline {
     this.patch(id, {
       stages: run.stages.map((s) => (s.id === stageId ? { ...s, state, detail } : s)),
     });
+  }
+
+  /** Keep the result of an approved `dev.check` run so the next verify step counts it. */
+  recordTrial(id: string, trial: { ok: boolean; verdict?: string }): void {
+    this.patch(id, { trial });
   }
 
   get(id: string): DevRun | undefined {
@@ -476,7 +520,10 @@ class DevPipeline {
     // run, with nothing written, and compare them to the last known-good
     // baseline. A regression is stopped here — it never reaches the owner.
     const verified = await selfVerify(impact.areas);
-    const candidate = compareToBaseline(verified.checks ?? []);
+    const candidate = compareToBaseline([
+      ...(verified.checks ?? []),
+      ...trialAsCheck(this.get(id)?.trial),
+    ]);
     this.patch(id, { candidate });
     if (candidate.regressions.length) {
       this.stage(

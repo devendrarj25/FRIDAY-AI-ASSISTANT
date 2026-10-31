@@ -187,3 +187,33 @@ export function brainScore(results: readonly DomainResult[]): BrainScore {
     unscoredWeight: total - weight,
   };
 }
+
+export type PromotionVerdict = { promote: boolean; reason: string };
+
+/**
+ * May a learned change (a skill, a routing preference, a prompt) replace what it came from? Only when the
+ * held-out tasks did not get worse, nothing on the regression set got significantly worse, and no security
+ * gate failed. A gate failure rejects the change whatever the numbers say. The verdict is advice to the
+ * owner's review; nothing is applied here.
+ */
+export function promotionVerdict(input: {
+  heldBefore: boolean[];
+  heldAfter: boolean[];
+  regressionBefore: boolean[];
+  regressionAfter: boolean[];
+  gateFailures: string[];
+}): PromotionVerdict {
+  if (input.gateFailures.length) {
+    return { promote: false, reason: `security gate failed: ${input.gateFailures.join(", ")}` };
+  }
+  if (input.heldBefore.length < 5)
+    return { promote: false, reason: "too few held-out tasks to judge" };
+  const held = comparePaired(input.heldBefore, input.heldAfter);
+  if (held.delta < 0) return { promote: false, reason: "held-out tasks got worse" };
+  const regression = comparePaired(input.regressionBefore, input.regressionAfter);
+  if (regression.delta < 0 && regression.p < 0.05) {
+    return { promote: false, reason: "regression set got significantly worse" };
+  }
+  if (held.delta === 0) return { promote: false, reason: "no measured gain on held-out tasks" };
+  return { promote: true, reason: `held-out +${Math.round(held.delta * 100)}%, no regression` };
+}

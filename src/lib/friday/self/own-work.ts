@@ -38,6 +38,65 @@ export function proposeDiff(input: {
   };
 }
 
+export type DevCheckName = "pytest" | "typecheck" | "lint" | "test-fast";
+
+/**
+ * The exact `dev.check` call that would try a proposal on a throwaway copy of HEAD. It is only a request:
+ * `dev.check` is an exec-tier kernel tool, so the owner approves each run, and a proposal that touches a
+ * protected file never gets a request at all.
+ */
+export function devCheckRequest(input: {
+  paths: string[];
+  diff: string;
+  level: "strict" | "balanced" | "trusted" | "full";
+  halted?: boolean;
+  check?: DevCheckName;
+}):
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      tool: "dev.check";
+      args: { diff: string; check: DevCheckName; baseline: true };
+      needsApproval: true;
+    } {
+  if (!input.diff.trim()) return { ok: false, reason: "nothing to check" };
+  const proposal = proposeDiff({
+    paths: input.paths,
+    diff: input.diff,
+    level: input.level,
+    ...(input.halted === undefined ? {} : { halted: input.halted }),
+  });
+  if (proposal.allow === "refuse") return { ok: false, reason: proposal.reason };
+  return {
+    ok: true,
+    tool: "dev.check",
+    args: { diff: input.diff, check: input.check ?? "test-fast", baseline: true },
+    needsApproval: true,
+  };
+}
+
+/** What a `dev.check` verdict means for putting a proposal forward. Advice to the owner, never an action. */
+export function devCheckAllows(result: { ok?: boolean; verdict?: string }): {
+  forward: boolean;
+  reason: string;
+} {
+  if (!result.ok) return { forward: false, reason: "the proposal could not be tried" };
+  switch (result.verdict) {
+    case "fixed":
+      return { forward: true, reason: "the check failed before and passes with the change" };
+    case "unchanged-pass":
+    case "passes":
+      return { forward: true, reason: "the check passes with the change" };
+    case "regressed":
+      return { forward: false, reason: "the check passed before and fails with the change" };
+    case "unchanged-fail":
+    case "fails":
+      return { forward: false, reason: "the check still fails" };
+    default:
+      return { forward: false, reason: "no usable verdict" };
+  }
+}
+
 export function registerSkill(input: {
   name: string;
   testsPass: boolean;

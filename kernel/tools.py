@@ -311,6 +311,51 @@ def from_wire_name(name: str) -> str:
     return name.replace("_", ".", 1)
 
 
+def validate_args(tool: str, args: object) -> list[str]:
+    """Problems with a model's arguments against the tool's declared schema; empty when they fit.
+
+    A small, forgiving subset of JSON Schema: required keys, basic types, enums. Numbers may arrive as digit
+    strings (models often send them that way) and unknown keys are ignored. The problem list is returned to
+    the model so it can try again, instead of the tool failing deep inside with a stack trace.
+    """
+    schema = MODEL_TOOL_PARAMS.get(tool)
+    if schema is None:
+        return []
+    if not isinstance(args, dict):
+        return ["arguments must be an object"]
+    problems: list[str] = []
+    props = schema.get("properties", {})
+    for key in schema.get("required", []):
+        if args.get(key) is None:
+            problems.append(f"{key} is required")
+    for key, spec in props.items():
+        if key not in args or args[key] is None:
+            continue
+        value = args[key]
+        kind = spec.get("type")
+        if kind == "string" and not isinstance(value, str):
+            problems.append(f"{key} must be text")
+        elif kind == "integer" and not (
+            (isinstance(value, int) and not isinstance(value, bool))
+            or (isinstance(value, str) and re.fullmatch(r"-?\d{1,9}", value.strip() or "x"))
+        ):
+            problems.append(f"{key} must be a whole number")
+        elif kind == "number" and not (
+            (isinstance(value, (int, float)) and not isinstance(value, bool))
+            or (isinstance(value, str) and re.fullmatch(r"-?\d{1,9}(\.\d{1,6})?", value.strip() or "x"))
+        ):
+            problems.append(f"{key} must be a number")
+        elif kind == "boolean" and not isinstance(value, bool):
+            problems.append(f"{key} must be true or false")
+        elif kind == "array" and not isinstance(value, list):
+            problems.append(f"{key} must be a list")
+        elif kind == "object" and not isinstance(value, dict):
+            problems.append(f"{key} must be an object")
+        if "enum" in spec and value not in spec["enum"]:
+            problems.append(f"{key} must be one of: {', '.join(map(str, spec['enum']))}")
+    return problems
+
+
 class ToolRegistry:
     def __init__(self, storage, workspace: Path, authority: Authority | None = None, root: Path | None = None) -> None:
         self.storage = storage
@@ -379,7 +424,10 @@ class ToolRegistry:
                 "ok": False,
                 "error": (f"{tool} needs the owner's approval — ask him to run it, or use a read-only tool instead"),
             }
-        return await self.execute(tool, args if isinstance(args, dict) else {})
+        problems = validate_args(tool, args)
+        if problems:
+            return {"ok": False, "error": f"invalid arguments for {tool}: {'; '.join(problems)}"}
+        return await self.execute(tool, args)
 
     def risk(self, name: str) -> str:
         return RISK.get(name, "exec")

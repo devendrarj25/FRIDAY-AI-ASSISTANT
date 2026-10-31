@@ -69,7 +69,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Specialist agents (planning, research, coding, analysis, browser, computer-use, memory, verification, testing, docs, automation, business) | PARTIAL | 99 core agent folders plus manifests under `agents/`; `agent-router.ts`; `orchestrator.ts` roles (planner, coder, reviewer, tester, reasoner, vision, audio) | agents **plan and inspect**; they mutate only after approval via `agent-scheduler.ts` (3 test files). No measured advantage per specialist. |
 | Dynamic agent selection, delegation | PARTIAL | `agent-router.ts`, `agent-forge.ts` | handoff versus agent-as-tool is not distinguished |
 | Parallel execution | PARTIAL | new: pieces of an "at the same time" node run together, capped by `maxConcurrentTasks` (7 tests) | queued graphs still run one after another |
-| Agent communication, shared context | PARTIAL | the ledger is shared; task steps now receive earlier steps' results as labelled data (`withEarlier`, 8 tests) | no free message passing between agents; A2A deferred |
+| Agent communication, shared context | DONE | task steps receive earlier results as labelled data; `AgentMailbox` passes length-capped, scrubbed messages only between agents enrolled in a run and renders them as data; delegation modes and `delegatedAuthority` give a delegate only the overlap of authority (agent-delegation test, 6 tests) | A2A stays deferred (no partner agent) |
 | Structured outputs | PARTIAL | tool schemas in `kernel/tools.py`; runner results are typed | agent outputs are not schema-validated |
 | Supervision, verification, retry, recovery | DONE | `task-graph.ts` bounded retry, quarantine, `failure-guard`, sealed events | none |
 | Cancellation, checkpointing, persistence, long-running | DONE | abort signal, `Checkpoint`, persisted graphs, resume rule that never repeats a side effect | none |
@@ -92,7 +92,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Semantic, hybrid, context-aware retrieval | PARTIAL | `retrieval.ts` query expansion, lexical plus bm25Lite, reciprocal-rank fusion, MMR, late interaction, entity and tense fit, Hinglish bridge; `kernel/memory.py` hashed or Chroma | no cross-encoder reranker (optional, needs a model download) |
 | Consolidation, duplicates | DONE | `memory-consolidate.ts`, `memoriesSimilar`, `distinct` option | none |
 | Contradiction resolution | DONE | `meaningsDisagree`, supersede and archive keep history | none |
-| Importance and freshness | PARTIAL | usage and recency in `rankByRetrieval`; staleness in `world-model.ts` | no per-fact validity period |
+| Importance and freshness | DONE | usage and recency in `rankByRetrieval`; staleness in `world-model.ts`; per-fact `validFrom`/`validUntil` (`validityState`) kept out of a current answer and used for a past one (memory-validity-entities and memory-authority tests) | none |
 | Temporal memory | DONE | superseded facts stay for historical questions; `temporalIntent` and `recencyWeightFor` rank "now" and "used to" questions differently (retrieval suite, 7 tests) | none |
 | Forgetting and retention | DONE | per-tier caps, expiry, ranked forgetting in `cognitive-runtime.ts` | none |
 | Provenance and privacy | DONE | `redactForExport`, `secretStaysOutOfMemory`, provenance on skills | none |
@@ -119,7 +119,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Capability | Status | Evidence | Gap |
 | --- | --- | --- | --- |
 | Learning from corrections, feedback, outcomes | DONE | `learning-engine.ts`, correction detection, verified-only promotion | none |
-| Failed-task analysis | PARTIAL | `error-intelligence.ts`, `limitation-loop.ts` | not summarised across tasks |
+| Failed-task analysis | DONE | `error-intelligence.ts`, `limitation-loop.ts`, and `failure-patterns.ts` groups repeated task failures by fingerprint, files each once for review (4 tests) | trend view across weeks is a list |
 | Skill discovery, evaluation, versions, rollback | DONE | `skill-loop.ts` (credit, screening, versions, rollback) | none |
 | Learning history, feedback analysis | PARTIAL | experiences and skill versions stored | no trend view |
 | Performance comparison | DONE | eval harness before and after; Compare run and suite history stored over time | trend is a list, not a graph |
@@ -133,7 +133,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | --- | --- | --- | --- |
 | Identify weaknesses, recurring failures | PARTIAL | `limitation-loop.ts`, `mastery.ts`, capability matrix | no trace mining across runs |
 | Improvement proposals | DONE | `governance.ts` discovered → approval, `own-work.ts` | none |
-| Isolated branches, run tests, benchmark before and after | PARTIAL | `kernel/dev_check.py` behind exec-tier `dev.check`: a diff on a throwaway worktree of HEAD, one fixed check before and after, protected files refused (12 tests) | not called automatically on every own-work proposal; uncommitted changes are not in the copy |
+| Isolated branches, run tests, benchmark before and after | PARTIAL | `kernel/dev_check.py` behind exec-tier `dev.check` (diff on a throwaway worktree of HEAD, one fixed check before and after, protected files refused, 12 tests); `devCheckRequest` / `devCheckAllows` build the exact call and read the verdict without ever running it | the owner approves each run; nothing runs it automatically |
 | Security analysis of a change | PARTIAL | `own-work.proposeDiff` blocks protected files; `error-intelligence.scanRisks` | not applied to every proposal |
 | Authorization, apply, rollback | DONE | governance gate, backup, undo journal | none |
 | Never rewrite security rules silently | DONE | `PROTECTED_POLICY_FILES`, always-ask `code-change` | none |
@@ -168,7 +168,7 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Text, document, OCR | DONE | `electron/document-extract.cjs`, `kernel/document_ocr.py`, `fs.extract` | none |
 | Image understanding | PARTIAL | `screen-vision.cjs`, vision role in routing | needs a vision-capable model; chat IPC was text-only per `modality.ts` |
 | Audio, speech recognition, text-to-speech | DONE | faster-whisper, edge-tts, Supertonic, wake word | real-microphone feel unverified |
-| Video understanding | PARTIAL | `media.frames` stills, `media.transcribe` words from the sound track, `media.probe` facts; the model joins them | no single sound-and-picture pass |
+| Video understanding | PARTIAL | `media.probe` facts, `media.frames` stills, `media.transcribe` words; `video-method.ts` plans the steps, finds video files in a request, notes the method in the turn and builds a labelled-data evidence block (6 tests) | the model joins the parts; no single sound-and-picture pass |
 | Image and file generation | PARTIAL | cloud image generation; `fs.make` documents | no local image model |
 | Screen understanding | DONE | `screen-observe.ts`, `kernel` UIA | none |
 | Real-time multimodal interaction | MISSING | no realtime API integration | Phase 9 |
@@ -198,9 +198,9 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | Goal management, persistent continuation | DONE | `horizon-goals.ts`, persisted graphs, resume | none |
 | Project monitoring, scheduled and event tasks | PARTIAL | `autonomous-core.ts` idle cycle, `agent-scheduler.ts`; no event triggers beyond notifications | event rules |
 | Background research | PARTIAL | idle research cycle | bounded depth |
-| Deadline awareness, opportunity identification | PARTIAL | `extractDeadline` in intake; a quiet heads-up an hour before a desk task is due, then the reminder (`deadlineStage`) | a deadline found in free text is not tracked until it is made a task |
+| Deadline awareness, opportunity identification | DONE | `extractDeadline` in intake, `trackGoalDeadline` turns a goal's deadline into a desk task, and the desk gives a heads-up an hour before and the reminder at the time (goal-deadlines and owner-work tests) | opportunity identification is not built |
 | Proactive suggestions within permissions | DONE | `atlas-notices.ts` throttled notices, governance queue | none |
-| Resource-aware scheduling | PARTIAL | idle grace, `admitResources` | no battery or load awareness |
+| Resource-aware scheduling | DONE | idle grace, `admitResources`, and `idleWorkAllowed` holds the heavy idle pass on a low battery or when the owner asked to pause on battery (2 tests) | no CPU-load reading |
 
 ## Summary count
 
@@ -208,17 +208,17 @@ The reasoning itself is the model's. FRIDAY's part is the strategy chosen, the c
 | --- | --- | --- | --- | --- | --- |
 | A Core cognitive intelligence | 5 | 10 | 0 | 10 | 25 |
 | B Advanced thinking engine | 4 | 7 | 0 | 0 | 11 |
-| C Autonomous agent intelligence | 3 | 7 | 0 | 0 | 10 |
-| D Advanced memory intelligence | 12 | 4 | 0 | 0 | 16 |
+| C Autonomous agent intelligence | 4 | 6 | 0 | 0 | 10 |
+| D Advanced memory intelligence | 13 | 3 | 0 | 0 | 16 |
 | E Multi-model intelligence fusion | 10 | 2 | 0 | 0 | 12 |
-| F Continuous learning | 5 | 3 | 0 | 0 | 8 |
+| F Continuous learning | 6 | 2 | 0 | 0 | 8 |
 | G Self-improvement and self-development | 3 | 3 | 0 | 0 | 6 |
 | H Research and knowledge intelligence | 0 | 7 | 0 | 0 | 7 |
 | I Universal tool and capability intelligence | 5 | 1 | 0 | 0 | 6 |
 | J Multimodal intelligence | 3 | 3 | 1 | 0 | 7 |
 | K Computer and environment autonomy | 3 | 1 | 0 | 0 | 4 |
 | L Metacognition and self-awareness | 3 | 1 | 0 | 0 | 4 |
-| M Proactive and long-term intelligence | 2 | 4 | 0 | 0 | 6 |
-| **All** | 58 | 53 | 1 | 10 | 122 |
+| M Proactive and long-term intelligence | 4 | 2 | 0 | 0 | 6 |
+| **All** | 63 | 48 | 1 | 10 | 122 |
 
 This table counts rows, not units of intelligence. It is the checklist the roadmap works from, and each phase re-marks the rows it changes with the test that proves it.

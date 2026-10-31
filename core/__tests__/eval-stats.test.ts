@@ -83,3 +83,51 @@ describe("what a benchmark result may claim", () => {
     expect(some.high).toBeGreaterThan(some.score as number);
   });
 });
+
+import { promotionVerdict } from "../../src/lib/friday/self/eval-stats";
+
+describe("may a learned change replace what it came from", () => {
+  const ten = (passes: number) => Array.from({ length: 10 }, (_, i) => i < passes);
+  it("promotes only a measured gain with no regression and no gate failure", () => {
+    const base = {
+      regressionBefore: ten(8),
+      regressionAfter: ten(8),
+      gateFailures: [] as string[],
+    };
+    expect(promotionVerdict({ ...base, heldBefore: ten(4), heldAfter: ten(7) })).toMatchObject({
+      promote: true,
+    });
+    expect(promotionVerdict({ ...base, heldBefore: ten(7), heldAfter: ten(7) }).reason).toMatch(
+      /no measured gain/,
+    );
+    expect(promotionVerdict({ ...base, heldBefore: ten(7), heldAfter: ten(5) }).reason).toMatch(
+      /got worse/,
+    );
+    expect(promotionVerdict({ ...base, heldBefore: ten(2), heldAfter: ten(3) }).promote).toBe(true);
+  });
+
+  it("rejects on a gate failure, a regression or too little evidence", () => {
+    const good = {
+      heldBefore: ten(3),
+      heldAfter: ten(8),
+      regressionBefore: ten(8),
+      regressionAfter: ten(8),
+    };
+    expect(promotionVerdict({ ...good, gateFailures: ["protected-file:x"] }).reason).toMatch(
+      /security gate/,
+    );
+    const wide = Array.from({ length: 40 }, () => true);
+    const worse = wide.map((_, i) => i >= 12);
+    expect(
+      promotionVerdict({
+        ...good,
+        regressionBefore: wide,
+        regressionAfter: worse,
+        gateFailures: [],
+      }).reason,
+    ).toMatch(/regression set/);
+    expect(
+      promotionVerdict({ ...good, heldBefore: [true], heldAfter: [true], gateFailures: [] }).reason,
+    ).toMatch(/too few/);
+  });
+});

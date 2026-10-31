@@ -1248,6 +1248,7 @@ class BrainStore {
         ...(entry.cognition.reasoningEffort
           ? { reasoningEffort: entry.cognition.reasoningEffort }
           : {}),
+        runId: run.id,
         system: [
           entry.cognition.system,
           "",
@@ -2090,6 +2091,7 @@ class BrainStore {
         ...(options.routingContract ? { routingContract: options.routingContract } : {}),
         ...(options.routingSurface ? { routingSurface: options.routingSurface } : {}),
         ...(cognition.reasoningEffort ? { reasoningEffort: cognition.reasoningEffort } : {}),
+        runId: run.id,
         system: cognition.system,
         history: this.historyForModel(run.id),
       });

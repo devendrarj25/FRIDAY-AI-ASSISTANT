@@ -31,7 +31,9 @@ import {
 import {
   INSTRUCTION_TASKS,
   describeInstructionEval,
+  describeRepeatedInstructionEval,
   runInstructionEval,
+  runInstructionEvalRepeated,
   type InstructionEvalReport,
 } from "@/lib/friday/self/instruction-eval";
 import {
@@ -202,6 +204,8 @@ export function ModelComparePanel() {
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState("");
+  const [repeats, setRepeats] = useState(1);
+  const [repeated, setRepeated] = useState<string | null>(null);
   const available = canAsk();
   const models = useMemo(
     () => modelRegistry.available().map((record) => ({ id: record.id, name: record.name })),
@@ -218,6 +222,19 @@ export function ModelComparePanel() {
     try {
       // One chosen model, or whichever FRIDAY routes to when none is chosen.
       const modelIds = chosen ? routeRefs([chosen]) : [];
+      if (repeats > 1) {
+        const many = await runInstructionEvalRepeated({
+          repeats,
+          rungs: [{ id: chosen || "default", label: chosen || "your configured models", modelIds }],
+          ask: (prompt) =>
+            askFriday(prompt, { timeoutMs: 60_000, ...(modelIds.length ? { modelIds } : {}) }),
+          onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
+        });
+        setRepeated(describeRepeatedInstructionEval(many));
+        setReport(null);
+        return;
+      }
+      setRepeated(null);
       const result = await runInstructionEval({
         rungs: [{ id: chosen || "default", label: chosen || "your configured models", modelIds }],
         ask: (prompt) =>
@@ -281,8 +298,26 @@ export function ModelComparePanel() {
               ))}
             </select>
           </label>
+          <label className="grid gap-1 text-meta text-muted-foreground">
+            Runs per ask (more runs show whether the rules are kept every time, and cost that many
+            times the questions)
+            <select
+              className="rounded-surface border border-border bg-background p-2 text-foreground"
+              value={repeats}
+              onChange={(event) => setRepeats(Number(event.target.value))}
+              aria-label="Runs per ask"
+            >
+              {[1, 3, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? "1 run" : `${n} runs`}
+                </option>
+              ))}
+            </select>
+          </label>
           {error ? (
             <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
+          ) : repeated ? (
+            <p className="whitespace-pre-wrap text-data text-foreground">{repeated}</p>
           ) : !report ? (
             <EmptyState
               title={busy ? (progress ?? "Starting…") : "Not run yet"}

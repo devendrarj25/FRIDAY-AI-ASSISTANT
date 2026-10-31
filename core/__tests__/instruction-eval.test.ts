@@ -88,3 +88,40 @@ describe("runInstructionEval", () => {
     expect(seen).toEqual([1, 2, 3]);
   });
 });
+
+import { runInstructionEvalRepeated } from "../../src/lib/friday/self/instruction-eval";
+
+describe("runInstructionEvalRepeated", () => {
+  it("separates a model that sometimes keeps the rules from one that always does", async () => {
+    const tasks = [
+      { id: "one-word", prompt: "What is the capital of France? Answer in one word." },
+      { id: "lower", prompt: "Say hello, all in lowercase." },
+    ];
+    let call = 0;
+    const rung = { id: "m", label: "m", ref: "m" } as never;
+    const report = await runInstructionEvalRepeated({
+      repeats: 3,
+      rungs: [rung],
+      tasks,
+      // The first task is always right; the second is right only on its second try of three runs.
+      ask: async (prompt: string) => {
+        call += 1;
+        if (prompt.includes("capital")) return "Paris";
+        return call % 4 === 0 ? "hello" : "HELLO";
+      },
+    });
+    expect(report.runs).toBe(3);
+    expect(report.bare.tasks).toBe(2);
+    expect(report.bare.passAtK).toBeGreaterThanOrEqual(0.5);
+    expect(report.bare.passPowK).toBeLessThan(1);
+    expect(report.bareAllRuns.low).toBeLessThanOrEqual(report.bareAllRuns.high);
+    expect(report.calls).toBeGreaterThan(0);
+    const clamped = await runInstructionEvalRepeated({
+      repeats: 99,
+      rungs: [rung],
+      tasks: tasks.slice(0, 1),
+      ask: async () => "Paris",
+    });
+    expect(clamped.runs).toBe(5);
+  });
+});

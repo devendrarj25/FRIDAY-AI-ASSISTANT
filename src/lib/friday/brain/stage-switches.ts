@@ -12,6 +12,8 @@ export const MEASURABLE_STAGES = [
   "meta-review",
   "vector-index",
   "knowledge-recall",
+  "memory-retrieve",
+  "context-recall",
 ] as const;
 
 export type MeasurableStage = (typeof MEASURABLE_STAGES)[number];

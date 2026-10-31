@@ -15,6 +15,7 @@
  * and the caller surfaces it instead of pretending to answer.
  */
 
+import { stageOff } from "./brain/stage-switches";
 import { identity } from "./brain/identity";
 import { manualChatGuide } from "./chat-turn";
 import { looksLikeCorrection } from "./brain/intent-engine";
@@ -343,7 +344,9 @@ export function prepareTurn(
   const mode = options.mode ?? "manual";
   const spoken = options.surface ? options.surface === "voice" : mode === "auto";
   const tRecall = Date.now();
-  const context = recallContext(prompt, options.depth ?? 6, options.vectorHits);
+  const context = stageOff("context-recall")
+    ? []
+    : recallContext(prompt, options.depth ?? 6, options.vectorHits);
   options.onStage?.(
     "memory.tiers",
     context.length ? `${context.length} recalled line(s)` : "no recalled memory",

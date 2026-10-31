@@ -11,6 +11,7 @@
 
 import { checkAnswer } from "../brain/answer-checks";
 import { runVerified, type Rung } from "../brain/verified-run";
+import { runMetrics, wilson, type RunMetrics } from "./eval-stats";
 
 export type InstructionTask = { id: string; prompt: string };
 
@@ -55,6 +56,8 @@ export type InstructionEvalReport = {
   calls: number;
   /** Tasks that could not be answered at all (the model was unreachable). */
   unanswered: number;
+  /** Per task: did the unaided answer keep the rules, and did the final answer. Lets runs be compared. */
+  outcomes: { id: string; bareOk: boolean; brainOk: boolean }[];
   caveat: string;
 };
 
@@ -72,6 +75,7 @@ export async function runInstructionEval(input: {
   let calls = 0;
   let unanswered = 0;
   const stuck: InstructionEvalReport["stuck"] = [];
+  const outcomes: InstructionEvalReport["outcomes"] = [];
   let done = 0;
   for (const task of tasks) {
     // The unaided answer is also the loop's first attempt, so the comparison costs no extra call.
@@ -107,6 +111,7 @@ export async function runInstructionEval(input: {
     } else if (out.answer) {
       stuck.push({ id: task.id, why: out.note.replace(/^.*still failing:\s*/, "") });
     }
+    outcomes.push({ id: task.id, bareOk, brainOk: finalOk });
     done += 1;
     input.onProgress?.(done, tasks.length);
   }
@@ -118,8 +123,53 @@ export async function runInstructionEval(input: {
     stuck,
     calls,
     unanswered,
+    outcomes,
     caveat:
       "These count whether the rules of the ask were kept (limits, bullets, JSON, language, a sum). They do not measure whether an answer is true, wise or well written.",
+  };
+}
+
+export type RepeatedInstructionReport = {
+  runs: number;
+  bare: RunMetrics;
+  brain: RunMetrics;
+  /** 95% interval of the share of tasks that kept the rules on every run, as it is and through the loop. */
+  bareAllRuns: { low: number; high: number };
+  brainAllRuns: { low: number; high: number };
+  calls: number;
+};
+
+/**
+ * The same asks, run `repeats` times (1 to 5). One lucky run hides an unreliable model, so this reports
+ * pass@1, pass@k and pass^k (kept the rules on every run) for the bare answer and for the loop. It costs
+ * `repeats` times as many calls and only runs when the owner asks for it.
+ */
+export async function runInstructionEvalRepeated(
+  input: Parameters<typeof runInstructionEval>[0] & { repeats: number },
+): Promise<RepeatedInstructionReport> {
+  const runs = Math.max(1, Math.min(5, Math.floor(input.repeats) || 1));
+  const bare: Record<string, boolean[]> = {};
+  const brain: Record<string, boolean[]> = {};
+  let calls = 0;
+  for (let run = 0; run < runs; run += 1) {
+    const { repeats: _repeats, ...single } = input;
+    const report = await runInstructionEval(single);
+    calls += report.calls;
+    for (const row of report.outcomes) {
+      (bare[row.id] ??= []).push(row.bareOk);
+      (brain[row.id] ??= []).push(row.brainOk);
+    }
+  }
+  const bareMetrics = runMetrics(Object.values(bare));
+  const brainMetrics = runMetrics(Object.values(brain));
+  const count = (m: RunMetrics) => Math.round(m.passPowK * m.tasks);
+  return {
+    runs,
+    bare: bareMetrics,
+    brain: brainMetrics,
+    bareAllRuns: wilson(count(bareMetrics), bareMetrics.tasks),
+    brainAllRuns: wilson(count(brainMetrics), brainMetrics.tasks),
+    calls,
   };
 }
 
@@ -137,4 +187,15 @@ export function describeInstructionEval(report: InstructionEvalReport): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+export function describeRepeatedInstructionEval(report: RepeatedInstructionReport): string {
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  const range = (r: { low: number; high: number }) => `${pct(r.low)}–${pct(r.high)}`;
+  return [
+    `${report.bare.tasks} fixed asks, ${report.runs} runs each, ${report.calls} model calls.`,
+    `As it is: ${pct(report.bare.passAt1)} per run, kept the rules on every run ${pct(report.bare.passPowK)} (95% range ${range(report.bareAllRuns)}).`,
+    `Through FRIDAY's loop: ${pct(report.brain.passAt1)} per run, kept the rules on every run ${pct(report.brain.passPowK)} (95% range ${range(report.brainAllRuns)}).`,
+    "Counts whether the rules of the ask were kept, not whether an answer is true. If the two ranges overlap, the difference is not shown by this many asks.",
+  ].join("\n");
 }

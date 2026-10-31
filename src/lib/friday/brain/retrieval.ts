@@ -71,6 +71,82 @@ export function understandQuery(query: string): { terms: string[]; entities: str
   return { terms: retrievalTerms(query), entities: retrievalEntities(query) };
 }
 
+/* ------------------------------------------------------------ entity aliases */
+
+const ALIAS_PATTERNS: RegExp[] = [
+  /\b([A-Z][\w-]+(?: [A-Z][\w-]+)?) \((?:also (?:known|called) as|aka|a\.k\.a\.?) ([A-Z][\w-]+(?: [A-Z][\w-]+)?)\)/g,
+  /\b([A-Z][\w-]+(?: [A-Z][\w-]+)?),? (?:aka|a\.k\.a\.?|also known as|also called) ([A-Z][\w-]+(?: [A-Z][\w-]+)?)/g,
+];
+const aliasMap = new Map<string, Set<string>>();
+
+/** Learn "X aka Y" style links from a stored text, so a question about Y can find facts written about X. */
+export function registerEntityAliases(text: string): number {
+  let learned = 0;
+  for (const pattern of ALIAS_PATTERNS) {
+    for (const match of String(text || "").matchAll(pattern)) {
+      const a = match[1]?.trim().toLowerCase();
+      const b = match[2]?.trim().toLowerCase();
+      if (!a || !b || a === b) continue;
+      for (const [from, to] of [
+        [a, b],
+        [b, a],
+      ] as const) {
+        const set = aliasMap.get(from) ?? new Set<string>();
+        if (!set.has(to)) learned += 1;
+        set.add(to);
+        aliasMap.set(from, set);
+      }
+    }
+  }
+  return learned;
+}
+
+export function aliasesOf(entity: string): string[] {
+  return [
+    ...(aliasMap.get(
+      String(entity || "")
+        .trim()
+        .toLowerCase(),
+    ) ?? []),
+  ];
+}
+
+export function clearEntityAliasesForTests(): void {
+  aliasMap.clear();
+}
+
+/* ---------------------------------------------------------------- reranker */
+
+/**
+ * An optional second-stage scorer for the top hits, for example a local cross-encoder the owner chose to
+ * download. It must be synchronous and offline. When none is set, ranking is exactly what it was. A scorer
+ * that throws or returns nonsense is ignored for that query.
+ */
+export type Reranker = (query: string, texts: string[]) => number[];
+let reranker: Reranker | null = null;
+export function setReranker(next: Reranker | null): void {
+  reranker = next;
+}
+
+function applyReranker<T>(
+  query: string,
+  hits: RankedHit<T>[],
+  textOf: (hit: RankedHit<T>) => string,
+): RankedHit<T>[] {
+  if (!reranker || hits.length < 2) return hits;
+  try {
+    const scores = reranker(query, hits.map(textOf));
+    if (!Array.isArray(scores) || scores.length !== hits.length) return hits;
+    if (!scores.every((value) => Number.isFinite(value))) return hits;
+    return hits
+      .map((hit, index) => ({ hit, blend: hit.score * 0.5 + (scores[index] as number) * 0.5 }))
+      .sort((a, b) => b.blend - a.blend)
+      .map((row) => row.hit);
+  } catch {
+    return hits;
+  }
+}
+
 /**
  * HyDE-lite / multi-query without an LLM (Gao et al. 2022 idea, lexical only):
  * rewrite the ask into phrases that look like stored beliefs, then retrieve those.
@@ -116,6 +192,12 @@ export function expandQuery(query: string): string[] {
   }
   const bridged = bridgeHinglish(text);
   if (bridged && bridged !== text.toLowerCase()) variants.add(bridged);
+  const lowered = text.toLowerCase();
+  for (const [entity, aliases] of aliasMap) {
+    if (!lowered.includes(entity)) continue;
+    const pattern = new RegExp(entity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+    for (const alias of aliases) variants.add(text.replace(pattern, alias));
+  }
   return [...variants].slice(0, 8);
 }
 
@@ -506,7 +588,15 @@ export function rankByRetrieval<T>(
     const row = typeof hit.id === "string" ? byId.get(hit.id) : undefined;
     return row ? `${row.signals.title} ${row.signals.text}` : "";
   };
-  return mmrRerank(fusedHits, textOf, k).map((hit) => ({ item: hit.item, score: hit.score }));
+  const diverse = mmrRerank(fusedHits, textOf, k).map((hit) => ({
+    item: hit.item,
+    score: hit.score,
+    ...(typeof (hit as { id?: string }).id === "string" ? { id: (hit as { id?: string }).id } : {}),
+  }));
+  return applyReranker(query, diverse as RankedHit<T>[], textOf).map((hit) => ({
+    item: hit.item,
+    score: hit.score,
+  }));
 }
 
 /** Cap assembled context so a turn is not flooded with near-misses. */

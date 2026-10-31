@@ -110,6 +110,7 @@ import {
 } from "./local-mind";
 import { isConsequential } from "./action-risk";
 import { classifyModality } from "./modality";
+import { videoFilesIn, videoSteps } from "./video-method";
 import { selectResponseStrategy, type ResponseStrategy } from "./decision-engine";
 import { refreshScreenObservation } from "./screen-observe";
 import { refreshCameraObservation } from "./camera-observe";
@@ -427,6 +428,13 @@ class CoreBrain {
       ...(options.extra ? { extra: options.extra } : {}),
     });
     notes.push(`modality: ${modality.summary}`);
+    for (const file of videoFilesIn(`${prompt}\n${options.extra || ""}`)) {
+      notes.push(
+        `video method for ${file}: ${videoSteps(file)
+          .map((step) => step.tool)
+          .join(" → ")}`,
+      );
+    }
     for (const gap of modality.notBuilt) {
       notes.push(`modality not built: ${gap}`);
       try {
@@ -706,6 +714,7 @@ class CoreBrain {
       /\bPROJECT WORKSPACE SESSION\b/.test(options.extra || "");
     const projectIdForTurn = projectBoundTurn ? projectWorkspaces.activeId() : null;
     try {
+      if (stageOff("memory-retrieve")) throw new Error("switched off for a measurement");
       let remembered = memory.retrieve(prompt, 8, {
         ...(vectorHits.length ? { vectorHits } : {}),
         ...(useProjectMemory && projectIdForTurn ? { projectId: projectIdForTurn } : {}),

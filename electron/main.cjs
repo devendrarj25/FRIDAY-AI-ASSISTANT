@@ -2982,6 +2982,9 @@ async function streamOnceRaw({
                 ...(["low", "medium", "high"].includes(request.reasoningEffort)
                   ? { reasoningEffort: request.reasoningEffort }
                   : {}),
+                ...(typeof request.runId === "string" && /^[\w.-]{1,64}$/.test(request.runId)
+                  ? { runId: request.runId }
+                  : {}),
               },
             }),
           );

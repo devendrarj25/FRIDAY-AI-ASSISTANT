@@ -10,18 +10,18 @@ Inputs: [FRIDAY_BRAIN_INTELLIGENCE_RESEARCH.md](FRIDAY_BRAIN_INTELLIGENCE_RESEAR
 
 | Phase | Delivered in code | Still open |
 | --- | --- | --- |
-| 1 Contracts | model record `reasoningControl` with its source; the model profile store | parity test between the main-process record and the renderer registry |
-| 2 Reasoning and context | per-model reasoning control, effort per route, same-engine repair on the streaming chat | Auto mode and the Hub still call once |
-| 3 Memory | time and tense aware ranking, Hinglish bridge, folded owner forms | per-fact validity period, entity link, optional reranker |
-| 4 Model fusion | measured profile feeds ranking | role assignment by measured strength |
-| 5 Agents and tasks | shared earlier results between steps (data, not instructions), parallel groups | free message passing, A2A (deferred) |
-| 6 Research | source kinds, agreement, citation check | MCP revision comparison (docs host blocked) |
-| 7 Learning | trainer guards tested | failure-pattern mining across runs, a real training run |
-| 8 Self-development | `dev.check` sandbox | called automatically on every own-work proposal |
-| 9 Multimodal | `media.transcribe` joins frames and probe as the video method | one sound-and-picture pass, realtime |
-| 10 Proactive | quiet heads-up before a desk deadline | event rules, load and battery awareness |
-| 11 Benchmarking | retrieval, routing, long-horizon suites, pass-k, history | pass-k inside the instruction comparison |
-| 12 Observability | Brain now panel | a local JSON trace in OpenTelemetry shape (opt-in, redacted; the exporter stays REJECT) |
+| 1 Contracts | model record `reasoningControl` with its source; the model profile store; result record, intervals, fixtures and stage switches (`eval-stats`, `eval-fixtures`, `stage-switches`); a security gate suite | parity test between the main-process record and the renderer registry; folding the Python and Electron gates into the same report |
+| 2 Reasoning and context | per-model reasoning control, effort per route, same-engine repair on the streaming chat, the Hub on the verified ask | none known |
+| 3 Memory | time and tense aware ranking, Hinglish bridge, folded owner forms, per-fact validity, entity aliases, optional reranker hook, tests for the vector index and for the engine being the authority | an installed cross-encoder model |
+| 4 Model fusion | measured profile feeds ranking, repeated instruction comparison | role assignment by measured strength |
+| 5 Agents and tasks | shared earlier results, parallel groups, delegation modes, delegated authority limited to the overlap, risk tier in the child check, mailbox between enrolled agents | A2A with an outside agent (deferred) |
+| 6 Research | source kinds, agreement, citation check, tool argument validation | MCP revision comparison (docs host blocked) |
+| 7 Learning | trainer guards tested, failure-pattern mining filed through the limitation loop, promotion verdict | a real training run on the owner's PC |
+| 8 Self-development | `dev.check` sandbox, `devCheckRequest` and `devCheckAllows` | the owner runs it per proposal (exec tier, never automatic) |
+| 9 Multimodal | `media.transcribe`, the video method in the turn notes | one sound-and-picture pass, realtime |
+| 10 Proactive | heads-up before a desk deadline, goal deadlines on the desk, battery-aware idle pass, failure mining on the idle cycle | event rules from outside the app, CPU-load awareness |
+| 11 Benchmarking | retrieval, routing, long-horizon, tool-choice and recall fixtures, pass-k, intervals, history, stored results, ablation | task fixtures for all planned categories, external benchmarks |
+| 12 Observability | Brain now panel, run id to the kernel, local redacted trace (opt-in) | none; the OpenTelemetry exporter stays rejected |
 
 ## 1. How phases are ranked
 

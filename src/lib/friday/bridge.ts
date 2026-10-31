@@ -79,6 +79,8 @@ declare global {
         routingSurface?: "voice" | "chat";
         /** How hard a steerable model should think; models without a control ignore it. */
         reasoningEffort?: "low" | "medium" | "high";
+        /** The turn's run id, so a local trace can follow it into the kernel. */
+        runId?: string;
         system?: string;
         /** Recent turns of the one shared thread, so the model answers inside the conversation. */
         history?: { role: "user" | "friday"; text: string; sensitive?: boolean }[];

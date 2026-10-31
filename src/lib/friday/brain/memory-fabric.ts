@@ -26,6 +26,7 @@ import {
   type MemoryKind,
   type MemoryScope,
   type MemoryTier,
+  validityState,
 } from "../self/memory-engine";
 import { brainKnowledge, deriveKnowledgeFromMemory } from "./knowledge-base";
 import { localNeighborhood } from "./knowledge-graph";
@@ -411,6 +412,7 @@ export function gateEvidence(
     return { klass: "stale", mayInfluence: false };
   }
   if (item.supersededAt) return { klass: "stale", mayInfluence: false };
+  if (validityState(item, now) !== "current") return { klass: "stale", mayInfluence: false };
   const authority = preferenceAuthority(item);
   if (authority === "blocked") return { klass: "unknown", mayInfluence: false };
   if (!item.verified && item.confidence < 0.4) return { klass: "weak", mayInfluence: false };
@@ -516,7 +518,9 @@ export function governRecall(input: {
   const pool = [...input.hits];
   if (plan.historical) {
     for (const item of input.archive ?? []) {
-      if (!item.supersededAt || tombstones.has(item.id)) continue;
+      const past =
+        Boolean(item.supersededAt) || validityState(item, input.now ?? Date.now()) !== "current";
+      if (!past || tombstones.has(item.id)) continue;
       if (pool.some((row) => row.item.id === item.id)) continue;
       if (covers(input.prompt, item)) pool.push({ item, score: 0.3 });
     }
@@ -537,8 +541,8 @@ export function governRecall(input: {
       continue;
     }
     const gate = gateEvidence(row.item, now);
-    const historicalOk =
-      plan.historical && Boolean(row.item.supersededAt) && !row.item.contradiction;
+    const pastFact = Boolean(row.item.supersededAt) || validityState(row.item, now) !== "current";
+    const historicalOk = plan.historical && pastFact && !row.item.contradiction;
     if (!gate.mayInfluence && !historicalOk) {
       withheld.push({ id: row.item.id, reason: gate.klass });
       continue;
@@ -784,7 +788,10 @@ export function rebuildProjection(
       omitted.push(item.id);
       continue;
     }
-    if (item.expiresAt !== undefined && item.expiresAt <= now) {
+    if (
+      (item.expiresAt !== undefined && item.expiresAt <= now) ||
+      (now > 0 && validityState(item, now) !== "current")
+    ) {
       omitted.push(item.id);
       continue;
     }

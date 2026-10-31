@@ -180,6 +180,16 @@ const DOCUMENTS = [
     inMap: false,
   },
   {
+    file: "docs/research/FRIDAY_BRAIN_BENCHMARK.md",
+    title: "FRIDAY — Brain Benchmark",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "How the Brain is measured, what a result may claim, the security gates, and what is not built",
+    topic: "Brain benchmark method, statistics, gates and traces",
+    inMap: false,
+  },
+  {
     file: "docs/research/FRIDAY_BRAIN_GAP_ANALYSIS.md",
     title: "FRIDAY — Brain Gap Analysis",
     section: "architecture",
