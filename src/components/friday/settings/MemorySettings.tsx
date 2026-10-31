@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { exportMemoryBackup, importMemoryBackup } from "@/lib/friday/brain/memory-fabric";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Download, RefreshCw, Save, Upload } from "lucide-react";
@@ -36,7 +37,7 @@ export function MemorySettings() {
     const file = files?.[0];
     if (!file) return;
     try {
-      const added = memory.import(await file.text());
+      const added = importMemoryBackup(await file.text());
       toast.success(`Imported ${added} memory item(s)`);
     } catch (error) {
       toast.error(`Import failed — ${String((error as Error).message ?? error)}`);
@@ -135,7 +136,7 @@ export function MemorySettings() {
             size="sm"
             variant="outline"
             onClick={() => {
-              const blob = new Blob([memory.export()], { type: "application/json" });
+              const blob = new Blob([exportMemoryBackup()], { type: "application/json" });
               const url = URL.createObjectURL(blob);
               const link = document.createElement("a");
               link.href = url;

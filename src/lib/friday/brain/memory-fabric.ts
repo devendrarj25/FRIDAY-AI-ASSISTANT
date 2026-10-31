@@ -720,7 +720,7 @@ export function applyOwnerCorrection(input: {
     : "supersession";
   let supersededId: string | null = null;
   if (link === "supersession" && prior && prior.text.trim().toLowerCase() !== text.toLowerCase()) {
-    memory.supersede(prior.id);
+    memory.supersede(prior.id, undefined, "corrected by the owner");
     supersededId = prior.id;
   }
   const item = memory.remember({
@@ -736,7 +736,7 @@ export function applyOwnerCorrection(input: {
     ...(input.scope ? { scope: input.scope } : {}),
     ...(input.projectId ? { projectId: input.projectId } : {}),
   });
-  if (supersededId) memory.supersede(supersededId, item.id);
+  if (supersededId) memory.supersede(supersededId, item.id, "corrected by the owner");
   projectBelief(item);
   touchCache();
   persist();
@@ -981,4 +981,12 @@ export function textsContradict(left: string, right: string): boolean {
   const bareA = contradictionBare(a);
   const bareB = contradictionBare(b);
   return bareA.length > 2 && bareA === bareB;
+}
+
+/** The memory part of a backup or export: the records plus what was forgotten, so a restore cannot bring it back. */
+export const exportMemoryBackup = (): string => exportFabricBundle();
+
+/** Restore a backup in either shape (the new bundle or a plain memory export). Returns the records added. */
+export function importMemoryBackup(json: string): number {
+  return restoreFabricBundle(json).restored;
 }

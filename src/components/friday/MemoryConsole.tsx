@@ -1,4 +1,10 @@
 import { useLivePoll } from "@/lib/friday/use-live-poll";
+import {
+  applyOwnerCorrection,
+  exportMemoryBackup,
+  forgetEverywhere,
+  importMemoryBackup,
+} from "@/lib/friday/brain/memory-fabric";
 import { useSecondsTick } from "@/lib/friday/use-clock-tick";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -133,7 +139,7 @@ export function MemoryConsole() {
   const unpinnedTier = tieredResults.filter((item) => !item.pinned);
 
   const exportMemory = () => {
-    const blob = new Blob([memoryEngine.export()], { type: "application/json" });
+    const blob = new Blob([exportMemoryBackup()], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `friday-memory-${new Date().toISOString().slice(0, 10)}.json`;
@@ -186,7 +192,7 @@ export function MemoryConsole() {
               size="sm"
               variant="outline"
               onClick={() => {
-                void copyText(memoryEngine.export()).then((ok) =>
+                void copyText(exportMemoryBackup()).then((ok) =>
                   ok
                     ? toast.success("Memory exported to the clipboard")
                     : toast.error("Copying was blocked"),
@@ -235,7 +241,7 @@ export function MemoryConsole() {
                 )
                   return;
                 unpinnedBrain.forEach((m) => brain.forget(m.id));
-                unpinnedTier.forEach((item) => memoryEngine.forget(item.id));
+                unpinnedTier.forEach((item) => forgetEverywhere(item.id));
                 toast.success("Matching unpinned records forgotten");
               }}
               disabled={!memQuery.trim() || (!unpinnedBrain.length && !unpinnedTier.length)}
@@ -253,7 +259,7 @@ export function MemoryConsole() {
                 if (!file) return;
                 void file.text().then((text) => {
                   try {
-                    const added = memoryEngine.import(text);
+                    const added = importMemoryBackup(text);
                     toast.success(`Imported ${added} memory item(s)`);
                   } catch (error) {
                     toast.error(`Import failed — ${String((error as Error).message ?? error)}`);
@@ -425,7 +431,7 @@ export function MemoryConsole() {
                         size="sm"
                         variant="ghost"
                         title="Forget"
-                        onClick={() => memoryEngine.forget(item.id)}
+                        onClick={() => forgetEverywhere(item.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -666,6 +672,36 @@ export function MemoryConsole() {
               >
                 {editingId ? "Update memory" : "Save to memory"}
               </Button>
+              {editingId ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="Replace the fact with a correction and keep the old version for questions about the past"
+                  disabled={!memTitle.trim() || !memText.trim()}
+                  onClick={() => {
+                    const out = applyOwnerCorrection({
+                      title: memTitle.trim(),
+                      text: memText.trim(),
+                    });
+                    void vectorIndex.add(
+                      `${out.item.title}\n\n${out.item.text}`,
+                      out.item.tier,
+                      out.item.title,
+                      out.item.id,
+                    );
+                    setEditingId(null);
+                    setMemTitle("");
+                    setMemText("");
+                    toast.success(
+                      out.supersededId
+                        ? "Corrected; the old version is kept as history"
+                        : out.reason,
+                    );
+                  }}
+                >
+                  Correct (keep history)
+                </Button>
+              ) : null}
               {editingId ? (
                 <Button
                   size="sm"
