@@ -12,6 +12,8 @@ import {
 } from "@/lib/friday/voice-doctor";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
+import { useBilling } from "@/lib/friday/use-billing";
+import { realtimeStatus } from "@/lib/friday/voice-realtime";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { attentionWindowSeconds, clampAttentionSeconds } from "@/lib/friday/attention-window";
@@ -275,6 +277,7 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
+          <RealtimeEngineNotes />
           <ToggleRow
             label="Realtime voice (experimental)"
             hint="Auto mode only. Closes a pause sooner and starts speaking at the first clause. Nothing leaves this PC; it only moves timing."
@@ -763,5 +766,34 @@ function VoiceLibraryPanel() {
         ))}
       </div>
     </HudPanel>
+  );
+}
+
+/** Why the two other realtime engines are not on, in plain words, from the live switches. */
+function RealtimeEngineNotes() {
+  const prefs = usePreferences();
+  const billing = useBilling();
+  const status = realtimeStatus({
+    enabled: prefs.voice.realtimeExperiment === true,
+    surface: "auto",
+    paused: false,
+    gpuVramGb: 0,
+    s2sRuntimeInstalled: false,
+    paidAccess: billing.billing.paidAccess,
+    cloudKey: false,
+    privacyMode: prefs.voice.privacyMode === true,
+  });
+  return (
+    <div className="grid gap-1 rounded-md border border-border p-2 text-meta-sm text-muted-foreground">
+      <p className="text-foreground">Realtime engines</p>
+      <p>This PC, overlapping listen, think and speak: available (the switch below).</p>
+      {status.unavailable.map((row) => (
+        <p key={row.engine}>
+          {row.engine === "local-speech-to-speech" ? "Local speech-to-speech" : "Cloud realtime"}:
+          not on — {row.why}. The session protocol and its safety gate are built; the audio
+          connection is not switched on in this version.
+        </p>
+      ))}
+    </div>
   );
 }
