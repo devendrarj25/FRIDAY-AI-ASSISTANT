@@ -1100,12 +1100,13 @@ def verify_written(path: Path, chosen: str, spec: dict) -> tuple[bool | None, st
                 return None, f"not checked: {reason}"
             return False, f"the file could not be read back: {reason}"
         body = _text(got.get("text"))
-    flat = re.sub(r"\s+", " ", body)
-    if not flat.strip():
+    # Whitespace differs between formats (a line break may become nothing in a Word run), so compare without it.
+    flat = re.sub(r"\s+", "", body)
+    if not flat:
         return False, "the file opens but holds no text"
     if chosen == "pdf":
         snippets = [s for s in snippets if "?" not in s and all(ord(c) < 0x250 for c in s)]
-    missing = [s for s in snippets if s not in flat and s.lower() not in flat.lower()]
+    missing = [s for s in snippets if re.sub(r"\s+", "", s).lower() not in flat.lower()]
     if missing:
         return False, "read back, but this was not found in it: " + "; ".join(repr(s) for s in missing[:3])
     return True, f"read back and found {len(snippets)} opening piece(s) of the text"
