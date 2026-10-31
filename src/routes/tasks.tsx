@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Panel } from "@/components/friday/AppShell";
+import { MeetingNotesPanel } from "@/components/friday/MeetingNotesPanel";
 import { TodoPanel } from "@/components/friday/TodoPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -566,6 +567,7 @@ function TasksPage() {
     >
       <div className="space-y-4">
         <TodoPanel />
+        <MeetingNotesPanel />
         <Panel title="What FRIDAY did" hint={day?.dayKey ?? "no receipts yet"}>
           <p className="whitespace-pre-wrap text-sm text-muted-foreground">{digest.digest}</p>
         </Panel>
