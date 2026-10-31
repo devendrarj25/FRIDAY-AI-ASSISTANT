@@ -2278,8 +2278,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/main.py",
     },
     {
+      kind: "array",
+      file: "kernel/tools.py",
+    },
+    {
       kind: "audio",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "boolean",
+      file: "kernel/tools.py",
     },
     {
       kind: "bullets",
@@ -2346,6 +2354,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/doc_writer.py",
     },
     {
+      kind: "integer",
+      file: "kernel/tools.py",
+    },
+    {
       kind: "jpeg",
       file: "kernel/file_tools.py",
     },
@@ -2378,8 +2390,16 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "number",
+      file: "kernel/tools.py",
+    },
+    {
       kind: "numbered",
       file: "kernel/doc_writer.py",
+    },
+    {
+      kind: "object",
+      file: "kernel/tools.py",
     },
     {
       kind: "paid",
@@ -2410,6 +2430,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "redacted_thinking",
+      file: "kernel/reasoning_control.py",
+    },
+    {
       kind: "retry",
       file: "kernel/main.py",
     },
@@ -2426,6 +2450,10 @@ export const FLOW_REGISTRY = {
       file: "kernel/file_tools.py",
     },
     {
+      kind: "string",
+      file: "kernel/tools.py",
+    },
+    {
       kind: "table",
       file: "kernel/doc_writer.py",
     },
@@ -2436,6 +2464,10 @@ export const FLOW_REGISTRY = {
     {
       kind: "task",
       file: "kernel/companion.py",
+    },
+    {
+      kind: "thinking",
+      file: "kernel/reasoning_control.py",
     },
     {
       kind: "wav",

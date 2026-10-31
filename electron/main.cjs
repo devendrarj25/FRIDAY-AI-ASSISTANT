@@ -2977,6 +2977,14 @@ async function streamOnceRaw({
                 ...(request.routingSurface === "voice" || request.routingSurface === "chat"
                   ? { routingSurface: request.routingSurface }
                   : {}),
+                // How hard a steerable model should think. The kernel sends a thinking field only
+                // to a model whose record declares a control, and ignores anything else.
+                ...(["low", "medium", "high"].includes(request.reasoningEffort)
+                  ? { reasoningEffort: request.reasoningEffort }
+                  : {}),
+                ...(typeof request.runId === "string" && /^[\w.-]{1,64}$/.test(request.runId)
+                  ? { runId: request.runId }
+                  : {}),
               },
             }),
           );

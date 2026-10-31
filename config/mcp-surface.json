@@ -7,7 +7,7 @@
     "2025-11-25",
     "2026-07-28"
   ],
-  "kernelTools": 76,
+  "kernelTools": 78,
   "exposedTools": [
     {
       "name": "friday.ask",
@@ -442,6 +442,19 @@
       }
     },
     {
+      "name": "kernel.dev.check",
+      "risk": "exec",
+      "scopes": [
+        "exec"
+      ],
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "kernel.docker.pull",
       "risk": "write",
       "scopes": [
@@ -809,6 +822,19 @@
     },
     {
       "name": "kernel.media.probe",
+      "risk": "safe",
+      "scopes": [
+        "read"
+      ],
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "kernel.media.transcribe",
       "risk": "safe",
       "scopes": [
         "read"

@@ -249,8 +249,8 @@
       ],
       "read": {
         "status": "built",
-        "tool": "speech to text, media.probe",
-        "note": "faster-whisper on this PC; media.probe needs ffmpeg"
+        "tool": "speech to text, media.transcribe, media.probe",
+        "note": "faster-whisper on this PC reads a file through media.transcribe; media.probe needs ffmpeg"
       },
       "make": {
         "status": "partial",
@@ -277,8 +277,8 @@
       ],
       "read": {
         "status": "needs-tool",
-        "tool": "media.probe, media.frames",
-        "note": "length and streams with ffmpeg, and up to 12 evenly spaced still pictures a vision model can look at; there is no live video watching and no sound-and-picture understanding in one step"
+        "tool": "media.probe, media.frames, media.transcribe",
+        "note": "watched in steps, not live: length and streams with ffmpeg, up to 12 evenly spaced still pictures a vision model can look at, and what was said as text from the sound track; the pictures and the words are put together by the model, there is no single sound-and-picture model"
       },
       "make": {
         "status": "needs-tool",

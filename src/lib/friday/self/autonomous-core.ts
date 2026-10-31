@@ -38,6 +38,9 @@ import { selfBridgeAvailable, selfHealth } from "./maintenance-bridge";
 import { desktopAgentHost, reviewEnabledAgents, type AgentSchedulerHost } from "./agent-scheduler";
 import { dispatchPluginHook } from "../plugin-hooks";
 import { planStudy } from "./skill-loop";
+import { batteryReading } from "../brain/pc-awareness";
+import { shouldPauseOnBattery } from "../settings-runtime";
+import { fileFailurePatterns, mineFailurePatterns } from "./failure-patterns";
 
 export type CoreCycle = {
   at: number;
@@ -54,6 +57,28 @@ export type CoreState = {
 };
 
 const MAX_CYCLES = 20;
+
+/** Below this charge, on battery, even the owner who allows battery work gets only the light pass. */
+export const LOW_BATTERY = 0.2;
+
+/**
+ * Which idle work may run now. Planning agents and mining failures are light and always allowed. The heavy
+ * pass (health, project review, research, study) waits when the owner asked to pause on battery and the
+ * machine is discharging, and always waits when the charge is very low. The owner's own work is never
+ * affected: this only decides FRIDAY's background work.
+ */
+export function idleWorkAllowed(input: {
+  battery: { level: number; charging: boolean } | null;
+  pauseOnBattery: boolean;
+}): { light: true; heavy: boolean; reason: string } {
+  const { battery } = input;
+  if (!battery || battery.charging) return { light: true, heavy: true, reason: "" };
+  if (battery.level <= LOW_BATTERY) {
+    return { light: true, heavy: false, reason: "battery is low" };
+  }
+  if (input.pauseOnBattery) return { light: true, heavy: false, reason: "paused on battery" };
+  return { light: true, heavy: true, reason: "" };
+}
 
 class AutonomousCore {
   private state: CoreState = { running: false, cycles: [], lastCycleAt: 0, health: [] };
@@ -111,11 +136,18 @@ class AutonomousCore {
     this.busy = true;
     let discovered = 0;
     let researched = 0;
+    let powerNote = "";
     try {
       // Same timer in Manual idle and Auto Mode. Agents always plan; they never
       // apply without the existing governance approval path.
       discovered += await this.checkAgents();
-      if (settings.autonomyEnabled) {
+      discovered += this.mineFailures();
+      const power = idleWorkAllowed({
+        battery: await batteryReading(),
+        pauseOnBattery: shouldPauseOnBattery(),
+      });
+      if (settings.autonomyEnabled && !power.heavy) powerNote = power.reason;
+      if (settings.autonomyEnabled && power.heavy) {
         discovered += await this.checkHealth();
         discovered += await this.reviewProject();
         researched = await this.research(settings.researchDepth);
@@ -132,7 +164,9 @@ class AutonomousCore {
       note: discovered
         ? `${discovered} improvement(s) queued for approval`
         : settings.autonomyEnabled
-          ? "no new work — FRIDAY is healthy"
+          ? powerNote
+            ? `light pass only — ${powerNote}`
+            : "no new work — FRIDAY is healthy"
           : "idle agent pass — no actionable plans",
     };
     this.state.cycles = [cycle, ...this.state.cycles].slice(0, MAX_CYCLES);
@@ -286,6 +320,16 @@ class AutonomousCore {
    * approval queue. It rides this one idle timer, never starts its own, and does nothing while the
    * kill switch is on. Nothing here runs or applies work; the owner approves what gets done.
    */
+  /** A fault that keeps coming back across tasks is filed once for review. Event-driven: no extra timer. */
+  private mineFailures(): number {
+    try {
+      const filed = fileFailurePatterns(mineFailurePatterns(ledger.list()));
+      return filed.filter((item) => item.queued).length;
+    } catch {
+      return 0;
+    }
+  }
+
   private study(settings: ReturnType<typeof autonomy.getSnapshot>): number {
     const day = Date.now() - 86_400_000;
     const findings = ledger

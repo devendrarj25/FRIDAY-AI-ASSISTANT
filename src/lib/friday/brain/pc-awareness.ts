@@ -121,6 +121,18 @@ export async function describeNetwork(): Promise<string> {
 
 type BatteryLike = { level: number; charging: boolean; dischargingTime: number };
 
+/** Charge level (0 to 1) and whether it is charging, or null when this machine reports no battery. */
+export async function batteryReading(): Promise<{ level: number; charging: boolean } | null> {
+  try {
+    const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryLike> };
+    if (!nav.getBattery) return null;
+    const battery = await nav.getBattery();
+    return { level: battery.level, charging: battery.charging };
+  } catch {
+    return null;
+  }
+}
+
 export async function describeBattery(): Promise<string> {
   const nav =
     typeof navigator === "undefined"

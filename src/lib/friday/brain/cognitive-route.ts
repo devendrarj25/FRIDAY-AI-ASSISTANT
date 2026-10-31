@@ -29,6 +29,14 @@ export type CognitiveRoute = {
   reason: string;
 };
 
+/**
+ * A question about a consequential thing ("why does the build fail", "kya hota hai agar delete karun") is
+ * not an order to do it. Words like build or install in such a question must not send it down the
+ * approval path meant for actions.
+ */
+const ASKS_ABOUT =
+  /^\s*(why|what|how|when|where|which|who|does|is|are|kyun|kyu|kya|kaise|explain|describe)\b/i;
+
 const LIVE =
   /\b(search|google|look ?up|latest|news|today'?s|current(?:ly)?|right now|price|weather)\b/i;
 const COMPLEX_KIND = /^(code|reasoning|system)$/;
@@ -46,7 +54,7 @@ export function classifyCognitiveRoute(input: {
   const prompt = String(input.prompt || "").trim();
   const confidence = estimateConfidence(prompt);
 
-  if (isConsequential(prompt) && input.kind !== "chat") {
+  if (isConsequential(prompt) && input.kind !== "chat" && !ASKS_ABOUT.test(prompt)) {
     return {
       klass: "high-stakes",
       action: "multi-verify",
@@ -120,4 +128,22 @@ export function classifyCognitiveRoute(input: {
     action: "best-single",
     reason: "one best measured model — no hardcoded superiority",
   };
+}
+
+export type ReasoningEffort = "low" | "medium" | "high";
+
+/**
+ * How hard a model that can be steered should think for this turn. A simple ask does not pay for
+ * deep thinking; a hard or high-stakes ask does. It is only a request: a model whose record says it
+ * has no thinking control ignores it, and the kernel sends nothing for it.
+ */
+export function reasoningEffortFor(
+  action: CognitiveAction,
+  depth?: "fast" | "deliberative" | "metacognitive",
+): ReasoningEffort {
+  if (action === "fast-path" || action === "reuse-result") return "low";
+  if (action === "deep-reasoning" || action === "multi-verify") return "high";
+  if (depth === "metacognitive") return "high";
+  if (depth === "fast") return "low";
+  return "medium";
 }

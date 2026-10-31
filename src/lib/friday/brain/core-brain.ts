@@ -22,6 +22,7 @@
  * produces proposals — governance holds them until the owner approves.
  */
 
+import { stageOff } from "./stage-switches";
 import {
   prepareTurn,
   refineTurnWithDispatchRole,
@@ -78,7 +79,9 @@ import {
 import { openLoopDigest } from "./open-loops";
 import { noteUnderstanding } from "./decision-trace";
 import { readWorldInsight } from "./world-model";
-import { checkAnswer } from "./answer-checks";
+import { checkAnswer, checksFor } from "./answer-checks";
+import { checkCitations } from "./web-sources";
+import { compareOf, MIN_COMPARE_TASKS } from "./model-profile";
 import {
   reviewAssumptions,
   evaluateAnswer,
@@ -91,7 +94,11 @@ import { installCognitiveBaseline } from "./cognitive-baseline";
 import { vectorIndex } from "./vector-index";
 import { gradeRetrieval } from "./retrieval";
 import { memory } from "../self/memory-engine";
-import { classifyCognitiveRoute } from "./cognitive-route";
+import {
+  classifyCognitiveRoute,
+  reasoningEffortFor,
+  type ReasoningEffort,
+} from "./cognitive-route";
 import { finishCognitiveCycle, planCognitiveDepth, type CognitiveCycle } from "./cognitive-control";
 import {
   commitLocalAnswer,
@@ -103,6 +110,7 @@ import {
 } from "./local-mind";
 import { isConsequential } from "./action-risk";
 import { classifyModality } from "./modality";
+import { videoFilesIn, videoSteps } from "./video-method";
 import { selectResponseStrategy, type ResponseStrategy } from "./decision-engine";
 import { refreshScreenObservation } from "./screen-observe";
 import { refreshCameraObservation } from "./camera-observe";
@@ -172,7 +180,23 @@ export type BrainToolUse = {
   detail: string;
 };
 
-export type BrainSource = { title: string; url: string };
+/** The last turn in plain terms, kept in memory only, for the Brain page. Never written to disk. */
+export type LastTurn = {
+  at: number;
+  prompt: string;
+  route: string;
+  effort: string;
+  models: string[];
+  routing: string;
+  notes: string[];
+  checked: string[];
+  issues: string[];
+  verified: boolean | null;
+  sources: number;
+  tools: string[];
+};
+
+export type BrainSource = { title: string; url: string; snippet?: string };
 
 export type Cognition = {
   taskId: string;
@@ -197,6 +221,8 @@ export type Cognition = {
   /** Public reasoning stance only — never a private chain-of-thought dump. */
   reasoning?: { publicNote: string; verified: boolean; groundedness?: number };
   strategy?: ResponseStrategy;
+  /** How hard a steerable model should think on this turn (a request, never a promise). */
+  reasoningEffort?: ReasoningEffort;
   /** Executive pass for this turn. It never executes a side effect. */
   control?: CognitiveCycle;
   /**
@@ -251,6 +277,7 @@ export function taskKind(prompt: string): string {
 class CoreBrain {
   private state: CoreBrainState = { ...EMPTY, models: {} };
   private loaded = false;
+  private last: LastTurn | null = null;
   private listeners = new Set<() => void>();
 
   subscribe = (fn: () => void) => {
@@ -281,6 +308,17 @@ class CoreBrain {
     this.listeners.forEach((fn) => fn());
   }
 
+  /** The last turn as the Brain page shows it, or null before any turn. */
+  lastTurn(): LastTurn | null {
+    return this.last;
+  }
+
+  /** The measured per-task-kind stats of each model (`kind|modelId`), copied. */
+  modelStats(): Record<string, { runs: number; ok: number; ms: number }> {
+    this.load();
+    return { ...this.state.models };
+  }
+
   /** Ordered model preference this brain has measured for a kind of task. */
   preferred(kind: string, ids: string[]): string[] {
     this.load();
@@ -294,7 +332,16 @@ class CoreBrain {
       const stat = this.state.models[`${kind}|${id}`];
       const measured = !stat || stat.runs < 2 ? 0 : stat.ok / stat.runs;
       const fromLedger = ledgerId && id === ledgerId ? 0.08 : 0;
-      return measured + fromLedger;
+      // What the model kept of the rules of a fixed set of asks (Compare), and how fast it is, count a
+      // little. A model with no such record adds nothing, exactly as before.
+      const compare = compareOf(id);
+      const rules =
+        compare && compare.tasks >= MIN_COMPARE_TASKS ? 0.1 * (compare.bare / compare.tasks) : 0;
+      const own = Object.entries(this.state.models).filter(([key]) => key.endsWith(`|${id}`));
+      const runs = own.reduce((n, [, row]) => n + row.runs, 0);
+      const avg = runs >= 2 ? own.reduce((n, [, row]) => n + row.ms * row.runs, 0) / runs : 0;
+      const slow = Math.min(0.05, avg / 120_000);
+      return measured + fromLedger + rules - slow;
     };
     return [...ids].sort((a, b) => score(b) - score(a));
   }
@@ -381,6 +428,13 @@ class CoreBrain {
       ...(options.extra ? { extra: options.extra } : {}),
     });
     notes.push(`modality: ${modality.summary}`);
+    for (const file of videoFilesIn(`${prompt}\n${options.extra || ""}`)) {
+      notes.push(
+        `video method for ${file}: ${videoSteps(file)
+          .map((step) => step.tool)
+          .join(" → ")}`,
+      );
+    }
     for (const gap of modality.notBuilt) {
       notes.push(`modality not built: ${gap}`);
       try {
@@ -570,37 +624,45 @@ class CoreBrain {
         /* baseline seed must never break a turn */
       }
       clockStage(markId, "world-insight", stage, "world-insight");
-      try {
-        const world = readWorldInsight();
-        worldSummary = world.snapshot.summary;
-        notes.push(`world state: ${world.snapshot.summary}`);
-        if (world.unknown.length) {
-          notes.push(`world unknown: ${world.unknown.slice(0, 3).join("; ")}`);
+      if (stageOff("world-insight")) {
+        notes.push("world state: switched off for a measurement");
+        turnDone(markId, "world-insight", "off");
+      } else
+        try {
+          const world = readWorldInsight();
+          worldSummary = world.snapshot.summary;
+          notes.push(`world state: ${world.snapshot.summary}`);
+          if (world.unknown.length) {
+            notes.push(`world unknown: ${world.unknown.slice(0, 3).join("; ")}`);
+          }
+          if (world.expected.length) {
+            notes.push(`world expected: ${world.expected[0]}`);
+          }
+          if (world.atRisk.length) {
+            notes.push(`world at-risk: ${world.atRisk[0]}`);
+          }
+          if (world.likelyNext.length) {
+            notes.push(`world likely-next: ${world.likelyNext[0]}`);
+          }
+          turnDone(markId, "world-insight", world.snapshot.summary.slice(0, 80));
+        } catch {
+          notes.push("world state: unreadable");
+          turnDone(markId, "world-insight", "unreadable");
         }
-        if (world.expected.length) {
-          notes.push(`world expected: ${world.expected[0]}`);
-        }
-        if (world.atRisk.length) {
-          notes.push(`world at-risk: ${world.atRisk[0]}`);
-        }
-        if (world.likelyNext.length) {
-          notes.push(`world likely-next: ${world.likelyNext[0]}`);
-        }
-        turnDone(markId, "world-insight", world.snapshot.summary.slice(0, 80));
-      } catch {
-        notes.push("world state: unreadable");
-        turnDone(markId, "world-insight", "unreadable");
-      }
 
       clockStage(markId, "meta-review", stage, "meta-review");
-      try {
-        meta = reviewAssumptions({ text: prompt, intent: understanding.resolvedIntent });
-        notes.push(`meta: ${meta.action} — ${meta.reason}`);
-        turnDone(markId, "meta-review", meta.action);
-      } catch {
-        notes.push("meta: unreadable");
-        turnDone(markId, "meta-review", "unreadable");
-      }
+      if (stageOff("meta-review")) {
+        notes.push("meta: switched off for a measurement");
+        turnDone(markId, "meta-review", "off");
+      } else
+        try {
+          meta = reviewAssumptions({ text: prompt, intent: understanding.resolvedIntent });
+          notes.push(`meta: ${meta.action} — ${meta.reason}`);
+          turnDone(markId, "meta-review", meta.action);
+        } catch {
+          notes.push("meta: unreadable");
+          turnDone(markId, "meta-review", "unreadable");
+        }
     };
 
     if (deep) runWorldPrelude();
@@ -609,6 +671,7 @@ class CoreBrain {
     let recalled: ReturnType<typeof brainKnowledge.recall> = [];
     let vectorHits: { title: string; snippet: string; score: number }[] = [];
     try {
+      if (stageOff("vector-index")) throw new Error("switched off for a measurement");
       vectorHits = await vectorIndex.queryHits(prompt, 8);
       if (vectorHits.length) notes.push(`vector index: ${vectorHits.length} hit(s)`);
       turnDone(markId, "vector-index", `${vectorHits.length} hit(s)`);
@@ -616,8 +679,12 @@ class CoreBrain {
       turnDone(markId, "vector-index", "skipped");
     }
     clockStage(markId, "knowledge-recall", stage, "knowledge-recall");
-    if (!useKnowledge) {
-      notes.push("knowledge: skipped (useKnowledge off)");
+    if (!useKnowledge || stageOff("knowledge-recall")) {
+      notes.push(
+        stageOff("knowledge-recall")
+          ? "knowledge: switched off for a measurement"
+          : "knowledge: skipped (useKnowledge off)",
+      );
     } else {
       try {
         recalled = brainKnowledge.recall(prompt, {
@@ -647,6 +714,7 @@ class CoreBrain {
       /\bPROJECT WORKSPACE SESSION\b/.test(options.extra || "");
     const projectIdForTurn = projectBoundTurn ? projectWorkspaces.activeId() : null;
     try {
+      if (stageOff("memory-retrieve")) throw new Error("switched off for a measurement");
       let remembered = memory.retrieve(prompt, 8, {
         ...(vectorHits.length ? { vectorHits } : {}),
         ...(useProjectMemory && projectIdForTurn ? { projectId: projectIdForTurn } : {}),
@@ -868,7 +936,11 @@ class CoreBrain {
                 });
               } else {
                 judged.usable.slice(0, 6).forEach((result) => {
-                  sources.push({ title: result.title, url: result.url });
+                  sources.push({
+                    title: result.title,
+                    url: result.url,
+                    ...(result.snippet ? { snippet: result.snippet } : {}),
+                  });
                 });
                 evidence = researchNote(judged.usable);
                 tools.push({
@@ -1398,6 +1470,24 @@ class CoreBrain {
     }
 
     this.state.turns += 1;
+    this.last = {
+      at: Date.now(),
+      prompt: prompt.length > 140 ? `${prompt.slice(0, 137)}…` : prompt,
+      route: `${classified.klass} → ${classified.action}`,
+      effort: reasoningEffortFor(classified.action, depthPlan.depth),
+      models: modelIds,
+      routing: localMind.skipModel
+        ? "local mind — model stayed idle"
+        : pinned.length
+          ? `${pinned.length} model(s) pinned by owner`
+          : dispatch.routing,
+      notes: notes.slice(-14),
+      checked: checksFor(prompt),
+      issues: [],
+      verified: null,
+      sources: sources.length,
+      tools: tools.map((tool) => `${tool.tool}${tool.ok ? "" : " (failed)"}`),
+    };
     this.emit();
 
     return {
@@ -1422,6 +1512,7 @@ class CoreBrain {
       autoLearn,
       understanding,
       strategy: strategy.strategy,
+      reasoningEffort: reasoningEffortFor(classified.action, depthPlan.depth),
       ...(control ? { control } : {}),
       localMind,
       ...(meta ? { meta } : {}),
@@ -1496,6 +1587,12 @@ class CoreBrain {
     if (cognition.sources.length && !/https?:\/\//i.test(text)) {
       issues.push("web sources were retrieved but not cited in the answer");
     }
+    // A sentence that carries a link must be about what that source says.
+    if (cognition.sources.length) {
+      for (const problem of checkCitations(text, cognition.sources).slice(0, 2)) {
+        issues.push(`a citation does not hold: ${problem.reason} (${problem.url})`);
+      }
+    }
     // What the ask required and can be counted or parsed (limits, bullets, JSON, language, a sum).
     for (const failure of checkAnswer(cognition.prompt, text).failures) {
       if (failure.id !== "identity") issues.push(failure.message);
@@ -1569,6 +1666,16 @@ class CoreBrain {
       issues.push("a tool failed but the answer does not mention it");
     }
     const score = Math.max(0, 1 - issues.length * 0.34);
+    if (this.last && this.last.prompt.startsWith(cognition.prompt.slice(0, 40))) {
+      this.last = {
+        ...this.last,
+        issues: issues.slice(0, 6),
+        verified: ok && Boolean(text) && issues.length === 0,
+        checked: [
+          ...new Set([...this.last.checked, ...checkAnswer(cognition.prompt, text).checked]),
+        ],
+      };
+    }
     return {
       ok: ok && Boolean(text) && issues.length === 0,
       score,

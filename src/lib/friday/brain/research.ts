@@ -13,6 +13,7 @@ import type { SearchResult } from "../browser-engine";
 import type { KnowledgeStatus } from "./knowledge-base";
 import { claimLabel, externalTextIsData } from "../knowledge-claim";
 import { expandQuery, gradeRetrieval, retrievalTerms, type RetrievalGrade } from "./retrieval";
+import { classifyUrl, corroboration, sourceScore, type SourceKind } from "./web-sources";
 
 export type RankedSource = {
   title: string;
@@ -20,23 +21,27 @@ export type RankedSource = {
   snippet: string;
   verified: false;
   score: number;
+  /** What kind of site this is (official, research, news, community…). */
+  kind?: SourceKind;
+  /** How many other sites carry at least one of the same figures. */
+  corroboratedBy?: number;
 };
 
-const TRUSTED = /\.(gov|edu)(\/|$)|wikipedia\.org|github\.com|learn\.microsoft\.com|arxiv\.org/i;
-
 export function rankSources(results: SearchResult[]): RankedSource[] {
-  return (results || []).map((result) => {
+  const counts = corroboration(results || []);
+  return (results || []).map((result, index) => {
     const url = String(result.url || "");
-    let score = 0.4;
-    if (TRUSTED.test(url)) score += 0.35;
-    if (url.startsWith("https://")) score += 0.1;
-    if ((result.snippet || "").length > 80) score += 0.1;
+    const kind = classifyUrl(url);
+    // Other sites carrying the same figures raise a score a little; a lone figure does not.
+    const agree = Math.min(0.1, (counts[index] ?? 0) * 0.05);
     return {
       title: result.title,
       url,
       snippet: result.snippet,
       verified: false as const,
-      score: Math.min(1, score),
+      score: Math.min(1, +(sourceScore(result) + agree).toFixed(2)),
+      kind: kind.kind,
+      corroboratedBy: counts[index] ?? 0,
     };
   });
 }
@@ -51,7 +56,10 @@ export function researchNote(sources: RankedSource[]): string {
       .slice(0, 6)
       .map((s, i) => {
         const snippet = externalTextIsData(s.snippet).text;
-        return `${i + 1}. ${s.title} — ${s.url} (score ${s.score.toFixed(2)}, ${freshness})\n   ${snippet}`;
+        const agree = s.corroboratedBy
+          ? `, ${s.corroboratedBy} other site(s) carry the same figures`
+          : "";
+        return `${i + 1}. ${s.title} — ${s.url} (${s.kind ?? "unclassified"}, score ${s.score.toFixed(2)}${agree}, ${freshness})\n   ${snippet}`;
       }),
   ].join("\n");
 }

@@ -362,6 +362,14 @@ export function checksFor(prompt: string): string[] {
   return CHECKS.filter((check) => check.find(text)).map((check) => check.id);
 }
 
+const HUMAN_CLAIM =
+  /(?<!\bnot )(?<!n['’]t )\b(?:i(?:['’]m| am)|as) (?:a |an )?(?:real |actual |living )?(?:human(?: being)?|person|man|woman)\b/i;
+
+/** True when the answer says FRIDAY herself is a human or a person. Saying she is not one passes. */
+export function claimsToBeHuman(reply: string): boolean {
+  return HUMAN_CLAIM.test(String(reply || ""));
+}
+
 export function checkAnswer(prompt: string, answer: string): CheckResult {
   const text = String(prompt || "");
   const reply = String(answer ?? "");
@@ -379,6 +387,12 @@ export function checkAnswer(prompt: string, answer: string): CheckResult {
     checked.push("identity", "code-syntax");
     if (leaksForeignIdentity(reply)) {
       failures.push({ id: "identity", message: "Do not speak as another model; you are FRIDAY." });
+    }
+    if (claimsToBeHuman(reply)) {
+      failures.push({
+        id: "identity",
+        message: "Do not claim to be human; you are an AI assistant.",
+      });
     }
     for (const message of codeBlockFailures(reply)) failures.push({ id: "code-syntax", message });
   }

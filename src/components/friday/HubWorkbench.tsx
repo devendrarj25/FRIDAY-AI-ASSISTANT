@@ -5,7 +5,7 @@ import { Panel } from "@/components/friday/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { askFriday, canAsk } from "@/lib/friday/ask";
+import { askVerified, canAsk } from "@/lib/friday/ask";
 import {
   hub,
   type HubAnalysis,
@@ -104,7 +104,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
         .slice(0, 40)
         .map((c) => `${c.status.padEnd(9)} ${c.dest} (${c.kind}, ${c.files} files)`)
         .join("\n");
-      const answer = await askFriday(
+      const result = await askVerified(
         [
           `I imported "${resource.name}" (${resource.source}) into my Hub staging area.`,
           analysis?.mode ? `Detected package type: ${analysis.mode}.` : "",
@@ -116,7 +116,8 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
           .join("\n\n"),
         { system: "You are FRIDAY reviewing an import for your owner. Be concrete and brief." },
       );
-      setAdvice(answer);
+      if (!result.answer) throw new Error(result.attempts.at(-1)?.error ?? "no model answered");
+      setAdvice(result.answer);
     });
 
   const workbench = () =>

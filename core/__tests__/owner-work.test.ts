@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 import { baselineRespond } from "../../src/lib/friday/brain/baseline-responder";
 import { listSkills, invokeSkill } from "../../src/lib/friday/brain/skill-forge";
 import { capabilityRegistry } from "../../src/lib/friday/brain/capability-registry";
-import { personalDesk } from "../../src/lib/friday/personal-desk";
+import { deadlineStage, personalDesk } from "../../src/lib/friday/personal-desk";
 import { hisab } from "../../src/lib/friday/hisab-kitab";
 import { memory } from "../../src/lib/friday/self/memory-engine";
 import {
@@ -98,6 +98,34 @@ describe("personal desk", () => {
       true,
     );
     expect(personalDesk.fireDueReminders()).toHaveLength(0);
+  });
+
+  it("says a heads-up once before the due time, then the reminder at the time", () => {
+    const now = Date.now();
+    const task = personalDesk.add("call the CA", now + 30 * 60_000);
+    expect(personalDesk.fireDueReminders(now)).toHaveLength(0);
+    const headsUp = () =>
+      notifications
+        .getSnapshot()
+        .items.filter((item) => item.id.includes(`desk-headsup:${task.id}`));
+    expect(headsUp()).toHaveLength(1);
+    personalDesk.fireDueReminders(now + 60_000);
+    expect(headsUp()).toHaveLength(1);
+    expect(personalDesk.fireDueReminders(now + 31 * 60_000).map((item) => item.id)).toContain(
+      task.id,
+    );
+  });
+
+  it("stays quiet for a task far away, a finished one, or one with no time", () => {
+    const now = 1_000_000_000_000;
+    const base = { done: false, remindedAt: null, warnedAt: null };
+    expect(deadlineStage({ ...base, dueAt: now + 3 * 3600_000 }, now)).toBe("none");
+    expect(deadlineStage({ ...base, dueAt: now + 10 * 60_000 }, now)).toBe("heads-up");
+    expect(deadlineStage({ ...base, dueAt: now + 10 * 60_000, warnedAt: now }, now)).toBe("none");
+    expect(deadlineStage({ ...base, dueAt: now - 1 }, now)).toBe("due");
+    expect(deadlineStage({ ...base, dueAt: now - 1, remindedAt: now }, now)).toBe("none");
+    expect(deadlineStage({ ...base, dueAt: now - 1, done: true }, now)).toBe("none");
+    expect(deadlineStage({ ...base, dueAt: null }, now)).toBe("none");
   });
 });
 

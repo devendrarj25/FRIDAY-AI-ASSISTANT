@@ -20,6 +20,7 @@ from pathlib import Path
 import billing
 import httpx
 import privacy
+import reasoning_control
 
 OPENAI_COMPATIBLE = {
     "llamacpp",
@@ -1153,8 +1154,11 @@ class ModelRouter:
         privacy: str | None = None,
         surface: str | None = None,
         history: list | None = None,
+        reasoning_effort: str | None = None,
     ) -> AsyncIterator[dict]:
         """Fan out to the chosen models, or auto-select with ordered fallback."""
+        # Passed down only when asked for, so a caller that never sets it sees the old call shape.
+        effort_kw = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
         norm_mode = str(route_mode).strip().lower() if route_mode else None
         privacy_mode = str(privacy or "").strip().lower()
         if norm_mode == "manual":
@@ -1267,6 +1271,7 @@ class ModelRouter:
                         messages,
                         explicit_paid and model in targets,
                         privacy_confirmed=privacy_confirmed,
+                        **effort_kw,
                     ):
                         piece = fold_stream_piece(model.id, delta)
                         if piece and piece.get("tool") and not piece.get("delta"):
@@ -1299,6 +1304,7 @@ class ModelRouter:
                     messages,
                     explicit_paid and model in targets,
                     privacy_confirmed=privacy_confirmed,
+                    **effort_kw,
                 ):
                     piece = fold_stream_piece(model.id, delta)
                     if piece and piece.get("tool") and not piece.get("delta"):
@@ -1338,6 +1344,7 @@ class ModelRouter:
                         messages,
                         explicit_paid and model in targets,
                         privacy_confirmed=privacy_confirmed,
+                        **effort_kw,
                     ):
                         piece = fold_stream_piece(model.id, delta)
                         if piece and piece.get("tool") and not piece.get("delta"):
@@ -1360,6 +1367,7 @@ class ModelRouter:
         explicit_paid: bool = False,
         *,
         privacy_confirmed: bool = False,
+        reasoning_effort: str | None = None,
     ) -> AsyncIterator[str]:
         # FINAL PRIVACY FIREWALL (mirrors electron/privacy-firewall.cjs).
         # Privacy outranks cost: SENSITIVE content never leaves without a
@@ -1404,10 +1412,12 @@ class ModelRouter:
             "openai": self._stream_openai,
         }[wire]
         # Firewalls already saw the full transcript. The model gets the tail.
-        async for chunk in handler(model, model_view(messages)):
+        async for chunk in handler(model, model_view(messages), reasoning_effort):
             yield chunk
 
-    async def _stream_anthropic(self, model: Model, messages: list[dict]) -> AsyncIterator[str]:
+    async def _stream_anthropic(
+        self, model: Model, messages: list[dict], reasoning_effort: str | None = None
+    ) -> AsyncIterator[str]:
         """Anthropic Messages API — its own wire format, streamed."""
         import json as _json
 
@@ -1442,6 +1452,10 @@ class ModelRouter:
                 body["system"] = system
             if tools:
                 body["tools"] = tools
+            thinking = reasoning_control.spec_for(model.options, reasoning_effort)
+            keeper = reasoning_control.ThinkingKeeper()
+            if thinking.active:
+                reasoning_control.anthropic_fields(thinking, body)
             blocks: dict[int, dict] = {}
             answered = False
             # nullcontext keeps the shared client alive across requests: unlike
@@ -1458,6 +1472,7 @@ class ModelRouter:
                         index = int(payload.get("index", 0))
                         if kind == "content_block_start":
                             block = payload.get("content_block") or {}
+                            keeper.anthropic_start(index, block)
                             if block.get("type") == "tool_use":
                                 blocks[index] = {
                                     "id": block.get("id", ""),
@@ -1466,6 +1481,7 @@ class ModelRouter:
                                 }
                         elif kind == "content_block_delta":
                             delta = payload.get("delta", {})
+                            keeper.anthropic_delta(index, delta)
                             text = delta.get("text")
                             if text:
                                 answered = True
@@ -1476,17 +1492,23 @@ class ModelRouter:
             if not blocks:
                 return
             requested = [blocks[i] for i in sorted(blocks)]
+            # With thinking on, the provider needs this turn's thinking blocks (with their signatures)
+            # back, in front of the tool calls. They are kept for this turn only.
+            kept = keeper.anthropic_blocks() if thinking.active and thinking.keep else []
             convo.append(
                 {
                     "role": "assistant",
                     "content": [
-                        {
-                            "type": "tool_use",
-                            "id": call["id"],
-                            "name": call["name"],
-                            "input": _json.loads(call["arguments"] or "{}"),
-                        }
-                        for call in requested
+                        *kept,
+                        *[
+                            {
+                                "type": "tool_use",
+                                "id": call["id"],
+                                "name": call["name"],
+                                "input": _json.loads(call["arguments"] or "{}"),
+                            }
+                            for call in requested
+                        ],
                     ],
                 }
             )
@@ -1574,7 +1596,9 @@ class ModelRouter:
                 exhausted = True
         return payloads, exhausted
 
-    async def _stream_openai(self, model: Model, messages: list[dict]) -> AsyncIterator[str]:
+    async def _stream_openai(
+        self, model: Model, messages: list[dict], reasoning_effort: str | None = None
+    ) -> AsyncIterator[str]:
         import json as _json
 
         headers = {"Content-Type": "application/json"}
@@ -1602,6 +1626,10 @@ class ModelRouter:
             }
             if tools:
                 body["tools"] = tools
+            thinking = reasoning_control.spec_for(model.options, reasoning_effort)
+            keeper = reasoning_control.ThinkingKeeper()
+            if thinking.active:
+                reasoning_control.openai_fields(thinking, body)
             calls: dict[int, dict] = {}
             answered = False
             attempt = 0
@@ -1627,6 +1655,7 @@ class ModelRouter:
                                     raise RuntimeError(_frame_error(model, problem))
                                 delta = openai_frame_text(frame)
                                 piece = (frame.get("choices") or [{}])[0].get("delta") or {}
+                                keeper.openai_piece(piece)
                                 for call in piece.get("tool_calls") or []:
                                     slot = calls.setdefault(
                                         int(call.get("index", 0)),
@@ -1664,10 +1693,12 @@ class ModelRouter:
             # The model asked for tools: run them, feed the results back and
             # let it continue the same answer in the next round.
             requested = [calls[i] for i in sorted(calls)]
+            kept_text = keeper.openai_text() if thinking.active and thinking.keep else ""
             convo.append(
                 {
                     "role": "assistant",
                     "content": None,
+                    **({"reasoning_content": kept_text} if kept_text else {}),
                     "tool_calls": [
                         {
                             "id": c["id"] or f"call_{n}",
@@ -1694,7 +1725,9 @@ class ModelRouter:
             if answered:
                 yield "\n"
 
-    async def _stream_ollama(self, model: Model, messages: list[dict]) -> AsyncIterator[str]:
+    async def _stream_ollama(
+        self, model: Model, messages: list[dict], reasoning_effort: str | None = None
+    ) -> AsyncIterator[str]:
         """Ollama /api/chat, including the same read-only tool loop as the other wires.
 
         Thinking stays on the provider. A tool notice uses TOOL_NOTICE so the
@@ -1716,6 +1749,9 @@ class ModelRouter:
             }
             if tools:
                 body["tools"] = tools
+            thinking = reasoning_control.spec_for(model.options, reasoning_effort)
+            if thinking.active:
+                reasoning_control.ollama_fields(thinking, body)
             content_parts: list[str] = []
             raw_calls: list = []
             answered = False

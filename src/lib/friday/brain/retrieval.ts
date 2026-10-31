@@ -71,6 +71,82 @@ export function understandQuery(query: string): { terms: string[]; entities: str
   return { terms: retrievalTerms(query), entities: retrievalEntities(query) };
 }
 
+/* ------------------------------------------------------------ entity aliases */
+
+const ALIAS_PATTERNS: RegExp[] = [
+  /\b([A-Z][\w-]+(?: [A-Z][\w-]+)?) \((?:also (?:known|called) as|aka|a\.k\.a\.?) ([A-Z][\w-]+(?: [A-Z][\w-]+)?)\)/g,
+  /\b([A-Z][\w-]+(?: [A-Z][\w-]+)?),? (?:aka|a\.k\.a\.?|also known as|also called) ([A-Z][\w-]+(?: [A-Z][\w-]+)?)/g,
+];
+const aliasMap = new Map<string, Set<string>>();
+
+/** Learn "X aka Y" style links from a stored text, so a question about Y can find facts written about X. */
+export function registerEntityAliases(text: string): number {
+  let learned = 0;
+  for (const pattern of ALIAS_PATTERNS) {
+    for (const match of String(text || "").matchAll(pattern)) {
+      const a = match[1]?.trim().toLowerCase();
+      const b = match[2]?.trim().toLowerCase();
+      if (!a || !b || a === b) continue;
+      for (const [from, to] of [
+        [a, b],
+        [b, a],
+      ] as const) {
+        const set = aliasMap.get(from) ?? new Set<string>();
+        if (!set.has(to)) learned += 1;
+        set.add(to);
+        aliasMap.set(from, set);
+      }
+    }
+  }
+  return learned;
+}
+
+export function aliasesOf(entity: string): string[] {
+  return [
+    ...(aliasMap.get(
+      String(entity || "")
+        .trim()
+        .toLowerCase(),
+    ) ?? []),
+  ];
+}
+
+export function clearEntityAliasesForTests(): void {
+  aliasMap.clear();
+}
+
+/* ---------------------------------------------------------------- reranker */
+
+/**
+ * An optional second-stage scorer for the top hits, for example a local cross-encoder the owner chose to
+ * download. It must be synchronous and offline. When none is set, ranking is exactly what it was. A scorer
+ * that throws or returns nonsense is ignored for that query.
+ */
+export type Reranker = (query: string, texts: string[]) => number[];
+let reranker: Reranker | null = null;
+export function setReranker(next: Reranker | null): void {
+  reranker = next;
+}
+
+function applyReranker<T>(
+  query: string,
+  hits: RankedHit<T>[],
+  textOf: (hit: RankedHit<T>) => string,
+): RankedHit<T>[] {
+  if (!reranker || hits.length < 2) return hits;
+  try {
+    const scores = reranker(query, hits.map(textOf));
+    if (!Array.isArray(scores) || scores.length !== hits.length) return hits;
+    if (!scores.every((value) => Number.isFinite(value))) return hits;
+    return hits
+      .map((hit, index) => ({ hit, blend: hit.score * 0.5 + (scores[index] as number) * 0.5 }))
+      .sort((a, b) => b.blend - a.blend)
+      .map((row) => row.hit);
+  } catch {
+    return hits;
+  }
+}
+
 /**
  * HyDE-lite / multi-query without an LLM (Gao et al. 2022 idea, lexical only):
  * rewrite the ask into phrases that look like stored beliefs, then retrieve those.
@@ -114,7 +190,57 @@ export function expandQuery(query: string): string[] {
     variants.add(`${related[1].trim()} ${related[2].trim()}`);
     variants.add(`${related[1].trim()} owned-by`);
   }
+  const bridged = bridgeHinglish(text);
+  if (bridged && bridged !== text.toLowerCase()) variants.add(bridged);
+  const lowered = text.toLowerCase();
+  for (const [entity, aliases] of aliasMap) {
+    if (!lowered.includes(entity)) continue;
+    const pattern = new RegExp(entity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+    for (const alias of aliases) variants.add(text.replace(pattern, alias));
+  }
   return [...variants].slice(0, 8);
+}
+
+/** The few Hinglish words that carry a question, mapped to the English words stored facts use. */
+const HINGLISH: Record<string, string> = {
+  abhi: "now current",
+  aaj: "today",
+  kahan: "where",
+  kaha: "where",
+  rehta: "live",
+  rehti: "live",
+  rehte: "live",
+  rahta: "live",
+  kaun: "who",
+  kya: "what",
+  kitna: "how much",
+  kitni: "how much",
+  kab: "when",
+  pehle: "earlier before",
+  purana: "old previous",
+  naya: "new",
+  mera: "my owner",
+  meri: "my owner",
+  mere: "my owner",
+  hai: "",
+  hain: "",
+  tha: "was",
+  thi: "was",
+  ka: "",
+  ki: "",
+  ke: "",
+};
+
+function bridgeHinglish(text: string): string {
+  const words = String(text || "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  if (!words.some((word) => word in HINGLISH)) return "";
+  return words
+    .map((word) => (word in HINGLISH ? HINGLISH[word] : word))
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -280,6 +406,32 @@ export type VectorSnippet = {
 
 export type RankedHit<T> = { item: T; score: number };
 
+const PAST_CUE =
+  /\b(before|earlier|previous(?:ly)?|used to|formerly|originally|first|old|lived|used|was|were|had|pehle|purana)\b/i;
+
+const CURRENT_ASK =
+  /\b(current(?:ly)?|now|latest|today|these days|right now|newest|recent(?:ly)?|abhi|aaj|filhaal|ab ka)\b/i;
+const HISTORY_ASK =
+  /\b(originally|earlier|before|used to|previous(?:ly)?|history|at that time|back then|first time|old|ago|former(?:ly)?|pehle|purana|puraana|tab)\b/i;
+
+/**
+ * Whether a question is about how things are now, how they were, or neither. A question about now
+ * should be answered from the newest record; a question about the past must not be pushed toward
+ * the newest one; anything else keeps the default balance.
+ */
+export function temporalIntent(query: string): "current" | "history" | "neutral" {
+  const text = String(query || "");
+  if (HISTORY_ASK.test(text)) return "history";
+  if (CURRENT_ASK.test(text)) return "current";
+  return "neutral";
+}
+
+/** Weight of recency in the mixed score for a question. The neutral value is the long-standing 0.12. */
+export function recencyWeightFor(query: string): number {
+  const intent = temporalIntent(query);
+  return intent === "current" ? 0.3 : intent === "history" ? 0 : 0.12;
+}
+
 export function recencyScore(at: number, now = Date.now()): number {
   const ageDays = Math.max(0, (now - at) / 86_400_000);
   return 1 / (1 + ageDays / 14);
@@ -294,7 +446,10 @@ export function retrievalScore(
   const understood = understandQuery(query);
   const words = understood.terms;
   const taskWords = retrievalTerms(taskHint);
-  const hay = `${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`.toLowerCase();
+  // Folded like the query terms, or a query word such as "owner" (folded to "owned") would never be found.
+  const hay = `${item.title} ${item.text} ${(item.tags ?? []).join(" ")}`
+    .toLowerCase()
+    .replace(/\b(owns|owner|owned)\b/g, "owned");
   const hayTerms = retrievalTerms(hay);
   const overlap = words.filter((word) => hay.includes(word)).length;
   const jaccard = termJaccard(words, hayTerms);
@@ -328,6 +483,8 @@ export function retrievalScore(
       : 0.45;
   const usage = Math.min(0.18, ((item.uses ?? 0) + (item.hits ?? 0)) * 0.02);
   const pin = item.pinned || item.permanent ? (semantic >= 0.35 ? 0.1 : 0.02) : 0;
+  // A question about the past is answered by a record that speaks of the past.
+  const tense = temporalIntent(query) === "history" && PAST_CUE.test(hay) ? 0.1 : 0;
   const preferred = item.preferred ? 0.12 : 0;
   const related = Math.min(0.12, item.relatedBoost ?? 0);
   const importance = Math.min(0.08, item.importance ?? 0);
@@ -337,12 +494,13 @@ export function retrievalScore(
     semantic * 0.32 +
     entity * 0.08 +
     task * 0.12 +
-    recency * 0.12 +
+    recency * recencyWeightFor(query) +
     item.confidence * 0.1 +
     quality * 0.1 +
     scope * 0.04 +
     verified * 0.08 +
     usage +
+    tense +
     pin +
     preferred +
     related +
@@ -430,7 +588,15 @@ export function rankByRetrieval<T>(
     const row = typeof hit.id === "string" ? byId.get(hit.id) : undefined;
     return row ? `${row.signals.title} ${row.signals.text}` : "";
   };
-  return mmrRerank(fusedHits, textOf, k).map((hit) => ({ item: hit.item, score: hit.score }));
+  const diverse = mmrRerank(fusedHits, textOf, k).map((hit) => ({
+    item: hit.item,
+    score: hit.score,
+    ...(typeof (hit as { id?: string }).id === "string" ? { id: (hit as { id?: string }).id } : {}),
+  }));
+  return applyReranker(query, diverse as RankedHit<T>[], textOf).map((hit) => ({
+    item: hit.item,
+    score: hit.score,
+  }));
 }
 
 /** Cap assembled context so a turn is not flooded with near-misses. */

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import devices_network
+import run_trace
 import uvicorn
 import yaml
 from authority import Authority
@@ -777,6 +778,9 @@ async def dispatch(method: str, params: dict, send) -> dict:
         if not isinstance(history, list):
             stored = await asyncio.to_thread(storage.chat_history, session_id, 20)
             history = [{"role": row["role"], "text": row["text"]} for row in stored]
+        run_id = run_trace.valid_run_id(params.get("runId"))
+        trace_t0 = time.perf_counter()
+        run_trace.record(run_id, "chat.start", effort=params.get("reasoningEffort") or "none")
         async for delta in router.stream(
             prompt=params["prompt"],
             model_ids=params.get("modelIds"),
@@ -788,12 +792,22 @@ async def dispatch(method: str, params: dict, send) -> dict:
             route_mode=route_mode,
             privacy=str(privacy_mode) if privacy_mode else None,
             surface=params.get("routingSurface") if params.get("routingSurface") in ("voice", "chat") else None,
+            reasoning_effort=params.get("reasoningEffort")
+            if params.get("reasoningEffort") in ("low", "medium", "high")
+            else None,
             history=history,
         ):
             if delta.get("delta"):
                 replies.setdefault(delta.get("modelId", "unknown"), []).append(delta["delta"])
             if delta.get("error"):
                 errors.append(str(delta["error"]))
+            if run_id and (delta.get("done") or delta.get("error")):
+                run_trace.record(
+                    run_id,
+                    "chat.error" if delta.get("error") else "chat.done",
+                    model=str(delta.get("modelId") or ""),
+                    ms=round((time.perf_counter() - trace_t0) * 1000),
+                )
             await send({"type": "chat.delta", "data": delta})
             if phone_cognize:
                 q = _PHONE_COGNIZE.get(session_id)

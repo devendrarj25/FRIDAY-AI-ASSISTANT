@@ -10,6 +10,7 @@ from pathlib import Path
 
 import code_map
 import control
+import dev_check
 import devices_android
 import devices_bluetooth
 import devices_network
@@ -34,7 +35,9 @@ RISK = {
     "http.fetch": "write",
     "fs.write": "write",
     "fs.make": "write",
+    "dev.check": "exec",
     "media.probe": "safe",
+    "media.transcribe": "safe",
     "sqlite.query": "safe",
     "media.convert": "write",
     "media.frames": "write",
@@ -125,6 +128,8 @@ SUMMARY = {
     "fs.read": "Read files and directories inside allowed roots",
     "fs.write": "Create and edit files",
     "sqlite.query": "Read a SQLite database: list its tables, or run one SELECT (read-only, limited rows)",
+    "dev.check": "Try a proposed change (a diff) on a throwaway copy of HEAD and run one fixed check before and after",
+    "media.transcribe": "Turn the speech in an audio or video file into text (on this PC; nothing is uploaded)",
     "media.probe": "Read the length, size, codecs and streams of an audio, video or image file",
     "media.frames": "Save a few evenly spaced still pictures from a video, so they can be looked at",
     "media.convert": "Convert, cut, extract audio or a frame from, or join images into, audio and video with ffmpeg",
@@ -261,6 +266,14 @@ MODEL_TOOL_PARAMS: dict[str, dict] = {
         },
         "required": ["path"],
     },
+    "media.transcribe": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Audio or video file relative to the workspace root."},
+            "language": {"type": "string", "description": "Optional language code such as hi or en."},
+        },
+        "required": ["path"],
+    },
     "sqlite.query": {
         "type": "object",
         "properties": {
@@ -296,6 +309,51 @@ def from_wire_name(name: str) -> str:
         if wire_name(tool) == name:
             return tool
     return name.replace("_", ".", 1)
+
+
+def validate_args(tool: str, args: object) -> list[str]:
+    """Problems with a model's arguments against the tool's declared schema; empty when they fit.
+
+    A small, forgiving subset of JSON Schema: required keys, basic types, enums. Numbers may arrive as digit
+    strings (models often send them that way) and unknown keys are ignored. The problem list is returned to
+    the model so it can try again, instead of the tool failing deep inside with a stack trace.
+    """
+    schema = MODEL_TOOL_PARAMS.get(tool)
+    if schema is None:
+        return []
+    if not isinstance(args, dict):
+        return ["arguments must be an object"]
+    problems: list[str] = []
+    props = schema.get("properties", {})
+    for key in schema.get("required", []):
+        if args.get(key) is None:
+            problems.append(f"{key} is required")
+    for key, spec in props.items():
+        if key not in args or args[key] is None:
+            continue
+        value = args[key]
+        kind = spec.get("type")
+        if kind == "string" and not isinstance(value, str):
+            problems.append(f"{key} must be text")
+        elif kind == "integer" and not (
+            (isinstance(value, int) and not isinstance(value, bool))
+            or (isinstance(value, str) and re.fullmatch(r"-?\d{1,9}", value.strip() or "x"))
+        ):
+            problems.append(f"{key} must be a whole number")
+        elif kind == "number" and not (
+            (isinstance(value, (int, float)) and not isinstance(value, bool))
+            or (isinstance(value, str) and re.fullmatch(r"-?\d{1,9}(\.\d{1,6})?", value.strip() or "x"))
+        ):
+            problems.append(f"{key} must be a number")
+        elif kind == "boolean" and not isinstance(value, bool):
+            problems.append(f"{key} must be true or false")
+        elif kind == "array" and not isinstance(value, list):
+            problems.append(f"{key} must be a list")
+        elif kind == "object" and not isinstance(value, dict):
+            problems.append(f"{key} must be an object")
+        if "enum" in spec and value not in spec["enum"]:
+            problems.append(f"{key} must be one of: {', '.join(map(str, spec['enum']))}")
+    return problems
 
 
 class ToolRegistry:
@@ -366,7 +424,10 @@ class ToolRegistry:
                 "ok": False,
                 "error": (f"{tool} needs the owner's approval — ask him to run it, or use a read-only tool instead"),
             }
-        return await self.execute(tool, args if isinstance(args, dict) else {})
+        problems = validate_args(tool, args)
+        if problems:
+            return {"ok": False, "error": f"invalid arguments for {tool}: {'; '.join(problems)}"}
+        return await self.execute(tool, args)
 
     def risk(self, name: str) -> str:
         return RISK.get(name, "exec")
@@ -803,6 +864,19 @@ class ToolRegistry:
             bool(args.get("overwrite")),
         )
 
+    async def _dev_check(self, args: dict) -> dict:
+        diff = str(args.get("diff") or "")
+        if not diff.strip():
+            return {"ok": False, "error": "diff is empty: give the proposal as a unified diff"}
+        repo = Path(__file__).resolve().parents[1]
+        return await asyncio.to_thread(
+            dev_check.check_proposal,
+            repo,
+            diff,
+            str(args.get("check") or "pytest"),
+            args.get("baseline") is not False,
+        )
+
     async def _sqlite_query(self, args: dict) -> dict:
         return await asyncio.to_thread(
             sqlite_read.query,
@@ -813,6 +887,11 @@ class ToolRegistry:
 
     async def _media_probe(self, args: dict) -> dict:
         return await asyncio.to_thread(media_tools.probe, self._under_read(args)[0])
+
+    async def _media_transcribe(self, args: dict) -> dict:
+        return await asyncio.to_thread(
+            media_tools.transcribe, self._under_read(args)[0], str(args.get("language") or "")
+        )
 
     async def _media_frames(self, args: dict) -> dict:
         source = self._under(args, "from")

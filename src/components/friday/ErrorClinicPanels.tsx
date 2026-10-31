@@ -19,9 +19,29 @@ import {
 } from "@/lib/friday/brain/error-intelligence";
 import { askFriday, canAsk } from "@/lib/friday/ask";
 import {
+  CATEGORIES,
+  coverage,
+  runBank,
+  type CategoryResult,
+} from "@/lib/friday/self/benchmark-bank";
+import { EXTERNAL_BENCHMARKS } from "@/lib/friday/self/external-eval";
+import { wilson } from "@/lib/friday/self/eval-stats";
+import { coreBrain } from "@/lib/friday/brain/core-brain";
+import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
+import { modelRegistry } from "@/lib/friday/brain/model-registry";
+import { routeRefs } from "@/lib/friday/model-catalog";
+import {
+  describeSuites,
+  runAllSuites,
+  suiteHistory,
+  type SuiteReport,
+} from "@/lib/friday/self/eval-suites";
+import {
   INSTRUCTION_TASKS,
   describeInstructionEval,
+  describeRepeatedInstructionEval,
   runInstructionEval,
+  runInstructionEvalRepeated,
   type InstructionEvalReport,
 } from "@/lib/friday/self/instruction-eval";
 import {
@@ -100,6 +120,8 @@ export function ErrorClinicPanel() {
 
 export function BrainCheckPanel() {
   const [report, setReport] = useState<EvalReport | null>(null);
+  const [suites, setSuites] = useState<SuiteReport[]>([]);
+  const [bank, setBank] = useState<CategoryResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,6 +129,8 @@ export function BrainCheckPanel() {
     setBusy(true);
     try {
       setReport(await runEvalHarness());
+      setSuites(await runAllSuites());
+      setBank(await runBank());
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -159,6 +183,57 @@ export function BrainCheckPanel() {
             {report.heldOut.failed.length ? ` · missed: ${report.heldOut.failed.join(", ")}` : ""}
           </p>
           <p className="text-meta-sm text-muted-foreground">{describeEval(report)}</p>
+          {bank.length ? (
+            <div className="grid gap-1" aria-label="Benchmark 1.0 bank">
+              <p className="text-data text-foreground">
+                Benchmark 1.0: {bank.length} of {CATEGORIES.length} categories scored here, no
+                model, no network.
+              </p>
+              <ul className="grid gap-1">
+                {coverage().map((row) => {
+                  const own = bank.filter((item) => item.domain === row.domain);
+                  const passed = own.reduce((sum, item) => sum + item.passed, 0);
+                  const total = own.reduce((sum, item) => sum + item.total, 0);
+                  const ci = wilson(passed, total);
+                  return (
+                    <li key={row.domain} className="text-data text-muted-foreground">
+                      {row.domain}: {passed}/{total} tasks
+                      {total
+                        ? ` [${Math.round(ci.low * 100)}–${Math.round(ci.high * 100)}% at 95%]`
+                        : ""}{" "}
+                      · {row.app} scored here, {row.tests} by tests, {row.model} need a model,{" "}
+                      {row.desktop + row.external} need a desktop or an outside benchmark
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="text-meta-sm text-muted-foreground">
+                Rules that must always hold are exact; the 85-task classes have a floor. A domain
+                needs at least 50 task-runs before it gets a score. Outside benchmarks you run
+                yourself, with your keys and a spend cap:{" "}
+                {EXTERNAL_BENCHMARKS.map((item) => item.title).join(", ")}.
+              </p>
+            </div>
+          ) : null}
+          {suites.length ? (
+            <div className="grid gap-1" aria-label="More suites">
+              <p className="whitespace-pre-wrap text-data text-foreground">
+                {describeSuites(suites)}
+              </p>
+              <p className="text-meta-sm text-muted-foreground">
+                Earlier runs (passed of tasks, newest last):{" "}
+                {suites
+                  .map((suite) => {
+                    const past = suiteHistory(suite.suite)
+                      .slice(-6)
+                      .map((row) => `${row.passed}/${row.tasks}`)
+                      .join(" → ");
+                    return `${suite.suite} ${past}`;
+                  })
+                  .join(" · ")}
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
     </HudPanel>
@@ -170,19 +245,54 @@ export function ModelComparePanel() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState("");
+  const [repeats, setRepeats] = useState(1);
+  const [repeated, setRepeated] = useState<string | null>(null);
   const available = canAsk();
+  const models = useMemo(
+    () => modelRegistry.available().map((record) => ({ id: record.id, name: record.name })),
+    [],
+  );
+  const stats = coreBrain.modelStats();
+  const measured = models
+    .map((model) => ({ model, profile: profileOf(model.id, stats) }))
+    .filter((row) => row.profile.measured);
 
   const run = async () => {
     setBusy(true);
     setError(null);
     try {
-      setReport(
-        await runInstructionEval({
-          rungs: [{ id: "default", label: "your configured models", modelIds: [] }],
-          ask: (prompt) => askFriday(prompt, { timeoutMs: 60_000 }),
+      // One chosen model, or whichever FRIDAY routes to when none is chosen.
+      const modelIds = chosen ? routeRefs([chosen]) : [];
+      if (repeats > 1) {
+        const many = await runInstructionEvalRepeated({
+          repeats,
+          rungs: [{ id: chosen || "default", label: chosen || "your configured models", modelIds }],
+          ask: (prompt) =>
+            askFriday(prompt, { timeoutMs: 60_000, ...(modelIds.length ? { modelIds } : {}) }),
           onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
-        }),
-      );
+        });
+        setRepeated(describeRepeatedInstructionEval(many));
+        setReport(null);
+        return;
+      }
+      setRepeated(null);
+      const result = await runInstructionEval({
+        rungs: [{ id: chosen || "default", label: chosen || "your configured models", modelIds }],
+        ask: (prompt) =>
+          askFriday(prompt, { timeoutMs: 60_000, ...(modelIds.length ? { modelIds } : {}) }),
+        onProgress: (done, total) => setProgress(`${done} of ${total} asked`),
+      });
+      setReport(result);
+      // A comparison is kept only for a model that was actually named, and only if it answered.
+      if (chosen && result.unanswered === 0) {
+        recordCompare(chosen, {
+          tasks: result.tasks,
+          bare: result.bare,
+          loop: result.brain,
+          calls: result.calls,
+        });
+      }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -200,7 +310,7 @@ export function ModelComparePanel() {
           icon={Scale}
           label="Compare"
           labelMode="inline"
-          title="Ask your configured model the fixed asks, as it is and through FRIDAY's check-and-fix loop"
+          title="Ask the chosen model the fixed asks, as it is and through FRIDAY's check-and-fix loop"
           busy={busy}
           disabled={!available}
           onClick={() => void run()}
@@ -212,17 +322,73 @@ export function ModelComparePanel() {
           title="Needs the desktop app"
           hint="The comparison asks your configured models, which the browser preview does not have."
         />
-      ) : error ? (
-        <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
-      ) : !report ? (
-        <EmptyState
-          title={busy ? (progress ?? "Starting…") : "Not run yet"}
-          hint="Sends about 20 to 45 short questions to the model you have set up (local models cost nothing; a paid cloud model may). Each is answered as it is, then through the loop that checks the rules of the ask and fixes a miss. Nothing is sent until you press Compare."
-        />
       ) : (
-        <p className="whitespace-pre-wrap text-data text-foreground">
-          {describeInstructionEval(report)}
-        </p>
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-meta text-muted-foreground">
+            Model to compare (a named model keeps its result in its profile)
+            <select
+              className="rounded-surface border border-border bg-background p-2 text-foreground"
+              value={chosen}
+              onChange={(event) => setChosen(event.target.value)}
+              aria-label="Model to compare"
+            >
+              <option value="">Whichever FRIDAY routes to</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-meta text-muted-foreground">
+            Runs per ask (more runs show whether the rules are kept every time, and cost that many
+            times the questions)
+            <select
+              className="rounded-surface border border-border bg-background p-2 text-foreground"
+              value={repeats}
+              onChange={(event) => setRepeats(Number(event.target.value))}
+              aria-label="Runs per ask"
+            >
+              {[1, 3, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n === 1 ? "1 run" : `${n} runs`}
+                </option>
+              ))}
+            </select>
+          </label>
+          {error ? (
+            <ErrorState title="The comparison failed" error={error} onRetry={() => void run()} />
+          ) : repeated ? (
+            <p className="whitespace-pre-wrap text-data text-foreground">{repeated}</p>
+          ) : !report ? (
+            <EmptyState
+              title={busy ? (progress ?? "Starting…") : "Not run yet"}
+              hint="Sends about 20 to 45 short questions to the model (local models cost nothing; a paid cloud model may). Each is answered as it is, then through the loop that checks the rules of the ask and fixes a miss. Nothing is sent until you press Compare."
+            />
+          ) : (
+            <p className="whitespace-pre-wrap text-data text-foreground">
+              {describeInstructionEval(report)}
+            </p>
+          )}
+          {measured.length ? (
+            <ul className="grid gap-1" aria-label="Measured model profiles">
+              {measured.map(({ model, profile }) => (
+                <li key={model.id} className="text-data text-muted-foreground">
+                  {model.name}: {profile.runs} live run(s)
+                  {profile.passRate === null ? "" : ` · ${pct(profile.passRate)} passed her checks`}
+                  {profile.avgMs === null ? "" : ` · ${profile.avgMs} ms`}
+                  {profile.rulesKept === null
+                    ? " · not compared"
+                    : ` · rules kept ${pct(profile.rulesKept)} as it is, ${pct(profile.rulesKeptWithLoop ?? 0)} with the loop`}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-meta-sm text-muted-foreground">
+              No model has a measured profile yet. Profiles come from real runs and from Compare.
+            </p>
+          )}
+        </div>
       )}
     </HudPanel>
   );

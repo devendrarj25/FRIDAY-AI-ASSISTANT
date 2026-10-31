@@ -11,6 +11,7 @@ import { redactForExport } from "../brain/memory-policy";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import {
   rankByRetrieval,
+  registerEntityAliases,
   retrievalTerms,
   type RankSignals,
   type VectorSnippet,
@@ -62,6 +63,9 @@ export type MemoryItem = {
   contradiction?: boolean;
   /** When set, this record is no longer current. Retrieval skips it. */
   supersededAt?: number;
+  /** The period the fact is true for. Outside it the record is history, not a current answer. */
+  validFrom?: number;
+  validUntil?: number;
   /** Who wrote the row. A clash never erases the older provenance. */
   provenance?: string;
 };
@@ -344,6 +348,8 @@ export type RememberInput = {
   projectId?: string;
   relatedIds?: string[];
   relevance?: number;
+  validFrom?: number;
+  validUntil?: number;
   /** Secret rows are refused. They are never written into ordinary memory. */
   sensitivity?: "public" | "internal" | "private" | "secret";
   /**
@@ -352,6 +358,20 @@ export type RememberInput = {
    */
   distinct?: boolean;
 };
+
+/**
+ * Where a fact stands against the period it is true for. A record with no period is always "current".
+ * "ended" and "not-yet" records stay stored for a question about the past or the future and stay out of a
+ * current answer.
+ */
+export function validityState(
+  item: Pick<MemoryItem, "validFrom" | "validUntil">,
+  now: number,
+): "current" | "ended" | "not-yet" {
+  if (item.validFrom !== undefined && item.validFrom > now) return "not-yet";
+  if (item.validUntil !== undefined && item.validUntil <= now) return "ended";
+  return "current";
+}
 
 class MemoryEngine {
   private items: MemoryItem[] = [];
@@ -550,6 +570,9 @@ class MemoryEngine {
     if (input.projectId) item.projectId = input.projectId;
     if (input.relatedIds?.length) item.relatedIds = [...input.relatedIds];
     if (input.relevance !== undefined) item.relevance = input.relevance;
+    registerEntityAliases(`${input.title}. ${input.text}`);
+    if (Number.isFinite(input.validFrom)) item.validFrom = input.validFrom!;
+    if (Number.isFinite(input.validUntil)) item.validUntil = input.validUntil!;
     const explicit =
       Boolean(input.verified) ||
       input.source === "user" ||
@@ -730,6 +753,7 @@ class MemoryEngine {
     if (!retrievalTerms(query).length) return [];
     const pool = this.items.filter((i) => {
       if (i.tier === "archived" || i.supersededAt) return false;
+      if (validityState(i, Date.now()) !== "current") return false;
       if (!i.projectId) return true;
       return Boolean(options.projectId && i.projectId === options.projectId);
     });

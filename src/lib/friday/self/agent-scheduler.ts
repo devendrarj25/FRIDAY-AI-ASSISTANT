@@ -299,11 +299,19 @@ export async function reviewEnabledAgents(host: AgentSchedulerHost): Promise<num
             ? plan["capabilities"].map((item) => String(item))
             : parent.capabilities;
           const bound = childStaysInsideParent(
-            { capabilities: parent.capabilities, network: parent.network, spend: parent.budget },
+            {
+              capabilities: parent.capabilities,
+              network: parent.network,
+              spend: parent.budget,
+              risk: agent.risk,
+            },
             {
               capabilities: childCapabilities,
               network: plan["network"] === true,
               spend: typeof plan["spend"] === "number" ? plan["spend"] : 0,
+              ...(plan["risk"] === "safe" || plan["risk"] === "write" || plan["risk"] === "exec"
+                ? { risk: plan["risk"] }
+                : {}),
             },
           );
           if (!bound.ok) return { ok: false, detail: bound.reason };

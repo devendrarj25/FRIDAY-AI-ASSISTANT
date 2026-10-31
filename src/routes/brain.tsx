@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { SelfCoreSection } from "@/components/friday/SelfCore";
+import { BrainNowPanel } from "@/components/friday/BrainNowPanel";
 import { FridayOrb } from "@/components/friday/FridayOrb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -257,6 +258,7 @@ function BrainPage() {
 
         {tab === "overview" ? (
           <div className="space-y-4">
+            <BrainNowPanel />
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <HudPanel
                 title="Memory overview"
