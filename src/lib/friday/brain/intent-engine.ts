@@ -20,7 +20,7 @@ import { noteConstraint } from "./conversation-state";
 import { ownerContextDigest } from "./identity";
 import { userProfileDigest } from "./user-profile";
 import { readPromptSignals } from "./affect";
-import { memory } from "../self/memory-engine";
+import { asOfWindow, memory } from "../self/memory-engine";
 import { brainKnowledge } from "./knowledge-base";
 import { retrievalTerms, termJaccard } from "./retrieval";
 import {
@@ -492,13 +492,17 @@ function understandTurnBody(
   const signals = readPromptSignals(literal);
   const missingInformation: string[] = [];
 
+  // "What did I decide in June" names a period, not a thing to continue. A word like "pichhle" or "tha" in it must
+  // not be read as a missing referent that makes FRIDAY ask "which thing should I continue".
+  const pastQuestion = asOfWindow(literal, Date.now()) !== null;
+  const contextAmbiguous = context.ambiguous && !pastQuestion;
   const resolvedReferent =
-    context.references.length > 0 && !context.ambiguous && context.confidence >= 0.55;
+    context.references.length > 0 && !contextAmbiguous && context.confidence >= 0.55;
   if (resolvedReferent) {
     resolvedIntent.needsClarification = false;
     resolvedIntent.ask = null;
   }
-  if (context.ambiguous || (inferred.confidence < 0.4 && /better bana|improve/i.test(literal))) {
+  if (contextAmbiguous || (inferred.confidence < 0.4 && /better bana|improve/i.test(literal))) {
     resolvedIntent.needsClarification = true;
     resolvedIntent.ask =
       context.selectedContext.length > 1
@@ -514,7 +518,7 @@ function understandTurnBody(
   const ambiguous =
     resolvedIntent.needsClarification ||
     (resolvedIntent.kind === "ambiguous" && !resolvedReferent) ||
-    context.ambiguous;
+    contextAmbiguous;
   let understandingConfidence = inferred.confidence || 0.88;
   if (ambiguous) understandingConfidence = Math.min(understandingConfidence, 0.32);
   else if (context.references.length) {
