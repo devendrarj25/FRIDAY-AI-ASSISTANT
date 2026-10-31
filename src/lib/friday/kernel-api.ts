@@ -46,6 +46,7 @@ export const KERNEL_METHODS = [
   "tool.list",
   "tool.exec",
   "memory.search",
+  "memory.rerank",
   "memory.index",
   "memory.add",
   "memory.reindex",
