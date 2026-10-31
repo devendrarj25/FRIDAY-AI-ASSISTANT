@@ -19,6 +19,7 @@ import { taskGraph } from "./task-graph";
 import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
 import { deliverDigest } from "../proactive-digest";
+import { dreamNow } from "./dreaming";
 import {
   prefNumber,
   prefOn,
@@ -112,6 +113,17 @@ class BackgroundTasks {
       run: async () => {
         const out = deliverDigest();
         return out.delivered ? `${out.lines.length} line(s) offered` : out.reason;
+      },
+    });
+    this.register({
+      id: "dreaming",
+      label: "Look back at what worked",
+      everyMinutes: 24 * 60,
+      run: async () => {
+        const out = dreamNow();
+        return out.filed
+          ? `${out.filed} lesson(s) offered for approval`
+          : `${out.found} recurring success(es), none new`;
       },
     });
     this.register({
