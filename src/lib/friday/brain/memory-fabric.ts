@@ -990,3 +990,45 @@ export const exportMemoryBackup = (): string => exportFabricBundle();
 export function importMemoryBackup(json: string): number {
   return restoreFabricBundle(json).restored;
 }
+
+/**
+ * The fabric's upkeep, run with the memory job: verified episodic memories settle into semantic ones, and two
+ * live records that say the same thing with and without a negation ("likes tea", "nahi pasand chai") are marked as
+ * contradicting so the normal review path (ask the owner, never guess) handles them. Returns what it did.
+ */
+export function tidyFabric(): { promoted: number; contradictions: number } {
+  hydrate();
+  let promoted = 0;
+  let contradictions = 0;
+  const live = memory
+    .getSnapshot()
+    .items.filter(
+      (item) => !item.supersededAt && item.tier !== "archived" && !tombstones.has(item.id),
+    );
+  for (const item of live)
+    if (item.tier === "episodic" && promoteIfEvidenced(item).promoted) promoted += 1;
+  // Recent records against every live record: a new fact that negates an old one is the case that matters, and
+  // the cap keeps the pass cheap on a large store.
+  const recent = [...live].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
+  for (const a of recent) {
+    for (const b of live) {
+      if (a.id >= b.id && recent.includes(b)) continue;
+      if (a.id === b.id || (a.contradiction && b.contradiction)) continue;
+      if (!textsContradict(a.text, b.text)) continue;
+      memory.update(a.id, {
+        contradiction: true,
+        relatedIds: [...new Set([...(a.relatedIds ?? []), b.id])],
+      });
+      memory.update(b.id, {
+        contradiction: true,
+        relatedIds: [...new Set([...(b.relatedIds ?? []), a.id])],
+      });
+      contradictions += 1;
+    }
+  }
+  if (promoted || contradictions) {
+    touchCache();
+    persist();
+  }
+  return { promoted, contradictions };
+}

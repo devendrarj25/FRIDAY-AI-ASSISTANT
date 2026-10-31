@@ -1,5 +1,11 @@
 import { useRef, useState } from "react";
-import { exportMemoryBackup, importMemoryBackup } from "@/lib/friday/brain/memory-fabric";
+import {
+  exportMemoryBackup,
+  importMemoryBackup,
+  projectLifecycle,
+  rebuildProjection,
+  tidyFabric,
+} from "@/lib/friday/brain/memory-fabric";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Download, RefreshCw, Save, Upload } from "lucide-react";
@@ -150,6 +156,37 @@ export function MemorySettings() {
           </Button>
           <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
             <Upload className="size-4" /> Import JSON
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            title="Look for records that contradict each other and settle verified episodic ones as knowledge"
+            onClick={() => {
+              const out = tidyFabric();
+              const links = projectLifecycle(memory.getSnapshot().items);
+              const kinds = ["supersession", "contradiction", "coexistence", "merge"] as const;
+              const counts = kinds
+                .map((kind) => `${links.filter((row) => row.link === kind).length} ${kind}`)
+                .join(", ");
+              toast.success(
+                `${out.contradictions} new contradiction(s), ${out.promoted} promoted. Links: ${counts}`,
+              );
+            }}
+          >
+            Check memory health
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            title="Rebuild the compiled lines and the link index from the stored records"
+            onClick={() => {
+              const rebuilt = rebuildProjection(memory.getSnapshot().items, Date.now());
+              toast.success(
+                `Index rebuilt from ${rebuilt.records.length} record(s); ${rebuilt.omitted.length} left out (forgotten, replaced or archived)`,
+              );
+            }}
+          >
+            Rebuild index
           </Button>
           <Button
             size="sm"

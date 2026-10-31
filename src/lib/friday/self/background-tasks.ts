@@ -9,6 +9,7 @@
  * Each job calls a real subsystem — there is no synthetic activity here.
  */
 
+import { tidyFabric } from "../brain/memory-fabric";
 import { inspectSelf } from "../brain/self-diagnosis";
 import { doctor, isProblem } from "../doctor-engine";
 import { networkMeter } from "../network";
@@ -102,6 +103,10 @@ class BackgroundTasks {
         const kept = shouldSnapshotMemory() || shouldOptimizeMemory() ? memory.backup() : 0;
         const archived = shouldOptimizeMemory() ? memory.decayStale() : 0;
         const dropped = shouldOptimizeMemory() ? memory.optimize() : 0;
+        const tidy = tidyFabric();
+        if (tidy.contradictions)
+          return `${tidy.contradictions} pair(s) of memories contradict each other: review them`;
+        if (tidy.promoted) return `${tidy.promoted} verified memory(ies) settled as knowledge`;
         if (kept && dropped) return `${kept} memories backed up, ${dropped} compacted`;
         if (archived) return `${archived} stale record(s) archived`;
         if (kept) return `${kept} memories backed up`;
