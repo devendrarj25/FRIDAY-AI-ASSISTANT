@@ -103,6 +103,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- Mood reading is word-based: tone of voice is used only where voice prosody already feeds `readFeeling`, sarcasm is read at low confidence, and a mood cue in a language other than English, Hinglish or Devanagari Hindi is missed. The comfort wording is fixed text, not measured on how the owner actually feels about it; he should say which lines feel wrong. A message that carries both a feeling and a task is handled by the model with the mood guidance, which is unverified with a live model.
 - Hinglish commands: the verb-last list in `brain/intent-engine.ts` covers the common verbs only; "wo wali file khol do" and "pichla kaam dobara karo" still depend on the pointer and last-task memory, and are not measured on the owner's real requests.
 - Self questions: `brain/self-questions.ts` routes the English and Hinglish wording listed in its tests; a new phrasing outside those patterns still reaches a model without the live facts. The Atlas, PC and self-check answers read live probes that ran on Linux and in tests only; the Windows wording is unverified.
 - Brain wiring: 16 read-only accessors, capability probes and one host seam in `brain/` and `self/` have no caller in the app yet; each is listed with its reason in `config/brain-wiring-ledger.json`, and `core/__tests__/brain-wiring-ledger.test.ts` fails on any new export that is neither used, pinned by a test, nor listed. Run-receipt `accept*` validators (`self/run-receipt.ts`) have no production emitter yet.
@@ -149,6 +150,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
+- Ask the owner which comfort lines feel right or wrong, and add his own wording to `data/phrase-bank.ts`; then let a long-running low mood be raised once, gently, in the daily digest.
 - Collect the self questions the owner really asks (voice and typed) and add each missed phrasing to `core/__tests__/self-questions.test.ts` with its pattern.
 - Show the ledger accessors (draft lists of the forges, router counters, source health, dev baseline) in Self-management, so the 16 pending rows in `config/brain-wiring-ledger.json` move to used.
 - Let the owner record 20 to 30 real requests and 10 Hinglish recordings, then run My tasks in all three modes (plain chat, whole Brain, whole Brain without memory) and compare the paired results.

@@ -21,7 +21,7 @@ import { getConversationSession } from "./conversation-state";
 import { AFFECT_LEXICON, INTENSIFIERS, NEGATIONS } from "../data/affect-lexicon";
 
 export type UserSignal =
-  "urgency" | "frustration" | "excitement" | "confusion" | "stress" | "satisfaction";
+  "urgency" | "frustration" | "excitement" | "confusion" | "stress" | "satisfaction" | "low";
 
 export type FridayState =
   | "calm"
@@ -46,6 +46,7 @@ export type InteractionState =
   | "satisfied-user"
   | "cautious"
   | "reflective"
+  | "supportive"
   | "exploratory";
 
 export type AffectState = {
@@ -61,6 +62,8 @@ export type AffectState = {
   interaction: InteractionState;
   /** Consecutive failures observed — drives "concerned". */
   failures: number;
+  /** The last readings of the owner's feeling, newest last. Labels only: never his words. */
+  recent: { at: number; label: string }[];
   /** Consecutive successes observed — drives "happy". */
   streak: number;
   updatedAt: number | null;
@@ -75,6 +78,7 @@ const EMPTY_USER: Record<UserSignal, number> = {
   confusion: 0,
   stress: 0,
   satisfaction: 0,
+  low: 0,
 };
 
 const initial = (): AffectState => ({
@@ -84,6 +88,7 @@ const initial = (): AffectState => ({
   mood: "calm",
   interaction: "neutral",
   failures: 0,
+  recent: [],
   streak: 0,
   updatedAt: null,
 });
@@ -98,6 +103,34 @@ const CUES: Record<UserSignal, RegExp> = {
   confusion: /\b(confus\w*|don'?t understand|what does|why is|how do i|samajh nahi|kya matlab)\b/i,
   stress: /\b(everything|too many|overwhelm\w*|can'?t keep up|pressure|late|behind)\b/i,
   satisfaction: /\b(thanks|thank you|works|working now|fixed|nice|good job|shukriya|dhanyavaad)\b/i,
+  low: /\b(feeling (down|low)|mood (off|kharab)|thak (gaya|gayi)|udaas)\b/i,
+};
+
+const RECENT_MAX = 12;
+
+/** Which of his signals a read feeling raises, and how much. */
+const FEELING_SIGNALS: Partial<Record<string, [UserSignal, number][]>> = {
+  anger: [["frustration", 0.5]],
+  anxiety: [["stress", 0.5]],
+  overwhelm: [["stress", 0.55]],
+  sadness: [["low", 0.55]],
+  disappointment: [["low", 0.5]],
+  tiredness: [
+    ["low", 0.45],
+    ["stress", 0.2],
+  ],
+  distress: [
+    ["low", 0.9],
+    ["stress", 0.7],
+  ],
+  excitement: [["excitement", 0.5]],
+  relief: [
+    ["satisfaction", 0.4],
+    ["excitement", 0.2],
+  ],
+  gratitude: [["satisfaction", 0.45]],
+  confusion: [["confusion", 0.5]],
+  hurry: [["urgency", 0.5]],
 };
 
 const EXPLORING = /\b(what if|maybe|brainstorm|could we|idea|explore)\b/i;
@@ -125,6 +158,7 @@ class AffectEngine {
         ...value,
         user: { ...EMPTY_USER, ...value.user },
         interaction: value.interaction ?? "neutral",
+        recent: Array.isArray(value.recent) ? value.recent.slice(-RECENT_MAX) : [],
       };
       this.commit(false);
     });
@@ -163,6 +197,7 @@ class AffectEngine {
       }
     })();
     if (corrections >= 2 || user.frustration > 0.65) return "frustrated-user";
+    if (user.low > 0.45) return "supportive";
     if (this.exploring && user.frustration < 0.4) return "exploratory";
     if (user.urgency > 0.55) return "urgent";
     if (user.confusion > 0.5) return "confused-user";
@@ -177,7 +212,7 @@ class AffectEngine {
   private deriveMood(): FridayState {
     const { user, failures, streak } = this.state;
     if (failures >= 2 || user.frustration > 0.7) return "frustrated";
-    if (user.stress > 0.55 && user.frustration < 0.45) return "empathetic";
+    if (user.low > 0.45 || (user.stress > 0.55 && user.frustration < 0.45)) return "empathetic";
     if (failures >= 1 || user.frustration > 0.6 || user.stress > 0.6) return "concerned";
     if (user.confusion > 0.5) return "thoughtful";
     if (user.urgency > 0.5) return "focused";
@@ -199,6 +234,16 @@ class AffectEngine {
     for (const key of Object.keys(CUES) as UserSignal[]) {
       if (CUES[key].test(prompt)) this.state.user[key] = clamp(this.state.user[key] + 0.45);
     }
+    // The wider read: whole-word cues in English, Hinglish and Devanagari, with negation.
+    const feeling = readFeeling(prompt, { failures: this.state.failures });
+    for (const [signal, amount] of FEELING_SIGNALS[feeling.label] ?? []) {
+      if (feeling.confidence >= 0.5)
+        this.state.user[signal] = clamp(this.state.user[signal] + amount);
+    }
+    this.state.recent = [
+      ...this.state.recent,
+      { at: Date.now(), label: feeling.confidence >= 0.5 ? feeling.label : "neutral" },
+    ].slice(-RECENT_MAX);
     // Punctuation and shouting are urgency/frustration signals of their own.
     if (/!{2,}|\?{2,}/.test(prompt)) this.state.user.urgency = clamp(this.state.user.urgency + 0.2);
     if (prompt.length > 24 && prompt === prompt.toUpperCase() && /[A-Z]{6,}/.test(prompt)) {
@@ -230,6 +275,39 @@ class AffectEngine {
     }
     this.commit();
     return this.snapshot;
+  }
+
+  /** The owner said a reading was wrong: forget what was read from his messages. Outcomes (failures, streak) stay. */
+  forgetReadings(): AffectState {
+    this.state.user = { ...EMPTY_USER };
+    this.state.recent = [];
+    this.state.importance = 0.4;
+    this.exploring = false;
+    this.commit();
+    return this.snapshot;
+  }
+
+  /**
+   * What the last messages add up to: not one reading, a pattern. "carrying" means the same hard feeling showed up in
+   * at least three of the last six readings, so it is a mood he is in, not a passing word.
+   */
+  moodTrend(): { label: string; count: number; of: number; carrying: boolean } {
+    const HARD = new Set([
+      "anger",
+      "anxiety",
+      "sadness",
+      "tiredness",
+      "overwhelm",
+      "disappointment",
+    ]);
+    const window = this.state.recent.slice(-6);
+    const counts = new Map<string, number>();
+    for (const row of window)
+      if (HARD.has(row.label)) counts.set(row.label, (counts.get(row.label) ?? 0) + 1);
+    let label = "neutral";
+    let count = 0;
+    for (const [name, n] of counts) if (n > count) [label, count] = [name, n];
+    return { label, count, of: window.length, carrying: count >= 3 };
   }
 
   /** The strongest signals right now, for logs and the prompt fragment. */
@@ -279,6 +357,15 @@ class AffectEngine {
       guidance.push("He is loaded: give one next step, not a list of ten.");
     if (this.state.user.excitement >= 0.4 || this.state.user.satisfaction >= 0.4)
       guidance.push("He is pleased: match the energy briefly, then keep the work moving.");
+    if (this.state.user.low >= 0.4)
+      guidance.push(
+        "He sounds low or tired: be gentle and short. No jokes, no lists, no cheerfulness. Say one plain, kind sentence about how it sounds, then offer to take one thing off his plate. Do not diagnose him, and do not claim to feel what he feels.",
+      );
+    const trend = this.moodTrend();
+    if (trend.carrying)
+      guidance.push(
+        `He has sounded ${trend.label} for ${trend.count} of his last ${trend.of} messages: do not treat this as a fresh mood; keep the same calm, and once, lightly, ask if he wants the day made smaller.`,
+      );
     if (this.state.importance >= 0.7)
       guidance.push("This thread matters: be precise and state what you verified.");
     if (!guidance.length)
@@ -303,7 +390,11 @@ export type FeelingLabel =
   | "confusion"
   | "hurry"
   | "distress"
-  | "sarcasm";
+  | "sarcasm"
+  | "tiredness"
+  | "overwhelm"
+  | "disappointment"
+  | "relief";
 
 export type Feeling = {
   label: FeelingLabel;
@@ -312,6 +403,18 @@ export type Feeling = {
   intensity: number;
   confidence: number;
 };
+
+const cueCache = new Map<string, RegExp>();
+
+/** A cue matches whole words only ("down" must not fire inside "download"); Devanagari has no word-boundary escape, so letters are checked by property. */
+function cueRegExp(pattern: string): RegExp {
+  let rx = cueCache.get(pattern);
+  if (!rx) {
+    rx = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])(?:${pattern})(?![\\p{L}\\p{M}\\p{N}])`, "iu");
+    cueCache.set(pattern, rx);
+  }
+  return rx;
+}
 
 /** Text-only read. Prosody is added by the caller and is not stored. */
 export function readFeeling(
@@ -323,7 +426,7 @@ export function readFeeling(
   let best: Feeling = { label: "neutral", valence: 0, arousal: 0.2, intensity: 0, confidence: 0.2 };
   const negated = NEGATIONS.test(lower);
   for (const row of AFFECT_LEXICON) {
-    const hit = new RegExp(row.pattern, "i").test(lower);
+    const hit = cueRegExp(row.pattern).test(lower);
     if (!hit) continue;
     const boost = (lower.match(new RegExp(INTENSIFIERS.source, "gi")) || []).length * 0.08;
     const caps = raw.length > 8 && raw === raw.toUpperCase() ? 0.1 : 0;

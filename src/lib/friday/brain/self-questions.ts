@@ -13,6 +13,7 @@ import { affect } from "./affect";
 import { describePcHealth, describeSelfAtlas } from "./atlas-observe";
 import { explainDecision, learningSummary } from "./decision-trace";
 import { prefersHinglish } from "./error-intelligence";
+import { describeUserMood } from "./comfort";
 import { describeFridayBehaviour, identity } from "./identity";
 import { describeDisks } from "./pc-awareness";
 import { describeSelfReport, inspectSelfComplete, proposeSourceFix } from "./self-diagnosis";
@@ -24,6 +25,7 @@ export type SelfTopic =
   | "pc-health"
   | "disk"
   | "feeling"
+  | "user-mood"
   | "learning"
   | "decision"
   | "purpose"
@@ -51,6 +53,10 @@ const RULES: [SelfTopic, RegExp][] = [
   [
     "pc-health",
     /\b(meri|mere|is|my|this)\s+(pc|computer|laptop)\b.*\b(slow|hang|hangs|crash|problem|dikkat|kharab|garam|heat|lag)\b|\b(pc|computer|laptop)\s+(slow|hang|crash|kharab|lag)\b/i,
+  ],
+  [
+    "user-mood",
+    /\b(mera|meri|mere)\s+(mood|haal|halat|state)\b|\bmain kaisa (lag|dikh|sound)|\bhow do i (sound|seem)\b|\bwhat(?:'s| is) my mood\b|\bhow am i (doing|feeling)\b|\bmujhe kya hua hai\b|\bmeri feeling\b/i,
   ],
   [
     "feeling",
@@ -150,6 +156,8 @@ export function answerSelf(topic: SelfTopic, text: string): SelfAnswer {
       return { resolve: () => describePcHealth() };
     case "feeling":
       return { text: describeInnerState(text) };
+    case "user-mood":
+      return { text: describeUserMood(text) };
     case "learning":
       return { text: learningSummary() };
     case "decision":

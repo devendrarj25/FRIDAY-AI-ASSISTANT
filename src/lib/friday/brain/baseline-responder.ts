@@ -24,6 +24,7 @@ import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
 import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
 import { answerSelf, selfTopic } from "./self-questions";
+import { comfortReply, correctMoodReading } from "./comfort";
 import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import { answerFormatQuestion } from "./format-atlas";
 import {
@@ -492,6 +493,15 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
       const answer = answerSelf(topic, text);
       return "text" in answer ? reply("identity", answer.text, 0.9) : live(answer.resolve, 0.92);
     }
+  }
+
+  // 1c. how the owner is doing: a correction of her reading comes first, then a message that is only a feeling is
+  // answered kindly here; a message with a task in it keeps the task and gets the warmth added by the shaper.
+  {
+    const corrected = correctMoodReading(text);
+    if (corrected) return reply("smalltalk", corrected, 0.92);
+    const comfort = comfortReply(text);
+    if (comfort) return reply("smalltalk", comfort, 0.9);
   }
 
   // 2. owner-work (desk / books / tender) before generic date/math so a CSV

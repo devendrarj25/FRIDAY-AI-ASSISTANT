@@ -10,12 +10,19 @@ export type Register = "en" | "hi" | "hinglish";
 const HUMAN = /i am human|i'm human|i am conscious|i'm conscious|i feel your pain|i truly feel/i;
 const DIAGNOSIS = /\b(you have|diagnos\w*|depression|anxiety disorder|bipolar)\b/i;
 
+/** Words that are Hinglish whatever else is in the sentence. */
+const STRONG_HINGLISH =
+  /\b(yaar|nahi|nahin|hai|hain|hoon|karo|baje|kal|aaj|mujhe|mera|meri|mere|tum|aap|kya|kaisa|kaise|kyun|raha|rahi|rahe|bahut|haan|theek|achha|thak|udaas|tension)\b/i;
+/** Words that are also English ("the main file"): two of them together are needed. */
+const WEAK_HINGLISH = /\b(main|mai|ho|hu|kar|lag|aur|se|ko|ka|ki|ke|me)\b/gi;
+
 export function registerOf(text: string): Register {
   const value = String(text || "");
   const devanagari = /[\u0900-\u097F]/.test(value);
   const latin = /[A-Za-z]/.test(value);
   if (devanagari && !latin) return "hi";
-  if (/\b(yaar|nahi|hai|karo|baje|kal|mujhe|haan)\b/i.test(value)) return "hinglish";
+  if (STRONG_HINGLISH.test(value)) return "hinglish";
+  if ((value.match(WEAK_HINGLISH) ?? []).length >= 2) return "hinglish";
   if (devanagari && latin) return "hinglish";
   return "en";
 }
