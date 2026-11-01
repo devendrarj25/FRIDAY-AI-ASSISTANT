@@ -149,6 +149,13 @@ export function stepsFor(check: DoctorCheck): string[] {
   } else if (/install manager/i.test(`${check.fix ?? ""} ${check.detail}`)) {
     // An Install Manager row installs it: no key or Windows permission is involved.
     steps.push("Open Install Manager, find it, and press Install. FRIDAY checks the pinned file.");
+  } else if (isWarning(check.status) && !check.fix && !check.command && !check.docs) {
+    // A note with nothing to act on (a report-only policy line, a slow moment). Saying "only you can grant" here is false.
+    steps.push(
+      "This is a note, not a fault: there is nothing to do now. If it keeps coming back, say “what's wrong” and FRIDAY will look again.",
+    );
+  } else if (check.optional) {
+    steps.push("This is optional. FRIDAY works without it; add it only if you want what it does.");
   } else {
     steps.push(
       "FRIDAY cannot do this for you — it needs a key, driver, account, or Windows permission only you can grant.",

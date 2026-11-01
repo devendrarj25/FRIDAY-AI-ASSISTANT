@@ -696,8 +696,43 @@ export function analyzeOwnFailure(input: {
 }
 
 /** Inspects every real source and returns FRIDAY's current self-assessment. */
+/** "Local models — Missing" and "Local models is missing" are one thing: the name without the status words. */
+function problemKey(problem: SelfProblem): string {
+  return problem.title
+    .toLowerCase()
+    .replace(/\s+(?:—|-|–)\s+(?:missing|error|warning|outdated|degraded|not installed).*$/i, "")
+    .replace(/\s+is\s+(?:missing|degraded|broken|unavailable)\b.*$/i, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * One entry per fault. When two sources report the same one, the entry with owner steps stays (they read better), the
+ * worse severity wins, and the area is kept. Different faults that merely share a word are not merged: the whole name
+ * has to match.
+ */
+export function dedupeProblems(problems: SelfProblem[]): SelfProblem[] {
+  const rank: Record<SelfProblemSeverity, number> = { critical: 0, warning: 1, info: 2 };
+  const seen = new Map<string, SelfProblem>();
+  for (const problem of problems) {
+    const key = `${problem.area}|${problemKey(problem)}`;
+    const keyAnyArea = problemKey(problem);
+    const previous =
+      seen.get(key) ?? [...seen.values()].find((row) => problemKey(row) === keyAnyArea);
+    if (!previous || keyAnyArea.length < 4) {
+      seen.set(key, problem);
+      continue;
+    }
+    const keep = (problem.steps?.length ?? 0) > (previous.steps?.length ?? 0) ? problem : previous;
+    const worst =
+      rank[problem.severity] < rank[previous.severity] ? problem.severity : previous.severity;
+    seen.set(`${previous.area}|${problemKey(previous)}`, { ...keep, severity: worst });
+  }
+  return [...seen.values()];
+}
+
 export function inspectSelf(): SelfReport {
-  const problems: SelfProblem[] = [];
+  let problems: SelfProblem[] = [];
   const facts: string[] = [];
   let inspected = false;
   const sourceInspected = Boolean(cachedSource?.inspected);
@@ -867,6 +902,8 @@ export function inspectSelf(): SelfReport {
 
   const order: Record<SelfProblemSeverity, number> = { critical: 0, warning: 1, info: 2 };
   problems.sort((a, b) => order[a.severity] - order[b.severity]);
+  // The Doctor and the system map both name the same fault ("Local models — Missing", "Local models is missing"): one entry.
+  problems = dedupeProblems(problems);
 
   const causal = analyzeOwnFailure({ problems, facts });
 
