@@ -489,6 +489,26 @@ class MemoryEngine {
   private loaded = false;
   private lastSweepAt = 0;
   private flushRegistered = false;
+  private retireListeners = new Set<(id: string) => void>();
+
+  /**
+   * Called with the id of a record that stopped being current (replaced or archived). Projections of memory, such as
+   * the knowledge entry derived from it, listen here so they do not keep answering with an old fact.
+   */
+  onRetire = (listener: (id: string) => void) => {
+    this.retireListeners.add(listener);
+    return () => this.retireListeners.delete(listener);
+  };
+
+  private retired(id: string) {
+    for (const listener of this.retireListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* a projection failing must not stop memory */
+      }
+    }
+  }
 
   /** Writes what the 500 ms debounce is still holding. Called when the page is hidden or closed. */
   flush = () => {
@@ -659,7 +679,7 @@ class MemoryEngine {
           ...candidate,
           id: newId(),
           pinned: false,
-          tier: candidate.tier === "working" ? "temporary" : candidate.tier,
+          tier: "archived",
           supersededAt: now,
           validUntil: now,
           invalidReason: "replaced by a newer statement",
@@ -819,6 +839,7 @@ class MemoryEngine {
         newer.updatedAt = now;
       }
     }
+    this.retired(oldId);
     this.emit();
     return true;
   }
@@ -830,6 +851,7 @@ class MemoryEngine {
 
   archive(id: string) {
     this.update(id, { tier: "archived", pinned: false });
+    this.retired(id);
   }
 
   restore(id: string, tier: MemoryTier = "semantic") {

@@ -108,3 +108,81 @@ describe("memory is written before the page goes away", () => {
     expect(sent.some((key) => /memory/i.test(key))).toBe(true);
   });
 });
+
+describe("one memory, two lists", () => {
+  it("a turn recalls what the six-tier store knows, and forgetting is forgotten in both", async () => {
+    const { brain } = await import("../../src/lib/friday/brain-engine");
+    memory.resetForTests();
+    const taught = memory.remember({
+      tier: "permanent",
+      title: "Tea",
+      text: "Owner drinks masala chai without sugar",
+      source: "user",
+      tags: [],
+      kind: "preference",
+      verified: true,
+    });
+    const hits = brain.recall("how does the owner like his masala chai", 4);
+    expect(hits.some((hit) => hit.id === taught.id && /without sugar/.test(hit.snippet))).toBe(
+      true,
+    );
+
+    brain.remember("long-term", "Tea", "Owner drinks masala chai without sugar");
+    const listed = brain.getSnapshot().memory.find((m) => m.title === "Tea");
+    expect(listed).toBeTruthy();
+    // The same line in both lists is shown once.
+    const again = brain
+      .recall("masala chai sugar", 6)
+      .filter((hit) => /masala chai/.test(hit.snippet));
+    expect(again).toHaveLength(1);
+
+    brain.forget(listed!.id);
+    expect(memory.search("masala chai", { k: 5 }).some((i) => i.id === taught.id)).toBe(false);
+    expect(
+      brain.recall("masala chai sugar", 6).some((hit) => /masala chai/.test(hit.snippet)),
+    ).toBe(false);
+  });
+
+  it("forgetting a durable record also drops the same line from the quick list", async () => {
+    const { brain } = await import("../../src/lib/friday/brain-engine");
+    brain.remember("long-term", "Pet", "Owner has a cat named Momo");
+    expect(brain.getSnapshot().memory.some((m) => m.title === "Pet")).toBe(true);
+    brain.forgetMatching("Pet", "Owner has a cat named Momo");
+    expect(brain.getSnapshot().memory.some((m) => m.title === "Pet")).toBe(false);
+  });
+});
+
+describe("knowledge derived from memory follows it", () => {
+  it("a replaced memory takes its derived knowledge entry with it", async () => {
+    const { brainKnowledge } = await import("../../src/lib/friday/brain/knowledge-base");
+    await import("../../src/lib/friday/brain/memory-fabric");
+    memory.resetForTests();
+    const older = memory.remember({
+      tier: "semantic",
+      title: "Laptop",
+      text: "Owner laptop is a ThinkPad",
+      source: "user",
+      tags: [],
+      kind: "semantic",
+      verified: true,
+      distinct: true,
+    });
+    const { deriveKnowledgeFromMemory } = await import("../../src/lib/friday/brain/knowledge-base");
+    deriveKnowledgeFromMemory(older);
+    const has = () =>
+      brainKnowledge.getSnapshot().entries.some((entry) => entry.derivedFromMemoryId === older.id);
+    expect(has()).toBe(true);
+    const newer = memory.remember({
+      tier: "semantic",
+      title: "Laptop",
+      text: "Owner laptop is a MacBook",
+      source: "user",
+      tags: [],
+      kind: "semantic",
+      verified: true,
+      distinct: true,
+    });
+    memory.supersede(older.id, newer.id, "replaced");
+    expect(has()).toBe(false);
+  });
+});

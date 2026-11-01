@@ -54,7 +54,9 @@ import { bootRuntime, completeTurn } from "./runtime";
 import { settleInterrupted, toolActivity } from "./chat-turn";
 import { parseFlowCommand } from "./flow-graph";
 import { flowStudio } from "./flow-studio-store";
+import { forgetEverywhere } from "./brain/memory-fabric";
 import { looksSensitive, packTurnContext, profileFacts } from "./brain/memory-policy";
+import { memory as memoryStore, type MemoryTier } from "./self/memory-engine";
 import { coreBrain, type Cognition } from "./brain/core-brain";
 import { considerCollaboration, type CollaborationDecision } from "./brain/multi-model";
 import { noteUnderstanding, recordCollaboration, recordDecision } from "./brain/decision-trace";
@@ -574,6 +576,15 @@ const defaultSettings: BrainSettings = {
 
 const baseAgents = (): Record<AgentId, boolean> =>
   Object.fromEntries(agentSpecs.map((a) => [a.id, true])) as Record<AgentId, boolean>;
+
+const squash = (text: string): string => text.toLowerCase().replace(/\s+/g, " ").trim();
+
+const layerForTier = (tier: MemoryTier, scope?: string): MemoryLayer => {
+  if (scope === "project") return "project";
+  if (tier === "permanent") return "long-term";
+  if (tier === "semantic") return "knowledge";
+  return "conversation";
+};
 
 const seedMemory = (): MemoryRecord[] => [
   {
@@ -1507,7 +1518,7 @@ class BrainStore {
           return rec ? [rec] : [];
         })
       : scored.slice(0, k);
-    return picked.map((m) => ({
+    const own: MemoryHit[] = picked.map((m) => ({
       id: m.id,
       layer: m.layer,
       title: m.title,
@@ -1516,6 +1527,32 @@ class BrainStore {
       source: m.layer,
       ageMs: Number.isFinite(m.at) ? Math.max(0, now - m.at) : null,
     }));
+    // The six-tier store is the authority. This list is a quick conversation list, so a turn reads both:
+    // what the owner taught the authority (and what it learned) is recalled even when it was never in this list.
+    const seen = new Set(own.map((hit) => squash(`${hit.title} ${hit.snippet}`)));
+    const fromAuthority: MemoryHit[] = [];
+    try {
+      for (const hit of memoryStore.retrieve(prompt, k, { context: prompt })) {
+        const layer = layerForTier(hit.item.tier, hit.item.scope);
+        if (!enabled(layer)) continue;
+        if (looksSensitive(`${hit.item.title} ${hit.item.text}`)) continue;
+        const key = squash(`${hit.item.title} ${hit.item.text}`);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        fromAuthority.push({
+          id: hit.item.id,
+          layer,
+          title: hit.item.title,
+          snippet: hit.item.text.slice(0, 280),
+          score: Math.min(0.99, hit.score),
+          source: hit.item.tier,
+          ageMs: Math.max(0, now - hit.item.updatedAt),
+        });
+      }
+    } catch {
+      /* the authority is additive here; this list still answers */
+    }
+    return [...own, ...fromAuthority].sort((a, b) => b.score - a.score).slice(0, k);
   }
 
   remember(layer: MemoryLayer, title: string, snippet: string, pinned = false) {
@@ -1530,8 +1567,24 @@ class BrainStore {
   forget(id: string) {
     const rec = this.state.memory.find((m) => m.id === id);
     this.state.memory = this.state.memory.filter((m) => m.id !== id);
-    if (rec) this.push("warn", `memory removed — ${rec.title}`);
+    if (rec) {
+      this.push("warn", `memory removed — ${rec.title}`);
+      // The same record taught to the authority is forgotten there too, or it would come straight back.
+      for (const item of memoryStore.getSnapshot().items) {
+        if (squash(`${item.title} ${item.text}`) === squash(`${rec.title} ${rec.snippet}`)) {
+          forgetEverywhere(item.id);
+        }
+      }
+    }
     this.emit();
+  }
+
+  /** The authority forgot a record: drop the same record from this quick list so it does not linger. */
+  forgetMatching(title: string, text: string) {
+    const key = squash(`${title} ${text}`);
+    const before = this.state.memory.length;
+    this.state.memory = this.state.memory.filter((m) => squash(`${m.title} ${m.snippet}`) !== key);
+    if (this.state.memory.length !== before) this.emit();
   }
 
   pin(id: string) {
