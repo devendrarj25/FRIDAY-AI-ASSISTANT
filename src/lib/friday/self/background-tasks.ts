@@ -167,8 +167,10 @@ class BackgroundTasks {
       label: "Due reminders",
       everyMinutes: 1,
       run: async () => {
+        const imported = await personalDesk.importToolReminders();
         const due = personalDesk.fireDueReminders();
-        return due.length ? `${due.length} reminder(s) due` : "nothing due";
+        const note = imported ? `, ${imported} added from tools` : "";
+        return due.length ? `${due.length} reminder(s) due${note}` : `nothing due${note}`;
       },
     });
     this.register({

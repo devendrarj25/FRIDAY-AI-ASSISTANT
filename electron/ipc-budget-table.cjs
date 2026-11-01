@@ -377,6 +377,7 @@ const CHANNEL_CLASS = Object.freeze({
   "self:health": "quick",
   "self:index": "quick",
   "self:list-source": "quick",
+  "reminders:pull": "quick",
   "self:read-source": "quick",
   "self:rollback": "quick",
   "self:scan": "quick",

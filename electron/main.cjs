@@ -469,6 +469,7 @@ loadNamed("renderer-scheme", () => {
 const selfMaintenance = loadNamed("self-maintenance", () => require("./self-maintenance.cjs"));
 const finetune = loadNamed("finetune", () => require("./finetune.cjs"));
 const sourceAccess = loadNamed("source-access", () => require("./source-access.cjs"));
+const reminderStore = loadNamed("reminder-engine", () => require("./reminder-engine.cjs"));
 const plugins = loadNamed("plugins", () => require("./plugins.cjs"));
 const telemetry = loadNamed("telemetry", () => require("./telemetry.cjs"));
 const modelsApi = loadNamed("models", () => require("./models.cjs"));
@@ -8026,6 +8027,8 @@ ipcMain.handle("finetune:remove", (_e, id) => finetune.remove(String(id || "")))
 ipcMain.handle("self:read-source", (_e, relative) =>
   sourceAccess.readSource(getWorkspaceRoot(), relative),
 );
+// Reminders an agent tool wrote to the workspace file, handed once to the personal desk that fires them.
+ipcMain.handle("reminders:pull", () => reminderStore.pull(getWorkspaceRoot()));
 ipcMain.handle("self:list-source", (_e, relative) =>
   sourceAccess.listSources(getWorkspaceRoot(), relative || ""),
 );

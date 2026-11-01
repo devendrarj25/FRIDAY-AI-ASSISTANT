@@ -87,4 +87,21 @@ function run(input = {}) {
   return { ok: false, error: `Unknown reminder action: ${action}` };
 }
 
-module.exports = { run, load, parseDue, storePath };
+/**
+ * Reminders an agent tool added to this file become reminders on the personal desk, which is what shows them
+ * and what fires them when due. Each one is handed over once: it is marked `synced` here and never offered again.
+ */
+function pull(root) {
+  const items = load(root);
+  const fresh = items.filter((item) => !item.done && !item.synced);
+  if (!fresh.length) return { ok: true, items: [] };
+  for (const item of fresh) item.synced = true;
+  const saved = save(root, items);
+  if (!saved.ok) return { ok: false, error: saved.error, items: [] };
+  return {
+    ok: true,
+    items: fresh.map((item) => ({ id: item.id, text: item.text, dueAt: item.dueAt ?? null })),
+  };
+}
+
+module.exports = { run, load, pull, parseDue, storePath };
