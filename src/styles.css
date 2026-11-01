@@ -1117,6 +1117,26 @@ html[data-glass-depth="Rich"] {
   animation: friday-mode-enter var(--friday-motion-slow) cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* A native <details> opens at once. Its content fades in over a short slide, so "expand" reads as a
+   response, not a jump. Opacity and transform only, so it costs no layout. */
+@keyframes friday-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+details[open] > :not(summary) {
+  animation: friday-reveal var(--friday-motion-fast) cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  details[open] > :not(summary) {
+    animation: none;
+  }
+}
+html.no-motion details[open] > :not(summary) {
+  animation: none;
+}
+
 /* Futuristic Glass applied to the existing surfaces, so every page that
    already uses HudPanel / hud-tile / the shared menus picks it up. */
 html[data-ui-style="glass"] .hud-panel {
