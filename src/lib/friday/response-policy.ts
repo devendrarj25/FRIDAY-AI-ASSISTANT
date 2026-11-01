@@ -12,7 +12,7 @@ const DIAGNOSIS = /\b(you have|diagnos\w*|depression|anxiety disorder|bipolar)\b
 
 /** Words that are Hinglish whatever else is in the sentence. */
 const STRONG_HINGLISH =
-  /\b(yaar|nahi|nahin|hai|hain|hoon|karo|baje|kal|aaj|mujhe|mera|meri|mere|tum|aap|kya|kaisa|kaise|kyun|raha|rahi|rahe|bahut|haan|theek|achha|thak|udaas|tension|bhej\w*|kholo|khol|hatao|hata|mita\w*|laga|lagao|daal\w*|dikhao|batao|likho|chalao|banao|dena|kar do)\b/i;
+  /\b(yaar|nahi|nahin|hai|hain|hoon|karo|baje|kal|aaj|mujhe|mera|meri|mere|tum|aap|kya|kaisa|kaise|kyun|raha|rahi|rahe|bahut|haan|theek|achha|thak|udaas|tension|bhej\w*|kholo|khol|hatao|hata|mita\w*|laga|lagao|daal\w*|dikhao|batao|likho|chalao|banao|dena|kar do|kar lo|kuch|bajao|baja|dhundo|dhoondo|khojo)\b/i;
 /** Words that are also English ("the main file"): two of them together are needed. */
 const WEAK_HINGLISH = /\b(main|mai|ho|hu|kar|lag|aur|se|ko|ka|ki|ke|me)\b/gi;
 

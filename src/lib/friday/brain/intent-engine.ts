@@ -15,6 +15,7 @@ import {
   calibrate,
   expandShortcut,
   noteOutcome,
+  phraseSimilarity,
   recallPhrasing,
   rememberPhrasing,
 } from "./intent-memory";
@@ -511,17 +512,38 @@ let awaiting: {
   phrase: string;
   catalogId: string;
   action: string | null;
+  /** Something concrete was decided (an action, a command, a catalog match), so its confidence can be judged. */
   counts: boolean;
+  /** A request whose wording is worth remembering if it went through. */
+  learn: boolean;
 } | null = null;
 
+const THANKS =
+  /^\s*(?:thanks|thank you|thanku|shukriya|dhanyavaad|perfect|great|badhiya|mast|sahi hai|ho gaya|done|achha|accha|theek hai|ok|okay|nice|good)\b/i;
+const BUILDS_ON = /^\s*(?:aur|and|also|ab|phir|fir|then|usko|isko|uska|iska|usme|isme)\b/i;
+
+/**
+ * Judge the last turn by what the owner did next, and only when that says something:
+ *  - he corrected it, or asked the same thing again: it was not understood (counts more);
+ *  - he thanked or acknowledged it, or built on its result ("aur", "usko", "ab"): it was understood;
+ *  - anything else says nothing, and nothing is counted or remembered.
+ */
 function settleLastTurn(now: string): void {
   const before = awaiting;
   awaiting = null;
-  if (!before || !before.counts) return;
+  if (!before || (!before.counts && !before.learn)) return;
   const corrected = looksLikeCorrection(now) || CORRECTION.test(now);
-  noteOutcome(before.stated, !corrected);
-  if (!corrected)
-    rememberPhrasing(before.phrase, { catalogId: before.catalogId, action: before.action });
+  const repeated = !corrected && phraseSimilarity(before.phrase, now) >= 0.7;
+  if (corrected || repeated) {
+    if (before.counts) noteOutcome(before.stated, false, 2);
+    return;
+  }
+  const acknowledged = THANKS.test(now);
+  if (acknowledged || BUILDS_ON.test(now)) {
+    if (before.counts) noteOutcome(before.stated, true, acknowledged ? 2 : 1);
+    if (before.learn)
+      rememberPhrasing(before.phrase, { catalogId: before.catalogId, action: before.action });
+  }
 }
 
 export function resetIntentOutcomes(): void {
@@ -670,7 +692,12 @@ function understandTurnBody(
       phrase: working,
       catalogId: resolvedIntent.catalogId,
       action: resolvedIntent.action ?? null,
-      counts: !ambiguous && ["command", "request", "task"].includes(resolvedIntent.kind),
+      counts:
+        !ambiguous &&
+        (resolvedIntent.kind === "command" ||
+          Boolean(resolvedIntent.action) ||
+          !resolvedIntent.routing?.novel),
+      learn: !ambiguous && ["command", "request", "task"].includes(resolvedIntent.kind),
     };
   }
 

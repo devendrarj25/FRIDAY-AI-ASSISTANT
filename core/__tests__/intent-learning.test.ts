@@ -139,14 +139,18 @@ describe("growing from what the owner did not correct", () => {
 describe("a confidence that is pulled toward what actually happened", () => {
   it("is returned as it was with no record, and moves down after corrections in its band", () => {
     expect(calibrate(0.8)).toBe(0.8);
+    for (let i = 0; i < 7; i += 1) noteOutcome(0.82, false);
+    expect(calibrate(0.82)).toBe(0.82);
     for (let i = 0; i < 12; i += 1) noteOutcome(0.82, false);
-    expect(calibrate(0.82)).toBeLessThan(0.5);
+    expect(calibrate(0.82)).toBeLessThan(0.65);
+    expect(calibrate(0.82)).toBeGreaterThanOrEqual(0.57);
     expect(calibrate(0.3)).toBe(0.3);
   });
 
   it("moves up when a band keeps being right, and never past 1 or below 0", () => {
     for (let i = 0; i < 30; i += 1) noteOutcome(0.45, true);
-    expect(calibrate(0.45)).toBeGreaterThan(0.8);
+    expect(calibrate(0.45)).toBeGreaterThan(0.55);
+    expect(calibrate(0.45)).toBeLessThanOrEqual(0.6);
     expect(calibrate(0.45)).toBeLessThanOrEqual(1);
     expect(calibrationTable().find((row) => row.band === "40-50%")?.total).toBe(30);
   });
@@ -154,7 +158,7 @@ describe("a confidence that is pulled toward what actually happened", () => {
   it("learns from the owner's corrections in a real conversation", () => {
     understandTurn({ text: "report banao aur Rahul ko bhej do" });
     understandTurn({ text: "nahi, maine kaha tha wo nahi" });
-    expect(calibrationTable().reduce((sum, row) => sum + row.total, 0)).toBe(1);
+    expect(calibrationTable().reduce((sum, row) => sum + row.total, 0)).toBe(2);
     expect(calibrationTable().reduce((sum, row) => sum + row.right, 0)).toBe(0);
   });
 });
@@ -176,5 +180,45 @@ describe("what his words imply but he did not ask", () => {
     const u = understandTurn({ text: "kal exam hai" });
     expect(u.resolvedIntent.implied?.offer).toMatch(/reminder/);
     expect(u.resolvedIntent.needsClarification).toBe(false);
+  });
+});
+
+describe("a better signal for whether a turn was understood", () => {
+  it("asking the same thing again counts as not understood, and counts more", () => {
+    understandTurn({ text: "mera disk space check kar do" });
+    understandTurn({ text: "mera disk space check kar do" });
+    const table = calibrationTable();
+    expect(table.reduce((sum, row) => sum + row.total, 0)).toBe(2);
+    expect(table.reduce((sum, row) => sum + row.right, 0)).toBe(0);
+  });
+
+  it("thanks, or building on the result, counts as understood; an unrelated next message counts as nothing", () => {
+    understandTurn({ text: "mera disk space check kar do" });
+    understandTurn({ text: "shukriya" });
+    expect(calibrationTable().reduce((sum, row) => sum + row.right, 0)).toBe(2);
+    resetIntentMemory();
+    resetIntentOutcomes();
+    understandTurn({ text: "mera disk space check kar do" });
+    understandTurn({ text: "kal ka mausam kaisa rahega" });
+    expect(calibrationTable().reduce((sum, row) => sum + row.total, 0)).toBe(0);
+    expect(listPhrasings()).toHaveLength(0);
+  });
+});
+
+describe("paraphrases that letters cannot see", () => {
+  it("the same request in other words sits close; a different request does not", () => {
+    expect(phraseSimilarity("file send karo Rahul ko", "Rahul ko file bhej do")).toBeGreaterThan(
+      0.75,
+    );
+    expect(phraseSimilarity("subah ka email dikha do", "morning mail show karo")).toBeGreaterThan(
+      0.75,
+    );
+    expect(phraseSimilarity("file bhej do Rahul ko", "file delete kar do")).toBeLessThan(0.75);
+    expect(phraseSimilarity("do", "kar do")).toBeLessThan(0.75);
+  });
+
+  it("a taught shortcut is found by its meaning, not only its spelling", () => {
+    teachShortcut("subah ka email dikhao", "gmail kholo aur inbox dikhao");
+    expect(expandShortcut("morning mail show karo")?.expansion).toMatch(/gmail/);
   });
 });

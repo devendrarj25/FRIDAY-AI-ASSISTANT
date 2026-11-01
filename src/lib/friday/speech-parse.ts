@@ -46,7 +46,13 @@ export type WhenPhrase = {
   weekday: string | null;
   hour: number | null;
   minute: number | null;
+  /** am or pm when the words say so ("5pm", "shaam 5 baje"); hour stays 1 to 12. */
+  meridiem?: "am" | "pm" | null;
+  /** A time given as "in 10 minutes": minutes from now. */
+  inMinutes?: number | null;
 };
+
+const EN_WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 function hourOf(word: string): number | null {
   const value = parseNumberToken(word);
@@ -123,8 +129,81 @@ export function parseWhen(text: string): WhenPhrase | null {
     }
   }
 
-  if (dayOffset === null && !weekday && hour === null) return null;
-  return { label: label || raw.slice(0, 40), dayOffset, weekday, hour, minute };
+  let meridiem: "am" | "pm" | null = null;
+  let inMinutes: number | null = null;
+
+  // English shapes. They only fill what the Hindi reading above left empty, so nothing it understood changes.
+  if (dayOffset === null && /\bday after tomorrow\b/.test(raw)) {
+    dayOffset = 2;
+    label = label || "day after tomorrow";
+  } else if (dayOffset === null && /\btomorrow\b/.test(raw)) {
+    dayOffset = 1;
+    label = label || "tomorrow";
+  } else if (dayOffset === null && /\b(today|tonight|aaj)\b/.test(raw)) {
+    dayOffset = 0;
+    label = label || raw.match(/\b(today|tonight|aaj)\b/)?.[1] || "today";
+  }
+  if (!weekday) {
+    const named = raw.match(
+      new RegExp(`\\b(?:next|on|this|coming)?\\s*(${EN_WEEKDAYS.join("|")})\\b`),
+    );
+    if (named?.[1]) {
+      weekday = named[1];
+      label = label || named[1];
+    }
+  }
+  if (hour === null) {
+    const clock12 = raw.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/);
+    const clock24 = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b(?!\s*(?:am|pm))/);
+    const atHour = raw.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/);
+    if (clock12?.[1]) {
+      const base = Number(clock12[1]);
+      if (base >= 1 && base <= 12) {
+        hour = base;
+        minute = clock12[2] ? Number(clock12[2]) : 0;
+        meridiem = clock12[3]?.startsWith("a") ? "am" : "pm";
+        label = label || `${base}${minute ? `:${String(minute).padStart(2, "0")}` : ""}${meridiem}`;
+      }
+    } else if (clock24?.[1]) {
+      const base = Number(clock24[1]);
+      hour = base % 12 === 0 ? 12 : base % 12;
+      minute = Number(clock24[2]);
+      meridiem = base >= 12 ? "pm" : "am";
+      label = label || clock24[0];
+    } else if (atHour?.[1]) {
+      const base = Number(atHour[1]);
+      if (base >= 1 && base <= 12) {
+        hour = base;
+        minute = atHour[2] ? Number(atHour[2]) : 0;
+        label = label || `at ${base}`;
+      }
+    }
+  }
+  const relative = raw.match(/\bin\s+(\d+|an?|half an)\s*(min|mins|minutes?|hours?|hrs?)\b/);
+  if (relative?.[2] && dayOffset === null && hour === null) {
+    const count = /^\d+$/.test(relative[1] ?? "")
+      ? Number(relative[1])
+      : relative[1] === "half an"
+        ? 0.5
+        : 1;
+    inMinutes = Math.round(count * (relative[2].startsWith("h") ? 60 : 1));
+    label = label || `in ${relative[1]} ${relative[2]}`;
+  }
+  if (meridiem === null && hour !== null) {
+    if (/\b(subah|morning)\b/.test(raw)) meridiem = "am";
+    else if (/\b(shaam|sham|evening|raat|night|dopahar|afternoon)\b/.test(raw)) meridiem = "pm";
+  }
+
+  if (dayOffset === null && !weekday && hour === null && inMinutes === null) return null;
+  return {
+    label: label || raw.slice(0, 40),
+    dayOffset,
+    weekday,
+    hour,
+    minute,
+    meridiem,
+    inMinutes,
+  };
 }
 
 function editDistance(left: string, right: string): number {

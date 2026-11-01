@@ -88,14 +88,61 @@ function trigrams(value: string): Set<string> {
   return out;
 }
 
-/** 0..1: character trigrams, so a different spelling or a dropped letter still lands close. */
-export function phraseSimilarity(a: string, b: string): number {
-  const x = trigrams(normalisePhrase(a));
-  const y = trigrams(normalisePhrase(b));
-  if (!x.size || !y.size) return 0;
+/**
+ * Words that mean the same thing in the owner's languages, folded to one word, and filler that carries no meaning.
+ * "file send karo" and "file bhej do" then read the same, which letters alone cannot see.
+ */
+const SAME_AS: [string, string[]][] = [
+  ["open", ["open", "launch", "kholo", "khol", "kholna", "chalu", "start", "kholdo"]],
+  ["send", ["send", "bhej", "bhejo", "bhejna", "forward", "share", "bhejdo"]],
+  ["show", ["show", "dikhao", "dikha", "dikhana", "display", "dikhado"]],
+  ["delete", ["delete", "remove", "hatao", "hata", "mita", "mitao", "saaf", "erase"]],
+  ["find", ["find", "search", "dhundo", "dhoondo", "khojo", "dhund", "lookup"]],
+  ["check", ["check", "dekho", "dekh", "jaanch", "verify"]],
+  ["remind", ["remind", "reminder", "yaad", "alarm"]],
+  ["make", ["make", "create", "banao", "bana", "generate", "prepare"]],
+  ["tell", ["tell", "batao", "bata", "bataiye", "explain"]],
+  ["mail", ["mail", "email", "gmail", "imel"]],
+  ["file", ["file", "document", "doc", "dastavez"]],
+  ["morning", ["morning", "subah", "subha", "savere"]],
+  ["evening", ["evening", "shaam", "sham"]],
+  ["work", ["work", "kaam", "kam", "task"]],
+];
+const FOLD = new Map(
+  SAME_AS.flatMap(([head, words]) => words.map((word) => [word, head] as const)),
+);
+const FILLER = new Set(
+  "do dena de karo kar kardo please plz pls zara jara na ji bhai yaar mujhe mere liye meri mera me mein ko ka ki ke se aur and the a an to for of wala wali".split(
+    " ",
+  ),
+);
+
+/** The phrase reduced to its meaning words, so a paraphrase lands near the original. */
+export function canonicalPhrase(text: string): string {
+  const words = normalisePhrase(text)
+    .split(" ")
+    .filter((word) => word && !FILLER.has(word))
+    .map((word) => FOLD.get(word) ?? word);
+  return words.join(" ");
+}
+
+function gramSimilarity(x: string, y: string): number {
+  const a = trigrams(x);
+  const b = trigrams(y);
+  if (!a.size || !b.size) return 0;
   let shared = 0;
-  for (const gram of x) if (y.has(gram)) shared += 1;
-  return (2 * shared) / (x.size + y.size);
+  for (const gram of a) if (b.has(gram)) shared += 1;
+  return (2 * shared) / (a.size + b.size);
+}
+
+/** 0..1: the better of the letters (spelling variants) and the meaning words (paraphrases). */
+export function phraseSimilarity(a: string, b: string): number {
+  const letters = gramSimilarity(normalisePhrase(a), normalisePhrase(b));
+  const ca = canonicalPhrase(a);
+  const cb = canonicalPhrase(b);
+  // Two phrases that fold to nothing but filler must not match each other.
+  const meaning = ca && cb && ca.length >= 5 && cb.length >= 5 ? gramSimilarity(ca, cb) : 0;
+  return Math.max(letters, meaning);
 }
 
 /* ------------------------------------------------------------ shortcuts */
@@ -228,17 +275,20 @@ export function listPhrasings(): Exemplar[] {
 
 /* ---------------------------------------------------------- calibration */
 
-const PRIOR = 6;
+const PRIOR = 10;
+const MIN_RECORD = 8;
+const MAX_DOWN = 0.25;
+const MAX_UP = 0.15;
 
 const bandOf = (confidence: number) =>
   Math.max(0, Math.min(BANDS - 1, Math.floor(confidence * BANDS)));
 
 /** After a turn: was the stated confidence right? A correction by the owner counts as wrong. */
-export function noteOutcome(confidence: number, right: boolean): void {
+export function noteOutcome(confidence: number, right: boolean, weight = 1): void {
   const bucket = memory.buckets[bandOf(confidence)];
   if (!bucket) return;
-  bucket[1] += 1;
-  if (right) bucket[0] += 1;
+  bucket[1] += weight;
+  if (right) bucket[0] += weight;
   save();
 }
 
@@ -248,10 +298,13 @@ export function noteOutcome(confidence: number, right: boolean): void {
  */
 export function calibrate(confidence: number): number {
   const bucket = memory.buckets[bandOf(confidence)];
-  if (!bucket || bucket[1] === 0) return confidence;
+  // Too few turns in this band say nothing yet.
+  if (!bucket || bucket[1] < MIN_RECORD) return confidence;
   const [right, total] = bucket;
-  const calibrated = (right + PRIOR * confidence) / (total + PRIOR);
-  return Math.round(Math.max(0, Math.min(1, calibrated)) * 100) / 100;
+  const pulled = (right + PRIOR * confidence) / (total + PRIOR);
+  // However the record reads, one stretch of bad luck cannot move a number far.
+  const bounded = Math.max(confidence - MAX_DOWN, Math.min(confidence + MAX_UP, pulled));
+  return Math.round(Math.max(0, Math.min(1, bounded)) * 100) / 100;
 }
 
 export function calibrationTable(): { band: string; total: number; right: number }[] {

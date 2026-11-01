@@ -180,3 +180,80 @@ describe("one request with several actions", () => {
     expect(splitGoals("dal aur chawal ka rate batao")).toEqual(["dal aur chawal ka rate batao"]);
   });
 });
+
+describe("more actions", () => {
+  it.each([
+    ["kuch bajao", "play", "Kya bajaun?"],
+    ["search karo", "search", "Kya dhundun?"],
+    ["note kar lo", "note", "Kya note karun?"],
+  ])("%s asks for the missing piece", (text, action, question) => {
+    const u = talk(text);
+    expect(u.resolvedIntent.action, text).toBe(action);
+    expect(u.resolvedIntent.ask, text).toBe(question);
+  });
+
+  it("does not ask when the piece is there", () => {
+    for (const text of [
+      "gaana bajao Arijit ka",
+      "search karo python tutorial",
+      "note kar lo kal doodh lana hai",
+      "Rahul ko message kar do",
+    ]) {
+      resetSlotMemory();
+      const u = talk(text);
+      expect(u.resolvedIntent.action, text).toBeTruthy();
+      expect(u.resolvedIntent.needsClarification, text).toBe(false);
+    }
+  });
+
+  it("a message needs a recipient like a mail does", () => {
+    expect(talk("message kar do").resolvedIntent.ask).toBe("Kisko bhejna hai?");
+  });
+});
+
+describe("times in English and Hindi", () => {
+  it("reads tomorrow at 5pm, clock shapes, weekdays and 'in 10 minutes'", async () => {
+    const { parseWhen } = await import("../../src/lib/friday/speech-parse");
+    expect(parseWhen("remind me to call the bank tomorrow at 5pm")).toMatchObject({
+      dayOffset: 1,
+      hour: 5,
+      minute: 0,
+      meridiem: "pm",
+    });
+    expect(parseWhen("meeting at 17:30")).toMatchObject({ hour: 5, minute: 30, meridiem: "pm" });
+    expect(parseWhen("call at 9:15 am")).toMatchObject({ hour: 9, minute: 15, meridiem: "am" });
+    expect(parseWhen("see you next monday")).toMatchObject({ weekday: "monday" });
+    expect(parseWhen("remind me in 10 minutes")).toMatchObject({ inMinutes: 10 });
+    expect(parseWhen("remind me in 2 hours")).toMatchObject({ inMinutes: 120 });
+    expect(parseWhen("day after tomorrow")).toMatchObject({ dayOffset: 2 });
+    expect(parseWhen("shaam 5 baje")).toMatchObject({ hour: 5, meridiem: "pm" });
+    expect(parseWhen("kal subah 9 baje")).toMatchObject({ dayOffset: 1, hour: 9, meridiem: "am" });
+  });
+
+  it("leaves the Hindi readings as they were, and reads nothing from a sentence with no time", async () => {
+    const { parseWhen } = await import("../../src/lib/friday/speech-parse");
+    expect(parseWhen("paune teen baje")).toMatchObject({ hour: 2, minute: 45 });
+    expect(parseWhen("parso")?.dayOffset).toBe(2);
+    expect(parseWhen("what is a reminder")).toBeNull();
+    expect(parseWhen("the file has 3 pages")).toBeNull();
+  });
+});
+
+describe("a pending question is not a trap for the next message", () => {
+  it("a new request is never taken as the answer", () => {
+    talk("reminder laga do");
+    const next = understandTurn({ text: "write a haiku about rain" });
+    expect(next.resolvedIntent.rewrittenFrom).toBeUndefined();
+    expect(next.conversationResolved).toBe("write a haiku about rain");
+    expect(next.resolvedIntent.needsClarification).toBe(false);
+  });
+
+  it("a question is only answered by one of the next two messages", () => {
+    talk("file bhej do");
+    understandTurn({ text: "kal ka mausam kaisa hai bhai" });
+    understandTurn({ text: "achha theek hai" });
+    understandTurn({ text: "chalo theek" });
+    const late = understandTurn({ text: "Rahul ko" });
+    expect(late.resolvedIntent.rewrittenFrom).toBeUndefined();
+  });
+});

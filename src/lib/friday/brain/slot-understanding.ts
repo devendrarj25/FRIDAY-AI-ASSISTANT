@@ -20,7 +20,8 @@
 import { parseWhen } from "../speech-parse";
 import { registerOf, type Register } from "../response-policy";
 
-export type ActionId = "send" | "remind" | "call" | "open" | "delete" | "schedule";
+export type ActionId =
+  "send" | "remind" | "call" | "open" | "delete" | "schedule" | "play" | "search" | "note";
 export type SlotName = "recipient" | "item" | "when" | "what" | "target";
 
 type ActionSpec = {
@@ -37,11 +38,23 @@ const Q = (en: string, hi: string, hinglish: string): Record<Register, string> =
   hinglish,
 });
 
+/** The question for each missing piece; a piece an action never asks about gets a plain "which one". */
+const asks = (given: Partial<Record<SlotName, Record<Register, string>>>): ActionSpec["ask"] => {
+  const which = Q("Which one?", "कौन सा?", "Kaun sa?");
+  return {
+    recipient: given.recipient ?? which,
+    item: given.item ?? which,
+    when: given.when ?? Q("When?", "कब?", "Kab?"),
+    what: given.what ?? which,
+    target: given.target ?? which,
+  };
+};
+
 const ACTIONS: ActionSpec[] = [
   {
     id: "send",
     verbs:
-      /\b(?:bhej\s*do|bhejo|bhej\s*dena|bhej\s*de|send|forward|share\s*kar(?:o|\s*do)?|mail\s*kar(?:o|\s*do)?|email\s*kar(?:o|\s*do)?)\b/i,
+      /\b(?:bhej\s*do|bhejo|bhej\s*dena|bhej\s*de|send|forward|share\s*kar(?:o|\s*do)?|mail\s*kar(?:o|\s*do)?|email\s*kar(?:o|\s*do)?|msg\s*kar(?:o|\s*do)?|message\s*kar(?:o|\s*do)?|text\s*kar(?:o|\s*do)?|whatsapp(?:\s*kar(?:o|\s*do)?)?)\b/i,
     required: ["recipient"],
     ask: {
       recipient: Q("Who should I send it to?", "किसे भेजना है?", "Kisko bhejna hai?"),
@@ -81,6 +94,13 @@ const ACTIONS: ActionSpec[] = [
     },
   },
   {
+    id: "play",
+    verbs:
+      /\b(?:play|bajao|baja\s*do|(?:gaana|gana|song|music|video)\s*(?:chalao|chala\s*do|laga\s*do|lagao))\b/i,
+    required: ["target"],
+    ask: asks({ target: Q("What should I play?", "क्या बजाऊँ?", "Kya bajaun?") }),
+  },
+  {
     id: "open",
     verbs: /\b(?:open|launch|khol(?:o|\s*do|\s*dena)|chalao|chala\s*do)\b/i,
     required: ["target"],
@@ -115,6 +135,19 @@ const ACTIONS: ActionSpec[] = [
       what: Q("What is it for?", "किस बारे में?", "Kis baare me?"),
       target: Q("Which one?", "कौन सा?", "Kaun sa?"),
     },
+  },
+  {
+    id: "search",
+    verbs: /\b(?:search|google|look\s*up|dhundo|dhoondo|dhoondh|khojo|dhund\s*do|find)\b/i,
+    required: ["target"],
+    ask: asks({ target: Q("What should I look for?", "क्या ढूँढूँ?", "Kya dhundun?") }),
+  },
+  {
+    id: "note",
+    verbs:
+      /\b(?:note\s*(?:kar(?:o|\s*do|\s*lo)?|down)|yaad\s*rakh(?:o|na)?|likh\s*lo|save\s*this|remember\s*this)\b/i,
+    required: ["what"],
+    ask: asks({ what: Q("What should I note down?", "क्या नोट करूँ?", "Kya note karun?") }),
   },
 ];
 
@@ -220,8 +253,8 @@ export function readSlots(text: string, hasContextReferent = false): SlotRead {
   const meaningful = remaining.filter((word) => !GENERIC.has(word));
   if (meaningful.length) {
     const phrase = meaningful.slice(0, 4).join(" ");
-    if (spec.id === "open" || spec.id === "delete") slots.target = file?.[0] ?? phrase;
-    else if (spec.id === "remind" || spec.id === "schedule") slots.what = phrase;
+    if (["open", "delete", "play", "search"].includes(spec.id)) slots.target = file?.[0] ?? phrase;
+    else if (["remind", "schedule", "note"].includes(spec.id)) slots.what = phrase;
     else if (spec.id === "send" && !slots.item) slots.item = phrase;
   }
   if ((spec.id === "open" || spec.id === "delete") && file && !slots.target) slots.target = file[0];
@@ -257,14 +290,19 @@ type Pending = {
   at: number;
   asked: number;
   register: Register;
+  turn: number;
 };
 type Last = { action: ActionId | null; verb: string; text: string; at: number };
 
 const WINDOW_MS = 10 * 60_000;
 let pending: Pending | null = null;
+/** Turns understood so far; a question is only answered by one of the next two turns, not by any later short message. */
+let turnCounter = 0;
+const ANSWER_TURNS = 2;
 let last: Last | null = null;
 
 export function resetSlotMemory(): void {
+  turnCounter = 0;
   pending = null;
   last = null;
 }
@@ -273,6 +311,20 @@ export function pendingQuestion(): { action: ActionId; missing: SlotName[] } | n
   return pending && Date.now() - pending.at <= WINDOW_MS
     ? { action: pending.action, missing: pending.missing }
     : null;
+}
+
+/** A message that is a request or a question of its own is never taken as the answer to a pending question. */
+function looksLikeNewRequest(text: string): boolean {
+  return (
+    ACTIONS.some((row) => row.verbs.test(text)) ||
+    DO_VERB.test(text) ||
+    /\b(?:banao|bana\s*do|create|make|write|prepare|draft|generate|tell|explain|likho)\b/i.test(
+      text,
+    ) ||
+    /^(?:what|how|why|who|when|where|which|kya|kaise|kyun|kaun|kab|kahan)\b|\?\s*$/i.test(
+      text.trim(),
+    )
+  );
 }
 
 const ELLIPSIS_LEAD = /^(?:aur|and|also|plus|phir|fir|ab|then)\s+/i;
@@ -310,8 +362,10 @@ export function rewriteWithHistory(
 ): SlotRewrite {
   const text = literal.trim();
   const fresh = Date.now();
+  turnCounter += 1;
+  if (pending && turnCounter - pending.turn > ANSWER_TURNS) pending = null;
   if (pending && fresh - pending.at <= WINDOW_MS) {
-    const short = text.split(/\s+/).length <= 6 && !ACTIONS.some((row) => row.verbs.test(text));
+    const short = text.split(/\s+/).length <= 6 && !looksLikeNewRequest(text);
     if (short) {
       const piece = fillPiece(pending, text);
       if (piece) {
@@ -384,6 +438,7 @@ export function noteTurn(text: string, read: SlotRead, asked: boolean): void {
             at: now,
             asked: (again && pending ? pending.asked : 0) + 1,
             register: registerOf(text),
+            turn: turnCounter,
           };
   } else if (!asked) {
     pending = null;
