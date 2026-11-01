@@ -283,6 +283,23 @@ if (fs.existsSync(asarFile)) {
       console.log(
         `[friday] ok       Packaged renderer: app.asar/dist-desktop (${assets.length} assets)`,
       );
+      // The fonts ship inside the app (src/lib/friday/fonts.ts). A bundler that drops that import leaves the
+      // installed app on system fonts without any error, so the faces the text depends on are checked here.
+      const need = [
+        ["Orbitron (headings)", /\/orbitron-latin-wght-normal-[^/]+\.woff2$/],
+        ["Rajdhani (body)", /\/rajdhani-latin-400-normal-[^/]+\.woff2$/],
+        ["Rajdhani Devanagari (Hindi)", /\/rajdhani-devanagari-400-normal-[^/]+\.woff2$/],
+        ["JetBrains Mono (code)", /\/jetbrains-mono-latin-wght-normal-[^/]+\.woff2$/],
+      ];
+      const lost = need.filter(([, pattern]) => !assets.some((e) => pattern.test(e)));
+      if (lost.length) {
+        console.error(
+          `[friday] MISSING  bundled font files in app.asar: ${lost.map(([name]) => name).join(", ")}`,
+        );
+        failed++;
+      } else {
+        console.log("[friday] ok       Bundled fonts are in app.asar (no font server is used)");
+      }
     }
   } catch (error) {
     console.warn(`[friday] app.asar inspection skipped: ${error.message}`);

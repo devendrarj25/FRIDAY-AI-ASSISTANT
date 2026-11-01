@@ -165,6 +165,14 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     sidebarDefault: "Expanded",
     bubbleStyle: "Compact",
     textSize: "Normal",
+    // Text settings (appearance.ts): "" means the named text size; the others are named choices.
+    textScale: "",
+    lineSpacing: "Normal",
+    letterSpacing: "Normal",
+    textWeight: "Regular",
+    chatTextSize: "Match",
+    smallText: "Standard",
+    codeFont: "JetBrains Mono",
     panelOpacity: "100",
     graphicIntensity: "70",
     // FRIDAY Glass (appearance.ts): interface style, glass depth, labels.

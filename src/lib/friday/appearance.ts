@@ -22,6 +22,7 @@
  * without a browser.
  */
 import { useEffect } from "react";
+import { stackFor } from "./font-registry";
 import { preferences } from "./preferences";
 import { usePreferences } from "./use-preferences";
 
@@ -52,23 +53,25 @@ export const COLOR_COMBOS = [
   { id: "daylight-purple", label: "Daylight violet", mode: "daylight", accent: "purple" },
 ] as const;
 
-/** Headings / HUD labels. Shipped default is Orbitron. */
+const SANS = "ui-sans-serif, system-ui, sans-serif";
+
+/** Headings / HUD labels. Shipped default is Orbitron. Every face is bundled with the app (see fonts.ts). */
 export const DISPLAY_FONTS: Record<string, string> = {
-  Orbitron: '"Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif',
-  Rajdhani: '"Rajdhani", "Inter Tight", ui-sans-serif, system-ui, sans-serif',
-  "Inter Tight": '"Inter Tight", ui-sans-serif, system-ui, sans-serif',
-  "Exo 2": '"Exo 2", "Orbitron", ui-sans-serif, system-ui, sans-serif',
-  "System UI": "ui-sans-serif, system-ui, sans-serif",
+  Orbitron: stackFor("Orbitron", `"Rajdhani", ${SANS}`),
+  Rajdhani: stackFor("Rajdhani", `"Inter Tight Variable", ${SANS}`),
+  "Inter Tight": stackFor("Inter Tight", SANS),
+  "Exo 2": stackFor("Exo 2", `"Orbitron Variable", ${SANS}`),
+  "System UI": SANS,
 };
 
-/** Body / chat. Shipped default is Rajdhani. Atkinson / Lexend are loaded webfonts. */
+/** Body / chat. Shipped default is Rajdhani. Atkinson and Lexend are bundled too. */
 export const BODY_FONTS: Record<string, string> = {
-  Rajdhani: '"Rajdhani", "Inter Tight", ui-sans-serif, system-ui, sans-serif',
-  "Inter Tight": '"Inter Tight", ui-sans-serif, system-ui, sans-serif',
-  "Atkinson Hyperlegible": '"Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif',
-  Lexend: '"Lexend", ui-sans-serif, system-ui, sans-serif',
-  "JetBrains Mono": '"JetBrains Mono", ui-monospace, monospace',
-  "System UI": "ui-sans-serif, system-ui, sans-serif",
+  Rajdhani: stackFor("Rajdhani", `"Inter Tight Variable", ${SANS}`),
+  "Inter Tight": stackFor("Inter Tight", SANS),
+  "Atkinson Hyperlegible": stackFor("Atkinson Hyperlegible", SANS),
+  Lexend: stackFor("Lexend", SANS),
+  "JetBrains Mono": stackFor("JetBrains Mono", "ui-monospace, monospace"),
+  "System UI": SANS,
 };
 
 /** Union of every family Settings offers (tests + legacy single-font field). */
@@ -76,6 +79,52 @@ export const FONTS: Record<string, string> = { ...DISPLAY_FONTS, ...BODY_FONTS }
 
 export const TEXT_SIZES = ["Small", "Normal", "Large", "Extra Large"] as const;
 export const DENSITIES = ["Compact", "Normal", "Comfortable"] as const;
+
+/** Text size as a percentage of the normal size. The four named sizes are 87.5, 100, 112.5 and 125 percent. */
+export const TEXT_SCALE_MIN = 80;
+export const TEXT_SCALE_MAX = 160;
+export const TEXT_SIZE_PERCENT: Record<(typeof TEXT_SIZES)[number], number> = {
+  Small: 87.5,
+  Normal: 100,
+  Large: 112.5,
+  "Extra Large": 125,
+};
+
+/** Line spacing, letter spacing, weight, chat size, small-text size and code font, each with a safe default. */
+export const LINE_SPACINGS = { Tight: "1.3", Normal: "", Relaxed: "1.65", Loose: "1.85" } as const;
+export const LETTER_SPACINGS = { Normal: "", Wide: "0.02em", Wider: "0.04em" } as const;
+export const TEXT_WEIGHTS = { Regular: "", Medium: "500", Bold: "600" } as const;
+export const CHAT_TEXT_SIZES = { Match: 1, Small: 0.9, Large: 1.15, Larger: 1.3 } as const;
+export const SMALL_TEXT_MODES = ["Standard", "Larger"] as const;
+export const CODE_FONTS: Record<string, string> = {
+  "JetBrains Mono": stackFor("JetBrains Mono", "ui-monospace, monospace"),
+  "System mono": 'ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace',
+};
+
+const pick = <T extends Record<string, unknown>>(
+  table: T,
+  value: string | undefined,
+  fallback: keyof T,
+): keyof T =>
+  value !== undefined && Object.prototype.hasOwnProperty.call(table, value)
+    ? (value as keyof T)
+    : fallback;
+
+/** The text size as a percentage: a custom value when one is set and in range, else the named size. */
+export function resolveTextScale(fields: Record<string, string>): {
+  percent: number;
+  custom: boolean;
+} {
+  const raw = Number(fields["textScale"]);
+  if (fields["textScale"] && Number.isFinite(raw)) {
+    return {
+      percent: Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, Math.round(raw))),
+      custom: true,
+    };
+  }
+  const named = fields["textSize"] as (typeof TEXT_SIZES)[number] | undefined;
+  return { percent: (named && TEXT_SIZE_PERCENT[named]) || 100, custom: false };
+}
 
 /** Interface style. Classic is the earlier look, kept as a safe fallback. */
 export const UI_STYLES = [
@@ -107,9 +156,6 @@ export const BUTTON_LABEL_MODES = [
   { id: "icons", label: "Icons only" },
 ] as const;
 export type ButtonLabelMode = (typeof BUTTON_LABEL_MODES)[number]["id"];
-
-export const GOOGLE_FONTS_HREF =
-  "https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Exo+2:wght@500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Lexend:wght@400;500;600&family=Orbitron:wght@500;600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap";
 
 /** Legacy theme buttons — Dark first so existing tests and old prefs still parse. */
 export const THEMES = [
@@ -226,6 +272,21 @@ export function persistColorCombo(combo: (typeof COLOR_COMBOS)[number]): void {
   preferences.setTheme(legacyThemeFor(combo.mode, combo.accent));
 }
 
+/** Every text setting back to its default. The named size and the two fonts are reset by the caller above. */
+export function resetTextPreferences(): void {
+  for (const [key, value] of Object.entries({
+    textScale: "",
+    lineSpacing: "Normal",
+    letterSpacing: "Normal",
+    textWeight: "Regular",
+    chatTextSize: "Match",
+    smallText: "Standard",
+    codeFont: "JetBrains Mono",
+  })) {
+    preferences.setField(key, value);
+  }
+}
+
 export function resetAppearancePreferences(): void {
   preferences.setTheme("");
   preferences.setField("colorMode", "dark");
@@ -234,6 +295,7 @@ export function resetAppearancePreferences(): void {
   preferences.setField("bodyFont", "Rajdhani");
   preferences.setField("density", "Normal");
   preferences.setField("textSize", "Normal");
+  resetTextPreferences();
   preferences.setField("bubbleStyle", "Compact");
   preferences.setField("graphicIntensity", "70");
   preferences.setField("panelOpacity", "100");
@@ -264,6 +326,12 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
   const displayName = prefs.fields["font"] || "Orbitron";
   const bodyName = prefs.fields["bodyFont"] || "Rajdhani";
   const graphicIntensity = Number(prefs.fields["graphicIntensity"] ?? "70");
+  const scale = resolveTextScale(prefs.fields);
+  const lineSpacing = pick(LINE_SPACINGS, prefs.fields["lineSpacing"], "Normal");
+  const letterSpacing = pick(LETTER_SPACINGS, prefs.fields["letterSpacing"], "Normal");
+  const textWeight = pick(TEXT_WEIGHTS, prefs.fields["textWeight"], "Regular");
+  const chatSize = pick(CHAT_TEXT_SIZES, prefs.fields["chatTextSize"], "Match");
+  const codeFont = pick(CODE_FONTS, prefs.fields["codeFont"], "JetBrains Mono");
   return {
     themeClasses: [daylight ? "theme-daylight" : "", accentClass].filter(Boolean),
     classes: {
@@ -281,6 +349,12 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
       accent,
       density: prefs.fields["density"] ?? "Normal",
       textSize: prefs.fields["textSize"] ?? "Normal",
+      // "on" when a custom percentage replaces the named size; styles.css reads --friday-text-scale then.
+      textCustom: scale.custom ? "on" : "off",
+      lineSpacing,
+      letterSpacing,
+      textWeight,
+      smallText: prefs.fields["smallText"] === "Larger" ? "Larger" : "Standard",
       uiStyle: resolveUiStyle(prefs),
       glassDepth: resolveGlassDepth(prefs),
       cornerStyle: resolveCornerStyle(prefs),
@@ -291,6 +365,12 @@ export function appearanceState(prefs: AppearancePrefs, systemLight = false) {
     vars: {
       "--font-display": DISPLAY_FONTS[displayName] ?? FONTS[displayName] ?? null,
       "--font-sans": BODY_FONTS[bodyName] ?? FONTS[bodyName] ?? null,
+      "--font-mono": CODE_FONTS[codeFont as string] ?? null,
+      "--friday-text-scale": scale.custom ? String(scale.percent / 100) : null,
+      "--friday-line-height": LINE_SPACINGS[lineSpacing] || null,
+      "--friday-letter-spacing": LETTER_SPACINGS[letterSpacing] || null,
+      "--friday-body-weight": TEXT_WEIGHTS[textWeight] || null,
+      "--friday-chat-scale": chatSize === "Match" ? null : String(CHAT_TEXT_SIZES[chatSize]),
       "--friday-panel-opacity": String(panelOpacityPercent(prefs.fields["panelOpacity"]) / 100),
       "--friday-graphic-intensity": String(
         Math.min(100, Math.max(0, Number.isFinite(graphicIntensity) ? graphicIntensity : 70)) / 100,
@@ -366,6 +446,29 @@ export function contrastRatio(a: string, b: string): number {
   if (!ca || !cb) return 0;
   const la = luminance(ca);
   const lb = luminance(cb);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+const encodeSrgb = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
+const decodeSrgb = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+
+/**
+ * Contrast of a colour drawn at `alpha` (0 to 1) over a background, which is what a faded text utility such as
+ * text-primary/70 really shows. The blend happens on the encoded sRGB values, as a browser composites it.
+ */
+export function contrastWithAlpha(fg: string, bg: string, alpha: number): number {
+  const f = parseOklch(fg);
+  const b = parseOklch(bg);
+  if (!f || !b) return 0;
+  const fgRgb = oklchToLinearRgb(...f).map(encodeSrgb);
+  const bgRgb = oklchToLinearRgb(...b).map(encodeSrgb);
+  const mixed = fgRgb.map((value, i) => value * alpha + (bgRgb[i] ?? 0) * (1 - alpha));
+  const lum = (c: number[]) =>
+    0.2126 * decodeSrgb(c[0] ?? 0) +
+    0.7152 * decodeSrgb(c[1] ?? 0) +
+    0.0722 * decodeSrgb(c[2] ?? 0);
+  const la = lum(mixed);
+  const lb = lum(bgRgb);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 

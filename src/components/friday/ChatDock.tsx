@@ -1243,7 +1243,7 @@ export function ChatDock() {
                       )}
                     >
                       {f.name}
-                      <span className="text-[8px] opacity-70">{formatBytes(f.size)}</span>
+                      <span className="text-[0.6875rem] opacity-80">{formatBytes(f.size)}</span>
                       <button
                         type="button"
                         aria-label={`Remove ${f.name}`}

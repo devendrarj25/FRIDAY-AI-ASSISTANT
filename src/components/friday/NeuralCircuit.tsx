@@ -153,7 +153,7 @@ const ComponentBox = memo(function ComponentBox({
         <span
           className={cn(
             "label-xs min-w-0 flex-1 truncate",
-            large ? "text-[11px]" : "text-[9px]",
+            large ? "text-[0.75rem]" : "text-[0.6875rem]",
             node.side === "right" && "text-right",
           )}
           style={{ color: tone }}
@@ -172,7 +172,7 @@ const ComponentBox = memo(function ComponentBox({
       <p
         className={cn(
           "truncate font-mono leading-tight",
-          large ? "text-[10px]" : "text-[9px]",
+          large ? "text-[0.6875rem]" : "text-[0.6875rem]",
           active ? "text-foreground/85" : "text-muted-foreground",
           node.side === "right" && "text-right",
         )}
@@ -193,7 +193,7 @@ const ComponentBox = memo(function ComponentBox({
           {details.map((d) => (
             <p
               key={d.k}
-              className="flex items-baseline gap-1.5 truncate font-mono text-[10px] leading-tight"
+              className="flex items-baseline gap-1.5 truncate font-mono text-[0.6875rem] leading-tight"
               style={node.side === "right" ? { flexDirection: "row-reverse" } : undefined}
               title={`${d.k}: ${d.v}`}
             >
@@ -216,7 +216,7 @@ const ComponentBox = memo(function ComponentBox({
       {large ? (
         <div
           className={cn(
-            "mt-1 flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider",
+            "mt-1 flex items-center gap-1 font-mono text-[0.6875rem] uppercase tracking-wider",
             node.side === "right" && "flex-row-reverse",
           )}
         >
@@ -429,7 +429,7 @@ export const NeuralCircuit = memo(function NeuralCircuit({
             <p
               className={cn(
                 "mt-0.5 truncate font-mono text-accent",
-                large ? "text-[11px]" : "text-[10px]",
+                large ? "text-[0.75rem]" : "text-[0.6875rem]",
               )}
             >
               <span className="text-muted-foreground">ACTION:</span> {live.action}
@@ -438,7 +438,7 @@ export const NeuralCircuit = memo(function NeuralCircuit({
             <p
               className={cn(
                 "truncate font-mono text-magenta",
-                large ? "text-[11px]" : "text-[10px]",
+                large ? "text-[0.75rem]" : "text-[0.6875rem]",
               )}
             >
               <span className="text-muted-foreground">EMOTION:</span> {live.emotion}
@@ -478,7 +478,7 @@ export const NeuralCircuit = memo(function NeuralCircuit({
       {large ? null : (
         <span
           className={cn(
-            "absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-mono text-[10px]",
+            "absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-mono text-[0.6875rem]",
             anyActive
               ? "border-accent/40 bg-accent/10 text-accent"
               : "border-primary/25 bg-primary/8 text-muted-foreground",

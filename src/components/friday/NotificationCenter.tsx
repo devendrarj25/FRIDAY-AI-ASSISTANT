@@ -174,7 +174,7 @@ export function NotificationCenter() {
       >
         {state.enabled ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
         {state.enabled && unread > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 grid min-w-3.5 place-items-center rounded-full bg-accent px-1 text-[8px] leading-3.5 font-bold text-background">
+          <span className="absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-accent px-1 text-[0.6875rem] leading-4 font-bold text-background">
             {unread > 9 ? "9+" : unread}
           </span>
         ) : null}

@@ -216,7 +216,7 @@ export function toolbarFit(itemWidths: readonly number[], available: number, mor
 }
 
 /* Chat toolbar widths in px, estimated from the rendered buttons at the
-   default font size (text-[11px], h-7, px-2, gap-1). */
+   default font size (text-meta, h-7, px-2, gap-1). */
 /** Below this toolbar width it shows icons only. styles.css hides the text
  * below a 48rem chat panel, which is this width plus the p-2 padding. */
 export const LABELS_MIN_WIDTH = 752;

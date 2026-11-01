@@ -126,10 +126,40 @@ describe("Settings section upgrade", () => {
     expect(css).toContain("--friday-density-scale");
     expect(css).toContain('html[data-text-size="Small"]');
     expect(css).toContain(".theme-daylight.theme-green");
-    expect(html).toContain("Inter+Tight");
-    expect(html).toContain("Atkinson+Hyperlegible");
-    expect(root).toContain("Inter+Tight");
-    expect(root).toContain("Lexend");
+    // The offered webfonts ship with the app (src/lib/friday/fonts.ts) and the entry loads them; no page links a font host.
+    const fonts = read("src/lib/friday/fonts.ts");
+    for (const pkg of [
+      "inter-tight",
+      "atkinson-hyperlegible",
+      "lexend",
+      "orbitron",
+      "rajdhani",
+      "exo-2",
+    ]) {
+      expect(fonts).toContain(pkg);
+    }
+    expect(read("src/renderer/main.tsx")).toContain("@/lib/friday/fonts");
+    expect(root).toContain("../lib/friday/fonts");
+    expect(html).not.toContain("fonts.googleapis.com");
+    expect(root).not.toContain("fonts.googleapis.com");
+    // The text settings have their own panel with every control.
+    expect(panel).toContain("<FontsAndTextSettings />");
+    const text = read("src/components/friday/settings/FontsAndTextSettings.tsx");
+    for (const label of [
+      "UI / heading font",
+      "Body / chat font",
+      "Code font",
+      "Text size",
+      "Chat text size",
+      "Small text",
+      "Line spacing",
+      "Letter spacing",
+      "Text weight",
+      "Fine text size",
+      "Reset text settings",
+    ]) {
+      expect(text, label).toContain(label);
+    }
   });
 
   it("does not leave Voice save or session-lock copy stuck", () => {

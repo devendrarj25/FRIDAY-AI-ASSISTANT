@@ -77,9 +77,9 @@ const FlowBox = memo(function FlowBox({ data, selected }: NodeProps) {
       />
       <Handle type="target" position={Position.Top} className="flow-port" />
       <p className="truncate text-xs text-foreground">{row.label}</p>
-      <p className="font-mono text-[10px] text-muted-foreground">{marks.join(" · ")}</p>
+      <p className="font-mono text-[0.6875rem] text-muted-foreground">{marks.join(" · ")}</p>
       {row.detail.split("\n")[0]?.startsWith("not recorded") ? (
-        <p className="truncate font-mono text-[10px] text-muted-foreground">not recorded</p>
+        <p className="truncate font-mono text-[0.6875rem] text-muted-foreground">not recorded</p>
       ) : null}
       <Handle type="source" position={Position.Bottom} className="flow-port" />
     </div>
@@ -120,7 +120,7 @@ function FlowWire(props: EdgeProps) {
             }}
           >
             {reduce ? <span className="flow-marker-static" /> : null}
-            <span className="font-mono text-[10px] text-foreground">{countLabel}</span>
+            <span className="font-mono text-[0.6875rem] text-foreground">{countLabel}</span>
           </div>
         </EdgeLabelRenderer>
       ) : null}

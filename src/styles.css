@@ -16,9 +16,9 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
-  --font-display: "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Rajdhani", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Orbitron Variable", "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Rajdhani", "Inter Tight Variable", "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -95,6 +95,8 @@
   --info: oklch(0.79 0.15 213);
   --info-foreground: oklch(0.15 0.035 255);
   --magenta: oklch(0.72 0.22 320);
+  --friday-dim-primary: 85%;
+  --friday-dim-muted: 90%;
   --border: oklch(0.32 0.06 245);
   --input: oklch(0.3 0.055 250);
   --ring: oklch(0.79 0.15 213);
@@ -144,6 +146,10 @@
 }
 
 .theme-daylight {
+  /* Magenta text on a light page needs a darker magenta to be readable. */
+  --magenta: oklch(0.46 0.2 320);
+  /* Dim text (text-primary/70 and the like) never fades below this share of its colour. */
+  --friday-dim-primary: 100%;
   --background: oklch(0.97 0.008 240);
   --foreground: oklch(0.2 0.03 250);
   --surface: oklch(1 0 0);
@@ -812,7 +818,7 @@ html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
   color: var(--color-foreground);
   padding: 0.125rem 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.6875rem;
   line-height: 1.2;
   opacity: 0;
   pointer-events: none;
@@ -927,7 +933,7 @@ html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
     background: var(--color-card);
     color: var(--color-foreground);
     padding: 0.125rem 0;
-    font-size: 10px;
+    font-size: 0.6875rem;
     line-height: 1.2;
     opacity: 0;
     pointer-events: none;
@@ -1226,7 +1232,7 @@ html[data-button-labels="icons"] .voice-btn {
   background: var(--color-popover);
   color: var(--color-popover-foreground);
   padding: 0.125rem 0;
-  font-size: 11px;
+  font-size: 0.75rem;
   line-height: 1.25;
   opacity: 0;
   pointer-events: none;
@@ -2292,4 +2298,49 @@ button[data-pending="true"] {
 }
 [data-sonner-toaster] [data-sonner-toast] [data-description] {
   color: var(--muted-foreground);
+}
+
+/* Dim text keeps a readable floor. A utility such as text-primary/70 fades its colour; on a light page, or with the
+   purple accent, that fell under 4.5:1 (3.0:1 in Daylight). The floors are theme tokens, so the contrast audit in
+   core/__tests__/text-contrast-audit.test.ts reads the same numbers. Decorative text (/25 dividers) and disabled
+   controls (/50 with a hover state) are not listed here on purpose. */
+:is(.text-primary\/50, .text-primary\/60, .text-primary\/70, .text-primary\/80) {
+  color: color-mix(in oklab, var(--color-primary) var(--friday-dim-primary, 85%), transparent);
+}
+:is(.text-muted-foreground\/60, .text-muted-foreground\/70, .text-muted-foreground\/80) {
+  color: color-mix(in oklab, var(--color-muted-foreground) var(--friday-dim-muted, 90%), transparent);
+}
+
+/* Text settings (Settings, Appearance, Fonts and text). Each is a data attribute or a variable that
+   src/lib/friday/appearance.ts sets only when the owner chose something other than the default, so with the
+   defaults none of these rules matches and the look is unchanged. */
+
+/* A custom text size replaces the four named sizes. Every rem in the app follows the root size. */
+html[data-text-custom="on"] {
+  font-size: calc(16px * var(--friday-text-scale, 1));
+}
+
+/* Line spacing, letter spacing and weight for reading text: the page, the chat and the voice captions. */
+html[data-line-spacing]:not([data-line-spacing="Normal"]) :is(body, .friday-chat-messages, .voice-captions) {
+  line-height: var(--friday-line-height);
+}
+html[data-letter-spacing]:not([data-letter-spacing="Normal"]) :is(body, .friday-chat-messages, .voice-captions) {
+  letter-spacing: var(--friday-letter-spacing);
+}
+html[data-text-weight]:not([data-text-weight="Regular"]) body {
+  font-weight: var(--friday-body-weight);
+}
+
+/* The chat and the voice captions can be sized apart from the rest of the app. */
+.friday-chat-messages,
+.voice-captions {
+  zoom: var(--friday-chat-scale, 1);
+}
+
+/* "Larger small text": every small text utility steps up one size. */
+html[data-small-text="Larger"] :is(.text-meta-sm, .text-note-sm, .text-data-sm, .label-xs) {
+  font-size: 0.8125rem;
+}
+html[data-small-text="Larger"] :is(.text-meta, .text-note, .text-data) {
+  font-size: 0.875rem;
 }

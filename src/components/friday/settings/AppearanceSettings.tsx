@@ -16,9 +16,6 @@ import {
   COLOR_MODES,
   ACCENTS,
   COLOR_COMBOS,
-  DISPLAY_FONTS,
-  BODY_FONTS,
-  TEXT_SIZES,
   DENSITIES,
   UI_STYLES,
   GLASS_DEPTHS,
@@ -44,6 +41,7 @@ import {
 import { HudPanel, SegmentedControl, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { FontsAndTextSettings } from "@/components/friday/settings/FontsAndTextSettings";
 import { SelectField } from "@/components/friday/settings/fields";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -360,29 +358,10 @@ export function AppearanceSettings() {
         </div>
       </HudPanel>
 
+      <FontsAndTextSettings />
+
       <HudPanel title="Text and layout">
         <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            label="UI / heading font"
-            value={field("font") || "Orbitron"}
-            options={Object.keys(DISPLAY_FONTS).map((name) => ({ value: name, label: name }))}
-            onChange={setField("font")}
-          />
-          <SelectField
-            label="Body / chat font"
-            value={field("bodyFont") || "Rajdhani"}
-            options={Object.keys(BODY_FONTS).map((name) => ({
-              value: name,
-              label: name === "Atkinson Hyperlegible" ? "Atkinson Hyperlegible (readable)" : name,
-            }))}
-            onChange={setField("bodyFont")}
-          />
-          <SelectField
-            label="Text size"
-            value={field("textSize") || "Normal"}
-            options={TEXT_SIZES.map((name) => ({ value: name, label: name }))}
-            onChange={setField("textSize")}
-          />
           <SelectField
             label="Interface density"
             value={field("density") || "Normal"}
