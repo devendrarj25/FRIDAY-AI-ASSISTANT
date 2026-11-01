@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld("friday", {
   runStartup: () => ipcRenderer.invoke("startup:run"),
   onStartupState: on("startup:state"),
 
+  // A speech-to-speech engine on this PC (loopback only; the main process refuses any other address).
+  realtimeOpen: (id, url) => ipcRenderer.invoke("realtime:open", id, url),
+  realtimeSend: (id, event) => ipcRenderer.invoke("realtime:send", id, event),
+  realtimeClose: (id) => ipcRenderer.invoke("realtime:close", id),
+  onRealtimeOpened: on("realtime:opened"),
+  onRealtimeEvent: on("realtime:event"),
+  onRealtimeClosed: on("realtime:closed"),
+
   // Primary folder: native picker + persisted setting.
   pickFolder: () => ipcRenderer.invoke("workspace:pick"),
   getWorkspaceRoot: () => ipcRenderer.invoke("workspace:get"),

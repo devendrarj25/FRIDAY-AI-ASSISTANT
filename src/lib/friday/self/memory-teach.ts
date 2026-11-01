@@ -7,6 +7,7 @@
  * substring so the listing does not dump the whole store.
  */
 
+import { admitMemory } from "../brain/memory-fabric";
 import type { MemoryLayer } from "../brain-catalog";
 import { retrievalTerms } from "../brain/retrieval";
 import { memory, type MemoryKind, type MemoryTier, type MemoryItem } from "./memory-engine";
@@ -33,16 +34,36 @@ export function tierToLayer(tier: MemoryTier, kind?: MemoryKind): MemoryLayer {
 
 /** Durable six-tier write from the Memory page Teach form. */
 export function teachDurable(layer: MemoryLayer, title: string, text: string): MemoryItem {
-  return memory.remember({
-    tier: layerToTier(layer),
+  // The owner wrote this himself, so it is verified; admission still refuses a replay, a poisoned or empty row
+  // and names why, and a repeat of the same words returns the record already there.
+  const out = admitMemory({
     title,
     text,
     source: "teach",
-    pinned: layer === "long-term",
+    tier: layerToTier(layer),
     kind: kindForLayer(layer),
-    confidence: 0.9,
     verified: true,
   });
+  if (!out.item) {
+    // The "is this worth keeping" heuristic is for things FRIDAY picked up herself. A short line the owner typed
+    // into the Teach form is kept as he asked. Everything else admission refuses (credential-like text, a
+    // poisoned row, paused memory) stays refused, with its reason.
+    if (/working context only/i.test(out.reason)) {
+      return memory.remember({
+        tier: layerToTier(layer),
+        title,
+        text,
+        source: "teach",
+        pinned: layer === "long-term",
+        kind: kindForLayer(layer),
+        confidence: 0.9,
+        verified: true,
+      });
+    }
+    throw new Error(out.reason || "that was not kept");
+  }
+  if (layer === "long-term" && !out.item.pinned) memory.update(out.item.id, { pinned: true });
+  return memory.getSnapshot().items.find((item) => item.id === out.item?.id) ?? out.item;
 }
 
 /** In-place edit of an existing six-tier row. */

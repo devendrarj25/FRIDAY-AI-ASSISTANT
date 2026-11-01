@@ -9,18 +9,11 @@
  * argument policy still stand behind it.
  */
 
+import rules from "../../../../config/quarantine-rules.json";
 import { redactRunText } from "../self/run-receipt";
 
-const ORDERS_TO_AN_AI = [
-  /\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|above|earlier|all|your)\b[^.\n]{0,30}\b(instructions?|rules?|prompts?|guidelines?)\b/i,
-  /\b(you are now|from now on you|new instructions?|system prompt|developer message)\b/i,
-  /\b(assistant|ai|friday|model|agent)\b[^.\n]{0,25}\b(must|should|need to|has to|will now)\b/i,
-  /\b(do not|don't|never)\b[^.\n]{0,25}\b(tell|inform|show|mention)\b[^.\n]{0,20}\b(the )?(user|owner)\b/i,
-  /\b(run|execute|invoke|call)\b[^.\n]{0,30}\b(this|the following|command|script|tool)\b/i,
-  /\b(send|email|upload|post|forward|exfiltrate)\b[^.\n]{0,50}\b(to|at)\b[^.\n]{0,30}(https?:\/\/|@\w)/i,
-  /\b(delete|erase|wipe|format)\b[^.\n]{0,30}\b(all|every|files?|drive|disk|folder)\b/i,
-  /\b(reveal|print|output|leak)\b[^.\n]{0,30}\b(password|api key|secret|token|credentials?)\b/i,
-];
+/** The order-like patterns live in one file shared with the kernel (`kernel/quarantine.py`), so the two cannot drift. */
+const ORDERS_TO_AN_AI = rules.orders.map((source) => new RegExp(source, rules.flags));
 
 export type QuarantinedView = {
   untrusted: true;
@@ -30,7 +23,7 @@ export type QuarantinedView = {
   hostile: boolean;
 };
 
-const REMOVED = "[a line that read as an order to an AI was removed]";
+const REMOVED = rules.removedLine;
 
 function pieces(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).filter((part) => part.trim().length > 0);

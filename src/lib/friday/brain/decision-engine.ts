@@ -6,7 +6,7 @@
  * risky work asks the owner instead of guessing.
  */
 
-import { actionMode, isConsequential } from "./action-risk";
+import { actionMode, isConsequential, isDestructive } from "./action-risk";
 import { currentPolicy } from "./cost-policy";
 import { CONFIDENT_THRESHOLD, estimateConfidence } from "./confidence";
 import type { UnderstoodIntent } from "./intent-engine";
@@ -290,13 +290,15 @@ export function decideAction(input: {
     });
   }
 
-  if (consequential && (mode === "manual" || confidence < CONFIDENT_THRESHOLD)) {
+  const destructive = consequential && isDestructive(text);
+  if (consequential && (mode === "manual" || confidence < CONFIDENT_THRESHOLD || destructive)) {
     return withStrategy({
       route: "confirm",
       proceed: false,
       askUser: true,
-      reason:
-        confidence < CONFIDENT_THRESHOLD
+      reason: destructive
+        ? "This deletes or switches something off, so I confirm it first even in Auto mode."
+        : confidence < CONFIDENT_THRESHOLD
           ? "This can change the machine and I'm not confident enough to guess — confirm first."
           : "Manual mode: confirm before I run this.",
       confidence,

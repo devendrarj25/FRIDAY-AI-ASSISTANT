@@ -54,3 +54,26 @@ describe("memory as of a past time", () => {
     );
   });
 });
+
+describe("an owner correction keeps the old version with its reason", () => {
+  it("is answerable as of before the correction", async () => {
+    const { applyOwnerCorrection } = await import("../../src/lib/friday/brain/memory-fabric");
+    const first = applyOwnerCorrection({
+      title: "Standup time yarrowfell",
+      text: "The yarrowfell standup is at 10:00.",
+    });
+    const second = applyOwnerCorrection({
+      title: "Standup time yarrowfell",
+      text: "The yarrowfell standup is at 11:30.",
+    });
+    expect(second.supersededId).toBe(first.item.id);
+    const old = memory.getSnapshot().items.find((row) => row.id === first.item.id);
+    expect(old?.invalidReason).toBe("corrected by the owner");
+    const before = memory.retrieveAsOf(
+      "yarrowfell standup time",
+      { from: first.item.createdAt - 1, to: first.item.createdAt + 1 },
+      5,
+    );
+    expect(before.some((hit) => hit.item.id === first.item.id)).toBe(true);
+  });
+});

@@ -51,6 +51,7 @@ export const KERNEL_METHODS = [
   "memory.add",
   "memory.reindex",
   "watch.scan",
+  "stt.bench",
   "memory.status",
   "module.list",
   "module.toggle",
@@ -202,6 +203,24 @@ export const kernelApi = {
       call<{ ok: boolean; backend: string }>("memory.add", { text, kind, title }),
     reindex: () => call<Record<string, unknown>>("memory.reindex"),
     status: () => call<{ backend: string; available: boolean }>("memory.status"),
+  },
+
+  stt: {
+    bench: (folder: string, models: string[], language = "") =>
+      call<{
+        ok: boolean;
+        error?: string;
+        files?: number;
+        results?: {
+          model: string;
+          files: number;
+          scored: number;
+          failed: number;
+          wer: number | null;
+          cer: number | null;
+          seconds_per_file: number;
+        }[];
+      }>("stt.bench", { folder, models, language }),
   },
 
   watch: {

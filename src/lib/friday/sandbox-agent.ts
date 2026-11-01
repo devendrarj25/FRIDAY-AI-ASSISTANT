@@ -7,6 +7,7 @@
  * production FRIDAY source from here — applying stays behind the owner's
  * explicit approval in the Sandbox section.
  */
+import { kernelApi } from "@/lib/friday/kernel-api";
 import type { ToolPort } from "@/lib/friday/brain/tool-checks";
 import {
   createProject,
@@ -155,6 +156,20 @@ export function sandboxToolPort(
       const run = await experiment({ edits: { [file]: code }, commands: [command] });
       const detail = run.steps.map((step) => step.detail).join("\n") || run.error || "";
       return { ok: run.ok, detail };
+    },
+    // Read-only: does a file the answer says it made exist, and is it empty? A path the kernel may not read
+    // (outside the readable folders, a credential file) counts as "not there" rather than as an error.
+    fileInfo: async (path) => {
+      try {
+        const out = await kernelApi.tools.exec("fs.info", { path });
+        const bytes = Number((out as { bytes?: unknown }).bytes ?? 0);
+        return {
+          exists: (out as { ok?: unknown }).ok === true,
+          size: Number.isFinite(bytes) ? bytes : 0,
+        };
+      } catch {
+        return { exists: false, size: 0 };
+      }
     },
   };
 }

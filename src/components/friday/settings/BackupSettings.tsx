@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { exportMemoryBackup, importMemoryBackup } from "@/lib/friday/brain/memory-fabric";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,7 @@ export function BackupSettings() {
           size="sm"
           variant="outline"
           onClick={() => {
-            const blob = new Blob([memory.export()], { type: "application/json" });
+            const blob = new Blob([exportMemoryBackup()], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
@@ -127,7 +128,7 @@ export function BackupSettings() {
               kind: SETTINGS_BACKUP_KIND,
               savedAt: Date.now(),
               preferences: JSON.parse(preferences.exportJson()) as unknown,
-              memory: JSON.parse(memory.export()) as unknown,
+              memory: JSON.parse(exportMemoryBackup()) as unknown,
             };
             const blob = new Blob([JSON.stringify(payload, null, 2)], {
               type: "application/json",
@@ -157,7 +158,7 @@ export function BackupSettings() {
             if (!file) return;
             void file.text().then((text) => {
               try {
-                const count = memory.import(text);
+                const count = importMemoryBackup(text);
                 toast.success(`Imported ${count} records`);
               } catch {
                 toast.error("That file is not a FRIDAY memory backup");
@@ -209,7 +210,7 @@ export function BackupSettings() {
                 }
                 let added = 0;
                 if (parsed.memory) {
-                  added = memory.import(JSON.stringify(parsed.memory));
+                  added = importMemoryBackup(JSON.stringify(parsed.memory));
                 }
                 toast.success(
                   added ? `Imported settings and ${added} memory record(s)` : "Imported settings",

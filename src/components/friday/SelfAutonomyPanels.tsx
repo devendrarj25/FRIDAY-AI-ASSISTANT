@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { autonomy, type AutonomySettings } from "@/lib/friday/self/autonomy";
 import { governance, type GovItem } from "@/lib/friday/self/governance";
 import { auditApprovals, describeAudit } from "@/lib/friday/self/approvals-audit";
+import { SELF_CHANGE_KINDS, latestRegressions } from "@/lib/friday/self/bank-history";
 import { autonomousCore } from "@/lib/friday/self/autonomous-core";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { self } from "@/lib/friday/self/self-manager";
@@ -553,7 +554,21 @@ function GovernancePanel() {
               </div>
               {item.stage === "waiting-approval" && (
                 <div className="mt-2 flex gap-2">
-                  <Button size="sm" onClick={() => governance.approve(item.id)}>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      // A change to FRIDAY herself is not allowed in silence while her last Brain check got worse.
+                      const worse = SELF_CHANGE_KINDS.has(item.kind) ? latestRegressions() : [];
+                      if (
+                        worse.length &&
+                        !window.confirm(
+                          `The last Brain check scored worse on: ${worse.slice(0, 5).join(", ")}. Allow this change anyway?`,
+                        )
+                      )
+                        return;
+                      governance.approve(item.id);
+                    }}
+                  >
                     Allow
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => governance.reject(item.id)}>

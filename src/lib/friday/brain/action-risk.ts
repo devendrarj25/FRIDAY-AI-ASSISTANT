@@ -45,8 +45,24 @@ export function actionMode(): AssistantModeName {
   return currentMode;
 }
 
+/**
+ * Asking for text FRIDAY will write in the chat ("write a python script that prints primes", "draft an email")
+ * changes nothing on the machine. Those phrases are set aside before the words above are looked for; "write file",
+ * "save file", "run it" and the rest still count.
+ */
+const GENERATION =
+  /\b(?:write|create|make|build|give|draft|compose|generate)\s+(?:me\s+)?(?:an?\s+|the\s+|some\s+)?(?:[\w+#-]+\s+){0,2}(?:script|function|program|snippet|code|class|query|regex|email|mail|letter|poem|essay|story|summary|message|reply|joke|caption|post)\b/gi;
+
 export function isConsequential(text: string): boolean {
-  return CONSEQUENTIAL.test(text ?? "");
+  return CONSEQUENTIAL.test(String(text ?? "").replace(GENERATION, " "));
+}
+
+/** Words that destroy or switch things off. These are confirmed in Auto mode too, however sure FRIDAY is. */
+const DESTRUCTIVE =
+  /\b(delete|erase|format|wipe|uninstall|shutdown|shut down|reboot|kill|terminate|overwrite|hata\s*do|hata\s*dena|hatao|mita\s*do|mita\s*dena|mitao|saaf\s*kar|uda\s*do|udao|khatam\s*kar)\b/i;
+
+export function isDestructive(text: string): boolean {
+  return DESTRUCTIVE.test(String(text ?? ""));
 }
 
 /** A spoken/typed command: does it have to be confirmed before dispatch? */

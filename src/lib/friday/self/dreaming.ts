@@ -10,6 +10,7 @@
 
 import { experiences, type Experience } from "./task-ledger";
 import { governance } from "./governance";
+import { mayOffer } from "./suggestion-feedback";
 import { memory } from "./memory-engine";
 import { routinesNow } from "./routines";
 
@@ -74,7 +75,7 @@ export function dreamsFrom(rows: readonly Experience[], now: number, windowMs = 
 export function fileDreams(list: readonly Dream[]): number {
   let filed = 0;
   for (const dream of list) {
-    if (governance.get(dream.id)) continue;
+    if (governance.get(dream.id) || !mayOffer("dream")) continue;
     filed += 1;
     void governance
       .submit({

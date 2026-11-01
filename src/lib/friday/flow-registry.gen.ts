@@ -1657,6 +1657,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "realtime:close",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "realtime:open",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "realtime:send",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "root:registry",
       file: "electron/main.cjs",
     },
@@ -8788,8 +8800,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 471,
-      total: 471,
+      mapped: 474,
+      total: 474,
     },
     kernel: {
       mapped: 14,

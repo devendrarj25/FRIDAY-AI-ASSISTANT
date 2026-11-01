@@ -14,6 +14,8 @@ import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
 import { useBilling } from "@/lib/friday/use-billing";
 import { realtimeStatus } from "@/lib/friday/voice-realtime";
+import { kernelApi } from "@/lib/friday/kernel-api";
+import { pickFolder } from "@/lib/friday/desktop";
 import { assistantMode } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { attentionWindowSeconds, clampAttentionSeconds } from "@/lib/friday/attention-window";
@@ -278,6 +280,7 @@ export function VoiceSettings() {
             }
           />
           <RealtimeEngineNotes />
+          <SpeechModelCheck />
           <ToggleRow
             label="Realtime voice (experimental)"
             hint="Auto mode only. Closes a pause sooner and starts speaking at the first clause. Nothing leaves this PC; it only moves timing."
@@ -790,10 +793,109 @@ function RealtimeEngineNotes() {
       {status.unavailable.map((row) => (
         <p key={row.engine}>
           {row.engine === "local-speech-to-speech" ? "Local speech-to-speech" : "Cloud realtime"}:
-          not on — {row.why}. The session protocol and its safety gate are built; the audio
-          connection is not switched on in this version.
+          not on — {row.why}.{" "}
+          {row.engine === "local-speech-to-speech"
+            ? "The session protocol, its safety gate and the connection to an engine on this PC are built; no microphone or speaker is attached to it yet."
+            : "The session protocol and its safety gate are built; a cloud connection is not available in this version."}
         </p>
       ))}
+    </div>
+  );
+}
+
+const SIZES = ["tiny", "base", "small", "medium"] as const;
+
+type BenchRow = {
+  model: string;
+  files: number;
+  scored: number;
+  failed: number;
+  wer: number | null;
+  cer: number | null;
+  seconds_per_file: number;
+};
+
+/**
+ * Which speech model size hears this owner best. A folder of his own recordings (`name.wav`) with what he said
+ * (`name.txt`) is transcribed by each size and scored under one fixed normalizer. Nothing leaves this PC.
+ */
+function SpeechModelCheck() {
+  const [folder, setFolder] = useState("");
+  const [sizes, setSizes] = useState<string[]>(["base", "small"]);
+  const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState<BenchRow[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!folder || !sizes.length) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const out = await kernelApi.stt.bench(folder, sizes);
+      if (out?.ok && out.results) {
+        setRows(out.results);
+        setNote(`${out.files} recording(s) with a matching text file.`);
+      } else
+        setNote(out?.error ?? "The check did not run (the desktop app and its kernel are needed).");
+    } catch (failure) {
+      setNote(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pct = (value: number | null) => (value === null ? "—" : `${Math.round(value * 100)}%`);
+  return (
+    <div className="grid gap-2 rounded-md border border-border p-2 text-meta-sm text-muted-foreground">
+      <p className="text-foreground">Which speech model hears you best</p>
+      <p>
+        Put a few of your own recordings in a folder, each with a text file of the same name that
+        says what you said (in the script you expect back). Every size listens and is scored on the
+        same rules.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void pickFolder().then((picked) => picked && setFolder(picked))}
+        >
+          Choose folder
+        </Button>
+        <span className="break-all">{folder || "no folder chosen"}</span>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {SIZES.map((size) => (
+          <label key={size} className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={sizes.includes(size)}
+              onChange={(event) =>
+                setSizes((current) =>
+                  event.target.checked
+                    ? [...current, size]
+                    : current.filter((item) => item !== size),
+                )
+              }
+            />
+            {size}
+          </label>
+        ))}
+        <Button size="sm" disabled={busy || !folder || !sizes.length} onClick={() => void run()}>
+          {busy ? "Listening…" : "Run the check"}
+        </Button>
+      </div>
+      {note ? <p>{note}</p> : null}
+      {rows ? (
+        <ul className="grid gap-1">
+          {rows.map((row) => (
+            <li key={row.model} className="text-data text-foreground">
+              {row.model}: words wrong {pct(row.wer)}, letters wrong {pct(row.cer)},{" "}
+              {row.seconds_per_file}s per file
+              {row.failed ? `, ${row.failed} file(s) it could not read` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

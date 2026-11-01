@@ -41,6 +41,7 @@ import { planStudy } from "./skill-loop";
 import { askVerified } from "../ask";
 import { sandboxToolPort } from "../sandbox-agent";
 import { practiceInSandbox, studySuccesses } from "./study-practice";
+import { mayOffer } from "./suggestion-feedback";
 import { batteryReading } from "../brain/pc-awareness";
 import { shouldPauseOnBattery } from "../settings-runtime";
 import { fileFailurePatterns, mineFailurePatterns } from "./failure-patterns";
@@ -359,7 +360,7 @@ class AutonomousCore {
     this.lastStudyAt = Date.now();
     let queued = 0;
     for (const task of tasks) {
-      if (governance.get(task.id)) continue;
+      if (governance.get(task.id) || !mayOffer("practice")) continue;
       queued += 1;
       // The practice itself is real work, so it goes through the approval gate like any other: the owner's
       // dial decides whether it waits for a yes or runs in idle time.

@@ -8,6 +8,7 @@
 
 import { experiences, type Experience } from "./task-ledger";
 import { governance } from "./governance";
+import { mayOffer } from "./suggestion-feedback";
 import { personalDesk } from "../personal-desk";
 
 export type Routine = {
@@ -76,7 +77,7 @@ export function routinesFrom(rows: readonly Experience[], now: number): Routine[
 export function fileRoutines(list: readonly Routine[]): number {
   let filed = 0;
   for (const routine of list) {
-    if (governance.get(routine.id)) continue;
+    if (governance.get(routine.id) || !mayOffer("routine")) continue;
     filed += 1;
     void governance
       .submit({

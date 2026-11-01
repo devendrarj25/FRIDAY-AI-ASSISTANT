@@ -20,6 +20,7 @@ import file_tools
 import httpx
 import media_tools
 import office_tools
+import quarantine
 import sandbox_runner
 import sqlite_read
 import tool_repair
@@ -448,7 +449,8 @@ class ToolRegistry:
         problems = validate_args(tool, args)
         if problems:
             return {"ok": False, "error": f"invalid arguments for {tool}: {'; '.join(problems)}"}
-        return await self.execute(tool, args)
+        # The copy the model sees is labelled as data and cleaned of order-like lines; the result itself is unchanged.
+        return quarantine.for_model(await self.execute(tool, args))
 
     def risk(self, name: str) -> str:
         return RISK.get(name, "exec")

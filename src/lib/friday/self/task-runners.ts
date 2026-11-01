@@ -15,7 +15,7 @@ import kernelApi from "../kernel-api";
 import { autonomousCore } from "./autonomous-core";
 import { autonomy } from "./autonomy";
 import { parallelParts, taskGraph, withEarlier } from "./task-graph";
-import { extractDeadline, looksLikeHorizonGoal } from "./horizon-goals";
+import { extractDeadline, looksLikeHorizonGoal, trackGoalDeadline } from "./horizon-goals";
 import { desktopAsk, planDesktop, runComputerUse } from "./computer-use";
 import { timelineFromEvidence } from "./run-receipt";
 
@@ -162,6 +162,9 @@ export function considerLongTask(text: string): Intake {
   if (!multiStep && !(busy && message.length >= 40)) return null;
 
   const deadline = extractDeadline(message);
+  // A goal with a deadline ("by friday") also becomes a to-do with that due time, so the heads-up and the
+  // reminder fire for it like any other task. Once per goal.
+  if (looksLikeHorizonGoal(message)) trackGoalDeadline(message);
   const { id, position, queued } = taskGraph.submit(
     message,
     looksLikeHorizonGoal(message)

@@ -18,6 +18,9 @@ import {
   prefersHinglish,
 } from "@/lib/friday/brain/error-intelligence";
 import { askFriday, askVerified, canAsk } from "@/lib/friday/ask";
+import { brain } from "@/lib/friday/brain-engine";
+import { askBrain } from "@/lib/friday/self/ask-brain";
+import { MEMORY_STAGES, withStagesOff } from "@/lib/friday/brain/stage-switches";
 import {
   CATEGORIES,
   coverage,
@@ -25,6 +28,12 @@ import {
   type CategoryResult,
 } from "@/lib/friday/self/benchmark-bank";
 import { EXTERNAL_BENCHMARKS } from "@/lib/friday/self/external-eval";
+import {
+  describeBankReport,
+  recordBankRun,
+  reportBank,
+  type BankReport,
+} from "@/lib/friday/self/bank-history";
 import { wilson } from "@/lib/friday/self/eval-stats";
 import { coreBrain } from "@/lib/friday/brain/core-brain";
 import { profileOf, recordCompare } from "@/lib/friday/brain/model-profile";
@@ -137,6 +146,7 @@ export function BrainCheckPanel() {
   const [report, setReport] = useState<EvalReport | null>(null);
   const [suites, setSuites] = useState<SuiteReport[]>([]);
   const [bank, setBank] = useState<CategoryResult[]>([]);
+  const [bankReport, setBankReport] = useState<BankReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,7 +155,10 @@ export function BrainCheckPanel() {
     try {
       setReport(await runEvalHarness());
       setSuites(await runAllSuites());
-      setBank(await runBank());
+      const bankResults = await runBank();
+      setBankReport(reportBank(bankResults));
+      recordBankRun(bankResults);
+      setBank(bankResults);
       setError(null);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -204,6 +217,13 @@ export function BrainCheckPanel() {
                 Benchmark 1.0: {bank.length} of {CATEGORIES.length} categories scored here, no
                 model, no network.
               </p>
+              {bankReport
+                ? describeBankReport(bankReport).map((line) => (
+                    <p key={line} className="text-meta-sm text-muted-foreground">
+                      {line}
+                    </p>
+                  ))
+                : null}
               <ul className="grid gap-1">
                 {coverage().map((row) => {
                   const own = bank.filter((item) => item.domain === row.domain);
@@ -262,6 +282,7 @@ kal ki meeting kab hai || must: kal, meeting || not: pata nahi || tag: calendar
 export function PersonalEvalPanel() {
   const [text, setText] = useState("");
   const [repeats, setRepeats] = useState(1);
+  const [how, setHow] = useState<"chat" | "brain" | "brain-no-memory">("chat");
   const [run, setRun] = useState<PersonalRun | null>(() => personalHistory().at(-1) ?? null);
   const [progress, setProgress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -278,7 +299,12 @@ export function PersonalEvalPanel() {
     try {
       const result = await runPersonalEval(
         parsed.tasks,
-        (prompt) => askVerified(prompt, { timeoutMs: 90_000 }),
+        (prompt) =>
+          how === "chat"
+            ? askVerified(prompt, { timeoutMs: 90_000 })
+            : how === "brain"
+              ? askBrain(prompt, { brain, timeoutMs: 120_000 })
+              : withStagesOff(MEMORY_STAGES, () => askBrain(prompt, { brain, timeoutMs: 120_000 })),
         { repeats, onProgress: (done, total) => setProgress(`${done}/${total}`) },
       );
       recordPersonalRun(result);
@@ -316,6 +342,19 @@ export function PersonalEvalPanel() {
           className="w-full rounded-md border border-border bg-background p-2 text-data text-foreground"
           aria-label="Your requests and what each answer must contain"
         />
+        <label className="flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground">
+          How to ask
+          <select
+            value={how}
+            onChange={(event) => setHow(event.target.value as typeof how)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-foreground"
+            aria-label="How each request is asked"
+          >
+            <option value="chat">Plain chat (a model, no Brain stages)</option>
+            <option value="brain">The whole Brain (memory, checks, repair)</option>
+            <option value="brain-no-memory">The whole Brain without memory</option>
+          </select>
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"

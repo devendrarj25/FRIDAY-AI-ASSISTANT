@@ -394,3 +394,38 @@ describe("memory knowledge fabric", () => {
     expect(second.lines).toEqual(["one"]);
   });
 });
+
+describe("fabric upkeep", () => {
+  it("settles verified episodic memories and flags a negated twin, in English and Hinglish", async () => {
+    const { tidyFabric } = await import("../../src/lib/friday/brain/memory-fabric");
+    const base = { tags: [], source: "user", confidence: 0.8 };
+    const ep = memory.remember({
+      ...base,
+      tier: "episodic",
+      title: "Held the quokkatrail review",
+      text: "The quokkatrail review was held and approved by the team.",
+      confidence: 0.9,
+      verified: true,
+    });
+    const a = memory.remember({
+      ...base,
+      tier: "semantic",
+      title: "Chai note quillfern",
+      text: "Asha chai like karti hai",
+    });
+    const b = memory.remember({
+      ...base,
+      tier: "semantic",
+      title: "Chai habit zorbelle",
+      text: "Asha chai like nahi karti hai",
+    });
+    const out = tidyFabric();
+    expect(out.promoted).toBeGreaterThanOrEqual(1);
+    expect(memory.getSnapshot().items.find((row) => row.id === ep.id)?.tier).toBe("semantic");
+    expect(out.contradictions).toBeGreaterThanOrEqual(1);
+    const flagged = (id: string) =>
+      memory.getSnapshot().items.find((row) => row.id === id)?.contradiction;
+    expect(flagged(a.id)).toBe(true);
+    expect(flagged(b.id)).toBe(true);
+  });
+});

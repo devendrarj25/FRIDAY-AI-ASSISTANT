@@ -9,6 +9,7 @@
  * Each job calls a real subsystem — there is no synthetic activity here.
  */
 
+import { tidyFabric } from "../brain/memory-fabric";
 import { inspectSelf } from "../brain/self-diagnosis";
 import { doctor, isProblem } from "../doctor-engine";
 import { networkMeter } from "../network";
@@ -20,6 +21,7 @@ import { ensureIdleWork, registerTaskRunners } from "./task-runners";
 import { personalDesk } from "../personal-desk";
 import { deliverDigest } from "../proactive-digest";
 import { dreamNow } from "./dreaming";
+import { consolidateSkills, pruneSkills } from "./skill-loop";
 import { scanFolders } from "../folder-watch";
 import { refreshWatch } from "../connector-watch";
 import { listConnectors } from "../connectors";
@@ -102,6 +104,10 @@ class BackgroundTasks {
         const kept = shouldSnapshotMemory() || shouldOptimizeMemory() ? memory.backup() : 0;
         const archived = shouldOptimizeMemory() ? memory.decayStale() : 0;
         const dropped = shouldOptimizeMemory() ? memory.optimize() : 0;
+        const tidy = tidyFabric();
+        if (tidy.contradictions)
+          return `${tidy.contradictions} pair(s) of memories contradict each other: review them`;
+        if (tidy.promoted) return `${tidy.promoted} verified memory(ies) settled as knowledge`;
         if (kept && dropped) return `${kept} memories backed up, ${dropped} compacted`;
         if (archived) return `${archived} stale record(s) archived`;
         if (kept) return `${kept} memories backed up`;
@@ -129,6 +135,21 @@ class BackgroundTasks {
       label: "Mail and calendar",
       everyMinutes: 30,
       run: async () => (await refreshWatch(await listConnectors())).note,
+    });
+    this.register({
+      id: "skills-tidy",
+      label: "Tidy learned skills",
+      everyMinutes: 24 * 60,
+      run: async () => {
+        const merged = consolidateSkills().merged;
+        const pruned = pruneSkills();
+        const bits = [
+          merged ? `${merged} near-duplicate skill(s) merged` : "",
+          pruned.archived ? `${pruned.archived} stale skill(s) archived` : "",
+          pruned.expired ? `${pruned.expired} unvalidated candidate(s) retired` : "",
+        ].filter(Boolean);
+        return bits.length ? bits.join(", ") : "skills already tidy";
+      },
     });
     this.register({
       id: "dreaming",

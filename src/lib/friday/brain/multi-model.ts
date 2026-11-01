@@ -76,7 +76,7 @@ export function considerCollaboration(
   if (options.enabled === false) return no("multi-model collaboration is switched off in settings");
   if (!text) return no("nothing to work on");
 
-  if (OWNER_REQUEST.test(text)) {
+  if (ownerAskedForSecondOpinion(text)) {
     turnDone("multi-model", "consider", "owner");
     return {
       warranted: true,

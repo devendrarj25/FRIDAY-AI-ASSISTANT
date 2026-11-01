@@ -24,6 +24,7 @@ import embedder
 import folder_access
 import folder_watch
 import run_trace
+import stt_bench
 import uvicorn
 import yaml
 from authority import Authority
@@ -977,6 +978,25 @@ async def dispatch(method: str, params: dict, send) -> dict:
         return {"ok": True, "sessionId": session_id, "count": count}
     if method == "memory.search":
         return {"results": await memory.search(params["query"], k=params.get("k", 8))}
+    if method == "stt.bench":
+        folder = tools._resolve_read(params.get("folder", ""))[0]
+        if not folder.is_dir():
+            return {"ok": False, "error": "that is not a folder"}
+        rows = stt_bench.pairs(folder)
+        if not rows:
+            return {"ok": False, "error": "no recording has a text file of the same name next to it"}
+        models = [str(m) for m in params.get("models", []) if str(m).strip()][:6]
+        if not models:
+            return {"ok": False, "error": "name at least one speech model size"}
+        language = str(params.get("language", ""))
+
+        def hear(path, model):
+            import stt
+
+            return str(stt.transcribe_file(str(path), model, language, "", owner_size=model).get("text", ""))
+
+        results = await asyncio.to_thread(stt_bench.score, rows, models, hear)
+        return {"ok": True, "files": len(rows), "results": results}
     if method == "watch.scan":
         # Only folders the owner already chose to share, never the tool workspace or the FRIDAY folder itself.
         skip = {tools.workspace.resolve(), tools.root.resolve() if tools.root else None}
