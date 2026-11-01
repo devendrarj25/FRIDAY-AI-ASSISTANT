@@ -448,7 +448,7 @@ export function MetricBar({
 }
 
 /** Rows drawn at first; the rest follow on request, so a long catalogue opens quickly. */
-export const TABLE_ROW_STEP = 80;
+export const TABLE_ROW_STEP = 40;
 
 export function DataTable({
   columns,

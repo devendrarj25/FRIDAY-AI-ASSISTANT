@@ -38,4 +38,30 @@ describe("the title strip does not loop animations under its backdrop blur", () 
       expect(css).toContain("html.no-motion details[open] > :not(summary)");
     });
   });
+
+  describe("hover and focus ease instead of snapping", () => {
+    const css = read("src/styles.css");
+
+    it("gives every clickable element a base colour transition unless motion is reduced", () => {
+      const base = css.slice(css.indexOf("@layer base {"), css.indexOf("@layer base {") + 3000);
+      expect(base).toMatch(
+        /prefers-reduced-motion: no-preference\) \{\s*a,\s*button,\s*select,\s*summary/,
+      );
+      expect(base).toContain(
+        "transition-property: color, background-color, border-color, box-shadow, opacity;",
+      );
+      // Never transform or layout properties: those are what make a page feel heavy.
+      expect(base).not.toMatch(
+        /transition-property:[^;]*(width|height|margin|padding|transform|all)/,
+      );
+    });
+  });
+
+  describe("scrolling lists do not drag the page", () => {
+    it("contains the scroll of menus, dialogs and capped lists", () => {
+      const css = read("src/styles.css");
+      expect(css).toMatch(/\[role="dialog"\][^{]*\{\s*overscroll-behavior: contain;/);
+      expect(css).toContain('[class*="max-h-"]');
+    });
+  });
 });

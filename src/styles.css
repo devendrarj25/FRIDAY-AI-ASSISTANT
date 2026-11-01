@@ -227,6 +227,21 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* Anything clickable that has no transition of its own still eases its colour, border and shadow, so a
+     hover or a focus never snaps. An element that sets its own transition keeps it: utilities come later. */
+  @media (prefers-reduced-motion: no-preference) {
+    a,
+    button,
+    select,
+    summary,
+    [role="tab"],
+    [role="switch"] {
+      transition-property: color, background-color, border-color, box-shadow, opacity;
+      transition-duration: var(--friday-motion-fast);
+      transition-timing-function: var(--friday-ease);
+    }
+  }
+
   /* Native controls (the open list of a <select>, scrollbars, date pickers)
      follow the theme instead of drawing a white sheet on a dark app. */
   :root {
@@ -525,6 +540,13 @@
 }
 @utility mode-enter {
   animation: friday-mode-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A list, menu or dialog that scrolls keeps its scroll: at its end the wheel does not carry on into the page
+   behind, which made the page jump while someone read a long list. */
+:is([role="dialog"], [role="menu"], [role="listbox"], .glass-menu, .glass-dialog),
+:is([class*="max-h-"]):is([class*="overflow-y-auto"], [class*="overflow-auto"]) {
+  overscroll-behavior: contain;
 }
 
 /* Theme-matched scrollbars everywhere (Chromium + Firefox) */
