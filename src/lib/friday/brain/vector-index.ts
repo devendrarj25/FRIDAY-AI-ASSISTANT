@@ -63,6 +63,7 @@ export type VectorIndexState = {
 const SYNC_KEY = "friday.vector.sync.v1";
 const STATUS_MS = 30_000;
 const SYNC_MS = 5 * 60_000;
+const SYNC_SOON_MS = 5_000;
 const MAX_LOG = 40;
 
 type SyncState = {
@@ -102,6 +103,7 @@ class VectorIndex {
   private stamps = new Map<string, number>();
   private timers: ReturnType<typeof setInterval>[] = [];
   private started = false;
+  private unwatchMemory: (() => void) | null = null;
 
   subscribe = (fn: () => void) => {
     this.start();
@@ -127,7 +129,17 @@ class VectorIndex {
     }
     this.emit();
     void this.refresh();
+    // A change in memory reaches the index within seconds, not at the next five-minute tick.
+    let soon: ReturnType<typeof setTimeout> | null = null;
+    const unwatch = memory.subscribe(() => {
+      if (!this.state.autoSync || soon) return;
+      soon = setTimeout(() => {
+        soon = null;
+        void this.syncLocalMemory();
+      }, SYNC_SOON_MS);
+    });
     this.timers.push(setInterval(() => void this.refresh(), STATUS_MS));
+    this.unwatchMemory = unwatch;
     this.timers.push(
       setInterval(() => {
         if (this.state.autoSync) void this.syncLocalMemory();
@@ -136,6 +148,8 @@ class VectorIndex {
   }
 
   stop(): void {
+    this.unwatchMemory?.();
+    this.unwatchMemory = null;
     this.timers.forEach(clearInterval);
     this.timers = [];
     this.started = false;
@@ -205,7 +219,11 @@ class VectorIndex {
 
   /** Live backend status straight from the kernel. */
   async refresh(): Promise<void> {
-    const status = await this.call<{ backend: string; available: boolean }>("memory.status");
+    const status = await this.call<{
+      backend: string;
+      available: boolean;
+      records?: number | null;
+    }>("memory.status");
     this.state.checkedAt = Date.now();
     if (!status) {
       this.state.available = false;
@@ -214,6 +232,16 @@ class VectorIndex {
       this.state.backend = status.backend;
       this.state.available = Boolean(status.available);
       this.state.reason = status.available ? null : "kernel reports no vector backend";
+      // The index was emptied under us (a reinstall, a cleared data folder): what this client believes it
+      // pushed is gone, so it pushes everything again instead of leaving recall blind.
+      if (status.available && status.records === 0 && this.stamps.size > 0) {
+        this.pushed = new Set([...this.pushed].filter((id) => !this.stamps.has(id)));
+        this.stamps.clear();
+        this.state.synced = this.pushed.size;
+        this.note("the vector index was empty, so local memory is being pushed again", "warn");
+        this.persistSync();
+        void this.syncLocalMemory();
+      }
     }
     this.emit();
   }
@@ -422,6 +450,8 @@ class VectorIndex {
     this.state.synced = this.pushed.size;
     this.state.lastSyncAt = Date.now();
     this.persistSync();
+    // More than one batch was waiting: carry on soon instead of after the next five-minute tick.
+    if (toPush.length > 50 && pushed === 50) setTimeout(() => void this.syncLocalMemory(), 1_000);
     if (pushed) this.note(`synced ${pushed} memories into the vector index`, "ok");
     if (removed)
       this.note(`removed ${removed} forgotten or replaced memories from the index`, "ok");

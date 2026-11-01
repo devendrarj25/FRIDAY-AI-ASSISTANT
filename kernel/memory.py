@@ -248,6 +248,17 @@ class VectorMemory:
     def available(self) -> bool:
         return self.collection is not None or self.fallback is not None
 
+    def count(self) -> int | None:
+        """How many records the open backend holds, or None when it cannot say."""
+        try:
+            if self.collection is not None:
+                return int(self.collection.count())
+            if self.fallback is not None:
+                return len(self.fallback.records)
+        except Exception:
+            return None
+        return None
+
     def _ensure(self):
         if self.collection is None:
             raise RuntimeError("vector memory unavailable")

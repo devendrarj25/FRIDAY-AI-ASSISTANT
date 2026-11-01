@@ -81,3 +81,21 @@ class NumpyMemoryRemoveTests(unittest.TestCase):
             idx.add("beta topic about harbours", kind="semantic", title="B", record_id="b")
             hits = idx.search("harbours", k=3)
             self.assertEqual(hits[0]["id"], "b")
+
+
+class VectorMemoryCountTests(unittest.TestCase):
+    def test_count_and_remove_follow_the_local_index(self) -> None:
+        import asyncio
+
+        from memory import VectorMemory  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = VectorMemory(Path(tmp))
+            store.fallback = NumpyIndex(Path(tmp) / "local")
+            self.assertEqual(store.count(), 0)
+            asyncio.run(store.add("a fact about tea", kind="semantic", title="Tea", record_id="t1"))
+            asyncio.run(store.add("a fact about rice", kind="semantic", title="Rice", record_id="r1"))
+            self.assertEqual(store.count(), 2)
+            self.assertEqual(asyncio.run(store.remove(["t1", "missing"])), 1)
+            self.assertEqual(store.count(), 1)
+            self.assertEqual(asyncio.run(store.remove([])), 0)

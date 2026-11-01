@@ -125,6 +125,8 @@ describe("vector index stays equal to local memory", () => {
     await vectorIndex.syncLocalMemory();
     expect(calls).toHaveLength(0);
 
+    // An edit is told apart by its timestamp; let the clock tick so the test does not depend on the millisecond.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     memory.update(keep.id, { text: "Owner likes dark teal" });
     memory.forget(drop.id);
     await vectorIndex.syncLocalMemory();
@@ -146,5 +148,34 @@ describe("vector index stays equal to local memory", () => {
     memory.supersede(older.id, newer.id, "moved");
     await vectorIndex.syncLocalMemory();
     expect(calls.filter((c) => c.method === "memory.remove")[0]?.params["ids"]).toEqual([older.id]);
+  });
+
+  it("pushes everything again when the kernel reports an empty index", async () => {
+    const calls = useBridge((call) =>
+      call.method === "memory.status"
+        ? { backend: "numpy", available: true, records: 0 }
+        : { ok: true, removed: 0 },
+    );
+    const item = note("Colour", "Owner likes teal");
+    target.pushed = new Set([item.id]);
+    target.stamps = new Map([[item.id, item.updatedAt]]);
+    await vectorIndex.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const adds = calls.filter((c) => c.method === "memory.add").map((c) => c.params["id"]);
+    expect(adds).toContain(item.id);
+  });
+
+  it("does not reset when the index holds records", async () => {
+    const calls = useBridge((call) =>
+      call.method === "memory.status"
+        ? { backend: "numpy", available: true, records: 12 }
+        : { ok: true },
+    );
+    const item = note("Colour", "Owner likes teal");
+    target.pushed = new Set([item.id]);
+    target.stamps = new Map([[item.id, item.updatedAt]]);
+    await vectorIndex.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.filter((c) => c.method === "memory.add")).toHaveLength(0);
   });
 });

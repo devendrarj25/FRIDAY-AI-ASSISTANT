@@ -20,6 +20,18 @@ describe("memory keeps what is true now", () => {
     expect(hits[0]?.text).toBe("Owner phone model is Pixel 9");
   });
 
+  it("the replaced statement stays as history with its reason, and is not a current answer", () => {
+    memory.remember({ ...base, title: "Phone", text: "Owner phone model is Pixel 6 Pro" });
+    memory.remember({ ...base, title: "Phone", text: "Owner phone model is Pixel 9" });
+    const all = memory.search("owner phone model", { k: 10, includeHistory: true });
+    const history = all.find((i) => /Pixel 6 Pro/.test(i.text));
+    expect(history?.supersededAt).toBeTruthy();
+    expect(history?.invalidReason).toMatch(/replaced/);
+    const now = memory.search("owner phone model", { k: 10 });
+    expect(now.some((i) => /Pixel 6 Pro/.test(i.text))).toBe(false);
+    expect(now.some((i) => /Pixel 9/.test(i.text))).toBe(true);
+  });
+
   it("an older statement that already says more is kept", () => {
     memory.remember({ ...base, title: "Editor", text: "Owner uses dark mode in the editor" });
     memory.remember({ ...base, title: "Editor", text: "owner uses dark mode" });

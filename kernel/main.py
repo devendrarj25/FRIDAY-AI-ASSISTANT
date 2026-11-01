@@ -1032,7 +1032,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "memory.reindex":
         return await memory.reindex()
     if method == "memory.status":
-        return {"backend": memory.backend, "available": memory.available}
+        return {"backend": memory.backend, "available": memory.available, "records": memory.count()}
     if method == "module.list":
         return {"modules": modules.describe()}
     if method == "module.toggle":

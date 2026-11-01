@@ -1,4 +1,24 @@
 /**
+ * True when a number or a name inside the statement changed ("Pixel 6" to "Pixel 9", "Jaipur" to "Udaipur"),
+ * as opposed to the same fact worded again. Numbers and capitalised words after the first word are compared.
+ */
+export function valueChanged(before: string, after: string): boolean {
+  const marks = (text: string): Set<string> => {
+    const body = String(text || "")
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .join(" ");
+    return new Set(body.match(/\b\d[\d.,:/-]*|\b[A-Z][a-z]\w+/g) ?? []);
+  };
+  const left = marks(before);
+  const right = marks(after);
+  if (!left.size || !right.size) return false;
+  if (left.size === right.size && [...left].every((mark) => right.has(mark))) return false;
+  return true;
+}
+
+/**
  * FRIDAY · memory engine
  *
  * Six real memory tiers with their own retention rules, persisted locally and
@@ -625,9 +645,29 @@ class MemoryEngine {
     if (candidate && !clashes) {
       // The newer statement wins, even when it is shorter ("phone is Pixel 9" after "phone is Pixel 6 Pro").
       // The older one stays only when it already says everything the new one says and more.
+      const oldText = candidate.text;
       const older = candidate.text.trim().toLowerCase();
       const newer = input.text.trim().toLowerCase();
-      candidate.text = older.includes(newer) ? candidate.text : input.text;
+      if (!older.includes(newer) && older !== newer) {
+        candidate.text = input.text;
+      }
+      if (valueChanged(oldText, input.text)) {
+        // A number or a name changed, so what was true before stays as history (a question about the past can
+        // still be answered from it) and is never offered as a current answer. A reworded preference is not
+        // history; the newer wording simply replaces it.
+        this.items.push({
+          ...candidate,
+          id: newId(),
+          pinned: false,
+          tier: candidate.tier === "working" ? "temporary" : candidate.tier,
+          supersededAt: now,
+          validUntil: now,
+          invalidReason: "replaced by a newer statement",
+          relatedIds: [candidate.id],
+          uses: 0,
+          text: oldText,
+        });
+      }
       candidate.updatedAt = now;
       candidate.freshnessAt = now;
       candidate.uses += 1;
