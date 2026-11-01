@@ -25,6 +25,7 @@
 
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { parseRepoUrl } from "./import-engine";
+import { fetchTimeout } from "./safe-fetch";
 
 const KEY = "friday.hub.v1";
 
@@ -576,15 +577,15 @@ class HubEngine {
     this.commit({ resources: [resource, ...this.state.resources], busy: true, message: "" });
 
     try {
-      const meta = (await fetch(`https://api.github.com/repos/${repo.owner}/${repo.repo}`).then(
-        (r) => (r.ok ? r.json() : null),
-      )) as {
+      const meta = (await fetchTimeout(
+        `https://api.github.com/repos/${repo.owner}/${repo.repo}`,
+      ).then((r) => (r.ok ? r.json() : null))) as {
         default_branch?: string;
         license?: { spdx_id?: string };
         description?: string;
       } | null;
       const branch = repo.branch ?? meta?.default_branch ?? "main";
-      const tree = (await fetch(
+      const tree = (await fetchTimeout(
         `https://api.github.com/repos/${repo.owner}/${repo.repo}/git/trees/${branch}?recursive=1`,
       ).then((r) => (r.ok ? r.json() : null))) as {
         tree?: { path: string; type: string }[];

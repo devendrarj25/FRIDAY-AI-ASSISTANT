@@ -14,6 +14,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const paths = require("./friday-paths.cjs");
+const { boundedInit } = require("./net-fetch.cjs");
 
 const KERNEL_TIMEOUT = 60000;
 /** How long the interface may take to mount before BOOT is declared failed. */
@@ -178,7 +179,13 @@ async function runReadiness(ctx) {
   let kernelRooted = kernelOk;
   if (kernelOk) {
     try {
-      const health = await (await fetch(`${kernelUrl}/health`)).json();
+      const bounded = boundedInit({}, 8_000);
+      let health;
+      try {
+        health = await (await fetch(`${kernelUrl}/health`, bounded.init)).json();
+      } finally {
+        bounded.clear();
+      }
       models = health.models || [];
       const expectedId =
         typeof ctx.kernelInstanceId === "function" ? ctx.kernelInstanceId() : ctx.kernelInstanceId;

@@ -2122,7 +2122,15 @@ async function probeRoutableModels(models) {
       if (!cloud || !key || typeof cloud.headers !== "function") return {};
       return cloud.headers(key);
     },
-    fetchImpl: (url, init) => fetch(url, { method: "GET", headers: init && init.headers }),
+    fetchImpl: async (url, init) => {
+      const { boundedInit } = require("./net-fetch.cjs");
+      const bounded = boundedInit({ method: "GET", headers: init && init.headers }, 15_000);
+      try {
+        return await fetch(url, bounded.init);
+      } finally {
+        bounded.clear();
+      }
+    },
   });
 }
 
@@ -3341,6 +3349,23 @@ async function startChat(request) {
           return;
         }
         send("chat:delta", { requestId, modelId: model.id, text: "", replace: true });
+      }
+      {
+        const blip = modelRouter.blipRetry({
+          category: noted.category,
+          status: noted.status,
+          online: !netStatus.isOffline() && (await netStatus.check(true)).online !== false,
+          alreadyRetried: model.blipRetried === true,
+          received: Boolean(result.received),
+        });
+        if (blip.retry) {
+          model.blipRetried = true;
+          log(
+            `chat ${requestId}: ${model.id} dropped (${noted.category}) — one retry in ${blip.waitMs}ms`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, blip.waitMs));
+          continue;
+        }
       }
       if (noted.category === "timeout" && !model.timeoutRetried) {
         model.timeoutRetried = true;

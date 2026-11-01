@@ -15,6 +15,11 @@ export const IDLE_CPU_PERCENT = 1;
 export type FailureKind =
   | "kernel-crash"
   | "provider-outage"
+  | "network-down"
+  | "timeout"
+  | "auth"
+  | "tls"
+  | "context-length"
   | "disk-full"
   | "permission-denied"
   | "clock-jump"
@@ -25,9 +30,21 @@ export type FailureKind =
 export type Recovery = {
   action: "resume" | "retry" | "fallback" | "stop" | "expire" | "restore";
   reason: string;
+  /** How long to wait before the retry, with jitter, when the action is "retry". */
+  delayMs?: number;
 };
 
-const PROVIDER = /\b429\b|rate limit|provider outage|provider unavailable/i;
+const PROVIDER =
+  /\b429\b|\b50[0234]\b|\b529\b|rate limit|too many requests|provider (?:outage|unavailable|error)|service unavailable|bad gateway|gateway timeout|overloaded|capacity/i;
+const NETWORK =
+  /econnrefused|enotfound|econnreset|enetunreach|eai_again|ehostunreach|enetdown|epipe|econnaborted|getaddrinfo|fetch failed|failed to fetch|network request failed|network is unreachable|socket hang up|other side closed|\boffline\b|no internet|dns/i;
+const TIMEOUT = /etimedout|timed out|timeout|deadline exceeded|\b408\b/i;
+const AUTH =
+  /\b40[13]\b|unauthori[sz]ed|invalid[_ ]api[_ ]key|incorrect api key|api key (?:rejected|invalid)|forbidden|authentication failed|\b407\b|proxy authentication/i;
+const TLS =
+  /unable to verify the first certificate|self[- ]signed certificate|cert_has_expired|certificate has expired|certificate is not yet valid|unable_to_get_issuer_cert|err_cert|ssl routines|ssl_error|tlsv1 alert|altnames/i;
+const CONTEXT =
+  /context[_ ]length|context window|maximum context|too many tokens|\b413\b|payload too large|request entity too large/i;
 const DISK = /enospc|disk full|no space left/i;
 const DENIED = /eacces|eperm|permission denied|access is denied/i;
 const CLOCK = /clock jump|time jump|clock skew/i;
@@ -37,7 +54,13 @@ const CRASH = /kernel crash|kernel restart|process crash/i;
 
 export function classifyFailure(message: string, code = ""): FailureKind {
   const text = `${code} ${message}`;
+  // The more specific cause first: a certificate error also contains "network" words, a timeout can say "gateway".
+  if (TLS.test(text)) return "tls";
+  if (CONTEXT.test(text)) return "context-length";
+  if (AUTH.test(text)) return "auth";
+  if (TIMEOUT.test(text)) return "timeout";
   if (PROVIDER.test(text)) return "provider-outage";
+  if (NETWORK.test(text)) return "network-down";
   if (DISK.test(text)) return "disk-full";
   if (DENIED.test(text)) return "permission-denied";
   if (CLOCK.test(text)) return "clock-jump";
@@ -53,7 +76,8 @@ export type FailureDomain =
 const DOMAIN_MODEL = /\b(model|provider|429|quota)\b/i;
 const DOMAIN_BROWSER = /\b(browser|page|dom|redirect)\b/i;
 const DOMAIN_DEVICE = /\b(microphone|camera|device|audio)\b/i;
-const DOMAIN_NETWORK = /\b(network|offline|econnrefused|timeout|dns)\b/i;
+const DOMAIN_NETWORK =
+  /\b(network|offline|econnrefused|econnreset|enotfound|etimedout|eai_again|timeout|timed out|dns|socket hang up|fetch failed|certificate|tls|ssl)\b/i;
 const DOMAIN_ARTIFACT = /\b(artifact|checksum|mime)\b/i;
 const DOMAIN_TOOL = /\b(tool|runner)\b/i;
 const DOMAIN_TASK = /\b(task|graph|checkpoint)\b/i;
@@ -71,14 +95,75 @@ export function failureDomain(message: string, code = ""): FailureDomain {
   return "other";
 }
 
-/** What to do next. A provider fault retries once, then falls back. */
-export function recoverFailure(kind: FailureKind, attempts = 0): Recovery {
+/**
+ * How long to wait before retry number `attempt` (0 first): one second doubling to fifteen, then up to a fifth more or
+ * less so many retries do not land together. `random` is injectable so a test can pin it.
+ */
+export function backoffMs(attempt: number, random: () => number = Math.random): number {
+  const base = Math.min(15_000, 1_000 * 2 ** Math.max(0, Math.floor(attempt)));
+  return Math.round(base * (0.8 + random() * 0.4));
+}
+
+/** What to do next. A provider fault retries with a wait and falls back after; a fault no retry can fix does not loop. */
+export function recoverFailure(
+  kind: FailureKind,
+  attempts = 0,
+  random: () => number = Math.random,
+): Recovery {
+  if (kind === "network-down") {
+    if (attempts < 3)
+      return {
+        action: "retry",
+        reason: "the connection dropped — retry with a short wait",
+        delayMs: backoffMs(attempts, random),
+      };
+    return {
+      action: "fallback",
+      reason: "still no connection — use a local model and the offline flows until it returns",
+    };
+  }
+  if (kind === "timeout") {
+    if (attempts < 1)
+      return {
+        action: "retry",
+        reason: "no answer in time — one retry",
+        delayMs: backoffMs(attempts, random),
+      };
+    return {
+      action: "fallback",
+      reason: "timed out twice — try a faster model instead of waiting",
+    };
+  }
+  if (kind === "auth") {
+    return {
+      action: "fallback",
+      reason:
+        "the key was rejected, and a retry cannot fix it — another provider is tried; fix the key in Models",
+    };
+  }
+  if (kind === "tls") {
+    return {
+      action: "stop",
+      reason:
+        "the secure connection could not be verified — check the PC clock and any HTTPS-inspecting proxy; local models still work",
+    };
+  }
+  if (kind === "context-length") {
+    return {
+      action: "fallback",
+      reason: "too much for this model — a shorter context is tried first",
+    };
+  }
   if (kind === "kernel-crash") {
     return { action: "resume", reason: "the checkpoint stays interrupted until the run continues" };
   }
   if (kind === "provider-outage") {
     if (attempts < 2)
-      return { action: "retry", reason: "transient provider failure — one bounded retry" };
+      return {
+        action: "retry",
+        reason: "transient provider failure — a bounded retry after a wait",
+        delayMs: backoffMs(attempts, random),
+      };
     return { action: "fallback", reason: "already retried — fall back instead of looping" };
   }
   if (kind === "disk-full" || kind === "permission-denied") {

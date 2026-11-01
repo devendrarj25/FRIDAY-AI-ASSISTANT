@@ -144,7 +144,36 @@ function combinedNetworkError(chromiumError, nodeError) {
   return error;
 }
 
+/**
+ * A request that cannot hang forever. Returns a fetch `init` that aborts after `ms` (with an ETIMEDOUT error that says
+ * so) and a `clear` to call once the body has been read. A caller's own signal still wins: if it aborts first, that
+ * is what the caller sees.
+ */
+function boundedInit(init = {}, ms = 20_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    const error = new Error(`request timed out after ${Math.round(ms / 1000)}s`);
+    error.code = "ETIMEDOUT";
+    controller.abort(error);
+  }, ms);
+  if (typeof timer.unref === "function") timer.unref();
+  const outer = init && init.signal;
+  const forward = () => controller.abort(outer.reason);
+  if (outer) {
+    if (outer.aborted) forward();
+    else outer.addEventListener("abort", forward, { once: true });
+  }
+  return {
+    init: { ...init, signal: controller.signal },
+    clear: () => {
+      clearTimeout(timer);
+      if (outer) outer.removeEventListener("abort", forward);
+    },
+  };
+}
+
 module.exports = {
+  boundedInit,
   fetchCompat,
   combinedNetworkError,
   chromiumReady,

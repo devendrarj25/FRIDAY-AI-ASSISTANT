@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatBytes, imports } from "@/lib/friday/import-engine";
 import { useImports } from "@/lib/friday/use-imports";
+import { fetchTimeout } from "@/lib/friday/safe-fetch";
 
 export const Route = createFileRoute("/n8n")({
   head: () => ({
@@ -163,7 +164,7 @@ function N8nPage() {
 
   const trigger = async (url: string) => {
     try {
-      const res = await fetch(url, {
+      const res = await fetchTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: payload.trim() || "{}",

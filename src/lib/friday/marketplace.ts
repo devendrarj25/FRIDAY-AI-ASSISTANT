@@ -12,6 +12,7 @@
  */
 import { desktopApi, isDesktopApp, safeCall } from "./desktop";
 import type { CapabilityTree } from "./capability-trees";
+import { fetchTimeout } from "./safe-fetch";
 
 export type MarketRisk = "safe" | "write" | "exec";
 
@@ -186,7 +187,7 @@ export async function run(input) {
     "safe",
     ["url"],
     `export async function run(input) {
-  const res = await fetch(String(input.url));
+  const res = await fetchTimeout(String(input.url));
   const html = await res.text();
   const seen = new Map();
   for (const m of html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(.*?)<\\/a>/gis)) {
@@ -206,7 +207,7 @@ export async function run(input) {
     "safe",
     ["url"],
     `export async function run(input) {
-  const html = await (await fetch(String(input.url))).text();
+  const html = await (await fetchTimeout(String(input.url))).text();
   const body = html.replace(/<(script|style|nav|footer|header)[\\s\\S]*?<\\/\\1>/gi, "");
   const text = body.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\\s+/g, " ").trim();
   const title = (html.match(/<title>(.*?)<\\/title>/i) || [])[1] || "";
@@ -224,7 +225,7 @@ export async function run(input) {
     ["url", "method", "body"],
     `export async function run(input) {
   const started = Date.now();
-  const res = await fetch(String(input.url), { method: input.method || "GET", body: input.body ?? undefined, headers: input.body ? { "content-type": "application/json" } : undefined });
+  const res = await fetchTimeout(String(input.url), { method: input.method || "GET", body: input.body ?? undefined, headers: input.body ? { "content-type": "application/json" } : undefined });
   const text = await res.text();
   return { status: res.status, ok: res.ok, ms: Date.now() - started, headers: Object.fromEntries(res.headers), preview: text.slice(0, 2000) };
 }`,
@@ -239,7 +240,7 @@ export async function run(input) {
     "safe",
     ["url", "limit"],
     `export async function run(input) {
-  const xml = await (await fetch(String(input.url))).text();
+  const xml = await (await fetchTimeout(String(input.url))).text();
   const items = [...xml.matchAll(/<(item|entry)[\\s\\S]*?<\\/\\1>/gi)].map((m) => m[0]);
   const pick = (block, tag) => (block.match(new RegExp("<" + tag + "[^>]*>([\\\\s\\\\S]*?)</" + tag + ">", "i")) || [])[1] || "";
   return { items: items.slice(0, Number(input.limit) || 20).map((b) => ({
@@ -466,7 +467,7 @@ export async function run() {
   const results = [];
   for (const url of urls) {
     const t = Date.now();
-    try { await fetch(url, { method: "HEAD" }); results.push({ url, ms: Date.now() - t, ok: true }); }
+    try { await fetchTimeout(url, { method: "HEAD" }); results.push({ url, ms: Date.now() - t, ok: true }); }
     catch (e) { results.push({ url, ms: Date.now() - t, ok: false, error: String(e.message || e) }); }
   }
   return { results, fastest: results.filter((r) => r.ok).sort((a, b) => a.ms - b.ms)[0] || null };
@@ -1426,7 +1427,7 @@ module.exports.register = (ctx) => {
     `module.exports.register = (ctx) => {
   ctx.registerTool?.("notify.webhook", async ({ url, text = "" } = {}) => {
     if (!url) return { ok: false, error: "url required" };
-    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, content: text }) });
+    const res = await fetchTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, content: text }) });
     return { ok: res.ok, status: res.status };
   });
 };`,

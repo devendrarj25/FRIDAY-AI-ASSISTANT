@@ -29,6 +29,7 @@ function contains(base, target) {
 // no second registry that could disagree about segments or manifest names.
 const TREES = require("./friday-contract.cjs").TREES;
 const packShape = require("./pack-shape.cjs");
+const { boundedInit } = require("./net-fetch.cjs");
 
 const RISKS = new Set(["safe", "write", "exec"]);
 const STATE_FILE = path.join("config", "capabilities.json");
@@ -890,9 +891,14 @@ async function installFromUrl(roots, url) {
   if (!/^https?:\/\//i.test(target)) return { ok: false, error: "Enter an http(s) URL." };
   let payload = null;
   try {
-    const response = await fetch(target, { redirect: "follow" });
-    if (!response.ok) return { ok: false, error: `Download failed (${response.status}).` };
-    payload = await response.json();
+    const bounded = boundedInit({ redirect: "follow" }, 30_000);
+    try {
+      const response = await fetch(target, bounded.init);
+      if (!response.ok) return { ok: false, error: `Download failed (${response.status}).` };
+      payload = await response.json();
+    } finally {
+      bounded.clear();
+    }
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }
