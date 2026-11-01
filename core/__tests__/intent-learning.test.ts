@@ -128,9 +128,10 @@ describe("growing from what the owner did not correct", () => {
   });
 
   it("is capped and can be read back", () => {
-    for (let i = 0; i < 320; i += 1)
-      (understandTurn({ text: `kaam number ${i} please kar do abhi` }),
-        understandTurn({ text: "ok aage" }));
+    for (let i = 0; i < 320; i += 1) {
+      understandTurn({ text: `kaam number ${i} please kar do abhi` });
+      understandTurn({ text: "ok aage" });
+    }
     expect(listPhrasings().length).toBeLessThanOrEqual(300);
   });
 });
