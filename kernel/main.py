@@ -1095,7 +1095,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
     raise ValueError(f"unknown method: {method}")
 
 
-def _frame(text: object) -> dict | None:
+def _frame(text: object) -> dict[str, Any] | None:
     """One bridge frame as an object, or None when it is not one (bad JSON, a list, a bare string, null)."""
     try:
         value = json.loads(text) if isinstance(text, (str, bytes, bytearray)) else None
@@ -1141,7 +1141,8 @@ async def bridge(ws: WebSocket) -> None:
                 await send({"id": None, "type": "error", "error": "malformed message: expected a JSON object"})
                 continue
             req_id = msg.get("id")
-            incoming = msg.get("method")
+            # A missing method is reported by name ("unknown method: None"), so it stays a string here.
+            incoming = str(msg.get("method"))
             params = msg.get("params")
             if params is not None and not isinstance(params, dict):
                 await send({"id": req_id, "type": "error", "error": "params must be an object"})
@@ -1151,19 +1152,19 @@ async def bridge(ws: WebSocket) -> None:
                 # so the connectivity scanner does not list this as public API.
                 if incoming == "privacy.decide":
                     settle_privacy_ask(
-                        (msg.get("params") or {}).get("askId"),
+                        str((msg.get("params") or {}).get("askId") or ""),
                         bool((msg.get("params") or {}).get("allowed")),
                     )
                     await send({"id": req_id, "type": "result", "data": {"ok": True}})
                     continue
                 if incoming == "companion.cognize_ack":
-                    settle_phone_cognize_ack((msg.get("params") or {}).get("sessionId"))
+                    settle_phone_cognize_ack(str((msg.get("params") or {}).get("sessionId") or ""))
                     await send({"id": req_id, "type": "result", "data": {"ok": True}})
                     continue
                 if incoming == "companion.cognize_done":
                     payload = msg.get("params") or {}
                     await settle_phone_cognize_done(
-                        payload.get("sessionId"),
+                        str(payload.get("sessionId") or ""),
                         payload.get("text"),
                         payload.get("error"),
                     )
