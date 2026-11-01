@@ -45,4 +45,40 @@ describe("voice tone against the owner's own baseline", () => {
       "prosody: result.audio?.prosody ?? null",
     );
   });
+
+  it("a huge difference reads as very tense but is not pinned at exactly 1.00", () => {
+    for (let i = 0; i < TONE_WARMUP; i += 1) assessTone(usual);
+    const extreme = assessTone({ ok: true, pitchHz: 250, pitchSpreadSemitones: 6, energyDbfs: -6 });
+    expect(extreme?.label).toBe("tense");
+    expect(extreme?.arousal).toBeGreaterThan(0.95);
+    expect(extreme?.arousal).toBeLessThan(1);
+    const clear = assessTone({ ok: true, pitchHz: 190, pitchSpreadSemitones: 3, energyDbfs: -14 });
+    expect(clear?.arousal).toBeLessThan(extreme?.arousal ?? 0);
+  });
+
+  it("a clip with hardly any voiced frames is not measured and does not move the baseline", () => {
+    for (let i = 0; i < TONE_WARMUP; i += 1) assessTone(usual);
+    const click = assessTone({
+      ok: true,
+      pitchHz: 500,
+      pitchSpreadSemitones: 12,
+      energyDbfs: -2,
+      voicedShare: 0.05,
+    });
+    expect(click).toBeNull();
+    expect(assessTone(usual)?.label).toBe("steady");
+  });
+
+  it("only his own voice teaches the baseline: the tone is read after the echo and duplicate checks", () => {
+    const mode = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const final = mode.slice(mode.indexOf("onFinal: (text, meta) => {"));
+    const body = final.slice(0, final.indexOf("onStateChange"));
+    expect(body.indexOf("this.isSelfEcho(text)")).toBeGreaterThan(-1);
+    expect(body.indexOf("this.lastTone = assessTone(meta?.prosody)")).toBeGreaterThan(
+      body.indexOf("this.isSelfEcho(text)"),
+    );
+    expect(body.indexOf("this.lastTone = assessTone(meta?.prosody)")).toBeGreaterThan(
+      body.indexOf("duplicateFinalUtterance"),
+    );
+  });
 });

@@ -274,6 +274,10 @@ def wants_english_stream(language: str, speech_pref: str) -> bool:
         raw = (language or "").strip().lower().replace("_", "-")
     if not raw or raw in {"auto", "mixed"} or raw.startswith("hi"):
         return False
+    # en-IN is how an Indian owner is set up, and an Indian owner mixes Hindi into English: an English-only engine would
+    # turn those words into English it invented. Only a plain English setting uses the English-only stream.
+    if raw.startswith("en-in"):
+        return False
     return raw.startswith("en")
 
 
@@ -830,8 +834,56 @@ def _consume_whisper(model, payload, kwargs, on_partial) -> dict:
         "policyCode": policy_code,
         "vadMs": vad_ms,
         "language": getattr(info, "language", "") or "",
+        "languageProbability": _language_probability(info),
         "durationMs": int(float(getattr(info, "duration", 0.0) or 0.0) * 1000),
     }
+
+
+def _language_probability(info) -> float | None:
+    value = getattr(info, "language_probability", None)
+    return round(float(value), 3) if isinstance(value, (int, float)) else None
+
+
+# Whisper guesses the language from the first seconds. On a short Hinglish phrase the guess is often English with a low
+# probability, and the English decode then makes up fluent English that was never said ("I'm going to get a car").
+LANGUAGE_CONFIDENT = 0.85
+# Languages Whisper tends to name when it hears Hindi mixed with English.
+LANGUAGE_RECHECK = frozenset({"en", "hi", "ur", "ne", "mr", "bn", "pa", "gu", "sa"})
+# A second reading must be this much more likely, per token, before it replaces the first.
+LANGUAGE_LOGPROB_MARGIN = 0.08
+# Only short clips are read twice: the second decode is the price of a better guess, so it must stay quick.
+LANGUAGE_RECHECK_MAX_MS = 15_000
+
+
+def should_recheck_language(first: dict, language_locked: bool) -> bool:
+    """True when the language was guessed, the guess was weak, and there is something to read twice."""
+    if language_locked:
+        return False
+    if not (first.get("text") or "").strip():
+        return False
+    probability = first.get("languageProbability")
+    if not isinstance(probability, (int, float)) or probability >= LANGUAGE_CONFIDENT:
+        return False
+    # A long clip gives the language guess plenty to go on, and a second full decode would cost seconds.
+    if int(first.get("durationMs") or 0) > LANGUAGE_RECHECK_MAX_MS:
+        return False
+    return (first.get("language") or "") in LANGUAGE_RECHECK
+
+
+def choose_language_pass(first: dict, second: dict) -> tuple[dict, str]:
+    """Keep the reading the model was more sure of, per token, and say which one won and why."""
+    text = (second.get("text") or "").strip()
+    if not text:
+        return first, "kept the first reading: the second was empty"
+    a, b = first.get("avgLogprob"), second.get("avgLogprob")
+    if not isinstance(b, (int, float)):
+        return first, "kept the first reading: the second had no confidence score"
+    was = first.get("language") or "?"
+    now = second.get("language") or "hi"
+    if isinstance(a, (int, float)) and b <= a + LANGUAGE_LOGPROB_MARGIN:
+        return first, f"kept the first reading ({was}): not clearly worse than Hindi"
+    note = f"switched from {was} to {now}: the second reading was more certain"
+    return {**second, "languageNote": note}, note
 
 
 TOO_SHORT_MS = 300
@@ -1088,6 +1140,13 @@ def _transcribe_prepared(
             "",
             ["windows-speech"],
         )
+    language_note = ""
+    if should_recheck_language(first, lang is not None):
+        try:
+            again_hi = _consume_whisper(model, payload, {**kwargs, "language": "hi"}, None)
+            first, language_note = choose_language_pass(first, again_hi)
+        except Exception:  # the first reading stands; a failed second look must never lose the utterance
+            language_note = "kept the first reading: the second look failed"
     bare = {key: value for key, value in kwargs.items() if key not in {"initial_prompt", "vad_parameters"}}
     bare["vad_filter"] = False
 
@@ -1102,6 +1161,9 @@ def _transcribe_prepared(
             "ok": True,
             "text": text,
             "language": chosen.get("language") or lang or "",
+            "languageProbability": chosen.get("languageProbability"),
+            "languageNote": language_note,
+            "avgLogprob": chosen.get("avgLogprob"),
             "durationMs": chosen.get("durationMs") or 0,
             "model": _model_name or model_name,
             "noSpeechProb": chosen.get("noSpeechProb") or 0.0,

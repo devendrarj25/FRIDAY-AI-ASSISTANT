@@ -902,6 +902,11 @@ async function transcribe(req = {}, onPartial) {
       elapsedMs: Date.now() - started,
       engine: parsed.engine || "faster-whisper",
       noSpeechProb: typeof parsed.noSpeechProb === "number" ? parsed.noSpeechProb : undefined,
+      // How sure the model was, so a fluent guess about the wrong language is not trusted as a clear command.
+      languageProbability:
+        typeof parsed.languageProbability === "number" ? parsed.languageProbability : null,
+      avgLogprob: typeof parsed.avgLogprob === "number" ? parsed.avgLogprob : null,
+      languageNote: String(parsed.languageNote || ""),
       turnProbability: typeof parsed.turnProbability === "number" ? parsed.turnProbability : null,
       loadCount: parsed.loadCount,
       emptyReason: String(parsed.emptyReason || (parsed.audio && parsed.audio.emptyReason) || ""),

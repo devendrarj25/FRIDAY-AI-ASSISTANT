@@ -11,6 +11,8 @@ import {
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { assistantMode } from "@/lib/friday/assistant-mode";
+import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
+import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
 import { turnTraceLine, voiceTurn, whereItStopped } from "@/lib/friday/voice-turn-trace";
@@ -111,6 +113,25 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       bad: Boolean(voice.stt.lastError),
     },
     { label: "last transcript", value: voice.stt.lastTranscript || "—" },
+    {
+      label: "how sure",
+      value: heardQualityLine(assistantMode.heardQuality(), voice.stt.lastTranscript || ""),
+    },
+    ...(speechModelHint(
+      voice.stt.model || "",
+      preferences.getSnapshot().voice.recognitionLang || "",
+    )
+      ? [
+          {
+            label: "speech model",
+            value: speechModelHint(
+              voice.stt.model || "",
+              preferences.getSnapshot().voice.recognitionLang || "",
+            ),
+            bad: true,
+          },
+        ]
+      : []),
     {
       label: "last turn",
       value: turnTraceLine(voiceTurn()),

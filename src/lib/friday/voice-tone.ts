@@ -29,6 +29,8 @@ export type VoiceTone = {
 type Baseline = { pitch: number; energy: number; spread: number; samples: number };
 
 export const TONE_WARMUP = 5;
+/** Below this share of voiced frames the clip says nothing about how he sounds. */
+const MIN_VOICED_SHARE = 0.2;
 const ALPHA = 0.15;
 
 let baseline: Baseline | null = null;
@@ -44,6 +46,9 @@ function clamp01(value: number): number {
 /** Read one utterance against the baseline, then fold it into the baseline. */
 export function assessTone(prosody: VoiceProsody | null | undefined): VoiceTone | null {
   if (!prosody?.ok || !prosody.pitchHz || prosody.energyDbfs == null) return null;
+  // A clip with almost no voiced frames (a click, a breath, a word cut short) has no pitch worth measuring.
+  if (typeof prosody.voicedShare === "number" && prosody.voicedShare < MIN_VOICED_SHARE)
+    return null;
   const pitch = prosody.pitchHz;
   const energy = prosody.energyDbfs;
   const spread = prosody.pitchSpreadSemitones ?? 0;
@@ -51,7 +56,10 @@ export function assessTone(prosody: VoiceProsody | null | undefined): VoiceTone 
   const semitonesUp = 12 * Math.log2(pitch / base.pitch);
   const louder = energy - base.energy;
   const livelier = spread - base.spread;
-  const score = clamp01(0.5 + semitonesUp * 0.08 + louder * 0.04 + livelier * 0.05);
+  // Each change is measured against what counts as a clear change (4 semitones, 10 dB, 4 semitones of liveliness),
+  // and the total is bent through tanh, so a very large difference approaches 1 instead of landing exactly on it.
+  const z = (semitonesUp / 4) * 0.4 + (louder / 10) * 0.4 + (livelier / 4) * 0.2;
+  const score = clamp01(0.5 + 0.5 * Math.tanh(1.2 * z));
   const warm = base.samples >= TONE_WARMUP;
   const arousal = warm ? score : 0.5 + (score - 0.5) * (base.samples / TONE_WARMUP);
   const label: VoiceTone["label"] =

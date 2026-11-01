@@ -111,6 +111,9 @@ import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime
 import {
   applyCorrections,
   confidenceRepeat,
+  heardReadBack,
+  needsHeardConfirmation,
+  type HeardQuality,
   languageId,
   learnCorrection,
   utteranceConfidence,
@@ -320,6 +323,8 @@ const MAX_CAPTIONS = 40;
  * the same number.
  */
 const AWAKE_MS = () => attentionWindowMs();
+/** How long a read-back waits for the owner's yes or no. */
+const HEARD_CONFIRM_MS = 25_000;
 /** A spoken failure is once per cause for this session. The screen keeps the detail. */
 
 /** The configured name, matched through the shared local wake-word engine. */
@@ -1071,6 +1076,15 @@ class AssistantModeStore {
   private lastTone: VoiceTone | null = null;
   /** How long the last utterance took to say, for speed against his own usual speed. */
   private lastSpeechMs: number | null = null;
+  /** What the speech model said about the last utterance: how sure it was of the words and the language. */
+  private lastHeardQuality: HeardQuality | null = null;
+  /** Words she read back and is waiting to hear "yes" or "no" for, before she acts on them. */
+  private pendingHeard: { command: string; at: number } | null = null;
+
+  /** The speech model's own scores for the last utterance, for the diagnostics panel. */
+  heardQuality(): HeardQuality | null {
+    return this.lastHeardQuality;
+  }
 
   voiceTone(): VoiceTone | null {
     return this.lastTone;
@@ -1713,8 +1727,6 @@ class AssistantModeStore {
         }
       },
       onFinal: (text, meta) => {
-        this.lastTone = assessTone(meta?.prosody);
-        this.lastSpeechMs = meta?.durationMs ?? null;
         const trimmed = text.trim();
         if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
           this.trace("dropped", "duplicate finalized utterance");
@@ -1730,6 +1742,11 @@ class AssistantModeStore {
           this.to("transcript");
           return;
         }
+        // Only his own voice teaches the baseline: FRIDAY's own speech coming back through the microphone, and a
+        // repeated line, were being measured as him, which pushed his "usual" voice and made every real turn read tense.
+        this.lastTone = assessTone(meta?.prosody);
+        this.lastSpeechMs = meta?.durationMs ?? null;
+        this.lastHeardQuality = meta?.quality ?? null;
         this.state.interim = "";
         beginVoiceTurn();
         markTurnStage("heard", true, "", `${trimmed.split(/\s+/).length} words`);
@@ -1813,8 +1830,9 @@ class AssistantModeStore {
    * it, so the HUD and diagnostics show the truth rather than an assumption.
    */
   async refreshWakeEngine(force = false): Promise<WakeEngineStatus> {
-    if (force) this.applyVoiceHeal("wake-model-missing", true);
     const status = await wakeEngineStatus(wakeWord(), force);
+    // Look first, repair only what is missing: a recheck of a wake model that is there used to download it again.
+    if (force && !status.ready) this.applyVoiceHeal("wake-model-missing", true);
     this.state.wakeEngine = status;
     this.trace(
       "wake",
@@ -1858,13 +1876,20 @@ class AssistantModeStore {
     // Setup & Doctor reads these marks instead of "not checked".
     noteVoiceCheck(result?.checks ?? []);
     if (!result?.ok) {
-      const failed = report.checks.find((check) => !check.ok);
-      this.applyVoiceHeal(failed?.detail || "stt-model-missing", true);
+      // Only a part the voice cannot work without starts a repair. An optional part that is not installed
+      // (local voice, silero, smart-turn, speaker) is not a fault, and used to start a speech-model download.
+      const failed = report.checks.find((check) => !check.ok && !check.optional);
+      if (failed) this.applyVoiceHeal(failed.detail || "stt-model-missing", true);
     }
     this.state.stt = { ...this.state.stt, ready: Boolean(result?.ok) };
     if (result?.ok) this.noteVoiceTrigger("model-ready");
-    for (const check of report.checks)
-      this.trace(check.ok ? "segment" : "error", `${check.label}: ${check.detail}`);
+    for (const check of report.checks) {
+      // An optional part that is not installed is information, never an error.
+      this.trace(
+        check.ok || check.optional ? "segment" : "error",
+        check.optional ? check.label : `${check.label}: ${check.detail}`,
+      );
+    }
     this.emit();
     return {
       ok: Boolean(result?.ok),
@@ -1971,6 +1996,28 @@ class AssistantModeStore {
     }
     text = corrected;
     this.state.heard = text.slice(0, 160);
+
+    // She read the words back and is waiting: a yes goes ahead with them, a no drops them, anything else is a new request.
+    const readBack = this.pendingHeard;
+    this.pendingHeard = null;
+    if (readBack && Date.now() - readBack.at <= HEARD_CONFIRM_MS) {
+      if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
+        this.caption("user", text);
+        this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
+        this.dispatch(readBack.command);
+        return;
+      }
+      if (isBoundConfirmation(text, (value) => DENY.test(value))) {
+        const again =
+          languageId(readBack.command) === "en" ? "Okay, say it again." : "Theek hai, dobara bolo.";
+        this.caption("user", text);
+        this.caption("friday", again);
+        this.state.status = "Listening";
+        this.emit();
+        this.speak(again);
+        return;
+      }
+    }
 
     const waiting = brain.state.approval;
     if (
@@ -2171,6 +2218,20 @@ class AssistantModeStore {
     const lastCaption = this.state.captions[this.state.captions.length - 1];
     if (!(lastCaption?.who === "user" && lastCaption.text.includes(command))) {
       this.caption("user", command, false, { tag: "addressed" });
+    }
+
+    // A fluent sentence is not proof it was said: when the speech model itself was unsure (a weak per-token score, or a
+    // weak guess about the language), read the words back and act only on a yes. A stop command is never held up.
+    if (needsHeardConfirmation(command, this.lastHeardQuality, isStopCommand(command))) {
+      const ask = heardReadBack(command);
+      this.pendingHeard = { command, at: Date.now() };
+      markTurnStage("routed", false, "read back — waiting for a yes");
+      this.trace("segment", `unsure of "${command.slice(0, 80)}" — read back, waiting for a yes`);
+      this.caption("friday", ask);
+      this.state.status = "Waiting for yes or no";
+      this.emit();
+      this.speak(ask);
+      return;
     }
 
     if (wantsContinue(command) && this.unfinished) {

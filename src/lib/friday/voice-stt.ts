@@ -41,6 +41,7 @@ import {
   transcriptDropDetail,
   type HearingAudio,
 } from "./voice-hearing";
+import type { HeardQuality } from "./asr-bias";
 
 /** The same fault line is logged once. A new class replaces it. */
 export function collapseRepeat(previous: string, next: string): string | null {
@@ -235,6 +236,8 @@ export interface DictationOptions {
       ms?: number;
       prosody?: VoiceProsody | null;
       durationMs?: number | null;
+      /** How sure the speech model was about these words and their language. */
+      quality?: HeardQuality | null;
     },
   ) => void;
   /**
@@ -1106,6 +1109,9 @@ export class DesktopDictation {
         error?: string;
         language?: string;
         noSpeechProb?: number;
+        languageProbability?: number | null;
+        avgLogprob?: number | null;
+        languageNote?: string;
         dropCode?: string;
         sttClass?: string;
         fix?: string;
@@ -1141,11 +1147,23 @@ export class DesktopDictation {
             });
           }
           this.noteHearingForSize(result.audio);
+          if (result.languageNote) {
+            this.options.onDiagnostic?.({
+              stage: "segment",
+              detail: `language: ${result.languageNote}`,
+              ms: Date.now() - startedAt,
+            });
+          }
           this.options.onFinal(text, {
             wake,
             ms: Date.now() - startedAt,
             prosody: result.audio?.prosody ?? null,
             durationMs: result.audio?.durationMs ?? null,
+            quality: {
+              avgLogprob: result.avgLogprob ?? null,
+              languageProbability: result.languageProbability ?? null,
+              language: result.language ?? "",
+            },
           });
         } else {
           this.options.onDiagnostic?.({

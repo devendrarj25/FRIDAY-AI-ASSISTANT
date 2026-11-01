@@ -234,6 +234,8 @@ export type VoiceProbeCheck = {
   ok: boolean;
   detail: string;
   optional?: boolean;
+  /** False for a probe the voice can work without; the repair ladder never starts from it. */
+  required?: boolean;
   installId?: string;
 };
 
@@ -248,6 +250,7 @@ export function formatVoiceProbeReport(checks: VoiceProbeCheck[]): {
     label: String(check.label || check.id || "layer"),
     ok: Boolean(check.ok),
     optional: Boolean(check.optional),
+    required: check.required !== false,
     installId: String(check.installId || ""),
     detail: redactDiagnostics(check.detail),
   }));
