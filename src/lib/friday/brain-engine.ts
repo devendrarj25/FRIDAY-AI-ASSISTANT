@@ -1957,7 +1957,9 @@ class BrainStore {
     if (baseline.handled) {
       stampUnderstanding("baseline — no model");
       const shaped =
-        baseline.text && (care.feeling.label === "anger" || care.feeling.label === "hurry")
+        baseline.text &&
+        baseline.kind !== "smalltalk" &&
+        (care.feeling.label === "anger" || care.feeling.label === "hurry")
           ? ownerShape(work, baseline.text).text
           : baseline.text;
       void this.answerFromBaseline(

@@ -26,7 +26,7 @@ const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 const paths = require("./friday-paths.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { resolvePython } = require("./python.cjs");
-const { fetchCompat } = require("./net-fetch.cjs");
+const { boundedInit, fetchCompat } = require("./net-fetch.cjs");
 // The credential store is owned by models.cjs — read it, never duplicate it.
 const modelsApi = require("./models.cjs");
 
@@ -98,12 +98,19 @@ async function cloudTranscribe(engine, file, language) {
   const locked = whisperLanguage(language);
   if (locked) form.append("language", locked);
   const started = Date.now();
-  const res = await fetchCompat(`${engine.base}/audio/transcriptions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${engine.key}` },
-    body: form,
-  });
-  const body = await res.text();
+  // A long recording takes a while to upload, but not forever: the whole call is bounded.
+  const bounded = boundedInit(
+    { method: "POST", headers: { Authorization: `Bearer ${engine.key}` }, body: form },
+    120_000,
+  );
+  let res;
+  let body;
+  try {
+    res = await fetchCompat(`${engine.base}/audio/transcriptions`, bounded.init);
+    body = await res.text();
+  } finally {
+    bounded.clear();
+  }
   if (!res.ok) {
     return {
       ok: false,
@@ -734,8 +741,15 @@ async function transcribe(req = {}, onPartial) {
         const job = await warm.submit(file);
         if (job?.url) {
           try {
-            const res = await fetch(job.url, { method: "POST" });
-            const body = await res.json().catch(() => ({}));
+            const bounded = boundedInit({ method: "POST" }, 120_000);
+            let res;
+            let body;
+            try {
+              res = await fetch(job.url, bounded.init);
+              body = await res.json().catch(() => ({}));
+            } finally {
+              bounded.clear();
+            }
             const heard = String(body?.text || "").trim();
             if (res.ok && heard) {
               return {

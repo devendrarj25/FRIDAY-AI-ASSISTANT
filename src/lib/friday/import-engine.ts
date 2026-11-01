@@ -11,6 +11,7 @@
 import { APP_VERSION } from "./version";
 import { readLocalState, restoreFromDisk, writeState } from "./persist";
 import { governance } from "./self/governance";
+import { fetchTimeout } from "./safe-fetch";
 
 export type ImportSource = "upload" | "folder" | "github" | "url" | "clipboard";
 
@@ -620,7 +621,9 @@ class ImportEngine {
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
     try {
-      const metaRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      const metaRes = await fetchTimeout(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers,
+      });
       if (!metaRes.ok) {
         throw new Error(
           metaRes.status === 404
@@ -637,7 +640,7 @@ class ImportEngine {
       };
       const branch = parsed.branch ?? meta.default_branch;
 
-      const treeRes = await fetch(
+      const treeRes = await fetchTimeout(
         `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
         { headers },
       );
@@ -703,7 +706,7 @@ class ImportEngine {
     if (api?.downloadImport && api.scanImport) {
       return this.importDownloaded(trimmed, name, target, token);
     }
-    const response = await fetch(trimmed, { redirect: "follow" });
+    const response = await fetchTimeout(trimmed, { redirect: "follow" });
     if (!response.ok) throw new Error(`Download failed (${response.status})`);
     const buffer = await response.arrayBuffer();
     const file = new File([buffer], name, {

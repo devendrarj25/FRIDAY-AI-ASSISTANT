@@ -10,7 +10,15 @@
  * second interpreter.
  */
 
-import { analyseIntent } from "../brain-catalog";
+import { analyseIntent, intentRules } from "../brain-catalog";
+import {
+  calibrate,
+  expandShortcut,
+  noteOutcome,
+  phraseSimilarity,
+  recallPhrasing,
+  rememberPhrasing,
+} from "./intent-memory";
 import { parseWhen } from "../speech-parse";
 import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
@@ -20,6 +28,16 @@ import { noteConstraint } from "./conversation-state";
 import { ownerContextDigest } from "./identity";
 import { userProfileDigest } from "./user-profile";
 import { readPromptSignals } from "./affect";
+import {
+  clarifyingQuestion,
+  noteTurn,
+  readSlots,
+  rewriteWithHistory,
+  splitByAction,
+  impliedRequest,
+  type SlotName,
+} from "./slot-understanding";
+import { registerOf } from "../response-policy";
 import { asOfWindow, memory } from "../self/memory-engine";
 import { brainKnowledge } from "./knowledge-base";
 import { retrievalTerms, termJaccard } from "./retrieval";
@@ -99,6 +117,20 @@ export type UnderstoodIntent = {
   };
   missingInformation?: string[];
   understandingConfidence?: number;
+  /** The action the request asks for and the pieces found in it, when it is one of the registered actions. */
+  action?: string;
+  slots?: Partial<Record<SlotName, string>>;
+  /** How the words were rebuilt from the last turn: an answer filled in, a cut-short follow-up expanded, a correction linked. */
+  rewrittenFrom?: "filled" | "expanded" | "amended" | "shortcut";
+  /** How sure the word match was: the runner-up, the gap to it, whether nothing matched, and a wording the owner used before. */
+  routing?: {
+    runnerUp: string | null;
+    margin: number;
+    novel: boolean;
+    recalled: { catalogId: string; score: number; uses: number } | null;
+  };
+  /** What the owner did not ask but his words imply (a problem, a deadline). Offered, never done unasked. */
+  implied?: { kind: string; offer: string };
 };
 
 /** One-turn normalized understanding, composed from existing engines. */
@@ -140,7 +172,7 @@ export function toUnderstandingTrace(u: TurnUnderstanding): UnderstandingTrace {
 }
 
 const FOLLOW_UP =
-  /^(and |also |then |plus |\+ |what about |how about )|^\b(it|that|this|those|them)\b|\b(continue|carry on|keep going|same as (before|last time)|that one|the other one|do that again|same for|the (first|second|third|last) (one|thing)|uska|usko)\b/i;
+  /^(and |also |then |plus |\+ |what about |how about )|^\b(it|that|this|those|them)\b|\b(continue|carry on|keep going|same as (before|last time)|that one|the other one|do that again|same for|the (first|second|third|last) (one|thing)|uska|usko|usme|isme|isko|iska)\b/i;
 const CORRECTION =
   /\b(no,? (i meant|not that)|actually|correction|i said|wait,? not|galat(?: hai)?|nahi woh|nahi,? wo nahi|wo nahi|ye galat|nahi,?\s*maine kaha|that'?s (wrong|not (right|correct))|that is wrong|jo pehle wala tha|purani baat thi|ab aisa karna)\b/i;
 
@@ -214,6 +246,9 @@ export function conversationalMove(text: string): ConversationalMove {
 
 const COMMAND =
   /^(please\s+)?(open|launch|start|run|close|stop|install|uninstall|delete|remember|forget|search|look up)\b/i;
+/** Hinglish commands put the verb last: "chrome kholo", "music chala do", "ye email bhej do". */
+const HINGLISH_COMMAND =
+  /\b(?:khol(?:o|\s*do|\s*dena)|chalao|chala\s*do|chalu\s*kar(?:o|\s*do)?|band\s*kar(?:o|\s*do)?|laga\s*do|lagao|bhejo|bhej\s*do|likh\s*do|dhundo|dhoondo|khojo|download\s*kar(?:o|\s*do)?|install\s*kar(?:o|\s*do)?|hata\s*do|hatao|saaf\s*kar(?:o|\s*do)?|yaad\s*rakho|bhool\s*jao|dobara\s*karo|phir\s*se\s*karo)\s*[.!]*$/i;
 const QUESTION = /^(who|what|when|where|why|how|is|are|can|does|do|kya|kaun)\b|\?\s*$/i;
 const TASK =
   /\b(prepare|build|create|make|write|generate|research|report|plan|organise|organize)\b/i;
@@ -249,6 +284,8 @@ export function splitGoals(text: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 2);
   if (parts.length >= 2) return parts.map((part) => part.slice(0, 200));
+  const byAction = splitByAction(trimmed);
+  if (byAction) return byAction.map((part) => part.slice(0, 200));
   return [trimmed.slice(0, 200)];
 }
 
@@ -256,7 +293,7 @@ function kindOf(text: string): IntentKind {
   if (CORRECTION.test(text)) return "correction";
   if (FOLLOW_UP.test(text)) return "follow-up";
   if (AMBIGUOUS.test(text)) return "ambiguous";
-  if (COMMAND.test(text)) return "command";
+  if (COMMAND.test(text) || HINGLISH_COMMAND.test(text)) return "command";
   if (TASK.test(text) && text.length > 40) return "task";
   if (QUESTION.test(text)) return "question";
   if (text.length < 24 && !QUESTION.test(text) && !COMMAND.test(text)) return "conversation";
@@ -303,6 +340,12 @@ export function understand(text: string): UnderstoodIntent {
     kind,
     catalogId: catalog.rule.id,
     catalogLabel: catalog.rule.label,
+    routing: {
+      runnerUp: catalog.runnerUp?.id ?? null,
+      margin: catalog.margin,
+      novel: catalog.novel,
+      recalled: null,
+    },
     catalogScore: catalog.score,
     matched: catalog.matched,
     goals,
@@ -460,6 +503,53 @@ export function understandTurn(input: {
   return result;
 }
 
+/**
+ * The turn before this one, waiting to be judged. If the owner now corrects it, its confidence was wrong; if he moves
+ * on, it was right and the wording is remembered as understood. A turn that asked a question is not judged.
+ */
+let awaiting: {
+  stated: number;
+  phrase: string;
+  catalogId: string;
+  action: string | null;
+  /** Something concrete was decided (an action, a command, a catalog match), so its confidence can be judged. */
+  counts: boolean;
+  /** A request whose wording is worth remembering if it went through. */
+  learn: boolean;
+} | null = null;
+
+const THANKS =
+  /^\s*(?:thanks|thank you|thanku|shukriya|dhanyavaad|perfect|great|badhiya|mast|sahi hai|ho gaya|done|achha|accha|theek hai|ok|okay|nice|good)\b/i;
+const BUILDS_ON = /^\s*(?:aur|and|also|ab|phir|fir|then|usko|isko|uska|iska|usme|isme)\b/i;
+
+/**
+ * Judge the last turn by what the owner did next, and only when that says something:
+ *  - he corrected it, or asked the same thing again: it was not understood (counts more);
+ *  - he thanked or acknowledged it, or built on its result ("aur", "usko", "ab"): it was understood;
+ *  - anything else says nothing, and nothing is counted or remembered.
+ */
+function settleLastTurn(now: string): void {
+  const before = awaiting;
+  awaiting = null;
+  if (!before || (!before.counts && !before.learn)) return;
+  const corrected = looksLikeCorrection(now) || CORRECTION.test(now);
+  const repeated = !corrected && phraseSimilarity(before.phrase, now) >= 0.7;
+  if (corrected || repeated) {
+    if (before.counts) noteOutcome(before.stated, false, 2);
+    return;
+  }
+  const acknowledged = THANKS.test(now);
+  if (acknowledged || BUILDS_ON.test(now)) {
+    if (before.counts) noteOutcome(before.stated, true, acknowledged ? 2 : 1);
+    if (before.learn)
+      rememberPhrasing(before.phrase, { catalogId: before.catalogId, action: before.action });
+  }
+}
+
+export function resetIntentOutcomes(): void {
+  awaiting = null;
+}
+
 function understandTurnBody(
   input: {
     text: string;
@@ -469,14 +559,21 @@ function understandTurnBody(
   },
   literal: string,
 ): TurnUnderstanding {
-  const context = resolveContext(literal, input.history ?? [], {
+  // An answer to a pending question, a cut-short follow-up or a correction is rebuilt into one full request first.
+  if (input.observe !== false) settleLastTurn(literal);
+  const shortcut = expandShortcut(literal);
+  const rewrite = shortcut
+    ? ({ text: shortcut.expansion, how: "shortcut" } as const)
+    : rewriteWithHistory(literal, registerOf(literal));
+  const working = rewrite.text ?? literal;
+  const context = resolveContext(working, input.history ?? [], {
     observe: input.observe !== false,
     ...(input.endpoint ? { endpoint: input.endpoint } : {}),
   });
   const conversationResolved =
     context.resolved && context.resolved !== literal
       ? context.resolved
-      : resolvePointer(literal, currentTopic());
+      : resolvePointer(working, currentTopic());
   const resolvedIntent = understand(conversationResolved);
   // A limit the owner named ("sirf free models", "5 minute me") is held for the rest of the talk, not only this turn.
   if (input.observe !== false && resolvedIntent.constraints.length) noteConstraint(literal);
@@ -511,7 +608,28 @@ function understandTurnBody(
           "Which thing should I continue — the last task, or something else?");
   }
 
-  if (resolvedIntent.needsClarification) missingInformation.push("referent");
+  // The action and its pieces. A question word means the owner is asking about the thing, not asking for it.
+  const asking =
+    /\?\s*$|^(?:who|what|when|where|why|how|which|kya|kaun|kab|kahan|kaise|kyun|kitna)\b|\b(?:kaise|kyun|why|how)\b/i.test(
+      literal,
+    );
+  const slotRead = asking
+    ? readSlots("")
+    : readSlots(conversationResolved, resolvedReferent || context.references.length > 0);
+  if (slotRead.action) {
+    resolvedIntent.action = slotRead.action;
+    resolvedIntent.slots = slotRead.slots;
+  }
+  if (rewrite.how) resolvedIntent.rewrittenFrom = rewrite.how;
+  const askForSlot = slotRead.action !== null && slotRead.missing.length > 0 && !contextAmbiguous;
+  if (askForSlot && slotRead.action) {
+    resolvedIntent.needsClarification = true;
+    resolvedIntent.ask = clarifyingQuestion(slotRead.action, slotRead.missing, registerOf(literal));
+    for (const name of slotRead.missing) missingInformation.push(name);
+  }
+  if (input.observe !== false) noteTurn(working, slotRead, askForSlot);
+
+  if (resolvedIntent.needsClarification && !askForSlot) missingInformation.push("referent");
   if (resolvedIntent.kind === "ambiguous" && !resolvedReferent) missingInformation.push("intent");
   if (signals.confusion) missingInformation.push("user-confusion");
 
@@ -529,6 +647,31 @@ function understandTurnBody(
     understandingConfidence = Math.min(understandingConfidence, 0.4);
   }
 
+  // A wording the owner used before that went through: it decides when the words alone do not.
+  const recalled = recallPhrasing(conversationResolved);
+  if (recalled && resolvedIntent.routing) {
+    resolvedIntent.routing.recalled = {
+      catalogId: recalled.catalogId,
+      score: recalled.score,
+      uses: recalled.uses,
+    };
+    const rule = intentRules.find((row) => row.id === recalled.catalogId);
+    if (rule && (resolvedIntent.routing.novel || resolvedIntent.routing.margin === 0)) {
+      resolvedIntent.catalogId = rule.id;
+      resolvedIntent.catalogLabel = rule.label;
+      resolvedIntent.catalogScore = Math.max(
+        resolvedIntent.catalogScore,
+        0.7 + Math.min(0.2, recalled.uses * 0.05),
+      );
+    }
+    if (!ambiguous) understandingConfidence = Math.max(understandingConfidence, 0.8);
+  }
+  const implied = impliedRequest(literal);
+  if (implied && !slotRead.action) resolvedIntent.implied = implied;
+  // The number is pulled toward how often a number like it was right for this owner.
+  const stated = understandingConfidence;
+  understandingConfidence = calibrate(understandingConfidence);
+
   const session = getConversationSession();
   const resolvedGoal =
     inferred.goal ||
@@ -543,6 +686,20 @@ function understandTurnBody(
   };
   resolvedIntent.missingInformation = missingInformation;
   resolvedIntent.understandingConfidence = understandingConfidence;
+  if (input.observe !== false) {
+    awaiting = {
+      stated,
+      phrase: working,
+      catalogId: resolvedIntent.catalogId,
+      action: resolvedIntent.action ?? null,
+      counts:
+        !ambiguous &&
+        (resolvedIntent.kind === "command" ||
+          Boolean(resolvedIntent.action) ||
+          !resolvedIntent.routing?.novel),
+      learn: !ambiguous && ["command", "request", "task"].includes(resolvedIntent.kind),
+    };
+  }
 
   const result: TurnUnderstanding = {
     literal,

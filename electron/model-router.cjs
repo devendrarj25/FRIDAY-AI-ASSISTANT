@@ -334,6 +334,9 @@ const NEXT_STEP = Object.freeze({
   ipc_budget:
     "The wait limit expired. The work was not cancelled and another model is not tried for that alone.",
   timeout: "The provider timed out. FRIDAY will try a smaller reply, then another model.",
+  tls: "A secure connection could not be verified. Check the PC clock and any proxy or antivirus that inspects HTTPS, then try again. Local models still work.",
+  proxy_auth:
+    "A proxy asked for a sign-in. Sign in to the proxy or check its setting in Windows, then try again. Local models still work.",
   provider_error: "The provider failed. FRIDAY will try a different provider.",
 });
 
@@ -618,8 +621,24 @@ function classifyError(input) {
   ) {
     return withStep({ category: "kernel_down", retryable: true, cooldownMs: 15_000 });
   }
+  // A certificate that cannot be verified is not an outage: a retry gives the same answer until the clock, the proxy
+  // or the antivirus is fixed. Cloud models stop; local ones carry on.
+  if (
+    /unable to verify the first certificate|self[- ]signed certificate|cert_has_expired|certificate has expired|certificate is not yet valid|unable_to_get_issuer_cert|unable to get local issuer|err_cert|ssl routines|ssl_error|tlsv1 alert|depth_zero_self_signed|hostname\/ip does not match|altnames/.test(
+      `${text} ${code}`,
+    )
+  ) {
+    return withStep({ category: "tls", retryable: false, cooldownMs: 10 * 60_000 });
+  }
+  if (status === 407 || has("proxy authentication required")) {
+    return withStep({ category: "proxy_auth", retryable: false, cooldownMs: 10 * 60_000 });
+  }
+  // The request was too big for the provider: the same fix as a full context, make it smaller.
+  if (status === 413 || has("payload too large", "request entity too large", "request too large")) {
+    return withStep({ category: "context_overflow", retryable: false, cooldownMs: 0 });
+  }
   const transport =
-    /econnrefused|enotfound|econnreset|enetunreach|eai_again|getaddrinfo|fetch failed|all connection attempts failed|connecterror/.test(
+    /econnrefused|enotfound|econnreset|enetunreach|eai_again|getaddrinfo|fetch failed|all connection attempts failed|connecterror|etimedout|econnaborted|epipe|ehostunreach|enetdown|socket hang up|network request failed|failed to fetch|load failed|network is unreachable|und_err_connect_timeout|und_err_socket|other side closed/.test(
       text,
     );
   const loopback = /127\.0\.0\.1|localhost|\[::1\]/.test(text);
@@ -705,6 +724,8 @@ const HEALTH_REASON = {
   stream_failure: "stream failed",
   offline: "not reachable",
   network: "network error",
+  tls: "secure connection could not be verified",
+  proxy_auth: "a proxy asked for a sign-in",
   account_setting_required: "account setting required",
   kernel_down: "local AI service did not answer",
   provider_error: "provider error",
@@ -2042,6 +2063,26 @@ function repairModelIssue(kind) {
   return { allowed: true, reason: "" };
 }
 
+/**
+ * A blip is not a reason to leave a good model. One quick retry of the same model, after a short jittered wait, when
+ * the network is up and the failure looks like a dropped connection or a gateway hiccup (502/503/504), before the
+ * next candidate is tried. Nothing was streamed yet, the machine is online, and it is done once per model per request.
+ * Offline, a rate limit, a bad key or an overloaded provider are not blips and never retry here.
+ */
+function blipRetry({
+  category,
+  status = 0,
+  online = true,
+  alreadyRetried = false,
+  received = false,
+  random = Math.random,
+} = {}) {
+  if (alreadyRetried || received || !online) return { retry: false, waitMs: 0 };
+  const gateway = category === "provider_error" && [502, 503, 504].includes(Number(status));
+  if (category !== "network" && !gateway) return { retry: false, waitMs: 0 };
+  return { retry: true, waitMs: Math.round(600 + random() * 800) };
+}
+
 /** A bad request is the same on every model. Outages and a bad answer may move. */
 function midStreamFallback(category) {
   const resume = ["stream_failure", "timeout", "provider_error", "network"].includes(
@@ -2136,6 +2177,8 @@ function orderFallbacks(candidates, failed, category, options = {}) {
     category === "provider_error" ||
     category === "invalid_key" ||
     category === "network" ||
+    category === "tls" ||
+    category === "proxy_auth" ||
     category === "kernel_down" ||
     category === "account_setting_required";
   const failedBackend = backendOf(failed);
@@ -3373,6 +3416,7 @@ function localFanout(models, hardware = {}) {
 }
 
 module.exports = {
+  blipRetry,
   retryHintFromText,
   POLICIES,
   COST_MODES,

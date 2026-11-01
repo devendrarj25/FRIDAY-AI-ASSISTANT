@@ -12,6 +12,7 @@ const path = require("node:path");
 
 const sync = require("./github-sync.cjs");
 const engine = require(path.resolve(__dirname, "..", "scripts", "release-engine.cjs"));
+const { boundedInit } = require("./net-fetch.cjs");
 
 const API = "https://api.github.com";
 const WORKFLOW = "release.yml";
@@ -25,12 +26,18 @@ async function call(cfg, endpoint, { method = "GET", body } = {}) {
   };
   if (cfg.token) headers.authorization = `Bearer ${cfg.token}`;
   if (body) headers["content-type"] = "application/json";
-  const res = await fetch(`${API}${endpoint}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
+  const bounded = boundedInit(
+    { method, headers, body: body ? JSON.stringify(body) : undefined },
+    20_000,
+  );
+  let res;
+  let text;
+  try {
+    res = await fetch(`${API}${endpoint}`, bounded.init);
+    text = await res.text();
+  } finally {
+    bounded.clear();
+  }
   let parsed = null;
   try {
     parsed = text ? JSON.parse(text) : null;

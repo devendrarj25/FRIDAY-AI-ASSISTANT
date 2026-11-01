@@ -248,7 +248,7 @@ function referentSurface(text: string): string {
 function looksLikeReferenceOnly(text: string): boolean {
   return (
     text.length < 80 &&
-    /\b(option|choice|it|that|this|these|those|same|continue|carry on|kal|yesterday|wahi|dusra|doosra|pehla|pehle|uska|usko|uski|isko|iske|ispe|revert|go back|the (first|second|third|last)|previous one|bas kar)\b/i.test(
+    /\b(option|choice|it|that|this|these|those|same|continue|carry on|kal|yesterday|wahi|dusra|doosra|pehla|pehle|uska|usko|uski|isko|iske|iska|iski|usme|isme|usmein|ismein|unko|uske|ispe|revert|go back|the (first|second|third|last)|previous one|bas kar)\b/i.test(
       referentSurface(text),
     )
   );

@@ -18,6 +18,7 @@ function el() {
 
 let sendToRenderer = () => {};
 const paths = require("./friday-paths.cjs");
+const { boundedInit } = require("./net-fetch.cjs");
 
 let workspaceRootFn = () => null;
 let ready = false;
@@ -442,13 +443,20 @@ async function cookieDump({ url, domain } = {}) {
 
 /** Shared fetch: same cookies/session as the visible tabs. */
 async function sessionFetch(url, options) {
+  const bounded = boundedInit(options || {}, 30_000);
   try {
-    const ses = browserSession();
-    if (typeof ses.fetch === "function") return ses.fetch(url, options);
-  } catch {
-    /* no Electron session — fall through to global fetch */
+    try {
+      const ses = browserSession();
+      if (typeof ses.fetch === "function") return await ses.fetch(url, bounded.init);
+    } catch (error) {
+      // A timeout is the answer; only a missing session falls through to the global fetch.
+      if (error && error.code === "ETIMEDOUT") throw error;
+      /* no Electron session — fall through to global fetch */
+    }
+    return await fetch(url, bounded.init);
+  } finally {
+    bounded.clear();
   }
-  return fetch(url, options);
 }
 
 function init({ send, workspaceRoot }) {

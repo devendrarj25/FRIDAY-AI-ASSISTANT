@@ -6,6 +6,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const resourcePaths = require("./resource-paths.cjs");
+const { boundedInit } = require("./net-fetch.cjs");
 
 // Fail closed when the allowlist file is missing. Loopback stays so the
 // local daemon can still be reached. Doctor reports the degraded row.
@@ -161,7 +162,14 @@ async function fetchAllowlisted(raw, options = {}, extraHosts = []) {
       const checked = assertAllowedUrl(current, extraHosts, originFamily);
       if (!originFamily) originFamily = checked.fridayFamily || "";
     }
-    const res = await fetch(current, { ...options, redirect: "manual" });
+    // The wait for the answer is bounded; the body that follows is streamed by the caller, which owns its own stall check.
+    const bounded = boundedInit({ ...options, redirect: "manual" }, 30_000);
+    let res;
+    try {
+      res = await fetch(current, bounded.init);
+    } finally {
+      bounded.clear();
+    }
     const status = res.status;
     if (status >= 300 && status < 400) {
       const location = res.headers.get("location");

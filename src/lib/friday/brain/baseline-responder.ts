@@ -23,6 +23,15 @@ import { brainKnowledge } from "./knowledge-base";
 import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
 import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
+import { answerSelf, selfTopic } from "./self-questions";
+import { comfortReply, correctMoodReading } from "./comfort";
+import {
+  forgetPhrasings,
+  forgetShortcut,
+  listShortcuts,
+  parseShortcutTeaching,
+  teachShortcut,
+} from "./intent-memory";
 import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import { answerFormatQuestion } from "./format-atlas";
 import {
@@ -481,6 +490,51 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
       /* live registries unavailable — keep the static summary as fallback */
     }
     return reply("capabilities", capabilitySummary(), 0.9);
+  }
+
+  // 1b. other questions about herself, in English and Hinglish: each one is handed to the module that owns
+  // the facts, so nothing is guessed and nothing is changed without approval.
+  {
+    const topic = selfTopic(text);
+    if (topic) {
+      const answer = answerSelf(topic, text);
+      return "text" in answer ? reply("identity", answer.text, 0.9) : live(answer.resolve, 0.92);
+    }
+  }
+
+  // 1b2. a shortcut taught in words, or asked to be forgotten: it is kept on this PC and only rewrites his words.
+  {
+    const taught = parseShortcutTeaching(text);
+    if (taught) {
+      teachShortcut(taught.trigger, taught.expansion);
+      return reply(
+        "learning",
+        prefersHinglish(text)
+          ? `Theek hai. Ab jab bhi tum "${taught.trigger}" bologe, main samjhungi: ${taught.expansion}. Ye sirf tumhare shabdon ko badalta hai, koi kaam apne aap nahi chalta, aur tum "shortcuts dikhao" se dekh sakte ho.`
+          : `Done. Whenever you say "${taught.trigger}", I'll read it as: ${taught.expansion}. It only rewrites your words; nothing runs by itself, and you can see it with "show my shortcuts".`,
+        0.92,
+      );
+    }
+    if (/^(?:saari |all )?shortcuts?\s+(?:bhool jao|hata do|delete|forget|clear)/i.test(text)) {
+      for (const row of listShortcuts()) forgetShortcut(row.trigger);
+      forgetPhrasings();
+      return reply(
+        "learning",
+        prefersHinglish(text)
+          ? "Ho gaya, saari shortcuts aur yaad rakhe hue shabd hata diye."
+          : "Done, I've cleared every shortcut and remembered wording.",
+        0.92,
+      );
+    }
+  }
+
+  // 1c. how the owner is doing: a correction of her reading comes first, then a message that is only a feeling is
+  // answered kindly here; a message with a task in it keeps the task and gets the warmth added by the shaper.
+  {
+    const corrected = correctMoodReading(text);
+    if (corrected) return reply("smalltalk", corrected, 0.92);
+    const comfort = comfortReply(text);
+    if (comfort) return reply("smalltalk", comfort, 0.9);
   }
 
   // 2. owner-work (desk / books / tender) before generic date/math so a CSV

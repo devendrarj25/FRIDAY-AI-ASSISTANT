@@ -24,7 +24,7 @@ export type ActionRisk = "safe" | "write" | "exec";
  * processes, installs, money or the FRIDAY build itself must be confirmed.
  */
 export const CONSEQUENTIAL =
-  /\b(delete|remove|erase|format|wipe|uninstall|install|update|upgrade|reinstall|shutdown|shut down|restart|reboot|kill|terminate|stop\s+service|run|execute|launch|build|rebuild|deploy|publish|overwrite|rename|move|copy|write|save\s+file|create\s+file|download|fetch|git\s+(clone|push|reset|clean)|pull\s+model|npm|pip|powershell|cmd|registry|disable|enable\s+service|purchase|buy|pay|subscribe|hata\s*do|hata\s*dena|hatao|mita\s*do|mita\s*dena|mitao|saaf\s*kar|uda\s*do|udao|nikal\s*do|khatam\s*kar|band\s*kar(?:o|na|do)|bhej\s*do|bhejo|kharid(?:o|na)|bharo|payment\s*kar)\b/i;
+  /\b(delete|remove|erase|format|wipe|uninstall|install|update|upgrade|reinstall|shutdown|shut down|restart|reboot|kill|terminate|stop\s+service|run|execute|launch|build|rebuild|deploy|publish|overwrite|rename|move|copy|write|save\s+file|create\s+file|download|fetch|git\s+(clone|push|reset|clean)|pull\s+model|npm|pip|powershell|cmd|registry|disable|enable\s+service|purchase|buy|pay|subscribe|hata\s*do|hata\s*dena|hatao|mita\s*do|mita\s*dena|mitao|saaf\s*kar|uda\s*do|udao|nikal\s*do|khatam\s*kar|band\s*kar(?:o|na|do)|bhej\s*do|bhejo|kharid(?:o|na)|bharo|payment\s*kar|order\s*(?:kar|karo|kardo|do|de\s*do)|place\s+(?:an?\s+)?order|book\s*kar(?:o|do)?|transfer\s*kar(?:o|do)?)\b/i;
 
 export const AFFIRM =
   /\b(yes|yeah|yep|confirm|confirmed|do it|go ahead|proceed|haan|haa|thik hai|ok|okay)\b/i;
@@ -55,6 +55,17 @@ const GENERATION =
 
 export function isConsequential(text: string): boolean {
   return CONSEQUENTIAL.test(String(text ?? "").replace(GENERATION, " "));
+}
+
+/**
+ * Typing a password, PIN, OTP or card number for the owner. UAC, a password field and a payment are never read,
+ * clicked or typed by FRIDAY, whatever the mode or the autonomy dial says; the owner enters them himself.
+ */
+const CREDENTIAL_ENTRY =
+  /\b(password|passcode|pin|otp|cvv|card\s*number)\b.*\b(bhar|daal|dal|type|enter|fill|likh|bhej|share|put)\b|\b(type|enter|fill|put|daal)\b.*\b(password|passcode|otp|cvv|card\s*number)\b/i;
+
+export function isCredentialEntry(text: string): boolean {
+  return CREDENTIAL_ENTRY.test(String(text ?? ""));
 }
 
 /** Words that destroy or switch things off. These are confirmed in Auto mode too, however sure FRIDAY is. */

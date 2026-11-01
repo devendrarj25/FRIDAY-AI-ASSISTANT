@@ -1163,7 +1163,11 @@ export class TaskGraphEngine {
       }
       if (node.attempts < node.maxAttempts) {
         node.state = "retrying";
-        node.retryDelayMs = retryBackoffMs(node.attempts);
+        // The wait the failure itself asked for (a dropped connection, a 503) beats the generic backoff.
+        node.retryDelayMs =
+          recovery.action === "retry" && recovery.delayMs
+            ? recovery.delayMs
+            : retryBackoffMs(node.attempts);
         this.log(graph, `${node.title} failed (${node.error}) — retrying`, "warn");
         this.emit();
         return true;

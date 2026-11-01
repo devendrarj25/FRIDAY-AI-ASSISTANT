@@ -6,7 +6,7 @@
  * risky work asks the owner instead of guessing.
  */
 
-import { actionMode, isConsequential, isDestructive } from "./action-risk";
+import { actionMode, isConsequential, isCredentialEntry, isDestructive } from "./action-risk";
 import { currentPolicy } from "./cost-policy";
 import { CONFIDENT_THRESHOLD, estimateConfidence } from "./confidence";
 import type { UnderstoodIntent } from "./intent-engine";
@@ -276,6 +276,19 @@ export function decideAction(input: {
     }
   } catch {
     /* meta-reasoning must never block a turn */
+  }
+
+  if (isCredentialEntry(text)) {
+    return withStrategy({
+      route: "ask",
+      proceed: false,
+      askUser: true,
+      reason:
+        "I never type a password, PIN, OTP or card number. You enter it yourself and I carry on after.",
+      confidence: 0.95,
+      reversible: true,
+      paidBlocked,
+    });
   }
 
   if (input.handledByBaseline) {
