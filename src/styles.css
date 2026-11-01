@@ -220,6 +220,13 @@
     border-color: var(--color-border);
   }
 
+  /* A plain grid has one column that may shrink. Without this, "grid lg:grid-cols-2" has an auto column on a
+     small window, which grows to the widest unwrapped child (a table, a long path) and pushes the whole page
+     sideways. Every grid-cols utility is in a later layer and still wins. */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   /* Native controls (the open list of a <select>, scrollbars, date pickers)
      follow the theme instead of drawing a white sheet on a dark app. */
   :root {

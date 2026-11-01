@@ -89,7 +89,7 @@ export function TitleStrip() {
       onContextMenu={onContextMenu}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <FridayOrb size={18} className="shrink-0" />
+        <FridayOrb size={18} still className="shrink-0" />
         <p className="min-w-0 truncate font-display text-[0.8125rem] font-bold tracking-[0.2em] text-primary glow-text">
           FRIDAY <span className="text-muted-foreground">— PERSONAL AI ASSISTANT</span>
         </p>
