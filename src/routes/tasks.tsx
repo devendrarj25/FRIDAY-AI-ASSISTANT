@@ -339,7 +339,7 @@ function GraphRow({
               size="sm"
               variant="ghost"
               onClick={() =>
-                void copyText(graph.request).then((ok) =>
+                copyText(graph.request).then((ok) =>
                   ok ? toast.success("Copied the request.") : toast.error("Could not copy."),
                 )
               }

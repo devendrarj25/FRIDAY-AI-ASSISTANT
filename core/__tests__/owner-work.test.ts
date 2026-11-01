@@ -442,5 +442,7 @@ with ZipFile(out, "w", ZIP_DEFLATED) as z:
     const empty = extract.parsePdf(Buffer.from("%PDF-1.1 empty"));
     expect(empty.text).toBe("");
     expect(empty.error).toMatch(/will not invent/i);
-  });
+    // The empty PDF takes the OCR fallback, which starts Python (up to 60 s in the extractor). On a loaded
+    // machine, in the middle of the full suite, that start is slower than the 5 s default.
+  }, 30_000);
 });

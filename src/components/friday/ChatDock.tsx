@@ -677,7 +677,7 @@ export function ChatDock() {
           variant="ghost"
           size="sm"
           className="h-6 gap-1 px-1.5 text-note-sm"
-          onClick={() => void navigate({ to: "/library" })}
+          onClick={() => navigate({ to: "/library" })}
         >
           Open full <ArrowRight className="size-3" />
         </Button>
@@ -713,7 +713,7 @@ export function ChatDock() {
           variant="ghost"
           size="sm"
           className="h-6 gap-1 px-1.5 text-note-sm"
-          onClick={() => void navigate({ to: "/projects" })}
+          onClick={() => navigate({ to: "/projects" })}
         >
           Open full <ArrowRight className="size-3" />
         </Button>

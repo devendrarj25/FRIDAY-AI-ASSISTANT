@@ -138,7 +138,7 @@ export function FinetunePanel() {
             <Button
               size="sm"
               disabled={!base || busy || !view.readiness.ready || examples < MIN_EXAMPLES}
-              onClick={() => void propose()}
+              onClick={() => propose()}
             >
               Propose training
             </Button>
@@ -159,7 +159,7 @@ export function FinetunePanel() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => void act("Training stopped", cancelFinetune)}
+                      onClick={() => act("Training stopped", cancelFinetune)}
                     >
                       Stop
                     </Button>
@@ -182,9 +182,7 @@ export function FinetunePanel() {
                       size="sm"
                       variant="outline"
                       disabled={adapter.id === view.active}
-                      onClick={() =>
-                        void act("Adapter switched on", () => activateAdapter(adapter.id))
-                      }
+                      onClick={() => act("Adapter switched on", () => activateAdapter(adapter.id))}
                     >
                       Use
                     </Button>
@@ -209,7 +207,7 @@ export function FinetunePanel() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void act("Back on the plain base model", () => activateAdapter(null))}
+              onClick={() => act("Back on the plain base model", () => activateAdapter(null))}
             >
               Switch back to the plain base model
             </Button>

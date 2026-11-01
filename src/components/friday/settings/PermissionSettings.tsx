@@ -139,9 +139,7 @@ export function PermissionSettings() {
             size="sm"
             variant="outline"
             disabled={!name.trim()}
-            onClick={() => {
-              void set(name.trim(), "ask").then(() => setName(""));
-            }}
+            onClick={() => set(name.trim(), "ask").then(() => setName(""))}
           >
             Add rule
           </Button>

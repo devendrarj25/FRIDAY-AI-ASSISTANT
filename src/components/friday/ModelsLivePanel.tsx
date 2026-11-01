@@ -172,7 +172,7 @@ export function ModelsLivePanel() {
             size="sm"
             variant="ghost"
             title="Reset all usage counts"
-            onClick={() => void modelLive.reset()}
+            onClick={() => modelLive.reset()}
           >
             <RotateCcw className="size-3.5" />
           </Button>
@@ -256,7 +256,7 @@ export function ModelsLivePanel() {
                       size="sm"
                       variant="ghost"
                       title="Send one test request"
-                      onClick={() => void test(id)}
+                      onClick={() => test(id)}
                     >
                       <RadioTower className="size-3.5" />
                     </Button>

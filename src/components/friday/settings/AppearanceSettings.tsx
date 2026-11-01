@@ -368,7 +368,7 @@ export function AppearanceSettings() {
           size="sm"
           variant="outline"
           className="mt-3"
-          onClick={() => void navigate({ to: "/settings", search: { section: "text" } as never })}
+          onClick={() => navigate({ to: "/settings", search: { section: "text" } as never })}
         >
           Open Fonts &amp; Text
         </Button>

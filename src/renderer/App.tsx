@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter, createMemoryHistory } from "@tanstack/react-router";
 
+import { RouteError, RoutePending } from "@/components/friday/PageStates";
 import { routeTree } from "@/routeTree.gen";
 
 /**
@@ -16,6 +17,12 @@ export const router = createRouter({
   context: { queryClient },
   history: createMemoryHistory({ initialEntries: ["/"] }),
   scrollRestoration: true,
+  // A route that throws shows the message, Retry and a way back inside the shell. A section that is slow
+  // to arrive shows a waiting state after 200 ms, and keeps it for at least 300 ms so it never flashes.
+  defaultErrorComponent: RouteError,
+  defaultPendingComponent: RoutePending,
+  defaultPendingMs: 200,
+  defaultPendingMinMs: 300,
   // Warm each section's lazy chunk on hover so clicks in the packaged app open
   // instantly instead of blocking on a chunk fetch.
   defaultPreload: "intent",

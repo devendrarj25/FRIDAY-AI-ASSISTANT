@@ -170,7 +170,7 @@ export function CompanionSettings() {
               size="sm"
               variant="outline"
               onClick={() =>
-                void maintenance("restart", "Restart", async () => {
+                maintenance("restart", "Restart", async () => {
                   await bridge.characterRestart();
                   return { ok: true };
                 })
@@ -360,9 +360,7 @@ export function CompanionSettings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                void maintenance("install", "Install", () => bridge.characterInstall())
-              }
+              onClick={() => maintenance("install", "Install", () => bridge.characterInstall())}
               disabled={busy !== null}
             >
               {busy === "install" ? (

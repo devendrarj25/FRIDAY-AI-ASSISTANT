@@ -806,7 +806,7 @@ function BrainPage() {
                   size="sm"
                   variant="outline"
                   onClick={() =>
-                    void navigate({
+                    navigate({
                       to: "/settings",
                       search: { section: "updates" } as never,
                     })

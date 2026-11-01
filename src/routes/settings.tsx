@@ -102,9 +102,7 @@ function SettingsPage() {
       actions={
         <Button
           size="sm"
-          onClick={() => {
-            void preferences.flush().then(() => toast.success("Settings saved"));
-          }}
+          onClick={() => preferences.flush().then(() => toast.success("Settings saved"))}
         >
           <Save className="size-4" /> Save
         </Button>

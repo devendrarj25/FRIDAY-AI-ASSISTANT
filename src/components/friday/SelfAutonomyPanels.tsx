@@ -503,13 +503,13 @@ function GovernancePanel() {
             size="sm"
             variant="ghost"
             disabled={!waiting.length}
-            onClick={() => {
-              void copyText(JSON.stringify(waiting, null, 2)).then((ok) =>
+            onClick={() =>
+              copyText(JSON.stringify(waiting, null, 2)).then((ok) =>
                 toast[ok ? "success" : "error"](
                   ok ? "Waiting approvals copied" : "Copying was blocked",
                 ),
-              );
-            }}
+              )
+            }
           >
             Copy waiting
           </Button>
@@ -654,7 +654,7 @@ function MaintenancePanel() {
             variant="outline"
             disabled={busy}
             onClick={() =>
-              void guard("Index rebuild", async () => {
+              guard("Index rebuild", async () => {
                 const summary = await selfIndex(true);
                 setIndex(summary);
                 toast.success(summary ? `${summary.totals.files} files indexed` : "Index rebuilt");
@@ -668,7 +668,7 @@ function MaintenancePanel() {
             variant="outline"
             disabled={busy}
             onClick={() =>
-              void guard("Change scan", async () => {
+              guard("Change scan", async () => {
                 const result = await selfScan();
                 toast.message(result ? `${result.changes} change(s) detected` : "Nothing to scan");
               })
@@ -680,7 +680,7 @@ function MaintenancePanel() {
             size="sm"
             disabled={busy}
             onClick={() =>
-              void guard("Health check", async () => {
+              guard("Health check", async () => {
                 const health = await selfHealth();
                 toast[health?.ok ? "success" : "error"](
                   health?.detail ?? "Health check unavailable",
@@ -695,7 +695,7 @@ function MaintenancePanel() {
             variant="outline"
             disabled={busy}
             onClick={() =>
-              void guard("Verify workspace", async () => {
+              guard("Verify workspace", async () => {
                 const verified = await selfVerify([]);
                 toast[verified.ok ? "success" : "error"](
                   verified.ok
@@ -712,7 +712,7 @@ function MaintenancePanel() {
             variant="ghost"
             disabled={busy || !live.lastApplyBackup}
             onClick={() =>
-              void guard("Rollback last", async () => {
+              guard("Rollback last", async () => {
                 const undone = await self.undoLastApply();
                 toast[undone.ok ? "success" : "error"](
                   undone.ok ? "Previous files restored" : (undone.error ?? "Rollback failed"),
@@ -792,7 +792,7 @@ function MaintenancePanel() {
                   size="sm"
                   disabled={busy || entry.verdict === "blocked"}
                   onClick={() =>
-                    void guard("Apply", async () => {
+                    guard("Apply", async () => {
                       const result = await selfApply(entry.id, "manual");
                       if (result.backup) self.rememberApplyBackup(result.backup);
                       toast[result.ok ? "success" : "error"](

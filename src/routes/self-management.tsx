@@ -241,9 +241,7 @@ function SelfManagementPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() =>
-              void navigate({ to: "/settings", search: { section: "updates" } as never })
-            }
+            onClick={() => navigate({ to: "/settings", search: { section: "updates" } as never })}
           >
             Open Updates →
           </Button>
@@ -744,11 +742,11 @@ function SelfManagementPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => {
-                  void copyText(JSON.stringify(tasks.tasks, null, 2)).then((ok) =>
+                onClick={() =>
+                  copyText(JSON.stringify(tasks.tasks, null, 2)).then((ok) =>
                     toast[ok ? "success" : "error"](ok ? "Ledger copied" : "Copying was blocked"),
-                  );
-                }}
+                  )
+                }
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy ledger
               </Button>

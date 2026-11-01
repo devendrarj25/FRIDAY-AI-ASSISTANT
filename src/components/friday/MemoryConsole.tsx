@@ -197,13 +197,13 @@ export function MemoryConsole() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                void copyText(exportMemoryBackup()).then((ok) =>
+              onClick={() =>
+                copyText(exportMemoryBackup()).then((ok) =>
                   ok
                     ? toast.success("Memory exported to the clipboard")
                     : toast.error("Copying was blocked"),
-                );
-              }}
+                )
+              }
             >
               Copy JSON
             </Button>
@@ -388,11 +388,11 @@ export function MemoryConsole() {
                         size="sm"
                         variant="ghost"
                         title="Copy text"
-                        onClick={() => {
-                          void copyText(`${item.title}\n\n${item.text}`).then((ok) =>
+                        onClick={() =>
+                          copyText(`${item.title}\n\n${item.text}`).then((ok) =>
                             toast[ok ? "success" : "error"](ok ? "Copied" : "Copying was blocked"),
-                          );
-                        }}
+                          )
+                        }
                       >
                         <Copy className="h-3.5 w-3.5" />
                       </Button>

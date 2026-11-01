@@ -623,11 +623,9 @@ function FlowStudioBody({ mapOn, onMap }: { mapOn: boolean; onMap: (value: boole
         <Button
           size="sm"
           variant="outline"
-          onClick={() => {
-            void exportPdf(shown).then((bytes) =>
-              download("friday-flow.pdf", bytes, "application/pdf"),
-            );
-          }}
+          onClick={() =>
+            exportPdf(shown).then((bytes) => download("friday-flow.pdf", bytes, "application/pdf"))
+          }
         >
           PDF
         </Button>

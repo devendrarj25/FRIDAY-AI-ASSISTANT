@@ -49,11 +49,11 @@ export function ExternalReadinessPanel() {
     <HudPanel title="Outside benchmarks" hint="what a run would still need">
       <div className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2 text-meta-sm text-muted-foreground">
-          <Button size="sm" variant="outline" onClick={() => void choose(setDataDir)}>
+          <Button size="sm" variant="outline" onClick={() => choose(setDataDir)}>
             <FolderOpen className="size-4" /> Data folder
           </Button>
           <span className="break-all">{dataDir || "not set"}</span>
-          <Button size="sm" variant="outline" onClick={() => void choose(setResultsDir)}>
+          <Button size="sm" variant="outline" onClick={() => choose(setResultsDir)}>
             <FolderOpen className="size-4" /> Results folder
           </Button>
           <span className="break-all">{resultsDir || "not set"}</span>

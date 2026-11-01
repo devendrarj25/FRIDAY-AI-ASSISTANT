@@ -413,9 +413,7 @@ function N8nPage() {
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        void trigger(
-                          `${base.replace(/\/$/, "")}/webhook/${encodeURIComponent(w.id)}`,
-                        )
+                        trigger(`${base.replace(/\/$/, "")}/webhook/${encodeURIComponent(w.id)}`)
                       }
                     >
                       <Play className="size-4" /> Run

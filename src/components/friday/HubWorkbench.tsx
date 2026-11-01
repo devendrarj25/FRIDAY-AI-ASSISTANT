@@ -265,7 +265,7 @@ export function HubWorkbench({ resource }: { resource: HubResource }) {
                   variant="ghost"
                   aria-label="Reload file list"
                   onClick={() =>
-                    void run("Reload", async () => setFiles(await hub.stagedFiles(resource)))
+                    run("Reload", async () => setFiles(await hub.stagedFiles(resource)))
                   }
                 >
                   <RefreshCw className="size-3.5" />

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useRouter, type ErrorComponentProps } from "@tanstack/react-router";
 import { Home, RotateCcw, TriangleAlert, WifiOff } from "lucide-react";
-import { ActionButton } from "@/components/friday/ui";
+import { ActionButton, LoadingState } from "@/components/friday/ui";
 import { isDesktopApp } from "@/lib/friday/desktop";
 import { onVisibleSecond } from "@/lib/friday/frame-clock";
 import { ageLabel, liveness, type Liveness } from "@/lib/friday/page-state";
@@ -176,6 +176,18 @@ export function RouteError({ error, reset }: ErrorComponentProps) {
           Go to Main window
         </Link>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Route-level waiting screen (router `defaultPendingComponent`). It only shows once a section has taken
+ * longer than the router's pending delay to arrive, so a fast switch never flashes it.
+ */
+export function RoutePending() {
+  return (
+    <div className="mx-auto max-w-xl px-4 py-10">
+      <LoadingState label="Opening this page…" rows={4} />
     </div>
   );
 }

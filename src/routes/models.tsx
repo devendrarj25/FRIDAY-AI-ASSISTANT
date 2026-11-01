@@ -433,9 +433,7 @@ function LocalRunners() {
                     size="sm"
                     variant="ghost"
                     aria-label={`Open ${runner.name}`}
-                    onClick={() => {
-                      void desktopApi()?.openExternalUrl?.(runner.officialPage);
-                    }}
+                    onClick={() => desktopApi()?.openExternalUrl?.(runner.officialPage)}
                   >
                     Open
                   </Button>
@@ -480,9 +478,7 @@ function LocalRunners() {
                 size="sm"
                 variant="ghost"
                 aria-label={`Open ${row.name}`}
-                onClick={() => {
-                  void desktopApi()?.openExternalUrl?.(row.officialPage);
-                }}
+                onClick={() => desktopApi()?.openExternalUrl?.(row.officialPage)}
               >
                 Official page
               </Button>
@@ -587,8 +583,8 @@ function CloudSelection({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => {
-            void desktopApi()
+          onClick={() =>
+            desktopApi()
               ?.setModelAllowlist?.({ ids: picked, paidEnabled: paidOn })
               .then((saved) =>
                 setNote(
@@ -599,8 +595,8 @@ function CloudSelection({
                       : "Saved. Only the selected models are ever used.",
                 ),
               )
-              .catch((err: Error) => setNote(`Not saved — ${err.message}`));
-          }}
+              .catch((err: Error) => setNote(`Not saved — ${err.message}`))
+          }
         >
           Save selection
         </Button>
@@ -926,9 +922,7 @@ function ModelsPage() {
                     variant="ghost"
                     title="Pause keeps the partial file"
                     aria-label={`Pause ${job.modelId}`}
-                    onClick={() => {
-                      void desktopApi()?.transferModel?.(job.id, "pause");
-                    }}
+                    onClick={() => desktopApi()?.transferModel?.(job.id, "pause")}
                   >
                     Pause
                   </Button>
@@ -1750,9 +1744,7 @@ function ModelsPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => {
-                      void engine.previewPrompt(routeDraft).then(setRoutePreview);
-                    }}
+                    onClick={() => engine.previewPrompt(routeDraft).then(setRoutePreview)}
                   >
                     Dry run
                   </Button>
@@ -2312,7 +2304,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
             then shows up in the model list ready to use.
           </p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            <Button size="sm" disabled={picking || !desktop} onClick={() => void pick("file")}>
+            <Button size="sm" disabled={picking || !desktop} onClick={() => pick("file")}>
               <Upload className="size-4" />
               Choose model files
             </Button>
@@ -2320,7 +2312,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
               size="sm"
               variant="outline"
               disabled={picking || !desktop}
-              onClick={() => void pick("folder")}
+              onClick={() => pick("folder")}
             >
               <FolderOpen className="size-4" />
               Choose a model folder
@@ -2399,7 +2391,7 @@ function ImportPanel({ state }: { state: ReturnType<typeof useModels> }) {
                           variant="ghost"
                           aria-label={`Try ${m.name} again`}
                           title="Try again"
-                          onClick={() => void engine.importModel({ path: m.path, name: m.name })}
+                          onClick={() => engine.importModel({ path: m.path, name: m.name })}
                         >
                           <RefreshCw className="size-3.5" />
                         </Button>
