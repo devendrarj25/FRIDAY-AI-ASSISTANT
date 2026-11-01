@@ -45,7 +45,7 @@ export type ResolvedContext = {
 };
 
 const REF =
-  /\b(it|that|this|those|them|these|the same|same as before|continue( this)?|keep going|carry on|usko|uska|wo|ye|woh|isko|usi|isi|the other one|that one|same one|same thing|previous one|last task|previous project)\b/i;
+  /\b(it|that|this|those|them|these|the same|same as before|continue( this)?|keep going|carry on|usko|uska|usme|isme|usmein|ismein|unko|uske|iske|iska|iski|wo|ye|woh|isko|usi|isi|the other one|that one|same one|same thing|previous one|last task|previous project)\b/i;
 const WHAT_ABOUT = /^(what|how) about\b/i;
 const SAME_FOR = /\bsame (for|with)\b/i;
 const ORDINAL = /\bthe (first|second|third|last)(?:\s+(one|thing|item|option))?\b/i;

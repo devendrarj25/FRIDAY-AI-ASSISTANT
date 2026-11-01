@@ -71,7 +71,7 @@ const GO_BACK =
 const REVERT = /\b(revert that|undo that|use the previous version)\b/i;
 const THAT_FILE = /\b(that file|that change|wo file|wo change|woh file|woh feature)\b/i;
 const ANAPHORA =
-  /\b(it|this|that|these|those|them|the same|same as before|same one|same thing|that one|the other one|usko|uska|uski|wo|wahi|ye|woh|isko|usi|isi|previous one|last task|previous project|wahi bug|same issue)\b/i;
+  /\b(it|this|that|these|those|them|the same|same as before|same one|same thing|that one|the other one|usko|uska|uski|usme|isme|usmein|ismein|unko|uske|iske|iska|iski|wo|wahi|ye|woh|isko|usi|isi|previous one|last task|previous project|wahi bug|same issue)\b/i;
 const EXECUTE_CURRENT = /^(bas kar do|just do (it|that)|go ahead|do that|kar do)\b/i;
 
 const WORD_INDEX: Record<string, number> = {

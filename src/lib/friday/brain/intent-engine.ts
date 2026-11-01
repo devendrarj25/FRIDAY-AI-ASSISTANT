@@ -20,6 +20,15 @@ import { noteConstraint } from "./conversation-state";
 import { ownerContextDigest } from "./identity";
 import { userProfileDigest } from "./user-profile";
 import { readPromptSignals } from "./affect";
+import {
+  clarifyingQuestion,
+  noteTurn,
+  readSlots,
+  rewriteWithHistory,
+  splitByAction,
+  type SlotName,
+} from "./slot-understanding";
+import { registerOf } from "../response-policy";
 import { asOfWindow, memory } from "../self/memory-engine";
 import { brainKnowledge } from "./knowledge-base";
 import { retrievalTerms, termJaccard } from "./retrieval";
@@ -99,6 +108,11 @@ export type UnderstoodIntent = {
   };
   missingInformation?: string[];
   understandingConfidence?: number;
+  /** The action the request asks for and the pieces found in it, when it is one of the registered actions. */
+  action?: string;
+  slots?: Partial<Record<SlotName, string>>;
+  /** How the words were rebuilt from the last turn: an answer filled in, a cut-short follow-up expanded, a correction linked. */
+  rewrittenFrom?: "filled" | "expanded" | "amended";
 };
 
 /** One-turn normalized understanding, composed from existing engines. */
@@ -140,7 +154,7 @@ export function toUnderstandingTrace(u: TurnUnderstanding): UnderstandingTrace {
 }
 
 const FOLLOW_UP =
-  /^(and |also |then |plus |\+ |what about |how about )|^\b(it|that|this|those|them)\b|\b(continue|carry on|keep going|same as (before|last time)|that one|the other one|do that again|same for|the (first|second|third|last) (one|thing)|uska|usko)\b/i;
+  /^(and |also |then |plus |\+ |what about |how about )|^\b(it|that|this|those|them)\b|\b(continue|carry on|keep going|same as (before|last time)|that one|the other one|do that again|same for|the (first|second|third|last) (one|thing)|uska|usko|usme|isme|isko|iska)\b/i;
 const CORRECTION =
   /\b(no,? (i meant|not that)|actually|correction|i said|wait,? not|galat(?: hai)?|nahi woh|nahi,? wo nahi|wo nahi|ye galat|nahi,?\s*maine kaha|that'?s (wrong|not (right|correct))|that is wrong|jo pehle wala tha|purani baat thi|ab aisa karna)\b/i;
 
@@ -252,6 +266,8 @@ export function splitGoals(text: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 2);
   if (parts.length >= 2) return parts.map((part) => part.slice(0, 200));
+  const byAction = splitByAction(trimmed);
+  if (byAction) return byAction.map((part) => part.slice(0, 200));
   return [trimmed.slice(0, 200)];
 }
 
@@ -472,14 +488,17 @@ function understandTurnBody(
   },
   literal: string,
 ): TurnUnderstanding {
-  const context = resolveContext(literal, input.history ?? [], {
+  // An answer to a pending question, a cut-short follow-up or a correction is rebuilt into one full request first.
+  const rewrite = rewriteWithHistory(literal, registerOf(literal));
+  const working = rewrite.text ?? literal;
+  const context = resolveContext(working, input.history ?? [], {
     observe: input.observe !== false,
     ...(input.endpoint ? { endpoint: input.endpoint } : {}),
   });
   const conversationResolved =
     context.resolved && context.resolved !== literal
       ? context.resolved
-      : resolvePointer(literal, currentTopic());
+      : resolvePointer(working, currentTopic());
   const resolvedIntent = understand(conversationResolved);
   // A limit the owner named ("sirf free models", "5 minute me") is held for the rest of the talk, not only this turn.
   if (input.observe !== false && resolvedIntent.constraints.length) noteConstraint(literal);
@@ -514,7 +533,28 @@ function understandTurnBody(
           "Which thing should I continue — the last task, or something else?");
   }
 
-  if (resolvedIntent.needsClarification) missingInformation.push("referent");
+  // The action and its pieces. A question word means the owner is asking about the thing, not asking for it.
+  const asking =
+    /\?\s*$|^(?:who|what|when|where|why|how|which|kya|kaun|kab|kahan|kaise|kyun|kitna)\b|\b(?:kaise|kyun|why|how)\b/i.test(
+      literal,
+    );
+  const slotRead = asking
+    ? readSlots("")
+    : readSlots(conversationResolved, resolvedReferent || context.references.length > 0);
+  if (slotRead.action) {
+    resolvedIntent.action = slotRead.action;
+    resolvedIntent.slots = slotRead.slots;
+  }
+  if (rewrite.how) resolvedIntent.rewrittenFrom = rewrite.how;
+  const askForSlot = slotRead.action !== null && slotRead.missing.length > 0 && !contextAmbiguous;
+  if (askForSlot && slotRead.action) {
+    resolvedIntent.needsClarification = true;
+    resolvedIntent.ask = clarifyingQuestion(slotRead.action, slotRead.missing, registerOf(literal));
+    for (const name of slotRead.missing) missingInformation.push(name);
+  }
+  if (input.observe !== false) noteTurn(working, slotRead, askForSlot);
+
+  if (resolvedIntent.needsClarification && !askForSlot) missingInformation.push("referent");
   if (resolvedIntent.kind === "ambiguous" && !resolvedReferent) missingInformation.push("intent");
   if (signals.confusion) missingInformation.push("user-confusion");
 

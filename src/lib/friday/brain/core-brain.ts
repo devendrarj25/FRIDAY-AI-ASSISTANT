@@ -415,6 +415,20 @@ class CoreBrain {
       `understood as ${understanding.resolvedIntent.kind} (${Math.round(understanding.understandingConfidence * 100)}% understanding)`,
     );
     notes.push(`goal: ${understanding.resolvedGoal.slice(0, 160)}`);
+    // A short answer, a cut-short follow-up or a correction is handed over as the full request it means.
+    if (understanding.resolvedIntent.rewrittenFrom) {
+      notes.push(
+        `the owner's words read in full (${understanding.resolvedIntent.rewrittenFrom}): ${understanding.conversationResolved.slice(0, 240)}`,
+      );
+    }
+    const found = understanding.resolvedIntent.slots;
+    if (understanding.resolvedIntent.action && found && Object.keys(found).length) {
+      notes.push(
+        `action ${understanding.resolvedIntent.action}: ${Object.entries(found)
+          .map(([name, value]) => `${name}=${value}`)
+          .join(", ")}. Use only these; do not invent a missing one.`,
+      );
+    }
     notes.push(`move: ${understanding.conversationalMove}`);
     const strategy = selectResponseStrategy({
       text: prompt,
