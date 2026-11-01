@@ -55,6 +55,7 @@ import { learning } from "../self/learning-engine";
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { capabilityRegistry, type CapabilitySnapshot } from "./capability-registry";
 import { describeLiveSelf, looksLikeSelfStatusQuestion } from "./app-guide";
+import { answerSelf, selfTopic } from "./self-questions";
 import { describeSkillValue, routeSkills } from "./skill-router";
 import { describeAgentValue, routeAgents } from "./agent-router";
 import { describeToolValue, routeTools } from "./tool-router";
@@ -167,7 +168,8 @@ export function needsDeepFabric(
 ): boolean {
   if (TRIVIAL_TURN.test(prompt) && !understanding.ambiguous) return false;
   if (understanding.ambiguous || understanding.understandingConfidence < 0.7) return true;
-  if (looksLikeSelfStatusQuestion(prompt) || SELF_HINTS.test(prompt)) return true;
+  if (looksLikeSelfStatusQuestion(prompt) || SELF_HINTS.test(prompt) || selfTopic(prompt))
+    return true;
   const kind = taskKind(prompt);
   if (kind !== "chat") return true;
   if (EXPLICIT_WEB.test(prompt) || WEB_HINTS.test(prompt)) return true;
@@ -1293,8 +1295,12 @@ class CoreBrain {
     // Self-knowledge: when the question is about FRIDAY's own application,
     // capabilities, features, UI, or current working status, hand the model
     // the live registries instead of letting it guess.
-    if (SELF_HINTS.test(prompt) || looksLikeSelfStatusQuestion(prompt)) {
-      const facts = describeLiveSelf(prompt);
+    if (SELF_HINTS.test(prompt) || looksLikeSelfStatusQuestion(prompt) || selfTopic(prompt)) {
+      const topic = selfTopic(prompt);
+      const direct = topic ? answerSelf(topic, prompt) : null;
+      const facts = [describeLiveSelf(prompt), direct && "text" in direct ? direct.text : ""]
+        .filter((part) => part.trim())
+        .join("\n\n");
       if (facts.trim()) {
         notes.push("answer from the live registries below, not from assumptions");
         evidence = [evidence, `FRIDAY live registries:\n${facts}`].filter(Boolean).join("\n\n");

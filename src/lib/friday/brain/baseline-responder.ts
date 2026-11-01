@@ -23,6 +23,7 @@ import { brainKnowledge } from "./knowledge-base";
 import { capabilityRegistry } from "./capability-registry";
 import { readSystemContext } from "../system-context";
 import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
+import { answerSelf, selfTopic } from "./self-questions";
 import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import { answerFormatQuestion } from "./format-atlas";
 import {
@@ -481,6 +482,16 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
       /* live registries unavailable — keep the static summary as fallback */
     }
     return reply("capabilities", capabilitySummary(), 0.9);
+  }
+
+  // 1b. other questions about herself, in English and Hinglish: each one is handed to the module that owns
+  // the facts, so nothing is guessed and nothing is changed without approval.
+  {
+    const topic = selfTopic(text);
+    if (topic) {
+      const answer = answerSelf(topic, text);
+      return "text" in answer ? reply("identity", answer.text, 0.88) : live(answer.resolve, 0.88);
+    }
   }
 
   // 2. owner-work (desk / books / tender) before generic date/math so a CSV

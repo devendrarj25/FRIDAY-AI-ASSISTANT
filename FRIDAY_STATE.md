@@ -103,6 +103,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- Self questions: `brain/self-questions.ts` routes the English and Hinglish wording listed in its tests; a new phrasing outside those patterns still reaches a model without the live facts. The Atlas, PC and self-check answers read live probes that ran on Linux and in tests only; the Windows wording is unverified.
 - Brain wiring: 16 read-only accessors, capability probes and one host seam in `brain/` and `self/` have no caller in the app yet; each is listed with its reason in `config/brain-wiring-ledger.json`, and `core/__tests__/brain-wiring-ledger.test.ts` fails on any new export that is neither used, pinned by a test, nor listed. Run-receipt `accept*` validators (`self/run-receipt.ts`) have no production emitter yet.
 - My tasks can now ask the whole Brain (`self/ask-brain.ts`: memory, checks, one repair) with or without memory stages, but the comparison is only as good as the owner's own 20 to 30 requests. No claim that the Brain is smarter exists until he runs them; the starter set is not his.
 - Unverified on real hardware: the realtime voice transport (loopback only; the cloud engine never connects), the speech model check on his own Hinglish recordings, and the Windows paths of the folder, watcher and memory-health changes.
@@ -147,6 +148,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
+- Collect the self questions the owner really asks (voice and typed) and add each missed phrasing to `core/__tests__/self-questions.test.ts` with its pattern.
 - Show the ledger accessors (draft lists of the forges, router counters, source health, dev baseline) in Self-management, so the 16 pending rows in `config/brain-wiring-ledger.json` move to used.
 - Let the owner record 20 to 30 real requests and 10 Hinglish recordings, then run My tasks in all three modes (plain chat, whole Brain, whole Brain without memory) and compare the paired results.
 - Brain next wave, built and tested on Linux only (unverified on the Windows PC and on hosted Actions): long-work notes in the task graph, tool-result clearing, tool-backed checks (`tool-checks.ts`) with the horizon ladder, a quick lane for short turns, an OpenAI-compatible cloud endpoint, exact usage from the provider stream, speech-model freshness before a reuse, Agent Skills import and export (imports stay candidates), Hinglish rules and the larger-speech hint, RTF, ODT and EPUB writers and readers, a daily digest job, and idle study that practises an approved item in the scratch sandbox (`self/study-practice.ts`). The 12-task held-out batch `h4` scored 1/12 on its first blind run and was left untuned; the earlier `h3` batch scored 4/12. No claim of a smarter Brain is made from these.
