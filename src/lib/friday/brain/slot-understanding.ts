@@ -390,6 +390,10 @@ export function noteTurn(text: string, read: SlotRead, asked: boolean): void {
   }
 }
 
+/** Everyday imperatives that are an action on their own, so "chrome kholo aur calendar dikhao" is two steps. */
+const DO_VERB =
+  /\b(?:dikhao|dikha\s*do|batao|bata\s*do|check\s*kar(?:o|\s*do)?|dekho|dhundo|dhoondo|khojo|show|find|search|play|read|summari[sz]e|check|likho|likh\s*do|padho|chalao)\b/i;
+
 /** True when a request holds more than one action: "report banao aur Rahul ko bhej do aur calendar me daal do". */
 export function splitByAction(text: string): string[] | null {
   const parts = text
@@ -402,7 +406,31 @@ export function splitByAction(text: string): string[] | null {
     (part) =>
       ACTIONS.some((row) => row.verbs.test(part)) ||
       MAKE.test(part) ||
-      /\bdaal\s*do|\bdaalo|\badd\b/i.test(part),
+      /\bdaal\s*do|\bdaalo|\badd\b/i.test(part) ||
+      DO_VERB.test(part),
   );
   return acts.length === parts.length && parts.length <= 5 ? parts : null;
+}
+
+/* ------------------------------------------------------ implied requests */
+
+const PROBLEM =
+  /\b(?:nahi\s+chal\s+(?:raha|rahi|rahe)|nahi\s+khul\s+(?:raha|rahi)|kaam\s+nahi\s+kar\s+(?:raha|rahi)|slow\s+(?:hai|ho\s+gaya|chal)|hang\s+(?:ho|hai)|crash(?:ing)?\s+(?:ho|hai|kar)|error\s+aa\s+(?:raha|rahi)|not\s+working|keeps?\s+(?:crashing|freezing)|is\s+(?:very\s+)?slow|won'?t\s+(?:open|start|load))\b/i;
+const DEADLINE =
+  /\b(?:(?:kal|parso|aaj|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:\S+\s+){0,2}(?:exam|interview|meeting|deadline|submission|presentation|flight|test)|(?:exam|interview|deadline|submission|presentation|flight)\s+(?:hai|hain|h)\b|due\s+(?:tomorrow|today|on)|deadline\s+(?:is|hai))/i;
+const SPACE =
+  /\b(?:disk|storage|space|drive)\b.*\b(?:full|bhar|khatam|low|kam)\b|\b(?:full|bhar)\b.*\b(?:disk|storage|drive)\b/i;
+
+/**
+ * What the owner did not ask but his words imply. A problem is an offer to look into it; a deadline is an offer to
+ * remind him; a full disk is an offer to find what takes the space. It is only ever offered, in one line, and never
+ * done unasked.
+ */
+export function impliedRequest(text: string): { kind: string; offer: string } | null {
+  const value = String(text || "");
+  if (/\?\s*$/.test(value)) return null;
+  if (SPACE.test(value)) return { kind: "free-space", offer: "find what is taking the space" };
+  if (PROBLEM.test(value)) return { kind: "troubleshoot", offer: "look into what is wrong" };
+  if (DEADLINE.test(value)) return { kind: "remind", offer: "set a reminder before it" };
+  return null;
 }

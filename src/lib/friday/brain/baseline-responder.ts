@@ -25,6 +25,13 @@ import { readSystemContext } from "../system-context";
 import { diagnoseError, formatEntry, searchExpertise } from "./expertise";
 import { answerSelf, selfTopic } from "./self-questions";
 import { comfortReply, correctMoodReading } from "./comfort";
+import {
+  forgetPhrasings,
+  forgetShortcut,
+  listShortcuts,
+  parseShortcutTeaching,
+  teachShortcut,
+} from "./intent-memory";
 import { diagnose, guidance, looksLikeFailure, prefersHinglish } from "./error-intelligence";
 import { answerFormatQuestion } from "./format-atlas";
 import {
@@ -492,6 +499,32 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
     if (topic) {
       const answer = answerSelf(topic, text);
       return "text" in answer ? reply("identity", answer.text, 0.9) : live(answer.resolve, 0.92);
+    }
+  }
+
+  // 1b2. a shortcut taught in words, or asked to be forgotten: it is kept on this PC and only rewrites his words.
+  {
+    const taught = parseShortcutTeaching(text);
+    if (taught) {
+      teachShortcut(taught.trigger, taught.expansion);
+      return reply(
+        "learning",
+        prefersHinglish(text)
+          ? `Theek hai. Ab jab bhi tum "${taught.trigger}" bologe, main samjhungi: ${taught.expansion}. Ye sirf tumhare shabdon ko badalta hai, koi kaam apne aap nahi chalta, aur tum "shortcuts dikhao" se dekh sakte ho.`
+          : `Done. Whenever you say "${taught.trigger}", I'll read it as: ${taught.expansion}. It only rewrites your words; nothing runs by itself, and you can see it with "show my shortcuts".`,
+        0.92,
+      );
+    }
+    if (/^(?:saari |all )?shortcuts?\s+(?:bhool jao|hata do|delete|forget|clear)/i.test(text)) {
+      for (const row of listShortcuts()) forgetShortcut(row.trigger);
+      forgetPhrasings();
+      return reply(
+        "learning",
+        prefersHinglish(text)
+          ? "Ho gaya, saari shortcuts aur yaad rakhe hue shabd hata diye."
+          : "Done, I've cleared every shortcut and remembered wording.",
+        0.92,
+      );
     }
   }
 

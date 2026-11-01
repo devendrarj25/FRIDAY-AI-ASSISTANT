@@ -14,6 +14,7 @@ import { describePcHealth, describeSelfAtlas } from "./atlas-observe";
 import { explainDecision, learningSummary } from "./decision-trace";
 import { prefersHinglish } from "./error-intelligence";
 import { describeUserMood } from "./comfort";
+import { describeIntentMemory } from "./intent-memory";
 import { describeFridayBehaviour, identity } from "./identity";
 import { describeDisks } from "./pc-awareness";
 import { describeSelfReport, inspectSelfComplete, proposeSourceFix } from "./self-diagnosis";
@@ -27,6 +28,7 @@ export type SelfTopic =
   | "feeling"
   | "user-mood"
   | "learning"
+  | "shortcuts"
   | "decision"
   | "purpose"
   | "about";
@@ -61,6 +63,10 @@ const RULES: [SelfTopic, RegExp][] = [
   [
     "feeling",
     /\b(do|can|kya)\b.*\b(you|tum|tumhe)\b.*\b(feel|feelings?|emotions?|mehsoos)\b|\b(tumhara|tumhari|your)\s+(mood|feelings?|emotions?)\b|\b(tum|aap)\s+(khush|udaas|dukhi|thak\w*|naraz)\b|\bhow (are|do) you feel\b|\bkya tum khush\b/i,
+  ],
+  [
+    "shortcuts",
+    /\b(?:meri|mere)\s+(?:shortcuts?|aadat\w*)\b|\bshortcuts?\b.*\b(?:kaun|kya|list|dikhao|batao|sikhaye|sikhai)\b|\bwhat shortcuts\b|\bwhat have i taught you\b/i,
   ],
   [
     "learning",
@@ -158,6 +164,8 @@ export function answerSelf(topic: SelfTopic, text: string): SelfAnswer {
       return { text: describeInnerState(text) };
     case "user-mood":
       return { text: describeUserMood(text) };
+    case "shortcuts":
+      return { text: describeIntentMemory() };
     case "learning":
       return { text: learningSummary() };
     case "decision":

@@ -421,6 +421,23 @@ class CoreBrain {
         `the owner's words read in full (${understanding.resolvedIntent.rewrittenFrom}): ${understanding.conversationResolved.slice(0, 240)}`,
       );
     }
+    const routing = understanding.resolvedIntent.routing;
+    if (routing?.novel && prompt.trim().split(/\s+/).length >= 5) {
+      notes.push(
+        "no known request type matched: read it on its own terms, do not force it into a category",
+      );
+    }
+    if (routing?.recalled) {
+      notes.push(
+        `he has phrased this before (${routing.recalled.uses}x) and it was understood as ${routing.recalled.catalogId}`,
+      );
+    }
+    const implied = understanding.resolvedIntent.implied;
+    if (implied) {
+      notes.push(
+        `he did not ask, but his words imply it: offer to ${implied.offer} in one line, and wait for his yes; do not do it unasked`,
+      );
+    }
     const found = understanding.resolvedIntent.slots;
     if (understanding.resolvedIntent.action && found && Object.keys(found).length) {
       notes.push(

@@ -10,7 +10,14 @@
  * second interpreter.
  */
 
-import { analyseIntent } from "../brain-catalog";
+import { analyseIntent, intentRules } from "../brain-catalog";
+import {
+  calibrate,
+  expandShortcut,
+  noteOutcome,
+  recallPhrasing,
+  rememberPhrasing,
+} from "./intent-memory";
 import { parseWhen } from "../speech-parse";
 import { clarificationChoice } from "../clarify-policy";
 import { turnDone, turnMark } from "./turn-timing";
@@ -26,6 +33,7 @@ import {
   readSlots,
   rewriteWithHistory,
   splitByAction,
+  impliedRequest,
   type SlotName,
 } from "./slot-understanding";
 import { registerOf } from "../response-policy";
@@ -112,7 +120,16 @@ export type UnderstoodIntent = {
   action?: string;
   slots?: Partial<Record<SlotName, string>>;
   /** How the words were rebuilt from the last turn: an answer filled in, a cut-short follow-up expanded, a correction linked. */
-  rewrittenFrom?: "filled" | "expanded" | "amended";
+  rewrittenFrom?: "filled" | "expanded" | "amended" | "shortcut";
+  /** How sure the word match was: the runner-up, the gap to it, whether nothing matched, and a wording the owner used before. */
+  routing?: {
+    runnerUp: string | null;
+    margin: number;
+    novel: boolean;
+    recalled: { catalogId: string; score: number; uses: number } | null;
+  };
+  /** What the owner did not ask but his words imply (a problem, a deadline). Offered, never done unasked. */
+  implied?: { kind: string; offer: string };
 };
 
 /** One-turn normalized understanding, composed from existing engines. */
@@ -322,6 +339,12 @@ export function understand(text: string): UnderstoodIntent {
     kind,
     catalogId: catalog.rule.id,
     catalogLabel: catalog.rule.label,
+    routing: {
+      runnerUp: catalog.runnerUp?.id ?? null,
+      margin: catalog.margin,
+      novel: catalog.novel,
+      recalled: null,
+    },
     catalogScore: catalog.score,
     matched: catalog.matched,
     goals,
@@ -479,6 +502,32 @@ export function understandTurn(input: {
   return result;
 }
 
+/**
+ * The turn before this one, waiting to be judged. If the owner now corrects it, its confidence was wrong; if he moves
+ * on, it was right and the wording is remembered as understood. A turn that asked a question is not judged.
+ */
+let awaiting: {
+  stated: number;
+  phrase: string;
+  catalogId: string;
+  action: string | null;
+  counts: boolean;
+} | null = null;
+
+function settleLastTurn(now: string): void {
+  const before = awaiting;
+  awaiting = null;
+  if (!before || !before.counts) return;
+  const corrected = looksLikeCorrection(now) || CORRECTION.test(now);
+  noteOutcome(before.stated, !corrected);
+  if (!corrected)
+    rememberPhrasing(before.phrase, { catalogId: before.catalogId, action: before.action });
+}
+
+export function resetIntentOutcomes(): void {
+  awaiting = null;
+}
+
 function understandTurnBody(
   input: {
     text: string;
@@ -489,7 +538,11 @@ function understandTurnBody(
   literal: string,
 ): TurnUnderstanding {
   // An answer to a pending question, a cut-short follow-up or a correction is rebuilt into one full request first.
-  const rewrite = rewriteWithHistory(literal, registerOf(literal));
+  if (input.observe !== false) settleLastTurn(literal);
+  const shortcut = expandShortcut(literal);
+  const rewrite = shortcut
+    ? ({ text: shortcut.expansion, how: "shortcut" } as const)
+    : rewriteWithHistory(literal, registerOf(literal));
   const working = rewrite.text ?? literal;
   const context = resolveContext(working, input.history ?? [], {
     observe: input.observe !== false,
@@ -572,6 +625,31 @@ function understandTurnBody(
     understandingConfidence = Math.min(understandingConfidence, 0.4);
   }
 
+  // A wording the owner used before that went through: it decides when the words alone do not.
+  const recalled = recallPhrasing(conversationResolved);
+  if (recalled && resolvedIntent.routing) {
+    resolvedIntent.routing.recalled = {
+      catalogId: recalled.catalogId,
+      score: recalled.score,
+      uses: recalled.uses,
+    };
+    const rule = intentRules.find((row) => row.id === recalled.catalogId);
+    if (rule && (resolvedIntent.routing.novel || resolvedIntent.routing.margin === 0)) {
+      resolvedIntent.catalogId = rule.id;
+      resolvedIntent.catalogLabel = rule.label;
+      resolvedIntent.catalogScore = Math.max(
+        resolvedIntent.catalogScore,
+        0.7 + Math.min(0.2, recalled.uses * 0.05),
+      );
+    }
+    if (!ambiguous) understandingConfidence = Math.max(understandingConfidence, 0.8);
+  }
+  const implied = impliedRequest(literal);
+  if (implied && !slotRead.action) resolvedIntent.implied = implied;
+  // The number is pulled toward how often a number like it was right for this owner.
+  const stated = understandingConfidence;
+  understandingConfidence = calibrate(understandingConfidence);
+
   const session = getConversationSession();
   const resolvedGoal =
     inferred.goal ||
@@ -586,6 +664,15 @@ function understandTurnBody(
   };
   resolvedIntent.missingInformation = missingInformation;
   resolvedIntent.understandingConfidence = understandingConfidence;
+  if (input.observe !== false) {
+    awaiting = {
+      stated,
+      phrase: working,
+      catalogId: resolvedIntent.catalogId,
+      action: resolvedIntent.action ?? null,
+      counts: !ambiguous && ["command", "request", "task"].includes(resolvedIntent.kind),
+    };
+  }
 
   const result: TurnUnderstanding = {
     literal,

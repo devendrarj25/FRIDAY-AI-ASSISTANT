@@ -286,23 +286,55 @@ export const intentRules: IntentRule[] = [
   { id: "chat", label: "Conversation", keywords: [], agents: ["developer"], tasks: ["brain"] },
 ];
 
+const keywordCache = new Map<string, RegExp>();
+
+/**
+ * A keyword counts when the word starts there: "plan" is in "planning" but not in "airplane", and "ram" is not in
+ * "program". Long keywords may carry a short ending ("install" in "installing"); short ones ("ram", "say", "why")
+ * must be the whole word. Letters from any script count as letters, so Devanagari is not cut in the middle.
+ */
+function keywordRegExp(keyword: string): RegExp {
+  let rx = keywordCache.get(keyword);
+  if (!rx) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const ending = keyword.length >= 4 ? "[\\p{L}]{0,4}" : "";
+    rx = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}${ending}(?![\\p{L}\\p{N}])`, "iu");
+    keywordCache.set(keyword, rx);
+  }
+  return rx;
+}
+
 export function analyseIntent(text: string): {
   rule: IntentRule;
   score: number;
   matched: string[];
+  /** The next-best rule, when one matched at all. */
+  runnerUp: IntentRule | null;
+  /** Matches for the best rule minus matches for the runner-up: 0 means the words do not decide between them. */
+  margin: number;
+  /** No keyword matched anywhere: the catalog has no opinion, and "chat" is only the default. */
+  novel: boolean;
 } {
-  const lower = text.toLowerCase();
-  let best = intentRules[intentRules.length - 1]!;
-  let bestMatches: string[] = [];
-  for (const rule of intentRules) {
-    const matched = rule.keywords.filter((k) => lower.includes(k));
-    if (matched.length > bestMatches.length) {
-      best = rule;
-      bestMatches = matched;
-    }
-  }
+  const value = String(text || "");
+  const scored = intentRules
+    .filter((rule) => rule.keywords.length > 0)
+    .map((rule) => ({ rule, matched: rule.keywords.filter((k) => keywordRegExp(k).test(value)) }))
+    .filter((row) => row.matched.length > 0)
+    .sort((a, b) => b.matched.length - a.matched.length);
+  const fallback = intentRules[intentRules.length - 1]!;
+  const top = scored[0];
+  const next = scored[1];
+  const best = top?.rule ?? fallback;
+  const bestMatches = top?.matched ?? [];
   const score = Math.min(0.98, 0.55 + bestMatches.length * 0.12);
-  return { rule: best, score: Number(score.toFixed(2)), matched: bestMatches };
+  return {
+    rule: best,
+    score: Number(score.toFixed(2)),
+    matched: bestMatches,
+    runnerUp: next?.rule ?? null,
+    margin: bestMatches.length - (next?.matched.length ?? 0),
+    novel: bestMatches.length === 0,
+  };
 }
 
 /* ------------------------------------------------------------ memory model */
