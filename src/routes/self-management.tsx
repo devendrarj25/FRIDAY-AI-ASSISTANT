@@ -26,6 +26,7 @@ import {
   RetrievalAbPanel,
   SkillsPanel,
 } from "@/components/friday/ErrorClinicPanels";
+import { BrainInternalsPanel } from "@/components/friday/BrainInternalsPanel";
 import { ExternalReadinessPanel } from "@/components/friday/ExternalReadinessPanel";
 import { FinetunePanel } from "@/components/friday/FinetunePanel";
 import { FormatAtlasPanel } from "@/components/friday/FormatAtlasPanel";
@@ -265,6 +266,7 @@ function SelfManagementPage() {
         <div className="grid gap-4 xl:grid-cols-2">
           <ErrorClinicPanel />
           <BrainCheckPanel />
+          <BrainInternalsPanel />
           <PersonalEvalPanel />
           <RetrievalAbPanel />
           <FinetunePanel />

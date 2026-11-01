@@ -377,6 +377,44 @@ describe("long-horizon goals", () => {
   });
 });
 
+describe("a goal with a horizon plans around a dead end", () => {
+  beforeEach(() => {
+    resetTaskGraphStore();
+    memory.resetForTests();
+  });
+
+  it("records a failed step as a blocker, replans twice at most, then fails", async () => {
+    const engine = new TaskGraphEngine();
+    let calls = 0;
+    engine.registerRunner("goal", async () => {
+      calls += 1;
+      return { ok: false, result: "the BOQ file is not on this PC" };
+    });
+    const { id } = engine.submit("collect the BOQ and file the pack", {
+      horizon: { goal: "file the pack" },
+    });
+    await settle(engine, 3000);
+    const graph = engine.get(id)!;
+    expect(graph.horizon?.blockers.length).toBe(2);
+    expect(graph.horizon?.blockers[0]).toMatch(/BOQ file is not on this PC/);
+    expect(graph.state).toBe("failed");
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+
+  it("a plain graph without a horizon still fails at once", async () => {
+    const engine = new TaskGraphEngine();
+    let calls = 0;
+    engine.registerRunner("goal", async () => {
+      calls += 1;
+      return { ok: false, result: "no such file" };
+    });
+    const { id } = engine.submit("open the missing file");
+    await settle(engine, 1500);
+    expect(engine.get(id)!.state).toBe("failed");
+    expect(calls).toBeLessThanOrEqual(3);
+  });
+});
+
 const point = (
   id: string,
   state: GraphNode["state"],

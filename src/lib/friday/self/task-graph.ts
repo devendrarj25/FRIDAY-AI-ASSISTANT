@@ -407,6 +407,9 @@ export function withEarlier(instruction: string, earlier: string[]): string {
 /** Which learned skill planned which running graph, so the outcome can credit it. */
 const skillOfGraph = new Map<string, string>();
 
+/** How many times a goal with a horizon replans itself around a failed step before it is failed. */
+const AUTO_BLOCKER_REPLANS = 2;
+
 export class TaskGraphEngine {
   private graphs: TaskGraph[] = [];
   private runners = new Map<string, NodeRunner>();
@@ -740,6 +743,19 @@ export class TaskGraphEngine {
     this.emit();
     void this.pump();
     return graph;
+  }
+
+  /**
+   * A step ran out of tries. A goal with a horizon records the dead end as a blocker and plans the
+   * unfinished tail again, at most AUTO_BLOCKER_REPLANS times; anything else (or the last time)
+   * fails the graph as before.
+   */
+  private blockAndReplan(graph: TaskGraph, node: GraphNode): boolean {
+    if (!graph.horizon || (graph.horizon.blockers ?? []).length >= AUTO_BLOCKER_REPLANS)
+      return false;
+    this.emit();
+    this.replanBlocked(graph.id, `${node.title}: ${node.error ?? "failed"}`.slice(0, 200));
+    return true;
   }
 
   /** True while an owner graph is running or waiting in line. */
@@ -1128,6 +1144,7 @@ export class TaskGraphEngine {
         node.state = "failed";
         node.checkpoint = { ...checkpoint };
         this.log(graph, `${node.title} ${domain} ${recovery.action}: ${recovery.reason}`, "error");
+        if (recovery.action === "stop" && this.blockAndReplan(graph, node)) return true;
         this.emit();
         return this.finish(graph, "failed");
       }
@@ -1196,6 +1213,7 @@ export class TaskGraphEngine {
       if (checkpoint.compensation === undefined) checkpoint.compensation = "";
       node.checkpoint = { ...checkpoint };
       this.log(graph, `${node.title} failed: ${node.error} (${sealed.event_id})`, "error");
+      if (this.blockAndReplan(graph, node)) return true;
       this.emit();
       return this.finish(graph, "failed");
     }
