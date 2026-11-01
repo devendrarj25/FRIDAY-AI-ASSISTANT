@@ -154,4 +154,27 @@ describe("small text stays readable", () => {
       expect(Number(rule?.[1]), name).toBeGreaterThanOrEqual(0.6875);
     }
   });
+
+  it("the small text utilities are at least 11px in the Classic style too", () => {
+    for (const name of [
+      "label-xs",
+      "text-meta",
+      "text-meta-sm",
+      "text-note",
+      "text-note-sm",
+      "text-data",
+      "text-data-sm",
+    ]) {
+      const rule = css.match(new RegExp(`@utility ${name} \\{[^}]*?font-size:\\s*([\\d.]+)rem`));
+      expect(rule, name).not.toBeNull();
+      expect(Number(rule?.[1]), name).toBeGreaterThanOrEqual(0.6875);
+    }
+  });
+
+  it("the title strip hides its chips by its own width in rem, so a larger text size drops them in time", () => {
+    const source = readFileSync("src/components/friday/TitleStrip.tsx", "utf8");
+    expect(source).toContain("@container");
+    expect(source).not.toMatch(/\b(sm|md|lg|xl|2xl):(inline|flex|block)\b/);
+    expect(source).toMatch(/@min-\[\d+rem\]:/);
+  });
 });

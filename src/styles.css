@@ -285,7 +285,7 @@
 }
 
 /* Caption and corner tokens shared by every page. Classic resolves them to
-   the values pages used before (mono 10/11 px, rounded-sm/md); FRIDAY Glass
+   the values pages used before (mono 11 px, never below the readable floor, rounded-sm/md); FRIDAY Glass
    re-maps them below to 12 px sentence-case body text and the card and
    control radii. */
 @utility text-meta {
@@ -294,7 +294,7 @@
 }
 @utility text-meta-sm {
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
 }
 @utility text-data {
   font-family: var(--font-mono);
@@ -302,13 +302,13 @@
 }
 @utility text-data-sm {
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
 }
 @utility text-note {
   font-size: 0.6875rem;
 }
 @utility text-note-sm {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
 }
 @utility rounded-ctl {
   border-radius: var(--radius-sm);
