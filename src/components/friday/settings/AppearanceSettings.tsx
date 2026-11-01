@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Check,
@@ -41,7 +42,6 @@ import {
 import { HudPanel, SegmentedControl, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { FontsAndTextSettings } from "@/components/friday/settings/FontsAndTextSettings";
 import { SelectField } from "@/components/friday/settings/fields";
 import { preferences } from "@/lib/friday/preferences";
 import { usePreferences } from "@/lib/friday/use-preferences";
@@ -124,6 +124,7 @@ function LivePreview() {
 }
 
 export function AppearanceSettings() {
+  const navigate = useNavigate();
   const prefs = usePreferences();
   const mode = resolveColorMode(prefs);
   const accent = resolveAccent(prefs);
@@ -358,7 +359,20 @@ export function AppearanceSettings() {
         </div>
       </HudPanel>
 
-      <FontsAndTextSettings />
+      <HudPanel title="Fonts and text" hint="now in their own section">
+        <p className="text-note text-muted-foreground">
+          Fonts, text size, spacing, weight, chat text size, chat bubbles and the contrast setting
+          for text have their own section in Settings.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-3"
+          onClick={() => void navigate({ to: "/settings", search: { section: "text" } as never })}
+        >
+          Open Fonts &amp; Text
+        </Button>
+      </HudPanel>
 
       <HudPanel title="Text and layout">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -391,34 +405,6 @@ export function AppearanceSettings() {
             For compact icon controls in the chat, voice and toolbars. The name always stays in the
             accessible label and the tooltip.
           </p>
-        </div>
-        <div className="mt-4 space-y-3">
-          <ToggleRow
-            label="High contrast text"
-            on={isOn("highContrast")}
-            onToggle={() => flip("highContrast")}
-          />
-        </div>
-      </HudPanel>
-
-      <HudPanel title="Chat">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            label="Chat bubble style"
-            value={field("bubbleStyle") || "Compact"}
-            options={["Compact", "Comfortable", "Full"].map((name) => ({
-              value: name,
-              label: name,
-            }))}
-            onChange={setField("bubbleStyle")}
-          />
-        </div>
-        <div className="mt-4 space-y-3">
-          <ToggleRow
-            label="Show timestamps on chat messages"
-            on={isOn("chatTimestamps")}
-            onToggle={() => flip("chatTimestamps")}
-          />
         </div>
       </HudPanel>
 

@@ -15,6 +15,7 @@ import {
   Sparkles,
   Terminal,
   RefreshCw,
+  Type,
 } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ import { PermissionSettings } from "@/components/friday/settings/PermissionSetti
 import { SystemSettings } from "@/components/friday/settings/SystemSettings";
 import { GithubUpdates } from "@/components/friday/settings/GithubUpdates";
 import { AppearanceSettings } from "@/components/friday/settings/AppearanceSettings";
+import { TextSettings } from "@/components/friday/settings/TextSettings";
 import { VoiceSettings } from "@/components/friday/settings/VoiceSettings";
 import { SecuritySettings } from "@/components/friday/settings/SecuritySettings";
 import { BackupSettings } from "@/components/friday/settings/BackupSettings";
@@ -59,6 +61,7 @@ export const Route = createFileRoute("/settings")({
 const SECTIONS = [
   { key: "general", label: "General", icon: Sliders },
   { key: "appearance", label: "Appearance", icon: Palette },
+  { key: "text", label: "Fonts & Text", icon: Type },
   { key: "ai", label: "AI Settings", icon: Brain },
   { key: "autonomy", label: "Autonomy", icon: Bot },
   { key: "voice", label: "Voice", icon: Mic },
@@ -140,6 +143,7 @@ function SettingsPage() {
         <div key={section} className="page-enter min-w-0 space-y-4">
           {section === "general" ? <GeneralSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
+          {section === "text" ? <TextSettings /> : null}
           {section === "ai" ? <AISettings /> : null}
           {section === "voice" ? <VoiceSettings /> : null}
           {section === "companion" ? <CompanionSettings /> : null}

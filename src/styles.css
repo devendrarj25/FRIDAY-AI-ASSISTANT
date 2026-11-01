@@ -2344,3 +2344,16 @@ html[data-small-text="Larger"] :is(.text-meta-sm, .text-note-sm, .text-data-sm, 
 html[data-small-text="Larger"] :is(.text-meta, .text-note, .text-data) {
   font-size: 0.875rem;
 }
+
+/* The font utilities follow the Settings choice. Tailwind's inline theme writes the font names into
+   .font-display, .font-sans and .font-mono as plain text, so the heading, body and code font a person picks in
+   Settings (which set --font-display, --font-sans and --font-mono on the page) never reached them. */
+.font-display {
+  font-family: var(--font-display);
+}
+.font-sans {
+  font-family: var(--font-sans);
+}
+.font-mono {
+  font-family: var(--font-mono);
+}

@@ -25,6 +25,6 @@ export const BUNDLED_FONTS = [
 /** A CSS font-family list that tries the bundled face first, then the plain name an installed copy would have. */
 export const stackFor = (name: string, fallback: string): string => {
   const face = BUNDLED_FONTS.find((font) => font.name === name);
-  const names = face ? [face.css, face.name] : [name];
+  const names = face ? [...new Set([face.css, face.name])] : [name];
   return `${names.map((item) => `"${item}"`).join(", ")}, ${fallback}`;
 };

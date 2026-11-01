@@ -72,6 +72,16 @@ describe("text settings reach the document", () => {
     expect(vars["--font-mono"]).toContain("JetBrains Mono");
   });
 
+  it("the font utilities read the variables Settings sets, not a name baked in by the theme", () => {
+    // Checked in a real browser too: with the heading, body and code font changed, .font-display, .font-sans and
+    // .font-mono took the new family. Without these rules the theme's inline names won and the choice did nothing.
+    for (const name of ["display", "sans", "mono"]) {
+      expect(css).toMatch(
+        new RegExp(`\\.font-${name} \\{\\s*font-family: var\\(--font-${name}\\);`),
+      );
+    }
+  });
+
   it("has a CSS rule that reads each of them", () => {
     expect(css).toContain('html[data-text-custom="on"]');
     expect(css).toContain("var(--friday-text-scale");

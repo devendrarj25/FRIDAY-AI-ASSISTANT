@@ -122,11 +122,11 @@ describe("appearance fonts", () => {
     }
   });
 
-  it("tries the bundled face first and the installed name second", () => {
+  it("tries the bundled face first and the installed name second, naming a family once", () => {
     expect(DISPLAY_FONTS["Orbitron"]).toMatch(/^"Orbitron Variable", "Orbitron"/);
-    expect(BODY_FONTS["Atkinson Hyperlegible"]).toMatch(
-      /^"Atkinson Hyperlegible", "Atkinson Hyperlegible"/,
-    );
+    // Atkinson's bundled and installed names are the same, so it appears once.
+    expect(BODY_FONTS["Atkinson Hyperlegible"]).toMatch(/^"Atkinson Hyperlegible", ui-sans-serif/);
+    expect(BODY_FONTS["Rajdhani"]?.match(/"Rajdhani"/g)).toHaveLength(1);
   });
 });
 

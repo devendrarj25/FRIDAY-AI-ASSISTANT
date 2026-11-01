@@ -98,9 +98,21 @@ describe("Settings section upgrade", () => {
       'title="Look"',
       'title="Motion"',
       'title="Text and layout"',
-      'title="Chat"',
     ]) {
       expect(panel).toContain(group);
+    }
+    // Fonts and text have their own Settings section; Appearance only points to it.
+    expect(read("src/routes/settings.tsx")).toContain('key: "text"');
+    expect(read("src/routes/settings.tsx")).toContain("<TextSettings />");
+    expect(panel).toContain('section: "text"');
+    const reading = read("src/components/friday/settings/TextSettings.tsx");
+    for (const label of [
+      "High contrast text",
+      "Chat bubble style",
+      "Show timestamps on chat messages",
+    ]) {
+      expect(reading, label).toContain(label);
+      expect(panel, label).not.toContain(label);
     }
     expect(panel).toContain('label="Interface style"');
     expect(panel).toContain('onChange={setField("uiStyle")}');
@@ -143,7 +155,7 @@ describe("Settings section upgrade", () => {
     expect(html).not.toContain("fonts.googleapis.com");
     expect(root).not.toContain("fonts.googleapis.com");
     // The text settings have their own panel with every control.
-    expect(panel).toContain("<FontsAndTextSettings />");
+    expect(reading).toContain("<FontsAndTextSettings />");
     const text = read("src/components/friday/settings/FontsAndTextSettings.tsx");
     for (const label of [
       "UI / heading font",
