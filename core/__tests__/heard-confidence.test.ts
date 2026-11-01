@@ -124,3 +124,25 @@ describe("what the diagnostics say about how sure she was", () => {
     expect(speechModelHint("", "hi-IN")).toBe("");
   });
 });
+
+describe("small talk with a question mark or her name", () => {
+  it("answers it from the baseline instead of waiting on a model", async () => {
+    const { baselineRespond } = await import("../../src/lib/friday/brain/baseline-responder");
+    for (const line of [
+      "How are you?",
+      "Friday, how are you?",
+      "hello friday how are you?",
+      "kaise ho?",
+      "thanks!",
+      "what's up?",
+    ]) {
+      expect(baselineRespond(line).handled, line).toBe(true);
+    }
+    // A real question is still left to the model.
+    expect(
+      baselineRespond(
+        "how are you different from other assistants and what is your plan for next year?",
+      ).handled,
+    ).toBe(false);
+  });
+});

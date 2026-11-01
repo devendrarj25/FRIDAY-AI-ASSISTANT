@@ -111,6 +111,7 @@ import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime
 import {
   applyCorrections,
   confidenceRepeat,
+  heardConfidence,
   heardReadBack,
   needsHeardConfirmation,
   type HeardQuality,
@@ -1967,7 +1968,12 @@ class AssistantModeStore {
     // Whisper transcription takes real time (often 1-3s for a short clip), so
     // the old 1.5s window had usually already expired by the time the text
     // arrived — which silently ate short commands, "friday" included.
-    if (words <= 2 && !isStopCommand(text) && !voiceGate.heardSpeechWithin(6000)) {
+    // The recogniser's own scores count as evidence too: the level meter in the window and
+    // the capture the recogniser hears can differ, and a short command that Whisper is sure
+    // about (clear audio, confident language) should not be eaten for want of a meter bar.
+    const sure =
+      this.lastHeardQuality !== null && heardConfidence(text, this.lastHeardQuality) >= 0.8;
+    if (words <= 2 && !isStopCommand(text) && !sure && !voiceGate.heardSpeechWithin(6000)) {
       this.trace(
         "dropped",
         dropLine("too-short", `"${text.trim()}" — too short and no verified speech signal`),

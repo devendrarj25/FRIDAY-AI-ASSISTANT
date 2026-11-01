@@ -65,7 +65,7 @@ describe("Self-Management report", () => {
   });
 
   it("indexes this checkout with no broken import", () => {
-    expect(archIndex.SCHEMA).toBe(3);
+    expect(archIndex.SCHEMA).toBe(4);
     expect(archIndex.withoutTemplates('a `require("./agent.cjs")` b')).toBe("a `` b");
     const index = archIndex.buildIndex(join(__dirname, "../.."));
     expect(index.broken).toEqual([]);

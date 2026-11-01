@@ -132,11 +132,19 @@ const INPUT_MAX_PX = 184;
 
 function fitInput(el: HTMLTextAreaElement | null) {
   if (!el) return;
+  const before = el.offsetHeight;
   el.style.height = "auto";
   // The box grows with the text and stops at about a third of the window.
   const room = typeof window === "undefined" ? INPUT_MAX_PX : Math.round(window.innerHeight * 0.35);
   const cap = Math.max(96, Math.min(room, 320));
-  el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
+  const target = Math.min(el.scrollHeight, cap);
+  // Start from the old height and move to the new one, so the box glides (the
+  // height transition on the field; it is off under reduced motion).
+  if (before > 0 && before !== target) {
+    el.style.height = `${before}px`;
+    void el.offsetHeight;
+  }
+  el.style.height = `${target}px`;
 }
 
 type Session = { id: string; title: string; at: number; messages: Message[] };
@@ -1186,7 +1194,7 @@ export function ChatDock() {
                   spellCheck={false}
                   aria-label="Message FRIDAY"
                   placeholder="Type your message…"
-                  className="min-h-9 resize-none rounded-2xl py-1.5 leading-6 border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
+                  className="min-h-9 resize-none rounded-2xl py-1.5 leading-6 border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow,height] duration-150 motion-reduce:transition-none hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
                 />
                 {glassComposer ? sendControl : null}
               </div>
