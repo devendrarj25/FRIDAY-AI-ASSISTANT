@@ -13,7 +13,7 @@
 
 import { KernelBridge, isDesktop } from "../bridge";
 import { readLocalState, writeState } from "../persist";
-import { memory, type MemoryItem } from "../self/memory-engine";
+import { memory, validityState, type MemoryItem } from "../self/memory-engine";
 import { expandQuery } from "./retrieval";
 
 export type VectorHit = {
@@ -65,7 +65,13 @@ const STATUS_MS = 30_000;
 const SYNC_MS = 5 * 60_000;
 const MAX_LOG = 40;
 
-type SyncState = { ids: string[]; lastSyncAt: number | null; autoSync: boolean };
+type SyncState = {
+  ids: string[];
+  /** updatedAt of each local memory at the moment it was pushed, so an edit is pushed again. */
+  stamps?: Record<string, number>;
+  lastSyncAt: number | null;
+  autoSync: boolean;
+};
 
 let seq = 0;
 const nextId = () => `vec-${Date.now().toString(36)}-${(seq += 1).toString(36)}`;
@@ -93,6 +99,7 @@ class VectorIndex {
   private bridge: KernelBridge | null = null;
   private connecting: Promise<KernelBridge | null> | null = null;
   private pushed = new Set<string>();
+  private stamps = new Map<string, number>();
   private timers: ReturnType<typeof setInterval>[] = [];
   private started = false;
 
@@ -113,6 +120,7 @@ class VectorIndex {
     const saved = readLocalState<SyncState>(SYNC_KEY);
     if (saved) {
       (saved.ids ?? []).forEach((id) => this.pushed.add(id));
+      Object.entries(saved.stamps ?? {}).forEach(([id, at]) => this.stamps.set(id, at));
       this.state.synced = this.pushed.size;
       this.state.lastSyncAt = saved.lastSyncAt ?? null;
       this.state.autoSync = saved.autoSync ?? true;
@@ -148,6 +156,7 @@ class VectorIndex {
   private persistSync() {
     writeState(SYNC_KEY, {
       ids: [...this.pushed].slice(-4000),
+      stamps: Object.fromEntries([...this.stamps].slice(-4000)),
       lastSyncAt: this.state.lastSyncAt,
       autoSync: this.state.autoSync,
     } satisfies SyncState);
@@ -350,14 +359,30 @@ class VectorIndex {
     if (on) void this.syncLocalMemory();
   }
 
-  /** Push memories FRIDAY learned locally into the durable vector index. */
+  /**
+   * Keep the durable vector index equal to local memory: push what is new or edited since it was pushed, and
+   * remove what local memory has forgotten, archived, replaced or let expire, so a forgotten fact is not recalled.
+   */
   async syncLocalMemory(): Promise<number> {
-    const items = memory
-      .getSnapshot()
-      .items.filter((item: MemoryItem) => item.tier !== "working" && item.tier !== "archived")
-      .filter((item) => !this.pushed.has(item.id));
-    if (!items.length) {
-      this.state.lastSyncAt = Date.now();
+    const now = Date.now();
+    const all = memory.getSnapshot().items;
+    const live = all.filter(
+      (item: MemoryItem) =>
+        item.tier !== "working" &&
+        item.tier !== "archived" &&
+        !item.supersededAt &&
+        validityState(item, now) === "current",
+    );
+    const liveIds = new Set(live.map((item) => item.id));
+    const toPush = live.filter((item) => {
+      if (!this.pushed.has(item.id)) return true;
+      const stamp = this.stamps.get(item.id);
+      return stamp !== undefined && item.updatedAt > stamp;
+    });
+    // Only ids this sync pushed are ever removed: a document indexed from a folder is not a memory.
+    const toRemove = [...this.stamps.keys()].filter((id) => !liveIds.has(id));
+    if (!toPush.length && !toRemove.length) {
+      this.state.lastSyncAt = now;
       this.persistSync();
       this.emit();
       return 0;
@@ -368,8 +393,21 @@ class VectorIndex {
       this.emit();
       return 0;
     }
+    let removed = 0;
+    if (toRemove.length) {
+      const res = await this.call<{ ok: boolean; removed?: number }>("memory.remove", {
+        ids: toRemove.slice(0, 200),
+      });
+      if (res?.ok) {
+        for (const id of toRemove.slice(0, 200)) {
+          this.pushed.delete(id);
+          this.stamps.delete(id);
+        }
+        removed = res.removed ?? 0;
+      }
+    }
     let pushed = 0;
-    for (const item of items.slice(0, 50)) {
+    for (const item of toPush.slice(0, 50)) {
       const ok = await this.call<{ ok: boolean }>("memory.add", {
         text: `${item.title}\n\n${item.text}`,
         kind: item.tier,
@@ -378,12 +416,15 @@ class VectorIndex {
       });
       if (!ok?.ok) break;
       this.pushed.add(item.id);
+      this.stamps.set(item.id, item.updatedAt);
       pushed += 1;
     }
     this.state.synced = this.pushed.size;
     this.state.lastSyncAt = Date.now();
     this.persistSync();
     if (pushed) this.note(`synced ${pushed} memories into the vector index`, "ok");
+    if (removed)
+      this.note(`removed ${removed} forgotten or replaced memories from the index`, "ok");
     this.emit();
     return pushed;
   }

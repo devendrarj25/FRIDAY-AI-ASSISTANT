@@ -499,6 +499,7 @@ const KERNEL_CLASS = Object.freeze({
   "memory.search": "quick",
   "memory.index": "quick",
   "memory.add": "quick",
+  "memory.remove": "quick",
   "memory.reindex": "quick",
   "memory.status": "quick",
   "module.list": "quick",

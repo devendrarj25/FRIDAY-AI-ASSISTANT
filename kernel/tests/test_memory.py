@@ -49,3 +49,35 @@ class NumpyMemoryIdTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NumpyMemoryRemoveTests(unittest.TestCase):
+    def test_a_removed_record_is_gone_from_search_and_from_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = NumpyIndex(Path(tmp))
+            idx.add("owner phone is a Pixel 6", kind="semantic", title="Phone", record_id="m1")
+            idx.add("owner city is Jaipur", kind="semantic", title="City", record_id="m2")
+            self.assertEqual(idx.remove(["m1", "unknown", ""]), 1)
+            self.assertEqual([r["id"] for r in idx.records], ["m2"])
+            self.assertFalse([h for h in idx.search("Pixel phone", k=5) if h.get("id") == "m1"])
+            reopened = NumpyIndex(Path(tmp))
+            reopened.load()
+            self.assertEqual([r["id"] for r in reopened.records], ["m2"])
+            self.assertEqual(len(reopened.vectors), 1)
+
+    def test_removing_nothing_changes_nothing_and_the_last_record_can_go(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = NumpyIndex(Path(tmp))
+            idx.add("one fact", kind="semantic", title="One", record_id="only")
+            self.assertEqual(idx.remove([]), 0)
+            self.assertEqual(idx.remove(["only"]), 1)
+            self.assertEqual(idx.search("one fact", k=3), [])
+
+    def test_search_sees_a_record_added_after_an_earlier_search(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = NumpyIndex(Path(tmp))
+            idx.add("alpha topic about gardens", kind="semantic", title="A", record_id="a")
+            idx.search("gardens", k=3)
+            idx.add("beta topic about harbours", kind="semantic", title="B", record_id="b")
+            hits = idx.search("harbours", k=3)
+            self.assertEqual(hits[0]["id"], "b")

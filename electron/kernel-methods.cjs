@@ -38,6 +38,7 @@ const KERNEL_METHODS = [
   "memory.search",
   "memory.index",
   "memory.add",
+  "memory.remove",
   "memory.reindex",
   "memory.status",
   "module.list",

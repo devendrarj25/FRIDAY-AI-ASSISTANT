@@ -8,7 +8,7 @@
  */
 
 import { redactForExport } from "../brain/memory-policy";
-import { readLocalState, restoreFromDisk, writeState } from "../persist";
+import { readLocalState, registerFlush, restoreFromDisk, writeState } from "../persist";
 import {
   rankByRetrieval,
   registerEntityAliases,
@@ -459,12 +459,33 @@ export function trueDuring(
   return begins <= window.to && ends > window.from;
 }
 
+const SWEEP_EVERY_MS = 60_000;
+
 class MemoryEngine {
   private items: MemoryItem[] = [];
   private listeners = new Set<() => void>();
   private snapshot: MemoryState = { items: [], counts: emptyCounts(), lastWriteAt: 0 };
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private loaded = false;
+  private lastSweepAt = 0;
+  private flushRegistered = false;
+
+  /** Writes what the 500 ms debounce is still holding. Called when the page is hidden or closed. */
+  flush = () => {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    writeState(STORAGE_KEY, this.items);
+  };
+
+  /** Expiry and caps are enforced on every read at most once a minute, not only when something is written. */
+  private sweepIfDue() {
+    const now = Date.now();
+    if (now - this.lastSweepAt < SWEEP_EVERY_MS) return;
+    const before = this.items.length;
+    this.sweep();
+    if (this.items.length !== before) this.emit();
+  }
 
   subscribe = (fn: () => void) => {
     this.load();
@@ -498,6 +519,7 @@ class MemoryEngine {
   /** Drops expired non-pinned records and enforces the per-tier cap. */
   private sweep() {
     const now = Date.now();
+    this.lastSweepAt = now;
     const kept: MemoryItem[] = [];
     const perTier = new Map<MemoryTier, number>();
     for (const item of [...this.items].sort((a, b) => b.updatedAt - a.updatedAt)) {
@@ -531,7 +553,12 @@ class MemoryEngine {
       lastWriteAt: Date.now(),
     };
     this.listeners.forEach((l) => l());
-    if (!persist || typeof window === "undefined" || this.saveTimer) return;
+    if (!persist || typeof window === "undefined") return;
+    if (!this.flushRegistered) {
+      this.flushRegistered = true;
+      registerFlush(this.flush);
+    }
+    if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       writeState(STORAGE_KEY, this.items);
@@ -596,7 +623,11 @@ class MemoryEngine {
           { title: input.title, text: input.text, kind },
         ));
     if (candidate && !clashes) {
-      candidate.text = input.text.length >= candidate.text.length ? input.text : candidate.text;
+      // The newer statement wins, even when it is shorter ("phone is Pixel 9" after "phone is Pixel 6 Pro").
+      // The older one stays only when it already says everything the new one says and more.
+      const older = candidate.text.trim().toLowerCase();
+      const newer = input.text.trim().toLowerCase();
+      candidate.text = older.includes(newer) ? candidate.text : input.text;
       candidate.updatedAt = now;
       candidate.freshnessAt = now;
       candidate.uses += 1;
@@ -804,11 +835,19 @@ class MemoryEngine {
       k?: number;
       context?: string;
       scope?: "task" | "project" | "user" | "general" | "external";
+      /** History as well: replaced records and ones whose period is over. Off for ordinary recall. */
+      includeHistory?: boolean;
     } = {},
   ): MemoryItem[] {
     this.load();
+    this.sweepIfDue();
     const k = options.k ?? 20;
-    const pool = this.items.filter((i) => !options.tiers || options.tiers.includes(i.tier));
+    const now = Date.now();
+    const pool = this.items.filter(
+      (i) =>
+        (!options.tiers || options.tiers.includes(i.tier)) &&
+        (options.includeHistory || (!i.supersededAt && validityState(i, now) === "current")),
+    );
     const ranked = !retrievalTerms(query).length
       ? pool.slice(0, k)
       : rankByRetrieval(pool, query, memorySignals, {
@@ -850,6 +889,7 @@ class MemoryEngine {
     options: { context?: string; vectorHits?: VectorSnippet[]; projectId?: string } = {},
   ): { item: MemoryItem; score: number }[] {
     this.load();
+    this.sweepIfDue();
     if (!retrievalTerms(query).length) return [];
     const pool = this.items.filter((i) => {
       if (i.tier === "archived" || i.supersededAt) return false;
