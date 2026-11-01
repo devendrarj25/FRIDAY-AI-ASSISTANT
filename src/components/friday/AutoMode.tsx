@@ -112,13 +112,13 @@ function StripButton({
       title={title}
       aria-pressed={pressed}
       className={cn(
-        "inline-flex items-center gap-1 rounded-ctl px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-ctl px-1.5 py-0.5 transition-colors duration-150 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 active:bg-primary/15",
         pressed && "bg-primary/10 text-primary",
         tone === "warning" && "text-warning",
       )}
     >
       <Icon className="size-3.5" />
-      {label}
+      <span className="strip-label">{label}</span>
     </button>
   );
 }
@@ -194,7 +194,11 @@ export function AutoMode() {
 
   // Only the last couple of exchanges at Compact; full history otherwise.
   const tall = level >= 2 || panel !== null;
-  const visible = tall ? voice.captions : voice.captions.slice(-2);
+  // The conversation holds what was said to FRIDAY and what she said back.
+  // Room talk she overheard (tag "ambient") stays in the heard log and the
+  // pipeline panel, where it can be checked, not in the conversation.
+  const conversation = voice.captions.filter((caption) => caption.tag !== "ambient");
+  const visible = tall ? conversation : conversation.slice(-2);
   const working = live.components.some((c) => c.active);
   // No layout animation while speech streams in or out.
   const streaming = Boolean(voice.interim) || voice.speaking;
@@ -593,7 +597,7 @@ export function AutoMode() {
           )}
         >
           {full ? null : (
-            <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-3 py-1">
+            <div className="voice-strip flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-primary/15 px-3 py-1">
               <p className="label-xs text-primary/60">
                 Live captions{voice.display ? " · showing" : ""}
               </p>
@@ -688,7 +692,7 @@ export function AutoMode() {
           </div>
 
           {full ? (
-            <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 border-t border-primary/15 px-3 py-1">
+            <div className="voice-strip flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-primary/15 px-3 py-1">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-meta-sm text-muted-foreground">
                 {captionTools}
               </div>

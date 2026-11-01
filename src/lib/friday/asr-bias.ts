@@ -79,6 +79,99 @@ export function languageId(text: string): "en" | "hi" | "hinglish" {
   return "en";
 }
 
+/** What the speech model itself reported about an utterance. Any part may be missing. */
+export type HeardQuality = {
+  /** Average log probability per token of the chosen words: near 0 is sure, below -1 is a guess. */
+  avgLogprob?: number | null;
+  /** How sure the model was of the language it decoded in (0..1). */
+  languageProbability?: number | null;
+  language?: string;
+};
+
+/**
+ * How far to trust what was heard. The words alone say little (a made-up sentence is as fluent as a real one), so the
+ * model's own scores count: a weak per-token probability, or a weak language guess, lowers the number. With no scores
+ * the text rule below is all there is.
+ */
+export function heardConfidence(text: string, quality?: HeardQuality | null): number {
+  let value = utteranceConfidence(text);
+  const lp = quality?.avgLogprob;
+  if (typeof lp === "number") {
+    if (lp <= -1.0) value = Math.min(value, 0.4);
+    else if (lp <= -0.7) value = Math.min(value, 0.6);
+    else if (lp <= -0.5) value = Math.min(value, 0.8);
+  }
+  const lang = quality?.languageProbability;
+  if (typeof lang === "number") {
+    if (lang < 0.7) value = Math.min(value, 0.6);
+    else if (lang < 0.85) value = Math.min(value, 0.75);
+  }
+  return Math.round(value * 100) / 100;
+}
+
+/** One line for the diagnostics: what the model reported, and what was done about it. */
+export function heardQualityLine(quality: HeardQuality | null | undefined, text = ""): string {
+  if (!quality) return "no utterance heard yet";
+  const lang = quality.language || "?";
+  const prob =
+    typeof quality.languageProbability === "number" ? quality.languageProbability.toFixed(2) : "?";
+  const lp = typeof quality.avgLogprob === "number" ? quality.avgLogprob.toFixed(2) : "?";
+  const sure = heardConfidence(text, quality);
+  return `language ${lang} (${prob}) · token score ${lp} · trust ${sure.toFixed(2)}${
+    sure < CONFIRM_BELOW ? " · read back before acting" : ""
+  }`;
+}
+
+/**
+ * A small speech model is the usual reason Hindi and Hinglish come out as other words. Say so when the owner's language
+ * is not plain English and the model in use is tiny or base.
+ */
+export function speechModelHint(model: string, recognitionLang: string): string {
+  const name =
+    String(model || "")
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter(Boolean)
+      .pop() ?? "";
+  const small = /^(tiny|base)(\.en)?$/i.test(name);
+  const lang = String(recognitionLang || "").toLowerCase();
+  const mixed =
+    !lang ||
+    lang === "auto" ||
+    lang === "mixed" ||
+    lang.startsWith("hi") ||
+    lang.startsWith("en-in");
+  if (!small || !mixed) return "";
+  return `the ${name} model is small for Hindi and Hinglish, so words can come out wrong: choose small or larger in Voice settings`;
+}
+
+/** Below this the words are read back before anything is done with them. */
+export const CONFIRM_BELOW = 0.65;
+
+/**
+ * Should she read the words back and wait for a yes? Only for something she was about to act on, and only when the model
+ * itself was unsure. A stop command is never held up.
+ */
+export function needsHeardConfirmation(
+  text: string,
+  quality: HeardQuality | null | undefined,
+  isStop = false,
+): boolean {
+  if (isStop || !String(text || "").trim()) return false;
+  return heardConfidence(text, quality) < CONFIRM_BELOW;
+}
+
+/** The read-back, in the language the words were in. */
+export function heardReadBack(text: string): string {
+  const clean = String(text || "")
+    .trim()
+    .slice(0, 90);
+  const lang = languageId(clean);
+  if (lang === "hi") return `क्या आपने कहा: “${clean}”?`;
+  if (lang === "hinglish") return `Kya aapne kaha: “${clean}”? Haan ya nahi bolo.`;
+  return `Did you say “${clean}”? Say yes or no.`;
+}
+
 /** A repeated word or a very long token is a weak read. Everything else is trusted. */
 export function utteranceConfidence(text: string): number {
   const value = String(text || "").trim();

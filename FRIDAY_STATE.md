@@ -10,13 +10,13 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 
 ## Snapshot
 
-| Item | Live value |
-| --- | --- |
-| Public version | `1.1.4.6` (`config/friday-version.json`), published as GitHub release `v1.1.4.6` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
-| npm encoding | `1.1.4` (`package.json`), never compared as an update identity |
-| Epoch | 2 / `friday-2` |
-| Next public revision | `1.1.4.7`, not bumped until the owner asks |
-| Stack floors | Electron ^43.8.3, electron-builder 26.18.0, Node `>=22.19.0`, Python `>=3.12.10`, Vite 8.3.5 (`package.json`, `config/toolchain-versions.json`) |
+| Item                 | Live value                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public version       | `1.1.4.6` (`config/friday-version.json`), published as GitHub release `v1.1.4.6` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
+| npm encoding         | `1.1.4` (`package.json`), never compared as an update identity                                                                                                           |
+| Epoch                | 2 / `friday-2`                                                                                                                                                           |
+| Next public revision | `1.1.4.7`, not bumped until the owner asks                                                                                                                               |
+| Stack floors         | Electron ^43.8.3, electron-builder 26.18.0, Node `>=22.19.0`, Python `>=3.12.10`, Vite 8.3.5 (`package.json`, `config/toolchain-versions.json`)                          |
 
 ## Architecture
 
@@ -28,20 +28,20 @@ Build output and run state (`release/`, `dist-desktop/`, `.venv/`, `.friday-dev/
 
 Counted from the files named in the last column. `docs:sync` rewrites the six disk counts when they drift.
 
-| Kind | Count | How counted |
-| --- | --- | --- |
-| Skills | 214 `skill.json` + 9 builtins | disk + `electron/skills.cjs` `BUILTIN` |
-| Tools | 178 `tool.json` | disk |
-| Agents | 98 `manifest.json` | `agents/` |
-| Plugins | 78 `plugin.json` | disk |
-| Workflows | 117 `workflow.json` | disk |
-| Modules | 76 `manifest.json` | disk |
-| Connectors | 113 | `electron/connectors.cjs` `CONNECTORS` |
-| Kernel tools | 78 | `kernel/tools.py` `RISK` |
-| Cloud providers | 20 | `electron/models.cjs` `CLOUD` |
-| Local engines | Ollama + LM Studio + llama.cpp + vLLM + LocalAI + Jan (MLX-LM live on darwin only) | `LOCAL_ENGINES` + Ollama |
-| Workflows (GitHub) | 11 YAML files | `.github/workflows` |
-| `FOLDERS` | 40 | `electron/friday-contract.cjs` |
+| Kind               | Count                                                                              | How counted                            |
+| ------------------ | ---------------------------------------------------------------------------------- | -------------------------------------- |
+| Skills             | 214 `skill.json` + 9 builtins                                                      | disk + `electron/skills.cjs` `BUILTIN` |
+| Tools              | 178 `tool.json`                                                                    | disk                                   |
+| Agents             | 98 `manifest.json`                                                                 | `agents/`                              |
+| Plugins            | 78 `plugin.json`                                                                   | disk                                   |
+| Workflows          | 117 `workflow.json`                                                                | disk                                   |
+| Modules            | 76 `manifest.json`                                                                 | disk                                   |
+| Connectors         | 113                                                                                | `electron/connectors.cjs` `CONNECTORS` |
+| Kernel tools       | 78                                                                                 | `kernel/tools.py` `RISK`               |
+| Cloud providers    | 20                                                                                 | `electron/models.cjs` `CLOUD`          |
+| Local engines      | Ollama + LM Studio + llama.cpp + vLLM + LocalAI + Jan (MLX-LM live on darwin only) | `LOCAL_ENGINES` + Ollama               |
+| Workflows (GitHub) | 11 YAML files                                                                      | `.github/workflows`                    |
+| `FOLDERS`          | 40                                                                                 | `electron/friday-contract.cjs`         |
 
 `npm run arrange:check` declares 140 layout folders. That number is the arrange contract, not `FOLDERS`.
 
@@ -53,16 +53,16 @@ Eleven workflow files: eight release and repository workflows plus Health Weekly
 
 Workflow status (2026-10-25). The owner has run the workflows and reports them all green and working; the table is what the run results show. **Do not change them.** A workflow file or a composite action changes only when the owner asks for that exact change and confirms it a second time ([AGENTS.md](AGENTS.md) → GitHub workflows stay locked); no tidy-up, no improvement, no new workflow.
 
-| Workflow | State |
-| --- | --- |
-| PR Validation | Green. Pull request run 245 passed all 13 jobs in about 15 minutes (Windows tests in two shards, the shared pack pipeline with the lifecycle scenario, the update job with the N-1 to N and update-while-running scenarios, kernel, static, audit, secrets, CodeQL), and the manual run 247 on `main` passed too |
-| FRIDAY Release | Green end to end: run 33 (23 jobs) prepared the release pull request, Safe Merge merged it, `v1.1.4.6` was packed and published, and the published assets were read back and verified against `friday-update.json`, `SHA256SUMS.txt` and `latest.yml` |
-| FRIDAY Test Build | Green: run 5 on `main` published the TEST prerelease and uploaded the artifact. The erase-all failure of run 4 (the TEST uninstaller ignores `/DELETEDATA` on purpose) is fixed |
-| Safe Merge | Ran inside Release run 33 and merged the release pull request |
-| Maintenance Cleanup | Green (run 8) |
-| Branch Cleanup, Main Safety Recovery | Green on every merge |
-| Auto Recover, Security Scan, Health Weekly | Green on schedule (2026-10-25, 2026-10-20, 2026-10-19) |
-| Repository Control | Reported working by the owner; its run result was not read here |
+| Workflow                                   | State                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR Validation                              | Green. Pull request run 245 passed all 13 jobs in about 15 minutes (Windows tests in two shards, the shared pack pipeline with the lifecycle scenario, the update job with the N-1 to N and update-while-running scenarios, kernel, static, audit, secrets, CodeQL), and the manual run 247 on `main` passed too |
+| FRIDAY Release                             | Green end to end: run 33 (23 jobs) prepared the release pull request, Safe Merge merged it, `v1.1.4.6` was packed and published, and the published assets were read back and verified against `friday-update.json`, `SHA256SUMS.txt` and `latest.yml`                                                            |
+| FRIDAY Test Build                          | Green: run 5 on `main` published the TEST prerelease and uploaded the artifact. The erase-all failure of run 4 (the TEST uninstaller ignores `/DELETEDATA` on purpose) is fixed                                                                                                                                  |
+| Safe Merge                                 | Ran inside Release run 33 and merged the release pull request                                                                                                                                                                                                                                                    |
+| Maintenance Cleanup                        | Green (run 8)                                                                                                                                                                                                                                                                                                    |
+| Branch Cleanup, Main Safety Recovery       | Green on every merge                                                                                                                                                                                                                                                                                             |
+| Auto Recover, Security Scan, Health Weekly | Green on schedule (2026-10-25, 2026-10-20, 2026-10-19)                                                                                                                                                                                                                                                           |
+| Repository Control                         | Reported working by the owner; its run result was not read here                                                                                                                                                                                                                                                  |
 
 Two behaviours to know, neither a fault. A pull request merged a few seconds after it is marked ready makes `static` report `Branch contains the current main` on a head that `main` already holds; that step now passes with a notice in that case and still fails a branch that is really behind (pinned in `core/__tests__/pr-validation-design.test.ts`; the up-to-date path ran green on run 245, the already-merged path has not been seen on a hosted runner). Wait for the run to finish and merge through Safe Merge. A test that reads files across lines must tolerate the CRLF Git writes on Windows (`real-pc-setup-fixes.test.ts` did not; fixed).
 
@@ -103,6 +103,10 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- Chat and Auto layout was changed from screenshots (full-width column, slim auto-grow composer, caption strip that hides words when narrow, foreign-script and loop noise dropped). Not run in a real window here: check Compact, Expanded and Transcript at a small laptop size and at full screen, and that a long message grows the box smoothly. The composer height still steps rather than animates. A real Japanese-speaking use would need the script filter relaxed (kernel `is_foreign_script`).
+- Live activity: the chat chip and the graphic name the real step, but only for work that reports a trace step. A tool that reports nothing still shows its stage name. Per-file progress (bytes zipped, pages read) is not reported anywhere yet, so no percentage is shown. The Auto conversation hides "ambient" lines; if she wrongly marks a real command as ambient, it is only in the heard log, so check the address mode when a command seems ignored. Unverified in a real window.
+- Final audit round, fixed and unverified on Windows: "155 broken imports" came from reading an installed folder (an embedded Python's own files, `from . import x` counted as missing); the index now counts Python dots properly and does not check vendored or installed code (schema 4). "How are you?" took 4 seconds because a trailing "?" or her name in front stopped the baseline matchers; it is now answered at once. A one or two word command that the recogniser is sure about is no longer dropped for lack of a level-meter bar. The composer height now glides. Still open: the Voice stack row "Microphone: no-microphone NOT READY" while Auto is idle (it names the real state but reads like a fault), the Node.js "LTS" label showing a Current release (no update is offered), and a real-microphone Hinglish test.
+- Voice accuracy on real speech: the second Hindi reading, the confidence thresholds (language 0.85, token score -0.5, -0.7 and -1.0, trust below 0.65 read back) and the 15-second limit for the second reading are set from how Whisper behaves, not measured on the owner's voice. The read-back adds a spoken question for doubtful words and one extra decode for a weak language guess; both cost time. The English-only streaming engine (Moonshine) is still chosen for an en-IN setting when its weights are on disk, which is how it was set up on purpose; for an owner who speaks Hinglish that would turn Hindi words into English the model invented, so if the owner installs it and sees that, the rule in `wants_english_stream` is the place. A tiny or base speech model stays weak for Hindi and Hinglish whatever is done around it, so the diagnostics now say to choose small or larger. Not run on a real microphone or on Windows. The renderer's level meter and the speech engine capture separately; if the meter reads silence while the speech engine hears words, a one or two word command is dropped as "too short and no verified speech signal", and that was seen in the owner's diagnostics but not diagnosed.
 - Network handling: timeouts and the one-retry-then-move rule are tested on the pure parts (`boundedInit`, `fetchTimeout`, `classifyError`, `blipRetry`, the bridge) and by a source guard; the chat loop in `electron/main.cjs` that applies them was only syntax-checked and run through the existing tests, not driven with a failing provider on Windows. Some timeouts are chosen by reasoning (20s for the update channel, 8s for the kernel health check, 30s for a capability download or a browser fetch, 120s for transcription and for the speech server) and are not measured. A very large paste (about 80,000 characters) made later turns slower inside the test runner only after a deep turn (about 2 seconds against 20 milliseconds); the same sequence in plain Node did not reproduce it, so it is not fixed and not confirmed in the app.
 - Intent learning (`brain/intent-memory.ts`): a turn is judged only by what the owner does next (a correction or the same request again counts as not understood; thanks or building on the result counts as understood; anything else counts as nothing). That is still a proxy, not proof. The calibration table needs eight turns in a band before it moves anything and can move a number at most 0.25 down or 0.15 up. The matching thresholds (0.75 for a shortcut, 0.78 for a remembered wording) are set by reasoning and tested on written examples, not measured on his speech. Paraphrases are matched by letters and by a small table of equivalent words (about a dozen groups across Hindi, Hinglish and English); a paraphrase outside that table is not recognised, and no embedding model is used here.
 - Understanding (`brain/slot-understanding.ts`) knows nine actions (send and message, remind, call, open, delete, schedule, play, search, note); a request for any other action is understood as before, with no piece-asking. The wording of the ask-questions, the verbs and the Hinglish forms are rules checked on written examples, not on the owner's real requests. The research behind it was read from search results only because arxiv.org and aclanthology.org are not reachable from this session; add them to the allowed hosts to verify.
@@ -154,6 +158,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
+- Record the owner saying ten real Hinglish commands, run them through `scripts/stt_bench` style checks with the base and small models, and set the language and token-score thresholds from what comes out; then find why the level meter reads silence while words are heard.
 - Drive the chat loop with a provider that fails (dropped connection, 503, bad certificate) on the Windows PC and watch the retry, the move to the next model and the message the owner sees; then tune the timeouts from real latency. Find what makes a large paste slow in the running app (the test-runner-only slowdown after a deep turn).
 - After a few weeks of real use, read the calibration table and the remembered wordings from `describeIntentMemory`, tune the thresholds, grow the equivalent-word table from what he actually says, and consider the optional local embedding model (async, so it needs a separate pre-turn step) for paraphrases the table cannot match.
 - Put the owner's real requests (typed and spoken) through My tasks and add each misunderstood one to `core/__tests__/slot-understanding.test.ts`; then widen the action list further from what he actually asks.

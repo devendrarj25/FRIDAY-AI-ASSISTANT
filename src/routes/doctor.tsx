@@ -30,6 +30,7 @@ import {
   doctor,
   isHealthy,
   isProblem,
+  isProblemCheck,
   isWarning,
   type DoctorCheck,
   type DoctorStatus,
@@ -137,7 +138,9 @@ function DoctorPage() {
     () => ({
       ok: state.checks.filter((c) => isHealthy(c.status)).length,
       warn: state.checks.filter((c) => isWarning(c.status)).length,
-      fail: state.checks.filter((c) => isProblem(c.status)).length,
+      // An optional part that is not installed is not a problem: the tile and the "problems" filter now agree.
+      fail: state.checks.filter((c) => isProblemCheck(c)).length,
+      optional: state.checks.filter((c) => c.optional && isProblem(c.status)).length,
       fixable: state.checks.filter((c) => c.fixable && !isHealthy(c.status)).length,
       owner: state.checks.filter((c) => c.repairKind === "needs-owner").length,
     }),
@@ -362,7 +365,11 @@ function DoctorPage() {
         <StatTile
           label="Problems"
           value={counts.fail}
-          state="fix before use"
+          state={
+            counts.optional
+              ? `fix before use · ${counts.optional} optional not installed`
+              : "fix before use"
+          }
           tone="destructive"
           icon={<XCircle className="size-4" />}
         />
@@ -468,7 +475,12 @@ function DoctorPage() {
                         />
                         <p className="truncate text-sm text-foreground">{c.label}</p>
                       </div>
-                      <StatusPill label={c.status.toLowerCase()} tone={statusTone(c.status)} />
+                      <StatusPill
+                        label={
+                          c.optional && isProblem(c.status) ? "optional" : c.status.toLowerCase()
+                        }
+                        tone={c.optional && isProblem(c.status) ? "muted" : statusTone(c.status)}
+                      />
                     </div>
                     <p className="mt-0.5 truncate text-meta-sm text-muted-foreground">{c.detail}</p>
                     {c.cause ? (

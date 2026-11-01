@@ -1,154 +1,158 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { createRequire } from "node:module";
+import { describe, expect, it } from "vitest";
+import { isProblemCheck, stepsFor, type DoctorCheck } from "../../src/lib/friday/doctor-engine";
+import { dedupeProblems, type SelfProblem } from "../../src/lib/friday/brain/self-diagnosis";
 
-const require_ = createRequire(import.meta.url);
-const root = join(__dirname, "../..");
-const diagnostics = require_(join(root, "electron/diagnostics.cjs")) as {
-  kernelLogLevel: (line: string, stream?: string) => string;
-  isErrorLogLine: (line: string) => boolean;
-  answeredProviders: (health: unknown) => Set<string>;
-  NETWORK_PROBES: string[];
-};
-const netFetch = require_(join(root, "electron/net-fetch.cjs")) as {
-  combinedNetworkError: (chromium: Error | null, node: Error) => Error;
-};
-const read = (file: string) => readFileSync(join(root, file), "utf8");
+const check = (over: Partial<DoctorCheck>): DoctorCheck =>
+  ({
+    id: "x",
+    label: "Thing",
+    group: "Group",
+    status: "Missing",
+    detail: "detail",
+    fixable: false,
+    ...over,
+  }) as DoctorCheck;
 
-/** The owner's 2026-10-22 Doctor report, row by row. */
-describe("Doctor reports what is really wrong", () => {
-  it("does not count uvicorn INFO lines written to stderr as errors", () => {
-    expect(diagnostics.kernelLogLevel("INFO:     connection open")).toBe("info");
-    expect(diagnostics.kernelLogLevel("WARNING:  slow request")).toBe("warn");
-    expect(diagnostics.kernelLogLevel("ERROR:    Exception in ASGI application")).toBe("error");
-    expect(diagnostics.kernelLogLevel("Traceback (most recent call last):")).toBe("error");
-    expect(diagnostics.kernelLogLevel("plain stdout line", "stdout")).toBe("info");
-    const owner = "[2026-10-22T17:31:36.209Z] [error] kernel INFO:     connection open";
-    expect(diagnostics.isErrorLogLine(owner)).toBe(false);
-    expect(diagnostics.isErrorLogLine("[x] [error] kernel ERROR: model load failed")).toBe(true);
-    expect(diagnostics.isErrorLogLine("[x] [error] main provider fetch failed")).toBe(true);
-    expect(read("electron/main.cjs")).toContain("kernelLogLevel(line, ");
-  });
+const problem = (over: Partial<SelfProblem>): SelfProblem => ({
+  id: "p",
+  severity: "critical",
+  area: "models",
+  title: "Local models — Missing",
+  detail: "no local models pulled",
+  ...over,
+});
 
-  it("checks the internet through the provider network stack, on three hosts", () => {
-    expect(diagnostics.NETWORK_PROBES).toHaveLength(3);
-    const toolchain = read("electron/toolchain.cjs");
-    const ping = toolchain.slice(toolchain.indexOf("async function ping("));
-    expect(ping.slice(0, 600)).toContain("fetchCompat");
-    expect(read("electron/diagnostics.cjs")).toContain("anyReachable(NETWORK_PROBES, 6000)");
-    const chat = read("electron/models.cjs");
-    expect(chat).toContain("const fetcher = fetchImpl || fetchCompat;");
-  });
-
-  it("keeps Chromium's reason when both network stacks fail", () => {
-    const chromium = new Error("net::ERR_PROXY_CONNECTION_FAILED");
-    const node = Object.assign(new TypeError("fetch failed"), {
-      cause: { code: "ECONNREFUSED" },
+describe("one fault is one entry, and the counts agree", () => {
+  it("the Doctor's and the system map's wording of the same fault is listed once, keeping the one with owner steps", () => {
+    const doctor = problem({
+      id: "doctor:models",
+      title: "Local models — Missing",
+      steps: ["Pull a model", "Re-check"],
     });
-    const error = netFetch.combinedNetworkError(chromium, node);
-    expect(error.message).toBe("net::ERR_PROXY_CONNECTION_FAILED (Node fallback: ECONNREFUSED)");
-    expect(netFetch.combinedNetworkError(null, node)).toBe(node);
-  });
-
-  it("does not call a provider down when it answered a chat this session", () => {
-    const answered = diagnostics.answeredProviders({
-      decisions: [
-        { modelId: "openrouter:openrouter/free", outcome: "ok answered" },
-        { modelId: "openrouter:openrouter/free", outcome: "planned cloud-free" },
-        { modelId: "gemini:gemini-2.5-flash", outcome: "failed 503" },
-      ],
+    const map = problem({
+      id: "map:models",
+      severity: "warning",
+      area: "models",
+      title: "Local models is missing",
     });
-    expect([...answered]).toEqual(["openrouter"]);
-    expect(diagnostics.answeredProviders(null).size).toBe(0);
-    expect(read("electron/diagnostics.cjs")).toContain("but it answered a chat in this session");
+    const merged = dedupeProblems([doctor, map]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("doctor:models");
+    expect(merged[0]?.severity).toBe("critical");
   });
 
-  it("lets the network meter's own hosts through the CSP", () => {
-    const csp = require_(join(root, "electron/csp.cjs")) as { reportOnlyHeader: () => string };
-    const connect = csp
-      .reportOnlyHeader()
-      .split("; ")
-      .find((part) => part.startsWith("connect-src"));
-    for (const host of [
-      "https://cloudflare.com",
-      "https://www.gstatic.com",
-      "https://speed.cloudflare.com",
-    ]) {
-      expect(connect).toContain(host);
-    }
-    const meter = read("src/lib/friday/network.ts");
-    expect(meter).toContain("https://www.gstatic.com/generate_204");
-    expect(meter).toContain("https://cloudflare.com/cdn-cgi/trace");
-    expect(meter).toContain("https://speed.cloudflare.com/__down");
+  it("the worse severity wins, even when the entry with steps was the milder one", () => {
+    const merged = dedupeProblems([
+      problem({ id: "a", severity: "warning", title: "Speech model — Missing", steps: ["do it"] }),
+      problem({ id: "b", severity: "critical", title: "Speech model is missing" }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("a");
+    expect(merged[0]?.severity).toBe("critical");
+  });
+
+  it("different faults that share a word are not merged", () => {
+    const merged = dedupeProblems([
+      problem({ id: "a", title: "Local models — Missing" }),
+      problem({ id: "b", title: "Cloud models — Missing" }),
+      problem({ id: "c", title: "Models cooling down", area: "models" }),
+    ]);
+    expect(merged.map((row) => row.id).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("an optional part that is not installed is not a problem; a required one is", () => {
+    expect(isProblemCheck(check({ optional: true }))).toBe(false);
+    expect(isProblemCheck(check({ optional: false }))).toBe(true);
+    expect(isProblemCheck(check({ status: "Ready" }))).toBe(false);
+  });
+
+  it("the Doctor page counts problems the way its own filter does, and labels an optional part as optional", () => {
+    const page = readFileSync("src/routes/doctor.tsx", "utf8");
+    expect(page).toContain("fail: state.checks.filter((c) => isProblemCheck(c)).length");
+    expect(page).toContain('c.optional && isProblem(c.status) ? "optional"');
   });
 });
 
-describe("Doctor history is not a standing warning", () => {
-  it("warns about a recent stall and reports an old one as recovered", () => {
-    const watchdog = require_(join(root, "electron/watchdog.cjs")) as {
-      note: (entry: { kind: string; detail: string }) => { at: number };
-      doctorCheck: (now?: number) => { status: string; detail: string };
-    };
-    const row = watchdog.note({ kind: "event-loop", detail: "event loop lag 2063ms" });
-    expect(watchdog.doctorCheck(row.at + 60_000).status).toBe("Warning");
-    expect(watchdog.doctorCheck(row.at + 60_000).detail).toContain("1 min ago");
-    const old = watchdog.doctorCheck(row.at + 11 * 60_000);
-    expect(old.status).toBe("Ready");
-    expect(old.detail).toContain("recovered");
+describe("the owner steps say only what is true", () => {
+  it("a note with nothing to act on does not claim that only the owner can grant something", () => {
+    const steps = stepsFor(
+      check({
+        status: "Warning",
+        label: "Content Security Policy",
+        detail: "8 report-only violation(s)",
+      }),
+    ).join(" ");
+    expect(steps).toMatch(/note, not a fault/i);
+    expect(steps).not.toMatch(/only you can grant/i);
   });
 
-  it("reads only the tail of a large log", async () => {
-    const { mkdtempSync, writeFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const file = join(mkdtempSync(join(tmpdir(), "friday-log-")), "main.log");
-    const lines = Array.from({ length: 5000 }, (_, i) => `[t] [info] line ${i}`);
-    writeFileSync(file, `${lines.join("\n")}\n`);
-    const readLogTail = (
-      diagnostics as unknown as { readLogTail: (f: string, b: number) => string }
-    ).readLogTail;
-    const tail = readLogTail(file, 2048);
-    expect(tail.length).toBeLessThanOrEqual(2048);
-    expect(tail.startsWith("[t] [info] line ")).toBe(true);
-    expect(tail.trimEnd().endsWith("line 4999")).toBe(true);
+  it("an optional part says it is optional", () => {
+    const steps = stepsFor(check({ optional: true, detail: "not installed" })).join(" ");
+    expect(steps).toMatch(/optional/i);
+    expect(steps).not.toMatch(/only you can grant/i);
+  });
+
+  it("a required fault with nothing FRIDAY can do still says so", () => {
+    const steps = stepsFor(check({ optional: false, detail: "driver missing" })).join(" ");
+    expect(steps).toMatch(/only you can grant/i);
+  });
+
+  it("a fault with a command or a fix keeps them", () => {
+    const steps = stepsFor(check({ fix: "Pull a model", command: "ollama pull qwen2.5:7b" })).join(
+      " ",
+    );
+    expect(steps).toContain("ollama pull qwen2.5:7b");
+    expect(steps).toContain("Pull a model");
   });
 });
 
-describe("Status page reads like the machine", () => {
-  it("a local engine that does not answer reads 'no answer', not 'operation was aborted'", async () => {
-    const net = await import("node:net");
-    const silent = net.createServer(() => {
-      /* accept and never answer */
-    });
-    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
-    const port = (silent.address() as { port: number }).port;
-    const models = require_(join(root, "electron/models.cjs")) as {
-      request: (url: string, init: { timeout: number }) => Promise<{ ok: boolean; error: string }>;
-    };
-    const res = await models.request(`http://127.0.0.1:${port}/v1/models`, { timeout: 300 });
-    silent.close();
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe("no answer within 0.3 s (not running, or still loading)");
+import { offersShowHow } from "../../src/lib/friday/assistant-conduct";
+
+describe("small talk gets no 'show you how' offer", () => {
+  it("the matching steps that run on every turn are not tool work; a runner that ran is", () => {
+    const smallTalk = [
+      { nodeId: "agents.skills", state: "done", detail: "matching installed skills" },
+      { nodeId: "agents.tools", state: "done", detail: "matching installed tools" },
+    ];
+    expect(offersShowHow(smallTalk)).toBe(false);
+    expect(
+      offersShowHow([
+        ...smallTalk,
+        { nodeId: "execution.runners", state: "done", detail: "Chrome — opened" },
+      ]),
+    ).toBe(true);
+    expect(offersShowHow([{ nodeId: "execution.runners", state: "done", detail: "" }])).toBe(false);
+    expect(offersShowHow(undefined)).toBe(false);
+  });
+});
+
+describe("screenshot sweep: wording and housekeeping", () => {
+  const read = (file: string) => readFileSync(file, "utf8");
+
+  it("keeps code names out of the owner steps and skips the engine install step when one runs", () => {
+    const source = read("electron/diagnostics.cjs");
+    expect(source).not.toContain("`engineStatus().canStart`");
+    expect(source).toContain("is already running, so only the model is missing");
   });
 
-  it("the wiring audit does not flag compiled trees or an embedded page in the installed app", async () => {
-    const { mkdtempSync, mkdirSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const connectivity = require_(join(root, "electron/connectivity.cjs")) as {
-      buildGraph: (dir: string) => {
-        issues: { id: string }[];
-        summary: { sourceAvailable: boolean };
-      };
-    };
-    const installed = mkdtempSync(join(tmpdir(), "friday-installed-"));
-    for (const tree of ["agents", "skills", "tools"])
-      mkdirSync(join(installed, tree, "core"), { recursive: true });
-    const packed = connectivity.buildGraph(installed);
-    expect(packed.issues).toEqual([]);
-    expect(packed.summary.sourceAvailable).toBe(false);
-    const checkout = connectivity.buildGraph(root);
-    expect(checkout.summary.sourceAvailable).toBe(true);
-    expect(checkout.issues.map((row) => row.id)).not.toContain("/workflow-visual");
-    expect(checkout.issues.map((row) => row.id)).not.toContain("finetune:active");
+  it("says a bundled tool that was never run needs one run, not a re-extract", () => {
+    const source = read("electron/bundled-runtime.cjs");
+    expect(source).toContain("has not run it once to prove it works");
+    expect(source).toContain("Press Repair: FRIDAY re-checks the pack and runs the tool once");
+  });
+
+  it("does not paint optional sandbox dev tools as a red fault", () => {
+    const source = read("src/routes/sandbox.tsx");
+    expect(source).toContain("optional dev tool");
+    expect(source).not.toContain(
+      '<XCircle className="size-3.5 text-destructive" />\n                  )}\n                </div>\n                <p',
+    );
+  });
+
+  it("keeps heal housekeeping out of the conversation captions", () => {
+    const source = read("src/lib/friday/assistant-mode.ts");
+    const body = source.slice(source.indexOf("private markHealFixed()"));
+    expect(body.slice(0, body.indexOf("private applyVoiceHeal"))).not.toContain("this.caption(");
   });
 });

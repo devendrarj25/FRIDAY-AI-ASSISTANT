@@ -14,7 +14,8 @@ const crypto = require("crypto");
 const { classify, walk } = require("./importer.cjs");
 
 // 3: template-literal imports, Vite "?url" suffixes, and test fixtures are not broken edges.
-const SCHEMA = 3;
+// 4: relative Python imports count their dots; vendored and installed code is not checked.
+const SCHEMA = 4;
 const INDEX_FILE = path.join("database", "architecture-index.json");
 
 // Only text sources are parsed for edges; everything else is tracked by hash.
@@ -66,7 +67,7 @@ function resolveAlias(spec, files) {
 
 /** Resolve a Python import inside the kernel package. */
 function resolvePython(fromRel, spec, files) {
-  const dir = path.posix.dirname(fromRel);
+  let dir = path.posix.dirname(fromRel);
   const asFile = `${dir}/${spec.replace(/\./g, "/")}.py`;
   if (files.has(asFile)) return asFile;
   const asPkg = `${dir}/${spec.replace(/\./g, "/")}/__init__.py`;
@@ -76,6 +77,11 @@ function resolvePython(fromRel, spec, files) {
 const JS_IMPORT =
   /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 const TEST_FILE = /(^|\/)(__tests__|tests)\/|\.test\.[cm]?[jt]sx?$|(^|\/)test_[^/]+\.py$/;
+// Code that was installed or downloaded, not written here (an embedded Python's Lib, a
+// package cache, the installed app's own resources). Its imports are the vendor's business,
+// so an unresolved one is not a broken import of this project.
+const VENDORED =
+  /(^|\/)(site-packages|Lib|runtime|cache|App|resources|sandbox|models|toolchain|python-embed)\//;
 const PY_IMPORT = /^\s*(?:from\s+([.\w]+)\s+import|import\s+([.\w]+))/gm;
 
 /**
@@ -132,7 +138,16 @@ function extractEdges(rel, files, root) {
       const spec = match[1] || match[2];
       if (!spec) continue;
       if (spec.startsWith(".")) {
-        const target = resolvePython(rel, spec.replace(/^\.+/, ""), files);
+        // One dot is this package, each further dot goes one folder up.
+        const dots = spec.match(/^\.+/)[0].length;
+        const name = spec.slice(dots);
+        const up = Array(dots - 1)
+          .fill("..")
+          .join("/");
+        const from = up ? path.posix.join(path.posix.dirname(rel), up, "x.py") : rel;
+        // "from . import x" names no module here: the package itself is the target.
+        if (!name) continue;
+        const target = resolvePython(from, name, files);
         if (target) deps.add(target);
         else missing.add(spec);
       } else {
@@ -158,7 +173,11 @@ function extractEdges(rel, files, root) {
     }
   }
 
-  return { deps: [...deps], external: [...external], missing: isTest ? [] : [...missing] };
+  return {
+    deps: [...deps],
+    external: [...external],
+    missing: isTest || VENDORED.test(rel) ? [] : [...missing],
+  };
 }
 
 /** Entry points that force a rebuild whenever anything reachable from them changes. */

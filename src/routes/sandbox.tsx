@@ -516,14 +516,14 @@ function SandboxPage() {
                   {tool.ok ? (
                     <CheckCircle2 className="size-3.5 text-success" />
                   ) : (
-                    <XCircle className="size-3.5 text-destructive" />
+                    <XCircle className="size-3.5 text-muted-foreground" />
                   )}
                 </div>
                 <p
                   className="mt-1 truncate text-meta text-muted-foreground"
                   title={tool.path ?? ""}
                 >
-                  {tool.detail}
+                  {tool.ok ? tool.detail : `${tool.detail} · optional dev tool`}
                 </p>
                 {!tool.ok ? (
                   <Button

@@ -417,6 +417,12 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
   const diagram = takeDiagramExplanation();
   if (diagram) return reply("action", diagram, 0.9);
   const lower = text.toLowerCase();
+  // A spoken or typed question ends in "?" and often opens with her name; neither
+  // changes what the line is. Without this, "How are you?" went to a model for 4 seconds.
+  const chat = text
+    .replace(/^(?:hey|hi|hello|ok(?:ay)?)?[\s,]*friday[\s,:-]+/i, "")
+    .replace(/[?？]+\s*$/u, "")
+    .trim();
 
   // 1. conversational basics — one short line, no status, no proactive glue.
   const social = (kind: SocialKind) =>
@@ -426,7 +432,7 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
       ...(session?.now === undefined ? {} : { now: session.now }),
       ...(session?.social ? { context: session.social } : {}),
     }).text;
-  if (GREETING.test(text)) {
+  if (GREETING.test(chat)) {
     // A greeting inside a talk that is going on is a nudge, not a new beginning; with the
     // moment known it is still about now (time of day, how long it has been).
     return reply(
@@ -435,19 +441,19 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
       0.95,
     );
   }
-  if (BYE.test(text)) {
+  if (BYE.test(chat)) {
     return reply("smalltalk", social("goodbye"), 0.9);
   }
-  if (THANKS.test(text)) {
+  if (THANKS.test(chat)) {
     return reply("thanks", social("thanks"), 0.9);
   }
-  if (ACK.test(text)) {
+  if (ACK.test(chat)) {
     return reply("smalltalk", social("ack"), 0.9);
   }
-  if (SMALLTALK.test(text)) {
+  if (SMALLTALK.test(chat)) {
     return reply("smalltalk", social("smalltalk"), 0.85);
   }
-  if (HOW_ARE_YOU.test(text)) {
+  if (HOW_ARE_YOU.test(chat)) {
     return reply("smalltalk", social("howareyou"), 0.85);
   }
 

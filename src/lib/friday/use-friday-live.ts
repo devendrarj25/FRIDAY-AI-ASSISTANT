@@ -17,6 +17,7 @@ import { useModels } from "./use-models";
 import { useOps } from "./use-ops";
 import { useLedger } from "./self/use-self";
 import { voicePhaseFromState, type VoicePhase, type VoiceState } from "./voice-state";
+import { describeActivity } from "./brain/live-activity";
 
 export type ComponentId =
   | "brain"
@@ -619,6 +620,16 @@ export function useFridayLive(): FridayLive {
     } else if (stage) {
       action = ACTION_BY_STAGE[stage.id];
       emotion = EMOTION_BY_STAGE[stage.id];
+      // The real work names itself: the newest running trace step says "Searching
+      // the web" or "Reading report.pdf", which beats one fixed line per stage.
+      const running = [...(run?.trace ?? [])].reverse().find((step) => step.state === "running");
+      const live = describeActivity(running, {
+        streaming: stage.id === "respond" && Boolean(run?.answer),
+      });
+      if (live) {
+        action = `${live.verb} · ${stageIndex + 1}/${stageCount}`;
+        emotion = live.emotion;
+      }
     } else if (voice === "speaking") {
       action = "Speaking";
       emotion = "Smiling";

@@ -70,6 +70,24 @@ describe("architecture index", () => {
     expect(byPath["kernel/tools.py"].state).toBe("deleted");
   });
 
+  it("counts Python relative imports by their dots and ignores installed code", () => {
+    write("kernel/pkg/__init__.py", "");
+    write("kernel/pkg/util.py", "def go():\n    return 1\n");
+    write("kernel/pkg/sub/__init__.py", "");
+    write(
+      "kernel/pkg/sub/deep.py",
+      "from . import sibling\nfrom .. import util\nfrom ..util import go\n",
+    );
+    write("kernel/pkg/sub/bad.py", "from ..nothere import x\n");
+    write(
+      "runtime/python-embed/Lib/vendor/mod.py",
+      "from . import other\nfrom .missing import y\n",
+    );
+    const index = archIndex.buildIndex(root);
+    expect(index.edges["kernel/pkg/sub/deep.py"]).toContain("kernel/pkg/util.py");
+    expect(index.broken).toEqual([{ file: "kernel/pkg/sub/bad.py", specifier: "..nothere" }]);
+  });
+
   it("reports an unchanged file as no change", () => {
     const index = archIndex.buildIndex(root);
     const { changes } = archIndex.updateIndex(index, ["src/lib/helper.ts"]);

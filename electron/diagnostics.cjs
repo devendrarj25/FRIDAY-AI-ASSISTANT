@@ -500,7 +500,9 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
           ? undefined
           : [
               "FRIDAY will not invent a local model. One has to be pulled on this PC.",
-              "Install a local engine from Install Manager if it is missing, then start it (Doctor starts any engine that `engineStatus().canStart` reports, using the same startEngine path as boot).",
+              runningEngines.length
+                ? `${runningEngines.map((e) => e.name).join(", ")} is already running, so only the model is missing.`
+                : "Install a local engine from Install Manager if it is missing, then start it from Doctor.",
               "Open Models and pull a small local model (for example qwen2.5:7b), or run: ollama pull qwen2.5:7b",
               "Alternatively paste a working cloud provider key in Models → Providers — FRIDAY only marks it connected when that provider answers.",
               "Run a Doctor scan (or say “what's wrong”) after the pull or key save.",

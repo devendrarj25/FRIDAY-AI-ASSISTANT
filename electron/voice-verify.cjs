@@ -347,14 +347,16 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
       const ok = line.startsWith("PASS");
       const rest = line.slice(line.indexOf(" ") + 1).trim();
       const id = rest.split(/\s+/)[0] || "stage";
+      // The runtime already writes "optional - not installed" in its line; say it once, not three times.
+      const name = rest.replace(/\s*optional\s*-\s*not installed\s*/gi, " ").trim() || id;
       checks.push({
         id,
-        label: optional ? `${rest} optional - not installed` : rest,
+        label: optional ? `${name} (optional, not installed)` : rest,
         ok,
         optional,
         installId: OPTIONAL_INSTALL[id] || "",
         required: false,
-        detail: line,
+        detail: optional ? "not installed; optional, voice works without it" : line,
       });
     }
   }

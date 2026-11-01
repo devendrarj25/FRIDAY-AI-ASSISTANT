@@ -279,7 +279,12 @@ export function reduceVoice(
   return { state, handled: false, spoken: "", decision: "", action: "", halt: false };
 }
 
-const TOOL_NODES = new Set(["agents.skills", "agents.tools", "execution.runners"]);
+/**
+ * Only a runner that actually ran is tool work. "agents.skills" and "agents.tools" are the matching steps: they report
+ * "matching installed skills" on every turn that reaches them, small talk included, so counting them made "How are you?"
+ * end with "Do you want me to show you how?" and the narrator say it was matching tools.
+ */
+const TOOL_NODES = new Set(["execution.runners"]);
 
 /**
  * What a real tool step is doing, for the narrator to say once the work has taken a
