@@ -214,6 +214,9 @@ export function conversationalMove(text: string): ConversationalMove {
 
 const COMMAND =
   /^(please\s+)?(open|launch|start|run|close|stop|install|uninstall|delete|remember|forget|search|look up)\b/i;
+/** Hinglish commands put the verb last: "chrome kholo", "music chala do", "ye email bhej do". */
+const HINGLISH_COMMAND =
+  /\b(?:khol(?:o|\s*do|\s*dena)|chalao|chala\s*do|chalu\s*kar(?:o|\s*do)?|band\s*kar(?:o|\s*do)?|laga\s*do|lagao|bhejo|bhej\s*do|likh\s*do|dhundo|dhoondo|khojo|download\s*kar(?:o|\s*do)?|install\s*kar(?:o|\s*do)?|hata\s*do|hatao|saaf\s*kar(?:o|\s*do)?|yaad\s*rakho|bhool\s*jao|dobara\s*karo|phir\s*se\s*karo)\s*[.!]*$/i;
 const QUESTION = /^(who|what|when|where|why|how|is|are|can|does|do|kya|kaun)\b|\?\s*$/i;
 const TASK =
   /\b(prepare|build|create|make|write|generate|research|report|plan|organise|organize)\b/i;
@@ -256,7 +259,7 @@ function kindOf(text: string): IntentKind {
   if (CORRECTION.test(text)) return "correction";
   if (FOLLOW_UP.test(text)) return "follow-up";
   if (AMBIGUOUS.test(text)) return "ambiguous";
-  if (COMMAND.test(text)) return "command";
+  if (COMMAND.test(text) || HINGLISH_COMMAND.test(text)) return "command";
   if (TASK.test(text) && text.length > 40) return "task";
   if (QUESTION.test(text)) return "question";
   if (text.length < 24 && !QUESTION.test(text) && !COMMAND.test(text)) return "conversation";

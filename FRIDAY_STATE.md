@@ -103,6 +103,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- Hinglish commands: the verb-last list in `brain/intent-engine.ts` covers the common verbs only; "wo wali file khol do" and "pichla kaam dobara karo" still depend on the pointer and last-task memory, and are not measured on the owner's real requests.
 - Self questions: `brain/self-questions.ts` routes the English and Hinglish wording listed in its tests; a new phrasing outside those patterns still reaches a model without the live facts. The Atlas, PC and self-check answers read live probes that ran on Linux and in tests only; the Windows wording is unverified.
 - Brain wiring: 16 read-only accessors, capability probes and one host seam in `brain/` and `self/` have no caller in the app yet; each is listed with its reason in `config/brain-wiring-ledger.json`, and `core/__tests__/brain-wiring-ledger.test.ts` fails on any new export that is neither used, pinned by a test, nor listed. Run-receipt `accept*` validators (`self/run-receipt.ts`) have no production emitter yet.
 - My tasks can now ask the whole Brain (`self/ask-brain.ts`: memory, checks, one repair) with or without memory stages, but the comparison is only as good as the owner's own 20 to 30 requests. No claim that the Brain is smarter exists until he runs them; the starter set is not his.

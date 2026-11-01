@@ -490,7 +490,7 @@ export function baselineRespond(prompt: string, session?: BaselineContext): Base
     const topic = selfTopic(text);
     if (topic) {
       const answer = answerSelf(topic, text);
-      return "text" in answer ? reply("identity", answer.text, 0.88) : live(answer.resolve, 0.88);
+      return "text" in answer ? reply("identity", answer.text, 0.9) : live(answer.resolve, 0.92);
     }
   }
 
