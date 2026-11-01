@@ -126,3 +126,33 @@ describe("small talk gets no 'show you how' offer", () => {
     expect(offersShowHow(undefined)).toBe(false);
   });
 });
+
+describe("screenshot sweep: wording and housekeeping", () => {
+  const read = (file: string) => readFileSync(file, "utf8");
+
+  it("keeps code names out of the owner steps and skips the engine install step when one runs", () => {
+    const source = read("electron/diagnostics.cjs");
+    expect(source).not.toContain("`engineStatus().canStart`");
+    expect(source).toContain("is already running, so only the model is missing");
+  });
+
+  it("says a bundled tool that was never run needs one run, not a re-extract", () => {
+    const source = read("electron/bundled-runtime.cjs");
+    expect(source).toContain("has not run it once to prove it works");
+    expect(source).toContain("Press Repair: FRIDAY re-checks the pack and runs the tool once");
+  });
+
+  it("does not paint optional sandbox dev tools as a red fault", () => {
+    const source = read("src/routes/sandbox.tsx");
+    expect(source).toContain("optional dev tool");
+    expect(source).not.toContain(
+      '<XCircle className="size-3.5 text-destructive" />\n                  )}\n                </div>\n                <p',
+    );
+  });
+
+  it("keeps heal housekeeping out of the conversation captions", () => {
+    const source = read("src/lib/friday/assistant-mode.ts");
+    const body = source.slice(source.indexOf("private markHealFixed()"));
+    expect(body.slice(0, body.indexOf("private applyVoiceHeal"))).not.toContain("this.caption(");
+  });
+});

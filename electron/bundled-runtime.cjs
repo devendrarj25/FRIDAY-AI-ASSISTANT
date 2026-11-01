@@ -444,11 +444,14 @@ function doctorRows(states) {
       cause: ready
         ? null
         : state.present
-          ? "The tool is on disk and has not been run."
+          ? "The tool is on disk, but FRIDAY has not run it once to prove it works."
           : "The bundled pack is not extracted yet.",
       fix: ready
         ? null
-        : state.manual || "Re-extract the bundled pack from the installed resources folder.",
+        : state.manual ||
+          (state.present
+            ? "Press Repair: FRIDAY re-checks the pack and runs the tool once. Nothing is broken until that fails."
+            : "Re-extract the bundled pack from the installed resources folder."),
       fixable: !ready && !state.manual,
     };
   });

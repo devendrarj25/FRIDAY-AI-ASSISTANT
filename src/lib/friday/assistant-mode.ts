@@ -1468,8 +1468,9 @@ class AssistantModeStore {
   private markHealFixed() {
     if (this.lastHealFault === "none") return;
     const line = noteHealFixed(this.lastHealFault);
+    // The status line and the voice diagnostics carry this. It is housekeeping,
+    // not something she said, so it stays out of the conversation captions.
     this.state.status = line;
-    this.caption("friday", line);
     this.healMemory.attempts[this.lastHealFault] = [];
     this.healMemory.reported[this.lastHealFault] = false;
     this.lastHealFault = "none";
