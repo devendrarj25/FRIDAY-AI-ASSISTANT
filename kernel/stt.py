@@ -274,10 +274,6 @@ def wants_english_stream(language: str, speech_pref: str) -> bool:
         raw = (language or "").strip().lower().replace("_", "-")
     if not raw or raw in {"auto", "mixed"} or raw.startswith("hi"):
         return False
-    # en-IN is how an Indian owner is set up, and an Indian owner mixes Hindi into English: an English-only engine would
-    # turn those words into English it invented. Only a plain English setting uses the English-only stream.
-    if raw.startswith("en-in"):
-        return False
     return raw.startswith("en")
 
 

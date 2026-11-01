@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import { formatVoiceProbeReport, type VoiceProbeCheck } from "../../src/lib/friday/voice-doctor";
@@ -47,10 +49,10 @@ describe("an optional part that is not installed is not a fault", () => {
 
   it("the main-process verifier writes the label once for the runtime's own optional lines", () => {
     expect(typeof verify["verifyVoiceRuntime"]).toBe("function");
-    const source = require("node:fs").readFileSync(
-      require("node:path").join(__dirname, "..", "..", "electron", "voice-verify.cjs"),
+    const source = readFileSync(
+      join(__dirname, "..", "..", "electron", "voice-verify.cjs"),
       "utf8",
-    ) as string;
+    );
     expect(source).toMatch(/\(optional, not installed\)/);
     expect(source).not.toMatch(/`\$\{rest\} optional - not installed`/);
   });

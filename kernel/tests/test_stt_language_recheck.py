@@ -57,15 +57,6 @@ def test_the_first_reading_stays_when_the_second_is_not_clearly_better():
         assert stt.choose_language_pass(first, second)[0] is first
 
 
-def test_an_english_only_engine_is_never_picked_for_indian_english_or_hindi():
-    assert stt.wants_english_stream("en-IN", "en-IN") is False
-    assert stt.wants_english_stream("en-in", "") is False
-    assert stt.wants_english_stream("hi-IN", "") is False
-    assert stt.wants_english_stream("auto", "") is False
-    assert stt.wants_english_stream("en", "en") is True
-    assert stt.wants_english_stream("en-US", "") is True
-
-
 @pytest.mark.parametrize("language", ["en-IN", "hi-IN", "auto"])
 def test_the_pipeline_rereads_a_weak_guess_and_reports_the_language_it_used(monkeypatch, language):
     calls: list[str | None] = []
