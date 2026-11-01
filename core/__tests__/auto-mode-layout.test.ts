@@ -262,7 +262,7 @@ describe("Voice transcript rows", () => {
         showTime: false,
       }),
     );
-    expect(html).toContain("mx-auto w-full max-w-[48rem] space-y-2");
+    expect(html).toContain("mx-auto w-full max-w-[96rem] space-y-2");
     expect(html.match(/aria-label="Copy this line"/g)).toHaveLength(500);
     expect(html).toContain("group flex justify-end");
     expect(html).toContain("group flex justify-start");

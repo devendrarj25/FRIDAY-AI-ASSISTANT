@@ -286,7 +286,7 @@ export function ChatTranscript({
         }}
         className={cn("friday-chat-messages", className, busy && "transition-none")}
       >
-        <div className={cn("space-y-2", full && "mx-auto w-full max-w-[48rem]")}>
+        <div className={cn("space-y-2", full && "mx-auto w-full max-w-[96rem]")}>
           {messages.length === 0 ? (
             <p className="py-3 text-center text-meta text-muted-foreground">{empty}</p>
           ) : null}

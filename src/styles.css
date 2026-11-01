@@ -948,6 +948,17 @@ html.no-motion .flow-stage .react-flow__edge.animated .react-flow__edge-path {
   }
 }
 
+/* The caption strip keeps every icon on a narrow window; the words come back
+   as the window widens, so nothing overlaps and nothing is cut off. */
+.voice-strip {
+  container: voice-strip / inline-size;
+}
+@container voice-strip (max-width: 40rem) {
+  .voice-strip .strip-label {
+    display: none;
+  }
+}
+
 /* Cursor: a pointer on every control and the size switch, not-allowed on a
    disabled control, a text cursor over selectable captions, and never a
    caret or move cursor over the graphic. */

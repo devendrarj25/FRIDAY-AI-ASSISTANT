@@ -278,3 +278,18 @@ class NoiseSignOffs(unittest.TestCase):
     def test_a_real_command_is_never_touched(self):
         text, _note, code = stt.apply_no_speech_policy("thank you for opening the report", 0.4, -0.8, 1.0)
         self.assertEqual((text, code), ("thank you for opening the report", ""))
+
+
+class InventedNoiseTests(unittest.TestCase):
+    def test_loops_and_foreign_script_are_dropped_when_evidence_is_weak(self) -> None:
+        for phrase in ("1.5kg 1.5kg 1.5kg", "お腹に入っていけないです", "Blok video video video"):
+            text, _note, code = stt.apply_no_speech_policy(phrase, 0.3, -0.9, 2.0)
+            self.assertEqual((text, code), ("", "no-speech"), phrase)
+
+    def test_the_same_words_from_a_clear_clip_are_kept(self) -> None:
+        text, _note, code = stt.apply_no_speech_policy("go go go now", 0.05, -0.2, 6.0)
+        self.assertEqual(code, "")
+        self.assertEqual(text, "go go go now")
+        self.assertFalse(stt.is_foreign_script("open chrome"))
+        self.assertFalse(stt.is_foreign_script("क्रोम खोलो"))
+        self.assertFalse(stt.is_repetition_loop("one two three four"))

@@ -272,5 +272,5 @@ export function VoiceTranscript({
     </>
   );
   if (layout === "line") return body;
-  return <div className="mx-auto w-full max-w-[48rem] space-y-2">{body}</div>;
+  return <div className="mx-auto w-full max-w-[96rem] space-y-2">{body}</div>;
 }

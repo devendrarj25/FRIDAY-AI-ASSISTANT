@@ -35,7 +35,7 @@ export function AutonomyDial({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <div className="inline-flex items-center gap-1.5">
+      <div className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap">
         <div
           role="group"
           aria-label="Autonomy"

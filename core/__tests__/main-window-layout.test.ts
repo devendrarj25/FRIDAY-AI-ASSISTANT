@@ -29,7 +29,7 @@ describe("Auto Mode HUD is a reserved row, not an overlay", () => {
 
   it("reuses the HudPanel toolbar wrap on the caption bar", () => {
     expect(ui).toContain(
-      "flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-primary/15 px-3 py-1",
+      "voice-strip flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-primary/15 px-3 py-1",
     );
   });
 
@@ -276,7 +276,7 @@ describe("Manual chat transcript rows", () => {
     expect(render().match(stamp)).toBeNull();
     expect(render({ showTimestamps: true }).match(stamp)).toHaveLength(4);
     const full = render({ level: 3, bubbleStyle: "Comfortable" });
-    expect(full).toContain("mx-auto w-full max-w-[48rem]");
+    expect(full).toContain("mx-auto w-full max-w-[96rem]");
     expect(full).toContain("text-sm");
     expect(render({ level: 1, bubbleStyle: "Comfortable" })).not.toContain(
       "whitespace-pre-wrap font-sans leading-relaxed text-sm",
@@ -303,5 +303,17 @@ describe("Manual chat transcript rows", () => {
     expect(glass).toContain("prefers-reduced-motion: reduce");
     expect(glass).toContain("html.no-glow .bubble-user:hover");
     expect(glass).toContain("prefers-reduced-transparency: reduce");
+  });
+});
+
+describe("full-width chat and slim composer", () => {
+  const dock = readFileSync("src/components/friday/ChatDock.tsx", "utf8");
+  it("uses the window at Full size and does not cap the column at 48rem", () => {
+    expect(dock).not.toContain("max-w-[48rem]");
+    expect(dock).toContain("max-w-[96rem]");
+  });
+  it("starts the composer slim and lets it grow with the text and the window", () => {
+    expect(dock).toContain("min-h-9 resize-none");
+    expect(dock).toContain("window.innerHeight * 0.35");
   });
 });

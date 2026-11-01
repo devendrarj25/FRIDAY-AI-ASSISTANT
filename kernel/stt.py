@@ -532,6 +532,47 @@ def is_noise_hallucination(
     return weak
 
 
+# Scripts this owner does not speak. A clip heard in room noise that comes back as Japanese,
+# Korean, Thai, Arabic or Cyrillic with weak evidence is the model inventing text.
+_FOREIGN_SCRIPT_NAMES = ("CJK", "HIRAGANA", "KATAKANA", "HANGUL", "THAI", "ARABIC", "CYRILLIC", "HEBREW")
+
+
+def is_foreign_script(text: str) -> bool:
+    letters = [ch for ch in (text or "") if unicodedata.category(ch)[0] == "L"]
+    if len(letters) < 3:
+        return False
+    foreign = sum(1 for ch in letters if any(name in unicodedata.name(ch, "") for name in _FOREIGN_SCRIPT_NAMES))
+    return foreign * 2 > len(letters)
+
+
+def is_repetition_loop(text: str) -> bool:
+    """The same word or phrase repeated three or more times in a row ("1.5kg 1.5kg 1.5kg")."""
+    words = (text or "").lower().split()
+    if len(words) < 3:
+        return False
+    for size in (1, 2, 3):
+        if len(words) < size * 3:
+            continue
+        for start in range(0, len(words) - size * 3 + 1):
+            chunk = words[start : start + size]
+            if words[start + size : start + size * 2] == chunk and words[start + size * 2 : start + size * 3] == chunk:
+                return True
+    return False
+
+
+def is_invented_noise(
+    text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
+) -> bool:
+    """A loop or a script the owner does not speak, said with weak evidence of speech."""
+    if not (is_repetition_loop(text) or is_foreign_script(text)):
+        return False
+    return (
+        avg_ns >= NOISE_PHRASE_NO_SPEECH
+        or (avg_logprob is not None and avg_logprob <= NOISE_PHRASE_LOGPROB)
+        or (duration_s is not None and duration_s < NOISE_PHRASE_MAX_SECONDS + 1.5)
+    )
+
+
 def apply_no_speech_policy(
     text: str, avg_ns: float, avg_logprob: float | None = None, duration_s: float | None = None
 ) -> tuple[str, str, str]:
@@ -551,6 +592,8 @@ def apply_no_speech_policy(
             return "", f"no_speech {avg_ns:.2f} and avg_logprob {avg_logprob:.2f}", "low-confidence"
         if is_noise_hallucination(body, avg_ns, avg_logprob, duration_s):
             return "", f"noise phrase {body!r}; no_speech {avg_ns:.2f}", "no-speech"
+        if is_invented_noise(body, avg_ns, avg_logprob, duration_s):
+            return "", f"invented text {body[:40]!r}; no_speech {avg_ns:.2f}", "no-speech"
         if high:
             return body, f"kept segment text; no_speech {avg_ns:.2f}", ""
         return body, "", ""

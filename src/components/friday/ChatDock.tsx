@@ -133,7 +133,10 @@ const INPUT_MAX_PX = 184;
 function fitInput(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, INPUT_MAX_PX)}px`;
+  // The box grows with the text and stops at about a third of the window.
+  const room = typeof window === "undefined" ? INPUT_MAX_PX : Math.round(window.innerHeight * 0.35);
+  const cap = Math.max(96, Math.min(room, 320));
+  el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
 }
 
 type Session = { id: string; title: string; at: number; messages: Message[] };
@@ -1045,7 +1048,7 @@ export function ChatDock() {
             aria-label="Saved chats"
             className={cn(
               "flex shrink-0 flex-col border-r border-primary/10 transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-              railOpen ? "w-56" : "w-10",
+              railOpen ? "w-52" : "w-10",
             )}
           >
             <div className="flex items-center gap-1 border-b border-primary/10 px-1.5 py-1">
@@ -1136,7 +1139,7 @@ export function ChatDock() {
             <div
               className={cn(
                 "mx-3 mb-2 rounded-surface border border-warning/40 bg-warning/8 px-2.5 py-1.5",
-                full && "w-full max-w-[48rem] self-center",
+                full && "w-full max-w-[96rem] self-center",
               )}
             >
               <p className="text-note text-foreground">
@@ -1162,7 +1165,7 @@ export function ChatDock() {
 
           {/* Fixed input at the bottom of the main window */}
           <div className="border-t border-primary/15 p-2">
-            <div className={cn(full && "mx-auto w-full max-w-[48rem]")}>
+            <div className={cn(full && "mx-auto w-full max-w-[96rem]")}>
               <div className="friday-composer">
                 {glassComposer ? attachControl : null}
                 <Textarea
@@ -1183,7 +1186,7 @@ export function ChatDock() {
                   spellCheck={false}
                   aria-label="Message FRIDAY"
                   placeholder="Type your message…"
-                  className="min-h-11 resize-none rounded-2xl border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
+                  className="min-h-9 resize-none rounded-2xl py-1.5 leading-6 border-primary/30 bg-card/55 px-3.5 font-mono text-sm cursor-text shadow-[inset_0_1px_0_0_var(--friday-glass-highlight)] transition-[border-color,box-shadow] duration-150 hover:border-primary/50 focus-visible:border-primary/70 focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_18%,transparent)]"
                 />
                 {glassComposer ? sendControl : null}
               </div>
