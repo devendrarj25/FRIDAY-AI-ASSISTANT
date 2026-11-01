@@ -1009,6 +1009,7 @@ class AssistantModeStore {
   /** Full transcript, for the copy control on the caption box. */
   transcript() {
     return this.state.captions
+      .filter((c) => c.tag !== "ambient")
       .map((c) => `${c.who === "user" ? "You" : "FRIDAY"}: ${c.text}`)
       .join("\n");
   }

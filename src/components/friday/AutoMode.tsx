@@ -194,7 +194,11 @@ export function AutoMode() {
 
   // Only the last couple of exchanges at Compact; full history otherwise.
   const tall = level >= 2 || panel !== null;
-  const visible = tall ? voice.captions : voice.captions.slice(-2);
+  // The conversation holds what was said to FRIDAY and what she said back.
+  // Room talk she overheard (tag "ambient") stays in the heard log and the
+  // pipeline panel, where it can be checked, not in the conversation.
+  const conversation = voice.captions.filter((caption) => caption.tag !== "ambient");
+  const visible = tall ? conversation : conversation.slice(-2);
   const working = live.components.some((c) => c.active);
   // No layout animation while speech streams in or out.
   const streaming = Boolean(voice.interim) || voice.speaking;

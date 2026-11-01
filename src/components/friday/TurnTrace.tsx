@@ -5,11 +5,12 @@
  * The chart icon opens this turn. The step count opens the same steps.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, GitBranch, ListChecks, Loader2 } from "lucide-react";
 import { StatusPill } from "@/components/friday/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { lastDecision } from "@/lib/friday/brain/decision-trace";
+import { activityLine, describeActivity } from "@/lib/friday/brain/live-activity";
 import { useBrain } from "@/lib/friday/use-brain";
 import { lanesFromSteps, type TraceLaneView } from "@/lib/friday/brain/turn-trace";
 import { buildRunTrace } from "@/lib/friday/brain/run-trace";
@@ -31,6 +32,14 @@ export function TurnTrace({ runId }: { runId: string }) {
     run?.state === "running" || state.activeRunId === runId || lanes.some((l) => l.running);
   const isFailed = lanes.some((l) => l.failed);
 
+  // One tick a second, only while a turn is running, so a long step shows its time.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning]);
+
   if (!lanes.length && !isRunning) return null;
 
   // The turn clock's own record of this run: the three slowest stages, from the redacted run trace.
@@ -39,7 +48,11 @@ export function TurnTrace({ runId }: { runId: string }) {
   const latestStep = steps[steps.length - 1];
   const totalMs = lanes.reduce((sum, l) => sum + (l.ms ?? 0), 0);
 
-  const runningLabel = latestStep?.label ? `${latestStep.label}…` : "working…";
+  const runningStep = [...steps].reverse().find((step) => step.state === "running") ?? latestStep;
+  const activity = describeActivity(runningStep, { streaming: Boolean(run?.answer) });
+  const runningLabel = activity
+    ? activityLine(activity, now - (runningStep?.startedAt ?? now))
+    : "working…";
   const completedLabel = `${steps.length} ${steps.length === 1 ? "step" : "steps"}${totalMs ? ` · ${totalMs}ms` : ""}`;
 
   const openChart = () => {
@@ -96,7 +109,7 @@ export function TurnTrace({ runId }: { runId: string }) {
             ) : (
               <ListChecks className="size-3 shrink-0 text-primary/70" />
             )}
-            <span className="max-w-[180px] truncate">
+            <span className="max-w-[min(260px,40vw)] truncate">
               {isRunning ? runningLabel : completedLabel}
             </span>
           </button>
