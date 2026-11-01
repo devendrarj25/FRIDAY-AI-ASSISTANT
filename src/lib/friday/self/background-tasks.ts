@@ -50,6 +50,11 @@ export type BackgroundJob = {
   everyMinutes: number;
   lastAt: number;
   enabled: boolean;
+  /**
+   * A light job the owner is counting on (a reminder at the time he set). It runs on every tick, also while the
+   * window is hidden in the tray and while a long job is running, and never waits behind another job.
+   */
+  always?: boolean;
   run: () => Promise<string>;
 };
 
@@ -166,9 +171,12 @@ class BackgroundTasks {
       id: "desk-reminders",
       label: "Due reminders",
       everyMinutes: 1,
+      always: true,
       run: async () => {
+        const imported = await personalDesk.importToolReminders();
         const due = personalDesk.fireDueReminders();
-        return due.length ? `${due.length} reminder(s) due` : "nothing due";
+        const note = imported ? `, ${imported} added from tools` : "";
+        return due.length ? `${due.length} reminder(s) due${note}` : `nothing due${note}`;
       },
     });
     this.register({
@@ -263,6 +271,55 @@ class BackgroundTasks {
     this.emit();
   }
 
+  private alwaysRunning = new Set<string>();
+
+  /** The light jobs the owner counts on. They are not held back by a hidden window or a job already running. */
+  private async runAlways(): Promise<void> {
+    const now = Date.now();
+    for (const job of this.jobs) {
+      if (!job.always || !job.enabled || this.alwaysRunning.has(job.id)) continue;
+      if (now - job.lastAt < job.everyMinutes * 60_000) continue;
+      this.alwaysRunning.add(job.id);
+      const started = Date.now();
+      let ok = true;
+      let note: string;
+      try {
+        note = await job.run();
+      } catch (error) {
+        ok = false;
+        note = error instanceof Error ? error.message : String(error);
+      } finally {
+        job.lastAt = Date.now();
+        this.alwaysRunning.delete(job.id);
+      }
+      this.record(job, started, ok, note);
+    }
+  }
+
+  private record(job: BackgroundJob, started: number, ok: boolean, note: string): BackgroundRun {
+    const run: BackgroundRun = {
+      id: `${job.id}-${started}`,
+      job: job.label,
+      at: started,
+      ms: Date.now() - started,
+      ok,
+      note,
+    };
+    this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);
+    this.emit();
+    if (!ok) {
+      notifications.push({
+        id: `background:${job.id}:failed`,
+        level: "warn",
+        title: `${job.label} could not finish`,
+        detail: note,
+        source: "Background work",
+        route: "/status",
+      });
+    }
+    return run;
+  }
+
   /** Runs one named job immediately (owner-triggered), bypassing the schedule. */
   async runNow(id: string): Promise<BackgroundRun | null> {
     const job = this.jobs.find((j) => j.id === id);
@@ -273,7 +330,9 @@ class BackgroundTasks {
 
   /** One scheduler pass — runs at most one due job so the UI never stalls. */
   async tick(forced?: BackgroundJob): Promise<BackgroundRun | null> {
-    if (this.busy || typeof document === "undefined") return null;
+    if (typeof document === "undefined") return null;
+    if (!forced) await this.runAlways();
+    if (this.busy) return null;
 
     if (!forced && document.hidden) return null;
     if (!forced && !shouldRunBackground()) return null;
@@ -281,7 +340,7 @@ class BackgroundTasks {
     const due =
       forced ??
       this.jobs
-        .filter((j) => j.enabled && now - j.lastAt >= j.everyMinutes * 60_000)
+        .filter((j) => j.enabled && !j.always && now - j.lastAt >= j.everyMinutes * 60_000)
         .sort((a, b) => a.lastAt - b.lastAt)[0];
     if (!due) return null;
     if (!forced && shouldPauseOnBattery() && due.id === "improve") {
@@ -308,27 +367,7 @@ class BackgroundTasks {
       this.busy = false;
     }
 
-    const run: BackgroundRun = {
-      id: `${due.id}-${started}`,
-      job: due.label,
-      at: started,
-      ms: Date.now() - started,
-      ok,
-      note,
-    };
-    this.state.runs = [run, ...this.state.runs].slice(0, MAX_RUNS);
-    this.emit();
-
-    if (!ok) {
-      notifications.push({
-        id: `background:${due.id}:failed`,
-        level: "warn",
-        title: `${due.label} could not finish`,
-        detail: note,
-        source: "Background work",
-        route: "/status",
-      });
-    }
+    const run = this.record(due, started, ok, note);
     return run;
   }
 }

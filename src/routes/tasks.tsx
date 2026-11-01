@@ -35,7 +35,11 @@ import { graphProgress, taskGraph, type TaskGraph } from "@/lib/friday/self/task
 import type { TimelineRow } from "@/lib/friday/self/run-receipt";
 import { backgroundTasks } from "@/lib/friday/self/background-tasks";
 import { registerTaskRunners } from "@/lib/friday/self/task-runners";
-import { extractDeadline, looksLikeHorizonGoal } from "@/lib/friday/self/horizon-goals";
+import {
+  extractDeadline,
+  looksLikeHorizonGoal,
+  noteHorizonBlocker,
+} from "@/lib/friday/self/horizon-goals";
 import {
   filterGraphs,
   filterLedger,
@@ -353,7 +357,7 @@ function GraphRow({
                     e.preventDefault();
                     const reason = blocker.trim();
                     if (!reason) return;
-                    taskGraph.replanBlocked(graph.id, reason);
+                    noteHorizonBlocker(graph.id, reason);
                     onBlocker("");
                     toast.success("Replanned remaining work around the blocker.");
                   }
@@ -368,7 +372,7 @@ function GraphRow({
                 onClick={() => {
                   const reason = blocker.trim();
                   if (!reason) return;
-                  taskGraph.replanBlocked(graph.id, reason);
+                  noteHorizonBlocker(graph.id, reason);
                   onBlocker("");
                   toast.success("Replanned remaining work around the blocker.");
                 }}

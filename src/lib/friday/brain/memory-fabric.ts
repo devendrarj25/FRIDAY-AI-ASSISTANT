@@ -581,6 +581,19 @@ export function governRecall(input: {
   };
 }
 
+// A record that was replaced or archived must not keep answering through the knowledge entry derived from it.
+memory.onRetire((id) => {
+  const stale = brainKnowledge
+    .getSnapshot()
+    .entries.filter(
+      (entry) =>
+        entry.derivedFromMemoryId === id ||
+        entry.source === `memory/${id}` ||
+        entry.source === `memory:${id}`,
+    );
+  for (const entry of stale) brainKnowledge.forget(entry.id);
+});
+
 function projectBelief(item: MemoryItem): void {
   try {
     deriveKnowledgeFromMemory(item);

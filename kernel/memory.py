@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import uuid
 from hashlib import blake2b
 from pathlib import Path
@@ -62,6 +63,8 @@ class NumpyIndex:
         self.matrix_file = self.path / "vectors.npy"
         self.records: list[dict] = []
         self.vectors: list[list[float]] = []
+        self._matrix = None
+        self._matrix_saved_at = 0.0
         self._np = None
         try:
             import numpy  # noqa: PLC0415
@@ -97,9 +100,15 @@ class NumpyIndex:
         else:
             self.vectors = [list(map(float, row)) for row in matrix]
 
-    def _persist_matrix(self) -> None:
+    def _persist_matrix(self, defer: bool = False) -> None:
         if self._np is None or not self.vectors:
             return
+        # The matrix is only a cache of the records: load() rebuilds it when the row count differs. A bulk
+        # add therefore writes it at most every two seconds instead of once per record (quadratic work).
+        now = time.monotonic()
+        if defer and now - self._matrix_saved_at < 2.0:
+            return
+        self._matrix_saved_at = now
         try:
             self._np.save(self.matrix_file, self._np.array(self.vectors, dtype="float32"))
         except Exception:  # noqa: S110 — the index is disposable; records.jsonl stays authoritative
@@ -122,20 +131,48 @@ class NumpyIndex:
                     self.vectors[index] = vector
                 else:
                     self.vectors.append(vector)
+                self._matrix = None
                 self._rewrite_records()
                 return
         self.records.append(record)
         self.vectors.append(vector)
+        self._matrix = None
         with self.records_file.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        self._persist_matrix()
+        self._persist_matrix(defer=True)
+
+    def remove(self, record_ids: list[str]) -> int:
+        """Drop records by id. Returns how many were removed. The log is authoritative; the matrix follows."""
+        wanted = {str(rid).strip() for rid in record_ids if str(rid).strip()}
+        if not wanted:
+            return 0
+        keep = [i for i, rec in enumerate(self.records) if rec.get("id") not in wanted]
+        removed = len(self.records) - len(keep)
+        if not removed:
+            return 0
+        self.records = [self.records[i] for i in keep]
+        self.vectors = [self.vectors[i] for i in keep if i < len(self.vectors)]
+        self._matrix = None
+        self._rewrite_records()
+        if not self.vectors and self._np is not None and self.matrix_file.exists():
+            try:
+                self.matrix_file.unlink()
+            except OSError:
+                pass
+        return removed
+
+    def _matrix_array(self):
+        """The search matrix, built once and rebuilt only after the vectors change."""
+        if self._matrix is None or self._matrix.shape[0] != len(self.vectors):
+            self._matrix = self._np.array(self.vectors, dtype="float32")
+        return self._matrix
 
     def search(self, query: str, k: int = 8) -> list[dict]:
         if not self.records:
             return []
         q = embed(query)
         if self._np is not None:
-            matrix = self._np.array(self.vectors, dtype="float32")
+            matrix = self._matrix_array()
             scores = matrix @ self._np.array(q, dtype="float32")
             order = scores.argsort()[::-1][:k]
             pairs = [(int(i), float(scores[int(i)])) for i in order]
@@ -211,6 +248,17 @@ class VectorMemory:
     def available(self) -> bool:
         return self.collection is not None or self.fallback is not None
 
+    def count(self) -> int | None:
+        """How many records the open backend holds, or None when it cannot say."""
+        try:
+            if self.collection is not None:
+                return int(self.collection.count())
+            if self.fallback is not None:
+                return len(self.fallback.records)
+        except Exception:
+            return None
+        return None
+
     def _ensure(self):
         if self.collection is None:
             raise RuntimeError("vector memory unavailable")
@@ -258,6 +306,19 @@ class VectorMemory:
             col.upsert(ids=[rid], documents=[text], metadatas=[meta])
         except Exception:
             col.add(ids=[rid], documents=[text], metadatas=[meta])
+
+    async def remove(self, record_ids: list[str]) -> int:
+        """Forget records by id in whichever backend is open. A forgotten memory must not be recalled."""
+        ids = [str(rid).strip() for rid in record_ids if str(rid).strip()]
+        if not ids:
+            return 0
+        if self.collection is None:
+            return self.fallback.remove(ids) if self.fallback else 0
+        try:
+            self._ensure().delete(ids=ids)
+        except Exception:
+            return 0
+        return len(ids)
 
     async def add_lesson(self, rule: str, context: str) -> None:
         await self.add(f"{rule}\n\nLearned from: {context}", kind="lesson", title=rule)

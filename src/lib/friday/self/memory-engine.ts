@@ -1,4 +1,24 @@
 /**
+ * True when a number or a name inside the statement changed ("Pixel 6" to "Pixel 9", "Jaipur" to "Udaipur"),
+ * as opposed to the same fact worded again. Numbers and capitalised words after the first word are compared.
+ */
+export function valueChanged(before: string, after: string): boolean {
+  const marks = (text: string): Set<string> => {
+    const body = String(text || "")
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .join(" ");
+    return new Set(body.match(/\b\d[\d.,:/-]*|\b[A-Z][a-z]\w+/g) ?? []);
+  };
+  const left = marks(before);
+  const right = marks(after);
+  if (!left.size || !right.size) return false;
+  if (left.size === right.size && [...left].every((mark) => right.has(mark))) return false;
+  return true;
+}
+
+/**
  * FRIDAY · memory engine
  *
  * Six real memory tiers with their own retention rules, persisted locally and
@@ -8,7 +28,7 @@
  */
 
 import { redactForExport } from "../brain/memory-policy";
-import { readLocalState, restoreFromDisk, writeState } from "../persist";
+import { readLocalState, registerFlush, restoreFromDisk, writeState } from "../persist";
 import {
   rankByRetrieval,
   registerEntityAliases,
@@ -459,12 +479,53 @@ export function trueDuring(
   return begins <= window.to && ends > window.from;
 }
 
+const SWEEP_EVERY_MS = 60_000;
+
 class MemoryEngine {
   private items: MemoryItem[] = [];
   private listeners = new Set<() => void>();
   private snapshot: MemoryState = { items: [], counts: emptyCounts(), lastWriteAt: 0 };
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private loaded = false;
+  private lastSweepAt = 0;
+  private flushRegistered = false;
+  private retireListeners = new Set<(id: string) => void>();
+
+  /**
+   * Called with the id of a record that stopped being current (replaced or archived). Projections of memory, such as
+   * the knowledge entry derived from it, listen here so they do not keep answering with an old fact.
+   */
+  onRetire = (listener: (id: string) => void) => {
+    this.retireListeners.add(listener);
+    return () => this.retireListeners.delete(listener);
+  };
+
+  private retired(id: string) {
+    for (const listener of this.retireListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* a projection failing must not stop memory */
+      }
+    }
+  }
+
+  /** Writes what the 500 ms debounce is still holding. Called when the page is hidden or closed. */
+  flush = () => {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    writeState(STORAGE_KEY, this.items);
+  };
+
+  /** Expiry and caps are enforced on every read at most once a minute, not only when something is written. */
+  private sweepIfDue() {
+    const now = Date.now();
+    if (now - this.lastSweepAt < SWEEP_EVERY_MS) return;
+    const before = this.items.length;
+    this.sweep();
+    if (this.items.length !== before) this.emit();
+  }
 
   subscribe = (fn: () => void) => {
     this.load();
@@ -498,6 +559,7 @@ class MemoryEngine {
   /** Drops expired non-pinned records and enforces the per-tier cap. */
   private sweep() {
     const now = Date.now();
+    this.lastSweepAt = now;
     const kept: MemoryItem[] = [];
     const perTier = new Map<MemoryTier, number>();
     for (const item of [...this.items].sort((a, b) => b.updatedAt - a.updatedAt)) {
@@ -531,7 +593,12 @@ class MemoryEngine {
       lastWriteAt: Date.now(),
     };
     this.listeners.forEach((l) => l());
-    if (!persist || typeof window === "undefined" || this.saveTimer) return;
+    if (!persist || typeof window === "undefined") return;
+    if (!this.flushRegistered) {
+      this.flushRegistered = true;
+      registerFlush(this.flush);
+    }
+    if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       writeState(STORAGE_KEY, this.items);
@@ -596,7 +663,31 @@ class MemoryEngine {
           { title: input.title, text: input.text, kind },
         ));
     if (candidate && !clashes) {
-      candidate.text = input.text.length >= candidate.text.length ? input.text : candidate.text;
+      // The newer statement wins, even when it is shorter ("phone is Pixel 9" after "phone is Pixel 6 Pro").
+      // The older one stays only when it already says everything the new one says and more.
+      const oldText = candidate.text;
+      const older = candidate.text.trim().toLowerCase();
+      const newer = input.text.trim().toLowerCase();
+      if (!older.includes(newer) && older !== newer) {
+        candidate.text = input.text;
+      }
+      if (valueChanged(oldText, input.text)) {
+        // A number or a name changed, so what was true before stays as history (a question about the past can
+        // still be answered from it) and is never offered as a current answer. A reworded preference is not
+        // history; the newer wording simply replaces it.
+        this.items.push({
+          ...candidate,
+          id: newId(),
+          pinned: false,
+          tier: "archived",
+          supersededAt: now,
+          validUntil: now,
+          invalidReason: "replaced by a newer statement",
+          relatedIds: [candidate.id],
+          uses: 0,
+          text: oldText,
+        });
+      }
       candidate.updatedAt = now;
       candidate.freshnessAt = now;
       candidate.uses += 1;
@@ -748,6 +839,7 @@ class MemoryEngine {
         newer.updatedAt = now;
       }
     }
+    this.retired(oldId);
     this.emit();
     return true;
   }
@@ -759,6 +851,7 @@ class MemoryEngine {
 
   archive(id: string) {
     this.update(id, { tier: "archived", pinned: false });
+    this.retired(id);
   }
 
   restore(id: string, tier: MemoryTier = "semantic") {
@@ -804,11 +897,19 @@ class MemoryEngine {
       k?: number;
       context?: string;
       scope?: "task" | "project" | "user" | "general" | "external";
+      /** History as well: replaced records and ones whose period is over. Off for ordinary recall. */
+      includeHistory?: boolean;
     } = {},
   ): MemoryItem[] {
     this.load();
+    this.sweepIfDue();
     const k = options.k ?? 20;
-    const pool = this.items.filter((i) => !options.tiers || options.tiers.includes(i.tier));
+    const now = Date.now();
+    const pool = this.items.filter(
+      (i) =>
+        (!options.tiers || options.tiers.includes(i.tier)) &&
+        (options.includeHistory || (!i.supersededAt && validityState(i, now) === "current")),
+    );
     const ranked = !retrievalTerms(query).length
       ? pool.slice(0, k)
       : rankByRetrieval(pool, query, memorySignals, {
@@ -850,6 +951,7 @@ class MemoryEngine {
     options: { context?: string; vectorHits?: VectorSnippet[]; projectId?: string } = {},
   ): { item: MemoryItem; score: number }[] {
     this.load();
+    this.sweepIfDue();
     if (!retrievalTerms(query).length) return [];
     const pool = this.items.filter((i) => {
       if (i.tier === "archived" || i.supersededAt) return false;

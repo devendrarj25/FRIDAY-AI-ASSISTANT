@@ -100,6 +100,50 @@ export function writeState(namespace: string, value: unknown): void {
   );
 }
 
+/**
+ * Sends every write that is still waiting on its short debounce now. The page is going away
+ * (window hidden, closed, reloaded) and a timer that has not fired would lose the newest record.
+ * Engines that hold their own debounce register a flusher so theirs runs first.
+ */
+const flushers = new Set<() => void>();
+
+export function registerFlush(flush: () => void): () => void {
+  flushers.add(flush);
+  return () => flushers.delete(flush);
+}
+
+export function flushPendingState(): void {
+  for (const flush of flushers) {
+    try {
+      flush();
+    } catch {
+      /* one engine failing must not hold back the others */
+    }
+  }
+  const bridge = api();
+  for (const [namespace, timer] of [...pending]) {
+    clearTimeout(timer);
+    pending.delete(namespace);
+    if (!bridge?.setState) continue;
+    try {
+      const raw = window.localStorage.getItem(namespace);
+      if (raw !== null) void bridge.setState(namespace, JSON.parse(raw)).catch(() => undefined);
+    } catch {
+      /* the next write retries */
+    }
+  }
+}
+
+// A test or a bare preview can give `window` without events; the flush then simply has no trigger.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("pagehide", flushPendingState);
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushPendingState();
+    });
+  }
+}
+
 /** True when a durable FRIDAY_ROOT store is reachable (packaged desktop app). */
 export function hasDiskStore(): boolean {
   return Boolean(api()?.getState);

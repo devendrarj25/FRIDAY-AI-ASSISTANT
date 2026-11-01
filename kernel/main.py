@@ -1024,10 +1024,15 @@ async def dispatch(method: str, params: dict, send) -> dict:
             record_id=params.get("id"),
         )
         return {"ok": True, "backend": memory.backend, "id": params.get("id")}
+    if method == "memory.remove":
+        ids = params.get("ids") or []
+        if not isinstance(ids, list):
+            raise ValueError("memory.remove needs a list of ids")
+        return {"ok": True, "removed": await memory.remove([str(i) for i in ids]), "backend": memory.backend}
     if method == "memory.reindex":
         return await memory.reindex()
     if method == "memory.status":
-        return {"backend": memory.backend, "available": memory.available}
+        return {"backend": memory.backend, "available": memory.available, "records": memory.count()}
     if method == "module.list":
         return {"modules": modules.describe()}
     if method == "module.toggle":

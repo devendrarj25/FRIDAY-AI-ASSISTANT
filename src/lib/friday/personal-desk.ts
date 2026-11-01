@@ -169,6 +169,33 @@ class PersonalDesk {
     return this.tasks.filter((task) => opts.includeDone || !task.done);
   }
 
+  /**
+   * Reminders an agent tool wrote in the desktop app (the workspace reminder file) join this desk, once each, so
+   * they show in the HUD and fire when due like any other. Nothing happens in the browser preview.
+   */
+  async importToolReminders(): Promise<number> {
+    this.load();
+    const bridge =
+      typeof window === "undefined"
+        ? undefined
+        : (window.friday as unknown as {
+            pullReminders?: () => Promise<{
+              ok: boolean;
+              items: { id: string; text: string; dueAt: number | null }[];
+            }>;
+          });
+    if (!bridge?.pullReminders) return 0;
+    let pulled: Awaited<ReturnType<NonNullable<typeof bridge.pullReminders>>>;
+    try {
+      pulled = await bridge.pullReminders();
+    } catch {
+      return 0;
+    }
+    if (!pulled?.ok) return 0;
+    for (const item of pulled.items) this.add(item.text, item.dueAt);
+    return pulled.items.length;
+  }
+
   fireDueReminders(now = Date.now()): DeskTask[] {
     this.load();
     const snap = autonomy.getSnapshot();

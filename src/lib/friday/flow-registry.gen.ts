@@ -1669,6 +1669,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "reminders:pull",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "root:registry",
       file: "electron/main.cjs",
     },
@@ -8800,8 +8804,8 @@ export const FLOW_REGISTRY = {
       total: 1020,
     },
     ipc: {
-      mapped: 474,
-      total: 474,
+      mapped: 475,
+      total: 475,
     },
     kernel: {
       mapped: 14,

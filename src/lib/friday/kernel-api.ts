@@ -49,6 +49,7 @@ export const KERNEL_METHODS = [
   "memory.rerank",
   "memory.index",
   "memory.add",
+  "memory.remove",
   "memory.reindex",
   "watch.scan",
   "stt.bench",
@@ -201,6 +202,7 @@ export const kernelApi = {
     index: (path: string) => call<Record<string, unknown>>("memory.index", { path }),
     add: (text: string, kind = "note", title = "note") =>
       call<{ ok: boolean; backend: string }>("memory.add", { text, kind, title }),
+    remove: (ids: string[]) => call<{ ok: boolean; removed: number }>("memory.remove", { ids }),
     reindex: () => call<Record<string, unknown>>("memory.reindex"),
     status: () => call<{ backend: string; available: boolean }>("memory.status"),
   },

@@ -74,6 +74,12 @@ const ago = (ts: number) => {
  * Operational memory console — the single UI for browsing, teaching, indexing
  * and transferring FRIDAY's memory. Settings keeps configuration only.
  */
+/** Forget a durable record everywhere: the six-tier store, its knowledge entry, and the same line in the quick list. */
+function forgetDurable(item: { id: string; title: string; text: string }): void {
+  forgetEverywhere(item.id);
+  brain.forgetMatching(item.title, item.text);
+}
+
 export function MemoryConsole() {
   const state = useBrain();
   const memoryState = useMemory();
@@ -241,7 +247,7 @@ export function MemoryConsole() {
                 )
                   return;
                 unpinnedBrain.forEach((m) => brain.forget(m.id));
-                unpinnedTier.forEach((item) => forgetEverywhere(item.id));
+                unpinnedTier.forEach((item) => forgetDurable(item));
                 toast.success("Matching unpinned records forgotten");
               }}
               disabled={!memQuery.trim() || (!unpinnedBrain.length && !unpinnedTier.length)}
@@ -431,7 +437,7 @@ export function MemoryConsole() {
                         size="sm"
                         variant="ghost"
                         title="Forget"
-                        onClick={() => forgetEverywhere(item.id)}
+                        onClick={() => forgetDurable(item)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
