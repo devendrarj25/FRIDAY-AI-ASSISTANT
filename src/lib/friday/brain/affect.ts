@@ -18,6 +18,14 @@
 
 import { readLocalState, restoreFromDisk, writeState } from "../persist";
 import { getConversationSession } from "./conversation-state";
+import {
+  burstSignals,
+  channelDirective,
+  chatSignals,
+  voiceSignals,
+  type Channel,
+} from "./channel-mood";
+import type { VoiceTone } from "../voice-tone";
 import { AFFECT_LEXICON, INTENSIFIERS, NEGATIONS } from "../data/affect-lexicon";
 
 export type UserSignal =
@@ -64,6 +72,13 @@ export type AffectState = {
   failures: number;
   /** The last readings of the owner's feeling, newest last. Labels only: never his words. */
   recent: { at: number; label: string }[];
+  /** Which channel the last message arrived on. */
+  channel: Channel;
+  /** How the last spoken message sounded against his own usual voice; null for typed messages. */
+  voice: { label: string; arousal: number; mismatch: boolean } | null;
+  /** When the last message arrived, and how many came in a quick run. */
+  lastAt: number | null;
+  burst: number;
   /** Consecutive successes observed — drives "happy". */
   streak: number;
   updatedAt: number | null;
@@ -89,6 +104,10 @@ const initial = (): AffectState => ({
   interaction: "neutral",
   failures: 0,
   recent: [],
+  channel: "chat",
+  voice: null,
+  lastAt: null,
+  burst: 0,
   streak: 0,
   updatedAt: null,
 });
@@ -150,6 +169,18 @@ class AffectEngine {
   private snapshot: AffectState = clone(this.state);
   private listeners = new Set<() => void>();
   private exploring = false;
+  private lastText = "";
+  private pendingVoice: { tone: VoiceTone | null; speechMs: number | null; at: number } | null =
+    null;
+
+  /**
+   * The next message that arrives was spoken. Called by the voice session right before it hands the transcript to the
+   * brain, so the same entry point serves both channels; it lapses after twenty seconds so a later typed message is
+   * never read as speech.
+   */
+  noteVoice(input: { tone: VoiceTone | null; speechMs?: number | null }): void {
+    this.pendingVoice = { tone: input.tone, speechMs: input.speechMs ?? null, at: Date.now() };
+  }
 
   constructor() {
     restoreFromDisk<AffectState>(STORAGE_KEY, (value) => {
@@ -159,6 +190,10 @@ class AffectEngine {
         user: { ...EMPTY_USER, ...value.user },
         interaction: value.interaction ?? "neutral",
         recent: Array.isArray(value.recent) ? value.recent.slice(-RECENT_MAX) : [],
+        channel: value.channel === "voice" ? "voice" : "chat",
+        voice: value.voice ?? null,
+        lastAt: value.lastAt ?? null,
+        burst: value.burst ?? 0,
       };
       this.commit(false);
     });
@@ -229,6 +264,18 @@ class AffectEngine {
   observePrompt(text: string): AffectState {
     const prompt = (text ?? "").trim();
     if (!prompt) return this.snapshot;
+    const now = Date.now();
+    // The chat pipeline and the dispatcher can both look at one turn; it is read once.
+    if (prompt === this.lastText && this.state.lastAt && now - this.state.lastAt < 3000)
+      return this.snapshot;
+    this.lastText = prompt;
+    const spoken =
+      this.pendingVoice && now - this.pendingVoice.at <= 20_000 ? this.pendingVoice : null;
+    this.pendingVoice = null;
+    const gap = this.state.lastAt ? now - this.state.lastAt : null;
+    this.state.burst = !spoken && gap !== null && gap < 6000 ? this.state.burst + 1 : 0;
+    this.state.lastAt = now;
+    this.state.channel = spoken ? "voice" : "chat";
     this.decay();
 
     for (const key of Object.keys(CUES) as UserSignal[]) {
@@ -239,6 +286,24 @@ class AffectEngine {
     for (const [signal, amount] of FEELING_SIGNALS[feeling.label] ?? []) {
       if (feeling.confidence >= 0.5)
         this.state.user[signal] = clamp(this.state.user[signal] + amount);
+    }
+    const channelBumps = spoken
+      ? (() => {
+          const read = voiceSignals({
+            tone: spoken.tone,
+            text: prompt,
+            speechMs: spoken.speechMs,
+            words: feeling.confidence >= 0.5 ? feeling.label : "neutral",
+          });
+          this.state.voice = spoken.tone
+            ? { label: spoken.tone.label, arousal: spoken.tone.arousal, mismatch: read.mismatch }
+            : null;
+          return read.bumps;
+        })()
+      : { ...chatSignals(prompt), ...burstSignals(this.state.burst) };
+    if (!spoken) this.state.voice = null;
+    for (const [signal, amount] of Object.entries(channelBumps) as [UserSignal, number][]) {
+      this.state.user[signal] = clamp(this.state.user[signal] + amount);
     }
     this.state.recent = [
       ...this.state.recent,
@@ -336,7 +401,16 @@ class AffectEngine {
       );
     }
 
-    const guidance: string[] = [];
+    const guidance: string[] = [channelDirective(this.state.channel)];
+    if (this.state.voice) {
+      lines.push(
+        `His voice sounded ${this.state.voice.label} against his own usual voice (arousal ${Math.round(this.state.voice.arousal * 100)}%). A cue for tone only: it never overrides what he said.`,
+      );
+      if (this.state.voice.mismatch)
+        guidance.push(
+          "His words say he is fine but his voice does not match. Do not contradict him or name it; keep the reply easy and unhurried, and leave room for him to say more.",
+        );
+    }
     if (this.state.user.urgency >= 0.4)
       guidance.push("He is in a hurry: lead with the answer or the fix, skip preamble.");
     if (this.state.user.frustration >= 0.4)

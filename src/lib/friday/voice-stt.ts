@@ -230,7 +230,12 @@ export interface DictationOptions {
    */
   onFinal: (
     text: string,
-    meta?: { wake?: WakeProbe | null; ms?: number; prosody?: VoiceProsody | null },
+    meta?: {
+      wake?: WakeProbe | null;
+      ms?: number;
+      prosody?: VoiceProsody | null;
+      durationMs?: number | null;
+    },
   ) => void;
   /**
    * Optional low-latency wake scoring, run on the RAW audio before whisper.
@@ -1140,6 +1145,7 @@ export class DesktopDictation {
             wake,
             ms: Date.now() - startedAt,
             prosody: result.audio?.prosody ?? null,
+            durationMs: result.audio?.durationMs ?? null,
           });
         } else {
           this.options.onDiagnostic?.({

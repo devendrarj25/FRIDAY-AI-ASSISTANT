@@ -131,12 +131,13 @@ export function describeUserMood(text = ""): string {
   const trend = affect.moodTrend();
   const state = affect.getSnapshot();
   const name = NAMES[trend.label]?.[register];
+  const spoken = state.channel === "voice" && state.voice !== null;
   if (trend.carrying && name) {
     return register === "en"
-      ? `From your last ${trend.of} messages you've sounded ${name} in ${trend.count} of them. That's only my guess from your words; tell me if I've got it wrong and I'll drop it. If it helps, I can make today smaller.`
+      ? `From your last ${trend.of} messages you've sounded ${name} in ${trend.count} of them. That's only my guess from your ${spoken ? "words and voice" : "words"}; tell me if I've got it wrong and I'll drop it. If it helps, I can make today smaller.`
       : register === "hi"
-        ? `आपके पिछले ${trend.of} संदेशों में से ${trend.count} में आप ${name} लगे। ये बस आपके शब्दों से मेरा अंदाज़ा है; ग़लत हो तो बताइए, मैं हटा दूँगी। चाहें तो आज का दिन छोटा कर दूँ।`
-        : `Tumhare pichle ${trend.of} messages me se ${trend.count} me tum ${name} lage. Ye bas tumhare shabdon se mera andaza hai; galat ho to bolo, main hata dungi. Chaho to aaj ka din chhota kar dun.`;
+        ? `आपके पिछले ${trend.of} संदेशों में से ${trend.count} में आप ${name} लगे। ये बस आपके ${spoken ? "शब्दों और आवाज़" : "शब्दों"} से मेरा अंदाज़ा है; ग़लत हो तो बताइए, मैं हटा दूँगी। चाहें तो आज का दिन छोटा कर दूँ।`
+        : `Tumhare pichle ${trend.of} messages me se ${trend.count} me tum ${name} lage. Ye bas tumhare ${spoken ? "shabdon aur awaaz" : "shabdon"} se mera andaza hai; galat ho to bolo, main hata dungi. Chaho to aaj ka din chhota kar dun.`;
   }
   const now = (["low", "stress", "frustration", "urgency", "confusion", "excitement"] as const)
     .map((key) => ({ key, level: state.user[key] }))
@@ -153,10 +154,10 @@ export function describeUserMood(text = ""): string {
     };
     const [en, hi, hinglish] = word[now.key] as [string, string, string];
     return register === "en"
-      ? `Right now you seem ${en}. That's a guess from your words; correct me if it's off.`
+      ? `Right now you seem ${en}. That's a guess from your ${spoken ? "words and voice" : "words"}; correct me if it's off.`
       : register === "hi"
-        ? `अभी आप ${hi} लग रहे हैं। ये आपके शब्दों से अंदाज़ा है; ग़लत हो तो बताइए।`
-        : `Abhi tum ${hinglish} lag rahe ho. Ye tumhare shabdon se andaza hai; galat ho to bata dena.`;
+        ? `अभी आप ${hi} लग रहे हैं। ये आपके ${spoken ? "शब्दों और आवाज़" : "शब्दों"} से अंदाज़ा है; ग़लत हो तो बताइए।`
+        : `Abhi tum ${hinglish} lag rahe ho. Ye tumhare ${spoken ? "shabdon aur awaaz" : "shabdon"} se andaza hai; galat ho to bata dena.`;
   }
   return register === "en"
     ? "I'm not picking up anything unusual from your messages right now. If something's on your mind, say it and I'll listen."

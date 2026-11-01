@@ -103,6 +103,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Known gaps
 
+- Voice mood cues (`brain/channel-mood.ts`) are heuristics on top of the kernel's pitch, loudness and liveliness measures: the thresholds were set from reasoning and tested with synthetic readings, not measured on the owner's voice or on a real microphone. The speed-against-usual cue needs the utterance length from the speech engine and is unverified on Windows hardware.
 - Mood reading is word-based: tone of voice is used only where voice prosody already feeds `readFeeling`, sarcasm is read at low confidence, and a mood cue in a language other than English, Hinglish or Devanagari Hindi is missed. The comfort wording is fixed text, not measured on how the owner actually feels about it; he should say which lines feel wrong. A message that carries both a feeling and a task is handled by the model with the mood guidance, which is unverified with a live model.
 - Hinglish commands: the verb-last list in `brain/intent-engine.ts` covers the common verbs only; "wo wali file khol do" and "pichla kaam dobara karo" still depend on the pointer and last-task memory, and are not measured on the owner's real requests.
 - Self questions: `brain/self-questions.ts` routes the English and Hinglish wording listed in its tests; a new phrasing outside those patterns still reaches a model without the live facts. The Atlas, PC and self-check answers read live probes that ran on Linux and in tests only; the Windows wording is unverified.
@@ -150,6 +151,7 @@ Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux 
 
 ## Next priorities
 
+- Record the owner's own voice in a calm, a tired and an annoyed state, and check what `assessTone` and `voiceSignals` read, then tune the thresholds from those recordings.
 - Ask the owner which comfort lines feel right or wrong, and add his own wording to `data/phrase-bank.ts`; then let a long-running low mood be raised once, gently, in the daily digest.
 - Collect the self questions the owner really asks (voice and typed) and add each missed phrasing to `core/__tests__/self-questions.test.ts` with its pattern.
 - Show the ledger accessors (draft lists of the forges, router counters, source health, dev baseline) in Self-management, so the 16 pending rows in `config/brain-wiring-ledger.json` move to used.

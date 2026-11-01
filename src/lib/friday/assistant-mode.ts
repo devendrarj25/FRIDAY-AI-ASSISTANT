@@ -135,7 +135,7 @@ import {
   type MicStatus,
 } from "./voice-audio";
 import { rememberDevice } from "./mic-truth";
-import { readFeeling } from "./brain/affect";
+import { affect, readFeeling } from "./brain/affect";
 import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
 import { isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
 import { alertsAudible } from "./settings-runtime";
@@ -1069,6 +1069,8 @@ class AssistantModeStore {
   private pttCleanup: Array<() => void> = [];
   /** How the owner's last utterance sounded against their own baseline. */
   private lastTone: VoiceTone | null = null;
+  /** How long the last utterance took to say, for speed against his own usual speed. */
+  private lastSpeechMs: number | null = null;
 
   voiceTone(): VoiceTone | null {
     return this.lastTone;
@@ -1712,6 +1714,7 @@ class AssistantModeStore {
       },
       onFinal: (text, meta) => {
         this.lastTone = assessTone(meta?.prosody);
+        this.lastSpeechMs = meta?.durationMs ?? null;
         const trimmed = text.trim();
         if (duplicateFinalUtterance(this.lastFinalText, trimmed, Date.now() - this.lastFinalAt)) {
           this.trace("dropped", "duplicate finalized utterance");
@@ -2418,6 +2421,7 @@ class AssistantModeStore {
       routingSurface: "voice" as const,
     };
     this.pendingUserEcho += 1;
+    affect.noteVoice({ tone: this.lastTone, speechMs: this.lastSpeechMs });
     let result = brain.send(command, payload);
     // A new spoken command is an interrupt: stop the in-flight turn, then start.
     if (!result.accepted && result.reason === "busy") {
