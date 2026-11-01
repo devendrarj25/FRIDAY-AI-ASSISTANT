@@ -98,12 +98,19 @@ async function cloudTranscribe(engine, file, language) {
   const locked = whisperLanguage(language);
   if (locked) form.append("language", locked);
   const started = Date.now();
-  const res = await fetchCompat(`${engine.base}/audio/transcriptions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${engine.key}` },
-    body: form,
-  });
-  const body = await res.text();
+  // A long recording takes a while to upload, but not forever: the whole call is bounded.
+  const bounded = boundedInit(
+    { method: "POST", headers: { Authorization: `Bearer ${engine.key}` }, body: form },
+    120_000,
+  );
+  let res;
+  let body;
+  try {
+    res = await fetchCompat(`${engine.base}/audio/transcriptions`, bounded.init);
+    body = await res.text();
+  } finally {
+    bounded.clear();
+  }
   if (!res.ok) {
     return {
       ok: false,

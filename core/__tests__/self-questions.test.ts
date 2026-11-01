@@ -68,3 +68,14 @@ describe("questions about herself, in English and Hinglish", () => {
     for (const item of filed) expect(item.stage).not.toBe("applied");
   });
 });
+
+describe("a pasted document is never scanned for questions about herself", () => {
+  it("returns at once for a long text, and a long text never counts as a question about her", () => {
+    const pasted = "kholo bhej do aur ".repeat(8000);
+    const started = performance.now();
+    expect(selfTopic(pasted)).toBeNull();
+    expect(baselineRespond(pasted).handled).toBe(false);
+    expect(performance.now() - started).toBeLessThan(400);
+    expect(selfTopic(`${"x ".repeat(200)} tumhara version kya hai`)).toBeNull();
+  });
+});

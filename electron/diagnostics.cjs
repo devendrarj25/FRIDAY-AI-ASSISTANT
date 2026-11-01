@@ -1029,6 +1029,7 @@ async function healCloudProviders(say) {
       try {
         const res = await fetchCompat(`${base.replace(/\/+$/, "")}/models`, {
           headers: spec.headers(key),
+          signal: AbortSignal.timeout(10_000),
         });
         ok = res.ok;
       } catch {

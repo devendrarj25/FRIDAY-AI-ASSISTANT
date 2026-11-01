@@ -106,7 +106,8 @@ const CORRECTION =
   /\b(galat (padha|samjha|samjhi)|tumne galat|you (misread|got (it|me) wrong)|(main|mai|mein) (udaas|dukhi|sad|upset|tired|thaka|gussa|naraz) nahi|i'?m not (sad|upset|angry|tired|stressed))\b/i;
 
 export function correctMoodReading(text: string): string | null {
-  if (!CORRECTION.test(String(text || ""))) return null;
+  const value = String(text || "");
+  if (value.length > 300 || !CORRECTION.test(value)) return null;
   affect.forgetReadings();
   const register = registerOf(text);
   return register === "en"

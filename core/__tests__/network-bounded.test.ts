@@ -18,6 +18,8 @@ const walk = (dir: string): string[] =>
 
 /** Places where a bare fetch is correct: the helper itself, a server entry that forwards a request it was given. */
 const ALLOWED = new Set(["electron/net-fetch.cjs", "src/server.ts"]);
+/** `async function fetchCompat(` is the definition, not a call. */
+const DEFINITION = /async function fetchCompat\(/;
 
 describe("every request has an end", () => {
   it("no fetch( in the app is left without a timeout or a signal", () => {
@@ -26,10 +28,11 @@ describe("every request has an end", () => {
       const rel = relative(ROOT, file).replace(/\\/g, "/");
       if (ALLOWED.has(rel)) continue;
       const text = readFileSync(file, "utf8");
-      for (const match of text.matchAll(/(?<![\w.])fetch\(/g)) {
+      for (const match of text.matchAll(/(?<![\w.])(?:fetch|fetchCompat)\(/g)) {
         const index = match.index ?? 0;
         const start = text.lastIndexOf("\n", index) + 1;
         if (/^\s*(\/\/|\*|\/\*)/.test(text.slice(start, index + 8))) continue;
+        if (DEFINITION.test(text.slice(Math.max(0, index - 16), index + 14))) continue;
         let segment = text.slice(index, index + 700);
         const end = segment.indexOf(");");
         segment = end > 0 ? segment.slice(0, end + 2) : segment;

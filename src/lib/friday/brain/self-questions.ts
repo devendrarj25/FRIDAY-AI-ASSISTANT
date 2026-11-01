@@ -86,9 +86,13 @@ const RULES: [SelfTopic, RegExp][] = [
   ],
 ];
 
+const SELF_QUESTION_MAX = 300;
+
 /** Which question about herself this is, or null when it is not one. */
 export function selfTopic(text: string): SelfTopic | null {
   const value = String(text || "");
+  // A question about herself is a sentence. A pasted document is not one, and the patterns below should never scan it.
+  if (value.length > SELF_QUESTION_MAX) return null;
   for (const [topic, pattern] of RULES) if (pattern.test(value)) return topic;
   return null;
 }

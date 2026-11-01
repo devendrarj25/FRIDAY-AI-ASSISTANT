@@ -157,6 +157,7 @@ const TEACH_EN_PLAIN = /^when\s+i\s+(?:say|type)\s+(\S+(?:\s\S+){0,2}?)[\s,]+the
 
 export function parseShortcutTeaching(text: string): { trigger: string; expansion: string } | null {
   const value = String(text || "").trim();
+  if (value.length > 500) return null;
   const match = value.match(TEACH) ?? value.match(TEACH_EN_QUOTED) ?? value.match(TEACH_EN_PLAIN);
   const trigger = match?.[1]?.trim();
   const expansion = match?.[2]?.trim().replace(/[.!]+$/, "");
