@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  Owner and publisher: Devendra Singh Meena (devendrarj25) · Public version <strong>1.1.4.6</strong> · Windows
+  Owner and publisher: Devendra Singh Meena (devendrarj25) · Public version <strong>1.1.5.6</strong> · Windows
 </p>
 
 <p align="center">
@@ -76,7 +76,7 @@ Over two hundred skills, well over a hundred tools and agents, workflows, plugin
 
 | You want | Do this |
 | --- | --- |
-| Just use it | Download `FRIDAY-Setup-1.1.4.6.exe` (or `FRIDAY-Portable-1.1.4.6.exe`) from the GitHub release and run it. No Node, Python or Git needed. |
+| Just use it | Download `FRIDAY-Setup-1.1.5.6.exe` (or `FRIDAY-Portable-1.1.5.6.exe`) from the GitHub release and run it. No Node, Python or Git needed. |
 | Build it yourself | Clone this repository, open **Command Prompt**, then run the three commands below. |
 
 ```cmd
@@ -161,12 +161,12 @@ How a change is made, checked and merged: [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ---
 
-## 9. What is new in 1.1.4.6
+## 9. What is new in 1.1.5.6
 
 <!-- release-engine: generated section. Summary plus links only - the full
      write-up lives in the changelog and the release notes. -->
 
-Released October 25, 2026 on the Stable channel - FRIDAY 1.1.4.6 includes reliability fixes and behaviour updates.
+Released November 2, 2026 on the Stable channel - FRIDAY 1.1.5.6 adds follow the PC's graphics, memory, battery, sleep and shutdown, improvements, reliability fixes, performance improvements and removed items.
 
-- Full detail for this release: **[releases/notes/v1.1.4.6.md](releases/notes/v1.1.4.6.md)**
+- Full detail for this release: **[releases/notes/v1.1.5.6.md](releases/notes/v1.1.5.6.md)**
 - Changelog for the current public line: **[CHANGELOG.md](CHANGELOG.md)**

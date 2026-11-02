@@ -2,7 +2,7 @@
 
 _FRIDAY - AI ASSISTANT. A Private, Autonomous and Self Learning OS Based on Local & Cloud Models._
 
-FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.1.4.6), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
+FRIDAY is a private, local-first Windows desktop assistant: Electron + React in the app, a Python FastAPI kernel on this PC (currently version 1.1.5.6), owned by **Devendra Singh Meena** (`devendrarj25`). Official repo: https://github.com/devendrarj25/FRIDAY-AI-ASSISTANT.
 
 This briefing is the tree as it is now and nothing older. Evidence: [AUDIT.md](AUDIT.md). Features: [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md). Rules: [AGENTS.md](AGENTS.md). Gate: [docs/FRIDAY_CHANGE_CONTROL.md](docs/FRIDAY_CHANGE_CONTROL.md). Version history stays in [CHANGELOG.md](CHANGELOG.md) and `releases/notes/`.
 
@@ -13,7 +13,7 @@ Read order: `AGENTS.md`, then this file, then `docs/FRIDAY_CHANGE_CONTROL.md`, t
 | Item                 | Live value                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Public version       | `1.1.4.6` (`config/friday-version.json`), published as GitHub release `v1.1.4.6` (Setup, Portable, `friday-update.json`, `latest.yml`, `SHA256SUMS.txt`, `CHANGELOG.md`) |
-| npm encoding         | `1.1.4` (`package.json`), never compared as an update identity                                                                                                           |
+| npm encoding         | `1.1.5` (`package.json`), never compared as an update identity                                                                                                           |
 | Epoch                | 2 / `friday-2`                                                                                                                                                           |
 | Next public revision | `1.1.4.7`, not bumped until the owner asks                                                                                                                               |
 | Stack floors         | Electron ^45.2.1, electron-builder 26.18.0, Node `>=22.19.0`, Python `>=3.12.10`, Vite 8.3.5 (`package.json`, `config/toolchain-versions.json`)                          |
