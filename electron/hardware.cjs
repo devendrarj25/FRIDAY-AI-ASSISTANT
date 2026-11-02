@@ -21,6 +21,173 @@ const probeErrors = { nvidiaSmi: null, cuda: null, videoController: null };
 
 const GB = 1024 * 1024 * 1024;
 const toGb = (bytes) => Math.round((bytes / GB) * 10) / 10;
+const MIB = 1024 * 1024;
+
+// Win32_VideoController.AdapterRAM is a 32-bit number: any card with 4 GB or more reports 4 GB (or a wrapped,
+// negative value), so an 8 or 24 GB AMD or Intel card looked like a 4 GB one. The driver's own 64-bit figure
+// (HardwareInformation.qwMemorySize in the display class registry key) is read as well and wins when present.
+const UINT32_CAP = 4293918720; // 0xFFF00000: what a 4 GB or larger card reports
+
+// Adapters that are not a graphics card FRIDAY could run a model on.
+const VIRTUAL_ADAPTER =
+  /basic (render|display)|remote display|virtual|parsec|hyper-v|vmware svga|citrix|indirect display|displaylink|spacedesk/i;
+
+const vendorOf = (name) =>
+  /nvidia/i.test(name)
+    ? "nvidia"
+    : /amd|radeon/i.test(name)
+      ? "amd"
+      : /intel/i.test(name)
+        ? "intel"
+        : "other";
+
+const asRows = (text) => {
+  try {
+    const parsed = JSON.parse(String(text || "").trim());
+    return Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+  } catch {
+    return [];
+  }
+};
+
+/** Graphics cards from `Win32_VideoController` rows as JSON ({Name, AdapterRAM, Qw, Driver}). */
+function parseVideoControllers(text) {
+  return asRows(text)
+    .map((row) => {
+      const name = String(row?.Name || "").trim();
+      if (!name || VIRTUAL_ADAPTER.test(name)) return null;
+      const qw = Number(row.Qw);
+      const ram = Number(row.AdapterRAM);
+      let bytes = null;
+      let vramKnown = false;
+      if (qw > 0) {
+        bytes = qw;
+        vramKnown = true;
+      } else if (ram > 0) {
+        bytes = ram;
+        vramKnown = ram < UINT32_CAP;
+      } else if (ram < 0) {
+        bytes = ram + 2 ** 32; // a 32-bit value that wrapped
+      }
+      return {
+        vendor: vendorOf(name),
+        name,
+        vramTotalMb: bytes ? Math.round(bytes / MIB) : null,
+        // false: the driver only reported the 32-bit figure, so the card has "at least" this much.
+        vramKnown,
+        vramUsedMb: null,
+        driver: row.Driver ? String(row.Driver) : null,
+      };
+    })
+    .filter(Boolean);
+}
+
+/** Fixed drives from `Win32_LogicalDisk` rows as JSON ({DeviceID, Size, FreeSpace, VolumeName, FileSystem}). */
+function parseLogicalDisks(text) {
+  return asRows(text)
+    .map((row) => {
+      const total = Number(row?.Size);
+      const free = Number(row?.FreeSpace);
+      if (!row?.DeviceID || !(total > 0)) return null;
+      return {
+        letter: String(row.DeviceID),
+        label: row.VolumeName ? String(row.VolumeName) : "",
+        fileSystem: row.FileSystem ? String(row.FileSystem) : "",
+        totalGb: toGb(total),
+        freeGb: toGb(Number.isFinite(free) ? free : 0),
+        usedPercent: Math.round(((total - (Number.isFinite(free) ? free : 0)) / total) * 100),
+      };
+    })
+    .filter(Boolean);
+}
+
+/** Physical and logical cores from `Win32_Processor` rows as JSON. One row per socket. */
+function parseCpuTopology(text) {
+  let physical = 0;
+  let logical = 0;
+  for (const row of asRows(text)) {
+    physical += Number(row?.NumberOfCores) || 0;
+    logical += Number(row?.NumberOfLogicalProcessors) || 0;
+  }
+  return physical > 0 ? { physical, logical: logical || null } : null;
+}
+
+/** Physical cores from /proc/cpuinfo (Linux): distinct (physical id, core id) pairs. */
+function physicalCoresFromProcCpuinfo(text) {
+  const pairs = new Set();
+  let perSocket = 0;
+  const sockets = new Set();
+  for (const block of String(text || "").split(/\r?\n\s*\r?\n/)) {
+    const physical = /^physical id\s*:\s*(\d+)/m.exec(block)?.[1];
+    const core = /^core id\s*:\s*(\d+)/m.exec(block)?.[1];
+    const cores = Number(/^cpu cores\s*:\s*(\d+)/m.exec(block)?.[1]);
+    if (physical !== undefined && core !== undefined) pairs.add(`${physical}:${core}`);
+    if (physical !== undefined) sockets.add(physical);
+    if (cores > 0) perSocket = cores;
+  }
+  if (pairs.size > 0) return pairs.size;
+  return perSocket > 0 ? perSocket * Math.max(1, sockets.size) : null;
+}
+
+async function detectCpuTopology() {
+  try {
+    if (process.platform === "win32") {
+      const result = await runPowerShell(
+        "Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress",
+        10000,
+      );
+      return result.ok ? parseCpuTopology(result.stdout) : null;
+    }
+    if (process.platform === "linux") {
+      const physical = physicalCoresFromProcCpuinfo(fs.readFileSync("/proc/cpuinfo", "utf8"));
+      return physical ? { physical, logical: (os.cpus() || []).length || null } : null;
+    }
+    if (process.platform === "darwin") {
+      const out = await run("sysctl", ["-n", "hw.physicalcpu"], 4000);
+      const physical = Number(String(out || "").trim());
+      return physical > 0 ? { physical, logical: (os.cpus() || []).length || null } : null;
+    }
+  } catch {
+    /* topology is a refinement; the plan falls back to the logical count */
+  }
+  return null;
+}
+
+/** Every fixed drive (Windows). Elsewhere the drive of the FRIDAY folder is the only one reported. */
+async function detectDrives(root) {
+  if (process.platform === "win32") {
+    const result = await runPowerShell(
+      'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object DeviceID,Size,FreeSpace,VolumeName,FileSystem | ConvertTo-Json -Compress',
+      10000,
+    );
+    const drives = result.ok ? parseLogicalDisks(result.stdout) : [];
+    if (drives.length) {
+      const home = String(root || "")
+        .slice(0, 2)
+        .toUpperCase();
+      return drives.map((drive) => ({
+        ...drive,
+        holdsFridayFolder: drive.letter.toUpperCase() === home,
+      }));
+    }
+  }
+  const one = diskFor(root);
+  return one
+    ? [
+        {
+          letter: one.path,
+          label: "",
+          fileSystem: "",
+          totalGb: one.totalGb,
+          freeGb: one.freeGb,
+          usedPercent: one.totalGb
+            ? Math.round(((one.totalGb - one.freeGb) / one.totalGb) * 100)
+            : 0,
+          holdsFridayFolder: true,
+        },
+      ]
+    : [];
+}
 
 async function detectNvidia() {
   const exe = nvidiaSmiPath();
@@ -31,7 +198,10 @@ async function detectNvidia() {
   }
   const result = await runProbe(
     exe,
-    ["--query-gpu=name,memory.total,memory.used,driver_version", "--format=csv,noheader,nounits"],
+    [
+      "--query-gpu=name,memory.total,memory.used,driver_version,utilization.gpu,temperature.gpu",
+      "--format=csv,noheader,nounits",
+    ],
     8000,
   );
   probeErrors.nvidiaSmi = result.ok ? null : result.error;
@@ -41,60 +211,48 @@ async function detectNvidia() {
     .split(/\r?\n/)
     .map((line) => line.split(",").map((s) => s.trim()))
     .filter((parts) => parts.length >= 4 && parts[0])
-    .map(([name, total, used, driver]) => ({
+    .map(([name, total, used, driver, utilization, temperature]) => ({
       vendor: "nvidia",
       name,
       vramTotalMb: Number(total) || null,
+      vramKnown: Number(total) > 0,
       vramUsedMb: Number(used) || null,
       driver,
+      // "[N/A]" or "[Not Supported]" on cards that do not report these: null, never a made-up zero.
+      utilizationPercent: Number.isFinite(Number(utilization)) ? Number(utilization) : null,
+      temperatureC: Number.isFinite(Number(temperature)) ? Number(temperature) : null,
     }));
 }
 
-// Fallback for AMD/Intel/other GPUs on Windows.
+// Every graphics card on Windows, with the driver's own 64-bit video memory figure (see UINT32_CAP above).
+const PS_VIDEO =
+  "$vram=@{}; Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}' -ErrorAction SilentlyContinue | ForEach-Object { $p=Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue; if ($p -and $p.DriverDesc) { $vram[$p.DriverDesc]=$p.'HardwareInformation.qwMemorySize' } }; " +
+  "Get-CimInstance Win32_VideoController | ForEach-Object { [pscustomobject]@{ Name=$_.Name; AdapterRAM=$_.AdapterRAM; Qw=$vram[$_.Name]; Driver=$_.DriverVersion } } | ConvertTo-Json -Compress";
+
 async function detectWindowsGpus() {
-  const first = await runPowerShell(
-    "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Csv -NoTypeInformation",
-    12000,
-  );
+  const first = await runPowerShell(PS_VIDEO, 15000);
   probeErrors.videoController = first.ok ? null : first.error;
-  let out = first.ok ? first.stdout : null;
+  if (first.ok && first.stdout) return parseVideoControllers(first.stdout);
   // WMIC is removed from current Windows releases but remains a useful fallback
   // on older installations where PowerShell/CIM is restricted by policy.
-  if (!out) {
-    out = await run("wmic", [
-      "path",
-      "win32_VideoController",
-      "get",
-      "name,AdapterRAM",
-      "/format:csv",
-    ]);
-    if (out) probeErrors.videoController = null;
-  }
-
+  const out = await run("wmic", [
+    "path",
+    "win32_VideoController",
+    "get",
+    "name,AdapterRAM",
+    "/format:csv",
+  ]);
   if (!out) return [];
-  return out
-    .split(/\r?\n/)
-    .filter((line) => line.trim() && !/Name.*AdapterRAM|Node/i.test(line))
-    .map((line) => line.split(",").map((part) => part.replace(/^"|"$/g, "").trim()))
-    .map((parts) => {
-      const name = parts.length >= 3 ? parts[2] : parts[0];
-      const ram = parts.length >= 3 ? parts[1] : parts[1];
-      return { name, ram };
-    })
-    .filter((entry) => entry.name)
-    .map((entry) => ({
-      vendor: /nvidia/i.test(entry.name)
-        ? "nvidia"
-        : /amd|radeon/i.test(entry.name)
-          ? "amd"
-          : /intel/i.test(entry.name)
-            ? "intel"
-            : "other",
-      name: entry.name,
-      vramTotalMb: Number(entry.ram) ? Math.round(Number(entry.ram) / (1024 * 1024)) : null,
-      vramUsedMb: null,
-      driver: null,
-    }));
+  probeErrors.videoController = null;
+  return parseVideoControllers(
+    JSON.stringify(
+      out
+        .split(/\r?\n/)
+        .filter((line) => line.trim() && !/Name.*AdapterRAM|Node/i.test(line))
+        .map((line) => line.split(",").map((part) => part.trim()))
+        .map((parts) => ({ Name: parts[2] || parts[0], AdapterRAM: Number(parts[1]) || 0 })),
+    ),
+  );
 }
 
 /**
@@ -103,18 +261,27 @@ async function detectWindowsGpus() {
  * - never claim more than 70% of system RAM
  * - only offload layers to the GPU when there is real VRAM headroom
  */
-function buildPlan({ cpuCount, totalMemGb, gpus, gpuAcceleration }) {
-  const threads = Math.max(1, Math.min(cpuCount - 1, Math.floor(cpuCount * 0.75)));
+function buildPlan({ cpuCount, physicalCores = null, totalMemGb, gpus, gpuAcceleration }) {
+  // Math libraries (BLAS, ONNX Runtime, CTranslate2) are fastest with one thread per PHYSICAL core; the second
+  // hardware thread of a core only makes them fight. Leave one core free for the interface. Without a physical
+  // count the old rule on logical threads applies.
+  const threads =
+    physicalCores > 0
+      ? Math.max(1, physicalCores > 1 ? physicalCores - 1 : 1)
+      : Math.max(1, Math.min(cpuCount - 1, Math.floor(cpuCount * 0.75)));
   const gpu = gpus[0] || null;
   const vramGb = gpu?.vramTotalMb ? Math.round((gpu.vramTotalMb / 1024) * 10) / 10 : 0;
   const gpuUsable = Boolean(gpuAcceleration && gpu && vramGb >= 2);
+  const otherGpu = gpu && gpu.vendor !== "nvidia";
   return {
     backend: gpuUsable ? "gpu" : "cpu",
     reason: gpuUsable
       ? `NVIDIA driver acceleration available with ${vramGb} GB VRAM`
-      : gpu
-        ? "GPU present but no supported acceleration runtime — running on CPU"
-        : "no discrete GPU detected — running on CPU",
+      : otherGpu
+        ? `${gpu.name} found. FRIDAY plans on the CPU; Ollama may still use this card for local models if it supports it, and FRIDAY cannot confirm that from here`
+        : gpu
+          ? "GPU present but no supported acceleration runtime — running on CPU"
+          : "no discrete GPU detected — running on CPU",
     threads,
     maxRamGb: Math.max(1, Math.round(totalMemGb * 0.7 * 10) / 10),
     maxVramGb: gpuUsable ? Math.max(1, Math.round(vramGb * 0.8 * 10) / 10) : 0,
@@ -154,9 +321,14 @@ function bestGpuFirst(gpus) {
 
 async function detectHardware({ root = null } = {}) {
   const cpus = os.cpus() || [];
-  const nvidia = await detectNvidia();
-  const found = nvidia.length || process.platform !== "win32" ? nvidia : await detectWindowsGpus();
+  const [nvidia, topology] = await Promise.all([detectNvidia(), detectCpuTopology()]);
+  // On Windows every card is listed, not only NVIDIA: a laptop with an Intel chip and an NVIDIA card showed
+  // only the NVIDIA one. nvidia-smi is the better source for NVIDIA (live memory, load, temperature), so its
+  // cards win and only the CIM entries for other vendors are added.
+  const cim = process.platform === "win32" ? await detectWindowsGpus() : [];
+  const found = [...nvidia, ...cim.filter((gpu) => nvidia.length === 0 || gpu.vendor !== "nvidia")];
   const gpus = bestGpuFirst(found);
+  const drives = await detectDrives(root);
   // `nvcc` is resolved through CUDA_PATH and the versioned toolkit folders as
   // well as PATH — an elevated process started before a re-login never sees
   // the user PATH entry the CUDA installer adds.
@@ -181,11 +353,15 @@ async function detectHardware({ root = null } = {}) {
     arch: os.arch(),
     cpu: {
       model: cpus[0]?.model?.trim() || "unknown",
+      // `cores` has always been the logical thread count; kept so nothing that reads it changes.
       cores: cpus.length,
+      threads: cpus.length,
+      physicalCores: topology?.physical ?? null,
       speedMhz: cpus[0]?.speed || null,
     },
     memory: { totalGb: totalMemGb, freeGb: toGb(os.freemem()) },
     disk: diskFor(root),
+    drives,
     gpus,
     cuda: {
       // `nvcc` proves the toolkit is installed. An NVIDIA display driver alone
@@ -203,6 +379,7 @@ async function detectHardware({ root = null } = {}) {
 
   hardware.plan = buildPlan({
     cpuCount: cpus.length || 1,
+    physicalCores: topology?.physical ?? null,
     totalMemGb,
     gpus,
     gpuAcceleration: nvidiaDriver,
@@ -716,6 +893,11 @@ function openWindowsSecurity() {
 
 module.exports = {
   detectHardware,
+  buildPlan,
+  parseVideoControllers,
+  parseLogicalDisks,
+  parseCpuTopology,
+  physicalCoresFromProcCpuinfo,
   diskFor,
   bestGpuFirst,
   detectSensors,

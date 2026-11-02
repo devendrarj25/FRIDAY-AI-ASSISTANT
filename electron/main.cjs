@@ -788,6 +788,9 @@ let lastProviders = null;
 let lastComponents = null;
 let lastHardware = null;
 // Free memory, FRIDAY's own load and the battery, read every few seconds (electron/system-health.cjs).
+// The hardware probe the app starts at launch. The kernel waits for it (up to 5 s) so its first start already has
+// the plan; before this, the kernel usually started first and ran with no plan at all.
+let hardwareBoot = null;
 let pressureMonitor = null;
 /** The worker plan for what is free right now: a kernel started under pressure starts lighter. */
 function currentPlan() {
@@ -1401,6 +1404,9 @@ async function startKernel(root) {
   if (kernel) await stopKernel();
   kernelInstanceId = "";
   await recoverStaleOwned();
+  if (!lastHardware && hardwareBoot) {
+    await Promise.race([hardwareBoot, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  }
   if (process.env.FRIDAY_READINESS === "1") {
     KERNEL_PORT = kernelBind.initialPort(process.env);
   } else if (await portBusy(KERNEL_PORT)) {
@@ -1476,6 +1482,8 @@ async function startKernel(root) {
               FRIDAY_MAX_RAM_GB: String(currentPlan().maxRamGb),
               FRIDAY_MAX_VRAM_GB: String(currentPlan().maxVramGb),
               FRIDAY_GPU_FALLBACK: currentPlan().fallback,
+              // The libraries the kernel really uses read these, not the FRIDAY_ ones above.
+              ...systemHealth.threadEnv(currentPlan().threads),
             }
           : {}),
       },
@@ -9686,13 +9694,14 @@ function startAfterKernel(root, bootStartedAt) {
     })
     .catch(() => boot("Detecting AI providers", "warn"));
 
-  detectHardware()
+  hardwareBoot = detectHardware({ root: getWorkspaceRoot() })
     .then((hw) => {
       lastHardware = hw;
+      hardwareAt = Date.now();
       boot(
         "Checking acceleration",
         "ok",
-        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.cores} cores · ${hw.plan.reason}`,
+        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}`,
       );
     })
     .catch(() => boot("Checking acceleration", "warn"));

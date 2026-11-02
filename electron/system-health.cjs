@@ -271,7 +271,28 @@ function rootHealth({ fs, root, minFreeGb = 2 }) {
   return out;
 }
 
+/**
+ * The thread count of the plan, in the variables that numpy's BLAS, ONNX Runtime and CTranslate2 (the speech and
+ * embedding libraries of the kernel) actually read. Before this the plan was exported as FRIDAY_THREADS and
+ * nothing read it. A variable the owner already set is left alone.
+ */
+function threadEnv(threads, env = process.env) {
+  const n = Math.max(1, Math.floor(Number(threads) || 0));
+  if (!(n >= 1) || !Number.isFinite(Number(threads))) return {};
+  const out = {};
+  for (const key of [
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+  ]) {
+    if (!env[key]) out[key] = String(n);
+  }
+  return out;
+}
+
 module.exports = {
+  threadEnv,
   rootHealth,
   createGpuGuard,
   createPressureMonitor,
