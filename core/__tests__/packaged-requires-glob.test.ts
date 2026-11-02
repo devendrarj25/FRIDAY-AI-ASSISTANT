@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 import { load as parseYaml } from "js-yaml";
 
 const require_ = createRequire(import.meta.url);
+/**
+ * minimatch is nobody's direct dependency, and where npm puts it depends on which package asks for which major
+ * (hoisted to the top level, or nested). The oracle is the copy eslint resolved, wherever it sits.
+ */
+const minimatchModule = () => createRequire(require_.resolve("eslint/package.json"))("minimatch");
 const ROOT = path.resolve(__dirname, "../..");
 const checker = require_(path.join(ROOT, "scripts/packaged-requires.cjs")) as {
   globMatches: (rel: string, pattern: string) => boolean;
@@ -54,7 +59,7 @@ describe("the glob matcher that replaced the hoisted minimatch", () => {
       .filter((item): item is string => typeof item === "string")
       .map((item) => item.replace(/^!/, ""));
     expect(patterns.length).toBeGreaterThan(3);
-    const minimatch = checker.matcherFrom(require_("minimatch"));
+    const minimatch = checker.matcherFrom(minimatchModule());
     const files = listFiles(ROOT).slice(0, 4000);
     const disagreements: string[] = [];
     for (const pattern of patterns) {

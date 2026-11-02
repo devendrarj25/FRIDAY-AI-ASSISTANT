@@ -1,3 +1,24 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "id": "PYSEC-2026-311",
+      "expires": "2027-02-01",
+      "reason": "chromadb 1.5.9 is the newest release and has no fixed version. The advisory is about the Chroma server (an unauthenticated or authenticated caller of the server's HTTP API). FRIDAY runs no Chroma server: kernel/memory.py opens the embedded chromadb.PersistentClient in its own process and opens no port. Re-read the advisory and PyPI before the entry expires."
+    },
+    {
+      "id": "PYSEC-2026-3813",
+      "expires": "2027-02-01",
+      "reason": "chromadb 1.5.9 is the newest release and has no fixed version. The advisory is about the Chroma server (an unauthenticated or authenticated caller of the server's HTTP API). FRIDAY runs no Chroma server: kernel/memory.py opens the embedded chromadb.PersistentClient in its own process and opens no port. Re-read the advisory and PyPI before the entry expires."
+    },
+    {
+      "id": "PYSEC-2026-3814",
+      "expires": "2027-02-01",
+      "reason": "chromadb 1.5.9 is the newest release and has no fixed version. The advisory is about the Chroma server (an unauthenticated or authenticated caller of the server's HTTP API). FRIDAY runs no Chroma server: kernel/memory.py opens the embedded chromadb.PersistentClient in its own process and opens no port. Re-read the advisory and PyPI before the entry expires."
+    },
+    {
+      "id": "PYSEC-2026-3815",
+      "expires": "2027-02-01",
+      "reason": "chromadb 1.5.9 is the newest release and has no fixed version. The advisory is about the Chroma server (an unauthenticated or authenticated caller of the server's HTTP API). FRIDAY runs no Chroma server: kernel/memory.py opens the embedded chromadb.PersistentClient in its own process and opens no port. Re-read the advisory and PyPI before the entry expires."
+    }
+  ]
 }
