@@ -255,6 +255,22 @@ const { Worker } = require("worker_threads");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+
+// A graphics driver that crashed repeatedly last time: this start draws in software, which every PC can do.
+// The marker expires after a week; FRIDAY_FORCE_GPU=1 ignores it. See electron/system-health.cjs.
+const systemHealth = require("./system-health.cjs");
+const gpuGuard = systemHealth.createGpuGuard({
+  fs,
+  file: path.join(app.getPath("userData"), "gpu-fallback.json"),
+  log: (message) => log(message),
+});
+if (
+  !process.env.FRIDAY_BOOT_SELFTEST &&
+  process.env.FRIDAY_READINESS !== "1" &&
+  gpuGuard.softwareMode()
+) {
+  app.disableHardwareAcceleration();
+}
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const lifeSteps = {};
@@ -771,6 +787,16 @@ let lastScan = null;
 let lastProviders = null;
 let lastComponents = null;
 let lastHardware = null;
+// Free memory, FRIDAY's own load and the battery, read every few seconds (electron/system-health.cjs).
+let pressureMonitor = null;
+/** The worker plan for what is free right now: a kernel started under pressure starts lighter. */
+function currentPlan() {
+  if (!lastHardware) return null;
+  return systemHealth.adaptPlan(
+    lastHardware.plan,
+    pressureMonitor ? pressureMonitor.snapshot() : null,
+  );
+}
 const bootSteps = [];
 const activeChats = new Map();
 let kernelReady = false;
@@ -1445,11 +1471,11 @@ async function startKernel(root) {
         // from the profile the app already detected instead of guessing.
         ...(lastHardware
           ? {
-              FRIDAY_BACKEND: lastHardware.plan.backend,
-              FRIDAY_THREADS: String(lastHardware.plan.threads),
-              FRIDAY_MAX_RAM_GB: String(lastHardware.plan.maxRamGb),
-              FRIDAY_MAX_VRAM_GB: String(lastHardware.plan.maxVramGb),
-              FRIDAY_GPU_FALLBACK: lastHardware.plan.fallback,
+              FRIDAY_BACKEND: currentPlan().backend,
+              FRIDAY_THREADS: String(currentPlan().threads),
+              FRIDAY_MAX_RAM_GB: String(currentPlan().maxRamGb),
+              FRIDAY_MAX_VRAM_GB: String(currentPlan().maxVramGb),
+              FRIDAY_GPU_FALLBACK: currentPlan().fallback,
             }
           : {}),
       },
@@ -4060,6 +4086,13 @@ function createWindow() {
   if (!process.env.FRIDAY_BOOT_SELFTEST) {
     require("./window-hang.cjs").watchWindowHang(win, { dialog, log });
   }
+
+  // Windows: a shutdown, restart or log-off ends the session without `will-quit` (Electron's app docs say so)
+  // and `powerMonitor` has no "shutdown" event there. `session-end` is the window event Windows sends, and
+  // once it fires the session cannot be stopped, so the same clean stop runs now.
+  win.on("session-end", () => {
+    void life.onSessionEnd("os-session-end");
+  });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -9306,6 +9339,18 @@ app
         };
         powerMonitor.on("resume", wakeSession);
         powerMonitor.on("unlock-screen", wakeSession);
+        startPressureMonitor(powerMonitor);
+        // Going to sleep: send what is still waiting on a save delay now, because nothing says the page
+        // is hiding when the lid closes. The pressure timer stops while the PC sleeps.
+        powerMonitor.on("suspend", () => {
+          if (pressureMonitor) pressureMonitor.stop();
+          for (const open of BrowserWindow.getAllWindows()) {
+            if (!open.isDestroyed()) open.webContents.send("system:suspend");
+          }
+        });
+        powerMonitor.on("resume", () => {
+          if (pressureMonitor) pressureMonitor.start();
+        });
         powerMonitor.on("shutdown", () => {
           void life.onSessionEnd("os-shutdown");
         });
@@ -9353,6 +9398,17 @@ app
     if (root) {
       const config = ensureCanonicalConfig(root);
       ensureRootFiles(root, { version: productVersion() });
+      const folder = systemHealth.rootHealth({ fs, root });
+      boot(
+        "Checking folder",
+        folder.ok ? "ok" : "warn",
+        folder.ok
+          ? folder.freeGb === null
+            ? root
+            : `${folder.freeGb} GB free`
+          : folder.problems.join(" "),
+      );
+      if (!folder.ok) log(`FRIDAY folder problem: ${folder.problems.join(" ")}`, "warn");
       boot(
         "Loading configuration",
         "ok",
@@ -9647,6 +9703,63 @@ function startAfterKernel(root, bootStartedAt) {
   // and its result is broadcast to every screen.
   void pluginsLoaded.finally(() => setTimeout(() => void runStartup(), 400));
 }
+
+function startPressureMonitor(powerMonitor) {
+  if (pressureMonitor) return;
+  const os = require("node:os");
+  pressureMonitor = systemHealth.createPressureMonitor({
+    os,
+    getMetrics: () => app.getAppMetrics(),
+    isOnBattery: () => {
+      try {
+        return Boolean(powerMonitor && powerMonitor.isOnBatteryPower());
+      } catch {
+        return false;
+      }
+    },
+  });
+  pressureMonitor.onChange((snapshot) => {
+    log(
+      `system pressure ${snapshot.level}${snapshot.onBattery ? " on battery" : ""}: ${snapshot.freeGb} GB free, FRIDAY ${snapshot.appMemMb} MB`,
+    );
+    for (const open of BrowserWindow.getAllWindows()) {
+      if (!open.isDestroyed()) open.webContents.send("system:pressure", snapshot);
+    }
+  });
+  // A change of power source or of the OS speed limit is read at once, not at the next tick.
+  for (const event of ["on-battery", "on-ac", "speed-limit-change"]) {
+    try {
+      powerMonitor.on(event, () => pressureMonitor && pressureMonitor.sample());
+    } catch {
+      /* an event this platform does not have */
+    }
+  }
+  pressureMonitor.start();
+}
+
+ipcMain.handle("system:pressure", () => (pressureMonitor ? pressureMonitor.snapshot() : null));
+
+// A graphics process that crashed twice in ten minutes means the driver cannot be trusted this week: tell the
+// owner, restart FRIDAY once, and draw in software (the marker is read at the next start).
+app.on("child-process-gone", (_event, details) => {
+  const verdict = gpuGuard.recordChildGone(details);
+  if (verdict.action !== "fallback" || app.__fridayQuitting) return;
+  const owner = win && !win.isDestroyed() ? win : null;
+  const ask = dialog.showMessageBox(owner, {
+    type: "warning",
+    title: "FRIDAY graphics",
+    message: "The graphics driver stopped working twice.",
+    detail:
+      "FRIDAY will restart now and draw in software mode so it stays stable. Your files, memory and settings are not touched. FRIDAY tries the graphics card again in a week.",
+    buttons: ["Restart now"],
+    defaultId: 0,
+    noLink: true,
+  });
+  const wait = new Promise((resolve) => setTimeout(resolve, 15000));
+  void Promise.race([ask, wait])
+    .catch(() => undefined)
+    .finally(() => void life.requestRestart("gpu-fallback"));
+});
 
 app.on("second-instance", () => {
   showFridayWindow();

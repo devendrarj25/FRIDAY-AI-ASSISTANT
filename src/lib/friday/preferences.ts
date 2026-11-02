@@ -105,6 +105,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     glow: true,
     scanlines: true,
     gpuRender: true,
+    autoLite: true,
     reduceMotion: false,
     animations: true,
     blur: true,

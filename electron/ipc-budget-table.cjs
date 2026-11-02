@@ -411,6 +411,7 @@ const CHANNEL_CLASS = Object.freeze({
   "system:metrics-unsubscribe": "quick",
   "system:network": "quick",
   "system:open-security": "quick",
+  "system:pressure": "quick",
   "system:reliability": "quick",
   "system:security": "quick",
   "system:sensors": "quick",

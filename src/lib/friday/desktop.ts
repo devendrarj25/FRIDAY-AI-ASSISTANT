@@ -4,6 +4,7 @@
  * In the browser preview `window.friday` is absent and every call resolves to
  * a no-op so the UI still renders.
  */
+import type { SystemPressure } from "./system-pressure";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { ModelSource as ModelDownloadSource } from "./model-sources";
@@ -618,6 +619,9 @@ type DesktopApi = {
   clearVoiceprint?: () => Promise<{ ok?: boolean; enrolled?: boolean }>;
   onVoicePartial?: (cb: (payload: { text?: string }) => void) => () => void;
   onSystemResume?: (cb: () => void) => () => void;
+  onSystemSuspend?: (cb: () => void) => () => void;
+  onSystemPressure?: (cb: (snapshot: SystemPressure) => void) => () => void;
+  getSystemPressure?: () => Promise<SystemPressure | null>;
   /** Low-latency wake detection (openWakeWord) — the real engine when present. */
   wakeEngineStatus?: (payload: { wakeWord?: string; force?: boolean }) => Promise<{
     engine: "openwakeword" | "friday-linear" | "transcript";

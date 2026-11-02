@@ -44,6 +44,7 @@ import { installRejectionToast } from "@/lib/friday/rejection-toast";
 import { useAppVersion } from "@/lib/friday/version";
 import { lifecycleConfirmLines, type LifecyclePreview } from "@/lib/friday/app-control";
 import { watchControlNames } from "@/lib/friday/accessible-name";
+import { startSystemPressure } from "@/lib/friday/system-pressure";
 import { useAppearance } from "@/lib/friday/appearance";
 import { useCharacterLink } from "@/lib/friday/character/link";
 import {
@@ -272,6 +273,8 @@ function AppShellChrome({ children }: { children: ReactNode }) {
   // A control with no name (a plain select or input next to a visible label) is read as its label by a screen
   // reader and by voice control. See lib/friday/accessible-name.ts.
   useEffect(() => watchControlNames(document.body), []);
+  // Battery or low memory lightens the effects; the PC going to sleep saves what is waiting.
+  useEffect(() => startSystemPressure(), []);
   // First run: FRIDAY cannot work before it has a primary folder to scan.
   const workspaceRoot = useWorkspaceRootState();
   // The sidebar mounts once the workspace is chosen, so that is a re-place trigger too.

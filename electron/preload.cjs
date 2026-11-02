@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld("friday", {
   clearVoiceprint: () => ipcRenderer.invoke("voice:voiceprint-clear"),
   onVoicePartial: on("voice:partial"),
   onSystemResume: on("system:resume"),
+  onSystemSuspend: on("system:suspend"),
+  onSystemPressure: on("system:pressure"),
+  getSystemPressure: () => ipcRenderer.invoke("system:pressure"),
 
   // Local voice-model library stored inside the workspace.
   importVoiceModel: (payload) => ipcRenderer.invoke("voice:import", payload),

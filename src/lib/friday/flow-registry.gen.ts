@@ -243,6 +243,7 @@ export const FLOW_REGISTRY = {
     "toggles.autoBuild",
     "toggles.autoClear",
     "toggles.autoIndex",
+    "toggles.autoLite",
     "toggles.autoLock",
     "toggles.autoSnapshot",
     "toggles.autoUpdate",
@@ -1941,6 +1942,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "system:open-security",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "system:pressure",
       file: "electron/main.cjs",
     },
     {
@@ -8803,16 +8808,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 124,
-      total: 124,
+      mapped: 125,
+      total: 125,
     },
     capabilities: {
       mapped: 1020,
       total: 1020,
     },
     ipc: {
-      mapped: 475,
-      total: 475,
+      mapped: 476,
+      total: 476,
     },
     kernel: {
       mapped: 14,
