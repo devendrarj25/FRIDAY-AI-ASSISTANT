@@ -452,8 +452,9 @@ function builderVersion() {
 }
 
 /** Ready = fetched by this electron-builder version and every recorded folder is still there. */
-function installerToolsReady(env = process.env) {
-  if (!installerToolsWanted(env)) return { wanted: false, ready: true, reason: "not needed here" };
+function installerToolsReady(env = process.env, platform = process.platform) {
+  if (!installerToolsWanted(env, platform))
+    return { wanted: false, ready: true, reason: "not needed here" };
   try {
     const marker = JSON.parse(fs.readFileSync(installerToolsMarker(env), "utf8"));
     if (marker.builder !== builderVersion()) {
@@ -483,7 +484,7 @@ async function ensureInstallerTools({
     log("skip     electron-builder is not installed in this tree");
     return true;
   }
-  if (installerToolsReady(env).ready) {
+  if (installerToolsReady(env, platform).ready) {
     log("ok       installer tools (NSIS) already fetched");
     return true;
   }

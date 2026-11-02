@@ -45,7 +45,10 @@ describe("installer tools before the build", () => {
       },
     });
     expect(ok).toBe(true);
-    expect(ensure.installerToolsReady(env)).toMatchObject({ wanted: false, ready: true });
+    expect(ensure.installerToolsReady(env, "linux")).toMatchObject({
+      wanted: false,
+      ready: true,
+    });
   });
 
   it("fetches once, records it, and does not fetch again while the folders exist", async () => {
