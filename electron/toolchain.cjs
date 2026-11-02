@@ -196,32 +196,27 @@ async function npmBinDir() {
 }
 
 /**
- * rcedit ships an .exe inside its npm package; the `rcedit` shim is not always
- * on PATH. Verify the real executable rather than trusting an npm exit code.
+ * resedit is a JavaScript library (it edits the icon, version and manifest of the packaged FRIDAY.exe), so it has
+ * no command to run. Find the installed package in FRIDAY's own node_modules or in an npm global folder and read
+ * its version, rather than trusting an npm exit code.
  */
-async function detectRcedit() {
-  const onPath = await which(WIN ? "rcedit" : "rcedit");
-  if (onPath) return { installed: true, version: null, path: onPath, status: "Ready" };
+async function detectResedit() {
   const prefix = await npmBinDir();
-  // `npm prefix -g` and `npm root -g` do not always agree (nvm, Volta, a
-  // custom prefix), and the package has no CLI shim — so ask npm where the
-  // module really landed instead of trusting the install exit code.
-  const roots = [];
+  // `npm prefix -g` and `npm root -g` do not always agree (nvm, Volta, a custom prefix).
+  const roots = [path.join(__dirname, "..", "node_modules")];
   if (prefix)
     roots.push(path.join(prefix, "node_modules"), path.join(prefix, "lib", "node_modules"));
   const globalRoot = (await run(WIN ? "npm.cmd" : "npm", ["root", "-g"], 12_000)) || "";
   const globalDir = globalRoot.split(/\r?\n/).find((line) => line.trim());
   if (globalDir) roots.push(globalDir.trim());
-  roots.push(path.join(__dirname, "..", "node_modules"));
-  const candidates = [];
   for (const base of roots) {
-    candidates.push(
-      path.join(base, "rcedit", "bin", "rcedit-x64.exe"),
-      path.join(base, "rcedit", "bin", "rcedit.exe"),
-    );
-  }
-  for (const file of candidates) {
-    if (fs.existsSync(file)) return { installed: true, version: null, path: file, status: "Ready" };
+    const manifest = path.join(base, "resedit", "package.json");
+    try {
+      const version = JSON.parse(fs.readFileSync(manifest, "utf8")).version || null;
+      return { installed: true, version, path: path.dirname(manifest), status: "Ready" };
+    } catch {
+      /* not in this folder */
+    }
   }
   return { installed: false, version: null, path: null, status: "Missing" };
 }
@@ -1638,15 +1633,14 @@ const TOOLS = [
     source: "npmjs.com",
     latest: { kind: "npm", ref: "electron-builder" },
   }),
-  T("rcedit", "Build & Packaging", {
-    cmd: "rcedit",
-    args: ["--help"],
-    npm: "rcedit",
-    detect: detectRcedit,
+  T("resedit", "Build & Packaging", {
+    cmd: "resedit",
+    npm: "resedit",
+    detect: detectResedit,
     noVersionProbe: true,
-    url: "https://github.com/electron/rcedit",
+    url: "https://github.com/jet2jet/resedit-js",
     source: "npmjs.com",
-    latest: { kind: "npm", ref: "rcedit" },
+    latest: { kind: "npm", ref: "resedit" },
   }),
 
   T("TypeScript", "Build & Packaging", {
@@ -3960,7 +3954,7 @@ module.exports = {
   wingetHealth,
   detectWebView2,
   detectWindowsSandbox,
-  detectRcedit,
+  detectResedit,
   detectHuggingFace,
   llamaCppStrategy,
   repairedWingetSource,

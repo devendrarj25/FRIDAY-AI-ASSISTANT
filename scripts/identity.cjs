@@ -49,7 +49,7 @@ function contactKeyPaths(value, prefix = "") {
   return found;
 }
 
-/** String table rcedit writes onto the unpacked FRIDAY.exe. */
+/** String table the resource editor writes onto the unpacked FRIDAY.exe. */
 function windowsResourceStamp({ productName, fileVersion, productVersion }) {
   return {
     CompanyName: PUBLISHER,

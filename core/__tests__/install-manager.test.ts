@@ -6,6 +6,7 @@ const toolchain = require_("../../electron/toolchain.cjs") as {
   TOOLS: Array<Record<string, unknown>>;
   jobSucceeded: (code: number, action: string, probe: { installed: boolean }) => boolean;
   wingetSourceFailure: (code: number | null) => string | null;
+  detectResedit: () => Promise<{ installed: boolean; version: string | null; status: string }>;
   probeTool: (
     tool: Record<string, unknown>,
     freeze: Map<string, string>,
@@ -58,8 +59,12 @@ describe("install manager — real detectors", () => {
     expect(typeof sandbox["detect"]).toBe("function");
   });
 
-  it("verifies rcedit through its real executable", () => {
-    expect(typeof tool("rcedit")["detect"]).toBe("function");
+  it("verifies resedit through the installed package, not an exit code", async () => {
+    expect(typeof tool("resedit")["detect"]).toBe("function");
+    // This tree has it in node_modules, so the detector reads a real version from package.json.
+    const found = await toolchain.detectResedit();
+    expect(found).toMatchObject({ installed: true, status: "Ready" });
+    expect(String(found.version)).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it("reports a detector failure honestly instead of claiming Ready", async () => {

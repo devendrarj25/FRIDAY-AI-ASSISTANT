@@ -177,18 +177,16 @@ describe("Windows packaging uses the public four-part identity", () => {
     expect(brand).toContain("productVersion,");
     expect(brand).toContain("windowsFileVersion");
     expect(brand).toContain("TEST_PRODUCT");
-    expect(brand).toContain('"product-version": fileVersion');
-    expect(brand).not.toContain('"product-version": productVersion');
-    // rcedit --set-file-version overwrites the FileVersion string; a second
-    // version-string-only pass keeps ProductName/ProductVersion. Windows
-    // FileVersionInfo.FileVersion still reports "1.0.0" when FilePrivatePart
-    // is 0 (PR Validation 33888385242). verify-build accepts that form when
-    // the binary FILEVERSION is the public identity.
-    expect(brand).toContain("imported.rcedit");
-    expect(brand.split("await rcedit(").length - 1).toBe(2);
-    const secondPass = brand.split("await rcedit(")[2] || "";
-    expect(secondPass).toContain("version-string");
-    expect(secondPass).not.toContain("file-version");
+    // The numeric product version is the four-part Windows version, never the npm or the TEST string; the
+    // string table is written last and once, so FileVersion cannot be overwritten (PR Validation 33888385242).
+    // Windows FileVersionInfo.FileVersion still reports "1.0.0" when FilePrivatePart is 0, and verify-build
+    // accepts that form when the binary FILEVERSION is the public identity. core/__tests__/brand-windows.test.ts
+    // proves the result on a generated executable.
+    expect(brand).toContain("stampExecutable(executable, { icon, fileVersion, versionString })");
+    expect(brand).toContain("info.setProductVersion(major, minor, build, revision");
+    expect(brand).not.toContain("productVersion.split");
+    expect(brand).not.toContain("rcedit(");
+    expect(brand).not.toContain('import("rcedit")');
 
     const verify = read("scripts/verify-build.cjs");
     expect(verify).toContain("windowsFileVersion");

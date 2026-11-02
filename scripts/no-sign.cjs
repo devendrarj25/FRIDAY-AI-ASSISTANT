@@ -11,7 +11,7 @@
  *   the client. : ...winCodeSign\...\darwin\10.12\lib\libcrypto.dylib
  *
  * Providing a custom `win.sign` hook makes electron-builder skip that download
- * entirely. The exe is still built, icon-stamped and branded (rcedit runs
+ * entirely. The exe is still built, icon-stamped and branded (the resource editor runs
  * separately). Signing is done afterwards with `npm run sign:win`, which uses
  * the Windows SDK signtool directly and never touches that cache.
  *
