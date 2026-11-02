@@ -99,4 +99,10 @@ describe("the shared fields name themselves", () => {
     expect(util).toContain("document.hidden");
     expect(util).toContain("requestIdleCallback");
   });
+
+  it("lets Escape answer NO on the spoken-command confirmation, and nothing answers YES by key", () => {
+    const card = read("src/components/friday/VoiceTranscript.tsx");
+    expect(card).toMatch(/event\.key === "Escape"[\s\S]{0,120}confirmPending\(false\)/);
+    expect(card).not.toMatch(/Enter[\s\S]{0,80}confirmPending\(true\)/);
+  });
 });

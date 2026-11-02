@@ -79,6 +79,14 @@ export function ConfirmationCard({
     <div
       role="alertdialog"
       aria-label="Confirmation required"
+      // Escape inside the card is NO. Only the cancelling answer has a shortcut; running the command always takes
+      // a click or a spoken yes.
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          assistantMode.confirmPending(false);
+        }
+      }}
       className={cn(
         "mx-auto w-[min(560px,96%)] rounded-surface border border-warning/50 bg-warning/10 p-3 backdrop-blur-sm",
         className,
@@ -91,7 +99,7 @@ export function ConfirmationCard({
         <button
           type="button"
           onClick={() => assistantMode.confirmPending(true)}
-          className="rounded-ctl border border-accent/50 bg-accent/15 px-3 py-1.5 text-meta text-accent hover:bg-accent/25"
+          className="rounded-ctl border border-accent/50 bg-accent/15 px-3 py-1.5 text-meta text-accent hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <Check className="size-3" aria-hidden="true" />
           YES · run it
@@ -99,7 +107,7 @@ export function ConfirmationCard({
         <button
           type="button"
           onClick={() => assistantMode.confirmPending(false)}
-          className="rounded-ctl border border-primary/25 px-3 py-1.5 text-meta text-muted-foreground hover:border-destructive/60 hover:text-destructive"
+          className="rounded-ctl border border-primary/25 px-3 py-1.5 text-meta text-muted-foreground hover:border-destructive/60 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <X className="size-3" aria-hidden="true" />
           NO · cancel
