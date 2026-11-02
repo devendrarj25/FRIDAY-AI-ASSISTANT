@@ -572,6 +572,26 @@ if (win) {
       : "npm run setup:electron",
     url: "https://www.electronjs.org/",
   });
+
+  // 4) The installer tools electron-builder needs to make the NSIS installer. They are fetched with the
+  //    Electron binary, so the build does not start its first big download in the middle of packaging.
+  {
+    const tools = require(path.join(root, "scripts", "ensure-electron.cjs")).installerToolsReady();
+    add({
+      name: "Installer tools (NSIS)",
+      required: win,
+      group: win ? "electron-binary" : undefined,
+      ok: tools.ready,
+      found: tools.ready
+        ? tools.wanted
+          ? "fetched and cached for electron-builder"
+          : "not needed on this OS"
+        : `not ready (${tools.reason})`,
+      want: "NSIS and its plugins in electron-builder's cache, fetched before the build",
+      fix: "npm run setup:electron",
+      url: "https://github.com/electron-userland/electron-builder-binaries/releases",
+    });
+  }
 }
 
 {
