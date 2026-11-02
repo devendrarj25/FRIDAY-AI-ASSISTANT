@@ -49,7 +49,7 @@ const declaredVersion = () => {
   }
 };
 
-/** The range this project accepts, e.g. "^43.3.0". */
+/** The range this project accepts, e.g. "^45.2.1". */
 const declaredRange = () => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));

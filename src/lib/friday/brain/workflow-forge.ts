@@ -757,15 +757,19 @@ export function fileWorkflowGapDraft(goal: string): WorkflowForgeRun {
     ],
   };
   gapDrafts.unshift(run);
-  governance.submit({
-    kind: "install",
-    title: `Workflow draft — ${goal}`.slice(0, 80),
-    rationale:
-      "No installed workflow covered this request. This is a workflow-forge draft. Sandbox verify and install wait for your approval. I will not self-install.",
-    risk: "review",
-    evidence: [`workflow-forge:${run.id}`],
-    apply: async () => ({ ok: true, detail: "draft only — forge when you approve" }),
-  });
+  // The draft is filed in the background; a failure to file it must not become an unhandled rejection that
+  // takes the turn down, and the draft itself is already recorded above.
+  void governance
+    .submit({
+      kind: "install",
+      title: `Workflow draft — ${goal}`.slice(0, 80),
+      rationale:
+        "No installed workflow covered this request. This is a workflow-forge draft. Sandbox verify and install wait for your approval. I will not self-install.",
+      risk: "review",
+      evidence: [`workflow-forge:${run.id}`],
+      apply: async () => ({ ok: true, detail: "draft only — forge when you approve" }),
+    })
+    .catch(() => undefined);
   return run;
 }
 

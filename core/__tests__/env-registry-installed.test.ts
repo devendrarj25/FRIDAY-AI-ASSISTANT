@@ -24,7 +24,7 @@ describe("environment registry inside the installed app", () => {
         const real = cp[name];
         cp[name] = (...args) => { if (String(args[0]) === process.execPath) spawned += 1; return real(...args); };
       }
-      Object.defineProperty(process.versions, "electron", { value: "43.7.7", configurable: true });
+      Object.defineProperty(process.versions, "electron", { value: "45.2.1", configurable: true });
       const load = Module._load;
       Module._load = function (request, ...rest) {
         if (request === "electron") {

@@ -498,7 +498,7 @@ async def companion_transcribe(audio: bytes, mime: str, language: str) -> dict:
         suffix = ".webm"
     script = Path(__file__).resolve().parent / "stt.py"
     tmp = Path(tempfile.gettempdir()) / f"friday-phone-{secrets_token()}{suffix}"
-    tmp.write_bytes(audio)
+    await asyncio.to_thread(tmp.write_bytes, audio)
 
     def run() -> dict:
         try:
@@ -740,8 +740,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
             "host": f"{HOST}:{PORT}",
             "version": app.version,
             "dataDir": str(DATA_DIR),
-            "gpu": runtimes.gpu_info(),
-            "inference": runtimes.inference_runtimes(),
+            **await runtimes.hardware_status(),
         }
     if method == "model.list":
         return {"models": [m.public() for m in router.models()]}
@@ -1038,7 +1037,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
     if method == "module.toggle":
         return modules.toggle(params["name"], params["enabled"])
     if method == "runtime.list":
-        return {"runtimes": runtimes.describe()}
+        return {"runtimes": await asyncio.to_thread(runtimes.describe)}
     if method == "runtime.install":
         async for event in runtimes.install(params["name"]):
             await send({"type": "runtime.event", "data": event})
@@ -1205,9 +1204,14 @@ async def on_startup() -> None:
     # A one-shot paid unlock spent inside the kernel is reported to the desktop,
     # which owns the persisted billing record.
     loop = asyncio.get_running_loop()
+    reports: set[asyncio.Task] = set()
 
     def _report_spend(state: dict) -> None:
-        loop.create_task(broadcast({"type": "billing.spent", "data": {"billing": state}}))
+        # The loop keeps only a weak reference to a task, so an unreferenced report could be collected before it
+        # ran and the desktop would never hear that a one-shot unlock was spent.
+        task = loop.create_task(broadcast({"type": "billing.spent", "data": {"billing": state}}))
+        reports.add(task)
+        task.add_done_callback(reports.discard)
 
     router.on_billing_spent = _report_spend
     router.on_privacy_ask = ask_desktop_privacy

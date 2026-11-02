@@ -14,6 +14,7 @@ could not be installed; it only degrades in quality.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import re
@@ -336,10 +337,16 @@ class VectorMemory:
         if not self.available:
             return {"ok": False, "reason": "vector memory unavailable", "files": 0, "chunks": 0}
         base = Path(root)
-        files = [p for p in base.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES]
+
+        def scan() -> list[Path]:
+            return [p for p in base.rglob("*") if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES]
+
+        # Walking a folder and reading its files is disk work: off the event loop, so a large folder does not
+        # stall every other request while it is indexed.
+        files = await asyncio.to_thread(scan)
         chunks = 0
         for file in files:
-            text = file.read_text(encoding="utf-8", errors="replace")
+            text = await asyncio.to_thread(file.read_text, encoding="utf-8", errors="replace")
             for i in range(0, len(text), 2000):
                 await self.add(text[i : i + 2000], kind="document", title=str(file))
                 chunks += 1

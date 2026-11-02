@@ -110,7 +110,7 @@ function plan(input = {}) {
     const blocks = text.split(/BEGIN:VEVENT/i).slice(1);
     for (const block of blocks) {
       const start = block.match(/DTSTART[^:]*:([0-9]{8})(T[0-9]{6}Z?)?/);
-      const summary = (block.match(/SUMMARY[^:]*:(.+)/) || [, ""])[1].trim();
+      const summary = (block.match(/SUMMARY[^:]*:(.+)/) || ["", ""])[1].trim();
       if (!start) continue;
       const y = start[1].slice(0, 4);
       const m = start[1].slice(4, 6);

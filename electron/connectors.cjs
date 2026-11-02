@@ -3022,7 +3022,7 @@ const CONNECTORS = {
     }),
     verify: {
       url: (fields) => `https://${text(fields.appId)}.algolia.net/1/indexes`,
-      account: (body) => body?.items?.[0]?.name || text(fields.appId),
+      account: (body, fields) => body?.items?.[0]?.name || text(fields.appId),
     },
     actions: {
       indexes: {
@@ -4246,7 +4246,7 @@ async function probe(id, fields, fetchImpl = fetchCompat) {
     // Some providers answer 200 with an error payload (Slack, GraphQL APIs).
     const failed = spec.verify.failed ? spec.verify.failed(body) : null;
     if (failed) return { ok: false, error: `${spec.name} rejected these credentials — ${failed}` };
-    return { ok: true, account: text(spec.verify.account?.(body) || "").slice(0, 120), ms };
+    return { ok: true, account: text(spec.verify.account?.(body, fields) || "").slice(0, 120), ms };
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }

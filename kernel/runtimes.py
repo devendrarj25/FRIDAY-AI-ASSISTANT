@@ -7,8 +7,10 @@ vendor's own installer URL). Nothing is fetched from unofficial mirrors.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -49,11 +51,36 @@ CATALOG = {
 }
 
 
+# The GPU name and the inference runtimes do not change from one second to the next, but the desktop asks for
+# them on every status poll and each answer runs a program (nvidia-smi can take seconds on a bad driver).
+# They are read off the event loop and remembered for a short while.
+HARDWARE_TTL_S = 60.0
+
+
 class RuntimeManager:
     def __init__(self, root: Path, storage) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.storage = storage
+        self._hardware: dict[str, tuple[float, object]] = {}
+
+    def _remembered(self, key: str, read, *, now=time.monotonic):
+        """The last answer for `key` while it is fresh, otherwise a new one."""
+        hit = self._hardware.get(key)
+        at = now()
+        if hit is not None and at - hit[0] < HARDWARE_TTL_S:
+            return hit[1]
+        value = read()
+        self._hardware[key] = (at, value)
+        return value
+
+    async def hardware_status(self) -> dict:
+        """GPU and inference runtimes for `kernel.status`, off the event loop."""
+        gpu, inference = await asyncio.gather(
+            asyncio.to_thread(self._remembered, "gpu", self.gpu_info),
+            asyncio.to_thread(self._remembered, "inference", self.inference_runtimes),
+        )
+        return {"gpu": gpu, "inference": inference}
 
     def gpu_info(self) -> str:
         if shutil.which("nvidia-smi") is None:
@@ -140,7 +167,9 @@ class RuntimeManager:
             return
 
         yield {"name": name, "state": "installing", "manager": "winget"}
-        proc = subprocess.run(
+        # winget runs for minutes: on the event loop it froze every other request, the status poll included.
+        proc = await asyncio.to_thread(
+            subprocess.run,
             [
                 "winget",
                 "install",
@@ -158,5 +187,5 @@ class RuntimeManager:
             "state": "done" if proc.returncode == 0 else "failed",
             "code": proc.returncode,
             "output": (proc.stdout or proc.stderr)[-4000:],
-            "installed": self._installed(name),
+            "installed": await asyncio.to_thread(self._installed, name),
         }
