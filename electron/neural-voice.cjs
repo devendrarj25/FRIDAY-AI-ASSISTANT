@@ -26,6 +26,7 @@ const paths = require("./friday-paths.cjs");
 const { resolvePython } = require("./python.cjs");
 const { parseJsonLine } = require("./json-line.cjs");
 const { classify } = require("./privacy-firewall.cjs");
+const { killProcessTree, trackOwned } = require("./app-lifecycle.cjs");
 
 const RUNTIME_SCRIPT = path.join(__dirname, "..", "kernel", "voice_runtime.py");
 
@@ -189,6 +190,41 @@ async function localStatus() {
 let speaker = null;
 let speakerSeq = 0;
 
+function killTree(child) {
+  if (!child || !child.pid) return;
+  try {
+    if (process.platform === "win32") {
+      killProcessTree(child.pid);
+    } else {
+      child.kill("SIGTERM");
+    }
+  } catch {
+    /* already gone */
+  }
+}
+
+/**
+ * Stop the speaker process. It used to have no stop at all: it stayed up after the app closed (a model held in
+ * memory, and a file lock on the bundled Python that blocked an update or an uninstall) and a hung one answered
+ * every later line with a timeout.
+ */
+function shutdown() {
+  const session = speaker;
+  speaker = null;
+  if (!session?.child) return;
+  session.intentional = true;
+  session.alive = false;
+  for (const wait of session.pending.values()) wait(null);
+  session.pending.clear();
+  const child = session.child;
+  try {
+    if (child.stdin && !child.stdin.destroyed) child.stdin.end();
+  } catch {
+    /* closing anyway */
+  }
+  setTimeout(() => killTree(child), 400);
+}
+
 function speakerRequest(py, payload, timeoutMs = 120000) {
   return new Promise((resolve) => {
     const ensure = () => {
@@ -241,6 +277,7 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
       child.on("error", fail);
       child.on("close", fail);
       child.stdin?.on("error", fail);
+      trackOwned("tts", child, py[0]);
       speaker = session;
       return session;
     };
@@ -249,6 +286,9 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
     const timer = setTimeout(() => {
       session.pending.delete(id);
       resolve(null);
+      // The speaker missed its deadline, so it is hung: stop it, so the next line starts a fresh one instead
+      // of queueing behind it for another full timeout.
+      killTree(session.child);
     }, timeoutMs);
     session.pending.set(id, (msg) => {
       clearTimeout(timer);
@@ -453,4 +493,13 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" }
   };
 }
 
-module.exports = { status, install, voices, speak, speakLocal, PREFERRED };
+module.exports = {
+  status,
+  install,
+  voices,
+  speak,
+  speakLocal,
+  shutdown,
+  speakerRequest,
+  PREFERRED,
+};

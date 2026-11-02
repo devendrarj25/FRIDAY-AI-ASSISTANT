@@ -861,7 +861,18 @@ export class VoiceGate {
   };
 
   private emit() {
-    this.listeners.forEach((fn) => fn(this.snapshot));
+    // One listener that throws must not stop the others, and above all must not stop the loop that calls this:
+    // the analyser loop schedules its next frame after publishing, so a throwing listener used to end speech
+    // detection for good (hands-free went deaf with nothing shown).
+    for (const fn of [...this.listeners]) {
+      try {
+        fn(this.snapshot);
+      } catch (error) {
+        this.rememberError(
+          `a microphone listener failed: ${String((error as Error)?.message || error)}`,
+        );
+      }
+    }
   }
 
   private rememberError(message: string) {
