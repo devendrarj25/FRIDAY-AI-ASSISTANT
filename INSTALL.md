@@ -110,7 +110,7 @@ Official download floors (tried in order):
 | SQLite (that CPython) | 3.45.3 | Comes with python.org / winget CPython |
 | Git | 2.49.0 | winget `Git.Git` → GitHub `git-for-windows/git` |
 | PowerShell 7 | 7.5.0 | winget `Microsoft.PowerShell` → GitHub `PowerShell/PowerShell` |
-| Electron binary | 43.0.0 | `scripts/ensure-electron.cjs` |
+| Electron binary | 45.0.0 | `scripts/ensure-electron.cjs` |
 | FFmpeg | — | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials` |
 | Tesseract | — | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
 | VC++ Redist | — | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe` |

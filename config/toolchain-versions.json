@@ -6,5 +6,5 @@
   "sqliteMinimum": "3.45.3",
   "gitMinimum": "2.49.0",
   "powershellMinimum": "7.5.0",
-  "electronMinimum": "43.0.0"
+  "electronMinimum": "45.0.0"
 }

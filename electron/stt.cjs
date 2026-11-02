@@ -136,7 +136,6 @@ async function cloudTranscribe(engine, file, language) {
 
 let cachedStatus = null;
 let installing = null;
-let inFlight = 0;
 
 /**
  * One transcription runs at a time (the worker holds a single model). A second one used to be refused at once
@@ -784,7 +783,6 @@ async function transcribeNow(req = {}, onPartial) {
     temporary = true;
   }
 
-  inFlight += 1;
   const started = Date.now();
   try {
     if (String(state.engine || "").startsWith("cloud:")) {
@@ -983,7 +981,6 @@ async function transcribeNow(req = {}, onPartial) {
       audio: parsed.audio || null,
     };
   } finally {
-    inFlight -= 1;
     if (temporary) {
       try {
         fs.rmSync(file, { force: true });
