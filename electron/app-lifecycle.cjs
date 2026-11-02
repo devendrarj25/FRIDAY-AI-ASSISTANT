@@ -37,6 +37,9 @@ const OWNED_ROLES = new Set([
 
 const SHUTDOWN_ORDER = [
   "microphone",
+  // The page's last settings and state go to disk before anything it talks to is stopped: its save delay may
+  // not have fired, and destroying the window does not run its page-hide handlers reliably.
+  "flush",
   "downloads",
   "tasks",
   "runner",

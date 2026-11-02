@@ -7,6 +7,7 @@
  * previous file as it was.
  */
 const fs = require("fs");
+const { renameWithRetry } = require("./safe-write.cjs");
 
 function backupPath(file) {
   return `${file}.bak`;
@@ -72,7 +73,7 @@ function commitState(file, value, opts = {}) {
     };
   }
   fs.writeFileSync(tmp, nextText);
-  fs.renameSync(tmp, file);
+  renameWithRetry(tmp, file);
   return { ok: true, restored: false, reason: null, backup: migrating ? bak : null };
 }
 

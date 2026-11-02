@@ -259,6 +259,7 @@ const path = require("path");
 // A graphics driver that crashed repeatedly last time: this start draws in software, which every PC can do.
 // The marker expires after a week; FRIDAY_FORCE_GPU=1 ignores it. See electron/system-health.cjs.
 const systemHealth = require("./system-health.cjs");
+const safeWrite = require("./safe-write.cjs");
 const gpuGuard = systemHealth.createGpuGuard({
   fs,
   file: path.join(app.getPath("userData"), "gpu-fallback.json"),
@@ -877,6 +878,16 @@ function readJsonFile(file, { repair = false } = {}) {
     } else {
       log(`config unreadable: ${file} (${error?.message || error})`);
     }
+    // The safe writer keeps the previous good body beside the file: use it before giving up on the settings.
+    try {
+      const earlier = JSON.parse(fs.readFileSync(`${file}.bak`, "utf8"));
+      if (earlier && typeof earlier === "object") {
+        log(`config ${file} was damaged; the last good copy was used`);
+        return earlier;
+      }
+    } catch {
+      /* no usable backup either */
+    }
     return {};
   }
 }
@@ -956,17 +967,13 @@ const settingsFile = () =>
 
 function writeSettings(next) {
   const bootstrap = bootstrapSettingsFile();
-  fs.mkdirSync(path.dirname(bootstrap), { recursive: true });
-  // The pointer must always be readable before any folder is known.
-  fs.writeFileSync(
-    bootstrap,
-    JSON.stringify({ workspaceRoot: next.workspaceRoot || null }, null, 2),
-  );
+  // The pointer must always be readable before any folder is known. It is written whole or not at all: a
+  // half-written pointer would send the next start to the folder picker as if FRIDAY were new.
+  safeWrite.writeJsonSafe(bootstrap, { workspaceRoot: next.workspaceRoot || null });
   const file = workspaceSettingsFile(next.workspaceRoot);
   if (!file) return;
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(next, null, 2));
+    safeWrite.writeJsonSafe(file, next);
   } catch (error) {
     log(`settings could not be written to the workspace: ${error?.message || error}`);
   }
@@ -4400,6 +4407,20 @@ lifeSteps.microphone = () => {
     /* wake worker may already be gone */
   }
 };
+// Ask every page to send what still waits on its save delay (the same call the PC going to sleep makes), then give
+// those writes a moment to arrive. They go through the main process's own write handlers, so a settings change
+// made in the last quarter second is on disk before the window is destroyed.
+lifeSteps.flush = async () => {
+  for (const open of BrowserWindow.getAllWindows()) {
+    try {
+      if (!open.isDestroyed()) open.webContents.send("system:suspend");
+    } catch {
+      /* a window that is already gone has nothing left to save */
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 400));
+};
+
 lifeSteps.downloads = () => {
   for (const [id, controller] of modelJobs) {
     const pump = modelPumps.get(id);
@@ -5282,18 +5303,16 @@ function applyOwnerPermissionOverlay(name, risk, decision) {
 }
 
 ipcMain.handle("prefs:get", () => {
-  try {
-    return JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
-  } catch {
-    return null;
-  }
+  // A damaged settings file (a write cut off by a power loss or a crash) falls back to the last good copy
+  // instead of silently resetting every setting.
+  const { value, source } = safeWrite.readJsonSafe(preferencesFile(), null);
+  if (source === "backup") log("settings file was damaged; the last good copy was used");
+  return value;
 });
 
 ipcMain.handle("prefs:set", (_e, value) => {
   if (!value || typeof value !== "object") throw new Error("Invalid preferences payload.");
-  const file = preferencesFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  safeWrite.writeJsonSafe(preferencesFile(), value);
   applyOwnerPreferenceEffects(value);
   return true;
 });
