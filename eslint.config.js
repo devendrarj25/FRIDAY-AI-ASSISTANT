@@ -84,5 +84,24 @@ export default tseslint.config(
       "no-control-regex": "off",
     },
   },
+  {
+    // The CommonJS main process, the scripts and the build tools were only formatted, never checked: a name that
+    // was never defined (a module that was never loaded, a variable from another scope) is a ReferenceError at
+    // run time, and nothing flagged it. Everything in the recommended set that does not report on today's code
+    // is an error here; the style-only rules (unused values, useless escapes, control characters) stay off.
+    files: ["**/*.cjs", "**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      globals: globals.node,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      "no-useless-assignment": "off",
+      "no-unused-vars": "off",
+      "no-useless-escape": "off",
+      "no-control-regex": "off",
+      "preserve-caught-error": "off",
+    },
+  },
   eslintPluginPrettier,
 );

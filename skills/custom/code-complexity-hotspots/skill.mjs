@@ -31,7 +31,7 @@ export async function run(input = {}) {
   const hotspots = chunks
     .map((chunk, i) => {
       const name = (chunk.match(/function\s+(\w+)/) ||
-        chunk.match(/(?:const|let)\s+(\w+)/) || [, `chunk-${i}`])[1];
+        chunk.match(/(?:const|let)\s+(\w+)/) || [null, `chunk-${i}`])[1];
       const score = (chunk.match(/\b(if|for|while|case|catch|&&|\|\|)\b/g) || []).length + 1;
       return { name, score, lines: chunk.split(/\n/).length };
     })

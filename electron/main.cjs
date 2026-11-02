@@ -456,6 +456,7 @@ const skillPack = loadNamed("skill-pack", () => require("./skill-pack.cjs"));
 const toolPack = loadNamed("tool-pack", () => require("./tool-pack.cjs"));
 const agentPack = loadNamed("agent-pack", () => require("./agent-pack.cjs"));
 const modulePack = loadNamed("module-pack", () => require("./module-pack.cjs"));
+const pluginPack = loadNamed("plugin-pack", () => require("./plugin-pack.cjs"));
 const workflowPack = loadNamed("workflow-pack", () => require("./workflow-pack.cjs"));
 const fridayTools = loadNamed("tools", () => require("./tools.cjs"));
 const fridayModules = loadNamed("modules", () => require("./modules.cjs"));

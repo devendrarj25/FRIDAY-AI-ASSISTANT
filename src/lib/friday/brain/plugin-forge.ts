@@ -511,15 +511,19 @@ export function filePluginGapDraft(goal: string): PluginForgeRun {
     ],
   };
   gapDrafts.unshift(run);
-  governance.submit({
-    kind: "install",
-    title: `Plugin draft — ${goal}`.slice(0, 80),
-    rationale:
-      "No installed plugin covered this request. This is a plugin-forge draft. Sandbox verify and install wait for your approval. I will not self-install.",
-    risk: "review",
-    evidence: [`plugin-forge:${run.id}`],
-    apply: async () => ({ ok: true, detail: "draft only — forge when you approve" }),
-  });
+  // The draft is filed in the background; a failure to file it must not become an unhandled rejection that
+  // takes the turn down, and the draft itself is already recorded above.
+  void governance
+    .submit({
+      kind: "install",
+      title: `Plugin draft — ${goal}`.slice(0, 80),
+      rationale:
+        "No installed plugin covered this request. This is a plugin-forge draft. Sandbox verify and install wait for your approval. I will not self-install.",
+      risk: "review",
+      evidence: [`plugin-forge:${run.id}`],
+      apply: async () => ({ ok: true, detail: "draft only — forge when you approve" }),
+    })
+    .catch(() => undefined);
   return run;
 }
 
