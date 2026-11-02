@@ -864,7 +864,6 @@ const TOOLS = [
   T("Gradle", "Languages & Runtimes", {
     cmd: "gradle",
     args: ["-v"],
-    winget: "Gradle.Gradle",
     url: "https://gradle.org/install/",
     source: "gradle.org",
   }),
@@ -1140,7 +1139,7 @@ const TOOLS = [
   T("Tailscale", "Device Control", {
     cmd: "tailscale",
     args: ["version"],
-    winget: "tailscale.tailscale",
+    winget: "Tailscale.Tailscale",
     url: "https://tailscale.com/download/windows",
     source: "tailscale.com",
     latest: { kind: "github", ref: "tailscale/tailscale" },
@@ -1372,7 +1371,6 @@ const TOOLS = [
   T("Maven", "Developer Tools", {
     cmd: "mvn",
     args: ["-v"],
-    winget: "Apache.Maven",
     url: "https://maven.apache.org/",
     source: "maven.apache.org",
   }),
@@ -1419,9 +1417,9 @@ const TOOLS = [
     // is stored under runtime\\ and run from there, never registered as a service.
     url: "https://github.com/LostRuins/koboldcpp",
     source: "github.com/LostRuins",
-    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
-    sha256: "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38",
-    needBytes: 642223685,
+    installerUrl: "https://github.com/LostRuins/koboldcpp/releases/download/v1.124.1/koboldcpp.exe",
+    sha256: "32def5892e7880cec04382ab02baef635ac6bb298d38c616ae7c1fda48c94281",
+    needBytes: 622611661,
     storeOnly: true,
     archiveBin: "koboldcpp.exe",
     latest: { kind: "github", ref: "LostRuins/koboldcpp" },
