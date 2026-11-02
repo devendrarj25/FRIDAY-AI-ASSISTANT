@@ -4,7 +4,8 @@
  *
  * High, critical, and unknown severity fail the run unless the advisory id
  * is listed in config/advisory-allow.json and that entry's expiry is still
- * ahead of the clock. Moderate and low severities warn and do not fail.
+ * ahead of the clock (each entry carries a `reason`, and an unfixable one is
+ * re-read before it expires). Moderate and low severities warn and do not fail.
  * A missing audit tool fails the run. The clock is injectable so a test
  * does not depend on today's date.
  */
@@ -249,7 +250,18 @@ function main(argv) {
   } else {
     const ran = auditWithRetry(
       "python",
-      ["-m", "pip_audit", "-r", "kernel/requirements.txt", "--format", "json"],
+      [
+        "-m",
+        "pip_audit",
+        // Both lists: the startup packages and the optional capability packages (numpy, chromadb, bleak,
+        // zeroconf, onnxruntime). The optional list was never audited, so a vulnerable chromadb went unseen.
+        "-r",
+        "kernel/requirements.txt",
+        "-r",
+        "kernel/requirements-capabilities.txt",
+        "--format",
+        "json",
+      ],
       pipReportProblem,
     );
     if (ran.problem) {

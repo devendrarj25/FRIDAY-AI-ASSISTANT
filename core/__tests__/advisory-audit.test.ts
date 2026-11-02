@@ -241,3 +241,60 @@ describe("an audit that could not run never reads as clean", () => {
     expect(flaky.report).toEqual(npmReport("high", "GHSA-high"));
   });
 });
+
+describe("optional kernel packages are audited too", () => {
+  const root = path.resolve(import.meta.dirname, "../..");
+  const nowMs = Date.parse("2026-11-02T00:00:00Z");
+  it("asks pip-audit about the startup list and the optional capability list", () => {
+    const source = fs.readFileSync(path.join(root, "scripts", "advisory-audit.cjs"), "utf8");
+    expect(source).toContain('"kernel/requirements.txt"');
+    expect(source).toContain('"kernel/requirements-capabilities.txt"');
+  });
+
+  it("the chromadb advisories with no fixed version are listed with a reason and an expiry, and nothing else is", () => {
+    const doc = JSON.parse(
+      fs.readFileSync(path.join(root, "config", "advisory-allow.json"), "utf8"),
+    ) as { entries: Array<{ id: string; expires: string; reason: string }> };
+    expect(doc.entries.map((entry) => entry.id).sort()).toEqual([
+      "PYSEC-2026-311",
+      "PYSEC-2026-3813",
+      "PYSEC-2026-3814",
+      "PYSEC-2026-3815",
+    ]);
+    for (const entry of doc.entries) {
+      expect(Number.isFinite(Date.parse(entry.expires)), entry.id).toBe(true);
+      expect(entry.reason).toMatch(/Chroma server/);
+      expect(entry.reason).toMatch(/PersistentClient/);
+    }
+  });
+
+  it("with the real allow list and a fixed clock, the four chromadb findings do not block and an unlisted one does", () => {
+    const allow = audit.loadAllow(path.join(root, "config", "advisory-allow.json"), nowMs);
+    const chroma = (id: string) => ({
+      name: "chromadb",
+      version: "1.5.9",
+      vulns: [{ id, aliases: [] }],
+    });
+    const ok = audit.evaluate({
+      npm: { vulnerabilities: {} },
+      pip: {
+        dependencies: [
+          "PYSEC-2026-311",
+          "PYSEC-2026-3813",
+          "PYSEC-2026-3814",
+          "PYSEC-2026-3815",
+        ].map(chroma),
+      },
+      allow,
+      nowMs,
+    });
+    expect(ok.blocking).toEqual([]);
+    const bad = audit.evaluate({
+      npm: { vulnerabilities: {} },
+      pip: { dependencies: [chroma("PYSEC-2026-9999")] },
+      allow,
+      nowMs,
+    });
+    expect(bad.blocking.map((row) => row.id)).toEqual(["PYSEC-2026-9999"]);
+  });
+});

@@ -149,6 +149,15 @@ describe("dependency policy", () => {
     // rcedit is deprecated on npm (every version); resedit replaced it and must not come back beside it.
     expect(raw).not.toContain('"rcedit"');
     expect(raw).not.toContain("vite-tsconfig-paths");
+    // Dependabot cannot raise `minimatch` or `glob` past the majors that eslint, typescript-eslint and
+    // electron-builder ask for, so its security update failed on every merge. These selectors send the ones on the
+    // real build path (lint and the asar packer) to the patched releases; the older ones inside electron-builder's
+    // Squirrel, macOS and template code stay (they need the old function export and FRIDAY never runs them).
+    const overrides = (JSON.parse(raw) as { overrides: Record<string, unknown> }).overrides;
+    expect(overrides["minimatch@^10.0.0"]).toBe("11.0.4");
+    expect(overrides["minimatch@^9.0.0"]).toBe("11.0.4");
+    expect(overrides["glob@^13.0.0"]).toBe("14.0.3");
+    expect(overrides["@electron/asar"]).toBe("4.3.1");
     const pkg = JSON.parse(raw) as {
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;

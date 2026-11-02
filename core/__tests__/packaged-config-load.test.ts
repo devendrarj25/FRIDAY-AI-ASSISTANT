@@ -6,6 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { load as parseYaml } from "js-yaml";
 
 const require_ = createRequire(import.meta.url);
+/**
+ * minimatch is nobody's direct dependency, and where npm puts it depends on which package asks for which major
+ * (hoisted to the top level, or nested). The oracle is the copy eslint resolved, wherever it sits.
+ */
+const minimatchModule = () => createRequire(require_.resolve("eslint/package.json"))("minimatch");
 const ROOT = path.resolve(__dirname, "../..");
 const paths = require_(path.join(ROOT, "electron/resource-paths.cjs")) as {
   resolveConfigFile: (name: string) => string | null;
@@ -70,7 +75,7 @@ function copyTree(from: string, to: string, filters?: string[]) {
   const negative = (filters || [])
     .filter((item) => item.startsWith("!"))
     .map((item) => item.slice(1));
-  const minimatch = checker.matcherFrom(require_("minimatch"));
+  const minimatch = checker.matcherFrom(minimatchModule());
   const visit = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -215,12 +220,12 @@ describe("packaged config load", () => {
   });
 
   it("reads the glob matcher from both minimatch export shapes", () => {
-    // minimatch 3 exports the matcher itself, minimatch 10 as `minimatch`.
+    // minimatch 3 exports the matcher itself, minimatch 10 and 11 as `minimatch`.
     // Which one is hoisted to the top level is electron-builder's choice.
     const match = (file: string) => file.startsWith("electron/");
     expect(checker.matcherFrom(match)).toBe(match);
     expect(checker.matcherFrom({ minimatch: match })).toBe(match);
-    const real = checker.matcherFrom(require_("minimatch"));
+    const real = checker.matcherFrom(minimatchModule());
     expect(real("electron/main.cjs", "electron/**", { dot: true })).toBe(true);
     expect(real("config/kernel.yaml", "electron/**", { dot: true })).toBe(false);
   });
