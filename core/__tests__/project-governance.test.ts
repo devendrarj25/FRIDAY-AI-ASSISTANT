@@ -141,18 +141,21 @@ describe("dependency policy", () => {
     }
   });
 
-  it("keeps TypeScript 5 and the calendar and chart libraries on their working majors", () => {
+  it("keeps TypeScript 5 and the calendar and chart libraries on their maintained majors", () => {
     const raw = read("package.json");
     expect(raw.match(/"typescript":/g)).toHaveLength(1);
     expect(raw.match(/"prettier":/g)).toHaveLength(1);
-    expect(raw.match(/"rcedit":/g)).toHaveLength(1);
+    expect(raw.match(/"resedit":/g)).toHaveLength(1);
+    // rcedit is deprecated on npm (every version); resedit replaced it and must not come back beside it.
+    expect(raw).not.toContain('"rcedit"');
+    expect(raw).not.toContain("vite-tsconfig-paths");
     const pkg = JSON.parse(raw) as {
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
     };
     expect(pkg.devDependencies["typescript"]?.startsWith("5.")).toBe(true);
     expect(pkg.dependencies["react-day-picker"]).toMatch(/^\^9\./);
-    expect(pkg.dependencies["recharts"]).toMatch(/^\^2\./);
+    expect(pkg.dependencies["recharts"]).toMatch(/^\^3\./);
   });
 
   it("caps how many dependency pull requests can be open at once", () => {

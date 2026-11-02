@@ -159,10 +159,10 @@ if (process.platform === "win32" && fs.existsSync(exe)) {
     const info = String(probed.stdout || "").trim();
     const [product, company, fileVersion, productVersion, fileVersionRaw] = info.split("|");
     // "FRIDAY Test" is the separate Windows identity of a TEST build; every
-    // other product name means the rcedit branding step did not run.
+    // other product name means the branding step did not run.
     if (product !== IDENTITY.PRODUCT && product !== IDENTITY.TEST_PRODUCT) {
       console.error(
-        `[friday] BRANDING product name is "${product}" — expected ${IDENTITY.PRODUCT} (rcedit step failed)`,
+        `[friday] BRANDING product name is "${product}" — expected ${IDENTITY.PRODUCT} (branding step failed)`,
       );
       failed++;
     } else {

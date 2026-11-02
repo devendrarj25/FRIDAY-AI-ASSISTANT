@@ -20,8 +20,10 @@ describe("Windows input-safe packaging", () => {
 
     expect(builder).toMatch(/requestedExecutionLevel:\s*asInvoker/);
     expect(builder).toMatch(/requestExecutionLevel:\s*user/);
-    expect(brander).toMatch(/"requested-execution-level":\s*"asInvoker"/);
-    expect(brander).not.toMatch(/"requested-execution-level":\s*"requireAdministrator"/);
+    // The branding step writes a normal-user level into the manifest (proved on a generated executable by
+    // core/__tests__/brand-windows.test.ts); nothing in it asks for elevation.
+    expect(brander).toMatch(/executionLevel\s*=\s*"asInvoker"/);
+    expect(brander).not.toMatch(/requireAdministrator|highestAvailable/);
   });
 
   it("preserves Windows text services and the frameless no-drag boundary", () => {

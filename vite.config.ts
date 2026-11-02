@@ -10,7 +10,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { nitro } from "nitro/vite";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -127,6 +126,9 @@ export default defineConfig(({ command }) => ({
     port: 8080,
   },
   resolve: {
+    // Vite reads the "paths" of tsconfig.json itself; the vite-tsconfig-paths plugin (and its unmaintained
+    // tsconfck dependency) is no longer needed.
+    tsconfigPaths: true,
     alias: { "@": resolve(import.meta.dirname, "src") },
     dedupe: [
       "react",
@@ -159,7 +161,6 @@ export default defineConfig(({ command }) => ({
   plugins: [
     navGuard,
     tailwindcss(),
-    tsconfigPaths({ projects: ["./tsconfig.json"] }),
     tanstackStart({
       server: { entry: "server" },
     }),

@@ -137,6 +137,63 @@ async function cloudTranscribe(engine, file, language) {
 let cachedStatus = null;
 let installing = null;
 let inFlight = 0;
+
+/**
+ * One transcription runs at a time (the worker holds a single model). A second one used to be refused at once
+ * with "busy", and the utterance it carried was lost: a short follow-up spoken while the last turn was still being
+ * transcribed, or a wake probe that overlapped a turn. Now it waits its turn, in order. Only a real backlog (more
+ * than `maxWaiting` waiting, or a wait longer than `waitMs`) is refused, and the caller still gets the same
+ * "busy" answer it always handled.
+ */
+function createTurnGate({
+  maxWaiting = 2,
+  waitMs = 25_000,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  let running = false;
+  const queue = [];
+  function leave() {
+    const next = queue.shift();
+    if (next) {
+      clearTimer(next.timer);
+      next.resolve(once(leave));
+    } else {
+      running = false;
+    }
+  }
+  function once(fn) {
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+  }
+  return {
+    /** Resolves to a release function, or null when the backlog is full or the wait ran out. */
+    enter() {
+      if (!running) {
+        running = true;
+        return Promise.resolve(once(leave));
+      }
+      if (queue.length >= maxWaiting) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        const entry = { resolve, timer: null };
+        entry.timer = setTimer(() => {
+          const at = queue.indexOf(entry);
+          if (at >= 0) queue.splice(at, 1);
+          resolve(null);
+        }, waitMs);
+        if (entry.timer && typeof entry.timer.unref === "function") entry.timer.unref();
+        queue.push(entry);
+      });
+    },
+    waiting: () => queue.length,
+    busy: () => running,
+  };
+}
+const turnGate = createTurnGate();
 let worker = null;
 let workerSeq = 0;
 let workerGeneration = 0;
@@ -303,6 +360,10 @@ function workerRequest(session, payload, timeoutMs, onStream) {
     const timer = setTimeout(() => {
       session.pending.delete(id);
       reject(new Error("STT worker timed out"));
+      // A worker that missed its deadline is hung. Callers drop their reference and start a fresh worker, so
+      // without this the hung process stayed alive for the whole session with its model in memory, and every
+      // timeout left one more behind. The process exit then clears the rest of its pending requests.
+      killTree(session.child);
     }, timeoutMs);
     session.pending.set(id, {
       onStream: typeof onStream === "function" ? onStream : null,
@@ -689,13 +750,22 @@ async function install() {
  * @param {{ audioBase64?: string, audioBytes?: Uint8Array, path?: string, mime?: string, language?: string, model?: string, initialPrompt?: string, localOnly?: boolean }} req
  */
 async function transcribe(req = {}, onPartial) {
+  const release = await turnGate.enter();
+  if (!release) {
+    return { ok: false, reason: "busy", error: "A transcription is already running." };
+  }
+  try {
+    return await transcribeNow(req, onPartial);
+  } finally {
+    release();
+  }
+}
+
+async function transcribeNow(req = {}, onPartial) {
   const state = await status(false, { localOnly: Boolean(req.localOnly) });
   const ladderReady = Boolean(state.moonshineReady || state.windowsSpeech);
   if (!state.available && !ladderReady)
     return { ok: false, reason: "unavailable", error: state.reason };
-
-  if (inFlight >= 1)
-    return { ok: false, reason: "busy", error: "A transcription is already running." };
 
   let file = req.path && fs.existsSync(req.path) ? req.path : null;
   let temporary = false;
@@ -1055,6 +1125,8 @@ module.exports = {
   status,
   install,
   transcribe,
+  createTurnGate,
+  workerRequest,
   scoreTurn,
   turnAudioBuffer,
   sweep,

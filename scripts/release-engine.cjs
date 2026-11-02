@@ -1880,7 +1880,7 @@ function compareBuilds(a, b) {
 /**
  * PowerShell FileVersionInfo.FileVersion on windows-latest omits a trailing
  * `.0` when FilePrivatePart is 0: public 1.0.0.0 is reported as "1.0.0"
- * (PR Validation 33888385242, after a second rcedit version-string pass).
+ * (PR Validation 33888385242, after a second version-string pass of the previous editor).
  * ProductVersion and the binary FILEVERSION still carry the four-part
  * identity; those are checked separately. This is not npm encoding.
  */

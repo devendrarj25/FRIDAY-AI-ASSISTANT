@@ -4484,6 +4484,13 @@ lifeSteps.stt = () => {
     /* worker may already be gone */
   }
 };
+lifeSteps.tts = () => {
+  try {
+    neuralVoice.shutdown();
+  } catch {
+    /* worker may already be gone */
+  }
+};
 lifeSteps.wake = () => {
   try {
     wakeEngine.shutdown();

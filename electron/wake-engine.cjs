@@ -185,6 +185,8 @@ function workerRequest(session, payload, timeoutMs) {
     const timer = setTimeout(() => {
       session.pending.delete(id);
       reject(new Error("wake worker timed out"));
+      // Hung: stop it so the next request starts a fresh worker instead of waiting behind this one.
+      killTree(session.child);
     }, timeoutMs);
     session.pending.set(id, {
       resolve: (msg) => {

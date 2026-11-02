@@ -158,7 +158,7 @@
     "react-dom": "^19.3.1",
     "react-hook-form": "^7.91.0",
     "react-resizable-panels": "^4.15.1",
-    "recharts": "^2.15.4",
+    "recharts": "^3.10.1",
     "regenerator-runtime": "^0.14.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
@@ -166,7 +166,6 @@
     "tw-animate-css": "^1.3.4",
     "undici": "^8.10.1",
     "vaul": "^1.1.2",
-    "vite-tsconfig-paths": "^6.0.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -187,14 +186,15 @@
     "js-yaml": "^5.5.0",
     "nitro": "3.0.260603-beta",
     "prettier": "^3.9.10",
-    "rcedit": "^5.0.2",
+    "resedit": "^3.1.0",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.72.1",
     "vite": "8.3.5",
     "vitest": "5.0.5"
   },
   "overrides": {
-    "global-agent": "4.1.3"
+    "global-agent": "4.1.3",
+    "@electron/asar": "4.3.1"
   },
   "engines": {
     "node": ">=22.19.0",
