@@ -1385,7 +1385,7 @@ function BrowserPage() {
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          void clearBrowsingData().then(async () => {
+                          clearBrowsingData().then(async () => {
                             setCookies(await cookieCount());
                             setStatus("Browsing data cleared");
                           })

@@ -81,7 +81,7 @@ export function HubRepoActions() {
             variant="ghost"
             disabled={busy !== null}
             onClick={() =>
-              void (async () => {
+              (async () => {
                 setBusy("refresh");
                 try {
                   await refresh();
@@ -109,7 +109,7 @@ export function HubRepoActions() {
                 variant="outline"
                 disabled={busy !== null || !confirmWrite}
                 onClick={() =>
-                  void (async () => {
+                  (async () => {
                     setBusy(String(workflow.id));
                     try {
                       const result = await dispatchHubWorkflow(workflow.id, ref.trim() || "main");

@@ -99,7 +99,7 @@ export function FolderAccessSettings() {
                   size="sm"
                   variant="outline"
                   disabled={busy === list.key}
-                  onClick={() => void add(list.key)}
+                  onClick={() => add(list.key)}
                 >
                   <FolderPlus className="size-4" /> Add folder
                 </Button>
@@ -116,7 +116,7 @@ export function FolderAccessSettings() {
                         aria-label={`Remove ${folder}`}
                         disabled={busy === list.key}
                         onClick={() =>
-                          void save(
+                          save(
                             list.key,
                             lists[list.key].filter((other) => other !== folder),
                           )

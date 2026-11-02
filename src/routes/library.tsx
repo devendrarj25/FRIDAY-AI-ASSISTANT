@@ -252,7 +252,7 @@ function LibraryPage() {
             variant="outline"
             disabled={selected.length === 0}
             onClick={() =>
-              void library.zipSelected(selected).then((result) => {
+              library.zipSelected(selected).then((result) => {
                 if ("error" in result && result.error && !("id" in result))
                   toast.error(result.error);
                 else {

@@ -14,8 +14,9 @@ function reportOnlyHeader() {
     "object-src 'none'",
     "frame-src 'none'",
     "script-src 'self' friday:",
-    "style-src 'self' friday: 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' friday: data: https://fonts.gstatic.com",
+    // Fonts are bundled with the app (src/lib/friday/fonts.ts): no font server is allowed or needed.
+    "style-src 'self' friday: 'unsafe-inline'",
+    "font-src 'self' friday: data:",
     "img-src 'self' friday: blob: data:",
     "media-src 'self' friday: blob: data:",
     "worker-src 'self' friday: blob:",

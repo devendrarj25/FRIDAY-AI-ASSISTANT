@@ -221,7 +221,7 @@ export function DevControl() {
                   variant="outline"
                   disabled={busy !== null || !(switchTo || space?.branch)}
                   onClick={() =>
-                    void run("checkout", async () => {
+                    run("checkout", async () => {
                       const result = await devCheckoutBranch(switchTo || space?.branch || "");
                       if (!result.ok) {
                         toast.error(result.error || "Could not switch branch.");
@@ -251,7 +251,7 @@ export function DevControl() {
                     variant="outline"
                     disabled={busy !== null}
                     onClick={() =>
-                      void run("files", async () => {
+                      run("files", async () => {
                         const listed = await devListFiles();
                         if (!listed.ok) {
                           toast.error(listed.error || "Could not list files.");
@@ -268,7 +268,7 @@ export function DevControl() {
                     variant="outline"
                     disabled={busy !== null || !filePath.trim()}
                     onClick={() =>
-                      void run("read", async () => {
+                      run("read", async () => {
                         const result = await devReadFile(filePath.trim());
                         if (!result.ok) {
                           toast.error(result.error || "Could not read that file.");
@@ -324,7 +324,7 @@ export function DevControl() {
                     variant="outline"
                     disabled={busy !== null || !filePath.trim() || !confirmWrite}
                     onClick={() =>
-                      void run("write", async () => {
+                      run("write", async () => {
                         const result = await devWriteFile(filePath.trim(), fileText);
                         setConfirmWrite(false);
                         setValidatedOk(false);
@@ -344,7 +344,7 @@ export function DevControl() {
                     variant="outline"
                     disabled={busy !== null || Boolean(space?.onProtectedBranch) || !confirmWrite}
                     onClick={() =>
-                      void run("commit", async () => {
+                      run("commit", async () => {
                         const result = await devCommitFiles(
                           name.trim() || `friday: ${space?.branch}`,
                         );
@@ -372,7 +372,7 @@ export function DevControl() {
               variant="outline"
               disabled={busy !== null}
               onClick={() =>
-                void run("validate", async () => {
+                run("validate", async () => {
                   setSteps([]);
                   const result = await devValidate();
                   setValidation(result.summary || result.error || "");
@@ -451,7 +451,7 @@ export function DevControl() {
                     size="sm"
                     variant="ghost"
                     onClick={() =>
-                      void run("drop", async () => {
+                      run("drop", async () => {
                         const result = await devRemoveChangeSet(item.id);
                         setSets(result.changeSets ?? []);
                       })
@@ -499,7 +499,7 @@ export function DevControl() {
               size="sm"
               disabled={busy !== null || !space?.repo || !(name.trim() || selected)}
               onClick={() =>
-                void run("branch", async () => {
+                run("branch", async () => {
                   const result = await devBranch(
                     name.trim() || selected?.title || "",
                     selected?.kind,
@@ -528,7 +528,7 @@ export function DevControl() {
                 busy !== null || !space?.repo || Boolean(space?.onProtectedBranch) || !validatedOk
               }
               onClick={() =>
-                void run("push", async () => {
+                run("push", async () => {
                   if (!validatedOk) {
                     toast.error("Validate this checkout before pushing.");
                     return;
@@ -558,7 +558,7 @@ export function DevControl() {
               variant="outline"
               disabled={busy !== null || !space?.repo || Boolean(space?.onProtectedBranch)}
               onClick={() =>
-                void run("pr", async () => {
+                run("pr", async () => {
                   const branch = space?.branch || "";
                   const result = await devOpenPullRequest({
                     branch,
@@ -592,7 +592,7 @@ export function DevControl() {
                 variant="outline"
                 disabled={busy !== null || !space?.repo || Boolean(space?.onProtectedBranch)}
                 onClick={() =>
-                  void run("test-build", async () => {
+                  run("test-build", async () => {
                     const result = await githubTestBuild(
                       space?.branch ? { ref: space.branch } : {},
                     );
@@ -615,7 +615,7 @@ export function DevControl() {
               variant="ghost"
               disabled={busy !== null}
               onClick={() =>
-                void run("pulls", async () => {
+                run("pulls", async () => {
                   const result = await devPullRequests();
                   if (!result.ok) {
                     toast.error(result.error || "Could not read pull requests.");

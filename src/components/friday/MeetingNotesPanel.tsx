@@ -66,7 +66,7 @@ export function MeetingNotesPanel() {
             >
               <ListPlus className="mr-1 size-4" /> Add actions to to-do
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => void copy()}>
+            <Button size="sm" variant="secondary" onClick={() => copy()}>
               <ClipboardCopy className="mr-1 size-4" /> Copy
             </Button>
           </div>

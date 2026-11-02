@@ -135,12 +135,7 @@ export function BrainInternalsPanel() {
               className="h-8 font-mono text-xs"
               aria-label="Request to route"
             />
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!request.trim()}
-              onClick={() => void ask()}
-            >
+            <Button size="sm" variant="outline" disabled={!request.trim()} onClick={() => ask()}>
               Route
             </Button>
           </div>
@@ -156,7 +151,7 @@ export function BrainInternalsPanel() {
         <div className="grid gap-1">
           <div className="flex items-center gap-2">
             <p className="label-xs text-primary/70">My own source</p>
-            <Button size="sm" variant="outline" onClick={() => void browse("")}>
+            <Button size="sm" variant="outline" onClick={() => browse("")}>
               Browse
             </Button>
           </div>

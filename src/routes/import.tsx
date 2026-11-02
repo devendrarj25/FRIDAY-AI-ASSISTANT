@@ -972,7 +972,7 @@ function ImportPage() {
                             size="sm"
                             variant="outline"
                             onClick={() =>
-                              void imports.keepArtifact(b.artifact!).then((r) => {
+                              imports.keepArtifact(b.artifact!).then((r) => {
                                 if (r.ok) {
                                   toast.success("Kept in downloads/kept-builds");
                                   refreshKept();
@@ -986,7 +986,7 @@ function ImportPage() {
                             size="sm"
                             variant="outline"
                             onClick={() =>
-                              void imports.saveArtifact(b.artifact!).then((r) => {
+                              imports.saveArtifact(b.artifact!).then((r) => {
                                 if (r.cancelled) return;
                                 if (r.ok) toast.success("Copy saved");
                                 else toast.error(r.error || "Save failed");
@@ -1000,7 +1000,7 @@ function ImportPage() {
                               size="sm"
                               variant="outline"
                               onClick={() =>
-                                void imports.installExe(b.artifact!).then((r) => {
+                                imports.installExe(b.artifact!).then((r) => {
                                   if ("pending" in r && r.pending) {
                                     toast.success("Waiting for Self-management approval");
                                   } else if (r.ok) toast.success("Installer launched");
@@ -1015,7 +1015,7 @@ function ImportPage() {
                               size="sm"
                               variant="outline"
                               onClick={() =>
-                                void imports.stageArtifact(b.artifact!).then((r) => {
+                                imports.stageArtifact(b.artifact!).then((r) => {
                                   if (r.ok) {
                                     toast.success("Staged for Install into FRIDAY");
                                     setTab("import");
@@ -1067,7 +1067,7 @@ function ImportPage() {
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          void imports.saveArtifact(file.path).then((r) => {
+                          imports.saveArtifact(file.path).then((r) => {
                             if (r.cancelled) return;
                             if (r.ok) toast.success("Copy saved");
                             else toast.error(r.error || "Save failed");
@@ -1081,7 +1081,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            void imports.installExe(file.path).then((r) => {
+                            imports.installExe(file.path).then((r) => {
                               if ("pending" in r && r.pending) {
                                 toast.success("Waiting for Self-management approval");
                               } else if (r.ok) toast.success("Installer launched");
@@ -1096,7 +1096,7 @@ function ImportPage() {
                           size="sm"
                           variant="outline"
                           onClick={() =>
-                            void imports.stageArtifact(file.path).then((r) => {
+                            imports.stageArtifact(file.path).then((r) => {
                               if (r.ok) {
                                 toast.success("Staged for Install into FRIDAY");
                                 setTab("import");
@@ -1217,7 +1217,7 @@ function ImportPage() {
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        void imports.installNow(i.id).then((r) => {
+                        imports.installNow(i.id).then((r) => {
                           if ("pending" in r && r.pending) {
                             toast.success("Waiting for Self-management approval");
                           } else if (r.ok) {

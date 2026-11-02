@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState, useSyncExternalStore } from "react";
+import { LoadingState } from "@/components/friday/ui";
 import { flowStudio } from "@/lib/friday/flow-studio-store";
 
 /**
@@ -20,7 +21,16 @@ export function FlowStudioLazyHost() {
   if (open && !wanted) setWanted(true);
   if (!open && !wanted) return null;
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        // The studio is several MB and loads on first open: say so instead of showing nothing.
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 backdrop-blur-sm">
+          <div className="w-72 rounded-surface border border-primary/25 bg-card p-4">
+            <LoadingState label="Opening Flow Studio…" rows={3} />
+          </div>
+        </div>
+      }
+    >
       <FlowStudioHost />
     </Suspense>
   );

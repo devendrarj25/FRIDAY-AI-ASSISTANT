@@ -83,14 +83,14 @@ export function TitleStrip() {
 
   return (
     <header
-      className="friday-titlestrip flex h-9 shrink-0 items-center justify-between gap-3 border-b border-primary/20 bg-sidebar px-3 select-none"
+      className="friday-titlestrip @container flex h-9 shrink-0 items-center justify-between gap-3 border-b border-primary/20 bg-sidebar px-3 select-none"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <FridayOrb size={18} className="shrink-0" />
-        <p className="min-w-0 truncate font-display text-[13px] font-bold tracking-[0.2em] text-primary glow-text">
+        <FridayOrb size={18} still className="shrink-0" />
+        <p className="min-w-0 truncate font-display text-[0.8125rem] font-bold tracking-[0.2em] text-primary glow-text">
           FRIDAY <span className="text-muted-foreground">— PERSONAL AI ASSISTANT</span>
         </p>
       </div>
@@ -147,18 +147,18 @@ export function TitleStrip() {
             AUTO
           </span>
         </button>
-        <span className="hidden text-primary/25 sm:inline">|</span>
+        <span className="hidden text-primary/25 @min-[40rem]:inline">|</span>
         <span
-          className={`title-chip hidden rounded-ctl px-1.5 sm:inline ${fpsTone}`}
+          className={`title-chip hidden rounded-ctl px-1.5 @min-[40rem]:inline ${fpsTone}`}
           title="Live frames per second"
         >
           {fps} FPS
         </span>
-        <span className="hidden text-primary/25 sm:inline">|</span>
+        <span className="hidden text-primary/25 @min-[40rem]:inline">|</span>
         <span
           className={
             net.online
-              ? "title-chip flex items-center gap-1 rounded-ctl px-1.5"
+              ? "title-chip hidden items-center gap-1 rounded-ctl px-1.5 @min-[32rem]:flex"
               : "title-chip flex items-center gap-1 rounded-ctl px-1.5 text-destructive"
           }
           title={
@@ -183,16 +183,16 @@ export function TitleStrip() {
           {net.online ? <Wifi className="size-3" /> : <WifiOff className="size-3" />}
           {net.label}
         </span>
-        <span className="hidden text-primary/25 lg:inline">|</span>
-        <span className="hidden text-foreground lg:inline" suppressHydrationWarning>
+        <span className="hidden text-primary/25 @min-[64rem]:inline">|</span>
+        <span className="hidden text-foreground @min-[64rem]:inline" suppressHydrationWarning>
           {now ? now.toLocaleTimeString("en-GB", { hour12: false }) : "--:--:--"}
         </span>
-        <span className="hidden text-primary/25 xl:inline">|</span>
-        <span className="hidden xl:inline" suppressHydrationWarning>
+        <span className="hidden text-primary/25 @min-[80rem]:inline">|</span>
+        <span className="hidden @min-[80rem]:inline" suppressHydrationWarning>
           {now ? now.toLocaleDateString("en-GB") : "--/--/----"}
         </span>
-        <span className="hidden text-primary/25 2xl:inline">|</span>
-        <span className="hidden 2xl:inline" suppressHydrationWarning>
+        <span className="hidden text-primary/25 @min-[96rem]:inline">|</span>
+        <span className="hidden @min-[96rem]:inline" suppressHydrationWarning>
           {now ? now.toLocaleDateString("en-GB", { weekday: "long" }) : "—"}
         </span>
 

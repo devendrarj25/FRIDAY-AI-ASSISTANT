@@ -305,9 +305,9 @@ export function SystemSettings() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
-              void preferences.flush().then(() => toast.success("Performance settings saved"));
-            }}
+            onClick={() =>
+              preferences.flush().then(() => toast.success("Performance settings saved"))
+            }
           >
             <Gauge className="size-4" /> Save performance settings
           </Button>

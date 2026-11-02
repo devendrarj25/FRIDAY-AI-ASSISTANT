@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Check,
@@ -16,9 +17,6 @@ import {
   COLOR_MODES,
   ACCENTS,
   COLOR_COMBOS,
-  DISPLAY_FONTS,
-  BODY_FONTS,
-  TEXT_SIZES,
   DENSITIES,
   UI_STYLES,
   GLASS_DEPTHS,
@@ -126,6 +124,7 @@ function LivePreview() {
 }
 
 export function AppearanceSettings() {
+  const navigate = useNavigate();
   const prefs = usePreferences();
   const mode = resolveColorMode(prefs);
   const accent = resolveAccent(prefs);
@@ -360,29 +359,23 @@ export function AppearanceSettings() {
         </div>
       </HudPanel>
 
+      <HudPanel title="Fonts and text" hint="now in their own section">
+        <p className="text-note text-muted-foreground">
+          Fonts, text size, spacing, weight, chat text size, chat bubbles and the contrast setting
+          for text have their own section in Settings.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-3"
+          onClick={() => navigate({ to: "/settings", search: { section: "text" } as never })}
+        >
+          Open Fonts &amp; Text
+        </Button>
+      </HudPanel>
+
       <HudPanel title="Text and layout">
         <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            label="UI / heading font"
-            value={field("font") || "Orbitron"}
-            options={Object.keys(DISPLAY_FONTS).map((name) => ({ value: name, label: name }))}
-            onChange={setField("font")}
-          />
-          <SelectField
-            label="Body / chat font"
-            value={field("bodyFont") || "Rajdhani"}
-            options={Object.keys(BODY_FONTS).map((name) => ({
-              value: name,
-              label: name === "Atkinson Hyperlegible" ? "Atkinson Hyperlegible (readable)" : name,
-            }))}
-            onChange={setField("bodyFont")}
-          />
-          <SelectField
-            label="Text size"
-            value={field("textSize") || "Normal"}
-            options={TEXT_SIZES.map((name) => ({ value: name, label: name }))}
-            onChange={setField("textSize")}
-          />
           <SelectField
             label="Interface density"
             value={field("density") || "Normal"}
@@ -412,34 +405,6 @@ export function AppearanceSettings() {
             For compact icon controls in the chat, voice and toolbars. The name always stays in the
             accessible label and the tooltip.
           </p>
-        </div>
-        <div className="mt-4 space-y-3">
-          <ToggleRow
-            label="High contrast text"
-            on={isOn("highContrast")}
-            onToggle={() => flip("highContrast")}
-          />
-        </div>
-      </HudPanel>
-
-      <HudPanel title="Chat">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SelectField
-            label="Chat bubble style"
-            value={field("bubbleStyle") || "Compact"}
-            options={["Compact", "Comfortable", "Full"].map((name) => ({
-              value: name,
-              label: name,
-            }))}
-            onChange={setField("bubbleStyle")}
-          />
-        </div>
-        <div className="mt-4 space-y-3">
-          <ToggleRow
-            label="Show timestamps on chat messages"
-            on={isOn("chatTimestamps")}
-            onToggle={() => flip("chatTimestamps")}
-          />
         </div>
       </HudPanel>
 

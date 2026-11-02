@@ -224,8 +224,8 @@ export function CharacterStage() {
       {/* Speech / approval bubble */}
       {bubbleVisible ? (
         <div className="pointer-events-auto absolute inset-x-2 top-2 z-10">
-          <div className="rounded-lg border border-primary/40 bg-background/85 px-3 py-2 text-[11px] leading-snug text-foreground shadow-lg backdrop-blur">
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] tracking-wide text-primary uppercase">
+          <div className="rounded-lg border border-primary/40 bg-background/85 px-3 py-2 text-[0.75rem] leading-snug text-foreground shadow-lg backdrop-blur">
+            <div className="mb-1 flex items-center gap-1.5 text-[0.6875rem] tracking-wide text-primary uppercase">
               {busy ? <Loader2 className="size-3 animate-spin" /> : null}
               <span className="truncate">{state.label || "FRIDAY"}</span>
               {state.progress !== null ? (
@@ -239,14 +239,14 @@ export function CharacterStage() {
               <div className="mt-2 flex gap-1.5">
                 <button
                   type="button"
-                  className="rounded-sm bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground"
+                  className="rounded-sm bg-primary px-2 py-1 text-[0.6875rem] font-medium text-primary-foreground"
                   onClick={() => bridge?.characterCommand({ command: "approve" })}
                 >
                   Allow
                 </button>
                 <button
                   type="button"
-                  className="rounded-sm border border-border px-2 py-1 text-[10px]"
+                  className="rounded-sm border border-border px-2 py-1 text-[0.6875rem]"
                   onClick={() => bridge?.characterCommand({ command: "deny" })}
                 >
                   Deny
@@ -299,7 +299,7 @@ export function CharacterStage() {
                   if (event.key === "Escape") setChatOpen(false);
                 }}
                 placeholder="Ask FRIDAY…"
-                className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[11px] text-foreground outline-none"
+                className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[0.75rem] text-foreground outline-none"
               />
               <button
                 type="button"
@@ -322,7 +322,7 @@ export function CharacterStage() {
             <button
               type="button"
               onClick={() => setChatOpen(true)}
-              className="flex items-center gap-1 rounded-full border border-primary/40 bg-background/85 px-2.5 py-1 text-[10px] text-foreground backdrop-blur"
+              className="flex items-center gap-1 rounded-full border border-primary/40 bg-background/85 px-2.5 py-1 text-[0.6875rem] text-foreground backdrop-blur"
             >
               <MessageSquare className="size-3" /> Ask
             </button>

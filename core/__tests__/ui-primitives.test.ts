@@ -478,10 +478,10 @@ describe("long tables and tab transitions", () => {
 
   it("draws the first page of a long table and offers the rest", () => {
     const out = html(createElement(DataTable, { columns: ["A", "B"], rows: rows(200) }));
-    expect(out).toContain("row-79");
-    expect(out).not.toContain("row-80<");
-    expect(out).toContain("Showing 80 of 200");
-    expect(out).toContain('aria-label="Show 80 more"');
+    expect(out).toContain("row-39");
+    expect(out).not.toContain("row-40<");
+    expect(out).toContain("Showing 40 of 200");
+    expect(out).toContain('aria-label="Show 40 more"');
     expect(out).toContain('aria-label="Show all 200"');
   });
 

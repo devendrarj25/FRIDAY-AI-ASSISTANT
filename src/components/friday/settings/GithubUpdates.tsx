@@ -491,7 +491,7 @@ export function GithubUpdates() {
                 variant="outline"
                 disabled={!token || busy !== null}
                 onClick={() =>
-                  void run("token", async () => {
+                  run("token", async () => {
                     await patch({ updateToken: token });
                     setToken("");
                     setChangingToken(false);
@@ -526,7 +526,7 @@ export function GithubUpdates() {
                 variant="ghost"
                 disabled={busy !== null}
                 onClick={() =>
-                  void run("token-clear", async () => {
+                  run("token-clear", async () => {
                     await patch({ updateToken: null });
                     setChangingToken(false);
                     setToken("");
@@ -556,7 +556,7 @@ export function GithubUpdates() {
             variant="outline"
             disabled={!desktop || busy !== null}
             onClick={() =>
-              void run("test", async () => {
+              run("test", async () => {
                 if (!(await persistSource())) return;
                 // persistSource already wrote the typed URL/token; test the
                 // stored config so a pasted github.com URL is not sent raw.
@@ -579,7 +579,7 @@ export function GithubUpdates() {
             variant="outline"
             disabled={!desktop || busy !== null}
             onClick={() =>
-              void run("check", async () => {
+              run("check", async () => {
                 if (!(await persistSource())) return;
                 setPipeline("checking");
                 const [result, listed, listedBundles] = await Promise.all([
@@ -632,7 +632,7 @@ export function GithubUpdates() {
               disabled={!desktop || busy !== null || !check?.ok || !check?.ref}
               title="Merge the new skills, agents, plugins, modules, workflows and docs of this release into your FRIDAY folder. The program itself updates through the installer."
               onClick={() =>
-                void run("content", async () => {
+                run("content", async () => {
                   const result = await githubUpdateNow(check?.ref, { contentOnly: true });
                   if (!result.ok) {
                     toast.error(result.error || "Update failed — nothing was changed.");
@@ -654,7 +654,7 @@ export function GithubUpdates() {
             <Button
               disabled={!desktop || busy !== null || !check?.updateAvailable}
               onClick={() =>
-                void run("update", async () => {
+                run("update", async () => {
                   const result = await githubUpdateNow(check?.ref);
                   if (!result.ok) {
                     toast.error(result.error || "Update failed — nothing was changed.");
@@ -690,7 +690,7 @@ export function GithubUpdates() {
               variant="outline"
               disabled={!desktop || busy !== null}
               onClick={() =>
-                void run("installer", async () => {
+                run("installer", async () => {
                   await installBuild({
                     version: check?.version,
                     testBuild: Boolean(check?.testBuild),
@@ -713,7 +713,7 @@ export function GithubUpdates() {
             <Button
               disabled={!desktop || busy !== null}
               onClick={() =>
-                void run("restart", async () => {
+                run("restart", async () => {
                   await restartApp("update-applied");
                 })
               }
@@ -727,7 +727,7 @@ export function GithubUpdates() {
               variant="outline"
               disabled={!desktop || busy !== null}
               onClick={() =>
-                void run("pack-rollback", async () => {
+                run("pack-rollback", async () => {
                   const result = await rollbackPackUpdate(packRollback);
                   if (!result.ok) {
                     toast.error(result.error || "The rollback could not be completed.");
@@ -755,7 +755,7 @@ export function GithubUpdates() {
                   variant="outline"
                   disabled={!desktop || busy !== null || !lastBuild}
                   onClick={() =>
-                    void run("retry-install", async () => {
+                    run("retry-install", async () => {
                       if (lastBuild) await installBuild(lastBuild);
                     })
                   }
@@ -881,7 +881,7 @@ export function GithubUpdates() {
             variant={config.updateChannel === "test" ? "outline" : "default"}
             disabled={busy !== null}
             onClick={() =>
-              void run("channel-stable", async () => {
+              run("channel-stable", async () => {
                 if (config.updateChannel === "stable") return;
                 await patch({ updateChannel: "stable" });
                 // Leaving TEST hides every test build again.
@@ -898,7 +898,7 @@ export function GithubUpdates() {
             variant={config.updateChannel === "test" ? "default" : "outline"}
             disabled={busy !== null}
             onClick={() =>
-              void run("channel-test", async () => {
+              run("channel-test", async () => {
                 if (config.updateChannel === "test") return;
                 await patch({ updateChannel: "test" });
                 setCheck(null);
@@ -965,9 +965,7 @@ export function GithubUpdates() {
                     <Button
                       size="sm"
                       disabled={!desktop || busy !== null}
-                      onClick={() =>
-                        void run(`apply-${item.kind}-${item.id}`, () => applyUnified(item))
-                      }
+                      onClick={() => run(`apply-${item.kind}-${item.id}`, () => applyUnified(item))}
                     >
                       <Download className="size-4" /> Download
                     </Button>
@@ -1046,7 +1044,7 @@ export function GithubUpdates() {
               variant="outline"
               disabled={!desktop || busy !== null || !check.otherChannel.assets?.length}
               onClick={() =>
-                void run("cross-install", async () => {
+                run("cross-install", async () => {
                   const other = check.otherChannel!;
                   await installBuild({
                     version: other.version,
@@ -1079,7 +1077,7 @@ export function GithubUpdates() {
             variant="outline"
             disabled={!desktop || busy !== null}
             onClick={() =>
-              void run("bundles", async () => {
+              run("bundles", async () => {
                 const listed = await githubInstallerBundles({
                   updateChannel: config.updateChannel,
                 });
@@ -1135,7 +1133,7 @@ export function GithubUpdates() {
                   variant="outline"
                   disabled={!desktop || busy !== null}
                   onClick={() =>
-                    void run(`bundle-${bundle.tag}`, async () => {
+                    run(`bundle-${bundle.tag}`, async () => {
                       applyingRef.current = true;
                       setPipeline("downloading");
                       setInstallError(null);

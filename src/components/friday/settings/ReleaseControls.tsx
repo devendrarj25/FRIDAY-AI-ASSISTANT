@@ -211,7 +211,7 @@ export function ReleaseControls() {
           variant="outline"
           disabled={!desktop || busy !== null}
           onClick={() =>
-            void act("check", async () => {
+            act("check", async () => {
               const result = await loadReleases();
               await loadRuns();
               if (!result.ok) toast.error(result.error || "Could not read releases.");
@@ -231,7 +231,7 @@ export function ReleaseControls() {
           variant="outline"
           disabled={!desktop || busy !== null}
           onClick={() =>
-            void act("analyze", async () => {
+            act("analyze", async () => {
               const result = await githubAnalyze(type);
               setAnalysis(result);
               if (!result.ok) toast.error(result.error || "Could not analyse changes.");
@@ -266,7 +266,7 @@ export function ReleaseControls() {
           variant="outline"
           disabled={!desktop || busy !== null}
           onClick={() =>
-            void act("test", async () => {
+            act("test", async () => {
               const result = await githubTestBuild({ publish: true });
               if (!result.ok) toast.error(result.error || "The test build could not be started.");
               else toast.success(`FRIDAY Test Build from ${result.ref} — no official version.`);
@@ -308,7 +308,7 @@ export function ReleaseControls() {
               size="sm"
               disabled={busy !== null}
               onClick={() =>
-                void act("push", async () => {
+                act("push", async () => {
                   const pushed = await githubPushAndSync(
                     `chore: sync before ${analysis?.tag ?? "release"}`,
                   );

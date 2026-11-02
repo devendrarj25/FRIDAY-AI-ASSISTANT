@@ -419,7 +419,7 @@ function DoctorPage() {
           variant="outline"
           disabled={busy || selected.length === 0}
           onClick={() =>
-            void doctor.fixSelected(selected).then((n) => {
+            doctor.fixSelected(selected).then((n) => {
               setSelected([]);
               toast[n ? "success" : "error"](
                 `${n}/${selected.length} selected repair(s) succeeded`,

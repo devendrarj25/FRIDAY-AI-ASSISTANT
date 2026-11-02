@@ -857,7 +857,7 @@ function SpeechModelCheck() {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void pickFolder().then((picked) => picked && setFolder(picked))}
+          onClick={() => pickFolder().then((picked) => picked && setFolder(picked))}
         >
           Choose folder
         </Button>
@@ -880,7 +880,7 @@ function SpeechModelCheck() {
             {size}
           </label>
         ))}
-        <Button size="sm" disabled={busy || !folder || !sizes.length} onClick={() => void run()}>
+        <Button size="sm" disabled={busy || !folder || !sizes.length} onClick={() => run()}>
           {busy ? "Listening…" : "Run the check"}
         </Button>
       </div>

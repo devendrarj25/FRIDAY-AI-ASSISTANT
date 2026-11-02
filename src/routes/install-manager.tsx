@@ -425,11 +425,7 @@ function InstallManagerPage() {
         {state.scanError && !state.scanning && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-surface border border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
             <span>The scan failed — {state.scanError}. Versions below may be out of date.</span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void installer.refreshFromSystem(true)}
-            >
+            <Button size="sm" variant="outline" onClick={() => installer.refreshFromSystem(true)}>
               <RefreshCw className="size-3" /> Retry
             </Button>
           </div>
@@ -1115,7 +1111,7 @@ function ServicesPanel() {
           size="sm"
           variant="ghost"
           className="h-6 px-2 text-note"
-          onClick={() => void installer.refreshServices()}
+          onClick={() => installer.refreshServices()}
         >
           <RefreshCw className="size-3" /> Refresh
         </Button>

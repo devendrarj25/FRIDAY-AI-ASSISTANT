@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import "@/lib/friday/fonts";
 import "@/styles.css";
 
 window.addEventListener("securitypolicyviolation", (event) => {

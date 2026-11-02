@@ -109,7 +109,7 @@ export function RepoSwitch({
               variant={conn.id === selectedId ? "default" : "outline"}
               disabled={busy !== null}
               onClick={() =>
-                void run("select", async () => {
+                run("select", async () => {
                   const result = await selectHubConnection(conn.id);
                   if (!result.ok) {
                     toast.error(result.error || "Could not select that repository.");
@@ -162,7 +162,7 @@ export function RepoSwitch({
               variant="outline"
               disabled={busy !== null}
               onClick={() =>
-                void run("test", async () => {
+                run("test", async () => {
                   const result = await testHubConnection(selected.id);
                   if (!result.ok) {
                     toast.error(result.error || "Connection failed.");
@@ -188,7 +188,7 @@ export function RepoSwitch({
                 variant="ghost"
                 disabled={busy !== null}
                 onClick={() =>
-                  void run("remove", async () => {
+                  run("remove", async () => {
                     const result = await removeHubConnection(selected.id);
                     if (!result.ok) {
                       toast.error(result.error || "Could not remove that repository.");
@@ -222,7 +222,7 @@ export function RepoSwitch({
             size="sm"
             disabled={busy !== null || !repo.trim()}
             onClick={() =>
-              void run("add", async () => {
+              run("add", async () => {
                 const result = await addHubConnection({
                   repo: repo.trim(),
                   ...(token.trim() ? { token: token.trim() } : {}),
@@ -275,7 +275,7 @@ export function RepoSwitch({
             size="sm"
             disabled={busy !== null || !createName.trim() || !confirmWrite}
             onClick={() =>
-              void run("create", async () => {
+              run("create", async () => {
                 const result = await createHubRepository({
                   name: createName.trim(),
                   private: createPrivate,
@@ -299,7 +299,7 @@ export function RepoSwitch({
             variant="outline"
             disabled={busy !== null || selected?.role !== "linked" || !confirmWrite}
             onClick={() =>
-              void run("zip", async () => {
+              run("zip", async () => {
                 const picked = await pickHubZip();
                 if (!picked.ok || !picked.file) return;
                 const result = await packagePushHub({ zip: picked.file });
@@ -324,7 +324,7 @@ export function RepoSwitch({
             variant="outline"
             disabled={busy !== null || selected?.role !== "linked" || !confirmWrite}
             onClick={() =>
-              void run("folder", async () => {
+              run("folder", async () => {
                 const picked = await pickHubFolder();
                 if (!picked.ok || !picked.folder) return;
                 const result = await packagePushHub({ folder: picked.folder });

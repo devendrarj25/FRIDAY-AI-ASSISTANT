@@ -4054,6 +4054,13 @@ function createWindow() {
     showLoadFailure(`The FRIDAY interface stopped unexpectedly (${details.reason}).`);
   });
 
+  // A window that stops answering is no longer a silent white frame: after a few seconds the owner is asked
+  // to wait or to reload the interface (electron/window-hang.cjs). Not in the boot self-test, which has no one
+  // to answer.
+  if (!process.env.FRIDAY_BOOT_SELFTEST) {
+    require("./window-hang.cjs").watchWindowHang(win, { dialog, log });
+  }
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };

@@ -8,6 +8,7 @@
  *
  * Writes are merged and debounced: flipping ten toggles costs one disk write.
  */
+import { registerFlush } from "./persist";
 
 /** One selectable, individually tuned FRIDAY voice. */
 export type VoiceModel = {
@@ -165,6 +166,14 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     sidebarDefault: "Expanded",
     bubbleStyle: "Compact",
     textSize: "Normal",
+    // Text settings (appearance.ts): "" means the named text size; the others are named choices.
+    textScale: "",
+    lineSpacing: "Normal",
+    letterSpacing: "Normal",
+    textWeight: "Regular",
+    chatTextSize: "Match",
+    smallText: "Standard",
+    codeFont: "JetBrains Mono",
     panelOpacity: "100",
     graphicIntensity: "70",
     // FRIDAY Glass (appearance.ts): interface style, glass depth, labels.
@@ -360,6 +369,14 @@ class PreferencesStore {
     }, 250);
   }
 
+  /** Sends a change that is still waiting on its debounce now (the window is closing or hidden). */
+  flushPending(): void {
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+    void this.flush();
+  }
+
   /** Persist immediately (used by the Save button). */
   async flush(): Promise<void> {
     if (typeof window === "undefined") return;
@@ -384,3 +401,6 @@ class PreferencesStore {
 }
 
 export const preferences = new PreferencesStore();
+
+// A text or font change made just before the window closes must not die in the 250 ms debounce.
+registerFlush(() => preferences.flushPending());

@@ -30,6 +30,7 @@ export function EditField({
       <p className="label-xs text-muted-foreground">{label}</p>
       <Input
         value={value}
+        aria-label={label}
         onChange={(e) => onChange(e.target.value)}
         onBlur={onBlur}
         className="hud-tile mt-1 h-auto rounded-ctl border-primary/25 px-2.5 py-1.5 font-mono text-xs text-foreground"
@@ -57,6 +58,7 @@ export function SelectField({
     <div>
       <p className="label-xs text-muted-foreground">{label}</p>
       <select
+        aria-label={label}
         value={known ? value : (options[0]?.value ?? "")}
         onChange={(event) => onChange(event.target.value)}
         className={SELECT_CLASS}
@@ -105,6 +107,7 @@ export function TuneRow({
         <span className="text-meta text-primary">{detail}</span>
       </div>
       <Slider
+        aria-label={label}
         value={[value]}
         min={min}
         max={max}

@@ -1,4 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { BUNDLED_FONTS } from "../../src/lib/friday/font-registry";
 import { preferences } from "../../src/lib/friday/preferences";
 import {
   ACCENTS,
@@ -7,7 +10,6 @@ import {
   DISPLAY_FONTS,
   BODY_FONTS,
   FONTS,
-  GOOGLE_FONTS_HREF,
   THEMES,
   THEME_IDS,
   persistAccent,
@@ -32,8 +34,6 @@ import {
   resolveGlassDepth,
   resolveUiStyle,
 } from "../../src/lib/friday/appearance";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 afterEach(() => {
   resetAppearancePreferences();
@@ -96,13 +96,37 @@ describe("appearance fonts", () => {
     expect(BODY_FONTS["Atkinson Hyperlegible"]).toContain("Atkinson Hyperlegible");
   });
 
-  it("loads Inter Tight, Exo 2, Atkinson, and Lexend from Google Fonts", () => {
-    expect(GOOGLE_FONTS_HREF).toContain("Inter+Tight");
-    expect(GOOGLE_FONTS_HREF).toContain("Exo+2");
-    expect(GOOGLE_FONTS_HREF).toContain("Atkinson+Hyperlegible");
-    expect(GOOGLE_FONTS_HREF).toContain("Lexend");
-    expect(GOOGLE_FONTS_HREF).toContain("Orbitron");
-    expect(GOOGLE_FONTS_HREF).toContain("Rajdhani");
+  it("bundles every offered family with the app instead of loading it from a font server", () => {
+    const entry = readFileSync("src/lib/friday/fonts.ts", "utf8");
+    for (const font of BUNDLED_FONTS) {
+      expect(entry, font.name).toContain(font.pkg);
+      expect(existsSync(join("node_modules", font.pkg, "package.json")), font.name).toBe(true);
+    }
+    for (const name of [
+      "Inter Tight",
+      "Exo 2",
+      "Atkinson Hyperlegible",
+      "Lexend",
+      "Orbitron",
+      "Rajdhani",
+      "JetBrains Mono",
+    ]) {
+      expect(
+        BUNDLED_FONTS.some((font) => font.name === name),
+        name,
+      ).toBe(true);
+    }
+    // Nothing fetches a font from the network, and the page policy does not allow a font host.
+    for (const file of ["src/renderer/index.html", "src/routes/__root.tsx", "electron/csp.cjs"]) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
+    }
+  });
+
+  it("tries the bundled face first and the installed name second, naming a family once", () => {
+    expect(DISPLAY_FONTS["Orbitron"]).toMatch(/^"Orbitron Variable", "Orbitron"/);
+    // Atkinson's bundled and installed names are the same, so it appears once.
+    expect(BODY_FONTS["Atkinson Hyperlegible"]).toMatch(/^"Atkinson Hyperlegible", ui-sans-serif/);
+    expect(BODY_FONTS["Rajdhani"]?.match(/"Rajdhani"/g)).toHaveLength(1);
   });
 });
 
