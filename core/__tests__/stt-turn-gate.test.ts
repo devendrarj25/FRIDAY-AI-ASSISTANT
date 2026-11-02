@@ -2,7 +2,8 @@
  * A second transcription waits for the first instead of being refused (the utterance it carried was lost).
  * Only a real backlog or a very long wait is refused, and then with the same "busy" answer callers already handle.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -75,54 +76,55 @@ describe("speech transcription turn gate", () => {
 });
 
 describe("speech worker deadline", () => {
-  function fakeSession() {
-    const killed: string[] = [];
-    return {
-      killed,
-      session: {
-        alive: true,
-        pending: new Map(),
-        child: {
-          pid: 4242,
-          stdin: { destroyed: false, write: () => true },
-          kill: (signal: string) => {
-            killed.push(signal);
-          },
-        },
-      },
-    };
+  // A real child process, never a made-up pid: on Windows the stop goes through taskkill by pid.
+  function sleeper() {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    return { child, session: { alive: true, pending: new Map(), child } };
+  }
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  async function until(check: () => boolean, ms = 8000) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (check()) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return check();
   }
 
   it("stops a worker that misses its deadline instead of leaking it", async () => {
-    vi.useFakeTimers();
+    const { child, session } = sleeper();
     try {
-      const { session, killed } = fakeSession();
-      const request = stt.workerRequest(session, { op: "transcribe" }, 1000);
-      const settled = request.then(
-        () => "resolved",
-        (error: Error) => error.message,
+      expect(await until(() => alive(child.pid!))).toBe(true);
+      await expect(stt.workerRequest(session, { op: "transcribe" }, 300)).rejects.toThrow(
+        "STT worker timed out",
       );
-      await vi.advanceTimersByTimeAsync(1001);
-      expect(await settled).toBe("STT worker timed out");
-      expect(killed).toEqual(["SIGTERM"]);
       expect(session.pending.size).toBe(0);
+      expect(await until(() => !alive(child.pid!))).toBe(true);
     } finally {
-      vi.useRealTimers();
+      child.kill("SIGKILL");
     }
   });
 
   it("leaves a worker that answered in time alone", async () => {
-    vi.useFakeTimers();
+    const { child, session } = sleeper();
     try {
-      const { session, killed } = fakeSession();
-      const request = stt.workerRequest(session, { op: "status" }, 1000);
+      const request = stt.workerRequest(session, { op: "status" }, 600);
       const [wait] = [...session.pending.values()] as Array<{ resolve: (m: unknown) => void }>;
       wait!.resolve({ ok: true });
       expect(await request).toEqual({ ok: true });
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(killed).toEqual([]);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(alive(child.pid!)).toBe(true);
     } finally {
-      vi.useRealTimers();
+      child.kill("SIGKILL");
     }
   });
 });
