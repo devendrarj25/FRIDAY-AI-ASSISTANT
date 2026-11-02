@@ -499,6 +499,7 @@ FunctionEnd
       Delete "$TEMP\friday-runtime-status.txt"
       RMDir /r "$TEMP\friday-bootstrap"
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
+      DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"
       DeleteRegKey HKCU "Software\FRIDAY"
       DeleteRegKey HKCU "Software\FRIDAY Test"
       DetailPrint "FRIDAY was removed completely. Nothing of FRIDAY is left on this PC."
@@ -510,12 +511,26 @@ FunctionEnd
       DeleteRegValue HKCU "Software\FRIDAY" "PythonSetupPending"
       DeleteRegValue HKCU "Software\FRIDAY" "LastInstallMode"
       DeleteRegKey /ifempty HKCU "Software\FRIDAY"
+      ; "Start FRIDAY when I sign in" lives in the Run key, outside the FRIDAY folder. A real uninstall must not
+      ; leave it pointing at a program that is gone (Windows then reports the missing file at every sign-in). An
+      ; upgrade keeps it, and the new version sets it again at its first start from the owner's saved setting.
+      ${IfNot} ${isUpdated}
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "FRIDAY"
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "FRIDAY"
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 
   ; Application-only leftovers: removed by BOTH modes, never user content.
   RMDir /r "$LOCALAPPDATA\friday-cache"
   RMDir /r "$LOCALAPPDATA\friday-updater"
+  ; Run markers of the copy being removed, kept in the app's user-data folder: a software-drawing fallback decided
+  ; for an old graphics driver or Electron build, and the process ids of the last run. A fresh install, and an
+  ; upgrade (which runs this uninstaller first), start without them: the graphics card gets another try and no
+  ; stale process id can be mistaken for FRIDAY's own.
+  Delete "$APPDATA\${PRODUCT_NAME}\gpu-fallback.json"
+  Delete "$APPDATA\${PRODUCT_NAME}\lifecycle.json"
+  Delete "$APPDATA\${PRODUCT_NAME}\owned-pids.json"
   RMDir /r "$INSTDIR\resources\app.asar.unpacked"
   ; The isolated Python runtime is created by Setup inside the program folder,
   ; so it is removed with the program. User data lives in the FRIDAY folder.
