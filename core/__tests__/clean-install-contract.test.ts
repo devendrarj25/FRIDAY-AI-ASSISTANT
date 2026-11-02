@@ -308,6 +308,41 @@ describe("node toolchain version set", () => {
     expect(nsh).toContain('RMDir /r "$FridayUnRoot"');
   });
 
+  it("removes the sign-in start entry on a real uninstall, keeps it on an upgrade, and never touches the data", () => {
+    const nsh = read("installer/build/installer.nsh");
+    const keepBranch = nsh.slice(
+      nsh.indexOf("Keeping the FRIDAY data folder and its pointer"),
+      nsh.indexOf("; Application-only leftovers"),
+    );
+    const run = 'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Run" "FRIDAY"';
+    const approved =
+      'DeleteRegValue HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run" "FRIDAY"';
+    // Both values go, but only when this is not the old uninstaller that an upgrade runs first.
+    const guarded = keepBranch.slice(keepBranch.indexOf("${IfNot} ${isUpdated}"));
+    expect(guarded).toContain(run);
+    expect(guarded).toContain(approved);
+    expect(guarded.indexOf("${EndIf}")).toBeGreaterThan(guarded.indexOf(approved));
+    // Neither value is removed outside that guard in the keep branch.
+    const before = keepBranch.slice(0, keepBranch.indexOf("${IfNot} ${isUpdated}"));
+    expect(before).not.toContain(run);
+    expect(before).not.toContain(approved);
+    // A delete-all uninstall removes the approval flag too.
+    expect(nsh.split(approved).length - 1).toBeGreaterThanOrEqual(2);
+  });
+
+  it("clears the old run's markers in both modes, and only those files in the user-data folder", () => {
+    const nsh = read("installer/build/installer.nsh");
+    const both = nsh.slice(
+      nsh.indexOf("; Application-only leftovers"),
+      nsh.indexOf('${If} $FridayUnMode == "delete"', nsh.indexOf("; Application-only leftovers")),
+    );
+    for (const marker of ["gpu-fallback.json", "lifecycle.json", "owned-pids.json"]) {
+      expect(both, marker).toContain(`Delete "$APPDATA\\\${PRODUCT_NAME}\\${marker}"`);
+    }
+    // Nothing else in that folder is removed by the keep path.
+    expect(both).not.toMatch(/RMDir \/r "\$APPDATA/);
+  });
+
   it("leaves nothing of FRIDAY behind when delete-all is confirmed", () => {
     const nsh = read("installer/build/installer.nsh");
     for (const target of [

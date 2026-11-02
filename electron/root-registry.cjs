@@ -17,6 +17,7 @@
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const { writeJsonSafe } = require("./safe-write.cjs");
 const path = require("node:path");
 
 /** Root-level descriptors this module owns. */
@@ -40,10 +41,7 @@ function readJson(file) {
 /** Atomic JSON write — a crash mid-write can never truncate the real file. */
 function writeJson(file, value) {
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-    fs.renameSync(tmp, file);
+    writeJsonSafe(file, value);
     return true;
   } catch {
     return false;

@@ -5,6 +5,7 @@
 //   * existing folders are mapped, never duplicated
 //   * nothing is overwritten; missing pieces are only created on repair
 const fs = require("fs");
+const { writeJsonSafe } = require("./safe-write.cjs");
 const path = require("path");
 
 // ---------------------------------------------------------------- layout ---
@@ -73,8 +74,7 @@ const readJson = (p) => {
 
 const writeJsonIfAbsent = (p, value) => {
   if (fs.existsSync(p)) return false;
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, `${JSON.stringify(value, null, 2)}\n`);
+  writeJsonSafe(p, value);
   return true;
 };
 
@@ -271,7 +271,7 @@ function touchWorkspaceManifest(root, patch = {}) {
     ...patch,
   };
   try {
-    fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+    writeJsonSafe(file, next);
   } catch {
     /* read-only workspace — scanning still works */
   }
@@ -300,6 +300,10 @@ const SKIP_DIRS = new Set([
   ".next",
   ".cache",
   "target",
+  // Windows system folders at the root of a drive, and a Python environment's packages.
+  "$recycle.bin",
+  "system volume information",
+  "site-packages",
 ]);
 
 /** Recursive file count with hard caps so a huge tree can never hang the app. */
@@ -313,7 +317,7 @@ function countFiles(dir, budget = { files: 0, dirs: 0 }, caps = { dirs: 4000, fi
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_DIRS.has(entry.name.toLowerCase())) continue;
       budget.dirs += 1;
       countFiles(path.join(dir, entry.name), budget, caps);
     } else {
@@ -355,6 +359,17 @@ const NOT_INDEXED = new Set(["app", "cache", "temp", "logs", "backups", "downloa
  * packaged files that would otherwise dominate every scan. */
 const PROGRAM_CAPS = { dirs: 200, files: 5000 };
 
+/** FRIDAY's own machine folders: a bundled Python, caches and sandboxes hold tens of thousands of small files that
+ * are not the owner's content, so they are mapped shallowly like the program folder. */
+const SHALLOW_FOLDERS = new Set([
+  contract.PROGRAM_FOLDER,
+  "runtime",
+  "sandbox",
+  "cache",
+  "temporary",
+  "temp",
+]);
+
 /**
  * Per-folder map of the workspace: what exists, what kind it is, how many
  * files it holds and whether the indexer picks it up. This is what the
@@ -367,10 +382,9 @@ function scanFolders(root) {
   for (const top of TOP_FOLDERS) {
     const resolved = resolveFolder(root, top);
     if (!resolved) continue;
-    const budget =
-      top === contract.PROGRAM_FOLDER
-        ? countFiles(resolved, { files: 0, dirs: 0 }, PROGRAM_CAPS)
-        : countFiles(resolved);
+    const budget = SHALLOW_FOLDERS.has(top)
+      ? countFiles(resolved, { files: 0, dirs: 0 }, PROGRAM_CAPS)
+      : countFiles(resolved);
     files += budget.files;
     dirs += budget.dirs + 1;
     folders.push({
@@ -501,4 +515,8 @@ module.exports = {
   touchWorkspaceManifest,
   scanWorkspace,
   scanFolders,
+  countFiles,
+  SKIP_DIRS,
+  SHALLOW_FOLDERS,
+  PROGRAM_CAPS,
 };

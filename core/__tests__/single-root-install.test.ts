@@ -62,6 +62,8 @@ function runNsis(body: string, env: Env): void {
       return existsSync(target);
     }
     if (condition === "${Errors}") return false;
+    // electron-builder's own switch: true in the old uninstaller that an upgrade runs first.
+    if (condition === "${isUpdated}") return env.vars["__updated"] === "1";
     const compare = /^(.+?)\s+(==|!=)\s+(.+)$/.exec(condition);
     if (!compare) throw new Error(`unsupported condition: ${condition}`);
     const left = arg(compare[1]!);
@@ -76,6 +78,12 @@ function runNsis(body: string, env: Env): void {
     const iff = /^\$\{If\}\s+(.+)$/.exec(line);
     if (iff) {
       const value = test(iff[1]!);
+      stack.push({ taken: value, active: value });
+      continue;
+    }
+    const ifnot = /^\$\{IfNot\}\s+(.+)$/.exec(line);
+    if (ifnot) {
+      const value = !test(ifnot[1]!);
       stack.push({ taken: value, active: value });
       continue;
     }
@@ -253,6 +261,55 @@ describe("uninstall executed against a real folder tree", () => {
     expect(env.deferred).toContain(instdir);
     expect(existsSync(root)).toBe(false);
     expect(Object.keys(env.reg).filter((k) => k.startsWith("Software\\FRIDAY"))).toEqual([]);
+  });
+
+  const RUN = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\\FRIDAY";
+  const APPROVED =
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run\\FRIDAY";
+
+  it("a real keep uninstall removes the sign-in start entry and the old run's markers, and nothing of the data", () => {
+    const { root, instdir, env } = buildInstall();
+    env.reg[RUN] = join(instdir, "FRIDAY.exe");
+    env.reg[APPROVED] = "02 00 00 00";
+    const userData = join(env.vars["APPDATA"]!, "FRIDAY");
+    mkdirSync(userData, { recursive: true });
+    for (const name of ["gpu-fallback.json", "lifecycle.json", "owned-pids.json", "Local State"]) {
+      writeFileSync(join(userData, name), "x");
+    }
+    runNsis(macroBody("customUnInstall"), env);
+    rmSync(instdir, { recursive: true, force: true });
+
+    expect(env.reg[RUN]).toBeUndefined();
+    expect(env.reg[APPROVED]).toBeUndefined();
+    for (const name of ["gpu-fallback.json", "lifecycle.json", "owned-pids.json"]) {
+      expect(existsSync(join(userData, name)), name).toBe(false);
+    }
+    // Other files of the app's user-data folder are not this uninstaller's to remove.
+    expect(existsSync(join(userData, "Local State"))).toBe(true);
+    for (const folder of ["database", "memory", "models", "config", "agents", "skills"]) {
+      expect(existsSync(join(root, folder, "user-content"))).toBe(true);
+    }
+    expect(env.reg["Software\\FRIDAY\\WorkspacePath"]).toBe(root);
+  });
+
+  it("the uninstaller an upgrade runs first keeps the sign-in start entry", () => {
+    const { instdir, env } = buildInstall();
+    env.vars["__updated"] = "1";
+    env.reg[RUN] = join(instdir, "FRIDAY.exe");
+    env.reg[APPROVED] = "02 00 00 00";
+    runNsis(macroBody("customUnInstall"), env);
+    expect(env.reg[RUN]).toBe(join(instdir, "FRIDAY.exe"));
+    expect(env.reg[APPROVED]).toBe("02 00 00 00");
+  });
+
+  it("a delete-all uninstall removes the sign-in entry and its approval flag", () => {
+    const { instdir, env } = buildInstall();
+    env.vars["FridayUnMode"] = "delete";
+    env.reg[RUN] = join(instdir, "FRIDAY.exe");
+    env.reg[APPROVED] = "02 00 00 00";
+    runNsis(macroBody("customUnInstall"), env);
+    expect(env.reg[RUN]).toBeUndefined();
+    expect(env.reg[APPROVED]).toBeUndefined();
   });
 
   it("rescues data that an older build left inside the program folder", () => {

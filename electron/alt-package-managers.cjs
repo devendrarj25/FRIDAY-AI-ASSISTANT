@@ -32,6 +32,8 @@ const ALT = Object.freeze({
   "Tesseract OCR": { choco: "tesseract", scoop: "tesseract" },
   "PowerShell 7": { choco: "powershell-core", scoop: "pwsh" },
   Go: { choco: "golang", scoop: "go" },
+  Gradle: { choco: "gradle", scoop: "gradle" },
+  Maven: { choco: "maven", scoop: "maven" },
   Rust: { choco: "rustup.install", scoop: "rustup" },
   "OpenJDK (Temurin)": { choco: "temurin21", scoop: "temurin21-jdk" },
   "Docker Desktop": { choco: "docker-desktop" },

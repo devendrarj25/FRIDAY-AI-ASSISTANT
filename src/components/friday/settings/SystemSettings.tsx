@@ -243,6 +243,11 @@ export function SystemSettings() {
           onToggle={() => flip("gpuRender")}
         />
         <ToggleRow
+          label="Lighten effects on battery or when memory is low"
+          on={isOn("autoLite")}
+          onToggle={() => flip("autoLite")}
+        />
+        <ToggleRow
           label="Skip heavy self-improvement when FRIDAY is unfocused or fullscreen"
           on={isOn("throttleFullscreen")}
           onToggle={() => flip("throttleFullscreen")}

@@ -136,8 +136,12 @@ function Install-WingetPackage([string]$PackageId) {
   }
   & winget install --id $PackageId --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
   $code = $LASTEXITCODE
-  # 0 = installed, -1978335189 = already newer/installed, -1978335212 = no applicable upgrade
-  if ($code -ne 0 -and $code -ne -1978335189 -and $code -ne -1978335212) {
+  # 0 = installed, -1978335189 (0x8A15002B) = already installed, no newer version.
+  # -1978335212 (0x8A150014) means winget has no package with this ID: that is a failure, so the next method runs.
+  if ($code -eq -1978335212) {
+    throw "winget does not know the package '$PackageId' (exit code $code)"
+  }
+  if ($code -ne 0 -and $code -ne -1978335189) {
     throw "winget exit code $code"
   }
 }
@@ -254,7 +258,7 @@ try {
 
   Ensure-Tool 'Git' 'git.exe' @('--version') $Versions.gitMinimum @(
     @{ Label = 'official winget package (Git.Git)'; Action = { Install-WingetPackage 'Git.Git' } },
-    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' '*64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') } }
+    @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') } }
   )
 
   Ensure-Tool 'PowerShell' 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') $Versions.powershellMinimum @(

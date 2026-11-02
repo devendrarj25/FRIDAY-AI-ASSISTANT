@@ -32,6 +32,24 @@ SKIP_DIRS = {
     ".vs",
 }
 
+# FRIDAY's own machine folders and Windows system folders. They hold tens of thousands of small files (the bundled
+# Python, caches, sandboxes) that nobody edits by hand, and walking them every 20 seconds is pure disk churn, which a
+# virus scanner makes worse. Compared in lower case: Windows paths are not case-sensitive.
+SKIP_DIRS_LOWER = {name.lower() for name in SKIP_DIRS} | {
+    "runtime",
+    "cache",
+    "sandbox",
+    "temporary",
+    "site-packages",
+    "$recycle.bin",
+    "system volume information",
+}
+
+
+def _skip_dir(name: str) -> bool:
+    return name.lower() in SKIP_DIRS_LOWER or name.startswith(".") or name.startswith("$")
+
+
 CODE_MARKERS = {
     "package.json": "Node",
     "pnpm-lock.yaml": "Node · pnpm",
@@ -92,8 +110,19 @@ class Workspace:
             self._mtimes = {}
 
     def _save(self) -> None:
+        """Whole file or not at all. A truncated index would read as 'every file changed' on the next start, and
+        on Windows the replace can fail for a moment while a scanner holds the file, so it is retried."""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        self.state_file.write_text(json.dumps(self._mtimes), "utf8")
+        tmp = self.state_file.with_name(self.state_file.name + ".tmp")
+        tmp.write_text(json.dumps(self._mtimes), "utf8")
+        for wait in (0.05, 0.1, 0.2, 0.4, None):
+            try:
+                os.replace(tmp, self.state_file)
+                return
+            except PermissionError:
+                if wait is None:
+                    raise
+                time.sleep(wait)
 
     # -- api -----------------------------------------------------------------
     def set_root(self, root: str) -> dict:
@@ -123,7 +152,7 @@ class Workspace:
         total_files = total_folders = 0
 
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            dirnames[:] = [d for d in dirnames if not _skip_dir(d)]
             total_folders += 1
 
             stack = next((s for marker, s in CODE_MARKERS.items() if marker in filenames), None)
@@ -160,7 +189,9 @@ class Workspace:
 
         self.changed = sum(1 for p, m in current.items() if previous.get(p) != m)
         self._mtimes = current
-        self._save()
+        # The index can hold a line per file. Rewrite it only when something changed, not every 20 seconds.
+        if current != previous or not self.state_file.exists():
+            self._save()
         self.detected = detected
         self.files = total_files
         self.folders = total_folders

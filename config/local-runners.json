@@ -102,11 +102,11 @@
       "catalogNote": "KoboldCpp is one executable. Models are GGUF files you import. There is no separate catalog API.",
       "release": {
         "repo": "LostRuins/koboldcpp",
-        "tag": "v1.123",
+        "tag": "v1.124.1",
         "asset": "koboldcpp.exe",
-        "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp.exe",
-        "bytes": 642223685,
-        "sha256": "ec20acbad449aaef75e44eac8b585b11cffb681eea7b98b74230f980f30fab38"
+        "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.124.1/koboldcpp.exe",
+        "bytes": 622611661,
+        "sha256": "32def5892e7880cec04382ab02baef635ac6bb298d38c616ae7c1fda48c94281"
       },
       "start": null,
       "stopHint": "Close the KoboldCpp window.",

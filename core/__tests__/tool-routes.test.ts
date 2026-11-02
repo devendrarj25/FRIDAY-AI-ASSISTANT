@@ -10,6 +10,7 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
 const toolchain = require_(path.join(root, "electron/toolchain.cjs"));
 const vendor = require_(path.join(root, "electron/vendor-sources.cjs"));
+const altManagers = require_(path.join(root, "electron/alt-package-managers.cjs"));
 
 type Tool = Record<string, unknown> & { id: string };
 const tools = toolchain.TOOLS as Tool[];
@@ -37,7 +38,9 @@ describe("install routes", () => {
           t["customCommand"] ||
           t["optionalFeature"] ||
           t["release"] ||
-          vendor.hasFeed(t.id)
+          vendor.hasFeed(t.id) ||
+          // Chocolatey or Scoop, when one is already on the PC (Gradle and Maven are not in winget-pkgs).
+          altManagers.managersFor(t.id).length > 0
         ),
     );
     expect(routeless.map((t) => t.id).sort()).toEqual([...VENDOR_ONLY].sort());

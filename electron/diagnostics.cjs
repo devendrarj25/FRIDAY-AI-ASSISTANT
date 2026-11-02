@@ -385,7 +385,13 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
 
   // --- hardware -------------------------------------------------------------
   const { detectHardware } = require("./hardware.cjs");
-  const hw = await detectHardware();
+  let fridayRoot = null;
+  try {
+    fridayRoot = require("./friday-paths.cjs").root() || null;
+  } catch {
+    /* no folder chosen yet: the first drive stands in for it */
+  }
+  const hw = await detectHardware({ root: fridayRoot });
   const ramWarn = hw.memory.totalGb < 8;
   checks.push(
     check({
@@ -393,7 +399,9 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
       label: "CPU",
       group: "Hardware",
       status: hw.cpu.cores >= 4 ? "Ready" : "Warning",
-      detail: `${hw.cpu.model} · ${hw.cpu.cores} threads`,
+      detail: hw.cpu.physicalCores
+        ? `${hw.cpu.model} · ${hw.cpu.physicalCores} cores, ${hw.cpu.cores} threads`
+        : `${hw.cpu.model} · ${hw.cpu.cores} threads`,
       cause: hw.cpu.cores >= 4 ? null : "Fewer than 4 threads — local models will be slow.",
       fix:
         hw.cpu.cores >= 4
@@ -432,13 +440,26 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
       group: "Hardware",
       status: hw.plan.backend === "gpu" ? "Ready" : hw.gpus.length ? "Warning" : "Missing",
       detail: hw.gpus.length
-        ? `${hw.gpus[0].name} · ${hw.gpus[0].vramTotalMb ?? "?"} MB VRAM · plan ${hw.plan.backend.toUpperCase()}`
+        ? hw.gpus
+            .map((gpu, index) => {
+              const memory = gpu.vramTotalMb
+                ? `${gpu.vramKnown === false ? "at least " : ""}${gpu.vramTotalMb} MB VRAM`
+                : "VRAM unknown";
+              const live = [
+                gpu.utilizationPercent != null ? `${gpu.utilizationPercent}% load` : null,
+                gpu.temperatureC != null ? `${gpu.temperatureC} °C` : null,
+              ].filter(Boolean);
+              return `${gpu.name} · ${memory}${live.length ? ` · ${live.join(", ")}` : ""}${index === 0 ? ` · plan ${hw.plan.backend.toUpperCase()}` : ""}`;
+            })
+            .join(" | ")
         : "no discrete GPU detected — CPU inference",
       cause: hw.plan.backend === "gpu" ? null : hw.plan.reason,
       fix:
         hw.plan.backend === "gpu"
           ? null
-          : "Install the latest GPU driver and the CUDA Toolkit, then rescan.",
+          : hw.gpus[0] && hw.gpus[0].vendor !== "nvidia"
+            ? "Install the latest driver for this card from its maker. Ollama uses AMD and Intel cards where it supports them; FRIDAY cannot confirm that from here."
+            : "Install the latest GPU driver and the CUDA Toolkit, then rescan.",
       command: "nvidia-smi",
       steps:
         hw.plan.backend === "gpu"
@@ -452,6 +473,33 @@ async function runDiagnostics(ctx = {}, { deep = false } = {}) {
             ],
     }),
   );
+
+  // Every fixed drive, with the one that holds the FRIDAY folder marked: models, memory and downloads all
+  // write there, and a full drive stops them without any other warning.
+  if (Array.isArray(hw.drives) && hw.drives.length) {
+    const home = hw.drives.find((drive) => drive.holdsFridayFolder) || hw.drives[0];
+    const low = home.freeGb < 5;
+    checks.push(
+      check({
+        id: "drives",
+        label: "Drives",
+        group: "Hardware",
+        status: low ? "Warning" : "Ready",
+        detail: hw.drives
+          .map(
+            (drive) =>
+              `${drive.letter}${drive.label ? ` ${drive.label}` : ""} ${drive.freeGb} of ${drive.totalGb} GB free${drive.holdsFridayFolder ? " (FRIDAY)" : ""}`,
+          )
+          .join(" · "),
+        cause: low
+          ? `Only ${home.freeGb} GB is free on the drive that holds the FRIDAY folder.`
+          : null,
+        fix: low
+          ? "Free some space on that drive, or move models to a drive with more room."
+          : null,
+      }),
+    );
+  }
 
   // --- AI providers & models -----------------------------------------------
   const { detectProviders } = require("./providers.cjs");

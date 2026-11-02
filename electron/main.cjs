@@ -255,6 +255,23 @@ const { Worker } = require("worker_threads");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+
+// A graphics driver that crashed repeatedly last time: this start draws in software, which every PC can do.
+// The marker expires after a week; FRIDAY_FORCE_GPU=1 ignores it. See electron/system-health.cjs.
+const systemHealth = require("./system-health.cjs");
+const safeWrite = require("./safe-write.cjs");
+const gpuGuard = systemHealth.createGpuGuard({
+  fs,
+  file: path.join(app.getPath("userData"), "gpu-fallback.json"),
+  log: (message) => log(message),
+});
+if (
+  !process.env.FRIDAY_BOOT_SELFTEST &&
+  process.env.FRIDAY_READINESS !== "1" &&
+  gpuGuard.softwareMode()
+) {
+  app.disableHardwareAcceleration();
+}
 const readinessTrace = require("./readiness-trace.cjs");
 const appLifecycle = require("./app-lifecycle.cjs");
 const lifeSteps = {};
@@ -771,6 +788,19 @@ let lastScan = null;
 let lastProviders = null;
 let lastComponents = null;
 let lastHardware = null;
+// Free memory, FRIDAY's own load and the battery, read every few seconds (electron/system-health.cjs).
+// The hardware probe the app starts at launch. The kernel waits for it (up to 5 s) so its first start already has
+// the plan; before this, the kernel usually started first and ran with no plan at all.
+let hardwareBoot = null;
+let pressureMonitor = null;
+/** The worker plan for what is free right now: a kernel started under pressure starts lighter. */
+function currentPlan() {
+  if (!lastHardware) return null;
+  return systemHealth.adaptPlan(
+    lastHardware.plan,
+    pressureMonitor ? pressureMonitor.snapshot() : null,
+  );
+}
 const bootSteps = [];
 const activeChats = new Map();
 let kernelReady = false;
@@ -847,6 +877,16 @@ function readJsonFile(file, { repair = false } = {}) {
       }
     } else {
       log(`config unreadable: ${file} (${error?.message || error})`);
+    }
+    // The safe writer keeps the previous good body beside the file: use it before giving up on the settings.
+    try {
+      const earlier = JSON.parse(fs.readFileSync(`${file}.bak`, "utf8"));
+      if (earlier && typeof earlier === "object") {
+        log(`config ${file} was damaged; the last good copy was used`);
+        return earlier;
+      }
+    } catch {
+      /* no usable backup either */
     }
     return {};
   }
@@ -927,17 +967,13 @@ const settingsFile = () =>
 
 function writeSettings(next) {
   const bootstrap = bootstrapSettingsFile();
-  fs.mkdirSync(path.dirname(bootstrap), { recursive: true });
-  // The pointer must always be readable before any folder is known.
-  fs.writeFileSync(
-    bootstrap,
-    JSON.stringify({ workspaceRoot: next.workspaceRoot || null }, null, 2),
-  );
+  // The pointer must always be readable before any folder is known. It is written whole or not at all: a
+  // half-written pointer would send the next start to the folder picker as if FRIDAY were new.
+  safeWrite.writeJsonSafe(bootstrap, { workspaceRoot: next.workspaceRoot || null });
   const file = workspaceSettingsFile(next.workspaceRoot);
   if (!file) return;
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(next, null, 2));
+    safeWrite.writeJsonSafe(file, next);
   } catch (error) {
     log(`settings could not be written to the workspace: ${error?.message || error}`);
   }
@@ -1375,6 +1411,9 @@ async function startKernel(root) {
   if (kernel) await stopKernel();
   kernelInstanceId = "";
   await recoverStaleOwned();
+  if (!lastHardware && hardwareBoot) {
+    await Promise.race([hardwareBoot, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  }
   if (process.env.FRIDAY_READINESS === "1") {
     KERNEL_PORT = kernelBind.initialPort(process.env);
   } else if (await portBusy(KERNEL_PORT)) {
@@ -1445,11 +1484,13 @@ async function startKernel(root) {
         // from the profile the app already detected instead of guessing.
         ...(lastHardware
           ? {
-              FRIDAY_BACKEND: lastHardware.plan.backend,
-              FRIDAY_THREADS: String(lastHardware.plan.threads),
-              FRIDAY_MAX_RAM_GB: String(lastHardware.plan.maxRamGb),
-              FRIDAY_MAX_VRAM_GB: String(lastHardware.plan.maxVramGb),
-              FRIDAY_GPU_FALLBACK: lastHardware.plan.fallback,
+              FRIDAY_BACKEND: currentPlan().backend,
+              FRIDAY_THREADS: String(currentPlan().threads),
+              FRIDAY_MAX_RAM_GB: String(currentPlan().maxRamGb),
+              FRIDAY_MAX_VRAM_GB: String(currentPlan().maxVramGb),
+              FRIDAY_GPU_FALLBACK: currentPlan().fallback,
+              // The libraries the kernel really uses read these, not the FRIDAY_ ones above.
+              ...systemHealth.threadEnv(currentPlan().threads),
             }
           : {}),
       },
@@ -4061,6 +4102,13 @@ function createWindow() {
     require("./window-hang.cjs").watchWindowHang(win, { dialog, log });
   }
 
+  // Windows: a shutdown, restart or log-off ends the session without `will-quit` (Electron's app docs say so)
+  // and `powerMonitor` has no "shutdown" event there. `session-end` is the window event Windows sends, and
+  // once it fires the session cannot be stopped, so the same clean stop runs now.
+  win.on("session-end", () => {
+    void life.onSessionEnd("os-session-end");
+  });
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -4359,6 +4407,20 @@ lifeSteps.microphone = () => {
     /* wake worker may already be gone */
   }
 };
+// Ask every page to send what still waits on its save delay (the same call the PC going to sleep makes), then give
+// those writes a moment to arrive. They go through the main process's own write handlers, so a settings change
+// made in the last quarter second is on disk before the window is destroyed.
+lifeSteps.flush = async () => {
+  for (const open of BrowserWindow.getAllWindows()) {
+    try {
+      if (!open.isDestroyed()) open.webContents.send("system:suspend");
+    } catch {
+      /* a window that is already gone has nothing left to save */
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 400));
+};
+
 lifeSteps.downloads = () => {
   for (const [id, controller] of modelJobs) {
     const pump = modelPumps.get(id);
@@ -5241,18 +5303,16 @@ function applyOwnerPermissionOverlay(name, risk, decision) {
 }
 
 ipcMain.handle("prefs:get", () => {
-  try {
-    return JSON.parse(fs.readFileSync(preferencesFile(), "utf8"));
-  } catch {
-    return null;
-  }
+  // A damaged settings file (a write cut off by a power loss or a crash) falls back to the last good copy
+  // instead of silently resetting every setting.
+  const { value, source } = safeWrite.readJsonSafe(preferencesFile(), null);
+  if (source === "backup") log("settings file was damaged; the last good copy was used");
+  return value;
 });
 
 ipcMain.handle("prefs:set", (_e, value) => {
   if (!value || typeof value !== "object") throw new Error("Invalid preferences payload.");
-  const file = preferencesFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  safeWrite.writeJsonSafe(preferencesFile(), value);
   applyOwnerPreferenceEffects(value);
   return true;
 });
@@ -9306,6 +9366,18 @@ app
         };
         powerMonitor.on("resume", wakeSession);
         powerMonitor.on("unlock-screen", wakeSession);
+        startPressureMonitor(powerMonitor);
+        // Going to sleep: send what is still waiting on a save delay now, because nothing says the page
+        // is hiding when the lid closes. The pressure timer stops while the PC sleeps.
+        powerMonitor.on("suspend", () => {
+          if (pressureMonitor) pressureMonitor.stop();
+          for (const open of BrowserWindow.getAllWindows()) {
+            if (!open.isDestroyed()) open.webContents.send("system:suspend");
+          }
+        });
+        powerMonitor.on("resume", () => {
+          if (pressureMonitor) pressureMonitor.start();
+        });
         powerMonitor.on("shutdown", () => {
           void life.onSessionEnd("os-shutdown");
         });
@@ -9353,6 +9425,17 @@ app
     if (root) {
       const config = ensureCanonicalConfig(root);
       ensureRootFiles(root, { version: productVersion() });
+      const folder = systemHealth.rootHealth({ fs, root });
+      boot(
+        "Checking folder",
+        folder.ok ? "ok" : "warn",
+        folder.ok
+          ? folder.freeGb === null
+            ? root
+            : `${folder.freeGb} GB free`
+          : folder.problems.join(" "),
+      );
+      if (!folder.ok) log(`FRIDAY folder problem: ${folder.problems.join(" ")}`, "warn");
       boot(
         "Loading configuration",
         "ok",
@@ -9630,13 +9713,14 @@ function startAfterKernel(root, bootStartedAt) {
     })
     .catch(() => boot("Detecting AI providers", "warn"));
 
-  detectHardware()
+  hardwareBoot = detectHardware({ root: getWorkspaceRoot() })
     .then((hw) => {
       lastHardware = hw;
+      hardwareAt = Date.now();
       boot(
         "Checking acceleration",
         "ok",
-        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.cores} cores · ${hw.plan.reason}`,
+        `${hw.plan.backend.toUpperCase()} · ${hw.cpu.physicalCores ?? hw.cpu.cores} cores · ${hw.plan.reason}`,
       );
     })
     .catch(() => boot("Checking acceleration", "warn"));
@@ -9647,6 +9731,63 @@ function startAfterKernel(root, bootStartedAt) {
   // and its result is broadcast to every screen.
   void pluginsLoaded.finally(() => setTimeout(() => void runStartup(), 400));
 }
+
+function startPressureMonitor(powerMonitor) {
+  if (pressureMonitor) return;
+  const os = require("node:os");
+  pressureMonitor = systemHealth.createPressureMonitor({
+    os,
+    getMetrics: () => app.getAppMetrics(),
+    isOnBattery: () => {
+      try {
+        return Boolean(powerMonitor && powerMonitor.isOnBatteryPower());
+      } catch {
+        return false;
+      }
+    },
+  });
+  pressureMonitor.onChange((snapshot) => {
+    log(
+      `system pressure ${snapshot.level}${snapshot.onBattery ? " on battery" : ""}: ${snapshot.freeGb} GB free, FRIDAY ${snapshot.appMemMb} MB`,
+    );
+    for (const open of BrowserWindow.getAllWindows()) {
+      if (!open.isDestroyed()) open.webContents.send("system:pressure", snapshot);
+    }
+  });
+  // A change of power source or of the OS speed limit is read at once, not at the next tick.
+  for (const event of ["on-battery", "on-ac", "speed-limit-change"]) {
+    try {
+      powerMonitor.on(event, () => pressureMonitor && pressureMonitor.sample());
+    } catch {
+      /* an event this platform does not have */
+    }
+  }
+  pressureMonitor.start();
+}
+
+ipcMain.handle("system:pressure", () => (pressureMonitor ? pressureMonitor.snapshot() : null));
+
+// A graphics process that crashed twice in ten minutes means the driver cannot be trusted this week: tell the
+// owner, restart FRIDAY once, and draw in software (the marker is read at the next start).
+app.on("child-process-gone", (_event, details) => {
+  const verdict = gpuGuard.recordChildGone(details);
+  if (verdict.action !== "fallback" || app.__fridayQuitting) return;
+  const owner = win && !win.isDestroyed() ? win : null;
+  const ask = dialog.showMessageBox(owner, {
+    type: "warning",
+    title: "FRIDAY graphics",
+    message: "The graphics driver stopped working twice.",
+    detail:
+      "FRIDAY will restart now and draw in software mode so it stays stable. Your files, memory and settings are not touched. FRIDAY tries the graphics card again in a week.",
+    buttons: ["Restart now"],
+    defaultId: 0,
+    noLink: true,
+  });
+  const wait = new Promise((resolve) => setTimeout(resolve, 15000));
+  void Promise.race([ask, wait])
+    .catch(() => undefined)
+    .finally(() => void life.requestRestart("gpu-fallback"));
+});
 
 app.on("second-instance", () => {
   showFridayWindow();

@@ -686,6 +686,21 @@ html.friday-hidden .orb-halo,
 html.friday-hidden .orb-sweep {
   animation-play-state: paused;
 }
+/* Lite: on battery or short of memory (lib/friday/system-pressure.ts). The decoration stops so the work gets the
+   machine; the live-status dots keep pulsing because they carry meaning. */
+html.friday-lite .orb-breathe,
+html.friday-lite .orb-spin-slow,
+html.friday-lite .orb-spin-rev,
+html.friday-lite .orb-halo,
+html.friday-lite .orb-sweep {
+  animation-play-state: paused;
+}
+html.friday-lite .circuit-flow {
+  display: none !important;
+}
+html.friday-lite body::before {
+  animation: none;
+}
 .neural-circuit {
   contain: layout paint;
 }
@@ -1749,7 +1764,13 @@ html.no-blur .friday-titlestrip,
 html.no-blur .friday-chat-full,
 html.no-blur .friday-composer-blur,
 html.no-blur .voice-glass,
-html.no-blur .voice-glass-menu {
+html.no-blur .voice-glass-menu,
+html.friday-lite .friday-sidebar,
+html.friday-lite .friday-titlestrip,
+html.friday-lite .friday-chat-full,
+html.friday-lite .friday-composer-blur,
+html.friday-lite .voice-glass,
+html.friday-lite .voice-glass-menu {
   backdrop-filter: none;
 }
 /* GPU render off: no blur, no drift, solid fills. */

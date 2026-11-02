@@ -422,10 +422,127 @@ async function ensureElectron() {
   return false;
 }
 
-module.exports = { ensureElectron, isPresent, isUsable, verifyBinary, binaryPath };
+/**
+ * The installer tools electron-builder downloads while it packages (NSIS and its plugins, from the
+ * electron-builder-binaries releases on GitHub, each pinned by SHA-256 inside electron-builder). Without this the
+ * first download happens in the middle of the build, and a dropped connection there fails the whole pack. They are
+ * fetched here, with electron-builder's own downloader and cache folder, so setup and Doctor have already fetched
+ * and checked them, and the build only reads them. The pins come from the installed electron-builder, so a newer
+ * one is followed without editing this file. A mirror set in ELECTRON_BUILDER_BINARIES_MIRROR is honoured.
+ * Only a Windows build makes an NSIS installer, so only Windows fetches them (FRIDAY_PREFETCH_BUILDER_TOOLS=1
+ * forces it elsewhere).
+ */
+const builderCacheDir = (env = process.env) =>
+  env.ELECTRON_BUILDER_CACHE || path.join(root, ".cache", "electron-builder");
+
+const installerToolsMarker = (env = process.env) =>
+  path.join(builderCacheDir(env), ".friday-installer-tools.json");
+
+const installerToolsWanted = (env = process.env, platform = process.platform) =>
+  platform === "win32" || String(env.FRIDAY_PREFETCH_BUILDER_TOOLS || "") === "1";
+
+function builderVersion() {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.join(root, "node_modules", "app-builder-lib", "package.json"), "utf8"),
+    ).version;
+  } catch {
+    return null;
+  }
+}
+
+/** Ready = fetched by this electron-builder version and every recorded folder is still there. */
+function installerToolsReady(env = process.env, platform = process.platform) {
+  if (!installerToolsWanted(env, platform))
+    return { wanted: false, ready: true, reason: "not needed here" };
+  try {
+    const marker = JSON.parse(fs.readFileSync(installerToolsMarker(env), "utf8"));
+    if (marker.builder !== builderVersion()) {
+      return { wanted: true, ready: false, reason: "fetched by another electron-builder version" };
+    }
+    const gone = [marker.nsis, marker.plugins].filter((dir) => !dir || !fs.existsSync(dir));
+    if (gone.length) return { wanted: true, ready: false, reason: "a cached folder is missing" };
+    return { wanted: true, ready: true, reason: "cached", paths: [marker.nsis, marker.plugins] };
+  } catch {
+    return { wanted: true, ready: false, reason: "not fetched yet" };
+  }
+}
+
+async function ensureInstallerTools({
+  env = process.env,
+  platform = process.platform,
+  loadToolset = () =>
+    require(path.join(root, "node_modules", "app-builder-lib", "out", "toolsets", "windows.js")),
+  waits = [2000, 5000],
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  if (!installerToolsWanted(env, platform)) {
+    log("skip     installer tools are fetched on Windows only");
+    return true;
+  }
+  if (!fs.existsSync(path.join(root, "node_modules", "app-builder-lib"))) {
+    log("skip     electron-builder is not installed in this tree");
+    return true;
+  }
+  if (installerToolsReady(env, platform).ready) {
+    log("ok       installer tools (NSIS) already fetched");
+    return true;
+  }
+  env.ELECTRON_BUILDER_CACHE = builderCacheDir(env);
+  fs.mkdirSync(env.ELECTRON_BUILDER_CACHE, { recursive: true });
+  let lastError = null;
+  for (let attempt = 0; attempt <= waits.length; attempt += 1) {
+    try {
+      log(
+        `fetching installer tools (NSIS) for electron-builder${attempt ? `, try ${attempt + 1}` : ""} ...`,
+      );
+      const toolset = loadToolset();
+      const make = await toolset.getMakeNsisPath(undefined);
+      const plugins = await toolset.getNsisPluginsPath(undefined);
+      const nsis = path.dirname(make.path);
+      if (!fs.existsSync(make.path) || !fs.existsSync(plugins)) {
+        throw new Error(`the download left no makensis at ${make.path}`);
+      }
+      fs.writeFileSync(
+        installerToolsMarker(env),
+        JSON.stringify({ builder: builderVersion(), nsis, plugins, at: new Date().toISOString() }),
+      );
+      log(`ok       installer tools ready at ${nsis}`);
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (attempt < waits.length) await sleep(waits[attempt]);
+    }
+  }
+  console.error(
+    `[friday] installer tools could not be fetched: ${lastError instanceof Error ? lastError.message.split("\n")[0] : String(lastError)}`,
+  );
+  console.error(
+    "[friday]          source: https://github.com/electron-userland/electron-builder-binaries/releases",
+  );
+  console.error(
+    "[friday]          behind a proxy or a firewall: allow github.com and release-assets.githubusercontent.com,",
+  );
+  console.error(
+    "[friday]          or point ELECTRON_BUILDER_BINARIES_MIRROR at a mirror of that release list, then run: npm run setup:electron",
+  );
+  return false;
+}
+
+module.exports = {
+  ensureElectron,
+  ensureInstallerTools,
+  installerToolsReady,
+  builderCacheDir,
+  isPresent,
+  isUsable,
+  verifyBinary,
+  binaryPath,
+};
 
 if (require.main === module) {
   ensureElectron()
+    .then(async (ok) => (ok ? ensureInstallerTools() : false))
     .then((ok) => process.exit(ok ? 0 : 1))
     .catch((error) => {
       console.error(`[friday] error    ${error instanceof Error ? error.message : String(error)}`);

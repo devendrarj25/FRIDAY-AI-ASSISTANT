@@ -8,6 +8,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { writeJsonSafe } = require("./safe-write.cjs");
 let shell = { openPath: () => false };
 try {
   ({ shell } = require("electron"));
@@ -48,9 +49,7 @@ function readIndex() {
 }
 
 function writeIndex(items) {
-  const file = indexPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ version: 1, updatedAt: now(), items }, null, 2));
+  writeJsonSafe(indexPath(), { version: 1, updatedAt: now(), items });
   return items;
 }
 
