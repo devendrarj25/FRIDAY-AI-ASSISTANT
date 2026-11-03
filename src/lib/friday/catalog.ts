@@ -140,7 +140,7 @@ export const catalog: CatalogEntry[] = [
     "FRIDAY pip bootstrap",
     "Languages & Runtimes",
     "pypa.io",
-    "https://raw.githubusercontent.com/pypa/get-pip/6147c762fb5a0f40b0af2063f11fdc8ee7d7da01/public/get-pip.py",
+    "https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py",
     "vendor",
     null,
     "2026-11-03",

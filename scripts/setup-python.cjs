@@ -144,6 +144,13 @@ if (!pipReady()) {
       exec: () => run(python, ["-m", "ensurepip", "--upgrade"]),
     },
     {
+      label: "pinned get-pip.py (pypa/get-pip commit, pip 26.2.2)",
+      exec: () =>
+        downloadGetPip(
+          "https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py",
+        ),
+    },
+    {
       label: "official get-pip.py from bootstrap.pypa.io",
       exec: () => downloadGetPip("https://bootstrap.pypa.io/get-pip.py"),
     },

@@ -700,9 +700,9 @@ const TOOLS = [
     url: "https://pip.pypa.io/",
     source: "pypa.io",
     installerUrl:
-      "https://raw.githubusercontent.com/pypa/get-pip/6147c762fb5a0f40b0af2063f11fdc8ee7d7da01/public/get-pip.py",
-    sha256: "f7654c5589318e1d0789575b2586ce76937eb9943602adda8b15b3be3aa0dac3",
-    needBytes: 2397685,
+      "https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py",
+    sha256: "f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",
+    needBytes: 2234489,
     archiveBin: "get-pip.py",
     storeOnly: true,
     manual: "Pinned get-pip.py. MIT. Hashed 2026-11-03.",
