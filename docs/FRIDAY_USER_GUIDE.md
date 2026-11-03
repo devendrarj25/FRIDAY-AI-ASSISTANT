@@ -1,6 +1,6 @@
 # FRIDAY — User Guide
 
-**Current shipping version: 1.1.5.6**
+**Current shipping version: 1.1.5.7**
 
 FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local & Cloud Models.
 

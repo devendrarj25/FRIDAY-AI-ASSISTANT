@@ -2,6 +2,29 @@
 
 What changed in each released version. Each entry is the owner-facing What's New for that version, kept in sync with releases/notes.
 
+## v1.1.5.7
+
+**Released:** November 3, 2026  
+**Channel:** Stable (official release)  
+**Release type:** PATCH / FIX  
+**Changes since:** v1.1.5.6  
+**Summary:** FRIDAY 1.1.5.7 includes reliability fixes.
+
+### What's New
+
+FRIDAY 1.1.5.7 is a small fix. Here is what changed for you.
+
+#### Fixed
+- Pin get-pip to the pip 26.2.2 commit, since the newest get-pip cannot install pip on Windows.
+- Ask for stored bytes so a gzipped download is not cut to its compressed size.
+- Pin get-pip to an immutable commit URL so its checksum stops breaking the Windows build.
+- Owner and bot-only workflow actors, verified merged-branch delete, and Test Build no longer scanning the NSIS cache.
+
+### Important Notes
+
+- Your FRIDAY data remains preserved during updates. Installing this release replaces application files only.
+- Downloads are verified against the published SHA-256 before installation.
+
 ## v1.1.5.6
 
 **Released:** November 2, 2026  
