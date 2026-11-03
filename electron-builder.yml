@@ -99,6 +99,7 @@ extraResources:
       - "**/*"
       - "!cloud-agent-*"
       - "!ci-workflow-run.sh"
+      - "!ci-delete-branch.sh"
   - from: updater
     to: updater
   - from: builder

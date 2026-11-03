@@ -699,12 +699,13 @@ const TOOLS = [
   T("FRIDAY pip bootstrap", "Languages & Runtimes", {
     url: "https://pip.pypa.io/",
     source: "pypa.io",
-    installerUrl: "https://bootstrap.pypa.io/get-pip.py",
+    installerUrl:
+      "https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py",
     sha256: "f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",
     needBytes: 2234489,
     archiveBin: "get-pip.py",
     storeOnly: true,
-    manual: "Pinned get-pip.py. MIT. Hashed 2026-10-21.",
+    manual: "Pinned get-pip.py. MIT. Hashed 2026-11-03.",
   }),
   T("FRIDAY Node", "Languages & Runtimes", {
     url: "https://nodejs.org/",

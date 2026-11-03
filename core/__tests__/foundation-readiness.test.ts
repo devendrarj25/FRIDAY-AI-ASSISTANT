@@ -212,6 +212,7 @@ describe("build and packaging chain", () => {
     const yml = read("electron-builder.yml");
     expect(yml).toMatch(/!cloud-agent-/);
     expect(yml).toContain("!ci-workflow-run.sh");
+    expect(yml).toContain("!ci-delete-branch.sh");
     expect(yml).toContain("!dist-desktop/**/*.map");
   });
 

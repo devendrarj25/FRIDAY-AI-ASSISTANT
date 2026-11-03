@@ -86,6 +86,7 @@ function Install-Pip {
   New-Item -ItemType Directory -Force -Path $downloads | Out-Null
   $file = Join-Path $downloads 'get-pip.py'
   foreach ($url in @(
+      'https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py',
       'https://bootstrap.pypa.io/get-pip.py',
       'https://raw.githubusercontent.com/pypa/get-pip/main/public/get-pip.py'
     )) {

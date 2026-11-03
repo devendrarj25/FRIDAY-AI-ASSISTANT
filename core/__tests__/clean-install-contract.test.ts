@@ -568,6 +568,12 @@ describe("multi-fallback installation", () => {
     expect(repair).toContain("bootstrap.pypa.io/get-pip.py");
     expect(repair).toContain("pypa/get-pip");
     expect(repair).toContain("function Install-Pip");
+    // Both fallbacks try the pinned commit (pip 26.2.2) first; the newest get-pip fails on Windows.
+    const pinned = "pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py";
+    expect(setup).toContain(pinned);
+    expect(repair).toContain(pinned);
+    expect(setup.indexOf(pinned)).toBeLessThan(setup.indexOf("bootstrap.pypa.io/get-pip.py"));
+    expect(repair.indexOf(pinned)).toBeLessThan(repair.indexOf("bootstrap.pypa.io/get-pip.py"));
   });
 
   it("retries npm ci inside the Windows pack script", () => {

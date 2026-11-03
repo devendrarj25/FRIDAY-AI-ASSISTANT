@@ -18,6 +18,7 @@ const skip = new Set([
   ".venv",
   "debug",
   "coverage",
+  ".cache",
   "build",
   "out",
   "__pycache__",

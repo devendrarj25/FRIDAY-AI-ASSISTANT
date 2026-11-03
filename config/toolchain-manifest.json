@@ -22,11 +22,11 @@
     {
       "id": "get-pip",
       "name": "pip bootstrap",
-      "version": "2026-10-21",
+      "version": "2026-11-03",
       "sha256": "f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",
       "bytes": 2234489,
       "license": "MIT",
-      "url": "https://bootstrap.pypa.io/get-pip.py",
+      "url": "https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py",
       "tier": "bundled",
       "entry": "get-pip.py",
       "kind": "file"

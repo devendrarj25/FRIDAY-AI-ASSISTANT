@@ -8,9 +8,9 @@ SHA-256: 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3
 Bytes: 11133606
 Tier: bundled
 
-pip bootstrap 2026-10-21
+pip bootstrap 2026-11-03
 License: MIT
-Source: https://bootstrap.pypa.io/get-pip.py
+Source: https://raw.githubusercontent.com/pypa/get-pip/fa4e90301bf000c36309f3ad79c3ac720b55d6df/public/get-pip.py
 SHA-256: f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424
 Bytes: 2234489
 Tier: bundled
