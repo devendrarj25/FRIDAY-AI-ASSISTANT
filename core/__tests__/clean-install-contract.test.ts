@@ -539,6 +539,22 @@ describe("multi-fallback installation", () => {
     expect(setup).not.toMatch(/SkipCertificateCheck|ServerCertificateValidationCallback/);
   });
 
+  it("shows live details for every download and install the setup makes", () => {
+    const setup = read("scripts/setup-windows.ps1");
+    // A download names its file and source, draws curl.exe's live bar, then reports size, time and transport.
+    expect(setup).toContain('Write-Step "downloading $FileName from $Url"');
+    expect(setup).toContain("--progress-bar");
+    expect(setup).toContain("Write-DownloadDone");
+    expect(setup).toContain("function Format-Size");
+    // The progress bar is real: it must not be silenced by --silent, and the bar tool runs before the silent one.
+    expect(setup).not.toMatch(/curl\.exe[^\n]*--silent/);
+    expect(setup.indexOf("& curl.exe")).toBeLessThan(setup.indexOf("Invoke-WebRequest -Uri $Url"));
+    // An install says what it is doing, and reports the installer's own exit code.
+    expect(setup).toContain("installing $(Split-Path -Leaf $File) silently");
+    expect(setup).toContain("installer finished with exit code");
+    expect(setup).toContain("winget finished for $PackageId with exit code");
+  });
+
   it("keeps powershell.exe scripts 7-bit ASCII so Windows PowerShell 5.1 can parse them", () => {
     // npm run setup launches `powershell.exe` (5.1), which reads -File as the
     // system ANSI code page unless a BOM is present. A UTF-8 em-dash (bytes

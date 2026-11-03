@@ -86,25 +86,33 @@ function Get-DownloadFolder {
   return $folder
 }
 
+function Format-Size([double]$Bytes) {
+  if ($Bytes -ge 1GB) { return ('{0:N1} GB' -f ($Bytes / 1GB)) }
+  if ($Bytes -ge 1MB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
+  return ('{0:N0} KB' -f ($Bytes / 1KB))
+}
+
+function Write-DownloadDone([string]$Target, [datetime]$Started, [string]$Method) {
+  $elapsed = (Get-Date) - $Started
+  $seconds = [int][math]::Round($elapsed.TotalSeconds)
+  $size = Format-Size ((Get-Item -LiteralPath $Target).Length)
+  Write-Step "downloaded $(Split-Path -Leaf $Target) - $size in ${seconds}s via $Method"
+}
+
 function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
   $target = Join-Path (Get-DownloadFolder) $FileName
   if (Test-Path $target) { Remove-Item $target -Force }
+  Write-Step "downloading $FileName from $Url"
+  $started = Get-Date
   # TLS stays fully enabled; proxy settings are honoured from the system.
-  # Two official transports: Windows WebRequest, then curl.exe (Win10+).
+  # Two official transports: curl.exe (Win10+, draws a live progress bar), then Windows WebRequest.
   $errors = @()
-  try {
-    Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing -MaximumRedirection 10
-    if ((Test-Path $target) -and ((Get-Item $target).Length -gt 0)) { return $target }
-    throw "downloaded file is empty: $Url"
-  } catch {
-    $errors += "Invoke-WebRequest: $($_.Exception.Message)"
-    if (Test-Path $target) { Remove-Item $target -Force }
-  }
   $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
   if ($curl) {
     try {
-      & curl.exe --fail --location --silent --show-error --retry 3 --retry-delay 2 --output $target $Url
+      & curl.exe --fail --location --progress-bar --show-error --retry 3 --retry-delay 2 --output $target $Url
       if ($LASTEXITCODE -eq 0 -and (Test-Path $target) -and ((Get-Item $target).Length -gt 0)) {
+        Write-DownloadDone $target $started 'curl.exe'
         return $target
       }
       throw "curl.exe exit $LASTEXITCODE"
@@ -113,18 +121,34 @@ function Invoke-OfficialDownload([string]$Url, [string]$FileName) {
       if (Test-Path $target) { Remove-Item $target -Force }
     }
   }
+  try {
+    Write-Step "downloading $FileName with Invoke-WebRequest (no progress bar, please wait)"
+    Invoke-WebRequest -Uri $Url -OutFile $target -UseBasicParsing -MaximumRedirection 10
+    if ((Test-Path $target) -and ((Get-Item $target).Length -gt 0)) {
+      Write-DownloadDone $target $started 'Invoke-WebRequest'
+      return $target
+    }
+    throw "downloaded file is empty: $Url"
+  } catch {
+    $errors += "Invoke-WebRequest: $($_.Exception.Message)"
+    if (Test-Path $target) { Remove-Item $target -Force }
+  }
   $joined = $errors -join '; '
   throw "official download failed for $Url - $joined"
 }
 
 function Install-Package([string]$File, [string[]]$SilentArgs) {
   $extension = [IO.Path]::GetExtension($File).ToLowerInvariant()
+  Write-Step "installing $(Split-Path -Leaf $File) silently - this can take a minute or two, a Windows prompt may appear"
+  $installStarted = Get-Date
   if ($extension -eq '.msi') {
     $arguments = @('/i', "`"$File`"") + $SilentArgs
     $process = Start-Process 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
   } else {
     $process = Start-Process $File -ArgumentList $SilentArgs -Wait -PassThru
   }
+  $installSeconds = [int][math]::Round(((Get-Date) - $installStarted).TotalSeconds)
+  Write-Step "installer finished with exit code $($process.ExitCode) after ${installSeconds}s (0 = done, 3010 = done, restart wanted)"
   if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
     throw "installer exited with code $($process.ExitCode)"
   }
@@ -134,8 +158,10 @@ function Install-WingetPackage([string]$PackageId) {
   if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
     throw 'winget (App Installer) is not available on this PC'
   }
+  Write-Step "winget install $PackageId (winget prints its own live progress below)"
   & winget install --id $PackageId --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
   $code = $LASTEXITCODE
+  Write-Step "winget finished for $PackageId with exit code $code (0 = installed, -1978335189 = already installed)"
   # 0 = installed, -1978335189 (0x8A15002B) = already installed, no newer version.
   # -1978335212 (0x8A150014) means winget has no package with this ID: that is a failure, so the next method runs.
   if ($code -eq -1978335212) {
