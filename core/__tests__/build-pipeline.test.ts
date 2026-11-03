@@ -156,7 +156,7 @@ describe("build pipeline", () => {
   it("derives the installer floor from the toolchain budget and stays under 2 GiB", () => {
     const bounds = pipeline.installerBounds(manifest());
     const plan = stage.stagePlan(manifest());
-    expect(plan.sum).toBe(205088081);
+    expect(plan.sum).toBe(205251277);
     expect(bounds.floor).toBe(Math.floor(plan.sum * 0.7));
     expect(bounds.ceiling).toBeLessThan(pipeline.GITHUB_ASSET_LIMIT);
     expect(bounds.floor).toBeGreaterThan(100_000_000);

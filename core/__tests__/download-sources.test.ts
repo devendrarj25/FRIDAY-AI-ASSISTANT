@@ -56,4 +56,23 @@ describe("download sources", () => {
     expect(fn).not.toMatch(/-ne -1978335212/);
     expect(ps1).toContain("Git-*-64-bit.exe");
   });
+
+  it("pins get-pip to an immutable commit URL, never the rolling one", () => {
+    // bootstrap.pypa.io/get-pip.py changes with every pip release, so a SHA-256
+    // pinned to it breaks the build (PR Validation package-windows, 2026-11-03).
+    const manifest = JSON.parse(read("config/toolchain-manifest.json"));
+    const entry = (
+      manifest.tools ??
+      manifest.entries ??
+      Object.values(manifest).find(Array.isArray)
+    ).find((t: any) => t.id === "get-pip");
+    expect(entry.url).toMatch(
+      /^https:\/\/raw\.githubusercontent\.com\/pypa\/get-pip\/[0-9a-f]{40}\/public\/get-pip\.py$/,
+    );
+    expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const pip = tools.find((t) => t["installerUrl"] === entry.url);
+    expect(pip, "toolchain.cjs must name the same URL").toBeTruthy();
+    expect(pip!["sha256"]).toBe(entry.sha256);
+    expect(pip!["needBytes"]).toBe(entry.bytes);
+  });
 });

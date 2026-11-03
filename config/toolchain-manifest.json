@@ -1,7 +1,7 @@
 {
   "checked": "2026-10-08",
   "budgetBytes": 220000000,
-  "budgetReason": "The bundled tier is the embeddable interpreter, pip bootstrap, portable Node, whisper.cpp, and the ggml base model. Their pinned sizes sum to 205088081 bytes. 220000000 bytes leaves a small margin inside a GitHub release asset. Copyleft and heavy packs stay on demand.",
+  "budgetReason": "The bundled tier is the embeddable interpreter, pip bootstrap, portable Node, whisper.cpp, and the ggml base model. Their pinned sizes sum to 205251277 bytes. 220000000 bytes leaves a small margin inside a GitHub release asset. Copyleft and heavy packs stay on demand.",
   "packs": [
     {
       "id": "python-embed",
@@ -22,11 +22,11 @@
     {
       "id": "get-pip",
       "name": "pip bootstrap",
-      "version": "2026-10-21",
-      "sha256": "f4448a01e3ab2914c65f4ca59d4cacba6b2dbde19a483fbac46587f8bbaff424",
-      "bytes": 2234489,
+      "version": "2026-11-03",
+      "sha256": "f7654c5589318e1d0789575b2586ce76937eb9943602adda8b15b3be3aa0dac3",
+      "bytes": 2397685,
       "license": "MIT",
-      "url": "https://bootstrap.pypa.io/get-pip.py",
+      "url": "https://raw.githubusercontent.com/pypa/get-pip/6147c762fb5a0f40b0af2063f11fdc8ee7d7da01/public/get-pip.py",
       "tier": "bundled",
       "entry": "get-pip.py",
       "kind": "file"
