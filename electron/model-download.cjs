@@ -163,17 +163,25 @@ function pickGguf(files, match = []) {
 }
 
 // ------------------------------------------------------------- HTTP fetching
+// Ask for the bytes as stored. Some hosts (raw.githubusercontent.com) gzip a text file; Content-Length is
+// then the compressed size, so a downloader that sizes the file from it cuts the decompressed body short and
+// the checksum fails. A range request over a compressed body is just as wrong.
+const IDENTITY = { "accept-encoding": "identity" };
+
 async function headInfo(url, signal, extraHosts = []) {
   try {
     const { res } = await safety.fetchAllowlisted(
       url,
-      withHfAuth(url, { method: "HEAD", signal }),
+      withHfAuth(url, { method: "HEAD", signal, headers: IDENTITY }),
       extraHosts,
     );
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    // A compressed answer reports the compressed length, which is not the file's size.
+    const encoded =
+      (res.headers.get("content-encoding") || "identity").toLowerCase() !== "identity";
     return {
       ok: true,
-      size: Number(res.headers.get("content-length") || 0),
+      size: encoded ? 0 : Number(res.headers.get("content-length") || 0),
       ranges: (res.headers.get("accept-ranges") || "").includes("bytes"),
     };
   } catch (err) {
@@ -467,7 +475,11 @@ async function requestWithin(url, init, ctx) {
   try {
     return await safety.fetchAllowlisted(
       url,
-      withHfAuth(url, { ...init, signal: own.signal }),
+      withHfAuth(url, {
+        ...init,
+        signal: own.signal,
+        headers: { ...IDENTITY, ...(init && init.headers) },
+      }),
       extraHosts,
     );
   } finally {

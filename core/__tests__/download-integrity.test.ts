@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -77,6 +78,34 @@ const target = () => {
 };
 
 describe("download integrity", () => {
+  it("sizes the file from its stored bytes when a host gzips it (raw.githubusercontent.com does)", async () => {
+    // Content-Length of a gzipped answer is the compressed size. Sized from it, the file was cut short
+    // and its checksum failed (PR Validation package-windows, get-pip.py, 2026-11-03).
+    const text = Buffer.from("print('pip bootstrap')\n".repeat(900));
+    const stored = createHash("sha256").update(text).digest("hex");
+    const packed = gzipSync(text);
+    expect(packed.length).toBeLessThan(text.length);
+    const seen: string[] = [];
+    server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const wantsIdentity = /identity/.test(String(req.headers["accept-encoding"] || ""));
+      seen.push(`${req.method} ${req.headers["accept-encoding"] || ""}`);
+      const out = wantsIdentity ? text : packed;
+      const headers: Record<string, string | number> = { "content-length": out.length };
+      if (!wantsIdentity) headers["content-encoding"] = "gzip";
+      res.writeHead(200, headers);
+      res.end(req.method === "HEAD" ? undefined : out);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+    const dest = target();
+    await download.downloadUrl(`http://127.0.0.1:${port}/get-pip.py`, dest, {
+      sha256: stored,
+      needBytes: text.length,
+    });
+    expect(readFileSync(dest).equals(text)).toBe(true);
+    expect(seen.every((line) => line.endsWith("identity"))).toBe(true);
+  });
+
   it("joins parallel ranges into exactly the published bytes", async () => {
     const { url, requests } = await serve();
     const dest = target();
