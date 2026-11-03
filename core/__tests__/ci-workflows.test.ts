@@ -913,7 +913,7 @@ describe("official release", () => {
     expect(steps).toContain("git ls-remote --exit-code --heads origin");
     expect(steps).toContain("mode=existing_branch");
     expect(steps).toContain("complete=true");
-    expect(steps).toContain('git push origin --delete "$branch"');
+    expect(steps).toContain('bash scripts/ci-delete-branch.sh "$branch"');
     expect(steps).not.toMatch(/gh pr (review|merge)/);
     expect(at("Resolve an existing release branch or release PR")).toBeLessThan(
       at("Open the release Pull Request"),
@@ -1021,11 +1021,51 @@ describe("safe merge flow", () => {
     const src = read("branch-cleanup.yml");
     expect(doc.on.pull_request.types).toEqual(["closed"]);
     expect(src).toContain("github.event.pull_request.merged == true");
-    expect(src).toContain("git/refs/heads/$BRANCH");
+    // The delete itself lives in one script that every cleanup path shares.
+    expect(src).toContain('bash scripts/ci-delete-branch.sh "$BRANCH"');
+    const script = fs.readFileSync(path.resolve(DIR, "../../scripts/ci-delete-branch.sh"), "utf8");
+    expect(script).toContain("git/refs/heads/$encoded");
     // main and long-lived branches are never deleted; a merged release/vX.Y.Z
     // branch is temporary and is cleaned up like any other work branch.
-    expect(src).toContain("main|master|develop|development|release|recovery/*)");
-    expect(src).not.toContain("release/*)");
+    expect(script).toContain("main|master|develop|development|release|recovery/*)");
+    expect(script).not.toContain("release/*)");
+  });
+
+  it("deletes a merged branch through REST with retries and proves it is gone", () => {
+    const script = fs.readFileSync(path.resolve(DIR, "../../scripts/ci-delete-branch.sh"), "utf8");
+    expect(script).toContain("gh api -X DELETE");
+    expect(script).toContain("for attempt in 1 2 3 4 5");
+    // Success is a read that no longer finds the ref, never the delete's exit code.
+    expect(script).toContain("if ! exists; then");
+    expect(script).toMatch(/::error::branch .* still on the remote/);
+    expect(script).toMatch(/exit 1\s*$/);
+    // A failed `git push --delete` once printed "already removed" for a branch
+    // that was still there. No workflow may delete a branch that way again.
+    for (const file of fs.readdirSync(DIR)) {
+      expect(read(file), file).not.toMatch(/git\s+push\s+origin\s+--delete/);
+    }
+    for (const file of ["branch-cleanup.yml", "safe-merge.yml", "maintenance.yml"]) {
+      expect(read(file), file).toContain("scripts/ci-delete-branch.sh");
+    }
+  });
+
+  it("lets only the owner, github-actions[bot] and dependabot[bot] start any workflow", () => {
+    for (const file of fs.readdirSync(DIR)) {
+      const doc = load(file);
+      for (const [name, job] of Object.entries<any>(doc.jobs)) {
+        // A job that needs another is held behind it; a called workflow is
+        // guarded by its own jobs. Every other job opens with the actor check.
+        if (job.needs || job.uses) continue;
+        const first = job.steps[0];
+        const where = `${file} ${name}`;
+        expect(first.name, where).toBe("Only the owner and the two GitHub bots may run this");
+        expect(first.env.OWNER, where).toBe("${{ github.repository_owner }}");
+        expect(first.env.ACTOR, where).toBe("${{ github.actor }}");
+        expect(first.env.TRIGGERING_ACTOR, where).toBe("${{ github.triggering_actor }}");
+        expect(first.run, where).toContain('"$OWNER"|"github-actions[bot]"|"dependabot[bot]") ;;');
+        expect(first.run, where).toContain("exit 1");
+      }
+    }
   });
 
   it("never merges a pull request automatically", () => {

@@ -31,13 +31,13 @@ A green `PR Validation` means the whole pack ran on the ready head: static check
 
 ## 2. What actually protects `main`
 
-| Control | File |
-| --- | --- |
-| Branch CI | `pr-validation.yml` |
-| TEST EXE | `test-build.yml` |
-| Merge (typed `MERGE`) | `safe-merge.yml` / `repository-control.yml` `merge-pr` |
-| Merged-branch delete | `branch-cleanup.yml` |
-| Unexpected push preserve | `main-safety-recovery.yml` |
+| Control                  | File                                                   |
+| ------------------------ | ------------------------------------------------------ |
+| Branch CI                | `pr-validation.yml`                                    |
+| TEST EXE                 | `test-build.yml`                                       |
+| Merge (typed `MERGE`)    | `safe-merge.yml` / `repository-control.yml` `merge-pr` |
+| Merged-branch delete     | `branch-cleanup.yml`                                   |
+| Unexpected push preserve | `main-safety-recovery.yml`                             |
 
 `main-safety-recovery.yml` watches `push` to `main`. A normal merged pull request is a no-op. An unexpected direct push is copied onto `recovery/main-<timestamp>-<shortsha>` with a report. It never resets or force-pushes `main`.
 
@@ -47,11 +47,11 @@ Trusted head prefixes live in `scripts/merge-engine.cjs` (`upgrade/`, `fix/`, `c
 
 Actions → **Safe Merge** (`safe-merge.yml`) → `workflow_dispatch`. The engine is `scripts/merge-engine.cjs`. It fails closed. The run refuses unless `confirm` is exactly `MERGE`.
 
-| Input | Meaning |
-| --- | --- |
-| `scope` | `auto` (eligible pull requests into `main`), `selected` (`pr_numbers`), or `release` (`release/v…` only) |
-| `delete_branch` | delete the merged work branch (never a protected name) |
-| `confirm` | must be `MERGE` |
+| Input           | Meaning                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| `scope`         | `auto` (eligible pull requests into `main`), `selected` (`pr_numbers`), or `release` (`release/v…` only) |
+| `delete_branch` | delete the merged work branch (never a protected name)                                                   |
+| `confirm`       | must be `MERGE`                                                                                          |
 
 All of these have to be true before a merge:
 
@@ -84,17 +84,19 @@ A leftover `dev/…` tip after a squash merge is not a second upgrade to merge. 
 
 `branch-cleanup.yml` runs when a pull request into `main` is closed. It deletes the merged temporary head. The protected-name list is the same one Maintenance Cleanup uses.
 
+A merge made by a workflow token (FRIDAY Release calling Safe Merge) does not start Branch Cleanup, because GitHub does not start a workflow from an event the workflow token caused. Safe Merge therefore deletes the merged head itself when `delete_branch` is `true`. Every delete goes through `scripts/ci-delete-branch.sh`: a REST delete, up to five attempts with a growing pause, and success only when a read shows the branch is gone. A branch that still stands after that is a warning on Safe Merge and an error on Branch Cleanup; the weekly Maintenance Cleanup removes any merged head that is left. Release `v1.1.5.6` is the case that found this: `git push --delete` got a transient `Internal Server Error` from GitHub, the old step printed "already removed", and `release/v1.1.5.6` stayed on the remote.
+
 ## 6. ↩️ Repository Control
 
 `repository-control.yml` is `workflow_dispatch` only. Concurrency is `friday-repository-control`. The job permission includes `actions: read` because the job reads `statusCheckRollup`.
 
-| Action | Confirm | What you get |
-| --- | --- | --- |
-| `create-pr` | — | Opens a pull request when the two sides differ. It never merges. |
-| `merge-pr` | `MERGE` | Merges into `main` only. The head cannot be `main` or `recovery/*`. `scripts/check-contract.cjs` must report that PR Validation passed on that head commit. A missing, running, stale, or failed check is refused. The result is a merge commit. |
-| `revert-commit` | `REVERT` | Branch `revert/<utc>-<short>` from `origin/main`, then `git revert`, then `npm ci`, typecheck, and test, then a pull request. |
-| `restore-commit` | `RESTORE` | `git read-tree --reset -u <sha>` on a `restore/…` branch, one new commit, the same checks, then a pull request. History moves forward. |
-| `delete-branch` | `DELETE` | Deletes one remote branch. It refuses `main`, `master`, `develop`, `development`, `release`, and `recovery/*`. |
+| Action           | Confirm   | What you get                                                                                                                                                                                                                                     |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create-pr`      | —         | Opens a pull request when the two sides differ. It never merges.                                                                                                                                                                                 |
+| `merge-pr`       | `MERGE`   | Merges into `main` only. The head cannot be `main` or `recovery/*`. `scripts/check-contract.cjs` must report that PR Validation passed on that head commit. A missing, running, stale, or failed check is refused. The result is a merge commit. |
+| `revert-commit`  | `REVERT`  | Branch `revert/<utc>-<short>` from `origin/main`, then `git revert`, then `npm ci`, typecheck, and test, then a pull request.                                                                                                                    |
+| `restore-commit` | `RESTORE` | `git read-tree --reset -u <sha>` on a `restore/…` branch, one new commit, the same checks, then a pull request. History moves forward.                                                                                                           |
+| `delete-branch`  | `DELETE`  | Deletes one remote branch. It refuses `main`, `master`, `develop`, `development`, `release`, and `recovery/*`.                                                                                                                                   |
 
 There is no force-push, no reset of `main`, and no silent merge.
 

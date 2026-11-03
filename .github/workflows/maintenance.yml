@@ -46,10 +46,29 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
       APPLY: ${{ github.event_name == 'schedule' && 'true' || inputs.apply }}
       KEEP_OFFICIAL: ${{ inputs.keep_official || '3' }}
       KEEP_RUNS: ${{ inputs.keep_runs || '15' }}
     steps:
+      - name: Only the owner and the two GitHub bots may run this
+        shell: bash
+        env:
+          OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          # Allowed actors: the repository owner, github-actions[bot] and
+          # dependabot[bot]. Anyone else (a fork contributor, a stranger who
+          # opens a pull request) stops here before any work or secret is used.
+          for who in "$ACTOR" "$TRIGGERING_ACTOR"; do
+            case "$who" in
+              "$OWNER"|"github-actions[bot]"|"dependabot[bot]") ;;
+              *)
+                echo "::error::'$who' may not run FRIDAY workflows. Allowed: $OWNER, github-actions[bot], dependabot[bot]."
+                exit 1 ;;
+            esac
+          done
       - name: Fetch source
         uses: $/.github/actions/checkout
         with:
@@ -116,7 +135,7 @@ jobs:
             case "$branch" in
               main|master|develop|development|release|recovery/*) continue ;;
             esac
-            git push origin --delete "$branch" && echo "deleted branch $branch"
+            bash scripts/ci-delete-branch.sh "$branch"
           done
           for tag in $(jq -r '.testReleases[], .officialReleases[]' plan.json); do
             [ -n "$tag" ] || continue
