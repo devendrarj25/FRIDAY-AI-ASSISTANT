@@ -40,7 +40,7 @@ def canonical(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "[" + ",".join(canonical(v) for v in value) + "]"
     if isinstance(value, dict):
-        keys = sorted(k for k, v in value.items() if v is not None or True)
+        keys = sorted(value)
         parts = [f"{json.dumps(str(k), ensure_ascii=False)}:{canonical(value[k])}" for k in keys]
         return "{" + ",".join(parts) + "}"
     return json.dumps(str(value), ensure_ascii=False)
