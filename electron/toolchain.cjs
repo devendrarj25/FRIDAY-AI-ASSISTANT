@@ -699,7 +699,8 @@ const TOOLS = [
   T("FRIDAY pip bootstrap", "Languages & Runtimes", {
     url: "https://pip.pypa.io/",
     source: "pypa.io",
-    installerUrl: "https://raw.githubusercontent.com/pypa/get-pip/6147c762fb5a0f40b0af2063f11fdc8ee7d7da01/public/get-pip.py",
+    installerUrl:
+      "https://raw.githubusercontent.com/pypa/get-pip/6147c762fb5a0f40b0af2063f11fdc8ee7d7da01/public/get-pip.py",
     sha256: "f7654c5589318e1d0789575b2586ce76937eb9943602adda8b15b3be3aa0dac3",
     needBytes: 2397685,
     archiveBin: "get-pip.py",
