@@ -47,6 +47,7 @@ const voiceWeights = require("../electron/voice-weights.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
 const localLibrary = require("../electron/local-library.cjs");
+const updatePolicy = require("./update-policy.cjs");
 
 /** Ollama is the local engine FRIDAY starts and stops; the light chat model is pulled through it. */
 const OLLAMA_API = "http://127.0.0.1:11434";
@@ -97,7 +98,7 @@ function prefetchParallelism(env = process.env) {
   return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 1;
 }
 
-const { mapPool } = require("../electron/model-download.cjs");
+const { mapPool, registerGguf } = require("../electron/model-download.cjs");
 
 /** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
 function ollamaServesChat(env, platform) {
@@ -297,41 +298,89 @@ async function ollamaUp(fetchImpl) {
   }
 }
 
+/**
+ * A pull that makes no progress for this long is given up, so a registry that cannot be reached
+ * (a blocked or broken route to Ollama's storage host) hands over to the GGUF copy in about a
+ * minute instead of retrying for many minutes.
+ */
+const PULL_IDLE_MS = Math.max(15, Number(process.env.FRIDAY_OLLAMA_PULL_IDLE_S) || 60) * 1000;
+
 /** Stream POST /api/pull and report percent; resolves ok when the daemon says success. */
-async function ollamaPull(tag, { fetchImpl = fetch, onEvent } = {}) {
-  const res = await fetchImpl(`${OLLAMA_API}/api/pull`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: tag, stream: true }),
-  });
-  if (!res.ok || !res.body) return { ok: false, error: `HTTP ${res.status}` };
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let ok = false;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let cut;
-    while ((cut = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, cut).trim();
-      buffer = buffer.slice(cut + 1);
-      if (!line) continue;
-      let row;
-      try {
-        row = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (row.error) return { ok: false, error: String(row.error) };
-      if (row.status === "success") ok = true;
-      if (row.total > 0 && row.completed >= 0) {
-        onEvent?.({ progress: (row.completed / row.total) * 100 });
+async function ollamaPull(tag, { fetchImpl = fetch, onEvent, idleMs = PULL_IDLE_MS } = {}) {
+  const guard = new AbortController();
+  let timer = null;
+  let idled = false;
+  const rearm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      idled = true;
+      guard.abort();
+    }, idleMs);
+  };
+  try {
+    rearm();
+    const res = await fetchImpl(`${OLLAMA_API}/api/pull`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: tag, stream: true }),
+      signal: guard.signal,
+    });
+    if (!res.ok || !res.body) return { ok: false, error: `HTTP ${res.status}` };
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let ok = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      rearm();
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, cut).trim();
+        buffer = buffer.slice(cut + 1);
+        if (!line) continue;
+        let row;
+        try {
+          row = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (row.error) return { ok: false, error: String(row.error) };
+        if (row.status === "success") ok = true;
+        if (row.total > 0 && row.completed >= 0) {
+          onEvent?.({ progress: (row.completed / row.total) * 100 });
+        }
       }
     }
+    return ok ? { ok: true } : { ok: false, error: "the pull ended without success" };
+  } catch (err) {
+    if (idled) return { ok: false, error: `no progress for ${Math.round(idleMs / 1000)}s` };
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return ok ? { ok: true } : { ok: false, error: "the pull ended without success" };
+}
+
+/** The first .gguf file in a folder, or "" when there is none. */
+function firstGguf(dir) {
+  try {
+    const name = fs.readdirSync(dir).find((entry) => entry.toLowerCase().endsWith(".gguf"));
+    return name ? path.join(dir, name) : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Status lines from registering a GGUF with Ollama, each said once (the file read repeats a percentage). */
+function statusPrinter(log, id) {
+  const said = new Set();
+  return (event) => {
+    const note = String(event?.status || "").replace(/\s+\d+%$/, "");
+    if (!note || said.has(note)) return;
+    said.add(note);
+    log(`[friday] ${id.padEnd(14)} ${note.slice(0, 200)}`);
+  };
 }
 
 /**
@@ -388,6 +437,25 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
       rows.push({ id: model.tag, ok: true, downloaded: false });
       continue;
     }
+    // The same model as a GGUF already on this PC (an earlier run fetched it) is handed to Ollama
+    // under its tag: nothing is downloaded, and a registry that cannot be reached is not asked.
+    const local = deps.localGguf ? deps.localGguf(model) : "";
+    if (local) {
+      log(`[friday] registering the GGUF already on disk as ${model.tag} (nothing to download)`);
+      const registered = await (deps.register || registerGguf)(
+        model.tag,
+        local,
+        statusPrinter(log, model.tag),
+      );
+      if (registered.ok) {
+        log(`[friday] ok       ${model.tag} registered with Ollama from the GGUF file`);
+        rows.push({ id: model.tag, ok: true, downloaded: false, via: "gguf" });
+        continue;
+      }
+      log(
+        `[friday] INFO     ${model.tag} could not be registered from the file (${registered.error}); trying Ollama's registry`,
+      );
+    }
     log(`[friday] pulling ${model.tag} (${model.role})`);
     let result;
     const progress = printer(log, model.tag);
@@ -412,10 +480,10 @@ async function ensureOllama(root, row, { log = console.log, deps = {} } = {}) {
 }
 
 /** The pinned Ollama installer is Inno Setup: the standard silent switches apply. */
-function runInstaller(file) {
+function runInstaller(file, extraArgs = []) {
   return new Promise((resolve) => {
     const { spawn } = require("node:child_process");
-    const child = spawn(file, ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"], {
+    const child = spawn(file, ["/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES", ...extraArgs], {
       stdio: "ignore",
       windowsHide: true,
     });
@@ -450,6 +518,90 @@ function startOllama(exe) {
   } catch {
     /* the probe below reports it */
   }
+}
+
+/**
+ * Bring an installed Ollama up to the newest official release. The release's own SHA-256 is checked by the
+ * downloader and its Authenticode signature before it runs; the installer then replaces the old files in
+ * place (it closes a running Ollama itself). Never throws, and a failure leaves the installed Ollama alone.
+ */
+async function updateOllama({ root, newest, current, fetchModel, log, deps = {} }) {
+  if (!newest?.url || !newest.sha256) {
+    log(
+      `[friday] INFO     ollama ${newest?.tag || "a newer release"} is available, but its official digest could not be read; the installed ${current} stays`,
+    );
+    return { ok: false, error: "no digest" };
+  }
+  const dir = path.join(root, "runtime", "installers");
+  let asset = "OllamaSetup.exe";
+  try {
+    asset = path.basename(new URL(newest.url).pathname) || asset;
+  } catch {
+    /* the default name is fine */
+  }
+  const file = path.join(dir, "ollama", asset);
+  const row = {
+    ready: file,
+    job: {
+      modelId: "ollama",
+      dir,
+      sources: [
+        {
+          kind: "url",
+          url: newest.url,
+          sha256: newest.sha256,
+          bytes: newest.bytes,
+          label: `Ollama ${newest.tag} (latest official release)`,
+        },
+      ],
+    },
+  };
+  log(
+    `[friday] updating Ollama ${current || "(version unknown)"} -> ${newest.tag}${newest.bytes ? ` (${(newest.bytes / 1024 ** 3).toFixed(1)} GB installer, checked against the published SHA-256)` : ""}`,
+  );
+  if (!alreadyThere(row)) {
+    const progress = printer(log, "ollama-update");
+    let got;
+    try {
+      got = await fetchModel(row.job, progress, undefined);
+    } catch (err) {
+      got = { ok: false, error: String((err && err.message) || err) };
+    }
+    progress.end();
+    if (!got || !got.ok) {
+      const why = (got && got.error) || "download failed";
+      log(
+        `[friday] INFO     ollama ${newest.tag} was not downloaded (${why}); the installed ${current} stays`,
+      );
+      return { ok: false, error: why };
+    }
+  }
+  const signed = deps.signed ? await deps.signed(file) : { ok: true };
+  if (!signed.ok) {
+    log(`[friday] INFO     ollama update skipped (signature: ${signed.reason || "not valid"})`);
+    return { ok: false, error: "signature" };
+  }
+  const ran = await (deps.runInstaller || runInstaller)(file, ["/CLOSEAPPLICATIONS"]);
+  if (!ran.ok) {
+    log(
+      `[friday] INFO     ollama update did not finish (${ran.error}); the installed version stays`,
+    );
+    return { ok: false, error: ran.error };
+  }
+  const fetchImpl = deps.fetch || fetch;
+  await (deps.startOllama || startOllama)(deps.ollamaExe || "ollama");
+  let up = null;
+  for (let i = 0; i < (deps.waitTries ?? 30) && !up; i += 1) {
+    up = await ollamaUp(fetchImpl);
+    if (!up) await new Promise((resolve) => setTimeout(resolve, deps.waitMs ?? 2000));
+  }
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* a kept installer only costs disk */
+  }
+  log(`[friday] ok       ollama updated to ${newest.tag}${up ? "" : "; it starts with FRIDAY"}`);
+  return { ok: true };
 }
 
 /** Is an Ollama already on this PC? Running, on PATH, or in a standard folder. */
@@ -492,6 +644,7 @@ async function prefetch(
     latest = localLibrary.latestOfficialRelease,
     totalGb,
     freshnessFetch,
+    policyRoot,
   } = {},
 ) {
   const rows = [];
@@ -523,10 +676,39 @@ async function prefetch(
     );
     try {
       const newest = await latest("ollama");
-      if (existing.version && newest?.tag && localLibrary.newerTag(newest.tag, existing.version)) {
+      const newer =
+        existing.version && newest?.tag && localLibrary.newerTag(newest.tag, existing.version);
+      const how = updatePolicy.mode(env);
+      const policy = { env, ...(policyRoot ? { root: policyRoot } : {}) };
+      if (
+        newer &&
+        how !== "off" &&
+        enabled(env, "FRIDAY_AUTO_INSTALL") &&
+        updatePolicy.due("ollama", policy)
+      ) {
+        const updated = await updateOllama({
+          root,
+          newest,
+          current: existing.version,
+          fetchModel: download || require("../electron/model-download.cjs").downloadModel,
+          log,
+          deps: {
+            signed: async (file) =>
+              require("../electron/download-safety.cjs").authenticodeStatus(file),
+            ...(existing.exe ? { ollamaExe: existing.exe } : {}),
+            ...ollama,
+          },
+        });
+        if (updated.ok) updatePolicy.markChecked("ollama", policy);
+      } else if (newer) {
         log(
-          `[friday] INFO     ollama ${newest.tag} is available; update it from Install Manager when you want it`,
+          how === "off"
+            ? `[friday] INFO     ollama ${newest.tag} is available; updates are switched off here (FRIDAY_SETUP_UPDATE=0, hosted CI or offline)`
+            : `[friday] INFO     ollama ${newest.tag} is available; the update check runs once a day (FRIDAY_SETUP_UPDATE=1 checks now)`,
         );
+      } else if (existing.version && newest?.tag) {
+        log(`[friday] ok       ollama ${existing.version} is the latest official release`);
+        if (how !== "off") updatePolicy.markChecked("ollama", policy);
       }
     } catch {
       /* the version note is optional */
@@ -598,6 +780,7 @@ async function prefetch(
   });
   rows.push(...outcomes);
   let ollamaRows = [];
+  const small = OLLAMA_MODELS[0]?.tag;
   if (wantOllama && enabled(env, "FRIDAY_AUTO_INSTALL")) {
     const fetched = installer ? rows.find((row) => row.id === installer.id) : null;
     if (existing.installed || fetched?.ok || (installer && alreadyThere(installer))) {
@@ -607,46 +790,68 @@ async function prefetch(
           deps: {
             signed: async (file) =>
               require("../electron/download-safety.cjs").authenticodeStatus(file),
+            localGguf: () => firstGguf(chatJob(root).ready),
             ...(existing.exe ? { ollamaExe: existing.exe } : {}),
             ...ollama,
           },
         });
-        rows.push(...ollamaRows);
       } catch (err) {
         const why = String((err && err.message) || err);
         log(`[friday] FAIL     ollama setup did not finish (${why})`);
-        rows.push({ id: "ollama", ok: false, error: why });
+        ollamaRows = [{ id: "ollama", ok: false, error: why }];
       }
     }
   }
-  // The Qwen GGUF is the same small model Ollama pulls; it is fetched only
-  // when Ollama is meant to provide it and could not.
-  const small = OLLAMA_MODELS[0]?.tag;
-  const provided = ollamaRows.some((row) => row.id === small && row.ok);
-  if (
-    ollamaServesChat(env, platform) &&
-    enabled(env, "FRIDAY_PREFETCH_CHAT") &&
-    !provided &&
-    !alreadyThere(chatJob(root))
-  ) {
-    log(
-      `[friday] INFO     ${small || "the small chat model"} is not in Ollama; fetching the GGUF copy`,
-    );
+  // The small chat model comes from Ollama's registry when that works. When it cannot (a blocked or
+  // broken route to the registry), the same model is taken as a GGUF through FRIDAY's own multi-
+  // connection downloader, then handed to Ollama under the tag FRIDAY routes to. Only a model that is
+  // in neither place is a failure, so a registry timeout no longer stops the setup.
+  let provided = ollamaRows.some((row) => row.id === small && row.ok);
+  const extra = [];
+  const chatWanted = ollamaServesChat(env, platform) && enabled(env, "FRIDAY_PREFETCH_CHAT");
+  if (chatWanted && !provided) {
     const gguf = chatJob(root);
-    let result;
-    const progress = printer(log, gguf.id);
-    try {
-      result = await fetchModel(gguf.job, progress, undefined);
-    } catch (err) {
-      result = { ok: false, error: String((err && err.message) || err) };
+    let onDisk = alreadyThere(gguf);
+    if (!onDisk) {
+      log(
+        `[friday] INFO     ${small || "the small chat model"} is not in Ollama; fetching the GGUF copy`,
+      );
+      let result;
+      const progress = printer(log, gguf.id);
+      try {
+        result = await fetchModel(gguf.job, progress, undefined);
+      } catch (err) {
+        result = { ok: false, error: String((err && err.message) || err) };
+      }
+      progress.end();
+      onDisk = Boolean(result && result.ok);
+      extra.push(
+        onDisk
+          ? { id: gguf.id, ok: true, downloaded: true }
+          : { id: gguf.id, ok: false, error: (result && result.error) || "download failed" },
+      );
     }
-    progress.end();
-    rows.push(
-      result && result.ok
-        ? { id: gguf.id, ok: true, downloaded: true }
-        : { id: gguf.id, ok: false, error: (result && result.error) || "download failed" },
-    );
+    const file = onDisk ? firstGguf(gguf.ready) : "";
+    if (file && small && ollamaRows.some((row) => row.id === "ollama" && row.ok)) {
+      const registered = await (ollama?.register || registerGguf)(
+        small,
+        file,
+        statusPrinter(log, small),
+      );
+      if (registered.ok) {
+        provided = true;
+        log(`[friday] ok       ${small} registered with Ollama from the GGUF file`);
+        extra.push({ id: small, ok: true, downloaded: false, via: "gguf" });
+      } else {
+        log(
+          `[friday] INFO     ${small} is on disk as a GGUF file; Ollama did not register it (${registered.error}). FRIDAY loads the file with its own runner, and npm run doctor registers it again`,
+        );
+        provided = true;
+        extra.push({ id: small, ok: true, downloaded: false, via: "gguf-file" });
+      }
+    }
   }
+  rows.push(...ollamaRows.filter((row) => !(row.id === small && !row.ok && provided)), ...extra);
   return rows;
 }
 
@@ -680,6 +885,7 @@ module.exports = {
   prefetchParallelism,
   ensureOllama,
   ollamaPull,
+  firstGguf,
   findOllama,
   detectOllama,
   ollamaServesChat,

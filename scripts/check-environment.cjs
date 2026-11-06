@@ -114,8 +114,20 @@ const notRequiredBecause = (elevated = false) => {
   if (reason) return `not installed on this run (${reason}); npm run setup installs it on your PC`;
   if (elevated)
     return "not installed on this run (FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0 skips administrator tools)";
-  return "";
+  return "this run does not install it (hosted CI, FRIDAY_OFFLINE=1 or FRIDAY_PREFETCH_STRICT=0); npm run setup installs it on your PC";
 };
+/**
+ * Capability packages (requirements-capabilities.txt) are required on a Windows PC that builds
+ * FRIDAY, exactly where npm run setup:python stops when one is missing. Hosted CI, an offline
+ * build and FRIDAY_PREFETCH_STRICT=0 keep them reported only. chromadb stays reported only
+ * everywhere: FRIDAY falls back to SQLite memory without it.
+ */
+const capabilitiesRequired =
+  win &&
+  !process.env.CI &&
+  !process.env.GITHUB_ACTIONS &&
+  process.env.FRIDAY_OFFLINE !== "1" &&
+  String(process.env.FRIDAY_PREFETCH_STRICT ?? "1").trim() !== "0";
 /** Windows Sandbox needs Pro, Enterprise or Education; Home can never install it. */
 const windowsEdition = () =>
   win
@@ -278,7 +290,6 @@ let pythonExecutable = null;
     pymupdf: "pymupdf",
   };
   const voiceNames = new Set(runtime.VOICE_PACKAGES);
-  const capabilityNames = new Set(runtime.CAPABILITY_PACKAGES);
 
   const capFile = path.join(root, "kernel", "requirements-capabilities.txt");
   const capPins = fs.existsSync(capFile)
@@ -296,6 +307,8 @@ let pythonExecutable = null;
         .filter(Boolean)
         .filter((pin) => win || !/sys_platform\s*==\s*"win32"/.test(pin.spec))
     : [];
+  // Every package of requirements-capabilities.txt is a capability package; the file is the one list.
+  const capabilityNames = new Set(capPins.map((pin) => pin.name));
   const allPins = [...pins, ...capPins.filter((pin) => !pins.some((p) => p.name === pin.name))];
 
   let installed = {};
@@ -338,7 +351,12 @@ let pythonExecutable = null;
     const ok = !!have && versionOk && importable;
     add({
       name: `Python package: ${pin.name}`,
-      required: capability ? false : !voice || win,
+      required: capability ? capabilitiesRequired && pin.name !== "chromadb" : !voice || win,
+      skip: capability
+        ? pin.name === "chromadb"
+          ? "FRIDAY falls back to SQLite memory when chromadb is missing"
+          : "capability packages are required on a Windows PC build (not on hosted CI, offline or FRIDAY_PREFETCH_STRICT=0); npm run setup:python installs them"
+        : "",
       group: "python-packages",
       ok,
       found: !found
@@ -821,9 +839,15 @@ console.log(`${pad("STATUS", 10)}${pad("COMPONENT", 34)}${pad("INSTALLED", 22)}M
 console.log("-".repeat(78));
 for (const c of checks) {
   const state = c.ok ? "PASS" : c.required ? "MISSING" : "SKIPPED";
-  console.log(`${pad(state, 10)}${pad(c.name, 34)}${pad(c.found, 22)}${c.want}`);
+  // A long value never pushes the next column: the row keeps its width and the full text follows below.
+  const clip = (text, n) =>
+    String(text).length > n - 1 ? `${String(text).slice(0, n - 2)}~` : text;
+  console.log(
+    `${pad(state, 10)}${pad(clip(c.name, 34), 34)}${pad(clip(c.found, 22), 22)}${c.want}`,
+  );
   if (!c.ok) {
-    if (!c.required) console.log(`          skipped: ${notRequiredBecause(c.elevated)}`);
+    if (String(c.found).length > 21) console.log(`          found:  ${c.found}`);
+    if (!c.required) console.log(`          skipped: ${c.skip || notRequiredBecause(c.elevated)}`);
     console.log(`          wanted: ${c.want}`);
     console.log(`          fix:    ${c.fix}`);
     console.log(`          source: ${c.url}`);

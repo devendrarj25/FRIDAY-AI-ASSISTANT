@@ -57,6 +57,12 @@ const mustComplete =
   process.env.FRIDAY_OFFLINE !== "1" &&
   String(process.env.FRIDAY_PREFETCH_STRICT ?? "1").trim() !== "0";
 const incomplete = [];
+// Newest official release of every package setup installs, asked at most once a day (scripts/update-policy.cjs).
+// A package that is not requested keeps the version it has (only-if-needed); a newest release that cannot be
+// installed falls through to the methods below, so the installed, supported one stays and nothing fails.
+const updatePolicy = require("./update-policy.cjs");
+const upgradeDue = updatePolicy.due("python-packages");
+let upgradeTried = false;
 const run = (exe, args, opts = {}) =>
   spawnSync(exe, args, { stdio: "inherit", shell: false, cwd: root, ...opts });
 const capture = (exe, args, opts = {}) =>
@@ -180,6 +186,19 @@ if (!pipReady()) {
 }
 
 log("pip is available in the isolated environment.");
+if (upgradeDue) {
+  // pip itself, through `python -m pip` (the way Windows allows it). A failure keeps the pip that works.
+  log("checking pip for a newer release ...");
+  const bumped = run(python, [
+    "-m",
+    "pip",
+    "install",
+    "--disable-pip-version-check",
+    "--upgrade",
+    "pip",
+  ]);
+  if (bumped.status !== 0) log("pip was not updated; the installed pip stays");
+}
 
 // ---- Requirement installation: multiple official PyPI mechanisms.
 // Wheels first so a normal FRIDAY installation never needs Rust/Cargo.
@@ -227,6 +246,19 @@ function installWithMethods(extra, options = {}) {
   const methods = options.preferBinaryFirst
     ? pipMethods(extra).filter((method) => !method.args.includes("--only-binary=:all:"))
     : pipMethods(extra);
+  if (upgradeDue && !options.noUpgrade) {
+    methods.unshift({
+      label: "newest releases from PyPI (checked once a day)",
+      args: [
+        ...base.slice(0, 4),
+        "--upgrade",
+        ...base.slice(4),
+        options.preferBinaryFirst ? "--prefer-binary" : "--only-binary=:all:",
+        ...extra,
+      ],
+    });
+    upgradeTried = true;
+  }
   for (const method of methods) {
     log(`method: ${method.label}`);
     const result = run(python, method.args);
@@ -305,30 +337,13 @@ if (
   process.exit(1);
 }
 
-function voiceImportable() {
-  return (
-    capture(python, ["-c", "import faster_whisper, edge_tts; print('voice packages ok')"])
-      .status === 0
-  );
-}
-
-if (!voiceImportable()) {
-  const voicePins = parsePins(req).filter((pin) => voiceNames.has(pin.name));
-  if (voicePins.length) {
-    log("installing voice runtime packages (faster-whisper, edge-tts)");
-    installWithMethods(voicePins.map((pin) => pin.spec));
-  }
-}
-if (!voiceImportable()) {
-  if (win) {
-    console.error("[friday] voice packages (faster-whisper, edge-tts) are still not importable.");
-    process.exit(1);
-  }
-  log(
-    "note: faster-whisper / edge-tts not importable — kernel still boots; Install Manager can add them.",
-  );
-} else {
-  log("voice packages ok (faster-whisper, edge-tts)");
+/**
+ * Speech, turn-taking and the small chat model. This runs AFTER every Python package is installed, so a
+ * model that cannot be fetched (a blocked host, a slow line) is reported at the end with the rest and
+ * can never leave the capability packages uninstalled, which is how one failed model once stopped
+ * Doctor and the build from repairing anything.
+ */
+function fetchModelsAndProbe() {
   if (win) {
     const fridayRoot = require("./friday-root.cjs");
     const picked = fridayRoot.workspaceRootOrDev();
@@ -340,8 +355,9 @@ if (!voiceImportable()) {
     }
     const stt = path.join(kernelDir, "stt.py");
     // Speech, turn-taking and a small chat model land in the FRIDAY folder
-    // now, through the app's own verified downloader. A model that does not
-    // arrive stops setup: FRIDAY is not ready without its voice and chat model.
+    // through the app's own verified downloader. A model that does not arrive
+    // fails the setup at the end (FRIDAY is not ready without its voice and chat
+    // model), after every package above is already in place.
     const fetched = run(process.execPath, [path.join(__dirname, "prefetch-models.cjs")], {
       env: {
         ...process.env,
@@ -355,7 +371,7 @@ if (!voiceImportable()) {
       console.error(
         "[friday] Fix the network, then run: npm run setup:python  (or npm run doctor)",
       );
-      process.exit(1);
+      incomplete.push("the speech, voice and chat models are not complete");
     }
     const sttDir = ["small", "base"]
       .map((size) => path.join(picked.root, "cache", "stt", size))
@@ -414,6 +430,32 @@ if (!voiceImportable()) {
   }
 }
 
+function voiceImportable() {
+  return (
+    capture(python, ["-c", "import faster_whisper, edge_tts; print('voice packages ok')"])
+      .status === 0
+  );
+}
+
+if (!voiceImportable()) {
+  const voicePins = parsePins(req).filter((pin) => voiceNames.has(pin.name));
+  if (voicePins.length) {
+    log("installing voice runtime packages (faster-whisper, edge-tts)");
+    installWithMethods(voicePins.map((pin) => pin.spec));
+  }
+}
+if (!voiceImportable()) {
+  if (win) {
+    console.error("[friday] voice packages (faster-whisper, edge-tts) are still not importable.");
+    process.exit(1);
+  }
+  log(
+    "note: faster-whisper / edge-tts not importable — kernel still boots; Install Manager can add them.",
+  );
+} else {
+  log("voice packages ok (faster-whisper, edge-tts)");
+}
+
 const capReq = path.join(kernelDir, "requirements-capabilities.txt");
 if (fs.existsSync(capReq)) {
   log(`installing capability extras from ${capReq}`);
@@ -454,6 +496,10 @@ if (capture(python, ["-c", "import chromadb"]).status !== 0) {
   log("chromadb ok (semantic memory enabled)");
 }
 
+if (win && voiceImportable()) {
+  fetchModelsAndProbe();
+}
+
 if (incomplete.length) {
   const verdict = mustComplete ? "ACTION REQUIRED" : "NOTE";
   console.error(`[friday] ${verdict}  the Python setup is not complete:`);
@@ -464,5 +510,6 @@ if (incomplete.length) {
   }
 }
 
+if (upgradeTried) updatePolicy.markChecked("python-packages");
 log("Python kernel dependencies installed.");
 log(`FRIDAY will use: ${python}`);

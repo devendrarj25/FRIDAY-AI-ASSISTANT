@@ -39,7 +39,13 @@ describe("npm run setup installs everything and nothing is optional", () => {
   });
 
   it("keeps the floors as floors and installs the latest stable release when one is missing or older", () => {
-    expect(setup).toContain("reused, not modified");
+    expect(setup).toContain("detected, kept");
+    expect(setup).toContain("Update-IfNewer");
+    expect(setup).toContain("-1978335189");
+    expect(setup).toContain("FRIDAY_SETUP_UPDATE");
+    expect(setup).toContain("Show-NodeAndNpmLatest");
+    expect(setup).toContain("$UpdateIds");
+    expect(setup).toContain("Set-UpdateChecked");
     expect(setup).toContain("installing the latest stable release");
     expect(setup).toContain("never downgrade");
   });
