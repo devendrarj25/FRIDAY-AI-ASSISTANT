@@ -81,6 +81,34 @@ function sttEnv(size, prepared) {
   return env;
 }
 
+/**
+ * Where the speech weights are during a build check. The readiness run uses a throwaway FRIDAY folder, so the
+ * weights `npm run setup` fetched into the checkout's staging folder were never seen and the speech test said
+ * "model not installed" and verified nothing. This looks in the folder in use first, then in the staging
+ * folder the build recorded, and returns the environment that points the test at real weights (or nothing).
+ */
+function stagedSttEnv({ roots = [], preferred = ["small", "base"] } = {}) {
+  const folders = [...roots.filter(Boolean)];
+  try {
+    const pointer = require("./staged-assets.cjs").readPointer();
+    if (pointer) folders.push(pointer);
+  } catch {
+    /* no staging record: only the folders given count */
+  }
+  for (const size of preferred) {
+    for (const folder of folders) {
+      const dir = path.join(folder, "cache", "stt", size);
+      if (
+        fs.existsSync(path.join(dir, "model.bin")) &&
+        fs.existsSync(path.join(dir, "config.json"))
+      ) {
+        return { FRIDAY_STT_MODEL: size, FRIDAY_STT_MODEL_PATH: dir };
+      }
+    }
+  }
+  return undefined;
+}
+
 /** The size live listening picks on "auto" (electron/stt.cjs uses the same call). */
 function liveAutoSize() {
   try {
@@ -399,4 +427,10 @@ async function verifyVoiceRuntime({ loadModel = true, model = "" } = {}) {
   };
 }
 
-module.exports = { verifyVoiceRuntime, speechSelfTest, hearingSelfTest, sttEnv };
+module.exports = {
+  verifyVoiceRuntime,
+  speechSelfTest,
+  hearingSelfTest,
+  sttEnv,
+  stagedSttEnv,
+};

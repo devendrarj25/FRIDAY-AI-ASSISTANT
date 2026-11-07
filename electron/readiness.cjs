@@ -173,7 +173,11 @@ async function runReadiness(ctx) {
   let kernelDetail = rootContract.ok
     ? kernelOk
       ? "kernel responding"
-      : "kernel did not answer /health"
+      : `kernel did not answer /health${
+          typeof ctx.kernelFailure === "function" && ctx.kernelFailure()
+            ? ` (${String(ctx.kernelFailure()).slice(0, 240)})`
+            : ""
+        }`
     : "kernel not started — no usable FRIDAY root";
   let models = [];
   let kernelRooted = kernelOk;
@@ -305,7 +309,10 @@ async function runReadiness(ctx) {
   }
   let speech = { ok: true, detail: "speech self-test skipped" };
   try {
-    speech = await require("./voice-verify.cjs").speechSelfTest();
+    const verify = require("./voice-verify.cjs");
+    speech = await verify.speechSelfTest(
+      verify.stagedSttEnv({ roots: [require("./friday-paths.cjs").root()] }),
+    );
   } catch (error) {
     speech = { ok: false, detail: String(error.message || error) };
   }

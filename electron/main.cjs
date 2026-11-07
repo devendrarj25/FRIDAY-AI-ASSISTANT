@@ -511,6 +511,7 @@ const remoteAccess = loadNamed("remote-access", () => require("./remote-access.c
 const fridayLibrary = loadNamed("library", () => require("./library.cjs"));
 const fridayProjects = loadNamed("projects", () => require("./project-workspaces.cjs"));
 
+const kernelWait = require("./kernel-wait.cjs");
 const { runReadiness } = loadNamed("readiness", () => require("./readiness.cjs"));
 // Single owner of "what already exists in this root and what may be deleted".
 const storageManager = loadNamed("storage", () => require("./storage-manager.cjs"));
@@ -808,6 +809,8 @@ let kernelReady = false;
 let kernelStartPromise = null;
 // Why the kernel is unavailable, so chat can say something actionable.
 let kernelFailure = "";
+/** True from app start (and from the start of every restart) until the kernel process is spawned or has failed to. */
+let kernelBootPending = true;
 let kernelStderr = "";
 let shutdownStarted = false;
 /** Filled in after restartKernel() exists so the exit handler can recover. */
@@ -1398,6 +1401,15 @@ function healStaleBootState(root) {
 }
 
 async function startKernel(root) {
+  kernelBootPending = true;
+  try {
+    await startKernelNow(root);
+  } finally {
+    kernelBootPending = false;
+  }
+}
+
+async function startKernelNow(root) {
   // Single-root rule: the kernel owns SQLite, memory and state, so it must
   // never run before a FRIDAY folder exists — starting it early would create a
   // second FRIDAY-owned data store under AppData. First run asks for a folder
@@ -1558,6 +1570,8 @@ async function startKernel(root) {
     kernelAuto?.onProcessExit(code, { shutdownStarted });
   });
 
+  // The process now exists, so a wait can tell a dead kernel from a starting one.
+  kernelBootPending = false;
   kernelStartPromise = waitForKernel().finally(() => {
     kernelStartPromise = null;
   });
@@ -1677,12 +1691,24 @@ function scheduleSessionReconnect() {
 async function waitForKernel(timeoutMs = 20000) {
   // A known spawn/configuration failure cannot heal by polling an unopened
   // port. Return immediately so chat and diagnostics stay responsive.
-  if (!kernelReady && !kernel && !kernelStartPromise && kernelFailure) return false;
+  const waitState = () => ({
+    kernel,
+    kernelReady,
+    kernelStartPromise,
+    kernelFailure,
+    bootPending: kernelBootPending,
+  });
+  if (kernelWait.hasKnownFailure(waitState())) return false;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     // The child died (crash or deliberate stop). Stop polling so auto-restart
     // can take over instead of burning the rest of the timeout against a dead port.
-    if (!kernel && !kernelReady) return false;
+    // A kernel that is still being started is not dead: keep waiting for it.
+    if (kernelWait.shouldStopWaiting(waitState())) return false;
+    if (!kernel) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      continue;
+    }
     try {
       const response = await fetch(`http://${KERNEL_HOST}:${KERNEL_PORT}/health`, {
         signal: AbortSignal.timeout(800),
@@ -1775,11 +1801,18 @@ function restartKernel({ reason = "manual" } = {}) {
   if (reason !== "auto") kernelAuto?.noteManualRestart();
   // A re-selected FRIDAY folder can bring its own runtime/.venv with it.
   invalidatePython();
+  // Anyone waiting on the kernel while it is stopped and started again keeps waiting for the new one.
+  kernelBootPending = true;
   kernelRestart = kernelRestart
     .catch(() => {})
     .then(async () => {
-      const free = await stopKernel();
-      if (!free) log("kernel port still busy after stop — starting anyway");
+      try {
+        const free = await stopKernel();
+        if (!free) log("kernel port still busy after stop — starting anyway");
+      } catch (error) {
+        kernelBootPending = false;
+        throw error;
+      }
       await startKernel(getWorkspaceRoot());
     });
   return kernelRestart;
@@ -2514,7 +2547,16 @@ async function kernelRequest(method, params = {}, timeoutMs = 30000) {
   const WebSocketImpl = getWebSocket();
   if (!WebSocketImpl) throw new Error("No WebSocket client is available in this build.");
   if (!kernelReady) {
-    if (!kernel && !kernelStartPromise && kernelFailure) throw new Error(kernelFailure);
+    if (
+      kernelWait.hasKnownFailure({
+        kernel,
+        kernelReady,
+        kernelStartPromise,
+        kernelFailure,
+        bootPending: kernelBootPending,
+      })
+    )
+      throw new Error(kernelFailure);
     const ready = await (kernelStartPromise || waitForKernel(8000));
     if (!ready) throw new Error(kernelFailure || "FRIDAY's local AI service is unavailable.");
   }
@@ -4184,6 +4226,7 @@ function createWindow() {
         kernelRequest,
         getWorkspaceRoot,
         kernelInstanceId: () => kernelInstanceId,
+        kernelFailure: () => kernelFailure,
         kernelFacts: () => ({
           pid: kernel && kernel.pid ? kernel.pid : null,
           port: KERNEL_PORT,
@@ -9312,6 +9355,7 @@ ipcMain.handle("env:readiness", () =>
     kernelRequest,
     getWorkspaceRoot,
     kernelInstanceId: () => kernelInstanceId,
+    kernelFailure: () => kernelFailure,
     kernelFacts: () => ({
       pid: kernel && kernel.pid ? kernel.pid : null,
       port: KERNEL_PORT,

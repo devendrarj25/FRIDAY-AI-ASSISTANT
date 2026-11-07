@@ -35,7 +35,7 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -632,6 +632,83 @@ async function useLatestInstaller(row, latest) {
   return release;
 }
 
+/**
+ * English streaming speech (Moonshine tiny, MIT). It is the fastest way to turn English into text while the
+ * owner is still talking, but it was never fetched: the kernel looks for it in `<root>/models/moonshine-en`
+ * and, finding nothing, quietly used the slower whisper path for every English turn. The publisher's own
+ * Python package knows the official file list, sizes and checksums, so it does the download into that folder.
+ */
+const MOONSHINE_DIR = ["models", "moonshine-en"];
+const MOONSHINE_SCRIPT = [
+  "import sys",
+  "from pathlib import Path",
+  "from moonshine_voice import ModelArch, get_model_for_language",
+  "path, arch = get_model_for_language('en', ModelArch.TINY_STREAMING, cache_root=Path(sys.argv[1]))",
+  "print('MOONSHINE_OK', path)",
+].join("\n");
+
+/** The same test the kernel uses (kernel/stt.py moonshine_model_dir): real model files, not a stub. */
+function moonshineReady(dir) {
+  const walk = (folder, depth) => {
+    let found = 0;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+    for (const entry of entries) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < 8) found += walk(full, depth + 1);
+      } else if (/\.(onnx|ort)$/i.test(entry.name)) {
+        try {
+          if (fs.statSync(full).size >= 100_000) found += 1;
+        } catch {
+          /* unreadable file */
+        }
+      }
+    }
+    return found;
+  };
+  return walk(dir, 0) > 0;
+}
+
+/** Fetch the English streaming weights with the venv Python. Returns one result row; never throws. */
+function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}) {
+  const dir = path.join(root, ...MOONSHINE_DIR);
+  if (moonshineReady(dir)) {
+    log("[friday] ok       moonshine-en verified on disk; not downloaded again");
+    return { id: "moonshine-en", ok: true, downloaded: false };
+  }
+  const python = String(env.FRIDAY_PYTHON || "").trim();
+  if (!python) {
+    log(
+      "[friday] INFO     moonshine-en skipped: no Python runtime yet (npm run setup:python fetches it)",
+    );
+    return { id: "moonshine-en", ok: true, downloaded: false, skipped: true };
+  }
+  log("[friday] fetching moonshine-en (English streaming speech)");
+  const spawn = run || require("node:child_process").spawnSync;
+  const ran = spawn(python, ["-c", MOONSHINE_SCRIPT, dir], {
+    encoding: "utf8",
+    timeout: 20 * 60 * 1000,
+    env: { ...env, PYTHONIOENCODING: "utf-8" },
+  });
+  const text = `${ran.stdout || ""}${ran.stderr || ""}`;
+  if (ran.status === 0 && moonshineReady(dir)) {
+    log("[friday] ok       moonshine-en (publisher download, English streaming speech)");
+    return { id: "moonshine-en", ok: true, downloaded: true };
+  }
+  const why = (
+    ran.error
+      ? String(ran.error.message || ran.error)
+      : text.trim().split(/\r?\n/).slice(-2).join(" ")
+  ).slice(0, 220);
+  log(`[friday] FAIL     moonshine-en was not downloaded (${why || "no files arrived"})`);
+  return { id: "moonshine-en", ok: false, error: why || "no files arrived" };
+}
+
 /** Run every job; returns one row per job. Never throws. */
 async function prefetch(
   root,
@@ -645,6 +722,7 @@ async function prefetch(
     totalGb,
     freshnessFetch,
     policyRoot,
+    moonshine,
   } = {},
 ) {
   const rows = [];
@@ -852,6 +930,9 @@ async function prefetch(
     }
   }
   rows.push(...ollamaRows.filter((row) => !(row.id === small && !row.ok && provided)), ...extra);
+  if (enabled(env, "FRIDAY_PREFETCH_MOONSHINE")) {
+    rows.push(fetchMoonshine(root, { env, log, ...(moonshine ? { run: moonshine } : {}) }));
+  }
   return rows;
 }
 
@@ -889,22 +970,68 @@ module.exports = {
   findOllama,
   detectOllama,
   ollamaServesChat,
+  looksTransient,
+  prefetchWithRetries,
+  fetchMoonshine,
+  moonshineReady,
+  alreadyThere,
+  MOONSHINE_DIR,
 };
+
+/** Does this failure look like the network dropping out for a moment, rather than a file that is wrong? */
+function looksTransient(error) {
+  return /offline|no such host|getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|timed? ?out|stalled|no byte|did not finish|socket|network|TLS|503|502|504|429/i.test(
+    String(error || ""),
+  );
+}
+
+/**
+ * Run the whole step, and when something failed only because the line dropped out (a DNS blip, a Wi-Fi
+ * reconnect) wait and run it again: every piece already on disk is only verified, so a second round fetches
+ * just what is missing. Three more rounds with growing waits cover a short outage without anyone typing a command.
+ */
+async function prefetchWithRetries(root, options = {}, { wait, rounds } = {}) {
+  const env = (options && options.env) || process.env;
+  const maxExtra = Number.isFinite(rounds)
+    ? rounds
+    : Math.max(0, Math.min(6, Math.floor(Number(env.FRIDAY_PREFETCH_RETRIES ?? 3))));
+  const sleep = wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const log = (options && options.log) || console.log;
+  let rows = await prefetch(root, options);
+  for (let round = 1; round <= maxExtra; round += 1) {
+    const failed = rows.filter((row) => !row.ok);
+    if (!failed.length || !failed.every((row) => looksTransient(row.error))) break;
+    const seconds = Math.min(90, 15 * 2 ** (round - 1));
+    log(
+      `[friday] INFO     ${failed.length} download(s) stopped on a network problem (${failed.map((row) => row.id).join(", ")}); trying again in ${seconds}s (round ${round + 1} of ${maxExtra + 1})`,
+    );
+    await sleep(seconds * 1000);
+    rows = await prefetch(root, options);
+  }
+  return rows;
+}
 
 if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
-  prefetch(picked.root).then(
+  // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
+  // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".
+  const finish = (code) => {
+    process.exitCode = code;
+    const force = setTimeout(() => process.exit(code), 5000);
+    force.unref();
+  };
+  prefetchWithRetries(picked.root).then(
     (rows) => {
       const lines = failureReport(rows);
       for (const line of lines) console.error(line);
-      process.exit(lines.length && strict() ? 1 : 0);
+      finish(lines.length && strict() ? 1 : 0);
     },
     (err) => {
       console.error(`[friday] FAIL     model step crashed: ${String((err && err.message) || err)}`);
-      process.exit(strict() ? 1 : 0);
+      finish(strict() ? 1 : 0);
     },
   );
 }

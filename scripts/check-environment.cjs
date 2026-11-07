@@ -629,6 +629,81 @@ if (win) {
     fix: toolsRequired ? "npm run doctor" : "winget install -e --id Ollama.Ollama",
     url: "https://ollama.com/download",
   });
+  // The speech, voice and chat weights that make FRIDAY listen, talk and answer. Doctor used to pass without
+  // looking at them, so a setup that lost its network halfway still ended "ready" and the first launch then
+  // downloaded gigabytes. One row each; `--fix` runs setup-python, which fetches what is missing.
+  try {
+    const prefetchModels = require("./prefetch-models.cjs");
+    const pickedRoot = require("./friday-root.cjs").workspaceRootOrDev().root;
+    const ramGb = require("node:os").totalmem() / 1024 ** 3;
+    const labels = {
+      "stt-base": "Speech model: base (fast listening)",
+      "stt-small": "Speech model: small (Hindi and Hinglish)",
+      "stt-medium": "Speech model: medium (accurate)",
+      "smart-turn": "Voice model: end-of-turn detector",
+      "silero-vad": "Voice model: speech detector",
+      "supertonic-3": "Voice model: offline voice (Supertonic 3)",
+      "qwen2.5-1.5b-instruct": "Chat model file: Qwen 2.5 1.5B",
+    };
+    for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
+      ollama: true,
+    })) {
+      if (!labels[job.id]) continue;
+      if (job.minRamGb && ramGb < job.minRamGb) continue;
+      // Ollama provides the small chat model on Windows; its file copy is only a fallback.
+      if (job.id === "qwen2.5-1.5b-instruct" && win) continue;
+      const here = prefetchModels.alreadyThere(job);
+      add({
+        name: labels[job.id],
+        required: toolsRequired,
+        group: "local-models",
+        ok: here,
+        found: here ? "on disk" : "missing",
+        want: "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+        fix: "npm run doctor",
+        url: "https://huggingface.co",
+      });
+    }
+    const english = prefetchModels.moonshineReady(
+      path.join(pickedRoot, ...prefetchModels.MOONSHINE_DIR),
+    );
+    add({
+      name: "Speech model: English streaming (Moonshine)",
+      required: toolsRequired,
+      group: "local-models",
+      ok: english,
+      found: english ? "on disk" : "missing",
+      want: "the fastest English listening, fetched by npm run setup",
+      fix: "npm run doctor",
+      url: "https://github.com/moonshine-ai/moonshine",
+    });
+    if (win && installedOllama) {
+      const listed = capture(installedOllama.exe || "ollama", ["list"]) || "";
+      const tag = (require("./prefetch-models.cjs").OLLAMA_MODELS[0] || {}).tag || "qwen2.5:1.5b";
+      const has = listed.toLowerCase().includes(tag.toLowerCase());
+      add({
+        name: `Chat model in Ollama: ${tag}`,
+        required: toolsRequired,
+        group: "local-models",
+        ok: has,
+        found: has ? "pulled" : "not pulled",
+        want: "the light local chat model for quick replies and talking",
+        fix: "npm run doctor",
+        url: "https://ollama.com/library",
+      });
+    }
+  } catch (error) {
+    add({
+      name: "Speech and chat models",
+      required: false,
+      group: "local-models",
+      ok: false,
+      found: `could not be checked (${String((error && error.message) || error).slice(0, 80)})`,
+      want: "the speech, voice and chat weights",
+      fix: "npm run doctor",
+      url: "https://huggingface.co",
+    });
+  }
   const ffmpeg = capture("ffmpeg", ["-version"]);
   add({
     name: "FFmpeg",

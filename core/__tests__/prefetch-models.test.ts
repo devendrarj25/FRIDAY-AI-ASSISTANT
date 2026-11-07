@@ -15,7 +15,12 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
 const prefetch = require_(path.join(root, "scripts/prefetch-models.cjs"));
 
-const quiet = { CI: "", GITHUB_ACTIONS: "", FRIDAY_SETUP_UPDATE: "0" };
+const quiet = {
+  CI: "",
+  GITHUB_ACTIONS: "",
+  FRIDAY_SETUP_UPDATE: "0",
+  FRIDAY_PREFETCH_MOONSHINE: "0",
+};
 
 describe("build-time model prefetch", () => {
   it("plans speech base and small, the pinned voice models, and a small chat model", () => {
@@ -811,5 +816,121 @@ describe("the app and the build agree on the one local chat model", () => {
     expect(registryTag(spec!)).toBe(prefetch.OLLAMA_MODELS[0].tag);
     expect(modelByTag(prefetch.OLLAMA_MODELS[0].tag)?.id).toBe(BOOTSTRAP_MODEL_ID);
     expect(prefetch.OLLAMA_MODELS).toHaveLength(1);
+  });
+});
+
+describe("prefetch resilience and the English streaming speech", () => {
+  it("tells a network blip from a wrong file", () => {
+    for (const text of [
+      "offline",
+      "getaddrinfo ENOTFOUND huggingface.co",
+      "dial tcp: lookup registry.ollama.ai: no such host",
+      "no byte for 60s",
+      "HTTP 503",
+    ]) {
+      expect(prefetch.looksTransient(text), text).toBe(true);
+    }
+    for (const text of ["SHA-256 mismatch", "signature", "installer missing", ""]) {
+      expect(prefetch.looksTransient(text), text).toBe(false);
+    }
+  });
+
+  it("runs the step again after a short outage and stops when only wrong files are left", async () => {
+    const waits: number[] = [];
+    let call = 0;
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-retry-"));
+    try {
+      const download = async () => {
+        call += 1;
+        return call < 3 ? { ok: false, error: "offline" } : { ok: true, bytes: 1 };
+      };
+      const options = {
+        platform: "linux",
+        env: { ...quiet, FRIDAY_PREFETCH_MOONSHINE: "0", FRIDAY_MODEL_FRESHNESS: "0" },
+        log: () => {},
+        download,
+      };
+      // Every job fails on the first call, so round one is all failures and the line is retried.
+      const rows = await prefetch.prefetchWithRetries(dir, options, {
+        wait: async (ms: number) => void waits.push(ms),
+        rounds: 3,
+      });
+      expect(waits.length).toBeGreaterThanOrEqual(1);
+      expect(waits[0]).toBe(15_000);
+      expect(rows.length).toBeGreaterThan(0);
+
+      waits.length = 0;
+      const wrong = await prefetch.prefetchWithRetries(
+        dir,
+        { ...options, download: async () => ({ ok: false, error: "SHA-256 mismatch" }) },
+        { wait: async (ms: number) => void waits.push(ms), rounds: 3 },
+      );
+      expect(waits).toEqual([]);
+      expect(wrong.some((row: { ok: boolean }) => !row.ok)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits through exitCode so Windows never aborts on closing sockets", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const tail = source.slice(source.indexOf("if (require.main === module)"));
+    expect(tail).toContain("process.exitCode = code");
+    expect(tail).toMatch(/setTimeout\(\(\) => process\.exit\(code\), 5000\)/);
+    expect(tail).toContain("force.unref()");
+    expect(tail).not.toMatch(/^\s*process\.exit\((?!code)/m);
+  });
+
+  it("fetches the English streaming weights once, with the venv Python, and is quiet when they are there", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-moon-"));
+    try {
+      const lines: string[] = [];
+      const log = (line: string) => void lines.push(line);
+      const target = path.join(dir, "models", "moonshine-en");
+      // No Python yet: skipped, not failed.
+      expect(prefetch.fetchMoonshine(dir, { env: {}, log })).toMatchObject({
+        ok: true,
+        skipped: true,
+      });
+      expect(prefetch.moonshineReady(target)).toBe(false);
+
+      const calls: string[][] = [];
+      const run = (python: string, args: string[]) => {
+        calls.push([python, ...args]);
+        mkdirSync(path.join(target, "download.moonshine.ai", "model"), { recursive: true });
+        writeFileSync(
+          path.join(target, "download.moonshine.ai", "model", "encoder.ort"),
+          Buffer.alloc(200_000),
+        );
+        return { status: 0, stdout: "MOONSHINE_OK x", stderr: "" };
+      };
+      const first = prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      expect(first).toMatchObject({ id: "moonshine-en", ok: true, downloaded: true });
+      expect(calls[0]![0]).toBe("py");
+      expect(calls[0]![2]).toContain("TINY_STREAMING");
+      expect(calls[0]![3]).toBe(target);
+      expect(prefetch.moonshineReady(target)).toBe(true);
+
+      const again = prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      expect(again).toMatchObject({ ok: true, downloaded: false });
+      expect(calls.length).toBe(1);
+
+      rmSync(target, { recursive: true, force: true });
+      const failed = prefetch.fetchMoonshine(dir, {
+        env: { FRIDAY_PYTHON: "py" },
+        log,
+        run: () => ({ status: 1, stdout: "", stderr: "ConnectionError: offline" }),
+      });
+      expect(failed).toMatchObject({ ok: false });
+      expect(failed.error).toContain("offline");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the kernel and the fetch agree on where the English weights live", () => {
+    const stt = readFileSync(path.join(root, "kernel/stt.py"), "utf8");
+    expect(stt).toContain('base / "models" / "moonshine-en"');
+    expect(stt).toContain("ModelArch.TINY_STREAMING");
   });
 });

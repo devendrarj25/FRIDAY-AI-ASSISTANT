@@ -119,7 +119,12 @@ describe("model downloads use several connections", () => {
       const lines: string[] = [];
       const rows = await prefetch.prefetch(dir, {
         platform: "linux",
-        env: { CI: "", GITHUB_ACTIONS: "", FRIDAY_PREFETCH_PARALLEL: "3" },
+        env: {
+          CI: "",
+          GITHUB_ACTIONS: "",
+          FRIDAY_PREFETCH_PARALLEL: "3",
+          FRIDAY_PREFETCH_MOONSHINE: "0",
+        },
         log: (line: string) => lines.push(line),
         download: async () => {
           live += 1;
