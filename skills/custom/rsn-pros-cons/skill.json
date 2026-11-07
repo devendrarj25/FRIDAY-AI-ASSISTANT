@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Lines starting with + or the word pro go to benefits; −/con to costs. Helps a decision; it does not make it for you."
 }

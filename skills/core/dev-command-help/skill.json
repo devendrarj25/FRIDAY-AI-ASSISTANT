@@ -1,0 +1,51 @@
+{
+  "id": "dev-command-help",
+  "name": "Command and Windows help",
+  "summary": "Explain commands, git recipes, Windows shortcuts and Run commands",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "explain command",
+    "explain this command",
+    "this command",
+    "what does this command do",
+    "git undo",
+    "undo last commit",
+    "git command",
+    "rebase",
+    "stash",
+    "robocopy",
+    "powershell command",
+    "windows shortcut",
+    "keyboard shortcut",
+    "run command",
+    "device manager",
+    "ms-settings",
+    "control panel",
+    "settings page",
+    "command explainer",
+    "git recipes",
+    "windows reference"
+  ],
+  "parts": [
+    {
+      "id": "explain-command",
+      "name": "Command explainer"
+    },
+    {
+      "id": "git-recipes",
+      "name": "Git recipes"
+    },
+    {
+      "id": "windows-help",
+      "name": "Windows reference"
+    }
+  ],
+  "description": "A reference desk for the command line and for Windows itself. It holds 3 tools and picks the right one from what you ask. Command explainer: What a git, docker, npm, pip, winget, robocopy, PowerShell, curl or chmod command does, flag by flag, with danger warnings. Git recipes: The exact git commands for common situations such as undoing a commit or fixing the wrong branch. Windows reference: Keyboard shortcuts, Run-box commands and ms-settings pages found by what you want to do."
+}

@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Splits pasted recipe lines into prep versus cook from verb hints. It does not start a timer."
 }

@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Local arithmetic on numbers you type. It does not connect to a database."
 }

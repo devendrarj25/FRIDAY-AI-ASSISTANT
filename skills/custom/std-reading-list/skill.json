@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Ordering helper. It does not fetch the papers."
 }

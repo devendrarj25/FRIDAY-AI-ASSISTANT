@@ -11,7 +11,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Flags functions over ~40 lines and repeated 8+ character tokens. Planning only; it does not rewrite the tree."
 }

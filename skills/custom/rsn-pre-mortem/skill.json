@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Prompts why-it-failed / early-signal / mitigation columns. Imagination aid, not a prediction."
 }

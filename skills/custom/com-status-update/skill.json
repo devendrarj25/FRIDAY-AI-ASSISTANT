@@ -13,7 +13,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Draft only. It does not post to Slack — use the Slack connector if you need send."
 }

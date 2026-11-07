@@ -11,7 +11,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Assumes the first number tagged flour, or an explicit flourGrams field."
 }

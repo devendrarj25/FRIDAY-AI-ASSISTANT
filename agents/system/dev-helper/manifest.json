@@ -9,7 +9,9 @@
     "dev-text-tools",
     "dev-decode-tools",
     "dev-project-checks",
-    "dev-color-contrast"
+    "dev-color-contrast",
+    "dev-encode-tools",
+    "dev-command-help"
   ],
   "workflows": [],
   "inputs": [

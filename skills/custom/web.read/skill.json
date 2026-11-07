@@ -8,7 +8,7 @@
   "inputs": ["url", "render", "prompt"],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": ["web.access"],
   "description": "Read-only page fetch. Runs as the built-in web.read skill (electron/skills.cjs → electron/browser.cjs sessionFetch). No second HTTP client. Catalog pack stays disabled until the owner enables it; the builtin remains available to agents."
 }

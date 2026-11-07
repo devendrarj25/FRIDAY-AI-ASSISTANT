@@ -8,7 +8,7 @@
   "inputs": ["code", "filename"],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Static review of pasted code or a diff. Runs in FRIDAY's sandbox with no network and no file access."
 }

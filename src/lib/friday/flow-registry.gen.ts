@@ -3166,10 +3166,22 @@ export const FLOW_REGISTRY = {
       file: "agents/system/india-desk/manifest.json",
     },
     {
+      id: "agents/system/life-desk/manifest",
+      kind: "agent",
+      name: "Life desk",
+      file: "agents/system/life-desk/manifest.json",
+    },
+    {
       id: "agents/system/log-doctor/manifest",
       kind: "agent",
       name: "Log doctor",
       file: "agents/system/log-doctor/manifest.json",
+    },
+    {
+      id: "agents/system/math-desk/manifest",
+      kind: "agent",
+      name: "Math desk",
+      file: "agents/system/math-desk/manifest.json",
     },
     {
       id: "agents/system/privacy-guard/manifest",
@@ -5572,6 +5584,12 @@ export const FLOW_REGISTRY = {
       file: "skills/core/cal-planner/skill.json",
     },
     {
+      id: "skills/core/dat-extract-tools/skill",
+      kind: "skill",
+      name: "Extract and compare",
+      file: "skills/core/dat-extract-tools/skill.json",
+    },
+    {
       id: "skills/core/dat-table-tools/skill",
       kind: "skill",
       name: "Table and statistics",
@@ -5584,10 +5602,22 @@ export const FLOW_REGISTRY = {
       file: "skills/core/dev-color-contrast/skill.json",
     },
     {
+      id: "skills/core/dev-command-help/skill",
+      kind: "skill",
+      name: "Command and Windows help",
+      file: "skills/core/dev-command-help/skill.json",
+    },
+    {
       id: "skills/core/dev-decode-tools/skill",
       kind: "skill",
       name: "Decode and hash",
       file: "skills/core/dev-decode-tools/skill.json",
+    },
+    {
+      id: "skills/core/dev-encode-tools/skill",
+      kind: "skill",
+      name: "Encode and numerals",
+      file: "skills/core/dev-encode-tools/skill.json",
     },
     {
       id: "skills/core/dev-json-tools/skill",
@@ -5614,6 +5644,24 @@ export const FLOW_REGISTRY = {
       file: "skills/core/doc-text-tools/skill.json",
     },
     {
+      id: "skills/core/doc-writing-analysis/skill",
+      kind: "skill",
+      name: "Writing analysis",
+      file: "skills/core/doc-writing-analysis/skill.json",
+    },
+    {
+      id: "skills/core/fin-invest-tax/skill",
+      kind: "skill",
+      name: "Investment and tax",
+      file: "skills/core/fin-invest-tax/skill.json",
+    },
+    {
+      id: "skills/core/health-calc/skill",
+      kind: "skill",
+      name: "Health and fitness",
+      file: "skills/core/health-calc/skill.json",
+    },
+    {
       id: "skills/core/in-finance-calc/skill",
       kind: "skill",
       name: "Finance calculator",
@@ -5636,6 +5684,18 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Hinglish detector",
       file: "skills/core/lang-hinglish-detect/skill.json",
+    },
+    {
+      id: "skills/core/life-calc/skill",
+      kind: "skill",
+      name: "Trip and home cost",
+      file: "skills/core/life-calc/skill.json",
+    },
+    {
+      id: "skills/core/math-tools/skill",
+      kind: "skill",
+      name: "Math tools",
+      file: "skills/core/math-tools/skill.json",
     },
     {
       id: "skills/core/ops-convert/skill",
@@ -5678,6 +5738,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Password strength check",
       file: "skills/core/saf-password-check/skill.json",
+    },
+    {
+      id: "skills/core/study-tools/skill",
+      kind: "skill",
+      name: "Study planner",
+      file: "skills/core/study-tools/skill.json",
     },
     {
       id: "skills/custom/car-30-60-90/skill",
@@ -8980,8 +9046,8 @@ export const FLOW_REGISTRY = {
       total: 125,
     },
     capabilities: {
-      mapped: 1048,
-      total: 1048,
+      mapped: 1059,
+      total: 1059,
     },
     ipc: {
       mapped: 476,

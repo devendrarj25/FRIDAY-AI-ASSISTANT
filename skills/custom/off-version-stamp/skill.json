@@ -11,7 +11,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Formats release notes you already wrote. It is not FRIDAY's version authority."
 }

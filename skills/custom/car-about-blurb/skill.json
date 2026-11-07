@@ -12,7 +12,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Draft for a profile. It does not post to LinkedIn (no connector)."
 }

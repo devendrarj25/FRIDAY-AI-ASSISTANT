@@ -11,7 +11,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Keyword-sorts your notes. Does not overwrite CHANGELOG.md; FRIDAY version authority stays in config/friday-version.json."
 }

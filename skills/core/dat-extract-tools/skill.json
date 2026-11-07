@@ -1,0 +1,49 @@
+{
+  "id": "dat-extract-tools",
+  "name": "Extract and compare",
+  "summary": "Extract entities, compare lists, count frequency, key-value to JSON",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "extract emails",
+    "extract links",
+    "extract phone numbers",
+    "find all",
+    "compare lists",
+    "common items",
+    "difference between lists",
+    "word frequency",
+    "most common words",
+    "count occurrences",
+    "key value to json",
+    "extract entities",
+    "list compare",
+    "frequency count",
+    "key-value to json"
+  ],
+  "parts": [
+    {
+      "id": "extract-entities",
+      "name": "Extract entities"
+    },
+    {
+      "id": "list-compare",
+      "name": "List compare"
+    },
+    {
+      "id": "frequency",
+      "name": "Frequency count"
+    },
+    {
+      "id": "kv-to-json",
+      "name": "Key-value to JSON"
+    }
+  ],
+  "description": "Turns messy text into tidy data. It holds 4 tools and picks the right one from what you ask. Extract entities: Emails, links, phone numbers, dates, amounts, hashtags, mentions and IPs found in text. List compare: What is only in the first list, only in the second, in both, and the union. Frequency count: How often each word or line appears, most common first. Key-value to JSON: Lines like name: Asha or port=8080 become typed JSON, dotted keys nest."
+}

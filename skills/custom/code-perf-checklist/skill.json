@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Heuristic scan of pasted source for serial awaits, unbounded maps, and parse-in-loop patterns. It is not a profiler and does not time a running process."
 }

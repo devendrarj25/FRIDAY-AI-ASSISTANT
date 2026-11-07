@@ -10,7 +10,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Keyword ideas only — not full recipes with times, temperatures, or food-safety steps."
 }

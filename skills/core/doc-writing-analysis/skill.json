@@ -1,0 +1,56 @@
+{
+  "id": "doc-writing-analysis",
+  "name": "Writing analysis",
+  "summary": "Readability, keywords, summary, meeting actions and SEO check",
+  "category": "writing",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "readability",
+    "reading level",
+    "flesch",
+    "keywords",
+    "key terms",
+    "summarize",
+    "summarise",
+    "tl;dr",
+    "summary of",
+    "meeting notes",
+    "action items",
+    "meeting minutes",
+    "seo audit",
+    "meta description",
+    "title tag",
+    "seo on-page check",
+    "meeting actions",
+    "summary"
+  ],
+  "parts": [
+    {
+      "id": "seo-onpage",
+      "name": "SEO on-page check"
+    },
+    {
+      "id": "meeting-actions",
+      "name": "Meeting actions"
+    },
+    {
+      "id": "readability",
+      "name": "Readability"
+    },
+    {
+      "id": "summary",
+      "name": "Summary"
+    },
+    {
+      "id": "keywords",
+      "name": "Keywords"
+    }
+  ],
+  "description": "Analyses what you wrote or received, without sending it anywhere. It holds 5 tools and picks the right one from what you ask. SEO on-page check: Title and description length, keyword placement, headings and images without alt text. Meeting actions: Action items with owner and due date, decisions and open questions from meeting notes. Readability: Flesch reading ease, grade level and the sentences that run too long. Summary: An extractive summary that only uses the text's own sentences. Keywords: The words and two-word phrases a text keeps repeating, and hashtag ideas."
+}

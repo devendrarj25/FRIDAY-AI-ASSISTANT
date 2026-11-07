@@ -1,0 +1,44 @@
+{
+  "id": "dev-encode-tools",
+  "name": "Encode and numerals",
+  "summary": "Base64, URL, HTML, hex encoding, Roman numerals and number words",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "url encode",
+    "url decode",
+    "base64 encode",
+    "encode base64",
+    "html entities",
+    "hex encode",
+    "unicode escape",
+    "roman numeral",
+    "roman numerals",
+    "number to words",
+    "spell out number",
+    "ordinal",
+    "text encoder",
+    "number words"
+  ],
+  "parts": [
+    {
+      "id": "encode-text",
+      "name": "Text encoder"
+    },
+    {
+      "id": "roman-numeral",
+      "name": "Roman numerals"
+    },
+    {
+      "id": "number-words",
+      "name": "Number words"
+    }
+  ],
+  "description": "Encoders and numeral systems in both directions. It holds 3 tools and picks the right one from what you ask. Text encoder: URL escapes, HTML entities, Base64, hex and \\u escapes, both directions. Roman numerals: Whole numbers 1 to 3999 to Roman numerals and back. Number words: English words for a number, its ordinal, and words back to a number."
+}

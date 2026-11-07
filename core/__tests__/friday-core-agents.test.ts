@@ -46,7 +46,9 @@ const SLUGS = [
   "data-desk",
   "dev-helper",
   "india-desk",
+  "life-desk",
   "log-doctor",
+  "math-desk",
   "privacy-guard",
   "system-desk",
   "time-planner",
@@ -92,7 +94,7 @@ function resource(slug: string): CapabilityResource {
 }
 
 describe("FRIDAY core agents: what ships", () => {
-  it("eight agents, enabled, safe, permission-free, each with a role and skills", () => {
+  it("ten agents, enabled, safe, permission-free, each with a role and skills", () => {
     const folders = fs
       .readdirSync(SYSTEM_AGENTS, { withFileTypes: true })
       .filter((e) => e.isDirectory() && SLUGS.includes(e.name))

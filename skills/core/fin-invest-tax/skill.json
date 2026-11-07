@@ -1,0 +1,49 @@
+{
+  "id": "fin-invest-tax",
+  "name": "Investment and tax",
+  "summary": "CAGR and ROI, break-even, inflation and India income tax",
+  "category": "finance",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "cagr",
+    "roi",
+    "return on investment",
+    "break even",
+    "inflation",
+    "purchasing power",
+    "income tax",
+    "tax slab",
+    "new regime",
+    "old regime",
+    "tax calculator",
+    "itr",
+    "cagr and roi",
+    "break-even",
+    "india income tax"
+  ],
+  "parts": [
+    {
+      "id": "cagr-roi",
+      "name": "CAGR and ROI"
+    },
+    {
+      "id": "break-even",
+      "name": "Break-even"
+    },
+    {
+      "id": "inflation-adjust",
+      "name": "Inflation"
+    },
+    {
+      "id": "income-tax-india",
+      "name": "India income tax"
+    }
+  ],
+  "description": "Money questions about returns, costs and tax. It holds 4 tools and picks the right one from what you ask. CAGR and ROI: Yearly growth rate and total return between two values. Break-even: Units and revenue to cover fixed costs, and profit at a planned volume. Inflation: Future cost and present worth of an amount at an inflation rate. India income tax: Estimate for an individual: new regime FY 2025-26 with rebate and marginal relief, and the old regime."
+}

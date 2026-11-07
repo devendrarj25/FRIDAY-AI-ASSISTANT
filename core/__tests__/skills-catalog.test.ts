@@ -86,13 +86,14 @@ describe("custom skill catalog", () => {
     expect(ids).toContain("sec-password-hygiene");
   });
 
-  it("every manifest matches the existing skill.json shape and stays disabled by default", () => {
+  it("every manifest matches the existing skill.json shape and ships enabled (built-in and safe)", () => {
     for (const { slug, data } of manifests) {
       for (const key of REQUIRED) {
         expect(data, `${slug} missing ${key}`).toHaveProperty(key);
       }
       expect(data.id, slug).toBe(slug);
-      expect(data.enabled, slug).toBe(false);
+      expect(data.enabled, slug).toBe(true);
+      expect(data.risk, slug).toBe("safe");
       expect(data.risk, slug).toBe("safe");
       expect(String(data.summary).length, `${slug} summary`).toBeGreaterThan(20);
       expect(String(data.description).length, `${slug} description`).toBeGreaterThan(40);
@@ -111,7 +112,7 @@ describe("custom skill catalog", () => {
       expect(item?.name).toBe(data.name);
       expect(item?.summary).toBe(data.summary);
       expect(item?.inputs).toEqual(data.inputs);
-      expect(item?.enabled).toBe(false);
+      expect(item?.enabled).toBe(true);
     }
   });
 
@@ -125,7 +126,7 @@ describe("custom skill catalog", () => {
       const skill = byId.get(slug);
       expect(skill, `skills.cjs missing ${slug}`).toBeDefined();
       expect(skill?.name).toBe(data.name);
-      expect(skill?.enabled).toBe(false);
+      expect(skill?.enabled).toBe(true);
     }
   });
 

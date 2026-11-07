@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { chooseSkills, scoreSkill } from "../../src/lib/friday/brain/skill-router";
 import type { SkillManifest } from "../../src/lib/friday/brain/skill-forge";
-import { MERGED } from "./helpers/core-skills-map";
+import { MERGED, PART_OF } from "./helpers/core-skills-map";
 
 const ROOT = path.resolve(__dirname, "../..");
 const CORE = path.join(ROOT, "skills", "core");
@@ -62,29 +62,37 @@ const manifests = ids.map(
 type Out = any;
 // Each tool of a merged skill is still addressed by its first-round id: the dispatcher's `part` picks it.
 async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
-  const target = MERGED[id] ?? id;
+  const target = PART_OF[id] ?? id;
   const mod = await import(
     /* @vite-ignore */ pathToFileURL(path.join(CORE, target, "skill.mjs")).href
   );
-  return (await mod.run(MERGED[id] ? { ...input, part: id } : input)) as Out;
+  return (await mod.run(PART_OF[id] ? { ...input, part: id } : input)) as Out;
 }
 
 describe("FRIDAY core skills: what ships", () => {
-  it("ships the twenty skills, one folder each", () => {
+  it("ships the twenty-nine skills, one folder each", () => {
     expect(ids).toEqual([
       "cal-date-time",
       "cal-planner",
+      "dat-extract-tools",
       "dat-table-tools",
       "dev-color-contrast",
+      "dev-command-help",
       "dev-decode-tools",
+      "dev-encode-tools",
       "dev-json-tools",
       "dev-project-checks",
       "dev-text-tools",
       "doc-text-tools",
+      "doc-writing-analysis",
+      "fin-invest-tax",
+      "health-calc",
       "in-finance-calc",
       "in-id-check",
       "in-tax-invoice",
       "lang-hinglish-detect",
+      "life-calc",
+      "math-tools",
       "ops-convert",
       "ops-file-path-check",
       "ops-log-doctor",
@@ -92,13 +100,14 @@ describe("FRIDAY core skills: what ships", () => {
       "saf-content-scan",
       "saf-link-check",
       "saf-password-check",
+      "study-tools",
     ]);
   });
 
   it("every first-round skill lives on as a tool of exactly one merged skill, and its part is real", () => {
     const parts = new Map<string, string>();
     for (const m of manifests as Array<Manifest & { parts?: { id: string; name: string }[] }>) {
-      for (const part of m.parts ?? []) parts.set(part.id, m.id);
+      for (const part of m.parts ?? []) if (MERGED[part.id]) parts.set(part.id, m.id);
       const source = fs.readFileSync(path.join(CORE, m.id, "skill.mjs"), "utf8");
       for (const part of m.parts ?? [])
         expect(source, `${m.id} lacks ${part.id}`).toContain(`id: "${part.id}"`);
@@ -108,6 +117,10 @@ describe("FRIDAY core skills: what ships", () => {
       ).toBeGreaterThan(2);
     }
     expect(Object.fromEntries(parts)).toEqual(MERGED);
+    // Skills added after the merge hold only new tools.
+    for (const m of manifests as Array<Manifest & { parts?: { id: string }[] }>) {
+      for (const part of m.parts ?? []) expect(MERGED[part.id] ? MERGED[part.id] : m.id).toBe(m.id);
+    }
     expect(Object.keys(MERGED).length + 4).toBe(53);
   });
 
@@ -208,11 +221,11 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
     for (const id of ids) expect(byId.get(id)?.enabled, id).toBe(true);
   });
 
-  it("the catalog skills stay disabled by default (only FRIDAY's own core skills ship on)", () => {
+  it("the 214 catalog skills ship on too, so FRIDAY has the whole built-in set from the first launch", () => {
     const listed = fridaySkills.list(ROOT);
     const custom = listed.skills.filter((s) => !ids.includes(s.id) && !s.id.includes("."));
     expect(custom.length).toBeGreaterThan(200);
-    expect(custom.every((s) => s.enabled === false)).toBe(true);
+    expect(custom.every((s) => s.enabled === true)).toBe(true);
   });
 
   it("each runs in the real sandbox harness and returns ok", async () => {
@@ -250,6 +263,54 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
       "ops-timestamp": { prompt: "1700000000" },
       "ops-version-compare": { versions: ["1.9", "1.10"] },
       "web-http-status": { code: "502" },
+      readability: {
+        text: "The cat sat on the mat. It was a very sunny day and the birds were singing in the trees.",
+      },
+      keywords: {
+        text: "Solar panels convert sunlight into power. Solar energy is clean. Solar panels last decades.",
+      },
+      summary: {
+        text: "Delhi is the capital of India. It sits on the Yamuna river. The city has many historic monuments. Tourists visit the Red Fort every year. The Red Fort was built by Shah Jahan. Delhi has a huge metro.",
+      },
+      "meeting-actions": {
+        text: "Asha will send the budget by Friday.\nWe decided to launch in March.",
+      },
+      "seo-onpage": {
+        title: "Best budget laptops India 2026 guide",
+        description:
+          "Compare the best budget laptops in India with prices and honest reviews for students and offices.",
+      },
+      bmi: { prompt: "bmi 70 kg 175 cm" },
+      calories: { prompt: "male 30 years 75 kg 175 cm moderate" },
+      "hr-zones": { age: 35 },
+      "pace-calc": { prompt: "10 km in 55:30" },
+      "water-intake": { weightKg: 70 },
+      calc: { prompt: "2^10 + sqrt(144)" },
+      "number-theory": { prompt: "gcd of 12 18" },
+      combinatorics: { prompt: "10 choose 3" },
+      equation: { prompt: "x^2 - 5x + 6 = 0" },
+      geometry: { prompt: "area of circle radius 7" },
+      "fraction-ratio": { prompt: "simplify 18/24" },
+      "cagr-roi": { prompt: "CAGR from 1 lakh to 2 lakh in 5 years" },
+      "break-even": { fixed: 50000, price: 200, variable: 120 },
+      "inflation-adjust": { amount: 100000, rate: 6, years: 10 },
+      "income-tax-india": { income: 1500000 },
+      "explain-command": { command: "git reset --hard HEAD~1" },
+      "git-recipes": { prompt: "undo my last commit" },
+      "windows-help": { prompt: "shortcut for screenshot" },
+      "spaced-repetition": { quality: 4, repetitions: 2, easeFactor: 2.5, interval: 6 },
+      "grade-convert": { prompt: "CGPA 8.2 to percentage" },
+      "exam-plan": { days: 30, subjects: 6 },
+      "pomodoro-plan": { minutes: 120 },
+      "fuel-trip": { km: 450, mileage: 15, price: 105 },
+      "power-cost": { watts: 1500, hoursPerDay: 8, days: 30 },
+      "extract-entities": { text: "mail a@b.co see https://x.com/a on 2026-12-01" },
+      "list-compare": { a: ["x", "y"], b: ["y", "z"] },
+      frequency: { text: "the cat the dog the end" },
+      "kv-to-json": { text: "name: Asha\nage=30" },
+      "encode-text": { prompt: "encode base64: hello" },
+      "roman-numeral": { prompt: "2026 to roman" },
+      "number-words": { prompt: "1234 in english words" },
       "cal-age-calc": { prompt: "born 15-08-1995 on 2026-11-07" },
       "cal-time-blocks": { prompt: "plan 9:00: report 45m, email 20m" },
       "dat-stats": { prompt: "stats of 12, 15, 9, 22" },
@@ -274,17 +335,17 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
     // A run records its stats next to the skill, so the app folder stays untouched: the workspace is a temp folder.
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "friday-core-skills-"));
     for (const [sampleId, sample] of Object.entries(samples)) {
-      const target = MERGED[sampleId] ?? sampleId;
+      const target = PART_OF[sampleId] ?? sampleId;
       const result = await fridaySkills.invoke(
         { appRoot: ROOT, workspaceRoot: workspace },
         target,
-        MERGED[sampleId] ? { ...sample, part: sampleId } : sample,
+        PART_OF[sampleId] ? { ...sample, part: sampleId } : sample,
         {},
       );
       expect(result.ok, `${sampleId}: ${result.error ?? ""}`).toBe(true);
       expect((result.value as Out)?.ok, `${sampleId} value`).toBe(true);
     }
-    expect(new Set(Object.keys(samples).map((k) => MERGED[k] ?? k))).toEqual(new Set(ids));
+    expect(new Set(Object.keys(samples).map((k) => PART_OF[k] ?? k))).toEqual(new Set(ids));
   }, 180_000);
 });
 

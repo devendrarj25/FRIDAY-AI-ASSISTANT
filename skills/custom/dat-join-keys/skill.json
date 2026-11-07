@@ -12,7 +12,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Set comparison on pasted lists. It does not run SQL."
 }

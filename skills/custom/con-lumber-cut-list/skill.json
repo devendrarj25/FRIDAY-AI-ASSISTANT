@@ -11,7 +11,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Each line is a cut length. First-fit decreasing onto stockLength (default 2400). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Grain, grade, and load capacity are out of scope."
 }

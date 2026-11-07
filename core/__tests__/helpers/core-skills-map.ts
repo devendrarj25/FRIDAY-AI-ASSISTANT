@@ -50,3 +50,19 @@ export const MERGED: Record<string, string> = {
   "dat-table-convert": "dat-table-tools",
   "dat-stats": "dat-table-tools",
 };
+
+import fs from "node:fs";
+import path from "node:path";
+
+/** Every tool (part) of every built-in skill, found by reading the manifests: part id -> skill id. */
+export const PART_OF: Record<string, string> = (() => {
+  const dir = path.resolve(__dirname, "../../../skills/core");
+  const out: Record<string, string> = {};
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name, "skill.json");
+    if (!entry.isDirectory() || !fs.existsSync(file)) continue;
+    const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as { parts?: { id: string }[] };
+    for (const part of manifest.parts ?? []) out[part.id] = entry.name;
+  }
+  return out;
+})();

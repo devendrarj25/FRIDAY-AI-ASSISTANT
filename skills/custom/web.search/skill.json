@@ -8,7 +8,7 @@
   "inputs": ["query", "limit", "prompt"],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": ["web.access"],
   "description": "Read-only web search. Runs as the built-in web.search skill (electron/skills.cjs → electron/browser.cjs DuckDuckGo HTML). No second HTTP client. Catalog pack stays disabled until the owner enables it; the builtin remains available to agents."
 }

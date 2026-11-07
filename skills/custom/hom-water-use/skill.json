@@ -12,7 +12,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
   "description": "Educational sketch using round numbers, not a utility meter."
 }

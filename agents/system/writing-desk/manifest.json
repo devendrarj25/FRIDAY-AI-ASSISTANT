@@ -6,7 +6,8 @@
   "role": "writing-desk",
   "skills": [
     "doc-text-tools",
-    "lang-hinglish-detect"
+    "lang-hinglish-detect",
+    "doc-writing-analysis"
   ],
   "workflows": [],
   "inputs": [
