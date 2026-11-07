@@ -263,6 +263,26 @@ export function resetCaptureRing(): void {
   workletOn = false;
 }
 
+export type CaptureTap = (samples: ArrayLike<number>, fromRate: number, atMono: number) => void;
+
+const MAX_TAPS = 4;
+const taps = new Set<CaptureTap>();
+
+/**
+ * Listen to the frames of the one microphone capture (no second stream is opened). A listener must be quick
+ * and must not keep or change the frame; one that throws is dropped so it can never stop the audio path.
+ * Returns the function that removes it. At most four listeners at a time.
+ */
+export function subscribeCaptureFrames(tap: CaptureTap): () => void {
+  if (taps.size >= MAX_TAPS) throw new Error("too many capture listeners");
+  taps.add(tap);
+  return () => void taps.delete(tap);
+}
+
+export function captureTapCount(): number {
+  return taps.size;
+}
+
 export function noteCaptureFrame(
   samples: ArrayLike<number>,
   atMono: number,
@@ -273,6 +293,13 @@ export function noteCaptureFrame(
   ring.push(samples, atMono, fromRate);
   lastFrameMono = atMono;
   if (wall) lastFrameWall = wall;
+  for (const tap of taps) {
+    try {
+      tap(samples, fromRate, atMono);
+    } catch {
+      taps.delete(tap);
+    }
+  }
 }
 
 export function markWorklet(on: boolean): void {

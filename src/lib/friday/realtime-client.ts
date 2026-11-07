@@ -56,6 +56,8 @@ export async function startRealtime(input: {
   onAudio?: (base64: string) => void;
   onText?: (assistant: string, heard: string) => void;
   onStop?: (reason: string) => void;
+  /** Called the moment the owner speaks over the answer: stop the speaker and return the milliseconds played. */
+  onBargeIn?: () => number | void;
   bridge?: Bridge | undefined;
   id?: string;
 }): Promise<StartResult> {
@@ -96,7 +98,10 @@ export async function startRealtime(input: {
         seenAudio = session.audio.length;
       } else if (session.audio.length === 0) seenAudio = 0;
       input.onText?.(session.assistantText, session.heardText);
-      if (over) void handle.bargeIn(session.playedMs);
+      if (over) {
+        const played = input.onBargeIn?.();
+        void handle.bargeIn(typeof played === "number" ? played : session.playedMs);
+      }
       if (session.state === "failed") {
         void handle.stop();
         input.onStop?.(session.error ?? "the session failed");

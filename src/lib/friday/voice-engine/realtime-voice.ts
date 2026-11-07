@@ -1,0 +1,199 @@
+/**
+ * FRIDAY · realtime voice session: the microphone and the speaker joined to a realtime provider.
+ *
+ * Capture comes from the one shared microphone stream (`subscribeCaptureFrames`; no second stream), is
+ * resampled to the provider rate, sent as PCM16, and never waits for the answer. Answer audio goes to one
+ * playback queue; when the owner speaks over it the speaker is flushed first and the provider is told how many
+ * milliseconds were really heard. A cloud session also passes the voice router (provider allowed, key saved,
+ * quota, paid approval, privacy) and is counted in the usage ledger.
+ *
+ * Every dependency is injected, so the join is tested without a microphone, a speaker or a network. A live
+ * provider session has not been run.
+ */
+import type { StartResult } from "../realtime-client";
+import type { GateInput } from "../realtime-protocol";
+import type { SessionSettings } from "../realtime-protocol";
+import {
+  base64ToPcm16,
+  floatToPcm16,
+  pcm16ToBase64,
+  REALTIME_RATE,
+  StreamResampler,
+} from "./audio-format";
+import type { PcmPlayback, PlaybackStats } from "./playback-scheduler";
+import { routeVoice, type UsageLedger, type VoiceCloudSettings } from "./voice-provider-router";
+
+type Start = (input: {
+  gate: GateInput;
+  cloud?: { provider: string; model: string };
+  settings: SessionSettings;
+  onAudio?: (base64: string) => void;
+  onText?: (assistant: string, heard: string) => void;
+  onStop?: (reason: string) => void;
+  onBargeIn?: () => number | void;
+}) => Promise<StartResult>;
+
+export type RealtimeVoiceDeps = {
+  start: Start;
+  subscribe: (
+    tap: (samples: ArrayLike<number>, fromRate: number, atMono: number) => void,
+  ) => () => void;
+  playback: PcmPlayback;
+  ledger: UsageLedger;
+  /** Called after the usage changed so it can be saved. */
+  persistLedger?: () => void;
+  now?: () => number;
+  /** Frames sent but not yet acknowledged; more than this are dropped, never queued. */
+  maxInflight?: number;
+};
+
+export type RealtimeVoiceRequest = {
+  gate: GateInput;
+  cloud: { provider: string; model: string };
+  settings: SessionSettings;
+  router: {
+    cloud: VoiceCloudSettings;
+    privacyMode: boolean;
+    billingAllowsPaid: boolean;
+    online: boolean;
+  };
+  onText?: (assistant: string, heard: string) => void;
+  onStop?: (reason: string) => void;
+};
+
+export type RealtimeVoiceStats = {
+  running: boolean;
+  sentFrames: number;
+  droppedFrames: number;
+  bargeIns: number;
+  elapsedMs: number;
+  playback: PlaybackStats;
+};
+
+export type RealtimeVoice = {
+  start: (
+    request: RealtimeVoiceRequest,
+  ) => Promise<{ ok: true } | { ok: false; reasons: string[] }>;
+  stop: (reason?: string) => Promise<void>;
+  setMuted: (muted: boolean) => void;
+  stats: () => RealtimeVoiceStats;
+};
+
+export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
+  const now = deps.now ?? Date.now;
+  const maxInflight = deps.maxInflight ?? 8;
+  let handle: Extract<StartResult, { ok: true }>["handle"] | null = null;
+  let unsubscribe: (() => void) | null = null;
+  let resampler: StreamResampler | null = null;
+  let resamplerRate = 0;
+  let muted = false;
+  let inflight = 0;
+  let sent = 0;
+  let dropped = 0;
+  let barge = 0;
+  let startedAt = 0;
+  let provider = "";
+  let running = false;
+
+  const finish = async (reason: string, request?: RealtimeVoiceRequest) => {
+    if (!running) return;
+    running = false;
+    unsubscribe?.();
+    unsubscribe = null;
+    const current = handle;
+    handle = null;
+    deps.playback.flush();
+    if (current) await current.stop();
+    const minutes = (now() - startedAt) / 60_000;
+    if (provider) {
+      deps.ledger.record(provider, minutes);
+      deps.persistLedger?.();
+    }
+    request?.onStop?.(reason);
+  };
+
+  return {
+    async start(request) {
+      if (running) return { ok: false, reasons: ["a realtime voice session is already running"] };
+      const decision = routeVoice(
+        {
+          need: "realtime-audio",
+          needInterruption: true,
+          sensitive: false,
+          privacyMode: request.router.privacyMode,
+          billingAllowsPaid: request.router.billingAllowsPaid,
+          online: request.router.online,
+        },
+        request.router.cloud,
+        deps.ledger,
+      );
+      if (decision.active !== "cloud" || decision.provider?.id !== request.cloud.provider) {
+        const why = decision.refused.find((r) => r.id === request.cloud.provider)?.why;
+        return { ok: false, reasons: [why ?? decision.reason] };
+      }
+      running = true;
+      startedAt = now();
+      provider = request.cloud.provider;
+      sent = dropped = barge = inflight = 0;
+      resampler = null;
+      resamplerRate = 0;
+      const result = await deps.start({
+        gate: request.gate,
+        cloud: request.cloud,
+        settings: request.settings,
+        onAudio: (base64) => void deps.playback.enqueue(base64ToPcm16(base64)),
+        onBargeIn: () => {
+          barge += 1;
+          return deps.playback.flush();
+        },
+        ...(request.onText ? { onText: request.onText } : {}),
+        onStop: (reason) => void finish(reason, request),
+      });
+      if (!result.ok) {
+        running = false;
+        provider = "";
+        return { ok: false, reasons: result.reasons };
+      }
+      handle = result.handle;
+      // One request is counted when the session opens; audio minutes are added when it ends.
+      deps.ledger.record(provider, 0);
+      deps.persistLedger?.();
+      unsubscribe = deps.subscribe((samples, fromRate) => {
+        if (!running || muted || !handle) return;
+        if (inflight >= maxInflight) {
+          dropped += 1;
+          return;
+        }
+        if (!resampler || resamplerRate !== fromRate) {
+          resampler = new StreamResampler(fromRate, REALTIME_RATE);
+          resamplerRate = fromRate;
+        }
+        const pcm = floatToPcm16(resampler.push(samples));
+        if (pcm.length === 0) return;
+        inflight += 1;
+        sent += 1;
+        void handle
+          .sendAudio(pcm16ToBase64(pcm))
+          .catch(() => void (dropped += 1))
+          .finally(() => void (inflight -= 1));
+      });
+      return { ok: true };
+    },
+    async stop(reason = "stopped") {
+      await finish(reason);
+    },
+    setMuted(value) {
+      muted = value;
+    },
+    stats() {
+      return {
+        running,
+        sentFrames: sent,
+        droppedFrames: dropped,
+        bargeIns: barge,
+        elapsedMs: running ? now() - startedAt : 0,
+        playback: deps.playback.stats(),
+      };
+    },
+  };
+}
