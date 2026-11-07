@@ -1032,6 +1032,9 @@ const HOOKS = [
   "on-file-change",
 ];
 const HOOK_SET = new Set(HOOKS);
+/** How many plugin sandboxes may start at once for one hook. */
+const HOOK_CONCURRENCY = 4;
+const INSIGHT_WARN_TTL_MS = 24 * 60 * 60 * 1000;
 
 function canonicalHook(name) {
   const raw = String(name || "")
@@ -1218,7 +1221,7 @@ function buildHookContext(item, services) {
   return ctx;
 }
 
-async function fireOneHook(item, hook, payload, services, roots) {
+async function fireOneHook(item, hook, payload, services, roots, testRun = false) {
   const entryFile = entryFileOf(item);
   if (!entryFile) {
     return { ok: false, id: item.id, error: `Plugin "${item.id}" entry is missing.` };
@@ -1240,7 +1243,9 @@ async function fireOneHook(item, hook, payload, services, roots) {
     }
   }
   const workspaceRoot = roots.workspaceRoot || roots.appRoot;
-  const dataDir = dataDirFor(item.path, item.id, roots.workspaceRoot);
+  // A test run keeps its files in a sub-folder, so pressing Test never changes a plugin's real counters.
+  const realDir = dataDirFor(item.path, item.id, roots.workspaceRoot);
+  const dataDir = testRun ? path.join(realDir, "__test__") : realDir;
   const run = await runSandboxed(item.path, manifest, item.id, services, null, null, {
     hook,
     payload: payload || {},
@@ -1248,7 +1253,9 @@ async function fireOneHook(item, hook, payload, services, roots) {
     dataDir,
   });
   if (!run.ok) return { ok: false, id: item.id, error: run.error, sandboxed: true };
-  return { ok: true, id: item.id, result: run.result ?? null, sandboxed: true };
+  const done = { ok: true, id: item.id, result: run.result ?? null, sandboxed: true };
+  if (testRun) done.insight = readJson(path.join(dataDir, "insight.json")) || null;
+  return done;
 }
 
 /**
@@ -1288,8 +1295,7 @@ async function dispatch(rootOrRoots, hook, payload, options = {}) {
       fired: [],
     };
   }
-  const fired = [];
-  for (const item of targets) {
+  const fireTarget = async (item) => {
     const risk = inferHookRisk(item);
     if (risk !== "safe") {
       if (
@@ -1310,38 +1316,49 @@ async function dispatch(rootOrRoots, hook, payload, options = {}) {
           allowed =
             decision === true || (decision && decision.ok !== false && decision.granted !== false);
         } catch (error) {
-          fired.push({
+          return {
             ok: false,
             id: item.id,
             denied: true,
             risk,
             error: String(error?.message || error),
-          });
-          continue;
+          };
         }
         if (!allowed) {
-          fired.push({
+          return {
             ok: false,
             id: item.id,
             denied: true,
             risk,
             error: `Plugin hook "${wanted}" on "${item.id}" was not approved.`,
-          });
-          continue;
+          };
         }
       } else {
-        fired.push({
+        return {
           ok: false,
           id: item.id,
           denied: true,
           risk,
           error: `Plugin hook "${wanted}" on "${item.id}" needs owner approval (${risk}).`,
-        });
-        continue;
+        };
       }
     }
-    fired.push({ ...(await fireOneHook(item, wanted, payload || {}, services, roots)), risk });
-  }
+    return {
+      ...(await fireOneHook(item, wanted, payload || {}, services, roots, Boolean(options.test))),
+      risk,
+    };
+  };
+  // Plugins start in small batches, not one after another: each one is its own sandbox process, and a
+  // library of useful plugins must not make every turn wait for the sum of their start-up times.
+  const fired = new Array(targets.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < targets.length) {
+      const index = cursor++;
+      fired[index] = await fireTarget(targets[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(HOOK_CONCURRENCY, targets.length) }, worker));
   return {
     ok: fired.every((row) => row.ok || row.denied),
     hook: wanted,
@@ -1350,7 +1367,47 @@ async function dispatch(rootOrRoots, hook, payload, options = {}) {
   };
 }
 
+/**
+ * A plugin that has something worth saying writes `insight.json` into its own data folder:
+ * { level: "info" | "good" | "warn", title, text, metrics?, at }. This reads them all, so the Plugins page and
+ * FRIDAY herself can show what the plugins noticed without opening any plugin's files by hand.
+ */
+function insights(rootOrRoots) {
+  const roots = normalizeRoots(rootOrRoots);
+  const out = [];
+  if (!roots.workspaceRoot) return out;
+  const items = list(rootOrRoots);
+  for (const item of Array.isArray(items) ? items : []) {
+    const dir = dataDirFor(item.path, item.id, roots.workspaceRoot);
+    const file = path.join(dir, "insight.json");
+    let raw = null;
+    try {
+      raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!raw || typeof raw !== "object") continue;
+    let level = ["info", "good", "warn"].includes(raw.level) ? raw.level : "info";
+    // A warning nobody refreshed for a day is history, not news: show it as plain info.
+    if (level === "warn" && Date.now() - (Number(raw.at) || 0) > INSIGHT_WARN_TTL_MS)
+      level = "info";
+    out.push({
+      id: item.id,
+      name: item.name,
+      enabled: Boolean(item.enabled),
+      level,
+      title: String(raw.title || item.name).slice(0, 120),
+      text: String(raw.text || "").slice(0, 600),
+      metrics: raw.metrics && typeof raw.metrics === "object" ? raw.metrics : {},
+      at: Number(raw.at) || 0,
+    });
+  }
+  const rank = { warn: 0, info: 1, good: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level] || b.at - a.at);
+}
+
 module.exports = {
+  insights,
   HOOKS,
   canonicalHook,
   declaredHooks,

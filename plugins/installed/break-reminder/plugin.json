@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "break-reminder",
+  "name": "Break reminder",
+  "description": "Notices long unbroken work and says when a short break is due (a gap of 20 minutes starts a new block).",
+  "category": "session",
+  "permissions": [],
+  "hooks": ["on-turn-complete"],
+  "insight": true
+}

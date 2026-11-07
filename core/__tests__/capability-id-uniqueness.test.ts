@@ -143,7 +143,8 @@ describe("combined capability ids and fresh-install listing", () => {
         "plugins/installed/os-snapshot-boot",
       ]),
     );
-    expect(pluginItems.filter((item) => item.enabled)).toEqual([]);
+    // Only the 20 permission-free insight plugins ship on; anything that reads files or the network stays off.
+    expect(pluginItems.filter((item) => item.enabled).length).toBe(20);
     const workflowItems = items.filter((item) => item.tree === "workflows");
     expect(workflowItems.length).toBeGreaterThanOrEqual(110);
     expect(workflowItems.map((item) => item.id)).toEqual(

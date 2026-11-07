@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "late-night-watch",
+  "name": "Late-night watch",
+  "description": "Counts turns sent between 1 a.m. and 5 a.m. and gently flags a habit of working very late.",
+  "category": "session",
+  "permissions": [],
+  "hooks": ["on-turn-start"],
+  "insight": true
+}

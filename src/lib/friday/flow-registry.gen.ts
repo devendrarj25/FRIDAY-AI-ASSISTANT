@@ -1541,6 +1541,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "plugins:insights",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "plugins:install",
       file: "electron/main.cjs",
     },
@@ -4972,6 +4976,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/actions-workflow-names/plugin.json",
     },
     {
+      id: "plugins/installed/activity-streak/plugin",
+      kind: "plugin",
+      name: "Activity streak",
+      file: "plugins/installed/activity-streak/plugin.json",
+    },
+    {
       id: "plugins/installed/binary-ext-watch/plugin",
       kind: "plugin",
       name: "Binary extension watch",
@@ -4988,6 +4998,18 @@ export const FLOW_REGISTRY = {
       kind: "plugin",
       name: "Boot session id",
       file: "plugins/installed/boot-session-id/plugin.json",
+    },
+    {
+      id: "plugins/installed/break-reminder/plugin",
+      kind: "plugin",
+      name: "Break reminder",
+      file: "plugins/installed/break-reminder/plugin.json",
+    },
+    {
+      id: "plugins/installed/burst-change-alert/plugin",
+      kind: "plugin",
+      name: "Burst change alert",
+      file: "plugins/installed/burst-change-alert/plugin.json",
     },
     {
       id: "plugins/installed/changelog-touch/plugin",
@@ -5020,6 +5042,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/daily-activity-rollup/plugin.json",
     },
     {
+      id: "plugins/installed/daily-turn-log/plugin",
+      kind: "plugin",
+      name: "Daily turn log",
+      file: "plugins/installed/daily-turn-log/plugin.json",
+    },
+    {
       id: "plugins/installed/dockerfile-presence/plugin",
       kind: "plugin",
       name: "Dockerfile presence",
@@ -5050,6 +5078,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/empty-dir-idle/plugin.json",
     },
     {
+      id: "plugins/installed/env-example-sync/plugin",
+      kind: "plugin",
+      name: "Env example sync",
+      file: "plugins/installed/env-example-sync/plugin.json",
+    },
+    {
       id: "plugins/installed/env-file-touch/plugin",
       kind: "plugin",
       name: "Env file touch",
@@ -5068,10 +5102,28 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/error-burst-watch/plugin.json",
     },
     {
+      id: "plugins/installed/error-digest/plugin",
+      kind: "plugin",
+      name: "Error digest",
+      file: "plugins/installed/error-digest/plugin.json",
+    },
+    {
       id: "plugins/installed/error-kind-tally/plugin",
       kind: "plugin",
       name: "Error kind tally",
       file: "plugins/installed/error-kind-tally/plugin.json",
+    },
+    {
+      id: "plugins/installed/error-recovery-rate/plugin",
+      kind: "plugin",
+      name: "Error recovery rate",
+      file: "plugins/installed/error-recovery-rate/plugin.json",
+    },
+    {
+      id: "plugins/installed/error-secret-sniff/plugin",
+      kind: "plugin",
+      name: "Error secret sniff",
+      file: "plugins/installed/error-secret-sniff/plugin.json",
     },
     {
       id: "plugins/installed/error-vs-turn-ratio/plugin",
@@ -5098,10 +5150,28 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/file-change-counter/plugin.json",
     },
     {
+      id: "plugins/installed/file-change-hotspots/plugin",
+      kind: "plugin",
+      name: "File-change hotspots",
+      file: "plugins/installed/file-change-hotspots/plugin.json",
+    },
+    {
       id: "plugins/installed/file-change-journal/plugin",
       kind: "plugin",
       name: "File change journal",
       file: "plugins/installed/file-change-journal/plugin.json",
+    },
+    {
+      id: "plugins/installed/focus-blocks/plugin",
+      kind: "plugin",
+      name: "Focus blocks",
+      file: "plugins/installed/focus-blocks/plugin.json",
+    },
+    {
+      id: "plugins/installed/folder-clutter-radar/plugin",
+      kind: "plugin",
+      name: "Folder clutter radar",
+      file: "plugins/installed/folder-clutter-radar/plugin.json",
     },
     {
       id: "plugins/installed/git-head-stamp/plugin",
@@ -5134,6 +5204,18 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/idle-cycle-stamp/plugin.json",
     },
     {
+      id: "plugins/installed/idle-cycle-yield/plugin",
+      kind: "plugin",
+      name: "Idle-cycle yield",
+      file: "plugins/installed/idle-cycle-yield/plugin.json",
+    },
+    {
+      id: "plugins/installed/idle-note-log/plugin",
+      kind: "plugin",
+      name: "Idle note log",
+      file: "plugins/installed/idle-note-log/plugin.json",
+    },
+    {
       id: "plugins/installed/idle-temp-census/plugin",
       kind: "plugin",
       name: "Idle temp census",
@@ -5144,6 +5226,12 @@ export const FLOW_REGISTRY = {
       kind: "plugin",
       name: "Intent counter",
       file: "plugins/installed/intent-counter/plugin.json",
+    },
+    {
+      id: "plugins/installed/intent-mix/plugin",
+      kind: "plugin",
+      name: "Intent mix",
+      file: "plugins/installed/intent-mix/plugin.json",
     },
     {
       id: "plugins/installed/json-syntax-watch/plugin",
@@ -5164,10 +5252,22 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/last-error-preview/plugin.json",
     },
     {
+      id: "plugins/installed/late-night-watch/plugin",
+      kind: "plugin",
+      name: "Late-night watch",
+      file: "plugins/installed/late-night-watch/plugin.json",
+    },
+    {
       id: "plugins/installed/license-presence/plugin",
       kind: "plugin",
       name: "License presence",
       file: "plugins/installed/license-presence/plugin.json",
+    },
+    {
+      id: "plugins/installed/line-ending-mix/plugin",
+      kind: "plugin",
+      name: "Line ending mix",
+      file: "plugins/installed/line-ending-mix/plugin.json",
     },
     {
       id: "plugins/installed/load-avg-boot/plugin",
@@ -5248,10 +5348,22 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/package-name-stamp/plugin.json",
     },
     {
+      id: "plugins/installed/package-scripts-brief/plugin",
+      kind: "plugin",
+      name: "Package scripts brief",
+      file: "plugins/installed/package-scripts-brief/plugin.json",
+    },
+    {
       id: "plugins/installed/path-depth-watch/plugin",
       kind: "plugin",
       name: "Path depth watch",
       file: "plugins/installed/path-depth-watch/plugin.json",
+    },
+    {
+      id: "plugins/installed/peak-hours/plugin",
+      kind: "plugin",
+      name: "Peak hours",
+      file: "plugins/installed/peak-hours/plugin.json",
     },
     {
       id: "plugins/installed/platform-arch-boot/plugin",
@@ -5260,10 +5372,22 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/platform-arch-boot/plugin.json",
     },
     {
+      id: "plugins/installed/project-type-detector/plugin",
+      kind: "plugin",
+      name: "Project type detector",
+      file: "plugins/installed/project-type-detector/plugin.json",
+    },
+    {
       id: "plugins/installed/python-project-presence/plugin",
       kind: "plugin",
       name: "Python project presence",
       file: "plugins/installed/python-project-presence/plugin.json",
+    },
+    {
+      id: "plugins/installed/readme-freshness/plugin",
+      kind: "plugin",
+      name: "README freshness",
+      file: "plugins/installed/readme-freshness/plugin.json",
     },
     {
       id: "plugins/installed/readme-presence/plugin",
@@ -5278,6 +5402,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/recent-mtime-idle/plugin.json",
     },
     {
+      id: "plugins/installed/repeat-error-guard/plugin",
+      kind: "plugin",
+      name: "Repeat-error guard",
+      file: "plugins/installed/repeat-error-guard/plugin.json",
+    },
+    {
       id: "plugins/installed/screenshot-name-idle/plugin",
       kind: "plugin",
       name: "Screenshot name idle",
@@ -5288,6 +5418,18 @@ export const FLOW_REGISTRY = {
       kind: "plugin",
       name: "Secret filename watch",
       file: "plugins/installed/secret-filename-watch/plugin.json",
+    },
+    {
+      id: "plugins/installed/secret-leak-radar/plugin",
+      kind: "plugin",
+      name: "Secret leak radar",
+      file: "plugins/installed/secret-leak-radar/plugin.json",
+    },
+    {
+      id: "plugins/installed/session-ledger/plugin",
+      kind: "plugin",
+      name: "Session ledger",
+      file: "plugins/installed/session-ledger/plugin.json",
     },
     {
       id: "plugins/installed/session-metrics-quit/plugin",
@@ -5314,6 +5456,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/session-uptime-idle/plugin.json",
     },
     {
+      id: "plugins/installed/skill-health/plugin",
+      kind: "plugin",
+      name: "Skill health",
+      file: "plugins/installed/skill-health/plugin.json",
+    },
+    {
       id: "plugins/installed/skill-mix-hourly/plugin",
       kind: "plugin",
       name: "Skill mix hourly",
@@ -5336,6 +5484,12 @@ export const FLOW_REGISTRY = {
       kind: "plugin",
       name: "Skill run ledger",
       file: "plugins/installed/skill-run-ledger/plugin.json",
+    },
+    {
+      id: "plugins/installed/skill-top-five/plugin",
+      kind: "plugin",
+      name: "Skill top five",
+      file: "plugins/installed/skill-top-five/plugin.json",
     },
     {
       id: "plugins/installed/skill-unique-set/plugin",
@@ -5362,6 +5516,12 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/symlink-idle/plugin.json",
     },
     {
+      id: "plugins/installed/test-coverage-hint/plugin",
+      kind: "plugin",
+      name: "Test coverage hint",
+      file: "plugins/installed/test-coverage-hint/plugin.json",
+    },
+    {
       id: "plugins/installed/test-file-touch/plugin",
       kind: "plugin",
       name: "Test file touch",
@@ -5384,6 +5544,12 @@ export const FLOW_REGISTRY = {
       kind: "plugin",
       name: "TODO filename idle",
       file: "plugins/installed/todo-filename-idle/plugin.json",
+    },
+    {
+      id: "plugins/installed/todo-radar/plugin",
+      kind: "plugin",
+      name: "TODO radar",
+      file: "plugins/installed/todo-radar/plugin.json",
     },
     {
       id: "plugins/installed/tsconfig-presence/plugin",
@@ -5416,10 +5582,22 @@ export const FLOW_REGISTRY = {
       file: "plugins/installed/turn-hourly-rate/plugin.json",
     },
     {
+      id: "plugins/installed/turn-latency-tracker/plugin",
+      kind: "plugin",
+      name: "Turn latency tracker",
+      file: "plugins/installed/turn-latency-tracker/plugin.json",
+    },
+    {
       id: "plugins/installed/turn-start-stamp/plugin",
       kind: "plugin",
       name: "Turn start stamp",
       file: "plugins/installed/turn-start-stamp/plugin.json",
+    },
+    {
+      id: "plugins/installed/weekly-review/plugin",
+      kind: "plugin",
+      name: "Weekly review",
+      file: "plugins/installed/weekly-review/plugin.json",
     },
     {
       id: "plugins/installed/workspace-root-markers/plugin",
@@ -9130,12 +9308,12 @@ export const FLOW_REGISTRY = {
       total: 125,
     },
     capabilities: {
-      mapped: 1073,
-      total: 1073,
+      mapped: 1102,
+      total: 1102,
     },
     ipc: {
-      mapped: 476,
-      total: 476,
+      mapped: 477,
+      total: 477,
     },
     kernel: {
       mapped: 14,

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "readme-freshness",
+  "name": "README freshness",
+  "description": "Compares the README's last change with the newest source file and says when the README looks stale.",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"],
+  "insight": true
+}

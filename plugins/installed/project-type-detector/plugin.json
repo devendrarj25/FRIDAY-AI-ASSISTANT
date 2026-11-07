@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "project-type-detector",
+  "name": "Project type detector",
+  "description": "Recognises what kind of project the workspace is (Node, Python, Rust, Go, .NET, Java, web) from its marker files.",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start", "on-idle"],
+  "insight": true
+}

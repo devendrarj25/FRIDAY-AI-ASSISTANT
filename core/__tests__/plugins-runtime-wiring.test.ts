@@ -367,7 +367,7 @@ describe("desktop IPC wiring", () => {
     expect(main).toContain("plugins.checkUpdates(capabilityRoots())");
     expect(preload).toContain("plugins:check-updates");
     expect(preload).toContain("options || {}");
-    expect(page).toContain("pluginId: openRow.id");
+    expect(page).toContain("pluginId: row.id");
     expect(brain).toContain(
       'dispatchPluginHook("on-turn-complete", { runId: run.id, ms: run.ms, ok: false })',
     );

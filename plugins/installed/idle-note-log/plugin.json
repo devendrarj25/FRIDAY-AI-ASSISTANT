@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "idle-note-log",
+  "name": "Idle note log",
+  "description": "Keeps the last twenty notes from FRIDAY's idle cycles and shows the newest.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-idle"],
+  "insight": true
+}

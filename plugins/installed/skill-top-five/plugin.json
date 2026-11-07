@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "skill-top-five",
+  "name": "Skill top five",
+  "description": "Counts which skills FRIDAY runs most and shows the top five.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-skill-run"],
+  "insight": true
+}

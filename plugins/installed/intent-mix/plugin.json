@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "intent-mix",
+  "name": "Intent mix",
+  "description": "Counts what kinds of requests FRIDAY recognises (by intent id, never the text) and shows the top five.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-turn-start"],
+  "insight": true
+}

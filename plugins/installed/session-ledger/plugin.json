@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "session-ledger",
+  "name": "Session ledger",
+  "description": "Counts turns, failures and answer time in each session and, at the next start, says how the last session went.",
+  "category": "session",
+  "permissions": [],
+  "hooks": ["on-app-start", "on-app-quit", "on-turn-complete"],
+  "insight": true
+}

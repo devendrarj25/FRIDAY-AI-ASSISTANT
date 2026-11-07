@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "test-coverage-hint",
+  "name": "Test coverage hint",
+  "description": "Compares the number of test files with source files and nudges when a project has almost none.",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"],
+  "insight": true
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "env-example-sync",
+  "name": "Env example sync",
+  "description": "Compares the variable names in .env with .env.example and reports names that are missing on either side (values are never read).",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"],
+  "insight": true
+}

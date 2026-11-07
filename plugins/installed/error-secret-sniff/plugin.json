@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "error-secret-sniff",
+  "name": "Error secret sniff",
+  "description": "Checks error messages for text that looks like a key or token and warns, so a secret never sits in a log unnoticed. It stores counts only, never the text.",
+  "category": "security",
+  "permissions": [],
+  "hooks": ["on-error"],
+  "insight": true
+}

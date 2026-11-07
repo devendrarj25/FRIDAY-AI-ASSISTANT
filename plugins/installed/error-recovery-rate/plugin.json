@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "error-recovery-rate",
+  "name": "Error recovery rate",
+  "description": "Shows what share of the last 50 turns succeeded and warns below 80 percent.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-turn-complete"],
+  "insight": true
+}

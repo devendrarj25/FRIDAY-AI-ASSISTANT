@@ -4781,6 +4781,7 @@ const pluginServices = {
 
 ipcMain.handle("plugins:list", () => plugins.list(capabilityRoots()));
 ipcMain.handle("plugins:check-updates", (_e) => plugins.checkUpdates(capabilityRoots()));
+ipcMain.handle("plugins:insights", () => plugins.insights(capabilityRoots()));
 ipcMain.handle("plugins:load", (_e, id) => plugins.load(capabilityRoots(), id, pluginServices));
 ipcMain.handle("plugins:reload", (_e, id) => plugins.load(capabilityRoots(), id, pluginServices));
 ipcMain.handle("plugins:unload", (_e, id) => plugins.unload(id));
@@ -4803,6 +4804,7 @@ ipcMain.handle("plugins:tools", () => plugins.tools());
 ipcMain.handle("plugins:dispatch", (_e, hook, payload, options) =>
   plugins.dispatch(capabilityRoots(), hook, payload && typeof payload === "object" ? payload : {}, {
     allowDisabled: Boolean(options && options.allowDisabled),
+    test: Boolean(options && options.test),
     pluginId:
       options && (options.pluginId || options.id) ? String(options.pluginId || options.id) : "",
     services: {

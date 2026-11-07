@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "activity-streak",
+  "name": "Activity streak",
+  "description": "Counts how many days in a row you have used FRIDAY.",
+  "category": "session",
+  "permissions": [],
+  "hooks": ["on-app-start", "on-turn-complete"],
+  "insight": true
+}

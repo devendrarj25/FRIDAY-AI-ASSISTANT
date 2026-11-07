@@ -310,6 +310,7 @@ const CHANNEL_CLASS = Object.freeze({
   "permissions:tool-policy": "quick",
   "plugins:check-updates": "quick",
   "plugins:dispatch": "quick",
+  "plugins:insights": "quick",
   "plugins:install": "quick",
   "plugins:invoke": "quick",
   "plugins:list": "quick",
