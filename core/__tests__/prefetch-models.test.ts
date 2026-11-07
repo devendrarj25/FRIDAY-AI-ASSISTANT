@@ -23,25 +23,25 @@ const quiet = {
 };
 
 describe("build-time model prefetch", () => {
-  it("plans speech base and small, the pinned voice models, and a small chat model", () => {
+  it("plans the pinned voice files first, then speech base and small, her voice, a small chat model, and the big size last", () => {
     const jobs = prefetch.prefetchPlan("/friday", quiet, "linux");
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
-      "stt-base",
-      "stt-small",
       "smart-turn",
       "silero-vad",
+      "stt-base",
+      "stt-small",
       "supertonic-3",
       "qwen2.5-1.5b-instruct",
       "stt-medium", // the optional larger size is the biggest piece, so it goes last
     ]);
-    const small = jobs[1];
+    const small = jobs[3];
     expect(jobs[6]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "Systran/faster-whisper-small",
     });
-    const vad = jobs[3];
+    const vad = jobs[1];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
     expect(jobs[4].job.sources[0]).toMatchObject({
@@ -963,5 +963,128 @@ describe("download speed", () => {
     const run = source.slice(source.indexOf("async function prefetch("));
     expect(run.indexOf("const moonshineRun")).toBeLessThan(run.indexOf("mapPool(jobs"));
     expect(run).toContain("rows.push(await moonshineRun)");
+  });
+});
+
+describe("the live download board", () => {
+  const board = require_(path.join(root, "scripts/download-board.cjs"));
+  const clockAt = (() => {
+    let t = 0;
+    const fn = () => t;
+    fn.set = (v: number) => (t = v);
+    return fn;
+  })();
+
+  it("draws a row with a bar, sizes, speed, time left and connections", () => {
+    const line = board.renderRow({
+      id: "stt-small",
+      state: "running",
+      percent: 50,
+      bytesDone: 232 * 1024 ** 2,
+      bytesTotal: 464 * 1024 ** 2,
+      speed: 15.4,
+      eta: 15,
+      connections: 8,
+    });
+    expect(line).toContain("[############------------]");
+    expect(line).toContain(" 50%");
+    expect(line).toContain("232 MB/464 MB");
+    expect(line).toContain("15.4 MB/s");
+    expect(line).toContain("15s left");
+    expect(line).toContain("8 conn");
+    expect(board.renderRow({ id: "x", state: "queued" })).toContain("waiting");
+    expect(board.renderRow({ id: "x", state: "done", note: "ready", seconds: 75 })).toContain(
+      "in 1m15s",
+    );
+    expect(board.renderRow({ id: "x", state: "failed", note: "offline" })).toContain("FAILED");
+  });
+
+  it("adds up the whole step: done count, bytes, line speed and time left", () => {
+    const lines: string[] = [];
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({
+      tty: false,
+      now: clockAt,
+      log: (l: string) => lines.push(l),
+    });
+    ui.start([
+      { id: "a", approxBytes: 100 * 1024 ** 2 },
+      { id: "b", approxBytes: 300 * 1024 ** 2 },
+    ]);
+    expect(lines[0]).toContain("download plan (2): a 100 MB, b 300 MB");
+    clockAt.set(10_000);
+    ui.update("a", {
+      progress: 100,
+      bytesDone: 100 * 1024 ** 2,
+      bytesTotal: 100 * 1024 ** 2,
+      speedMbps: 10,
+    });
+    ui.finish("a", { ok: true, bytes: 100 * 1024 ** 2, note: "10.0 MB/s average" });
+    ui.update("b", {
+      progress: 25,
+      bytesDone: 75 * 1024 ** 2,
+      bytesTotal: 300 * 1024 ** 2,
+      speedMbps: 20,
+    });
+    const total = ui.total();
+    expect(total).toMatchObject({ done: 1, count: 2, speed: 20 });
+    expect(total.bytesDone).toBe(175 * 1024 ** 2);
+    expect(total.bytesTotal).toBe(400 * 1024 ** 2);
+    expect(board.renderOverall(total)).toContain("1/2 ready");
+    expect(board.renderOverall(total)).toContain("11s left");
+    // Non-terminal output: a line per ten percent of a file, never one per event.
+    const before = lines.length;
+    ui.update("b", { progress: 26, bytesDone: 78 * 1024 ** 2, bytesTotal: 300 * 1024 ** 2 });
+    expect(lines.length).toBe(before);
+    ui.update("b", { progress: 31, bytesDone: 93 * 1024 ** 2, bytesTotal: 300 * 1024 ** 2 });
+    expect(lines.length).toBe(before + 1);
+  });
+
+  it("redraws in place in a terminal, keeps other messages above the board, and stops cleanly", () => {
+    let out = "";
+    const stream = { isTTY: true, write: (text: string) => void (out += text) };
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({ stream, tty: true, now: clockAt, intervalMs: 1_000_000 });
+    ui.start([{ id: "a", approxBytes: 10 * 1024 ** 2 }]);
+    const first = out.split("\n").length;
+    ui.say("[friday] update   a: 1 file(s) changed upstream, fetching them");
+    expect(out).toContain("\x1b[2A\x1b[J"); // cursor up over the board (1 row + the overall line) and clear
+    expect(out).toContain("[friday] update   a");
+    ui.update("a", {
+      progress: 40,
+      bytesDone: 4 * 1024 ** 2,
+      bytesTotal: 10 * 1024 ** 2,
+      speedMbps: 5,
+    });
+    ui.finish("a", { ok: true, note: "ready" });
+    ui.stop();
+    const tail = out.slice(out.lastIndexOf("[friday] a"));
+    expect(tail).toContain("100%");
+    ui.say("after stop");
+    expect(out.endsWith("after stop\n")).toBe(true);
+    expect(first).toBeGreaterThan(1);
+  });
+
+  it("a real run builds the board, feeds it, and a test run with its own downloader stays plain", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-board-"));
+    try {
+      const lines: string[] = [];
+      const ui = new board.DownloadBoard({ tty: false, log: (l: string) => lines.push(l) });
+      const rows = await prefetch.prefetch(dir, {
+        platform: "linux",
+        env: { ...quiet, FRIDAY_PREFETCH_STT_LARGE: "0", FRIDAY_MODEL_FRESHNESS: "0" },
+        log: (l: string) => lines.push(l),
+        board: ui,
+        download: async (_job: unknown, onEvent: (e: unknown) => void) => {
+          onEvent({ progress: 50, bytesDone: 5, bytesTotal: 10, speedMbps: 1 });
+          return { ok: true, bytes: 10, source: "stand-in" };
+        },
+      });
+      expect(rows.every((row: { ok: boolean }) => row.ok)).toBe(true);
+      expect(lines.some((l) => l.includes("download plan ("))).toBe(true);
+      expect(lines.some((l) => l.includes("ALL") && l.includes("ready"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
