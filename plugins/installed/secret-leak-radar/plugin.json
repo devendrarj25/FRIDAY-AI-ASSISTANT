@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "secret-leak-radar",
+  "name": "Secret leak radar",
+  "description": "Scans workspace text files for things that look like keys, tokens or private keys and lists the file names only. It never stores or shows the value.",
+  "category": "security",
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"],
+  "insight": true
+}

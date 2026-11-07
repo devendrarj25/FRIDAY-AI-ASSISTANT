@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useDeferredValue } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { FlaskConical, Loader2, Plug, RefreshCw, Search } from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,12 @@ import { CapabilityMarket } from "@/components/friday/CapabilityMarket";
 import { CapabilityImport } from "@/components/friday/CapabilityImport";
 import { uninstallPack } from "@/lib/friday/marketplace";
 import { dispatchPluginHooks, forgePlugin } from "@/lib/friday/brain/plugin-forge";
-import { setPluginEnabled, checkPluginUpdates } from "@/lib/friday/desktop";
+import {
+  setPluginEnabled,
+  checkPluginUpdates,
+  pluginInsights,
+  type PluginInsight,
+} from "@/lib/friday/desktop";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/plugins")({
@@ -180,6 +185,20 @@ function PluginsPage() {
   const setShown = (next: number) => setPageState({ key: filterKey, shown: next });
 
   const openRow = listed.find((row) => row.id === openId) || null;
+
+  // What the plugins noticed: each one leaves a short insight in its own data folder.
+  const [insights, setInsights] = useState<PluginInsight[]>([]);
+  const insightKey = `${pluginPacks.length}|${pluginPacks.filter((item) => item.enabled).length}`;
+  useEffect(() => {
+    let live = true;
+    void pluginInsights().then((rows) => {
+      if (live) setInsights(rows);
+    });
+    return () => {
+      live = false;
+    };
+  }, [insightKey]);
+  const openInsight = openRow ? insights.find((row) => row.id === openRow.id) : undefined;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -409,6 +428,35 @@ function PluginsPage() {
           </div>
         </HudPanel>
 
+        {insights.length ? (
+          <HudPanel
+            title="What your plugins noticed"
+            hint={`${insights.length} with something to say`}
+          >
+            <ul className="grid gap-2 md:grid-cols-2">
+              {insights.slice(0, 12).map((row) => (
+                <li key={row.id} className="rounded-md border border-border/50 p-2 text-meta">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{row.title}</span>
+                    <Badge variant={row.level === "warn" ? "destructive" : "secondary"}>
+                      {row.level === "warn"
+                        ? "Look at this"
+                        : row.level === "good"
+                          ? "Good"
+                          : "Info"}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground">{row.text}</p>
+                  <p className="text-note text-muted-foreground">
+                    {row.name}
+                    {row.enabled ? "" : " (off)"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </HudPanel>
+        ) : null}
+
         <HudPanel
           title="All Plugins"
           hint={`${rows.length} shown`}
@@ -607,6 +655,12 @@ function PluginsPage() {
         {openRow ? (
           <HudPanel title={`${openRow.name} details`} hint={openRow.id || "preview"}>
             <div className="space-y-1 text-meta">
+              {openInsight ? (
+                <p>
+                  <span className="text-muted-foreground">Latest output — </span>
+                  {openInsight.title}: {openInsight.text}
+                </p>
+              ) : null}
               <p>
                 <span className="text-muted-foreground">What it does — </span>
                 {openRow.summary || "—"}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "repeat-error-guard",
+  "name": "Repeat-error guard",
+  "description": "Warns when the same failure happens three times within half an hour, which usually means a setting or service is broken.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-error"],
+  "insight": true
+}

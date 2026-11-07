@@ -292,6 +292,7 @@ contextBridge.exposeInMainWorld("friday", {
   // plugins:dispatch with capabilityRoots().
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
   checkPluginUpdates: () => ipcRenderer.invoke("plugins:check-updates"),
+  pluginInsights: () => ipcRenderer.invoke("plugins:insights"),
   loadPlugin: (id) => ipcRenderer.invoke("plugins:load", id),
   reloadPlugin: (id) => ipcRenderer.invoke("plugins:reload", id),
   unloadPlugin: (id) => ipcRenderer.invoke("plugins:unload", id),

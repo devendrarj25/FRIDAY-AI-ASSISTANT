@@ -346,7 +346,7 @@ export async function manageSkills(
   );
 }
 
-function gateText(what: string, out: GateOutcome): string {
+export function gateText(what: string, out: GateOutcome): string {
   if (out.state === "done") return `${what}: done (${out.detail}).`;
   if (out.state === "waiting")
     return `${what}: the request is filed and waits for the owner's approval in Self-management (${out.detail}). It has NOT been done yet; do not say it is.`;

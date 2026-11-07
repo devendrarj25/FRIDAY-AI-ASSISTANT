@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "daily-turn-log",
+  "name": "Daily turn log",
+  "description": "Keeps a per-day count of turns, failures and average answer time, and shows today's numbers.",
+  "category": "session",
+  "permissions": [],
+  "hooks": ["on-turn-complete"],
+  "insight": true
+}

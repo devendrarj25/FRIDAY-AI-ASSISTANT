@@ -58,6 +58,7 @@ import { describeLiveSelf, looksLikeSelfStatusQuestion } from "./app-guide";
 import { answerSelf, selfTopic } from "./self-questions";
 import { describeSkillValue, routeSkills } from "./skill-router";
 import { manageSkillsFromPrompt } from "./skill-manager";
+import { managePluginsFromPrompt } from "./plugin-manager";
 import { describeAgentValue, routeAgents } from "./agent-router";
 import { describeToolValue, routeTools } from "./tool-router";
 import { describeModuleValue, routeModules } from "./module-router";
@@ -1031,7 +1032,9 @@ class CoreBrain {
       // Managing skills by chat ("what skills do you have", "disable the secret scan skill") is answered from
       // what actually happened; changes go through the owner's approval gate. Such a turn runs no skill or agent.
       stage?.("agents.skills", "checking for a skill management request");
-      const managed = await manageSkillsFromPrompt(prompt);
+      // Plugins are managed the same way ("what did my plugins notice", "turn off the break reminder plugin").
+      const managed =
+        (await managePluginsFromPrompt(prompt)) ?? (await manageSkillsFromPrompt(prompt));
       if (managed) {
         tools.push({
           tool: "skill",

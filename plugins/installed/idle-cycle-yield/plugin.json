@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "idle-cycle-yield",
+  "name": "Idle-cycle yield",
+  "description": "Adds up what FRIDAY's quiet-time study found and researched, so you can see whether idle time pays off.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-idle"],
+  "insight": true
+}

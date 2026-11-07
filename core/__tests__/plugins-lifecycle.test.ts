@@ -138,7 +138,7 @@ describe("plugin life cycle", () => {
     const ws = tmp("friday-pl-ws-");
     const roots = { appRoot: ROOT, workspaceRoot: ws };
     const shipped = plugins.list(roots) as Any[];
-    expect(shipped.length).toBe(78);
+    expect(shipped.length).toBe(107);
     const payloads: unknown[] = [
       { prompt: "hello", error: "boom", path: "a.txt", skillId: "x", ok: true },
       {},
@@ -166,7 +166,7 @@ describe("plugin life cycle", () => {
       .list(roots)
       .items.filter((i: Any) => i.tree === "plugins")
       .map((i: Any) => i.id as string);
-    expect(ids.length).toBe(78);
+    expect(ids.length).toBe(107);
     for (const id of ids) {
       caps.setEnabled(roots, id, true);
       plugins.setEnabled(roots, id, true);
@@ -176,7 +176,7 @@ describe("plugin life cycle", () => {
     );
     const start = await plugins.dispatch(roots, "on-app-start", {}, {});
     expect(fired(start).filter((f) => !f.ok)).toEqual([]);
-    expect(fired(start).length).toBe(25);
+    expect(fired(start).length).toBe(29);
     for (const id of ids) {
       caps.setEnabled(roots, id, false);
       plugins.setEnabled(roots, id, false);

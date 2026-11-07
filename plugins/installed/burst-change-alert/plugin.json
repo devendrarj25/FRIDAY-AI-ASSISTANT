@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "burst-change-alert",
+  "name": "Burst change alert",
+  "description": "Warns when thirty or more files change within a minute, which means a bulk edit, an import or something unexpected.",
+  "category": "workspace",
+  "permissions": [],
+  "hooks": ["on-file-change"],
+  "insight": true
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "turn-latency-tracker",
+  "name": "Turn latency tracker",
+  "description": "Tracks how long FRIDAY takes to answer (median and 90th percentile of the last 100 turns) and warns when answers get slow.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-turn-complete"],
+  "insight": true
+}

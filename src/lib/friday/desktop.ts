@@ -327,6 +327,7 @@ type DesktopApi = {
   kernel?: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
   listPlugins?: () => Promise<DesktopPlugin[]>;
   checkPluginUpdates?: () => Promise<PluginUpdatesResult>;
+  pluginInsights?: () => Promise<PluginInsight[]>;
   loadPlugin?: (id: string) => Promise<PluginResult>;
   reloadPlugin?: (id: string) => Promise<PluginResult>;
   unloadPlugin?: (id: string) => Promise<{ ok: boolean }>;
@@ -1282,6 +1283,22 @@ export async function kernelCall<T = unknown>(
 
 export async function listPlugins(): Promise<DesktopPlugin[]> {
   return (await api()?.listPlugins?.()) ?? [];
+}
+
+/** One thing a plugin noticed (its `insight.json`), as the Plugins page and FRIDAY read it. */
+export type PluginInsight = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  level: "info" | "good" | "warn";
+  title: string;
+  text: string;
+  metrics: Record<string, unknown>;
+  at: number;
+};
+
+export async function pluginInsights(): Promise<PluginInsight[]> {
+  return (await api()?.pluginInsights?.()) ?? [];
 }
 
 export async function checkPluginUpdates(): Promise<PluginUpdatesResult> {

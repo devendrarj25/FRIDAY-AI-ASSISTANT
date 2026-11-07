@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "error-digest",
+  "name": "Error digest",
+  "description": "Groups failures by their message shape, shows the three most common and warns on a burst of five within an hour.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-error"],
+  "insight": true
+}

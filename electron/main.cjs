@@ -4781,6 +4781,7 @@ const pluginServices = {
 
 ipcMain.handle("plugins:list", () => plugins.list(capabilityRoots()));
 ipcMain.handle("plugins:check-updates", (_e) => plugins.checkUpdates(capabilityRoots()));
+ipcMain.handle("plugins:insights", () => plugins.insights(capabilityRoots()));
 ipcMain.handle("plugins:load", (_e, id) => plugins.load(capabilityRoots(), id, pluginServices));
 ipcMain.handle("plugins:reload", (_e, id) => plugins.load(capabilityRoots(), id, pluginServices));
 ipcMain.handle("plugins:unload", (_e, id) => plugins.unload(id));

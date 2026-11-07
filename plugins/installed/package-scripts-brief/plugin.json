@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "package-scripts-brief",
+  "name": "Package scripts brief",
+  "description": "Reads package.json and lists the available scripts and the number of dependencies, so FRIDAY knows how a Node project is built and tested.",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-app-start"],
+  "insight": true
+}

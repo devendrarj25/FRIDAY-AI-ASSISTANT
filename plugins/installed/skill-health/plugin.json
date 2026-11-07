@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "skill-health",
+  "name": "Skill health",
+  "description": "Watches each skill's last five runs and warns when one keeps failing.",
+  "category": "quality",
+  "permissions": [],
+  "hooks": ["on-skill-run"],
+  "insight": true
+}

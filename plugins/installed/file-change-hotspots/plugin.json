@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": true,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "file-change-hotspots",
+  "name": "File-change hotspots",
+  "description": "Shows which parts of FRIDAY's folder change most often.",
+  "category": "workspace",
+  "permissions": [],
+  "hooks": ["on-file-change"],
+  "insight": true
+}

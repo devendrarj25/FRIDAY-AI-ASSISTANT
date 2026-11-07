@@ -1,6 +1,6 @@
 /**
  * Shipped plugin catalog: each pack has plugin.json + index.cjs that actually
- * exports the declared hooks. All stay enabled: false.
+ * exports the declared hooks. Only the permission-free insight plugins ship enabled.
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
@@ -37,7 +37,7 @@ function walkPluginJson(dir: string, out: string[] = []): string[] {
 describe("shipped plugin catalog", () => {
   const files = walkPluginJson(path.join(ROOT, "plugins"));
 
-  it("ships at least 70 real plugin.json packs, all disabled", () => {
+  it("ships at least 70 real plugin.json packs; only permission-free insight plugins ship on", () => {
     expect(files.length).toBeGreaterThanOrEqual(70);
     for (const file of files) {
       const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as {
@@ -45,8 +45,12 @@ describe("shipped plugin catalog", () => {
         hooks?: string[];
         entry?: string;
         id?: string;
+        insight?: boolean;
+        permissions?: string[];
       };
-      expect(manifest.enabled, file).toBe(false);
+      // Plugins that only keep counts in their own data folder ship on; every other pack stays off.
+      const shipsOn = manifest.insight === true && (manifest.permissions ?? []).length === 0;
+      expect(manifest.enabled, file).toBe(shipsOn);
       expect(Array.isArray(manifest.hooks) && manifest.hooks.length, file).toBeTruthy();
       for (const hook of manifest.hooks || []) {
         expect(pluginsHost.HOOKS, `${file} unknown hook ${hook}`).toContain(hook);
@@ -77,11 +81,17 @@ describe("shipped plugin catalog", () => {
     }
   });
 
-  it("lists every shipped plugin from appRoot and none are enabled", () => {
+  it("lists every shipped plugin from appRoot; exactly the 20 permission-free insight plugins are enabled", () => {
     const { items } = capabilities.list({ appRoot: ROOT, workspaceRoot: null });
     const packs = items.filter((item) => item.tree === "plugins");
     expect(packs.length).toBeGreaterThanOrEqual(70);
-    expect(packs.every((item) => item.enabled === false)).toBe(true);
+    const on = packs.filter((item) => item.enabled);
+    expect(on.length).toBe(20);
+    for (const item of on) {
+      const manifest = JSON.parse(fs.readFileSync(path.join(item.path, "plugin.json"), "utf8"));
+      expect(manifest.insight, item.id).toBe(true);
+      expect(manifest.permissions, item.id).toEqual([]);
+    }
   });
 
   it("turn-complete-log actually writes when dispatched enabled in a workspace copy", async () => {

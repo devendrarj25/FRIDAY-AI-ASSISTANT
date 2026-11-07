@@ -378,7 +378,12 @@ async function runIsolated({
   if (!code || !String(code).trim())
     return { ok: false, output: "No code to run.", dir: "", ms: 0 };
 
-  const dir = path.join(root, "temporary", "processing", `run-${Date.now().toString(36)}`);
+  const dir = path.join(
+    root,
+    "temporary",
+    "processing",
+    `run-${Date.now().toString(36)}-${require("node:crypto").randomBytes(4).toString("hex")}`,
+  );
   fs.mkdirSync(dir, { recursive: true });
   const python = language === "python";
   const file = path.join(dir, python ? "main.py" : "main.mjs");

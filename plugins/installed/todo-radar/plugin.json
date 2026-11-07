@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "enabled": false,
+  "author": "Devendra Singh Meena",
+  "selfTest": {
+    "export": "selfTest",
+    "input": {}
+  },
+  "id": "todo-radar",
+  "name": "TODO radar",
+  "description": "Counts TODO and FIXME comments in the workspace and lists the files that have the most.",
+  "category": "workspace",
+  "permissions": ["fs.read"],
+  "hooks": ["on-idle"],
+  "insight": true
+}
