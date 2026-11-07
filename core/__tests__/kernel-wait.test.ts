@@ -74,7 +74,7 @@ describe("readiness hears the build's own speech weights", () => {
       fs.mkdirSync(small, { recursive: true });
       fs.writeFileSync(path.join(small, "config.json"), "{}");
       fs.writeFileSync(path.join(small, "model.bin"), "x");
-      expect(verify.stagedSttEnv({ roots: [dir] })?.FRIDAY_STT_MODEL).toBe("small");
+      expect(verify.stagedSttEnv({ roots: [dir] })?.["FRIDAY_STT_MODEL"]).toBe("small");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

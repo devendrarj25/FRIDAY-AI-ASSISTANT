@@ -881,6 +881,35 @@ export function isHoldSound(text: string): boolean {
   return /^(uh+|um+|hmm+|mm+|haan|achha)\.?$/i.test(text.trim());
 }
 
+/**
+ * A short sound that means "I am following you", said while FRIDAY is talking: yeah, right, haan, achha, hmm, ji,
+ * "go on". ChatGPT's voice and Gemini Live keep talking through these; they are not an interruption and not a new
+ * request, so the reply carries on where it paused. Anything with real content, a question, or a stop word is not one.
+ */
+const FOLLOWING_ALONG =
+  /^(?:ok(?:ay)?(?:[\s,]+ok(?:ay)?)?|yeah|yes|yep|yup|right|sure|got it|i see|i know|mm+(?:[\s-]*hmm+)?|uh[\s-]*huh|hmm+|haan+(?:\s+ji)?|han+|ji(?:\s+haan)?|jee|a+c+h+a+|theek(?:\s+hai)?|thik(?:\s+hai)?|samajh\s+(?:gaya|gayi|gaye)|sahi|bilkul|ho\s+gaya|go\s+on|carry\s+on|continue|keep\s+going|aage\s+bolo|bolo|jaari\s+rakho)[\s.!,।]*$/i;
+
+export function isFollowingAlong(text: string): boolean {
+  const clean = text.trim();
+  return clean.length > 0 && clean.length <= 28 && FOLLOWING_ALONG.test(clean);
+}
+
+export type InterruptionVerdict = "resume" | "interrupt";
+
+/**
+ * What a line heard while FRIDAY was talking means. Following along resumes the reply; anything else is a real
+ * interruption. A yes is never "following along" while something waits for the owner's answer, and a word that
+ * is only FRIDAY's own voice coming back is noise, so it also resumes.
+ */
+export function judgeInterruption(
+  text: string,
+  context: { waitingForAnswer: boolean; selfEcho: boolean },
+): InterruptionVerdict {
+  if (context.selfEcho) return "resume";
+  if (context.waitingForAnswer) return "interrupt";
+  return isFollowingAlong(text) ? "resume" : "interrupt";
+}
+
 /** Speech aimed at another assistant is not a FRIDAY turn. */
 export function foreignAssistant(text: string): boolean {
   return /\b(hey|ok|okay)\s+(google|alexa|siri)\b|\b(alexa|ok google|hey google|hey siri)\b/i.test(
