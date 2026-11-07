@@ -29,6 +29,8 @@ import re
 import shutil
 from pathlib import Path
 
+import language_segmenter
+
 SILERO_NAME = "silero_vad.onnx"
 SILERO_SHA256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
 SILERO_BYTES = 2327524
@@ -112,6 +114,8 @@ LOCAL_TTS_REASON = (
 )
 _tts = None
 _tts_dir = ""
+# Quiet between two language spans of one reply, in seconds.
+SPAN_GAP_SECONDS = 0.08
 
 
 def supertonic_dir() -> Path | None:
@@ -259,21 +263,39 @@ def status() -> dict:
 
 
 def speech_lang(text: str, requested: str = "") -> str:
-    """Supertonic language. Mixed Hindi and English uses the na fallback."""
-    raw = (requested or "").strip().lower().replace("_", "-")
-    devanagari = any("\u0900" <= ch <= "\u097f" for ch in text)
-    latin = any("a" <= ch.lower() <= "z" for ch in text)
-    if devanagari and latin:
-        return "na"
-    if devanagari or raw.startswith("hi"):
-        return "hi"
-    if raw.startswith("en"):
-        return "en"
-    return "en" if latin else "na"
+    """Supertonic language for one piece of text.
+
+    Mixed Devanagari and Latin text is not a separate "unsupported" language:
+    the script with more letters decides, and ``speak_wav_bytes`` reads each
+    script span in its own language (see ``language_segmenter``).
+    """
+    return language_segmenter.dominant_lang(text, requested)
+
+
+def _synth_array(spoken: str, rate: float, lang: str):
+    """One Supertonic call. Returns a float32 mono array."""
+    import numpy as np  # type: ignore
+
+    if _tts is None:
+        raise RuntimeError("the speech model is not loaded")
+    wav, _duration = _tts.synthesize(
+        spoken[:500],
+        voice_style=_tts.get_voice_style(SUPERTONIC_VOICE),
+        total_steps=5,
+        speed=rate,
+        lang=lang,
+        silence_duration=0.12,
+    )
+    return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
 def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | None:
-    """Local Supertonic speech. None when the model or package is absent."""
+    """Local Supertonic speech. None when the model or package is absent.
+
+    Text in one script is one call. Mixed Hindi and English is cut into a few
+    phrase-sized spans (never one call per word); each is read in its own
+    language with the same voice and the pieces join in written order.
+    """
     spoken = (text or "").strip()
     if not spoken:
         return None
@@ -294,15 +316,17 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | No
             _tts = TTS(model="supertonic-3", model_dir=str(directory), auto_download=False)
             _tts_dir = str(directory)
         rate = min(2.0, max(0.7, float(speed or 1.0)))
-        wav, _duration = _tts.synthesize(
-            spoken[:500],
-            voice_style=_tts.get_voice_style(SUPERTONIC_VOICE),
-            total_steps=5,
-            speed=rate,
-            lang=speech_lang(spoken, lang),
-            silence_duration=0.12,
-        )
-        audio = np.asarray(wav, dtype=np.float32).reshape(-1)
+        spans = language_segmenter.segment(spoken[:500], lang)
+        if not spans:
+            return None
+        pieces = [_synth_array(span.text, rate, span.lang) for span in spans]
+        gap = np.zeros(int(int(_tts.sample_rate) * SPAN_GAP_SECONDS), dtype=np.float32)
+        parts = []
+        for index, piece in enumerate(pieces):
+            if index:
+                parts.append(gap)
+            parts.append(piece)
+        audio = np.concatenate(parts)
         buf = io.BytesIO()
         sf.write(buf, audio, int(_tts.sample_rate), format="WAV")
         data = buf.getvalue()

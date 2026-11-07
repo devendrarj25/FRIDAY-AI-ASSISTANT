@@ -107,6 +107,7 @@ import {
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import { splitLongSpeech } from "./voice-engine/language-segmenter";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
@@ -2868,7 +2869,7 @@ class AssistantModeStore {
       chunk = earlyClause(pending);
     if (!chunk.spoken) return;
     this.voicedChars += chunk.consumed;
-    this.speak(chunk.spoken);
+    for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
     if (
       final &&
       this.state.mode === "auto" &&
