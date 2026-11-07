@@ -14,6 +14,6 @@
     ".github/workflows/test-build.yml": "b38c642119f3640d7ae254464956a9a9ac877e02f33fe659d1135abde3ab805f",
     ".github/actions/checkout/action.yml": "9cab2f799c6bb53380dd5d36e71f4560d8a5e723f38d725c9f5822840069d66d",
     ".github/actions/friday-node/action.yml": "5308aacef58dfa987477f2b7ecf9be91d990a5eb1242cf7db678603af6b0807e",
-    ".github/actions/python/action.yml": "a370c8e176bbed4c4379d6baef3eff5cb4c5018cf042a702e3a95ee22a1e54d5"
+    ".github/actions/python/action.yml": "7f71d413746d59e69300c57896533e42a7c7f74b933a7a21992a711d56603f8c"
   }
 }

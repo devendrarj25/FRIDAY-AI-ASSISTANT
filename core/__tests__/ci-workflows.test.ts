@@ -250,6 +250,11 @@ describe("workflow inventory", () => {
     expect(uv).toBeGreaterThan(toolCache);
     expect(failure).toBeGreaterThan(uv);
     // Never a third-party action: the allow-list permits only devendrarj25 actions.
+    // pip's commands (ruff, pytest, zizmor) must be found: a tool-cache Python's scripts folder goes on PATH,
+    // and a uv interpreter (externally managed) gets a venv whose own bin is on PATH.
+    expect(action).toContain("sysconfig.get_path('scripts')");
+    expect(action).toContain('-m venv "$RUNNER_TEMP/py312"');
+    expect(action).toContain('echo "$venvbin" >> "$GITHUB_PATH"');
     expect(action).not.toContain("actions/setup-python@");
     expect(action).not.toMatch(/uses:\s*(?!\.\/)/);
   });

@@ -15,6 +15,7 @@ runs:
         # python.exe, so that directory goes on PATH. A copied exe alone does not start.
         bin=""
         dir=""
+        venvbin=""
         case "$(uname -s)" in
           MINGW*|MSYS*|CYGWIN*)
             if command -v py >/dev/null 2>&1 && py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
@@ -69,8 +70,11 @@ runs:
           if python3 -m venv "$RUNNER_TEMP/uvenv" && "$RUNNER_TEMP/uvenv/bin/python" -m pip install --quiet uv \
             && "$RUNNER_TEMP/uvenv/bin/uv" python install 3.12; then
             try=$("$RUNNER_TEMP/uvenv/bin/uv" python find 3.12 || true)
-            if [ -n "$try" ] && "$try" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
-              bin="$try"
+            # uv's interpreters are marked externally managed, so pip needs a venv of its own.
+            if [ -n "$try" ] && "$try" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" \
+              && "$try" -m venv "$RUNNER_TEMP/py312"; then
+              bin="$RUNNER_TEMP/py312/bin/python"
+              venvbin="$RUNNER_TEMP/py312/bin"
             fi
           fi
         fi
@@ -88,9 +92,21 @@ runs:
             echo "python 3.12 -> $bin (directory on PATH)"
             ;;
           *)
-            mkdir -p "$RUNNER_TEMP/pybin"
-            ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"
-            echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+            if [ -n "$venvbin" ]; then
+              # A venv finds its libraries from the folder it is started in, so its own bin goes on PATH.
+              echo "$venvbin" >> "$GITHUB_PATH"
+            else
+              mkdir -p "$RUNNER_TEMP/pybin"
+              ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"
+              echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+              # pip installs commands (ruff, pytest, zizmor) into this interpreter's scripts folder; the image's
+              # own Python has it on PATH already, a tool-cache Python does not.
+              scripts=$("$bin" -c "import sysconfig; print(sysconfig.get_path('scripts'))" | tr -d '\r')
+              case ":$PATH:" in
+                *":$scripts:"*) ;;
+                *) [ -d "$scripts" ] && echo "$scripts" >> "$GITHUB_PATH" ;;
+              esac
+            fi
             echo "python 3.12 -> $bin"
             ;;
         esac
