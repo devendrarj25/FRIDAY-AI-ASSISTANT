@@ -42,11 +42,20 @@ export class PcmPlayback {
   private dropped = 0;
   private underruns = 0;
   private scheduledMs = 0;
+  private listener: ((whenSeconds: number, pcm: Int16Array) => void) | null = null;
 
   constructor(
     private readonly context: ContextLike,
     private readonly options: { rate: number; maxQueuedMs?: number },
   ) {}
+
+  /**
+   * Hear every chunk the moment it is scheduled, with the audio-clock time it will start. The echo canceller uses
+   * this as its reference: what is about to leave the speaker. Pass null to stop listening.
+   */
+  onScheduled(listener: ((whenSeconds: number, pcm: Int16Array) => void) | null): void {
+    this.listener = listener;
+  }
 
   /** True when the chunk was scheduled. A chunk past the queue bound is refused and counted. */
   enqueue(pcm: Int16Array): boolean {
@@ -75,6 +84,7 @@ export class PcmPlayback {
     source.onended = () => this.sources.delete(source);
     this.sources.add(source);
     source.start(when);
+    this.listener?.(when, pcm);
     this.nextTime = when + ms / 1000;
     this.scheduledMs += ms;
     return true;

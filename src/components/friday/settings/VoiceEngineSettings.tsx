@@ -78,7 +78,7 @@ function RealtimeCloudSession({
     const timer = setInterval(() => {
       const s = realtimeVoiceSession().voice.stats();
       setStats(
-        `${Math.round(s.elapsedMs / 1000)} s · ${s.sentFrames} frames sent · ${s.droppedFrames} dropped · ${s.bargeIns} interruptions · speaker queue ${s.playback.queuedMs} ms · ${s.playback.underruns} gaps`,
+        `${Math.round(s.elapsedMs / 1000)} s · ${s.sentFrames} frames sent · ${s.droppedFrames} dropped · ${s.bargeIns} interruptions · speaker queue ${s.playback.queuedMs} ms · ${s.playback.underruns} gaps · echo ${s.echo ? `delay ${s.echo.delayMs} ms, ${s.echo.erleDb === null ? "not yet judged" : `${s.echo.erleDb} dB removed`}` : "off"}`,
       );
     }, 1000);
     return () => clearInterval(timer);

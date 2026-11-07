@@ -305,6 +305,7 @@ export const FLOW_REGISTRY = {
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.listenStyle",
+    "voice.liveWords",
     "voice.models",
     "voice.pauseDuringCalls",
     "voice.pitch",
@@ -9326,8 +9327,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 127,
-      total: 127,
+      mapped: 128,
+      total: 128,
     },
     capabilities: {
       mapped: 1102,

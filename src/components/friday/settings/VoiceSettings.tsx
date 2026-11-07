@@ -280,6 +280,12 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
+          <ToggleRow
+            label="Show words while I speak (experimental)"
+            hint="Auto mode only. Reads what you have said so far about once a second and shows the words two readings agree on. Uses more CPU while you talk; the answer still waits for the normal final reading. Off by default."
+            on={prefs.voice.liveWords === true}
+            onToggle={() => preferences.setVoice({ liveWords: prefs.voice.liveWords !== true })}
+          />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
           <SpeechModelCheck />

@@ -34,7 +34,9 @@ import {
   heardSummary,
   noteHeard,
 } from "./heard-log";
-import { allowRestart, encodeWav, preRollFrom } from "./pcm-capture";
+import { allowRestart, encodeWav, preRollFrom, TARGET_RATE } from "./pcm-capture";
+import { LiveWords } from "./voice-engine/live-words";
+import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi } from "./desktop";
 import {
   dropLine,
@@ -439,6 +441,9 @@ class AssistantModeStore {
   /** The newest piece of the answer that arrived while it was paused, replayed on resume. */
   private deferredStream: { runId: string; text: string; final: boolean } | null = null;
   private backchannelUsed = false;
+  /** Shows the words while the owner is still speaking (opt-in, `voice.liveWords`). */
+  private liveWords: LiveWords | null = null;
+  private liveWordsTimer: ReturnType<typeof setInterval> | null = null;
   private speechQueue: string[] = [];
   private draining = false;
   /** How much of the live answer has already been handed to speech. */
@@ -1692,6 +1697,14 @@ class AssistantModeStore {
           this.holdForInterruption();
         }
         this.to("vad-speech");
+        if (
+          preferences.getSnapshot().voice.liveWords === true &&
+          this.state.mode === "auto" &&
+          !this.state.paused &&
+          !this.state.speaking
+        ) {
+          this.startLiveWords();
+        }
         this.emit();
       },
       // Low-latency wake scoring on the RAW audio when openWakeWord is really
@@ -1936,6 +1949,8 @@ class AssistantModeStore {
         this.trace("dropped", `${event} ignored in ${from}${detail ? ` · ${detail}` : ""}`);
       return false;
     }
+    if (event === "transcribe-start" || event === "transcript" || event === "session-stop")
+      this.stopLiveWords();
     this.state.voiceState = next;
     this.state.listening = stateIsListening(next);
     this.state.speaking = stateIsSpeaking(next);
@@ -2677,6 +2692,56 @@ class AssistantModeStore {
       this.emit();
       this.speak("Cancelled. Nothing was executed.");
     }
+  }
+
+  /** Follow the utterance that just began, showing its words as they settle. Never starts an action. */
+  private startLiveWords() {
+    const api = desktopApi();
+    if (!api?.transcribe) return;
+    this.liveWords ??= new LiveWords({
+      audioSince: (from, maxMs) => {
+        const all = preRollFrom(from, 0);
+        const keep = Math.round((maxMs / 1000) * TARGET_RATE);
+        return {
+          samples: all.length > keep ? all.subarray(all.length - keep) : all,
+          rate: TARGET_RATE,
+        };
+      },
+      encodeWav,
+      transcribe: async (wav) => {
+        const voice = preferences.getSnapshot().voice;
+        const language = whisperLanguageArg(voice.recognitionLang) || undefined;
+        const out = await api.transcribe!({
+          audioBytes: wav,
+          mime: "audio/wav",
+          language,
+          localOnly: true,
+          ...(voice.sttSize && voice.sttSize !== "auto"
+            ? { model: voice.sttSize, sttSize: voice.sttSize }
+            : {}),
+        });
+        return out?.ok ? { ok: true, text: out.text ?? "" } : { ok: false };
+      },
+      speaking: () => voiceGate.heardSpeechWithin(1200),
+      onUpdate: (update) => {
+        if (this.state.mode !== "auto" || this.state.paused || this.state.speaking) return;
+        this.state.interim = update.shown;
+        this.emit();
+      },
+    });
+    this.liveWords.start(performance.now() - 400);
+    if (this.liveWordsTimer) return;
+    this.liveWordsTimer = setInterval(() => {
+      const follower = this.liveWords;
+      if (!follower?.isActive()) return this.stopLiveWords(false);
+      void follower.tick();
+    }, 400);
+  }
+
+  private stopLiveWords(stopFollower = true) {
+    if (stopFollower) this.liveWords?.stop();
+    if (this.liveWordsTimer) clearInterval(this.liveWordsTimer);
+    this.liveWordsTimer = null;
   }
 
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */

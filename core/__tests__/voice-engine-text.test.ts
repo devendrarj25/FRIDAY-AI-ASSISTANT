@@ -40,6 +40,27 @@ describe("number words", () => {
     expect(hindiNumber(2.5)).toBe("2.5");
   });
 
+  // Checked against the romanized list on the Wikipedia page "Hindi numerals" (read 2026-11-07): ek..nau,
+  // gyārah, bāīs, ikattīs, aṛtīs, uncās, tirpan, sattāvan, unsaṭh, saṛsaṭh, aṭhhattar, unāsī, navāsī, pacānve, ninyānve.
+  it.each([
+    [11, "ग्यारह"],
+    [22, "बाईस"],
+    [31, "इकतीस"],
+    [38, "अड़तीस"],
+    [49, "उनचास"],
+    [53, "तिरपन"],
+    [57, "सत्तावन"],
+    [59, "उनसठ"],
+    [67, "सड़सठ"],
+    [78, "अठहत्तर"],
+    [79, "उनासी"],
+    [89, "नवासी"],
+    [95, "पचानवे"],
+    [99, "निन्यानवे"],
+  ])("Hindi %i is %s as the page's romanization gives it", (n, word) =>
+    expect(hindiNumber(n)).toBe(word),
+  );
+
   it("has a Hindi word for every number up to 99", () => {
     const words = Array.from({ length: 100 }, (_, i) => hindiNumber(i));
     expect(new Set(words).size).toBe(100);

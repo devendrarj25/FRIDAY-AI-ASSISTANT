@@ -8,7 +8,12 @@ import {
   PcmPlayback,
   type ContextLike,
 } from "../../src/lib/friday/voice-engine/playback-scheduler";
-import { pcm16ToBase64, base64ToPcm16 } from "../../src/lib/friday/voice-engine/audio-format";
+import {
+  base64ToPcm16,
+  floatToPcm16,
+  pcm16ToBase64,
+  pcm16ToFloat,
+} from "../../src/lib/friday/voice-engine/audio-format";
 import {
   DEFAULT_CLOUD_SETTINGS,
   UsageLedger,
@@ -324,5 +329,138 @@ describe("realtime voice recovery", () => {
     await new Promise((res) => setTimeout(res, 5));
     expect(r.stops.at(-1)).toMatch(/reconnect refused: daily quota/);
     expect(r.handles).toHaveLength(1);
+  });
+});
+
+describe("realtime voice with the echo canceller", () => {
+  const RATE = 24_000;
+
+  function echoRig(withEcho: boolean) {
+    // Everything on one clock in seconds: the audio clock equals the microphone clock.
+    let ctxTime = 0;
+    const scheduled: { when: number; pcm: Int16Array }[] = [];
+    const context = {
+      get currentTime() {
+        return ctxTime;
+      },
+      destination: {},
+      createBuffer: (_c: number, length: number) => ({ length, copyToChannel: () => undefined }),
+      createBufferSource: () => ({
+        buffer: null,
+        connect: () => undefined,
+        start: () => undefined,
+        stop: () => undefined,
+        onended: null,
+      }),
+    } as unknown as ContextLike;
+    const playback = new PcmPlayback(context, { rate: RATE, maxQueuedMs: 8000 });
+    const sent: Int16Array[] = [];
+    let tap: (s: ArrayLike<number>, rate: number, at: number) => void = () => undefined;
+    const voice = createRealtimeVoice({
+      start: async () => ({
+        ok: true,
+        handle: {
+          session: () => ({}) as never,
+          sendAudio: async (b64: string) => void sent.push(base64ToPcm16(b64)),
+          bargeIn: async () => undefined,
+          stop: async () => undefined,
+        },
+      }),
+      subscribe: (fn) => {
+        tap = fn;
+        return () => undefined;
+      },
+      playback,
+      ledger: new UsageLedger(() => Date.parse("2026-05-05T10:00:00Z")),
+      maxInflight: 1000,
+      ...(withEcho ? { echo: { contextToMono: (s: number) => s * 1000 } } : {}),
+    });
+    return {
+      voice,
+      playback,
+      sent,
+      scheduled,
+      setTime: (t: number) => (ctxTime = t),
+      tap: (s: ArrayLike<number>, at: number) => tap(s, RATE, at),
+    };
+  }
+
+  /** Answer audio the model "speaks", then the microphone hears it back 80 ms late and quieter. */
+  async function simulate(withEcho: boolean) {
+    const r = echoRig(withEcho);
+    expect(
+      (
+        await r.voice.start({
+          gate,
+          cloud: { provider: "openai", model: "m" },
+          settings: { instructions: "x" },
+          router: { cloud, privacyMode: false, billingAllowsPaid: true, online: true },
+        })
+      ).ok,
+    ).toBe(true);
+    const seconds = 8;
+    const total = seconds * RATE;
+    let s = 99;
+    const rand = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 0xffffffff - 0.5;
+    const far = new Float32Array(total);
+    let lp = 0;
+    for (let i = 0; i < total; i += 1) {
+      const t = i / RATE;
+      lp = lp * 0.55 + rand() * 0.9;
+      far[i] = lp * Math.max(0, Math.sin(2 * Math.PI * 3.2 * t)) * 0.9;
+    }
+    const delay = Math.round(0.08 * RATE);
+    const micFrame = 480; // 20 ms
+    let scheduledTo = 0;
+    for (let at = 0; at < total; at += micFrame) {
+      const now = at / RATE;
+      r.setTime(now);
+      // the model's audio is always about 400 ms ahead of the speaker
+      while (scheduledTo < Math.min(total, at + Math.round(0.4 * RATE))) {
+        const end = Math.min(total, scheduledTo + 4800);
+        r.playback.enqueue(floatToPcm16(far.subarray(scheduledTo, end)));
+        scheduledTo = end;
+      }
+      const frame = new Float32Array(micFrame);
+      for (let i = 0; i < micFrame; i += 1) {
+        const j = at + i - delay;
+        frame[i] = j >= 0 ? 0.5 * far[j]! : 0;
+      }
+      r.tap(frame, now * 1000 + (micFrame / RATE) * 1000);
+    }
+    const flat = Float32Array.from(r.sent.flatMap((p) => [...pcm16ToFloat(p)]));
+    return { flat, stats: r.voice.stats() };
+  }
+
+  const power = (a: Float32Array, from: number, to: number) => {
+    let acc = 0;
+    for (let i = from; i < to; i += 1) acc += a[i]! * a[i]!;
+    return acc / Math.max(1, to - from);
+  };
+
+  it("sends far less of FRIDAY's own voice with the canceller on than with it off", async () => {
+    const off = await simulate(false);
+    const on = await simulate(true);
+    const from = 6 * RATE;
+    const to = 8 * RATE - 480;
+    //
+    const reduction = 10 * Math.log10(power(off.flat, from, to) / power(on.flat, from, to));
+    expect(reduction).toBeGreaterThan(12);
+    expect(on.stats.echo).not.toBeNull();
+    expect(off.stats.echo).toBeNull();
+  });
+
+  it("keeps the canceller running while frames are muted, so it is ready the moment sending resumes", async () => {
+    const r = echoRig(true);
+    await r.voice.start({
+      gate,
+      cloud: { provider: "openai", model: "m" },
+      settings: { instructions: "x" },
+      router: { cloud, privacyMode: false, billingAllowsPaid: true, online: true },
+    });
+    r.voice.setMuted(true);
+    r.tap(new Float32Array(480).fill(0.1), 20);
+    expect(r.sent).toEqual([]);
+    expect(r.voice.stats().echo?.erleDb).toBeNull();
   });
 });

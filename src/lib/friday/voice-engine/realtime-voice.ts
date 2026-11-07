@@ -17,9 +17,11 @@ import {
   base64ToPcm16,
   floatToPcm16,
   pcm16ToBase64,
+  pcm16ToFloat,
   realtimeFormat,
   StreamResampler,
 } from "./audio-format";
+import { EchoCanceller } from "./audio-aec";
 import type { PcmPlayback, PlaybackStats } from "./playback-scheduler";
 import { routeVoice, type UsageLedger, type VoiceCloudSettings } from "./voice-provider-router";
 
@@ -47,6 +49,11 @@ export type RealtimeVoiceDeps = {
   maxInflight?: number;
   /** Reconnect after a drop that was not the owner's doing: at most `max` tries, doubling the wait each time. */
   recovery?: { max: number; baseMs: number; sleep?: (ms: number) => Promise<void> };
+  /**
+   * Take FRIDAY's own voice out of the microphone before it is sent. `contextToMono` turns an audio-clock time
+   * (seconds) into the millisecond clock the microphone frames use. Off when omitted.
+   */
+  echo?: { contextToMono: (contextSeconds: number) => number };
 };
 
 export type RealtimeVoiceRequest = {
@@ -70,6 +77,8 @@ export type RealtimeVoiceStats = {
   bargeIns: number;
   elapsedMs: number;
   playback: PlaybackStats;
+  /** Echo canceller picture, or null when it is off. */
+  echo: { delayMs: number; erleDb: number | null; doubleTalkFrames: number } | null;
 };
 
 export type RealtimeVoice = {
@@ -96,6 +105,9 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
   let startedAt = 0;
   let provider = "";
   let running = false;
+  let canceller: EchoCanceller | null = null;
+  let nearIndex: number | null = null;
+  let refResampler: StreamResampler | null = null;
 
   const OWNER_STOPS = new Set(["owner stopped", "stopped", "settings closed"]);
   let reconnecting = false;
@@ -115,6 +127,7 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
       attemptsMade += 1;
       unsubscribe?.();
       unsubscribe = null;
+      deps.playback.onScheduled(null);
       deps.playback.flush();
       const old = handle;
       handle = null;
@@ -132,6 +145,8 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
     running = false;
     unsubscribe?.();
     unsubscribe = null;
+    deps.playback.onScheduled(null);
+    canceller = null;
     const current = handle;
     handle = null;
     deps.playback.flush();
@@ -196,18 +211,45 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
       // One request is counted when the session opens; audio minutes are added when it ends.
       deps.ledger.record(provider, 0);
       deps.persistLedger?.();
-      unsubscribe = deps.subscribe((samples, fromRate) => {
-        if (!running || muted || !handle) return;
+      const inputRate = realtimeFormat(provider).inputRate;
+      canceller = null;
+      nearIndex = null;
+      refResampler = null;
+      if (deps.echo) {
+        const echo = deps.echo;
+        const rate = inputRate;
+        canceller = new EchoCanceller({ rate, taps: Math.round(rate * 0.032) });
+        refResampler = new StreamResampler(realtimeFormat(provider).outputRate, rate);
+        // What is about to leave the speaker is the echo canceller's reference, placed on the microphone clock.
+        deps.playback.onScheduled((when, pcm) => {
+          if (!canceller || !refResampler) return;
+          const ref = refResampler.push(pcm16ToFloat(pcm));
+          canceller.pushReference(Math.round((echo.contextToMono(when) * rate) / 1000), ref);
+        });
+      }
+      unsubscribe = deps.subscribe((samples, fromRate, atMono) => {
+        if (!running || !handle) return;
+        if (!resampler || resamplerRate !== fromRate) {
+          resampler = new StreamResampler(fromRate, inputRate);
+          resamplerRate = fromRate;
+        }
+        let audio = resampler.push(samples);
+        if (audio.length === 0) return;
+        // Every frame goes through the canceller, sent or not, so its picture of the room never has a hole.
+        if (canceller) {
+          if (nearIndex === null) {
+            const frameMs = (samples.length / fromRate) * 1000;
+            nearIndex = Math.round(((atMono - frameMs) * inputRate) / 1000);
+          }
+          audio = canceller.process(audio, nearIndex);
+          nearIndex += audio.length;
+        }
+        if (muted) return;
         if (inflight >= maxInflight) {
           dropped += 1;
           return;
         }
-        if (!resampler || resamplerRate !== fromRate) {
-          resampler = new StreamResampler(fromRate, realtimeFormat(provider).inputRate);
-          resamplerRate = fromRate;
-        }
-        const pcm = floatToPcm16(resampler.push(samples));
-        if (pcm.length === 0) return;
+        const pcm = floatToPcm16(audio);
         inflight += 1;
         sent += 1;
         void handle
@@ -231,6 +273,11 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
         bargeIns: barge,
         elapsedMs: running ? now() - startedAt : 0,
         playback: deps.playback.stats(),
+        echo: canceller
+          ? (({ delayMs, erleDb, doubleTalkFrames }) => ({ delayMs, erleDb, doubleTalkFrames }))(
+              canceller.stats(),
+            )
+          : null,
       };
     },
   };

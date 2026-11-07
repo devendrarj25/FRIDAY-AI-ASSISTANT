@@ -66,6 +66,8 @@ export type VoicePreferences = {
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
    */
   cloudVoice: VoiceCloudPrefs;
+  /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
+  liveWords: boolean;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
@@ -225,6 +227,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     realtimeExperiment: false,
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
+    liveWords: false,
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",

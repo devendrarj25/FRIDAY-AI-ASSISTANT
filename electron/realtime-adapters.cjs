@@ -12,8 +12,10 @@
  *   audio in { realtimeInput: { audio: { data, mimeType } } }, PCM16 little-endian at 16 kHz
  *   server   { setupComplete } and { serverContent: { modelTurn.parts[].inlineData, interrupted, turnComplete,
  *            inputTranscription, outputTranscription } }, audio out PCM16 at 24 kHz
- * Not confirmed by those sources: the exact mimeType string for audio in (`audio/pcm;rate=16000` is used) and the
- * shape of speechConfig. Neither has been run against a live account.
+ * Confirmed: the SDK accepts any audio mimeType that starts with `audio/` (`tAudioBlob`), and a Blob is { data, mimeType }.
+ * Not confirmed: that the `;rate=16000` parameter is what the service wants (it is the documented convention) and the
+ * shape of speechConfig, which is only sent when the owner sets a voice and is not set by the app. Neither has been
+ * run against a live account.
  */
 const MAX_QUEUED_AUDIO = 64;
 

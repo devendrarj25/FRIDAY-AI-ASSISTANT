@@ -29,6 +29,9 @@ export function realtimeVoiceSession(): {
 } {
   if (!live) {
     const context = new AudioContext({ sampleRate: REALTIME_RATE });
+    // Audio-clock seconds to the millisecond clock the microphone frames carry (performance.now).
+    const offsetMs = performance.now() - context.currentTime * 1000;
+    const contextToMono = (seconds: number) => seconds * 1000 + offsetMs;
     const ledger = loadLedger(storage());
     const voice = createRealtimeVoice({
       start: startRealtime,
@@ -37,6 +40,7 @@ export function realtimeVoiceSession(): {
       ledger,
       persistLedger: () => saveLedger(storage(), ledger),
       recovery: { max: 3, baseMs: 1000 },
+      echo: { contextToMono },
     });
     live = { voice, close: () => void context.close().catch(() => undefined) };
     sessionLedger = ledger;
