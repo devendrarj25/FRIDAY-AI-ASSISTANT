@@ -1023,6 +1023,21 @@ async function ollamaUnload(model) {
   return res.ok ? { ok: true } : { ok: false, error: res.error || `HTTP ${res.status}` };
 }
 
+/**
+ * Load a model into memory now and keep it there, so the first spoken question after a quiet spell does not wait
+ * for it to load. An empty prompt loads without generating anything. Best effort: no Ollama, no harm.
+ */
+async function ollamaWarm(model, keepAlive = "20m") {
+  if (!model) return { ok: false, error: "no model" };
+  const res = await request(`${OLLAMA}/api/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model, prompt: "", keep_alive: keepAlive, stream: false }),
+    timeout: 60000,
+  });
+  return res.ok ? { ok: true } : { ok: false, error: res.error || `HTTP ${res.status}` };
+}
+
 /** Models currently resident in memory, straight from /api/ps. */
 async function ollamaRunning(base = OLLAMA) {
   const root = String(base || OLLAMA).replace(/\/+$/, "");
@@ -3064,6 +3079,7 @@ module.exports = {
   ollamaProbeRun,
   engineProbeRun,
   ollamaUnload,
+  ollamaWarm,
   ollamaRunning,
   localFolders,
   readKeys,

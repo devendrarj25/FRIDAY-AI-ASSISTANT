@@ -65,10 +65,8 @@ describe("background request wiring", () => {
     expect(at).toBeLessThan(mode.indexOf("if (isStopCommand(text))"));
   });
 
-  it("a quick agreement after being cut off resumes the held reply, and only then", () => {
-    expect(mode).toContain(
-      'isBackchannel(command) && this.unfinished !== "" && Date.now() - this.interruptedAt < 8000',
-    );
-    expect(mode).toContain("this.interruptedAt = Date.now()");
+  it("leaves the answer to a quick agreement after being cut off to the interruption hold, not to a second path", () => {
+    expect(mode).toContain("settleInterruption(");
+    expect(mode).not.toContain("interruptedAt");
   });
 });

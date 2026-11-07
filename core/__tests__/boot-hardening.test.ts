@@ -54,7 +54,8 @@ describe("silent, deterministic EXE boot", () => {
       main.indexOf("function portBusy"),
     );
     expect(wait).toContain("AbortSignal.timeout(800)");
-    expect(wait).toContain("if (!kernel && !kernelReady) return false");
+    // A kernel that died stops the wait; a kernel not yet spawned does not (kernel-wait.test.ts pins the rule).
+    expect(wait).toContain("if (kernelWait.shouldStopWaiting(waitState())) return false");
     expect(wait).toContain("serviceHealth.invalidate()");
   });
 

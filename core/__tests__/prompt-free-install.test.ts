@@ -119,7 +119,12 @@ describe("model downloads use several connections", () => {
       const lines: string[] = [];
       const rows = await prefetch.prefetch(dir, {
         platform: "linux",
-        env: { CI: "", GITHUB_ACTIONS: "", FRIDAY_PREFETCH_PARALLEL: "3" },
+        env: {
+          CI: "",
+          GITHUB_ACTIONS: "",
+          FRIDAY_PREFETCH_PARALLEL: "3",
+          FRIDAY_PREFETCH_MOONSHINE: "0",
+        },
         log: (line: string) => lines.push(line),
         download: async () => {
           live += 1;
@@ -140,10 +145,10 @@ describe("model downloads use several connections", () => {
     }
   });
 
-  it("can be turned down to one at a time", () => {
+  it("runs two lanes by default and can be turned down to one at a time", () => {
     expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "1" })).toBe(1);
-    expect(prefetch.prefetchParallelism({})).toBe(1);
+    expect(prefetch.prefetchParallelism({})).toBe(2);
     expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "99" })).toBe(4);
-    expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "nope" })).toBe(1);
+    expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "nope" })).toBe(2);
   });
 });

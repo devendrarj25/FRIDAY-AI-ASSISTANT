@@ -35,7 +35,7 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -46,8 +46,21 @@ const os = require("node:os");
 const voiceWeights = require("../electron/voice-weights.cjs");
 const stageToolchain = require("./stage-toolchain.cjs");
 const localRunners = require("../config/local-runners.json");
+const { DownloadBoard } = require("./download-board.cjs");
 const localLibrary = require("../electron/local-library.cjs");
 const updatePolicy = require("./update-policy.cjs");
+
+/** About how large each piece is, for the plan and the overall bar before the real sizes are known. */
+const APPROX_BYTES = {
+  "silero-vad": 2.3 * 1024 ** 2,
+  "smart-turn": 8.7 * 1024 ** 2,
+  "stt-base": 141 * 1024 ** 2,
+  "stt-small": 464 * 1024 ** 2,
+  "stt-medium": 1457 * 1024 ** 2,
+  "supertonic-3": 383 * 1024 ** 2,
+  "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
+  "ollama-setup": 1.6 * 1024 ** 3,
+};
 
 /** Ollama is the local engine FRIDAY starts and stops; the light chat model is pulled through it. */
 const OLLAMA_API = "http://127.0.0.1:11434";
@@ -89,13 +102,14 @@ function enabled(env, key) {
 const findOllama = localLibrary.findInstalledOllama;
 
 /**
- * How many models download at once (FRIDAY_PREFETCH_PARALLEL, default 1). One model already
- * uses a pool of connections that grows while it still adds speed, so a second model only
- * splits the same line and scrambles the progress; it is there for owners who want it.
+ * How many models download at once (FRIDAY_PREFETCH_PARALLEL, default 2, at most 4). One big model already
+ * uses a pool of connections, but the many small files (turn detector, speech detector, the base speech
+ * size) spend most of their time waiting for a connection to open, so a second lane keeps the line busy.
+ * FRIDAY_PREFETCH_PARALLEL=1 gives the old one-at-a-time order.
  */
 function prefetchParallelism(env = process.env) {
   const wanted = Math.floor(Number(env.FRIDAY_PREFETCH_PARALLEL));
-  return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 1;
+  return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 2;
 }
 
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
@@ -118,15 +132,8 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
   const hosted = Boolean(env.CI || env.GITHUB_ACTIONS);
   if (hosted && String(env.FRIDAY_PREFETCH || "") !== "1") return [];
   const jobs = [];
-  for (const size of STT_SIZES) {
-    const plan = voiceWeights.sttPlan(size, root);
-    jobs.push({
-      id: plan.id,
-      kind: "stt",
-      ready: plan.dir,
-      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
-    });
-  }
+  // Order is priority: the two tiny files that decide when she stops listening come first, then the speech sizes
+  // she hears with, then her voice and her chat model, and the big optional size last.
   for (const pinned of voiceWeights.pinnedJobs()) {
     const dir = path.join(root, ...pinned.dir);
     jobs.push({
@@ -146,6 +153,15 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
           },
         ],
       },
+    });
+  }
+  for (const size of STT_SIZES) {
+    const plan = voiceWeights.sttPlan(size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }
   if (enabled(env, "FRIDAY_PREFETCH_TTS")) jobs.push(ttsJob(root));
@@ -632,6 +648,104 @@ async function useLatestInstaller(row, latest) {
   return release;
 }
 
+/**
+ * English streaming speech (Moonshine tiny, MIT). It is the fastest way to turn English into text while the
+ * owner is still talking, but it was never fetched: the kernel looks for it in `<root>/models/moonshine-en`
+ * and, finding nothing, quietly used the slower whisper path for every English turn. The publisher's own
+ * Python package knows the official file list, sizes and checksums, so it does the download into that folder.
+ */
+const MOONSHINE_DIR = ["models", "moonshine-en"];
+const MOONSHINE_SCRIPT = [
+  "import sys",
+  "from pathlib import Path",
+  "from moonshine_voice import ModelArch, get_model_for_language",
+  "path, arch = get_model_for_language('en', ModelArch.TINY_STREAMING, cache_root=Path(sys.argv[1]))",
+  "print('MOONSHINE_OK', path)",
+].join("\n");
+
+/** The same test the kernel uses (kernel/stt.py moonshine_model_dir): real model files, not a stub. */
+function moonshineReady(dir) {
+  const walk = (folder, depth) => {
+    let found = 0;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+    for (const entry of entries) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < 8) found += walk(full, depth + 1);
+      } else if (/\.(onnx|ort)$/i.test(entry.name)) {
+        try {
+          if (fs.statSync(full).size >= 100_000) found += 1;
+        } catch {
+          /* unreadable file */
+        }
+      }
+    }
+    return found;
+  };
+  return walk(dir, 0) > 0;
+}
+
+/** Fetch the English streaming weights with the venv Python. Returns one result row; never throws. */
+async function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}) {
+  const dir = path.join(root, ...MOONSHINE_DIR);
+  if (moonshineReady(dir)) {
+    log("[friday] ok       moonshine-en verified on disk; not downloaded again");
+    return { id: "moonshine-en", ok: true, downloaded: false };
+  }
+  const python = String(env.FRIDAY_PYTHON || "").trim();
+  if (!python) {
+    log(
+      "[friday] INFO     moonshine-en skipped: no Python runtime yet (npm run setup:python fetches it)",
+    );
+    return { id: "moonshine-en", ok: true, downloaded: false, skipped: true };
+  }
+  log("[friday] fetching moonshine-en (English streaming speech)");
+  const runIt =
+    run ||
+    ((exe, args, options) =>
+      new Promise((resolve) => {
+        const child = require("node:child_process").spawn(exe, args, {
+          env: options.env,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let out = "";
+        child.stdout.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
+        child.stderr.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
+        const timer = setTimeout(() => child.kill(), options.timeout);
+        child.on("error", (error) => {
+          clearTimeout(timer);
+          resolve({ status: -1, stdout: out, stderr: "", error });
+        });
+        child.on("close", (status) => {
+          clearTimeout(timer);
+          resolve({ status, stdout: out, stderr: "" });
+        });
+      }));
+  const ran = await runIt(python, ["-c", MOONSHINE_SCRIPT, dir], {
+    encoding: "utf8",
+    timeout: 20 * 60 * 1000,
+    env: { ...env, PYTHONIOENCODING: "utf-8" },
+  });
+  const text = `${ran.stdout || ""}${ran.stderr || ""}`;
+  if (ran.status === 0 && moonshineReady(dir)) {
+    log("[friday] ok       moonshine-en (publisher download, English streaming speech)");
+    return { id: "moonshine-en", ok: true, downloaded: true };
+  }
+  const why = (
+    ran.error
+      ? String(ran.error.message || ran.error)
+      : text.trim().split(/\r?\n/).slice(-2).join(" ")
+  ).slice(0, 220);
+  log(`[friday] FAIL     moonshine-en was not downloaded (${why || "no files arrived"})`);
+  return { id: "moonshine-en", ok: false, error: why || "no files arrived" };
+}
+
 /** Run every job; returns one row per job. Never throws. */
 async function prefetch(
   root,
@@ -645,6 +759,8 @@ async function prefetch(
     totalGb,
     freshnessFetch,
     policyRoot,
+    moonshine,
+    board,
   } = {},
 ) {
   const rows = [];
@@ -674,6 +790,9 @@ async function prefetch(
     log(
       `[friday] ok       ollama ${existing.version || "(version unknown)"} already installed${existing.exe ? ` at ${existing.exe}` : " and running"}; using it, nothing to download`,
     );
+  }
+  const updateOllamaLast = async () => {
+    if (!existing.installed) return;
     try {
       const newest = await latest("ollama");
       const newer =
@@ -713,8 +832,17 @@ async function prefetch(
     } catch {
       /* the version note is optional */
     }
-  }
+  };
+  const uiRef = { current: null };
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
+  // The English streaming speech is small and comes from its own host, so it downloads beside the big files.
+  const moonshineRun = enabled(env, "FRIDAY_PREFETCH_MOONSHINE")
+    ? fetchMoonshine(root, {
+        env,
+        log: (line) => (uiRef.current ? uiRef.current.say(line) : log(line)),
+        ...(moonshine ? { run: moonshine } : {}),
+      })
+    : null;
   const ramGb = totalGb ?? os.totalmem() / 1024 ** 3;
   // The speech, voice and chat files are independent, so several download at once: one
   // connection per file rarely fills a fast line. Rows keep their order in the result.
@@ -726,6 +854,18 @@ async function prefetch(
     bytes >= 1024 ** 3
       ? `${(bytes / 1024 ** 3).toFixed(2)} GB`
       : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  // A real run in a terminal gets the live board; a log file gets a line per ten percent and an overall line.
+  const ui =
+    board !== undefined
+      ? board
+      : download
+        ? null
+        : new DownloadBoard({ ...(log !== console.log ? { log } : {}) });
+  uiRef.current = ui;
+  const say = ui ? (line) => ui.say(line) : log;
+  if (ui) {
+    ui.start(jobs.map((row) => ({ id: row.id, approxBytes: APPROX_BYTES[row.id] || 0 })));
+  }
   const outcomes = await mapPool(jobs, parallel, async (row) => {
     if (alreadyThere(row)) {
       // One listing request per repository says whether a file here has changed upstream. A network that
@@ -736,20 +876,35 @@ async function prefetch(
           })
         : [];
       if (!stale.length) {
-        log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
+        if (ui) ui.finish(row.id, { ok: true, note: "already on disk, not downloaded again" });
+        else log(`[friday] ok       ${row.id} verified on disk; not downloaded again`);
         return { id: row.id, ok: true, downloaded: false };
       }
-      log(`[friday] update   ${row.id}: ${stale.length} file(s) changed upstream, fetching them`);
+      say(`[friday] update   ${row.id}: ${stale.length} file(s) changed upstream, fetching them`);
     }
     if (row.minRamGb && ramGb < row.minRamGb) {
-      log(
+      if (ui) ui.finish(row.id, { ok: true, note: `skipped: needs ${row.minRamGb} GB RAM` });
+      say(
         `[friday] INFO     ${row.id} skipped: needs ${row.minRamGb} GB RAM, this PC has ${Math.floor(ramGb)}`,
       );
       return { id: row.id, ok: true, downloaded: false, skipped: true };
     }
-    log(`[friday] fetching ${row.id}`);
+    if (!ui) log(`[friday] fetching ${row.id}`);
     let result;
-    const progress = printer(log, row.id, parallel > 1);
+    const progress = ui
+      ? Object.assign(
+          (event) => {
+            const note = String(event?.status || "");
+            if (
+              event?.progress == null &&
+              /did not finish|source failed|using FRIDAY's own/i.test(note)
+            )
+              ui.say(`[friday] ${row.id.padEnd(14)} ${note.slice(0, 200)}`);
+            else ui.update(row.id, event);
+          },
+          { end() {} },
+        )
+      : printer(log, row.id, parallel > 1);
     const startedAt = Date.now();
     try {
       result = await fetchModel(row.job, progress, undefined);
@@ -767,17 +922,30 @@ async function prefetch(
           /* without the marker the next run only checks the files again */
         }
       }
+      const average =
+        Number(result.bytes) > 0 ? (result.bytes / 1024 ** 2 / seconds).toFixed(1) : "";
       const sized =
         Number(result.bytes) > 0
-          ? `, ${sizeText(result.bytes)} in ${Math.round(seconds)}s, ${(result.bytes / 1024 ** 2 / seconds).toFixed(1)} MB/s on average${result.engine === "hub" ? ", Hugging Face client" : ""}`
+          ? `, ${sizeText(result.bytes)} in ${Math.round(seconds)}s, ${average} MB/s on average${result.engine === "hub" ? ", Hugging Face client" : ""}`
           : "";
-      log(`[friday] ok       ${row.id} (${result.source || result.via || "downloaded"}${sized})`);
+      if (ui) {
+        ui.finish(row.id, {
+          ok: true,
+          bytes: Number(result.bytes) || 0,
+          note: `${average ? `${average} MB/s average` : "ready"}${result.engine === "hub" ? " (Hugging Face client)" : ""}`,
+        });
+      } else {
+        log(`[friday] ok       ${row.id} (${result.source || result.via || "downloaded"}${sized})`);
+      }
       return { id: row.id, ok: true, downloaded: true };
     }
     const why = (result && result.error) || "download failed";
-    log(`[friday] FAIL     ${row.id} was not downloaded (${why})`);
+    if (ui) ui.finish(row.id, { ok: false, note: String(why).slice(0, 80) });
+    say(`[friday] FAIL     ${row.id} was not downloaded (${why})`);
     return { id: row.id, ok: false, error: why };
   });
+  if (ui) ui.stop();
+  uiRef.current = null;
   rows.push(...outcomes);
   let ollamaRows = [];
   const small = OLLAMA_MODELS[0]?.tag;
@@ -852,6 +1020,10 @@ async function prefetch(
     }
   }
   rows.push(...ollamaRows.filter((row) => !(row.id === small && !row.ok && provided)), ...extra);
+  if (moonshineRun) rows.push(await moonshineRun);
+  // Last of all: a newer Ollama is a 1.6 GB installer and nothing waits on it, so every speech, voice and
+  // chat file is already in place when it starts (it used to download first and hold everything else back).
+  await updateOllamaLast();
   return rows;
 }
 
@@ -889,22 +1061,68 @@ module.exports = {
   findOllama,
   detectOllama,
   ollamaServesChat,
+  looksTransient,
+  prefetchWithRetries,
+  fetchMoonshine,
+  moonshineReady,
+  alreadyThere,
+  MOONSHINE_DIR,
 };
+
+/** Does this failure look like the network dropping out for a moment, rather than a file that is wrong? */
+function looksTransient(error) {
+  return /offline|no such host|getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|timed? ?out|stalled|no byte|did not finish|socket|network|TLS|503|502|504|429/i.test(
+    String(error || ""),
+  );
+}
+
+/**
+ * Run the whole step, and when something failed only because the line dropped out (a DNS blip, a Wi-Fi
+ * reconnect) wait and run it again: every piece already on disk is only verified, so a second round fetches
+ * just what is missing. Three more rounds with growing waits cover a short outage without anyone typing a command.
+ */
+async function prefetchWithRetries(root, options = {}, { wait, rounds } = {}) {
+  const env = (options && options.env) || process.env;
+  const maxExtra = Number.isFinite(rounds)
+    ? rounds
+    : Math.max(0, Math.min(6, Math.floor(Number(env.FRIDAY_PREFETCH_RETRIES ?? 3))));
+  const sleep = wait || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const log = (options && options.log) || console.log;
+  let rows = await prefetch(root, options);
+  for (let round = 1; round <= maxExtra; round += 1) {
+    const failed = rows.filter((row) => !row.ok);
+    if (!failed.length || !failed.every((row) => looksTransient(row.error))) break;
+    const seconds = Math.min(90, 15 * 2 ** (round - 1));
+    log(
+      `[friday] INFO     ${failed.length} download(s) stopped on a network problem (${failed.map((row) => row.id).join(", ")}); trying again in ${seconds}s (round ${round + 1} of ${maxExtra + 1})`,
+    );
+    await sleep(seconds * 1000);
+    rows = await prefetch(root, options);
+  }
+  return rows;
+}
 
 if (require.main === module) {
   const fridayRoot = require("./friday-root.cjs");
   const picked = fridayRoot.workspaceRootOrDev();
   process.env.FRIDAY_ROOT = process.env.FRIDAY_ROOT || picked.root;
   if (picked.development) require("../electron/staged-assets.cjs").recordStaging(picked.root);
-  prefetch(picked.root).then(
+  // Leave through exitCode, not process.exit(): ending the process while the network layer is still closing
+  // sockets makes Node on Windows abort with "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)".
+  const finish = (code) => {
+    process.exitCode = code;
+    const force = setTimeout(() => process.exit(code), 5000);
+    force.unref();
+  };
+  prefetchWithRetries(picked.root).then(
     (rows) => {
       const lines = failureReport(rows);
       for (const line of lines) console.error(line);
-      process.exit(lines.length && strict() ? 1 : 0);
+      finish(lines.length && strict() ? 1 : 0);
     },
     (err) => {
       console.error(`[friday] FAIL     model step crashed: ${String((err && err.message) || err)}`);
-      process.exit(strict() ? 1 : 0);
+      finish(strict() ? 1 : 0);
     },
   );
 }

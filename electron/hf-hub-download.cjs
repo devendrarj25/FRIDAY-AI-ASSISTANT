@@ -36,6 +36,12 @@ function isBroken(now = Date.now()) {
   return now < brokenUntil;
 }
 
+/** How long the client may take to move its first byte, by how much it has to fetch. */
+function startWindowMs(totalBytes) {
+  const extra = Math.floor((Number(totalBytes) || 0) / (100 * 1024 * 1024)) * 2000;
+  return Math.min(120_000, START_MS + extra);
+}
+
 /** Test hook: forget a failure. */
 function resetBroken() {
   brokenUntil = 0;
@@ -202,13 +208,16 @@ async function download({
   onProgress = null,
   signal = null,
   stallMs = STALL_MS,
-  startMs = START_MS,
+  startMs = null,
   pollMs = POLL_MS,
   spawnImpl = spawn,
 }) {
   if (!python) return { ok: false, error: "no Python with huggingface_hub was found" };
   const wanted = files.map((file) => ({ ...file }));
   const total = wanted.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+  // A big model takes the client longer to open (it lists the pieces and sets up the file first): two more
+  // seconds of patience for every 100 MB, up to two minutes, instead of giving up on a 1.4 GB file after 25 s.
+  const firstByteMs = startMs ?? startWindowMs(total);
   fs.mkdirSync(dest, { recursive: true });
   const childEnv = {
     ...env,
@@ -272,8 +281,8 @@ async function download({
         speedMbps: Number((rate / 1024 ** 2).toFixed(1)),
         etaSeconds: total > best && rate > 0 ? Math.round((total - best) / rate) : 0,
       });
-      if (best === 0 && now - started > startMs && now - lastMove > startMs) {
-        stop(`no byte in the first ${Math.round(startMs / 1000)}s`);
+      if (best === 0 && now - started > firstByteMs && now - lastMove > firstByteMs) {
+        stop(`no byte in the first ${Math.round(firstByteMs / 1000)}s`);
       } else if (now - lastMove > stallMs) stop(`no byte for ${Math.round(stallMs / 1000)}s`);
     }, pollMs);
     child.on("error", (err) => {
@@ -318,5 +327,6 @@ module.exports = {
   markBroken,
   isBroken,
   resetBroken,
+  startWindowMs,
   SCRIPT,
 };

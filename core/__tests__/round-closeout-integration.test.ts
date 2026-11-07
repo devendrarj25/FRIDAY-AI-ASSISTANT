@@ -187,7 +187,7 @@ describe("Part B closeout — one continuous routing + safety session", () => {
 
     // --- 8. Boot / crash honesty from Part A still holds -------------------
     const main = read("electron/main.cjs");
-    expect(main).toContain("if (!kernel && !kernelReady) return false");
+    expect(main).toContain("if (kernelWait.shouldStopWaiting(waitState())) return false");
     expect(main).toContain("serviceHealth.invalidate()");
     expect(autoRestart.DELAYS_MS).toEqual([0, 2000, 8000]);
     expect(autoRestart.MAX_ATTEMPTS).toBe(3);

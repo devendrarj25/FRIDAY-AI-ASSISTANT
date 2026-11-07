@@ -15,28 +15,33 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
 const prefetch = require_(path.join(root, "scripts/prefetch-models.cjs"));
 
-const quiet = { CI: "", GITHUB_ACTIONS: "", FRIDAY_SETUP_UPDATE: "0" };
+const quiet = {
+  CI: "",
+  GITHUB_ACTIONS: "",
+  FRIDAY_SETUP_UPDATE: "0",
+  FRIDAY_PREFETCH_MOONSHINE: "0",
+};
 
 describe("build-time model prefetch", () => {
-  it("plans speech base and small, the pinned voice models, and a small chat model", () => {
+  it("plans the pinned voice files first, then speech base and small, her voice, a small chat model, and the big size last", () => {
     const jobs = prefetch.prefetchPlan("/friday", quiet, "linux");
     expect(jobs.map((row: { id: string }) => row.id)).toEqual([
-      "stt-base",
-      "stt-small",
       "smart-turn",
       "silero-vad",
+      "stt-base",
+      "stt-small",
       "supertonic-3",
       "qwen2.5-1.5b-instruct",
       "stt-medium", // the optional larger size is the biggest piece, so it goes last
     ]);
-    const small = jobs[1];
+    const small = jobs[3];
     expect(jobs[6]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "Systran/faster-whisper-small",
     });
-    const vad = jobs[3];
+    const vad = jobs[1];
     expect(vad.job.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(vad.ready).toBe(path.join("/friday", "models", "silero-vad", "silero_vad.onnx"));
     expect(jobs[4].job.sources[0]).toMatchObject({
@@ -811,5 +816,275 @@ describe("the app and the build agree on the one local chat model", () => {
     expect(registryTag(spec!)).toBe(prefetch.OLLAMA_MODELS[0].tag);
     expect(modelByTag(prefetch.OLLAMA_MODELS[0].tag)?.id).toBe(BOOTSTRAP_MODEL_ID);
     expect(prefetch.OLLAMA_MODELS).toHaveLength(1);
+  });
+});
+
+describe("prefetch resilience and the English streaming speech", () => {
+  it("tells a network blip from a wrong file", () => {
+    for (const text of [
+      "offline",
+      "getaddrinfo ENOTFOUND huggingface.co",
+      "dial tcp: lookup registry.ollama.ai: no such host",
+      "no byte for 60s",
+      "HTTP 503",
+    ]) {
+      expect(prefetch.looksTransient(text), text).toBe(true);
+    }
+    for (const text of ["SHA-256 mismatch", "signature", "installer missing", ""]) {
+      expect(prefetch.looksTransient(text), text).toBe(false);
+    }
+  });
+
+  it("runs the step again after a short outage and stops when only wrong files are left", async () => {
+    const waits: number[] = [];
+    let call = 0;
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-retry-"));
+    try {
+      const download = async () => {
+        call += 1;
+        return call < 3 ? { ok: false, error: "offline" } : { ok: true, bytes: 1 };
+      };
+      const options = {
+        platform: "linux",
+        env: { ...quiet, FRIDAY_PREFETCH_MOONSHINE: "0", FRIDAY_MODEL_FRESHNESS: "0" },
+        log: () => {},
+        download,
+      };
+      // Every job fails on the first call, so round one is all failures and the line is retried.
+      const rows = await prefetch.prefetchWithRetries(dir, options, {
+        wait: async (ms: number) => void waits.push(ms),
+        rounds: 3,
+      });
+      expect(waits.length).toBeGreaterThanOrEqual(1);
+      expect(waits[0]).toBe(15_000);
+      expect(rows.length).toBeGreaterThan(0);
+
+      waits.length = 0;
+      const wrong = await prefetch.prefetchWithRetries(
+        dir,
+        { ...options, download: async () => ({ ok: false, error: "SHA-256 mismatch" }) },
+        { wait: async (ms: number) => void waits.push(ms), rounds: 3 },
+      );
+      expect(waits).toEqual([]);
+      expect(wrong.some((row: { ok: boolean }) => !row.ok)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits through exitCode so Windows never aborts on closing sockets", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const tail = source.slice(source.indexOf("if (require.main === module)"));
+    expect(tail).toContain("process.exitCode = code");
+    expect(tail).toMatch(/setTimeout\(\(\) => process\.exit\(code\), 5000\)/);
+    expect(tail).toContain("force.unref()");
+    expect(tail).not.toMatch(/^\s*process\.exit\((?!code)/m);
+  });
+
+  it("fetches the English streaming weights once, with the venv Python, and is quiet when they are there", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-moon-"));
+    try {
+      const lines: string[] = [];
+      const log = (line: string) => void lines.push(line);
+      const target = path.join(dir, "models", "moonshine-en");
+      // No Python yet: skipped, not failed.
+      expect(await prefetch.fetchMoonshine(dir, { env: {}, log })).toMatchObject({
+        ok: true,
+        skipped: true,
+      });
+      expect(prefetch.moonshineReady(target)).toBe(false);
+
+      const calls: string[][] = [];
+      const run = (python: string, args: string[]) => {
+        calls.push([python, ...args]);
+        mkdirSync(path.join(target, "download.moonshine.ai", "model"), { recursive: true });
+        writeFileSync(
+          path.join(target, "download.moonshine.ai", "model", "encoder.ort"),
+          Buffer.alloc(200_000),
+        );
+        return { status: 0, stdout: "MOONSHINE_OK x", stderr: "" };
+      };
+      const first = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      expect(first).toMatchObject({ id: "moonshine-en", ok: true, downloaded: true });
+      expect(calls[0]![0]).toBe("py");
+      expect(calls[0]![2]).toContain("TINY_STREAMING");
+      expect(calls[0]![3]).toBe(target);
+      expect(prefetch.moonshineReady(target)).toBe(true);
+
+      const again = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      expect(again).toMatchObject({ ok: true, downloaded: false });
+      expect(calls.length).toBe(1);
+
+      rmSync(target, { recursive: true, force: true });
+      const failed = await prefetch.fetchMoonshine(dir, {
+        env: { FRIDAY_PYTHON: "py" },
+        log,
+        run: () => ({ status: 1, stdout: "", stderr: "ConnectionError: offline" }),
+      });
+      expect(failed).toMatchObject({ ok: false });
+      expect(failed.error).toContain("offline");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the kernel and the fetch agree on where the English weights live", () => {
+    const stt = readFileSync(path.join(root, "kernel/stt.py"), "utf8");
+    expect(stt).toContain('base / "models" / "moonshine-en"');
+    expect(stt).toContain("ModelArch.TINY_STREAMING");
+  });
+});
+
+describe("download speed", () => {
+  it("the Hugging Face client gets more time to move its first byte on a big model", () => {
+    const hub = require_(path.join(root, "electron/hf-hub-download.cjs"));
+    expect(hub.startWindowMs(0)).toBe(25_000);
+    expect(hub.startWindowMs(141 * 1024 ** 2)).toBe(27_000);
+    expect(hub.startWindowMs(1457 * 1024 ** 2)).toBe(25_000 + 14 * 2000);
+    expect(hub.startWindowMs(50 * 1024 ** 3)).toBe(120_000);
+  });
+
+  it("the 1.6 GB Ollama update waits until every speech, voice and chat file is in place", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const run = source.slice(source.indexOf("async function prefetch("));
+    expect(run.indexOf("const updateOllamaLast = async")).toBeGreaterThan(0);
+    expect(run.indexOf("await updateOllamaLast();")).toBeGreaterThan(run.indexOf("mapPool(jobs"));
+    expect(run.indexOf("await updateOllamaLast();")).toBeGreaterThan(
+      run.indexOf("ensureOllama(root"),
+    );
+    // The update function is only defined before the downloads, never called there.
+    expect(run.slice(0, run.indexOf("mapPool(jobs")).includes("await updateOllamaLast()")).toBe(
+      false,
+    );
+  });
+
+  it("English streaming speech downloads beside the big files, not after them", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const run = source.slice(source.indexOf("async function prefetch("));
+    expect(run.indexOf("const moonshineRun")).toBeLessThan(run.indexOf("mapPool(jobs"));
+    expect(run).toContain("rows.push(await moonshineRun)");
+  });
+});
+
+describe("the live download board", () => {
+  const board = require_(path.join(root, "scripts/download-board.cjs"));
+  const clockAt = (() => {
+    let t = 0;
+    const fn = () => t;
+    fn.set = (v: number) => (t = v);
+    return fn;
+  })();
+
+  it("draws a row with a bar, sizes, speed, time left and connections", () => {
+    const line = board.renderRow({
+      id: "stt-small",
+      state: "running",
+      percent: 50,
+      bytesDone: 232 * 1024 ** 2,
+      bytesTotal: 464 * 1024 ** 2,
+      speed: 15.4,
+      eta: 15,
+      connections: 8,
+    });
+    expect(line).toContain("[############------------]");
+    expect(line).toContain(" 50%");
+    expect(line).toContain("232 MB/464 MB");
+    expect(line).toContain("15.4 MB/s");
+    expect(line).toContain("15s left");
+    expect(line).toContain("8 conn");
+    expect(board.renderRow({ id: "x", state: "queued" })).toContain("waiting");
+    expect(board.renderRow({ id: "x", state: "done", note: "ready", seconds: 75 })).toContain(
+      "in 1m15s",
+    );
+    expect(board.renderRow({ id: "x", state: "failed", note: "offline" })).toContain("FAILED");
+  });
+
+  it("adds up the whole step: done count, bytes, line speed and time left", () => {
+    const lines: string[] = [];
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({
+      tty: false,
+      now: clockAt,
+      log: (l: string) => lines.push(l),
+    });
+    ui.start([
+      { id: "a", approxBytes: 100 * 1024 ** 2 },
+      { id: "b", approxBytes: 300 * 1024 ** 2 },
+    ]);
+    expect(lines[0]).toContain("download plan (2): a 100 MB, b 300 MB");
+    clockAt.set(10_000);
+    ui.update("a", {
+      progress: 100,
+      bytesDone: 100 * 1024 ** 2,
+      bytesTotal: 100 * 1024 ** 2,
+      speedMbps: 10,
+    });
+    ui.finish("a", { ok: true, bytes: 100 * 1024 ** 2, note: "10.0 MB/s average" });
+    ui.update("b", {
+      progress: 25,
+      bytesDone: 75 * 1024 ** 2,
+      bytesTotal: 300 * 1024 ** 2,
+      speedMbps: 20,
+    });
+    const total = ui.total();
+    expect(total).toMatchObject({ done: 1, count: 2, speed: 20 });
+    expect(total.bytesDone).toBe(175 * 1024 ** 2);
+    expect(total.bytesTotal).toBe(400 * 1024 ** 2);
+    expect(board.renderOverall(total)).toContain("1/2 ready");
+    expect(board.renderOverall(total)).toContain("11s left");
+    // Non-terminal output: a line per ten percent of a file, never one per event.
+    const before = lines.length;
+    ui.update("b", { progress: 26, bytesDone: 78 * 1024 ** 2, bytesTotal: 300 * 1024 ** 2 });
+    expect(lines.length).toBe(before);
+    ui.update("b", { progress: 31, bytesDone: 93 * 1024 ** 2, bytesTotal: 300 * 1024 ** 2 });
+    expect(lines.length).toBe(before + 1);
+  });
+
+  it("redraws in place in a terminal, keeps other messages above the board, and stops cleanly", () => {
+    let out = "";
+    const stream = { isTTY: true, write: (text: string) => void (out += text) };
+    clockAt.set(0);
+    const ui = new board.DownloadBoard({ stream, tty: true, now: clockAt, intervalMs: 1_000_000 });
+    ui.start([{ id: "a", approxBytes: 10 * 1024 ** 2 }]);
+    const first = out.split("\n").length;
+    ui.say("[friday] update   a: 1 file(s) changed upstream, fetching them");
+    expect(out).toContain("\x1b[2A\x1b[J"); // cursor up over the board (1 row + the overall line) and clear
+    expect(out).toContain("[friday] update   a");
+    ui.update("a", {
+      progress: 40,
+      bytesDone: 4 * 1024 ** 2,
+      bytesTotal: 10 * 1024 ** 2,
+      speedMbps: 5,
+    });
+    ui.finish("a", { ok: true, note: "ready" });
+    ui.stop();
+    const tail = out.slice(out.lastIndexOf("[friday] a"));
+    expect(tail).toContain("100%");
+    ui.say("after stop");
+    expect(out.endsWith("after stop\n")).toBe(true);
+    expect(first).toBeGreaterThan(1);
+  });
+
+  it("a real run builds the board, feeds it, and a test run with its own downloader stays plain", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-board-"));
+    try {
+      const lines: string[] = [];
+      const ui = new board.DownloadBoard({ tty: false, log: (l: string) => lines.push(l) });
+      const rows = await prefetch.prefetch(dir, {
+        platform: "linux",
+        env: { ...quiet, FRIDAY_PREFETCH_STT_LARGE: "0", FRIDAY_MODEL_FRESHNESS: "0" },
+        log: (l: string) => lines.push(l),
+        board: ui,
+        download: async (_job: unknown, onEvent: (e: unknown) => void) => {
+          onEvent({ progress: 50, bytesDone: 5, bytesTotal: 10, speedMbps: 1 });
+          return { ok: true, bytes: 10, source: "stand-in" };
+        },
+      });
+      expect(rows.every((row: { ok: boolean }) => row.ok)).toBe(true);
+      expect(lines.some((l) => l.includes("download plan ("))).toBe(true);
+      expect(lines.some((l) => l.includes("ALL") && l.includes("ready"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

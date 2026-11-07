@@ -36,6 +36,16 @@ OPENAI_COMPATIBLE = {
 }
 
 
+def ollama_keep_alive() -> str | int:
+    """How long Ollama keeps a model loaded after a turn. 20 minutes by default; 0 unloads at once."""
+    raw = os.environ.get("FRIDAY_OLLAMA_KEEP_ALIVE", "").strip()
+    if not raw:
+        return "20m"
+    if raw.lstrip("-").isdigit():
+        return int(raw)
+    return raw
+
+
 def coerce_stream_text(raw) -> str | None:
     """Turn a provider content field into assistant text. Lists of parts join."""
     if raw is None:
@@ -1794,6 +1804,9 @@ class ModelRouter:
                 "model": model.options.get("model", model.id),
                 "messages": convo,
                 "stream": True,
+                # Ollama unloads a model five minutes after its last use, so the next spoken question waited for it
+                # to load again. Keep it resident between turns; FRIDAY_OLLAMA_KEEP_ALIVE changes or turns this off.
+                "keep_alive": ollama_keep_alive(),
             }
             if tools:
                 body["tools"] = tools
