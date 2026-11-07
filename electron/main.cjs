@@ -795,6 +795,21 @@ let lastHardware = null;
 // the plan; before this, the kernel usually started first and ran with no plan at all.
 let hardwareBoot = null;
 let pressureMonitor = null;
+/**
+ * Speech recognition runs on the graphics card only when it is asked to (FRIDAY_STT_CUDA) and both CUDA 12 libraries
+ * are present; nothing ever asked, so even a strong NVIDIA card transcribed on the CPU. A usable NVIDIA card now
+ * asks. The speech worker still checks the libraries itself and stays on the CPU when they are missing, and an
+ * owner who set FRIDAY_STT_CUDA=0 keeps that choice.
+ */
+function offerGpuToSpeech(hw) {
+  try {
+    if (process.env.FRIDAY_STT_CUDA !== undefined && process.env.FRIDAY_STT_CUDA !== "") return;
+    if (hw && hw.plan && hw.plan.backend === "gpu") process.env.FRIDAY_STT_CUDA = "1";
+  } catch {
+    /* the CPU path is always there */
+  }
+}
+
 /** The worker plan for what is free right now: a kernel started under pressure starts lighter. */
 function currentPlan() {
   if (!lastHardware) return null;
@@ -4725,8 +4740,22 @@ ipcMain.handle("voice:voiceprint-clear", () => voiceprint.clear());
 // ------------------------------------------- desktop speech-to-text (STT) --
 // Real on-device transcription. Auto Mode sets localOnly so neither status
 // discovery nor transcription can select a cloud provider.
+/** Auto mode and dictation are starting: load the light chat model too, so the first answer is not a cold start. */
+let fastChatWarmedAt = 0;
+function warmFastChatModel() {
+  if (Date.now() - fastChatWarmedAt < 10 * 60 * 1000) return;
+  fastChatWarmedAt = Date.now();
+  try {
+    const tag = require("./local-library.cjs").ollamaModels()[0]?.tag;
+    if (tag) void modelsApi.ollamaWarm(tag).catch(() => {});
+  } catch {
+    /* warming is a speed-up, never a requirement */
+  }
+}
+
 ipcMain.handle("voice:stt-status", (e, request) => {
   const options = request && typeof request === "object" ? request : { force: Boolean(request) };
+  if (options.warm) warmFastChatModel();
   return stt.status(Boolean(options.force), {
     localOnly: Boolean(options.localOnly),
     warm: Boolean(options.warm),
@@ -6448,6 +6477,7 @@ ipcMain.handle("hardware:detect", async (_e, force = false) => {
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();
+      offerGpuToSpeech(hw);
       return hw;
     })
     .finally(() => {
@@ -9771,6 +9801,7 @@ function startAfterKernel(root, bootStartedAt) {
     .then((hw) => {
       lastHardware = hw;
       hardwareAt = Date.now();
+      offerGpuToSpeech(hw);
       boot(
         "Checking acceleration",
         "ok",

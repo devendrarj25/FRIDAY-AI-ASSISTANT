@@ -80,3 +80,36 @@ describe("readiness hears the build's own speech weights", () => {
     }
   });
 });
+
+describe("speed on a real PC: GPU speech, a model that stays loaded", () => {
+  const read = (file: string) => fs.readFileSync(path.resolve(__dirname, "../..", file), "utf8");
+
+  it("a usable NVIDIA card asks speech to use it, unless the owner said otherwise", () => {
+    const main = read("electron/main.cjs");
+    expect(main).toContain("function offerGpuToSpeech(hw)");
+    expect(main).toContain('process.env.FRIDAY_STT_CUDA = "1"');
+    expect(main).toMatch(/process\.env\.FRIDAY_STT_CUDA !== undefined/);
+    expect(main.match(/offerGpuToSpeech\(hw\);/g)?.length).toBe(2);
+  });
+
+  it("setup installs the CUDA 12 libraries on an NVIDIA PC and the kernel looks for them", () => {
+    const setup = read("scripts/setup-python.cjs");
+    expect(setup).toContain("nvidia-cublas-cu12");
+    expect(setup).toContain("nvidia-cudnn-cu12>=9,<10");
+    expect(setup).toContain("installGpuSpeechLibraries();");
+    expect(setup).toContain("FRIDAY_GPU_SPEECH_LIBS");
+    const stt = read("kernel/stt.py");
+    expect(stt).toContain("def nvidia_pip_dirs()");
+    expect(stt).toContain("os.add_dll_directory");
+  });
+
+  it("Ollama keeps the model loaded between turns and Auto mode warms it", () => {
+    const router = read("kernel/router.py");
+    expect(router).toContain('"keep_alive": ollama_keep_alive()');
+    expect(router).toContain("FRIDAY_OLLAMA_KEEP_ALIVE");
+    const main = read("electron/main.cjs");
+    expect(main).toContain("function warmFastChatModel()");
+    expect(main).toContain("if (options.warm) warmFastChatModel();");
+    expect(read("electron/models.cjs")).toContain("async function ollamaWarm(");
+  });
+});
