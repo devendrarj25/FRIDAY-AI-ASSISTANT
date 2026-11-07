@@ -1,0 +1,14 @@
+{
+  "id": "ops-time-zone",
+  "name": "Time zone converter",
+  "summary": "Convert a time between time zones",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["time", "from", "to", "date"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Converts a clock time between time zones using the daylight-saving rules of the date you give (today if none): 3pm IST in New York and London. Understands IANA names (Asia/Kolkata) and common names and abbreviations (IST, PST, EST, CET, JST, Dubai, Singapore, Sydney). Ambiguous abbreviations (CST, BST, IST) state which meaning was used."
+}

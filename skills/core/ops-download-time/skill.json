@@ -1,0 +1,14 @@
+{
+  "id": "ops-download-time",
+  "name": "Download time",
+  "summary": "Download time from size and speed",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["size", "speed", "time", "efficiency"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Works out how long a download takes from its size (KB, MB, GB, TB, or KiB, MiB, GiB) and the line speed (Mbps in megabits or MB/s in megabytes), or the speed needed to finish in a given time, or how much arrives in a given time. Shows the full-line-speed time and a realistic one (85% by default for overhead). Mbps is megabits: divide by 8 for megabytes per second."
+}

@@ -3148,6 +3148,42 @@ export const FLOW_REGISTRY = {
       file: "agents/core/zip-archive-inventory/manifest.json",
     },
     {
+      id: "agents/system/data-desk/manifest",
+      kind: "agent",
+      name: "Data desk",
+      file: "agents/system/data-desk/manifest.json",
+    },
+    {
+      id: "agents/system/dev-helper/manifest",
+      kind: "agent",
+      name: "Dev helper",
+      file: "agents/system/dev-helper/manifest.json",
+    },
+    {
+      id: "agents/system/india-desk/manifest",
+      kind: "agent",
+      name: "India desk",
+      file: "agents/system/india-desk/manifest.json",
+    },
+    {
+      id: "agents/system/log-doctor/manifest",
+      kind: "agent",
+      name: "Log doctor",
+      file: "agents/system/log-doctor/manifest.json",
+    },
+    {
+      id: "agents/system/privacy-guard/manifest",
+      kind: "agent",
+      name: "Privacy guard",
+      file: "agents/system/privacy-guard/manifest.json",
+    },
+    {
+      id: "agents/system/time-planner/manifest",
+      kind: "agent",
+      name: "Time planner",
+      file: "agents/system/time-planner/manifest.json",
+    },
+    {
       id: "all-minilm",
       kind: "model",
       name: "Sentence Transformers MiniLM",
@@ -5518,6 +5554,24 @@ export const FLOW_REGISTRY = {
       file: "skills/core/cal-ics-event/skill.json",
     },
     {
+      id: "skills/core/dat-csv-profile/skill",
+      kind: "skill",
+      name: "CSV profile",
+      file: "skills/core/dat-csv-profile/skill.json",
+    },
+    {
+      id: "skills/core/dat-table-convert/skill",
+      kind: "skill",
+      name: "Table converter",
+      file: "skills/core/dat-table-convert/skill.json",
+    },
+    {
+      id: "skills/core/dev-color-contrast/skill",
+      kind: "skill",
+      name: "Color contrast",
+      file: "skills/core/dev-color-contrast/skill.json",
+    },
+    {
       id: "skills/core/dev-json-repair/skill",
       kind: "skill",
       name: "JSON repair",
@@ -5540,6 +5594,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Token decoder",
       file: "skills/core/dev-token-decode/skill.json",
+    },
+    {
+      id: "skills/core/doc-text-clean/skill",
+      kind: "skill",
+      name: "Text cleaner",
+      file: "skills/core/doc-text-clean/skill.json",
     },
     {
       id: "skills/core/in-emi-sip/skill",
@@ -5572,10 +5632,22 @@ export const FLOW_REGISTRY = {
       file: "skills/core/in-invoice-total/skill.json",
     },
     {
+      id: "skills/core/in-percent-calc/skill",
+      kind: "skill",
+      name: "Percentage calculator",
+      file: "skills/core/in-percent-calc/skill.json",
+    },
+    {
       id: "skills/core/lang-hinglish-detect/skill",
       kind: "skill",
       name: "Hinglish detector",
       file: "skills/core/lang-hinglish-detect/skill.json",
+    },
+    {
+      id: "skills/core/ops-cidr-calc/skill",
+      kind: "skill",
+      name: "CIDR calculator",
+      file: "skills/core/ops-cidr-calc/skill.json",
     },
     {
       id: "skills/core/ops-cron-explain/skill",
@@ -5584,16 +5656,52 @@ export const FLOW_REGISTRY = {
       file: "skills/core/ops-cron-explain/skill.json",
     },
     {
+      id: "skills/core/ops-date-calc/skill",
+      kind: "skill",
+      name: "Date calculator",
+      file: "skills/core/ops-date-calc/skill.json",
+    },
+    {
+      id: "skills/core/ops-download-time/skill",
+      kind: "skill",
+      name: "Download time",
+      file: "skills/core/ops-download-time/skill.json",
+    },
+    {
       id: "skills/core/ops-exit-code/skill",
       kind: "skill",
       name: "Exit code decoder",
       file: "skills/core/ops-exit-code/skill.json",
     },
     {
+      id: "skills/core/ops-hash-check/skill",
+      kind: "skill",
+      name: "Hash check",
+      file: "skills/core/ops-hash-check/skill.json",
+    },
+    {
       id: "skills/core/ops-log-triage/skill",
       kind: "skill",
       name: "Log triage",
       file: "skills/core/ops-log-triage/skill.json",
+    },
+    {
+      id: "skills/core/ops-time-zone/skill",
+      kind: "skill",
+      name: "Time zone converter",
+      file: "skills/core/ops-time-zone/skill.json",
+    },
+    {
+      id: "skills/core/ops-timestamp/skill",
+      kind: "skill",
+      name: "Timestamp converter",
+      file: "skills/core/ops-timestamp/skill.json",
+    },
+    {
+      id: "skills/core/ops-version-compare/skill",
+      kind: "skill",
+      name: "Version compare",
+      file: "skills/core/ops-version-compare/skill.json",
     },
     {
       id: "skills/core/ops-win-path/skill",
@@ -5624,6 +5732,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Secret scan",
       file: "skills/core/saf-secret-scan/skill.json",
+    },
+    {
+      id: "skills/core/web-http-status/skill",
+      kind: "skill",
+      name: "HTTP status explainer",
+      file: "skills/core/web-http-status/skill.json",
     },
     {
       id: "skills/core/web-url-clean/skill",
@@ -8932,8 +9046,8 @@ export const FLOW_REGISTRY = {
       total: 125,
     },
     capabilities: {
-      mapped: 1040,
-      total: 1040,
+      mapped: 1059,
+      total: 1059,
     },
     ipc: {
       mapped: 476,

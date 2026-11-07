@@ -1,0 +1,14 @@
+{
+  "id": "ops-timestamp",
+  "name": "Timestamp converter",
+  "summary": "Convert Unix timestamp to date and back",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["value", "utcOffset"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Turns a Unix timestamp (seconds, milliseconds or microseconds, detected by length) into an ISO date in UTC and in a zone offset (default India, UTC+5:30) with the weekday, and turns an ISO date or the word now into Unix seconds and milliseconds. A date without a zone is read in the offset you give."
+}

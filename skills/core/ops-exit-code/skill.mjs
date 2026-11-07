@@ -268,6 +268,14 @@ export async function run(input = {}) {
     })
     .filter(Boolean);
   const known = results.filter((r) => r.matches.length);
+  if (!known.length) {
+    return {
+      ok: false,
+      error: `None of ${results.map((r) => r.input).join(", ")} is a documented exit code in this list. An unknown number is not guessed.`,
+      unknown: results.map((r) => r.input),
+    };
+  }
+
   return {
     ok: true,
     answer: known.length

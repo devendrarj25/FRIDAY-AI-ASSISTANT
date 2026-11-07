@@ -1,0 +1,14 @@
+{
+  "id": "dat-csv-profile",
+  "name": "CSV profile",
+  "summary": "Profile a CSV: columns, blanks, duplicates, damaged rows",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["csv", "delimiter"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Profiles pasted CSV or TSV: detects the delimiter, then reports each column's type (integer, decimal, date, boolean, text, mixed), blank and unique counts, top values and the minimum, maximum and mean of number columns, and flags damaged rows (wrong number of fields), duplicate rows, empty columns, mixed kinds, repeated header names and padded cells. Quoted fields with commas and line breaks are read correctly."
+}

@@ -475,6 +475,11 @@ async function invokeOne(
     }
     const flowRuns = await runDeclaredWorkflows(agent, prompt, previous);
     const ms = Date.now() - started;
+    // A skill that ran but answered "this request is not for me" ({ ok: false, error }) did not apply. An agent
+    // with several skills (a team of small tools) offers every one of them the same words, so most of them
+    // will not apply: that is expected and must not make the agent look broken.
+    const unused = outputs.filter((item) => item.ok && skillDidNotApply(item.value));
+    const applied = outputs.filter((item) => !unused.includes(item));
     if (!outputs.length && !flowRuns.length) {
       const detail = `selected ${agent.name} (${ms}ms) — no plan()/run() and no installed skills or workflows to invoke`;
       // The selection stays in the experience ledger; the chat turn treats it
@@ -490,13 +495,30 @@ async function invokeOne(
         value: { role: agent.role, skills: agent.skills, workflows: agent.workflows, outputs },
       };
     }
-    const ok = outputs.every((item) => item.ok) && flowRuns.every((item) => item.ok);
+    if (outputs.length && !applied.length && !flowRuns.length) {
+      const detail = `selected ${agent.name} (${ms}ms) — none of its ${outputs.length} skill(s) applied to this request`;
+      turnDone("agent", "invoke", "skipped");
+      recordOutcome(agent, false, ms, detail);
+      return {
+        id: agent.id,
+        name: agent.name,
+        ok: false,
+        skipped: true,
+        detail,
+        value: {
+          role: agent.role,
+          skills: agent.skills,
+          notApplicable: unused.map(describeUnused),
+        },
+      };
+    }
+    const ok = applied.every((item) => item.ok) && flowRuns.every((item) => item.ok);
     const detail = ok
       ? flowRuns.length
-        ? `ran ${outputs.length} skill(s) and ${flowRuns.length} workflow(s) in ${ms}ms`
-        : `ran ${outputs.length} skill(s) in ${ms}ms`
+        ? `ran ${applied.length} skill(s) and ${flowRuns.length} workflow(s) in ${ms}ms`
+        : `ran ${applied.length} skill(s) in ${ms}ms${unused.length ? ` (${unused.length} did not apply)` : ""}`
       : [
-          ...outputs.filter((item) => !item.ok).map((item) => item.error ?? item.id),
+          ...applied.filter((item) => !item.ok).map((item) => item.error ?? item.id),
           ...flowRuns.filter((item) => !item.ok).map((item) => item.error ?? item.id),
         ].join("; ");
     turnDone("agent", "invoke", ok ? "ok" : "failed");
@@ -509,13 +531,27 @@ async function invokeOne(
       value: {
         role: agent.role,
         skills: agent.skills,
-        outputs,
+        outputs: applied,
+        ...(unused.length ? { notApplicable: unused.map(describeUnused) } : {}),
         workflows: flowRuns,
       },
     };
   } catch (error) {
     return fail(String((error as Error)?.message ?? error));
   }
+}
+
+/** A skill's own "not for this request" answer: it ran, and returned { ok: false, error }. */
+export function skillDidNotApply(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && (value as { ok?: unknown }).ok === false);
+}
+
+function describeUnused(item: { id: string; value: unknown }): { id: string; reason: string } {
+  const reason = (item.value as { error?: unknown } | null)?.error;
+  return {
+    id: item.id,
+    reason: typeof reason === "string" ? reason.slice(0, 160) : "did not apply",
+  };
 }
 
 /** Run every matching agent in sequence. Empty when nothing matched. */

@@ -1,0 +1,14 @@
+{
+  "id": "web-http-status",
+  "name": "HTTP status explainer",
+  "summary": "Explain HTTP status codes and network errors",
+  "category": "web",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["code"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Explains the common HTTP status codes (200 to 511, with the Cloudflare 52x family) and the error names that appear in logs (ENOTFOUND, ECONNRESET, ETIMEDOUT, ECONNREFUSED, EADDRINUSE, CERT_HAS_EXPIRED, UNABLE_TO_VERIFY_LEAF_SIGNATURE and more) with what to try. A status outside the list is reported as not covered, never guessed."
+}

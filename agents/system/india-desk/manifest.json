@@ -1,0 +1,21 @@
+{
+  "name": "India desk",
+  "version": "1.0.0",
+  "description": "Handles everyday Indian paperwork maths: GST, invoice totals, amounts in words, EMI and SIP, percentages and ID number checks.",
+  "category": "finance",
+  "role": "india-desk",
+  "skills": [
+    "in-gst-calc",
+    "in-invoice-total",
+    "in-inr-words",
+    "in-emi-sip",
+    "in-percent-calc",
+    "in-id-check"
+  ],
+  "workflows": [],
+  "inputs": ["prompt"],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY worked this out with her India desk agent (GST, invoices, rupees in words, EMI, SIP, percentages, ID checks)."
+}

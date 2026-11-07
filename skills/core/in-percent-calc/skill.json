@@ -1,0 +1,14 @@
+{
+  "id": "in-percent-calc",
+  "name": "Percentage calculator",
+  "summary": "Percent of, change, discount, markup, margin",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["prompt", "mode"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Answers percentage questions exactly: X percent of Y, A is what percent of B, change from A to B (increase or decrease), add or take off a percent, a discount (20% off 1500) and markup versus margin from a cost and a selling price. Understands Indian number grouping (1,50,000) and a few Hinglish words (ka, pe, chhoot)."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "dat-table-convert",
+  "name": "Table converter",
+  "summary": "Convert table between CSV, Markdown, JSON",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["table", "from", "to"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Converts a table between CSV (or TSV), a Markdown table and JSON (a list of objects). The source format is detected; say the target (csv, tsv, markdown, json). Quotes and commas in CSV cells and pipes in Markdown cells are escaped, number-looking JSON values stay numbers and a leading zero (007) stays text."
+}

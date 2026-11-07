@@ -1,0 +1,14 @@
+{
+  "id": "ops-date-calc",
+  "name": "Date calculator",
+  "summary": "Days between dates, add days, age, countdown",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["start", "end", "add", "unit", "today"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Counts the days (and years, months, weeks) between two dates, adds or subtracts days, weeks, months or years (31 January plus one month is 28 February), works out an age from a birth date and counts down to a date. Dates are read as year-month-day or day-month-year. Working days and the Indian financial year are in the Working days skill."
+}

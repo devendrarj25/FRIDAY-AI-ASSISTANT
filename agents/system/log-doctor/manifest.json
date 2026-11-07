@@ -1,0 +1,14 @@
+{
+  "name": "Log doctor",
+  "version": "1.0.0",
+  "description": "Reads a pasted setup, build or app log and finds what went wrong: runs log triage, decodes exit codes and checks the paths in it.",
+  "category": "office",
+  "role": "log-doctor",
+  "skills": ["ops-log-triage", "ops-exit-code", "ops-win-path", "web-http-status"],
+  "workflows": [],
+  "inputs": ["prompt"],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY read your log with its Log doctor agent (log triage, exit codes, paths, HTTP and network errors). Nothing was changed."
+}

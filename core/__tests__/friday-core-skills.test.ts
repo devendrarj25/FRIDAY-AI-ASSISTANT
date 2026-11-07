@@ -65,10 +65,14 @@ async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
 }
 
 describe("FRIDAY core skills: what ships", () => {
-  it("ships the twenty skills, one folder each", () => {
+  it("ships the thirty-three skills, one folder each", () => {
     expect(ids).toEqual(
       [
         "cal-ics-event",
+        "dat-csv-profile",
+        "dat-table-convert",
+        "dev-color-contrast",
+        "doc-text-clean",
         "dev-json-repair",
         "dev-regex-test",
         "dev-text-diff",
@@ -78,15 +82,24 @@ describe("FRIDAY core skills: what ships", () => {
         "in-id-check",
         "in-inr-words",
         "in-invoice-total",
+        "in-percent-calc",
         "lang-hinglish-detect",
+        "ops-cidr-calc",
         "ops-cron-explain",
+        "ops-date-calc",
+        "ops-download-time",
         "ops-exit-code",
+        "ops-hash-check",
         "ops-log-triage",
+        "ops-time-zone",
+        "ops-timestamp",
+        "ops-version-compare",
         "ops-win-path",
         "ops-workdays",
         "saf-injection-scan",
         "saf-pii-redact",
         "saf-secret-scan",
+        "web-http-status",
         "web-url-clean",
       ].sort(),
     );
@@ -136,7 +149,7 @@ describe("FRIDAY core skills: what ships", () => {
     const banned: [string, RegExp][] = [
       ["fetch", /\bfetch\s*\(/],
       ["XMLHttpRequest", /XMLHttpRequest/],
-      ["WebSocket", /WebSocket/],
+      ["WebSocket", /\bnew\s+WebSocket\b|\bWebSocket\s*\(/],
       ["import of a module", /^\s*import\s/m],
       ["require", /\brequire\s*\(/],
       [
@@ -218,6 +231,19 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
       "saf-pii-redact": { text: "mail a@b.co" },
       "saf-secret-scan": { text: "password = Zx9!kQ2#mV7pLw" },
       "web-url-clean": { url: "https://example.com/?utm_source=x" },
+      "dat-csv-profile": { text: "a,b\n1,2\n3,4" },
+      "dat-table-convert": { text: "a,b\n1,2", to: "json" },
+      "dev-color-contrast": { prompt: "#777777 on #ffffff" },
+      "doc-text-clean": { prompt: "sort\nb\na" },
+      "in-percent-calc": { prompt: "15% of 2400" },
+      "ops-cidr-calc": { cidr: "192.168.1.0/24" },
+      "ops-date-calc": { prompt: "days between 01-01-2026 and 31-03-2026" },
+      "ops-download-time": { prompt: "4.2 GB at 20 Mbps" },
+      "ops-hash-check": { text: "abc" },
+      "ops-time-zone": { prompt: "3pm IST in London on 2026-11-07" },
+      "ops-timestamp": { prompt: "1700000000" },
+      "ops-version-compare": { versions: ["1.9", "1.10"] },
+      "web-http-status": { code: "502" },
     };
     // A run records its stats next to the skill, so the app folder stays untouched: the workspace is a temp folder.
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "friday-core-skills-"));
@@ -281,8 +307,9 @@ describe("ops: log triage, exit codes, paths, cron, working days", () => {
 
   it("an unknown code is reported as unknown, never guessed", async () => {
     const out = await skill("ops-exit-code", { code: 4242 });
+    expect(out.ok).toBe(false);
     expect(out.unknown).toEqual(["4242"]);
-    expect(out.answer).toMatch(/None of these/);
+    expect(out.error).toMatch(/not guessed/);
     expect((await skill("ops-exit-code", { prompt: "no numbers here" })).ok).toBe(false);
   });
 
@@ -728,6 +755,7 @@ describe("India: identifiers, GST, invoices, rupees, EMI and SIP", () => {
     expect((await skill("in-inr-words", { amount: 0 })).inWords).toBe("Rupees Zero Only");
     expect((await skill("in-inr-words", { amount: 100 })).inWords).toBe("Rupees One Hundred Only");
     expect((await skill("in-inr-words", { amount: -5 })).ok).toBe(false);
+    expect((await skill("in-inr-words", { prompt: "call me at 5000 hours" })).ok).toBe(false); // a number, not money
   });
 
   it("EMI matches the standard formula; SIP and lumpsum state their assumption", async () => {
@@ -753,6 +781,243 @@ describe("India: identifiers, GST, invoices, rupees, EMI and SIP", () => {
     const lump = await skill("in-emi-sip", { prompt: "lumpsum 5 lakh at 10% for 5 years" });
     expect(lump.estimatedValue).toBeCloseTo(500000 * 1.1 ** 5, 0);
     expect((await skill("in-emi-sip", { prompt: "calculate something" })).ok).toBe(false);
+  });
+});
+
+describe("more built-in skills: versions, downloads, hashes, time, data, colours, networks, percentages, text", () => {
+  it("version compare orders four-part and semver numbers as numbers and checks a minimum", async () => {
+    const two = await skill("ops-version-compare", { prompt: "is 1.1.5.7 newer than 1.1.5.10" });
+    expect(two.relation).toMatch(/older/);
+    expect(two.differsAt).toBe("build");
+    const list = await skill("ops-version-compare", {
+      versions: ["1.9", "1.10", "1.10.0-rc.1", "v1.2"],
+      minimum: "1.10.0",
+    });
+    expect(list.sortedOldestFirst).toEqual(["v1.2", "1.9", "1.10.0-rc.1", "1.10"]);
+    expect(list.newest).toBe("1.10");
+    expect(list.meetsMinimum.map((m: Out) => m.ok)).toEqual([false, true, false, false]);
+    expect((await skill("ops-version-compare", { prompt: "22.19 vs 22.19.0" })).relation).toBe(
+      "equal",
+    );
+    expect((await skill("ops-version-compare", { prompt: "no versions here" })).ok).toBe(false);
+    expect((await skill("ops-version-compare", { prompt: "GST 18% on 5000" })).ok).toBe(false); // bare numbers are not versions
+  });
+
+  it("download time: the time at a line speed, the speed needed, and Mbps are megabits", async () => {
+    const out = await skill("ops-download-time", {
+      prompt: "how long does 4.2 GB take at 20 Mbps",
+    });
+    expect(out.fullSpeedSeconds).toBe(1680); // 4.2e9 bytes * 8 / 20e6
+    expect(out.realisticSeconds).toBe(1976); // at 85 percent of the line speed
+    const need = await skill("ops-download-time", {
+      prompt: "4 GB in 10 minutes needs what speed",
+    });
+    expect(need.requiredMbpsAtFullEfficiency).toBeCloseTo(53.33, 2);
+    const mbs = await skill("ops-download-time", { prompt: "1 GB at 10 MB/s" });
+    expect(mbs.fullSpeedSeconds).toBe(100);
+    expect((await skill("ops-download-time", { prompt: "fast please" })).ok).toBe(false);
+  });
+
+  it("hash check matches the published SHA-256 of abc, and names a wrong algorithm", async () => {
+    const abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    const ok = await skill("ops-hash-check", { text: "abc", algorithm: "sha256", expected: abc });
+    expect(ok.hex).toBe(abc);
+    expect(ok.matches).toBe(true);
+    const wrong = await skill("ops-hash-check", { text: "abd", expected: abc });
+    expect(wrong.matches).toBe(false);
+    const sha1 = await skill("ops-hash-check", { text: "abc", algorithm: "sha-1" });
+    expect(sha1.hex).toBe("a9993e364706816aba3e25717850c26c9cd0d89d");
+    const lengthHint = await skill("ops-hash-check", {
+      text: "abc",
+      algorithm: "sha256",
+      expected: "a9993e364706816aba3e25717850c26c9cd0d89d",
+    });
+    expect(lengthHint.hint).toMatch(/SHA-1/);
+    const noText = await skill("ops-hash-check", { prompt: `check ${abc}` });
+    expect(noText.answer).toMatch(/Get-FileHash/);
+  });
+
+  it("timestamps go both ways, in UTC and India time", async () => {
+    const out = await skill("ops-timestamp", { prompt: "1700000000" });
+    expect(out.utc).toBe("2023-11-14T22:13:20Z");
+    expect(out.local).toBe("2023-11-15T03:43:20+05:30");
+    expect(out.weekday).toBe("Wednesday");
+    expect((await skill("ops-timestamp", { prompt: "1700000000000" })).interpretedAs).toBe(
+      "Unix milliseconds",
+    );
+    const back = await skill("ops-timestamp", { prompt: "2026-11-07 15:30" });
+    expect(back.utc).toBe("2026-11-07T10:00:00Z");
+    expect(back.unixSeconds).toBe(Date.UTC(2026, 10, 7, 10, 0, 0) / 1000);
+    expect((await skill("ops-timestamp", { prompt: "soon" })).ok).toBe(false);
+  });
+
+  it("time zones apply the daylight-saving rules of the date", async () => {
+    const winter = await skill("ops-time-zone", {
+      prompt: "3pm IST in New York and London on 2026-11-07",
+    });
+    expect(winter.converted[0].time).toContain("04:30");
+    expect(winter.converted[0].time).toContain("UTC-05:00");
+    expect(winter.converted[1].time).toContain("09:30");
+    const summer = await skill("ops-time-zone", { prompt: "9:30 am PST to IST on 2026-07-01" });
+    expect(summer.source.utc).toBe("2026-07-01T16:30:00.000Z"); // Pacific daylight time, UTC-7
+    expect(summer.converted[0].time).toContain("22:00");
+    const ambiguous = await skill("ops-time-zone", { prompt: "10:00 CST to IST on 2026-01-15" });
+    expect(ambiguous.source.note).toMatch(/US Central/);
+    expect((await skill("ops-time-zone", { prompt: "what time is it" })).ok).toBe(false);
+  });
+
+  it("date calculator: days between, adding months with clamping, ages and countdowns", async () => {
+    expect(
+      (await skill("ops-date-calc", { prompt: "days between 01-01-2026 and 31-03-2026" })).days,
+    ).toBe(89);
+    expect((await skill("ops-date-calc", { prompt: "add 45 days to 2026-11-07" })).result).toBe(
+      "2026-12-22",
+    );
+    expect((await skill("ops-date-calc", { prompt: "31-01-2026 add 1 month" })).result).toBe(
+      "2026-02-28",
+    );
+    const age = await skill("ops-date-calc", { prompt: "age of 1990-05-12", today: "2026-11-07" });
+    expect(age.age).toEqual({ years: 36, months: 5, days: 26 });
+    expect(
+      (await skill("ops-date-calc", { prompt: "days until 2026-12-25", today: "2026-11-07" })).days,
+    ).toBe(48);
+    expect(
+      (await skill("ops-date-calc", { prompt: "born 2030-01-01", today: "2026-11-07" })).ok,
+    ).toBe(false);
+  });
+
+  it("CSV profile finds damaged rows, duplicates, mixed kinds and reads quoted commas", async () => {
+    const out = await skill("dat-csv-profile", {
+      text: 'name,age,city\nRahul,34,Pune\nAsha, 29 ,Delhi\nRahul,34,Pune\nBad,row\nZed,x,"A, B"',
+    });
+    expect(out.rows).toBe(5);
+    expect(out.damagedRows).toEqual([{ row: 5, fields: 2 }]);
+    expect(out.duplicateRows).toBe(1);
+    expect(out.columns.find((c: Out) => c.name === "age").mixedKinds).toBeDefined();
+    expect(out.columns.find((c: Out) => c.name === "city").topValues[0]).toEqual({
+      value: "Pune",
+      count: 2,
+    });
+    const numbers = await skill("dat-csv-profile", { text: "id;price\n1;10.5\n2;20\n3;30,5" });
+    expect(numbers.delimiter).toBe(";");
+    const price = await skill("dat-csv-profile", { text: "id;price\n1;10.5\n2;20\n3;30.5" });
+    expect(price.columns[1]).toMatchObject({ type: "decimal", min: 10.5, max: 30.5 });
+    expect(price.columns[0]).toMatchObject({ type: "integer", mean: 2 });
+    expect((await skill("dat-csv-profile", { text: "only a header" })).ok).toBe(false);
+  });
+
+  it("table converter moves between CSV, Markdown and JSON with escaping", async () => {
+    const md = await skill("dat-table-convert", {
+      text: "name,qty\nPen,2\nBook,10",
+      to: "markdown",
+    });
+    expect(md.result).toBe("| name | qty |\n| ---- | --- |\n| Pen  | 2   |\n| Book | 10  |");
+    const csv = await skill("dat-table-convert", {
+      text: '[{"a":1,"b":"x,y"},{"a":2,"b":"say \\"hi\\""}]',
+      to: "csv",
+    });
+    expect(csv.result).toBe('a,b\n1,"x,y"\n2,"say ""hi"""');
+    const json = await skill("dat-table-convert", { text: md.result, to: "json" });
+    expect(JSON.parse(json.result)).toEqual([
+      { name: "Pen", qty: 2 },
+      { name: "Book", qty: 10 },
+    ]);
+    const zeros = await skill("dat-table-convert", { text: "code\n007", to: "json" });
+    expect(JSON.parse(zeros.result)).toEqual([{ code: "007" }]);
+    expect((await skill("dat-table-convert", { text: "a,b\n1,2", to: "xml" })).ok).toBe(false);
+  });
+
+  it("colour contrast follows WCAG: the published #777 on white is 4.48, and a fix is suggested", async () => {
+    const out = await skill("dev-color-contrast", { prompt: "contrast of #777777 on #ffffff" });
+    expect(out.ratio).toBe(4.48);
+    expect(out.normalTextAA).toBe(false);
+    expect(out.largeTextAA).toBe(true);
+    expect(out.suggestion.ratio).toBeGreaterThanOrEqual(4.5);
+    expect(
+      (await skill("dev-color-contrast", { foreground: "black", background: "white" })).ratio,
+    ).toBe(21);
+    const single = await skill("dev-color-contrast", { color: "#ff0000" });
+    expect(single.color).toMatchObject({ rgb: "rgb(255, 0, 0)", hsl: "hsl(0, 100%, 50%)" });
+    expect((await skill("dev-color-contrast", { prompt: "no colour" })).ok).toBe(false);
+  });
+
+  it("HTTP status explainer knows the common codes and error names, and admits the rest", async () => {
+    const out = await skill("web-http-status", { prompt: "got 502 and ECONNRESET, then 522" });
+    expect(out.results.map((r: Out) => r.code)).toEqual(
+      expect.arrayContaining(["502", "522", "ECONNRESET"]),
+    );
+    expect(out.results.find((r: Out) => r.code === "502").class).toBe("server error");
+    expect(
+      (await skill("web-http-status", { code: "CERT_HAS_EXPIRED" })).results[0].tryThis,
+    ).toMatch(/clock/);
+    expect((await skill("web-http-status", { code: "599" })).error).toMatch(/not in the list/);
+  });
+
+  it("CIDR calculator: ranges, masks, special prefixes and membership", async () => {
+    const out = await skill("ops-cidr-calc", {
+      prompt: "192.168.1.0/24 contains 192.168.1.77 and 10.0.0.1",
+    });
+    expect(out).toMatchObject({
+      network: "192.168.1.0",
+      broadcast: "192.168.1.255",
+      mask: "255.255.255.0",
+      usableHosts: 254,
+      firstHost: "192.168.1.1",
+      lastHost: "192.168.1.254",
+    });
+    expect(out.type).toMatch(/private/);
+    expect(out.contains.map((c: Out) => c.inside)).toEqual([true, false]);
+    expect((await skill("ops-cidr-calc", { cidr: "10.0.0.5/32" })).usableHosts).toBe(1);
+    expect((await skill("ops-cidr-calc", { cidr: "10.0.0.0/31" })).usableHosts).toBe(2);
+    expect((await skill("ops-cidr-calc", { prompt: "10.0.0.0 255.255.0.0" })).cidr).toBe(
+      "10.0.0.0/16",
+    );
+    expect((await skill("ops-cidr-calc", { prompt: "10.0.0.0 255.0.255.0" })).error).toMatch(
+      /contiguous/,
+    );
+    expect((await skill("ops-cidr-calc", { cidr: "100.64.0.0/10" })).type).toMatch(/carrier/);
+    expect((await skill("ops-cidr-calc", { prompt: "no network" })).ok).toBe(false);
+  });
+
+  it("percentages: of, what percent, change, add, discount, and markup is not margin", async () => {
+    expect((await skill("in-percent-calc", { prompt: "15% of 2400" })).result).toBe(360);
+    expect((await skill("in-percent-calc", { prompt: "30 is what percent of 120" })).result).toBe(
+      25,
+    );
+    const change = await skill("in-percent-calc", { prompt: "change from 80 to 100" });
+    expect(change).toMatchObject({ result: 25, difference: 20 });
+    expect((await skill("in-percent-calc", { prompt: "change from 100 to 80" })).result).toBe(-20);
+    expect((await skill("in-percent-calc", { prompt: "add 18% to 5000" })).result).toBe(5900);
+    expect((await skill("in-percent-calc", { prompt: "20% off 1,500" })).result).toBe(1200);
+    const margin = await skill("in-percent-calc", { prompt: "cost 80 and selling price 100" });
+    expect(margin).toMatchObject({ markupPercent: 25, marginPercent: 20, profit: 20 });
+    expect((await skill("in-percent-calc", { prompt: "change from 0 to 5" })).ok).toBe(false);
+    expect((await skill("in-percent-calc", { prompt: "hello" })).ok).toBe(false);
+  });
+
+  it("text cleaner: exact de-duplication, sorting, bullets, numbering and joining", async () => {
+    const dup = await skill("doc-text-clean", {
+      prompt: "remove duplicate lines and sort\nbanana\napple\nBanana\ncherry\napple",
+    });
+    expect(dup.result).toBe("apple\nbanana\ncherry");
+    expect(dup.duplicatesRemoved).toBe(2);
+    const bullets = await skill("doc-text-clean", {
+      text: "- one\n* two\n3. three\n\u2022 four",
+      ops: ["strip-bullets", "number-lines"],
+    });
+    expect(bullets.result).toBe("1. one\n2. two\n3. three\n4. four");
+    const quotes = await skill("doc-text-clean", {
+      text: "\u201cHi\u201d \u2014 it\u2019s",
+      ops: ["straighten-quotes"],
+    });
+    expect(quotes.result).toBe('"Hi" - it\'s');
+    expect((await skill("doc-text-clean", { text: "a\nb\nc", ops: ["join-lines"] })).result).toBe(
+      "a b c",
+    );
+    expect((await skill("doc-text-clean", { text: "x", ops: ["shout"] })).error).toMatch(
+      /Unknown operation/,
+    );
+    expect((await skill("doc-text-clean", { prompt: "sort" })).ok).toBe(false);
   });
 });
 
@@ -822,6 +1087,19 @@ describe("FRIDAY core skills: the router runs them when they are named or clearl
     ["in-invoice-total", "total this invoice with gst"],
     ["in-inr-words", "write this rupees amount in words"],
     ["in-emi-sip", "emi on 25 lakh loan calculator"],
+    ["ops-version-compare", "compare version numbers 22.4.1 and 22.19.0"],
+    ["ops-download-time", "how long is the download time from size and speed"],
+    ["ops-hash-check", "sha hash of this text"],
+    ["ops-timestamp", "convert unix timestamp 1700000000 to date"],
+    ["ops-time-zone", "convert a time between time zones"],
+    ["ops-date-calc", "how many days between dates 01-01-2026 and 31-03-2026"],
+    ["dat-csv-profile", "profile a csv and check duplicates"],
+    ["dat-table-convert", "convert table between csv markdown json"],
+    ["dev-color-contrast", "wcag contrast ratio of two colors"],
+    ["web-http-status", "explain http status codes and network errors"],
+    ["ops-cidr-calc", "subnet range from cidr"],
+    ["in-percent-calc", "percentage calculator 15% of 2400"],
+    ["doc-text-clean", "clean text remove duplicate lines"],
   ];
   it("ordinary phrasing runs the right skill too", () => {
     for (const [id, prompt] of natural) {

@@ -1,0 +1,21 @@
+{
+  "name": "Time planner",
+  "version": "1.0.0",
+  "description": "Works out dates and times: working days, date maths, time zones, Unix timestamps, calendar files and how long a download takes.",
+  "category": "office",
+  "role": "time-planner",
+  "skills": [
+    "ops-workdays",
+    "ops-date-calc",
+    "ops-time-zone",
+    "ops-timestamp",
+    "cal-ics-event",
+    "ops-download-time"
+  ],
+  "workflows": [],
+  "inputs": ["prompt"],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY worked this out with her Time planner agent (working days, dates, time zones, timestamps, calendar files, download time)."
+}

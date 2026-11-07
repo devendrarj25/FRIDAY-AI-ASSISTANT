@@ -57,6 +57,7 @@ import { capabilityRegistry, type CapabilitySnapshot } from "./capability-regist
 import { describeLiveSelf, looksLikeSelfStatusQuestion } from "./app-guide";
 import { answerSelf, selfTopic } from "./self-questions";
 import { describeSkillValue, routeSkills } from "./skill-router";
+import { manageSkillsFromPrompt } from "./skill-manager";
 import { describeAgentValue, routeAgents } from "./agent-router";
 import { describeToolValue, routeTools } from "./tool-router";
 import { describeModuleValue, routeModules } from "./module-router";
@@ -1027,9 +1028,27 @@ class CoreBrain {
     // request clearly maps to one of the owner's safe skills, it is executed
     // for real and its actual output becomes the basis of the answer.
     if (options.allowTools ?? true) {
+      // Managing skills by chat ("what skills do you have", "disable the secret scan skill") is answered from
+      // what actually happened; changes go through the owner's approval gate. Such a turn runs no skill or agent.
+      stage?.("agents.skills", "checking for a skill management request");
+      const managed = await manageSkillsFromPrompt(prompt);
+      if (managed) {
+        tools.push({
+          tool: "skill",
+          query: managed.kind,
+          ok: managed.ok,
+          detail: managed.text.slice(0, 160),
+        });
+        evidence = [
+          evidence,
+          `Result of the skill management you just did on this machine. Answer from it, in your own words, and say plainly if a change is only waiting for approval:\n${managed.text}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+      }
       stage?.("agents.skills", "matching installed skills");
       turnMark(markId, "skill-route");
-      const skillRuns = await routeSkills(prompt).catch(() => []);
+      const skillRuns = managed ? [] : await routeSkills(prompt).catch(() => []);
       turnDone(
         markId,
         "skill-route",
@@ -1069,7 +1088,7 @@ class CoreBrain {
 
       turnMark(markId, "agent-route");
       stage?.("agents.registry", "matching installed agents");
-      const agentRuns = await routeAgents(prompt).catch(() => []);
+      const agentRuns = managed ? [] : await routeAgents(prompt).catch(() => []);
       turnDone(
         markId,
         "agent-route",

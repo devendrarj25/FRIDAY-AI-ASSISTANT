@@ -89,6 +89,20 @@ function amountFrom(input) {
 }
 
 export async function run(input = {}) {
+  // From a sentence, a number counts only when money is meant (rupees, words, lakh, crore...). The amount field always counts.
+  const sentence = String(input?.text ?? input?.prompt ?? "");
+  if (
+    input?.amount === undefined &&
+    !/(rupee|rupaye|rupay|\brs\b|\u20b9|\binr\b|amount|words|lakh|lac\b|crore|paise|cheque)/i.test(
+      sentence,
+    )
+  ) {
+    return {
+      ok: false,
+      error:
+        "Say it as an amount: for example 1234567.89, 1.5 crore or rupees in words for 250000.",
+    };
+  }
   const value = amountFrom(input);
   if (!Number.isFinite(value) || value < 0)
     return {

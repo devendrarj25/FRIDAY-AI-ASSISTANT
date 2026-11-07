@@ -1,0 +1,14 @@
+{
+  "id": "ops-cidr-calc",
+  "name": "CIDR calculator",
+  "summary": "Subnet range, mask, hosts from CIDR",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["cidr", "contains"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "IPv4 subnet maths from a CIDR such as 192.168.1.0/24 or an address with a mask: network, broadcast, mask, wildcard, first and last usable host, host count and the kind of range (private, loopback, link-local, carrier-grade NAT, multicast, public). Also tells whether given addresses are inside the network. /31 and /32 are handled as the special cases they are."
+}

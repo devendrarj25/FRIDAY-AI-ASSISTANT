@@ -7,12 +7,12 @@ const RULES = [
   [
     "override instructions",
     /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|any|your|the)\b[^.\n]{0,30}\b(?:instructions?|rules?|prompts?|guidelines?|policy|policies|restrictions?)\b/i,
-    3,
+    5,
   ],
   [
     "override instructions (Hinglish)",
     /\b(?:pichhle|pehle wale|upar wale|saare|sabhi)\b[^.\n]{0,30}\b(?:instructions?|rules?|nirdesh)\b[^.\n]{0,20}\b(?:ignore|bhool|mat maano|chhod)/i,
-    3,
+    5,
   ],
   [
     "new role or persona",
