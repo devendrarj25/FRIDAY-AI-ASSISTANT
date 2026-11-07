@@ -123,6 +123,7 @@ export class TaskOrchestrator {
   create(input: {
     label: string;
     risk?: TaskRisk;
+    payload?: unknown;
   }): { ok: true; task: VoiceTask } | { ok: false; error: string } {
     const waiting = [...this.tasks.values()].filter(
       (t) => t.state === "QUEUED" || t.state === "WAITING_FOR_APPROVAL" || t.state === "CREATED",
