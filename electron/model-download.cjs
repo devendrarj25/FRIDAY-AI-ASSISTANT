@@ -1104,7 +1104,21 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
         // used only against huggingface.co itself, and any failure falls through to the downloader below.
         const hub = deps.hub || require("./hf-hub-download.cjs");
         const mode = hub.engineMode(process.env);
-        if (todo.length && mode !== "own" && listing.host === "https://huggingface.co") {
+        // A client that already failed in this run (no byte, or a dead route) is not waited for again:
+        // each large model used to cost another minute before FRIDAY's own downloader took over.
+        const hubFailedEarlier = mode === "auto" && Boolean(hub.isBroken && hub.isBroken());
+        if (hubFailedEarlier && todo.length) {
+          onEvent?.({
+            status:
+              "the Hugging Face client failed earlier in this run; using FRIDAY's own downloader",
+          });
+        }
+        if (
+          todo.length &&
+          mode !== "own" &&
+          !hubFailedEarlier &&
+          listing.host === "https://huggingface.co"
+        ) {
           const python = deps.hubPython !== undefined ? deps.hubPython : hub.findPython({ root });
           if (await hubReady(hub, python)) {
             onEvent?.({ status: "source: Hugging Face official client (hf_xet)" });
@@ -1125,6 +1139,7 @@ async function downloadModelInner(job, onEvent, signal, deps = {}) {
               bytes = res.bytes;
               engine = "hub";
             } else {
+              if (hub.markBroken) hub.markBroken();
               onEvent?.({
                 status: `the Hugging Face client did not finish (${res.error}); using FRIDAY's own downloader`,
               });

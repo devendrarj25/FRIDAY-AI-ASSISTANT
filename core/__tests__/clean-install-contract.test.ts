@@ -711,9 +711,10 @@ describe("environment check is actionable", () => {
     expect(init).toContain("resolveKernelSource");
     expect(env).toContain("resolveVenvPython");
     expect(env).toContain("VOICE_PACKAGES");
-    expect(env).toContain("CAPABILITY_PACKAGES");
+    expect(env).toContain("capabilityNames = new Set(capPins.map");
     expect(env).toContain("requirements-capabilities.txt");
-    expect(env).toContain("required: capability ? false : !voice || win");
+    expect(env).toContain("capabilitiesRequired");
+    expect(env).toContain("FRIDAY falls back to SQLite memory");
     expect(read("installer/build/repair-runtime.ps1")).toContain("requirements-capabilities.txt");
     expect(read("installer/build/repair-runtime.ps1")).toContain(
       "function Install-CapabilityExtras",

@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
+import { pinKnowledgeClock } from "./helpers/knowledge-clock";
 
 const require_ = createRequire(import.meta.url);
 type Row = Record<string, unknown> & { id: string };
@@ -30,7 +31,13 @@ const router = require_("../../electron/model-router.cjs") as {
   ) => { visibility: string; reason: string | null };
 };
 
-const now = Date.now();
+pinKnowledgeClock();
+const now =
+  Number(
+    (require_("../../electron/model-access.cjs") as { KNOWLEDGE_CHECKED_AT: number })
+      .KNOWLEDGE_CHECKED_AT,
+  ) +
+  24 * 60 * 60 * 1000;
 function see(providerId: string, rows: Row[], ownerFree = false) {
   const spec = models.CLOUD[providerId]!;
   const out = new Map<string, { kind: string; access: string; free: string; paid: string }>();

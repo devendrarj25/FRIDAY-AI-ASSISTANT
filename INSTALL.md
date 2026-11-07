@@ -13,10 +13,10 @@ Every command in this file is run from the **project root** (the folder that con
 
 ## 1. Pick one path
 
-| Path | Who it is for | What you do |
-| --- | --- | --- |
-| A. Published GitHub EXE | Daily use. No Node, Python, or Git required. | Download `FRIDAY-Setup-1.1.5.7.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.1.5.7.exe` (no uninstaller) |
-| B. Source checkout + Windows CMD | Packing a new EXE, changing code, or running the desktop app from this tree | Clone this repo, then `npm run setup`, then `npm run build:win` (or `npm run desktop:start` without packing) |
+| Path                             | Who it is for                                                               | What you do                                                                                                            |
+| -------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| A. Published GitHub EXE          | Daily use. No Node, Python, or Git required.                                | Download `FRIDAY-Setup-1.1.5.7.exe` (uninstaller in Apps & Features) or `FRIDAY-Portable-1.1.5.7.exe` (no uninstaller) |
+| B. Source checkout + Windows CMD | Packing a new EXE, changing code, or running the desktop app from this tree | Clone this repo, then `npm run setup`, then `npm run build:win` (or `npm run desktop:start` without packing)           |
 
 Both paths share one disk root once a folder is chosen. Do not install Official and then overwrite it with a TEST EXE expecting the same Windows appId — TEST uses `dev.friday.desk.test` so it can sit beside Official. Isolation: [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md).
 
@@ -76,6 +76,12 @@ npm run setup
 
 That runs `scripts\setup-windows.ps1` via `powershell.exe` (Windows PowerShell 5.1). The script is 7-bit ASCII so 5.1 can parse it. It is idempotent: a tool already at or above its floor is reused, never downgraded; a tool that is missing or older is installed at the **latest stable release** from the official source. **Nothing is optional:** everything the setup installs is needed, so a tool, model or package that cannot be installed stops the setup with its reason (and `npm run doctor` repairs and checks again). Only what cannot apply to your PC is skipped and shown as `not applicable` (CUDA without an NVIDIA GPU, Windows Sandbox on an edition that lacks it); hosted CI, an offline build, `FRIDAY_PREFETCH=0` and `FRIDAY_PREFETCH_TOOLKIT_ELEVATED=0` are choices you make on purpose.
 
+**Latest releases (once a day).** Setup detects each tool first, keeps a supported one, and asks its official source for a newer release: `winget upgrade` for Python, Git, PowerShell, FFmpeg and Tesseract; `pip install --upgrade` (and a pip self-upgrade) for the Python packages; the published, SHA-256-checked, Authenticode-checked installer for Ollama. Node.js and npm run this very setup, so a newer release is only named, never swapped under it. The check runs at most once a day (`.cache/setup-update.json`); `FRIDAY_SETUP_UPDATE=1` asks now, `FRIDAY_SETUP_UPDATE=0` (also set by hosted CI and `FRIDAY_OFFLINE=1`) turns it off. A newer release that cannot be installed leaves the supported copy in place and the setup goes on. The package list is saved before a newest-release install (`temporary/downloads/pip-before-upgrade.txt`) and restored when the kernel no longer loads. The python.org fallback never goes past the series whose wheels are proven (`pythonWheelProven`). When the capability list fails as a set, each package is installed on its own, so one package without a wheel cannot leave the others out.
+
+**Models.** The Python packages install first and the speech, voice and chat models after, so one failed model never stops the capability packages. When Ollama's registry cannot be reached (`FRIDAY_OLLAMA_PULL_IDLE_S`, default 60 s without progress, ends a stalled pull), the small chat model is downloaded as a GGUF and registered in Ollama under its tag, so later runs do not pull again. A Hugging Face client that fails once in a run is skipped for the rest of it (30 minutes) and FRIDAY's own downloader is used.
+
+**Doctor** (`npm run doctor`) marks every package of `kernel/requirements-capabilities.txt` as required on a Windows PC that builds FRIDAY (chromadb stays optional: SQLite memory is the fallback) and gives every SKIPPED row its reason.
+
 The whole chain is: `npm run setup` (install everything) → `npm run doctor` (check and repair; the backup when setup stopped halfway) → `npm run build:win` (check the PC again, install what is still missing, build, verify, run the requirement tests, print **FRIDAY BUILD READY** with the files to use).
 
 Inside the script, in order:
@@ -102,18 +108,18 @@ What the log tells you on a real PC:
 
 Official download floors (tried in order):
 
-| Tool | Floor | Sources |
-| --- | --- | --- |
-| Node.js | 22.19.0 | winget `OpenJS.NodeJS.LTS` → nodejs.org LTS MSI → nodejs.org floor MSI |
-| npm | 10.9.0 | Bundled with Node → `npm install -g npm@latest` |
-| Python | 3.12.10 (64-bit) | winget `Python.Python.3.13` → `Python.Python.3.12` → python.org listing → python.org floor installer |
-| SQLite (that CPython) | 3.45.3 | Comes with python.org / winget CPython |
-| Git | 2.49.0 | winget `Git.Git` → GitHub `git-for-windows/git` |
-| PowerShell 7 | 7.5.0 | winget `Microsoft.PowerShell` → GitHub `PowerShell/PowerShell` |
-| Electron binary | 45.0.0 | `scripts/ensure-electron.cjs` |
-| FFmpeg | — | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials` |
-| Tesseract | — | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
-| VC++ Redist | — | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe` |
+| Tool                  | Floor            | Sources                                                                                                              |
+| --------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Node.js               | 22.19.0          | winget `OpenJS.NodeJS.LTS` → nodejs.org LTS MSI → nodejs.org floor MSI                                               |
+| npm                   | 10.9.0           | Bundled with Node → `npm install -g npm@latest`                                                                      |
+| Python                | 3.12.10 (64-bit) | winget `Python.Python.3.13` → `Python.Python.3.12` → python.org listing → python.org floor installer                 |
+| SQLite (that CPython) | 3.45.3           | Comes with python.org / winget CPython                                                                               |
+| Git                   | 2.49.0           | winget `Git.Git` → GitHub `git-for-windows/git`                                                                      |
+| PowerShell 7          | 7.5.0            | winget `Microsoft.PowerShell` → GitHub `PowerShell/PowerShell`                                                       |
+| Electron binary       | 45.0.0           | `scripts/ensure-electron.cjs`                                                                                        |
+| FFmpeg                | —                | winget `Gyan.FFmpeg` → `Gyan.FFmpeg.Essentials`                                                                      |
+| Tesseract             | —                | winget `UB-Mannheim.TesseractOCR` → GitHub `UB-Mannheim/tesseract` v5.4.0.20240606, Windows installer SHA-256 pinned |
+| VC++ Redist           | —                | winget `Microsoft.VCRedist.2015+.x64` → `https://aka.ms/vs/17/release/vc_redist.x64.exe`                             |
 
 Downloads use `Invoke-WebRequest` first, then `curl.exe --fail --location --retry`. TLS certificate checks stay on.
 
@@ -152,12 +158,12 @@ scripts\build-windows.cmd portable
 npm run build:win:dir
 ```
 
-| Command | Output |
-| --- | --- |
-| `npm run build:win` | Setup **and** Portable in `release\` |
-| `scripts\build-windows.cmd nsis` | Setup EXE only |
-| `scripts\build-windows.cmd portable` | Portable EXE only |
-| `npm run build:win:dir` | Unpacked `release\win-unpacked\` only (faster debug) |
+| Command                              | Output                                               |
+| ------------------------------------ | ---------------------------------------------------- |
+| `npm run build:win`                  | Setup **and** Portable in `release\`                 |
+| `scripts\build-windows.cmd nsis`     | Setup EXE only                                       |
+| `scripts\build-windows.cmd portable` | Portable EXE only                                    |
+| `npm run build:win:dir`              | Unpacked `release\win-unpacked\` only (faster debug) |
 
 The `.cmd` calls `scripts\build-pipeline.cjs`. That pipeline does, in order:
 
@@ -236,45 +242,45 @@ Run from the project root in `cmd.exe`.
 
 ### 10.1 Pack and run
 
-| Command | What it actually runs | Use it when |
-| --- | --- | --- |
-| `npm ci` | Lockfile install (`package-lock.json`) | After a clone, if you are not using `npm run setup` |
-| `npm run setup` | `scripts\setup-windows.ps1` | First time on a Windows PC: toolchain + lockfile + Electron + Python venv + runtime + Doctor |
-| `npm run build:win` | `scripts\build-windows.cmd` | Pack Setup **and** Portable into `release\` |
-| `npm run build:win:dir` | `scripts\build-windows.cmd dir` | Unpacked `release\win-unpacked\` only |
-| `scripts\build-windows.cmd nsis` | Same `.cmd` with `nsis` | Setup EXE only |
-| `scripts\build-windows.cmd portable` | Same `.cmd` with `portable` | Portable EXE only |
-| `npm run desktop:start` | `electron electron/main.cjs` | Run the desktop app from this checkout (not a pack) |
-| `npm run desktop:dev` | `electron electron/dev.cjs` | Dev desktop from this checkout |
+| Command                              | What it actually runs                  | Use it when                                                                                  |
+| ------------------------------------ | -------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `npm ci`                             | Lockfile install (`package-lock.json`) | After a clone, if you are not using `npm run setup`                                          |
+| `npm run setup`                      | `scripts\setup-windows.ps1`            | First time on a Windows PC: toolchain + lockfile + Electron + Python venv + runtime + Doctor |
+| `npm run build:win`                  | `scripts\build-windows.cmd`            | Pack Setup **and** Portable into `release\`                                                  |
+| `npm run build:win:dir`              | `scripts\build-windows.cmd dir`        | Unpacked `release\win-unpacked\` only                                                        |
+| `scripts\build-windows.cmd nsis`     | Same `.cmd` with `nsis`                | Setup EXE only                                                                               |
+| `scripts\build-windows.cmd portable` | Same `.cmd` with `portable`            | Portable EXE only                                                                            |
+| `npm run desktop:start`              | `electron electron/main.cjs`           | Run the desktop app from this checkout (not a pack)                                          |
+| `npm run desktop:dev`                | `electron electron/dev.cjs`            | Dev desktop from this checkout                                                               |
 
 ### 10.2 Repair one piece
 
-| Command | What it actually runs | Use it when |
-| --- | --- | --- |
-| `npm run setup:python` | `scripts\setup-python.cjs` | Recreate/repair only the isolated venv and pip packages |
-| `scripts\install-python-deps.cmd` | Same `setup-python.cjs` | CMD alias if you prefer a `.cmd` entry |
-| `npm run setup:electron` | `scripts\ensure-electron.cjs` | Electron binary missing after `npm ci` |
-| `npm run init:runtime` | `scripts\init-runtime.cjs` | Canonical folders, wake model copy, SQLite schema |
-| `npm run setup:toolkit` | `scripts\prefetch-toolkit.cjs` | Install or update the agent toolkit only (the same step `setup` and `build:win` run) |
-| `npm run check:env` | `scripts\check-environment.cjs` | Print what is missing (does not install). Where the setup installs a tool (FFmpeg, Tesseract, VC++, Ollama, the agent toolkit) a missing one is MISSING and fails; `not applicable` rows are hardware or editions this PC cannot have, and `SKIPPED` rows (hosted CI, offline, a `FRIDAY_PREFETCH*=0` opt-out) name the step that does not run on that machine; `npm run setup` installs them on your PC |
-| `npm run check:env:fix` | `check-environment.cjs --fix` | Repair through the same scripts as setup: the toolchain, Electron, Python, the models and the agent toolkit |
-| `npm run doctor` | `scripts\doctor.cjs`: `npm ci` when node_modules is stale, `check-environment --fix`, `init-runtime`, `verify-deps`, `env-registry repair` | Check **and repair** everything; the backup when `npm run setup` stopped halfway. Every step runs, and it exits 1 if any failed |
-| `npm run verify:env` | `scripts\env-registry.cjs` | Show the recorded environment registry |
-| `npm run repair:env` | `env-registry.cjs repair` | Rewrite/repair that registry |
-| `npm run verify:boot` | `scripts\verify-boot.cjs` | EXE + browser boot checks |
-| `npm run verify:install` | `scripts\readiness-test.cjs` | Post-pack kernel/database/chat/voice/model/task probe |
-| `npm run clean:cache` | `scripts\clean-build-cache.cjs` | Clear project pack caches under `.cache\` |
+| Command                           | What it actually runs                                                                                                                      | Use it when                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run setup:python`            | `scripts\setup-python.cjs`                                                                                                                 | Recreate/repair only the isolated venv and pip packages                                                                                                                                                                                                                                                                                                                                                  |
+| `scripts\install-python-deps.cmd` | Same `setup-python.cjs`                                                                                                                    | CMD alias if you prefer a `.cmd` entry                                                                                                                                                                                                                                                                                                                                                                   |
+| `npm run setup:electron`          | `scripts\ensure-electron.cjs`                                                                                                              | Electron binary missing after `npm ci`                                                                                                                                                                                                                                                                                                                                                                   |
+| `npm run init:runtime`            | `scripts\init-runtime.cjs`                                                                                                                 | Canonical folders, wake model copy, SQLite schema                                                                                                                                                                                                                                                                                                                                                        |
+| `npm run setup:toolkit`           | `scripts\prefetch-toolkit.cjs`                                                                                                             | Install or update the agent toolkit only (the same step `setup` and `build:win` run)                                                                                                                                                                                                                                                                                                                     |
+| `npm run check:env`               | `scripts\check-environment.cjs`                                                                                                            | Print what is missing (does not install). Where the setup installs a tool (FFmpeg, Tesseract, VC++, Ollama, the agent toolkit) a missing one is MISSING and fails; `not applicable` rows are hardware or editions this PC cannot have, and `SKIPPED` rows (hosted CI, offline, a `FRIDAY_PREFETCH*=0` opt-out) name the step that does not run on that machine; `npm run setup` installs them on your PC |
+| `npm run check:env:fix`           | `check-environment.cjs --fix`                                                                                                              | Repair through the same scripts as setup: the toolchain, Electron, Python, the models and the agent toolkit                                                                                                                                                                                                                                                                                              |
+| `npm run doctor`                  | `scripts\doctor.cjs`: `npm ci` when node_modules is stale, `check-environment --fix`, `init-runtime`, `verify-deps`, `env-registry repair` | Check **and repair** everything; the backup when `npm run setup` stopped halfway. Every step runs, and it exits 1 if any failed                                                                                                                                                                                                                                                                          |
+| `npm run verify:env`              | `scripts\env-registry.cjs`                                                                                                                 | Show the recorded environment registry                                                                                                                                                                                                                                                                                                                                                                   |
+| `npm run repair:env`              | `env-registry.cjs repair`                                                                                                                  | Rewrite/repair that registry                                                                                                                                                                                                                                                                                                                                                                             |
+| `npm run verify:boot`             | `scripts\verify-boot.cjs`                                                                                                                  | EXE + browser boot checks                                                                                                                                                                                                                                                                                                                                                                                |
+| `npm run verify:install`          | `scripts\readiness-test.cjs`                                                                                                               | Post-pack kernel/database/chat/voice/model/task probe                                                                                                                                                                                                                                                                                                                                                    |
+| `npm run clean:cache`             | `scripts\clean-build-cache.cjs`                                                                                                            | Clear project pack caches under `.cache\`                                                                                                                                                                                                                                                                                                                                                                |
 
 ### 10.3 Checks that do not pack an EXE
 
-| Command | What it actually runs | Use it when |
-| --- | --- | --- |
-| `npm run typecheck` | `tsc --noEmit` | After TypeScript edits |
-| `npm test` | `vitest run` | Contract tests |
-| `npm run docs:sync` / `npm run docs:check` | `scripts\docs-engine.cjs` | After Markdown edits |
-| `npm run verify:version` | `release-engine.cjs verify` | Version-governed docs vs `config/friday-version.json` |
-| `npm run validate:local` | `scripts\validate-local.cjs` | Local substitute for PR Validation (Linux skips NSIS pack) |
-| `npm run sign:win` | `scripts\sign-windows.ps1` | Sign already-packed EXEs when a PFX is configured |
+| Command                                    | What it actually runs        | Use it when                                                |
+| ------------------------------------------ | ---------------------------- | ---------------------------------------------------------- |
+| `npm run typecheck`                        | `tsc --noEmit`               | After TypeScript edits                                     |
+| `npm test`                                 | `vitest run`                 | Contract tests                                             |
+| `npm run docs:sync` / `npm run docs:check` | `scripts\docs-engine.cjs`    | After Markdown edits                                       |
+| `npm run verify:version`                   | `release-engine.cjs verify`  | Version-governed docs vs `config/friday-version.json`      |
+| `npm run validate:local`                   | `scripts\validate-local.cjs` | Local substitute for PR Validation (Linux skips NSIS pack) |
+| `npm run sign:win`                         | `scripts\sign-windows.ps1`   | Sign already-packed EXEs when a PFX is configured          |
 
 Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run build:win` needs `cmd.exe`. Those two are Windows-only by design. `setup:python`, `setup:electron`, `init:runtime`, and `check:env` do run on Linux.
 
@@ -282,19 +288,19 @@ Linux notes: `npm run setup` needs `node.exe` / winget / `msiexec`. `npm run bui
 
 One scannable root. Setup may replace `<root>\App` on upgrade. User folders beside `App` stay. The forty-folder table lives in [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md).
 
-| Location | What it is |
-| --- | --- |
-| `<root>\App` | Program files (`FRIDAY.exe`, resources). Replaced by a normal upgrade / keep-data uninstall |
-| `<root>\runtime\.venv` | Isolated CPython the installed app launches (after a folder is chosen) |
-| `<root>\database` | `friday.sqlite3` — the kernel database |
-| `<root>\models` and `<root>\models\wake` | Downloaded weights and wake `.onnx` files |
-| `<root>\config` | Including `first-run.json`, `github.json` (update channel) |
-| `HKCU\Software\FRIDAY\WorkspacePath` | Pointer to the root |
-| Checkout `.venv` | Only when packing/running from source with **no** selected folder |
-| Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`) |
-| Checkout `temporary\downloads` | Official installer payloads during `npm run setup` |
-| Checkout `dist-desktop\` | Renderer bundle |
-| Checkout `release\` | `FRIDAY-Setup-1.1.5.7.exe`, `FRIDAY-Portable-1.1.5.7.exe`, `win-unpacked\FRIDAY.exe` |
+| Location                                                 | What it is                                                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `<root>\App`                                             | Program files (`FRIDAY.exe`, resources). Replaced by a normal upgrade / keep-data uninstall |
+| `<root>\runtime\.venv`                                   | Isolated CPython the installed app launches (after a folder is chosen)                      |
+| `<root>\database`                                        | `friday.sqlite3` — the kernel database                                                      |
+| `<root>\models` and `<root>\models\wake`                 | Downloaded weights and wake `.onnx` files                                                   |
+| `<root>\config`                                          | Including `first-run.json`, `github.json` (update channel)                                  |
+| `HKCU\Software\FRIDAY\WorkspacePath`                     | Pointer to the root                                                                         |
+| Checkout `.venv`                                         | Only when packing/running from source with **no** selected folder                           |
+| Checkout `.cache\electron` and `.cache\electron-builder` | Project-local pack caches (`build-windows.cmd` sets `ELECTRON_CACHE`)                       |
+| Checkout `temporary\downloads`                           | Official installer payloads during `npm run setup`                                          |
+| Checkout `dist-desktop\`                                 | Renderer bundle                                                                             |
+| Checkout `release\`                                      | `FRIDAY-Setup-1.1.5.7.exe`, `FRIDAY-Portable-1.1.5.7.exe`, `win-unpacked\FRIDAY.exe`        |
 
 ## 12. Update
 
@@ -323,23 +329,23 @@ Or `npm run sign:win` against `scripts\sign-windows.ps1` after a pack. Unset `CS
 
 ## 15. Troubleshooting (install / pack / first kernel)
 
-| Symptom | What to do |
-| --- | --- |
-| Setup finished but kernel never becomes ready | Doctor + Install Manager. Look for `PythonSetupPending`. Repair is `runtime\.venv`, not a second global Python |
-| `npm run setup` cannot find `node.exe` | Let the script install Node; open a **new** `cmd.exe` if PATH did not refresh, then re-run |
-| `python` opens the Microsoft Store | Disable the App execution alias; reuse python.org / winget CPython |
-| `npm ci` fails once | The scripts retry after `npm cache verify` and pin `registry.npmjs.org`. Check proxy (`HTTPS_PROXY`) |
-| `faster-whisper` / `edge-tts` import fails on Windows | `npm run setup:python` fail-closes on purpose. Retry on a network that can reach PyPI; do not skip those floors |
-| `build:win` not found on Linux / macOS | Expected. Pack on Windows `cmd.exe`. Do not wrap the `.cmd` in a Unix script |
-| SQLite / Git below floor on Linux CI agents | Floors in `config/toolchain-versions.json` are Windows product requirements. Do not lower them to green a Linux agent |
-| SmartScreen warning | Unsigned default. See section 14 |
-| Official and TEST both installed | Different appIds — expected. Uninstall the one you meant |
-| Packed app will not take a GitHub source ZIP as an update | Intentional. Use Settings → Updates / a verified Setup EXE |
-| `kernel/requirements.txt not found` during `npm run build:win` | This Git clone is also the FRIDAY data root, so `kernel/` was treated as a data alias of `backend/`. Re-run the pack; `setup-python` restores `kernel/`. Clone the repo into a folder that is not the installed FRIDAY root |
-| ParserError `Unexpected token '$('` in `setup-windows.ps1` | Windows PowerShell 5.1 read a non-ASCII character as a quote. Every `powershell.exe` script in this tree is 7-bit ASCII, so keep it that way and run `npm run setup` again |
-| `check:env` / `doctor` report no `runtime\.venv` and no Electron binary right after a failed setup | Expected cascade: setup never reached `setup-python` / `ensure-electron`. Re-run `npm run setup`. If setup already passed, `npm run setup:electron` then `npm run setup:python` then `npm run doctor` |
-| `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | The pack is good; no local model is loaded, and the `--pack` gate continues past that. Load a model in Ollama or LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fails Chat |
-| `npm warn allow-scripts electron-winstaller` | The package is explicitly denied in `package.json` `allowScripts`. Its install script only copies Squirrel 7-Zip. NSIS and Portable do not use it. `electron` is explicitly allowed. Electron 43 has no install script, so `npm run setup:electron` still downloads the binary |
+| Symptom                                                                                                                                         | What to do                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Setup finished but kernel never becomes ready                                                                                                   | Doctor + Install Manager. Look for `PythonSetupPending`. Repair is `runtime\.venv`, not a second global Python                                                                                                                                                                 |
+| `npm run setup` cannot find `node.exe`                                                                                                          | Let the script install Node; open a **new** `cmd.exe` if PATH did not refresh, then re-run                                                                                                                                                                                     |
+| `python` opens the Microsoft Store                                                                                                              | Disable the App execution alias; reuse python.org / winget CPython                                                                                                                                                                                                             |
+| `npm ci` fails once                                                                                                                             | The scripts retry after `npm cache verify` and pin `registry.npmjs.org`. Check proxy (`HTTPS_PROXY`)                                                                                                                                                                           |
+| `faster-whisper` / `edge-tts` import fails on Windows                                                                                           | `npm run setup:python` fail-closes on purpose. Retry on a network that can reach PyPI; do not skip those floors                                                                                                                                                                |
+| `build:win` not found on Linux / macOS                                                                                                          | Expected. Pack on Windows `cmd.exe`. Do not wrap the `.cmd` in a Unix script                                                                                                                                                                                                   |
+| SQLite / Git below floor on Linux CI agents                                                                                                     | Floors in `config/toolchain-versions.json` are Windows product requirements. Do not lower them to green a Linux agent                                                                                                                                                          |
+| SmartScreen warning                                                                                                                             | Unsigned default. See section 14                                                                                                                                                                                                                                               |
+| Official and TEST both installed                                                                                                                | Different appIds — expected. Uninstall the one you meant                                                                                                                                                                                                                       |
+| Packed app will not take a GitHub source ZIP as an update                                                                                       | Intentional. Use Settings → Updates / a verified Setup EXE                                                                                                                                                                                                                     |
+| `kernel/requirements.txt not found` during `npm run build:win`                                                                                  | This Git clone is also the FRIDAY data root, so `kernel/` was treated as a data alias of `backend/`. Re-run the pack; `setup-python` restores `kernel/`. Clone the repo into a folder that is not the installed FRIDAY root                                                    |
+| ParserError `Unexpected token '$('` in `setup-windows.ps1`                                                                                      | Windows PowerShell 5.1 read a non-ASCII character as a quote. Every `powershell.exe` script in this tree is 7-bit ASCII, so keep it that way and run `npm run setup` again                                                                                                     |
+| `check:env` / `doctor` report no `runtime\.venv` and no Electron binary right after a failed setup                                              | Expected cascade: setup never reached `setup-python` / `ensure-electron`. Re-run `npm run setup`. If setup already passed, `npm run setup:electron` then `npm run setup:python` then `npm run doctor`                                                                          |
+| `build:win` produced Setup/Portable EXEs then `readiness FAILED` on CHAT (`No models loaded`, `coder-ds` 404, `All connection attempts failed`) | The pack is good; no local model is loaded, and the `--pack` gate continues past that. Load a model in Ollama or LM Studio, or add a free-tier key, then Chat works. `npm run verify:install` without `--pack` still fails Chat                                                |
+| `npm warn allow-scripts electron-winstaller`                                                                                                    | The package is explicitly denied in `package.json` `allowScripts`. Its install script only copies Squirrel 7-Zip. NSIS and Portable do not use it. `electron` is explicitly allowed. Electron 43 has no install script, so `npm run setup:electron` still downloads the binary |
 
 Hosted GitHub Actions (PR Validation, FRIDAY Test Build, FRIDAY Release) are owner-run. This guide does not dispatch them.
 

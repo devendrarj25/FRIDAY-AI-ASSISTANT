@@ -19,7 +19,27 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const STALL_MS = 60_000;
+/** No byte at all this long after the start means this client cannot reach its servers from this PC. */
+const START_MS = 25_000;
 const POLL_MS = 500;
+/** How long a failed client is left alone: the next files of the same run go straight to FRIDAY's downloader. */
+const BROKEN_FOR_MS = 30 * 60_000;
+let brokenUntil = 0;
+
+/** Remember that the client failed, so the rest of this run does not wait for it again. */
+function markBroken(now = Date.now()) {
+  brokenUntil = now + BROKEN_FOR_MS;
+}
+
+/** Did the client fail a moment ago? */
+function isBroken(now = Date.now()) {
+  return now < brokenUntil;
+}
+
+/** Test hook: forget a failure. */
+function resetBroken() {
+  brokenUntil = 0;
+}
 const CACHE_DIR = path.join(".cache", "huggingface");
 
 const SCRIPT = [
@@ -182,6 +202,7 @@ async function download({
   onProgress = null,
   signal = null,
   stallMs = STALL_MS,
+  startMs = START_MS,
   pollMs = POLL_MS,
   spawnImpl = spawn,
 }) {
@@ -251,7 +272,9 @@ async function download({
         speedMbps: Number((rate / 1024 ** 2).toFixed(1)),
         etaSeconds: total > best && rate > 0 ? Math.round((total - best) / rate) : 0,
       });
-      if (now - lastMove > stallMs) stop(`no byte for ${Math.round(stallMs / 1000)}s`);
+      if (best === 0 && now - started > startMs && now - lastMove > startMs) {
+        stop(`no byte in the first ${Math.round(startMs / 1000)}s`);
+      } else if (now - lastMove > stallMs) stop(`no byte for ${Math.round(stallMs / 1000)}s`);
     }, pollMs);
     child.on("error", (err) => {
       clearInterval(timer);
@@ -285,4 +308,15 @@ async function download({
   return { ok: true, bytes, seconds: (Date.now() - started) / 1000 };
 }
 
-module.exports = { engineMode, findPython, available, download, bytesOnDisk, verify, SCRIPT };
+module.exports = {
+  engineMode,
+  findPython,
+  available,
+  download,
+  bytesOnDisk,
+  verify,
+  markBroken,
+  isBroken,
+  resetBroken,
+  SCRIPT,
+};

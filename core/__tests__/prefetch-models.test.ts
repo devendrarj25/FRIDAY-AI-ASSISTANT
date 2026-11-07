@@ -15,7 +15,7 @@ const require_ = createRequire(import.meta.url);
 const root = path.resolve(import.meta.dirname, "../..");
 const prefetch = require_(path.join(root, "scripts/prefetch-models.cjs"));
 
-const quiet = { CI: "", GITHUB_ACTIONS: "" };
+const quiet = { CI: "", GITHUB_ACTIONS: "", FRIDAY_SETUP_UPDATE: "0" };
 
 describe("build-time model prefetch", () => {
   it("plans speech base and small, the pinned voice models, and a small chat model", () => {
@@ -441,6 +441,274 @@ describe("one local chat model, and nothing downloaded twice", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("the small chat model when Ollama's registry cannot be reached", () => {
+    // The owner's PC: the pull timed out on Ollama's storage host, the GGUF copy still arrived in full,
+    // and the old step reported the model as not finished (exit 1), which also stopped the Python packages.
+    const gguf = (dir: string) => path.join(dir, "models", "qwen2.5-1.5b-instruct");
+    const setup = (dir: string, opts: { pull: unknown; register: unknown; onDisk?: boolean }) => {
+      const fetched: string[] = [];
+      const registered: { name: string; file: string }[] = [];
+      const lines: string[] = [];
+      if (opts.onDisk) {
+        mkdirSync(gguf(dir), { recursive: true });
+        writeFileSync(path.join(gguf(dir), "qwen2.5-1.5b-instruct-q4_k_m.gguf"), "g");
+      }
+      const options = {
+        env: {
+          ...quiet,
+          FRIDAY_AUTO_INSTALL: "1",
+          FRIDAY_PREFETCH: "1",
+          FRIDAY_MODEL_FRESHNESS: "0",
+        },
+        platform: win,
+        log: (line: string) => lines.push(line),
+        download: async (job: { modelId: string }) => {
+          fetched.push(job.modelId);
+          if (job.modelId === "qwen2.5-1.5b-instruct") {
+            mkdirSync(gguf(dir), { recursive: true });
+            writeFileSync(path.join(gguf(dir), "qwen2.5-1.5b-instruct-q4_k_m.gguf"), "g");
+          }
+          return { ok: true };
+        },
+        latest: async () => null,
+        totalGb: 64,
+        ollama: {
+          find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+          fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+          pull: opts.pull,
+          register: async (name: string, file: string) => {
+            registered.push({ name, file });
+            return (opts.register as (n: string) => unknown)(name);
+          },
+        },
+      };
+      return { options, fetched, registered, lines };
+    };
+
+    it("takes the GGUF copy, registers it under the tag, and reports no failure", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        const t = setup(dir, {
+          pull: async () => ({ ok: false, error: "max retries exceeded: connectex" }),
+          register: async () => ({ ok: true }),
+        });
+        const rows = await prefetch.prefetch(dir, t.options);
+        expect(t.fetched).toContain("qwen2.5-1.5b-instruct");
+        expect(t.registered.map((r) => r.name)).toEqual(["qwen2.5:1.5b"]);
+        expect(rows.find((r: { id: string }) => r.id === "qwen2.5:1.5b")).toMatchObject({
+          ok: true,
+          via: "gguf",
+        });
+        expect(prefetch.failureReport(rows)).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("registers a GGUF that is already on disk without asking the registry or downloading", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        const t = setup(dir, {
+          pull: async () => {
+            throw new Error("the registry must not be asked when the file is here");
+          },
+          register: async () => ({ ok: true }),
+          onDisk: true,
+        });
+        const rows = await prefetch.prefetch(dir, t.options);
+        expect(t.fetched).not.toContain("qwen2.5-1.5b-instruct");
+        expect(t.registered).toHaveLength(1);
+        expect(t.lines.join("\n")).toContain("registering the GGUF already on disk");
+        expect(prefetch.failureReport(rows)).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps going, not failing, when Ollama will not register the file it holds", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        const t = setup(dir, {
+          pull: async () => ({ ok: false, error: "no route" }),
+          register: async () => ({ ok: false, error: "HTTP 500" }),
+          onDisk: true,
+        });
+        const rows = await prefetch.prefetch(dir, t.options);
+        expect(rows.find((r: { id: string }) => r.id === "qwen2.5:1.5b")).toMatchObject({
+          ok: true,
+          via: "gguf-file",
+        });
+        expect(t.lines.join("\n")).toContain("Ollama did not register it (HTTP 500)");
+        expect(prefetch.failureReport(rows)).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("still fails when the model is in neither place", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        const t = setup(dir, {
+          pull: async () => ({ ok: false, error: "no route" }),
+          register: async () => ({ ok: true }),
+        });
+        t.options.download = async (job: { modelId: string }) =>
+          job.modelId === "qwen2.5-1.5b-instruct" ? { ok: false, error: "HTTP 503" } : { ok: true };
+        const rows = await prefetch.prefetch(dir, t.options);
+        const report = prefetch.failureReport(rows).join("\n");
+        expect(report).toContain("qwen2.5-1.5b-instruct: HTTP 503");
+        expect(report).toContain("qwen2.5:1.5b: no route");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("keeping Ollama on the newest official release", () => {
+    const newest = {
+      tag: "v9.9.9",
+      url: "https://github.com/ollama/ollama/releases/download/v9.9.9/OllamaSetup.exe",
+      sha256: "a".repeat(64),
+      bytes: 1_600_000_000,
+      source: "live",
+    };
+    const run = async (
+      overrides: Record<string, unknown> = {},
+      env: Record<string, string> = {},
+    ) => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      const policyRoot = mkdtempSync(path.join(tmpdir(), "friday-policy-"));
+      const lines: string[] = [];
+      const jobs: { sources: { url: string; sha256: string }[] }[] = [];
+      const ran: string[][] = [];
+      try {
+        const rows = await prefetch.prefetch(dir, {
+          env: {
+            CI: "",
+            GITHUB_ACTIONS: "",
+            FRIDAY_AUTO_INSTALL: "1",
+            FRIDAY_PREFETCH_CHAT: "0",
+            FRIDAY_PREFETCH_TTS: "0",
+            FRIDAY_SETUP_UPDATE: "1",
+            ...env,
+          },
+          platform: win,
+          policyRoot,
+          log: (line: string) => lines.push(line),
+          download: async (job: (typeof jobs)[number]) => {
+            jobs.push(job);
+            return { ok: true };
+          },
+          latest: async () => newest,
+          totalGb: 64,
+          ollama: {
+            find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+            fetch: async () => ({
+              ok: true,
+              json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+            }),
+            signed: async () => ({ ok: true }),
+            runInstaller: async (_file: string, args: string[]) => {
+              ran.push(args);
+              return { ok: true };
+            },
+            startOllama: () => {},
+            waitMs: 1,
+            ...overrides,
+          },
+        });
+        return { rows, lines: lines.join("\n"), jobs, ran };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(policyRoot, { recursive: true, force: true });
+      }
+    };
+
+    it("downloads the newest installer by its own digest and installs it over the old one", async () => {
+      const r = await run();
+      const installer = r.jobs.find((job) => job.sources[0]?.url === newest.url);
+      expect(installer?.sources[0]?.sha256).toBe(newest.sha256);
+      expect(r.ran).toEqual([["/CLOSEAPPLICATIONS"]]);
+      expect(r.lines).toContain("updating Ollama 0.40.4 -> v9.9.9");
+      expect(r.lines).toContain("ollama updated to v9.9.9");
+    });
+
+    it("keeps the installed Ollama when the installer will not run, and does not fail", async () => {
+      const r = await run({ runInstaller: async () => ({ ok: false, error: "exit code 5" }) });
+      expect(r.lines).toContain("ollama update did not finish (exit code 5)");
+      expect(r.rows.every((row: { ok: boolean }) => row.ok)).toBe(true);
+    });
+
+    it("refuses an installer whose signature is not valid", async () => {
+      const r = await run({ signed: async () => ({ ok: false, reason: "not signed" }) });
+      expect(r.ran).toEqual([]);
+      expect(r.lines).toContain("ollama update skipped (signature: not signed)");
+    });
+
+    it("does not update with no published digest, and says why", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
+      try {
+        const lines: string[] = [];
+        await prefetch.prefetch(dir, {
+          env: {
+            CI: "",
+            GITHUB_ACTIONS: "",
+            FRIDAY_AUTO_INSTALL: "1",
+            FRIDAY_PREFETCH_CHAT: "0",
+            FRIDAY_PREFETCH_TTS: "0",
+            FRIDAY_SETUP_UPDATE: "1",
+          },
+          platform: win,
+          policyRoot: dir,
+          log: (line: string) => lines.push(line),
+          download: async () => ({ ok: true }),
+          latest: async () => ({ ...newest, sha256: "" }),
+          totalGb: 64,
+          ollama: {
+            find: () => ({ exe: "C:/Ollama/ollama.exe", version: "0.40.4" }),
+            fetch: async () => ({
+              ok: true,
+              json: async () => ({ models: [{ name: "qwen2.5:1.5b" }] }),
+            }),
+            runInstaller: async () => {
+              throw new Error("must not run without a digest");
+            },
+          },
+        });
+        expect(lines.join("\n")).toContain("its official digest could not be read");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("leaves Ollama alone when updates are switched off", async () => {
+      const r = await run(
+        {
+          runInstaller: async () => {
+            throw new Error("updates are off");
+          },
+        },
+        { FRIDAY_SETUP_UPDATE: "0" },
+      );
+      expect(r.ran).toEqual([]);
+      expect(r.lines).toContain("updates are switched off here");
+    });
+  });
+
+  it("gives up an Ollama pull that makes no progress instead of retrying for minutes", async () => {
+    const started = Date.now();
+    const result = await prefetch.ollamaPull("qwen2.5:1.5b", {
+      idleMs: 40,
+      fetchImpl: (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/no progress for/);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it("a second run downloads nothing that is already on disk and verified", async () => {

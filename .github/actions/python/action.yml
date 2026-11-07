@@ -1,4 +1,4 @@
-# Python 3.12 for kernel tests, without actions/setup-python.
+# Python 3.12 for kernel tests, without actions/setup-python: PATH, the runner tool cache, then uv.
 # This repository only allows actions owned by devendrarj25.
 
 name: Python 3.12
@@ -15,6 +15,7 @@ runs:
         # python.exe, so that directory goes on PATH. A copied exe alone does not start.
         bin=""
         dir=""
+        venvbin=""
         case "$(uname -s)" in
           MINGW*|MSYS*|CYGWIN*)
             if command -v py >/dev/null 2>&1 && py -3.12 -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
@@ -51,8 +52,34 @@ runs:
             esac
           fi
         fi
+        # The image may carry 3.12 only in the runner tool cache or under a path that is not on PATH.
         if [ -z "$bin" ]; then
-          echo "::error::Python 3.12 is not on this runner"
+          for cand in "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"/Python/3.12.*/x64/bin/python3.12 \
+            "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"/Python/3.12.*/x64/python.exe \
+            /usr/bin/python3.12 /usr/local/bin/python3.12; do
+            if [ -x "$cand" ] && "$cand" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"; then
+              bin="$cand"
+              echo "python 3.12 found in $cand"
+              break
+            fi
+          done
+        fi
+        # Still missing: fetch it with uv (Astral's official installer from PyPI, official python-build-standalone builds).
+        if [ -z "$bin" ] && [ "$(uname -s)" = "Linux" ] && command -v python3 >/dev/null 2>&1; then
+          echo "python 3.12 is not on this image - installing it with uv"
+          if python3 -m venv "$RUNNER_TEMP/uvenv" && "$RUNNER_TEMP/uvenv/bin/python" -m pip install --quiet uv \
+            && "$RUNNER_TEMP/uvenv/bin/uv" python install 3.12; then
+            try=$("$RUNNER_TEMP/uvenv/bin/uv" python find 3.12 || true)
+            # uv's interpreters are marked externally managed, so pip needs a venv of its own.
+            if [ -n "$try" ] && "$try" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" \
+              && "$try" -m venv "$RUNNER_TEMP/py312"; then
+              bin="$RUNNER_TEMP/py312/bin/python"
+              venvbin="$RUNNER_TEMP/py312/bin"
+            fi
+          fi
+        fi
+        if [ -z "$bin" ]; then
+          echo "::error::Python 3.12 is not on this runner and uv could not install it"
           exit 1
         fi
         case "$bin" in
@@ -65,9 +92,21 @@ runs:
             echo "python 3.12 -> $bin (directory on PATH)"
             ;;
           *)
-            mkdir -p "$RUNNER_TEMP/pybin"
-            ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"
-            echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+            if [ -n "$venvbin" ]; then
+              # A venv finds its libraries from the folder it is started in, so its own bin goes on PATH.
+              echo "$venvbin" >> "$GITHUB_PATH"
+            else
+              mkdir -p "$RUNNER_TEMP/pybin"
+              ln -sfn "$bin" "$RUNNER_TEMP/pybin/python"
+              echo "$RUNNER_TEMP/pybin" >> "$GITHUB_PATH"
+              # pip installs commands (ruff, pytest, zizmor) into this interpreter's scripts folder; the image's
+              # own Python has it on PATH already, a tool-cache Python does not.
+              scripts=$("$bin" -c "import sysconfig; print(sysconfig.get_path('scripts'))" | tr -d '\r')
+              case ":$PATH:" in
+                *":$scripts:"*) ;;
+                *) [ -d "$scripts" ] && echo "$scripts" >> "$GITHUB_PATH" ;;
+              esac
+            fi
             echo "python 3.12 -> $bin"
             ;;
         esac

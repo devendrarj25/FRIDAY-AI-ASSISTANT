@@ -203,7 +203,8 @@ function Install-PythonDirect {
     $candidates = [regex]::Matches($listing.Content, 'href="(\d+\.\d+\.\d+)/"') |
       ForEach-Object { $_.Groups[1].Value } |
       Sort-Object { [version]$_ } -Descending |
-      Where-Object { [version]$_ -ge [version]$Versions.pythonMinimum }
+      Where-Object { [version]$_ -ge [version]$Versions.pythonMinimum } |
+      Where-Object { $v = [version]$_; ([version]('{0}.{1}' -f $v.Major, $v.Minor)) -le [version]$Versions.pythonWheelProven }
   } catch {
     Write-MethodFailure 'python.org FTP listing' $_.Exception.Message
   }
@@ -229,17 +230,112 @@ function Install-FromGitHubRelease([string]$Repository, [string]$AssetPattern, [
   Install-Package $file $SilentArgs
 }
 
+# ---------------------------------------------------------------- newest official release
+# A tool that is installed and supported is kept. When its official source has a newer release, it is
+# updated: winget's own source for the PC toolchain. The question is asked at most once a day (a stamp in
+# .cache), is skipped on hosted CI and offline, and FRIDAY_SETUP_UPDATE=0 turns it off, =1 asks now.
+# A newer release that cannot be installed never fails the setup: the installed, supported one stays.
+$UpdateStamp = Join-Path $Root '.cache\setup-update-toolchain.stamp'
+
+function Test-UpdateDue {
+  if ($env:CI -or $env:GITHUB_ACTIONS) { return $false }
+  if ("$env:FRIDAY_OFFLINE".Trim() -eq '1') { return $false }
+  $mode = "$env:FRIDAY_SETUP_UPDATE".Trim().ToLowerInvariant()
+  if ($mode -eq '0' -or $mode -eq 'off' -or $mode -eq 'false') { return $false }
+  if ($mode -eq '1' -or $mode -eq 'force' -or $mode -eq 'true') { return $true }
+  if (-not (Test-Path -LiteralPath $UpdateStamp)) { return $true }
+  try {
+    $age = (Get-Date) - (Get-Item -LiteralPath $UpdateStamp).LastWriteTime
+    return (($age.TotalHours -ge 24) -or ($age.TotalHours -lt 0))
+  } catch { return $true }
+}
+
+function Set-UpdateChecked {
+  try {
+    $dir = Split-Path -Parent $UpdateStamp
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Set-Content -LiteralPath $UpdateStamp -Value (Get-Date).ToString('o')
+  } catch { }
+}
+
+$script:UpdateWanted = Test-UpdateDue
+
+function Update-IfNewer([string]$Label, [string[]]$Ids) {
+  if (-not $script:UpdateWanted) { return }
+  if (-not $Ids -or $Ids.Count -eq 0) { return }
+  if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+    Write-Step "$Label - winget is not available, so the check for a newer release is skipped; the installed version stays"
+    return
+  }
+  foreach ($id in $Ids) {
+    Write-Step "$Label - asking the official winget source for a newer release ($id)"
+    $code = -1
+    try {
+      & winget upgrade --id $id --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      $code = $LASTEXITCODE
+    } catch { $code = -1 }
+    if ($code -eq 0) {
+      Refresh-Path
+      Write-Step "$Label updated to the latest release ($id)"
+      return
+    }
+    # -1978335189 (0x8A15002B): no applicable update, so this is already the newest release.
+    if ($code -eq -1978335189) {
+      Write-Step "$Label is already the latest release ($id)"
+      return
+    }
+    # -1978335212 (0x8A150014): winget holds no installed package of this id; the next id is tried.
+    if ($code -eq -1978335212) { continue }
+    Write-MethodFailure "winget upgrade $id" "exit code $code"
+    Write-Step "$Label - the installed version stays"
+    return
+  }
+  Write-Step "$Label - winget does not manage this copy, so it is kept as it is"
+}
+
+# Node.js and npm run this very setup, so a running copy is never replaced from here: a newer release is
+# named, with the one command that installs it from a new terminal.
+function Write-RunningToolNote([string]$Label, [string]$Installed, [string]$Latest, [string]$Command) {
+  if (-not $Installed -or -not $Latest) { return }
+  try {
+    if ([version]$Latest -gt [version]$Installed) {
+      Write-Step "$Label $Installed is supported; the newest release is $Latest. It is running now, so it is not replaced from here - in a new terminal run: $Command"
+    } else {
+      Write-Step "$Label $Installed is the latest release"
+    }
+  } catch { }
+}
+
+function Show-NodeAndNpmLatest {
+  if (-not $script:UpdateWanted) { return }
+  try {
+    $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing -TimeoutSec 20
+    $lts = $index | Where-Object { $_.lts } | Select-Object -First 1
+    if ($lts) {
+      Write-RunningToolNote 'Node.js' (Get-Version 'node.exe' @('--version')) ($lts.version -replace '^v', '') 'winget upgrade OpenJS.NodeJS.LTS'
+    }
+  } catch { }
+  try {
+    $newest = ((& npm.cmd view npm version 2>$null | Out-String).Trim())
+    if ($newest -match '^\d+\.\d+\.\d+$') {
+      Write-RunningToolNote 'npm' (Get-Version 'npm.cmd' @('--version')) $newest 'npm install --global npm@latest'
+    }
+  } catch { }
+}
+
 # ---------------------------------------------------------------- generic ensure
 function Ensure-Tool(
   [string]$Label,
   [string]$Command,
   [string[]]$VersionArguments,
   [string]$MinimumVersion,
-  [System.Collections.IDictionary[]]$Methods
+  [System.Collections.IDictionary[]]$Methods,
+  [string[]]$UpdateIds = @()
 ) {
   $found = Get-Version $Command $VersionArguments
   if (Test-SupportedVersion $found $MinimumVersion) {
-    Write-Step "$Label $found is supported (minimum $MinimumVersion) - reused, not modified"
+    Write-Step "$Label $found is supported (minimum $MinimumVersion) - detected, kept"
+    Update-IfNewer $Label $UpdateIds
     return
   }
   if ($found) {
@@ -268,7 +364,12 @@ function Ensure-Tool(
 Push-Location $Root
 try {
   Refresh-Path
-  Write-Step 'Preparing the supported FRIDAY Windows toolchain (minimums are floors, newer versions are reused)'
+  Write-Step 'Preparing the FRIDAY Windows toolchain: each tool is detected first, kept when supported, and updated when its official source has a newer release'
+  if ($script:UpdateWanted) {
+    Write-Step 'latest-release check: on (once a day; FRIDAY_SETUP_UPDATE=0 turns it off, FRIDAY_SETUP_UPDATE=1 asks now)'
+  } else {
+    Write-Step 'latest-release check: off for this run (done within the last day, or FRIDAY_SETUP_UPDATE=0, hosted CI or offline)'
+  }
 
   Ensure-Tool 'Node.js' 'node.exe' @('--version') $Versions.nodeMinimum @(
     @{ Label = 'official winget package (OpenJS.NodeJS.LTS)'; Action = { Install-WingetPackage 'OpenJS.NodeJS.LTS' } },
@@ -276,21 +377,28 @@ try {
     @{ Label = 'official nodejs.org floor MSI (config/toolchain-versions.json)'; Action = { Install-NodeFloor } }
   )
 
+  # winget names each Python series on its own (Python.Python.3.14), so the installed series decides the id.
+  $pythonIds = @()
+  $pythonNow = Get-Version 'py.exe' @('-3', '--version')
+  if ($pythonNow) {
+    $series = $pythonNow.Split('.')
+    $pythonIds = @("Python.Python.$($series[0]).$($series[1])")
+  }
   Ensure-Tool 'Python' 'py.exe' @('-3', '--version') $Versions.pythonMinimum @(
     @{ Label = 'official winget package (Python.Python.3.13)'; Action = { Install-WingetPackage 'Python.Python.3.13' } },
     @{ Label = 'official winget package (Python.Python.3.12)'; Action = { Install-WingetPackage 'Python.Python.3.12' } },
     @{ Label = 'official python.org installer download'; Action = { Install-PythonDirect } }
-  )
+  ) $pythonIds
 
   Ensure-Tool 'Git' 'git.exe' @('--version') $Versions.gitMinimum @(
     @{ Label = 'official winget package (Git.Git)'; Action = { Install-WingetPackage 'Git.Git' } },
     @{ Label = 'official Git for Windows release download'; Action = { Install-FromGitHubRelease 'git-for-windows/git' 'Git-*-64-bit.exe' @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-') } }
-  )
+  ) @('Git.Git')
 
   Ensure-Tool 'PowerShell' 'pwsh.exe' @('-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()') $Versions.powershellMinimum @(
     @{ Label = 'official winget package (Microsoft.PowerShell)'; Action = { Install-WingetPackage 'Microsoft.PowerShell' } },
     @{ Label = 'official PowerShell release MSI download'; Action = { Install-FromGitHubRelease 'PowerShell/PowerShell' '*win-x64.msi' @('/qn', '/norestart') } }
-  )
+  ) @('Microsoft.PowerShell')
 
   Ensure-Tool 'npm' 'npm.cmd' @('--version') $Versions.npmMinimum @(
     @{ Label = 'npm bundled with the installed Node.js'; Action = { Refresh-Path } },
@@ -303,14 +411,17 @@ try {
   function Ensure-RequiredCommand(
     [string]$Label,
     [string]$Command,
-    [System.Collections.IDictionary[]]$Methods
+    [System.Collections.IDictionary[]]$Methods,
+    [string[]]$UpdateIds = @()
   ) {
     if (Get-Command $Command -ErrorAction SilentlyContinue) {
-      Write-Step "$Label already on PATH - reused, not modified"
+      Write-Step "$Label already on PATH - detected, kept"
+      Update-IfNewer $Label $UpdateIds
       return
     }
     if ($Command -eq 'tesseract.exe' -and (Test-TesseractPresent)) {
-      Write-Step "$Label present at a well-known install folder - reused, not modified"
+      Write-Step "$Label present at a well-known install folder - detected, kept"
+      Update-IfNewer $Label $UpdateIds
       return
     }
     Write-Step "$Label not found - installing the latest stable release from the official source"
@@ -338,12 +449,12 @@ try {
   Ensure-RequiredCommand 'FFmpeg' 'ffmpeg.exe' @(
     @{ Label = 'official winget package (Gyan.FFmpeg)'; Action = { Install-WingetPackage 'Gyan.FFmpeg' } },
     @{ Label = 'official winget package (Gyan.FFmpeg.Essentials)'; Action = { Install-WingetPackage 'Gyan.FFmpeg.Essentials' } }
-  )
+  ) @('Gyan.FFmpeg', 'Gyan.FFmpeg.Essentials')
 
   Ensure-RequiredCommand 'Tesseract OCR' 'tesseract.exe' @(
     @{ Label = 'official winget package (UB-Mannheim.TesseractOCR)'; Action = { Install-WingetPackage 'UB-Mannheim.TesseractOCR' } },
     @{ Label = 'official UB-Mannheim GitHub installer'; Action = { Install-FromGitHubRelease 'UB-Mannheim/tesseract' '*w64-setup*.exe' @('/S') } }
-  )
+  ) @('UB-Mannheim.TesseractOCR')
 
   $vc = Join-Path $env:SystemRoot 'System32\vcruntime140.dll'
   if (Test-Path -LiteralPath $vc) {
@@ -372,6 +483,10 @@ try {
       throw 'The Visual C++ Redistributable could not be installed by any official method. Native Python wheels and model runtimes need it; install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run setup again.'
     }
   }
+
+  # Node.js and npm are running this setup: a newer release is named, not swapped under it.
+  Show-NodeAndNpmLatest
+  if ($script:UpdateWanted) { Set-UpdateChecked }
 
   if ($ToolchainOnly) {
     Write-Host '[FRIDAY] TOOLCHAIN PASS - Node.js, npm, Python, Git, PowerShell, FFmpeg, Tesseract and the Visual C++ runtime are ready.' -ForegroundColor Green

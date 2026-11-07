@@ -237,6 +237,36 @@ describe("Hugging Face official client", () => {
     expect(quiet.error).toContain("no byte");
   });
 
+  it("gives up a client that has moved no byte since the start, long before the stall limit", async () => {
+    // The owner's PC: every large model waited 60 seconds for a client that never produced a byte.
+    const started = Date.now();
+    const silent = await hub.download({
+      repo: "x/y",
+      dest: target(),
+      files,
+      python: "python",
+      pollMs: 20,
+      startMs: 120,
+      stallMs: 60_000,
+      spawnImpl: fakeClient({ hang: true }),
+    });
+    expect(silent).toMatchObject({ ok: false });
+    expect(silent.error).toContain("no byte in the first");
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("remembers a failed client for the rest of the run, so the next model skips the wait", () => {
+    hub.resetBroken();
+    expect(hub.isBroken()).toBe(false);
+    hub.markBroken(1_000);
+    expect(hub.isBroken(1_000 + 29 * 60_000)).toBe(true);
+    expect(hub.isBroken(1_000 + 31 * 60_000)).toBe(false);
+    hub.resetBroken();
+    const source = read("electron/model-download.cjs");
+    expect(source).toContain("hub.markBroken()");
+    expect(source).toContain("the Hugging Face client failed earlier in this run");
+  });
+
   it("counts a part for at most 99 percent so a reserved file never looks finished", () => {
     const dest = target();
     const dir = path.join(dest, ".cache", "huggingface", "download");
