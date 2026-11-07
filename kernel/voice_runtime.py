@@ -272,15 +272,29 @@ def speech_lang(text: str, requested: str = "") -> str:
     return language_segmenter.dominant_lang(text, requested)
 
 
-def _synth_array(spoken: str, rate: float, lang: str):
+_STYLE = re.compile(r"^[FM][1-5]$")
+
+
+def voice_style_name(requested: str = "") -> str:
+    """The voice style asked for, or the default. Only F1..F5 and M1..M5 are ever passed on."""
+    name = (requested or "").strip().upper()
+    return name if _STYLE.match(name) else SUPERTONIC_VOICE
+
+
+def _synth_array(spoken: str, rate: float, lang: str, style: str = ""):
     """One Supertonic call. Returns a float32 mono array."""
     import numpy as np  # type: ignore
 
     if _tts is None:
         raise RuntimeError("the speech model is not loaded")
+    try:
+        voice_style = _tts.get_voice_style(voice_style_name(style))
+    except Exception:
+        # A style this model does not have is the default voice, never a failed reply.
+        voice_style = _tts.get_voice_style(SUPERTONIC_VOICE)
     wav, _duration = _tts.synthesize(
         spoken[:500],
-        voice_style=_tts.get_voice_style(SUPERTONIC_VOICE),
+        voice_style=voice_style,
         total_steps=5,
         speed=rate,
         lang=lang,
@@ -289,7 +303,7 @@ def _synth_array(spoken: str, rate: float, lang: str):
     return np.asarray(wav, dtype=np.float32).reshape(-1)
 
 
-def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | None:
+def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "", style: str = "") -> bytes | None:
     """Local Supertonic speech. None when the model or package is absent.
 
     Text in one script is one call. Mixed Hindi and English is cut into a few
@@ -319,7 +333,7 @@ def speak_wav_bytes(text: str, speed: float = 1.0, lang: str = "") -> bytes | No
         spans = language_segmenter.segment(spoken[:500], lang)
         if not spans:
             return None
-        pieces = [_synth_array(span.text, rate, span.lang) for span in spans]
+        pieces = [_synth_array(span.text, rate, span.lang, style) for span in spans]
         gap = np.zeros(int(int(_tts.sample_rate) * SPAN_GAP_SECONDS), dtype=np.float32)
         parts = []
         for index, piece in enumerate(pieces):
@@ -781,7 +795,12 @@ def serve() -> int:
                 speed = float(req.get("speed") or 1)
             except (TypeError, ValueError):
                 speed = 1.0
-            audio = speak_wav_bytes(str(req.get("text") or ""), speed, str(req.get("lang") or ""))
+            audio = speak_wav_bytes(
+                str(req.get("text") or ""),
+                speed,
+                str(req.get("lang") or ""),
+                str(req.get("style") or ""),
+            )
             if audio and out:
                 dest = Path(out)
                 dest.parent.mkdir(parents=True, exist_ok=True)

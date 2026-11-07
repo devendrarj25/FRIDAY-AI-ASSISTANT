@@ -66,6 +66,10 @@ export type VoicePreferences = {
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
    */
   cloudVoice: VoiceCloudPrefs;
+  /** The local voice style (F1 to F5, female styles of the local voice). Empty keeps the default, F2. */
+  localVoiceStyle: "" | "F1" | "F2" | "F3" | "F4" | "F5";
+  /** Small changes of pace, pitch and volume per clause (a question rises, an apology softens). */
+  expressiveSpeech: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
@@ -228,6 +232,8 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
     liveWords: false,
+    expressiveSpeech: true,
+    localVoiceStyle: "",
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",

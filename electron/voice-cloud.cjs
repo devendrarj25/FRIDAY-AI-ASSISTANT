@@ -30,9 +30,34 @@ const escapeXml = (text) =>
     (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c],
   );
 
-function buildSarvamTts({ text, language, speaker, model = "bulbul:v3", rate = 24000 }) {
-  const body = { text, language_code: language, model, speech_sample_rate: rate };
-  if (speaker) body.speaker = speaker;
+/**
+ * Speakers whose gender the provider's page states (bulbul:v2). The v3 and v4-flash pages list names without
+ * saying which are female, so a voice that must be female uses a v2 name. Anushka is the default.
+ */
+const SARVAM_V2_FEMALE = ["anushka", "manisha", "vidya", "arya"];
+const SARVAM_V2_MALE = ["abhilash", "karun", "hitesh"];
+const SARVAM_DEFAULT_SPEAKER = "anushka";
+
+function sarvamModelFor(speaker) {
+  if (SARVAM_V2_FEMALE.includes(speaker) || SARVAM_V2_MALE.includes(speaker)) return "bulbul:v2";
+  return /_(?:[a-z]{2})_/.test(speaker) ? "bulbul:v4-flash" : "bulbul:v3";
+}
+
+function buildSarvamTts({ text, language, speaker, model, rate, pace }) {
+  const voice = speaker || SARVAM_DEFAULT_SPEAKER;
+  const chosen = model || sarvamModelFor(voice);
+  const body = {
+    text,
+    language_code: language,
+    model: chosen,
+    // 22050 Hz is the provider's default; the higher rates are listed for v3 and v4-flash.
+    speech_sample_rate: rate ?? (chosen === "bulbul:v2" ? 22050 : 24000),
+    speaker: voice,
+  };
+  // Pace is 0.5 to 2.0 on v3 and v4-flash and 0.3 to 3.0 on v2; 1.0 is left to the provider's default.
+  if (typeof pace === "number" && Number.isFinite(pace) && Math.abs(pace - 1) > 0.01) {
+    body.pace = Math.min(2, Math.max(0.5, Math.round(pace * 100) / 100));
+  }
   return {
     url: `https://${SARVAM_HOST}/text-to-speech`,
     headers: { "Content-Type": "application/json" },
@@ -146,7 +171,17 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
       const speaker = request.speaker ? String(request.speaker) : "";
       if (speaker && !/^[a-z0-9_]{2,40}$/.test(speaker))
         return { ok: false, error: "that voice name is not valid" };
-      spec = buildSarvamTts({ text, language, speaker });
+      const limit =
+        sarvamModelFor(speaker || SARVAM_DEFAULT_SPEAKER) === "bulbul:v2" ? 1500 : MAX_TEXT;
+      if (text.length > limit)
+        return { ok: false, error: `that voice speaks at most ${limit} characters at a time` };
+      const pace = Number(request.pace);
+      spec = buildSarvamTts({
+        text,
+        language,
+        speaker,
+        ...(Number.isFinite(pace) ? { pace } : {}),
+      });
     } else {
       const region = String(allowed.cloud.azureRegion || "");
       const voice = String(allowed.cloud.azureVoice || "");
@@ -219,6 +254,8 @@ function createVoiceCloud({ fetchImpl = globalThis.fetch, getSecret, prefs }) {
 module.exports = {
   createVoiceCloud,
   buildSarvamTts,
+  sarvamModelFor,
+  SARVAM_V2_FEMALE,
   parseSarvamTts,
   buildAzureTts,
   parseSarvamStt,

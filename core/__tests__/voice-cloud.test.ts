@@ -13,6 +13,8 @@ const cloudModule = require_(path.resolve(import.meta.dirname, "../../electron/v
 const {
   createVoiceCloud,
   buildSarvamTts,
+  sarvamModelFor,
+  SARVAM_V2_FEMALE,
   buildAzureTts,
   parseSarvamTts,
   parseSarvamStt,
@@ -72,9 +74,24 @@ describe("cloud speech request shapes (from the providers' pages)", () => {
       speech_sample_rate: 24000,
       speaker: "shubh",
     });
+    // With no voice named, a speaker the provider states is female (bulbul:v2) is used.
+    expect(JSON.parse(buildSarvamTts({ text: "a", language: "en-IN" }).body)).toMatchObject({
+      speaker: "anushka",
+      model: "bulbul:v2",
+      speech_sample_rate: 22050,
+    });
+    expect(sarvamModelFor("manisha")).toBe("bulbul:v2");
+    expect(sarvamModelFor("priya")).toBe("bulbul:v3");
+    expect(sarvamModelFor("shubh_hi_devotional")).toBe("bulbul:v4-flash");
+    expect(SARVAM_V2_FEMALE).toEqual(["anushka", "manisha", "vidya", "arya"]);
+    const paced = JSON.parse(
+      buildSarvamTts({ text: "a", language: "hi-IN", speaker: "priya", pace: 1.2 }).body,
+    );
+    expect(paced.pace).toBe(1.2);
     expect(
-      JSON.parse(buildSarvamTts({ text: "a", language: "en-IN" }).body).speaker,
+      JSON.parse(buildSarvamTts({ text: "a", language: "hi-IN", pace: 1 }).body).pace,
     ).toBeUndefined();
+    expect(JSON.parse(buildSarvamTts({ text: "a", language: "hi-IN", pace: 9 }).body).pace).toBe(2);
     expect(parseSarvamTts({ audios: ["QUJD"] })).toEqual({
       audioBase64: "QUJD",
       mime: "audio/wav",

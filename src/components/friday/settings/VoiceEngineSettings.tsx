@@ -314,6 +314,55 @@ function CloudSpeechTest({
           />
         </label>
       </div>
+      <label className="flex flex-wrap items-center gap-2">
+        <span className="text-foreground">Speak replies with</span>
+        <select
+          className={`${inputClass} w-64`}
+          value={cloud.speakWith}
+          onChange={(e) => set({ speakWith: e.target.value as VoiceCloudPrefs["speakWith"] })}
+        >
+          <option value="">This PC and the free Neural voice (default)</option>
+          <option value="sarvam">Sarvam AI (Indian female voice, cloud)</option>
+          <option value="azure-speech">Azure Speech (the voice named above, cloud)</option>
+        </select>
+      </label>
+      {cloud.speakWith ? (
+        <p>
+          Each clause of a reply is sent to {cloud.speakWith === "sarvam" ? "Sarvam" : "Azure"} and
+          counted against your quota. It needs cloud voice on, the provider allowed, a saved key,
+          and privacy mode off. Anything that looks sensitive is never sent, and when the cloud
+          refuses or fails the normal voice speaks.
+        </p>
+      ) : null}
+      <datalist id="sarvam-voices">
+        {[
+          "anushka",
+          "manisha",
+          "vidya",
+          "arya",
+          "ritu",
+          "priya",
+          "neha",
+          "pooja",
+          "simran",
+          "kavya",
+          "ishita",
+          "shreya",
+          "roopa",
+          "tanya",
+          "shruti",
+          "suhani",
+          "kavitha",
+          "rupali",
+        ].map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+      <p>
+        Sarvam voices: anushka, manisha, vidya and arya are stated as female by Sarvam (bulbul:v2,
+        the default is anushka). The other names listed are bulbul:v3 voices whose gender Sarvam
+        does not state; listen and choose.
+      </p>
       {line ? <p>{line}</p> : null}
     </div>
   );

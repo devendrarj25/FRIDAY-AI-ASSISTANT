@@ -280,6 +280,37 @@ export function VoiceSettings() {
               preferences.setVoice({ pauseDuringCalls: prefs.voice.pauseDuringCalls === false })
             }
           />
+          <label className="block">
+            <span className="label-xs text-muted-foreground">Local voice style</span>
+            <select
+              value={prefs.voice.localVoiceStyle || ""}
+              onChange={(e) =>
+                preferences.setVoice({
+                  localVoiceStyle: e.target.value as typeof prefs.voice.localVoiceStyle,
+                })
+              }
+              className="mt-1 h-8 w-full rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground"
+            >
+              <option value="">Default (F2)</option>
+              <option value="F1">F1</option>
+              <option value="F2">F2</option>
+              <option value="F3">F3</option>
+              <option value="F4">F4</option>
+              <option value="F5">F5</option>
+            </select>
+            <span className="mt-1 block text-meta-sm text-muted-foreground">
+              Female styles of the local voice. Press Test voice to hear one. A style the installed
+              model does not have falls back to the default.
+            </span>
+          </label>
+          <ToggleRow
+            label="Expressive speech"
+            hint="A question rises, an apology softens, good news brightens, with short natural pauses between clauses. Small changes on top of your own voice settings. Off keeps the pace and pitch exactly as set."
+            on={prefs.voice.expressiveSpeech !== false}
+            onToggle={() =>
+              preferences.setVoice({ expressiveSpeech: prefs.voice.expressiveSpeech === false })
+            }
+          />
           <ToggleRow
             label="Show words while I speak (experimental)"
             hint="Auto mode only. Reads what you have said so far about once a second and shows the words two readings agree on. Uses more CPU while you talk; the answer still waits for the normal final reading. Off by default."

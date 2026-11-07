@@ -27,6 +27,8 @@ export async function speakWithCloud(
   input: {
     text: string;
     language: string;
+    /** Speaking pace, 1 is normal; passed to providers that support it. */
+    pace?: number;
     prefs: VoiceCloudPrefs;
     keys: Record<string, boolean>;
     privacyMode: boolean;
@@ -65,6 +67,7 @@ export async function speakWithCloud(
   const out = await speak(provider, {
     text: input.text,
     language: input.language,
+    ...(provider === "sarvam" && typeof input.pace === "number" ? { pace: input.pace } : {}),
     ...(provider === "sarvam" && input.prefs.sarvamSpeaker
       ? { speaker: input.prefs.sarvamSpeaker }
       : {}),

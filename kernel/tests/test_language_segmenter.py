@@ -138,5 +138,50 @@ class SpeakSpansTests(unittest.TestCase):
         self.assertEqual(calls, ["hi"])
 
 
+class VoiceStyleTests(unittest.TestCase):
+    """Only F1..F5 and M1..M5 reach the model; anything else is the default, never a failed reply."""
+
+    def test_names(self) -> None:
+        import voice_runtime
+
+        self.assertEqual(voice_runtime.voice_style_name("f3"), "F3")
+        self.assertEqual(voice_runtime.voice_style_name(" M5 "), "M5")
+        for bad in ("", "F6", "F0", "../x", "F22", "x1", None):
+            self.assertEqual(voice_runtime.voice_style_name(bad or ""), voice_runtime.SUPERTONIC_VOICE)
+
+    def test_style_reaches_the_model_and_a_missing_style_falls_back(self) -> None:
+        import types
+        from unittest import mock
+
+        import voice_runtime
+
+        asked: list[str] = []
+
+        class FakeTTS:
+            sample_rate = 8000
+
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            def get_voice_style(self, name: str) -> str:
+                asked.append(name)
+                if name == "F5":
+                    raise KeyError(name)
+                return name
+
+            def synthesize(self, text: str, voice_style: str, **_kw: object):
+                return [0.1] * 80, 0.01
+
+        with (
+            mock.patch.object(voice_runtime, "supertonic_dir", return_value=Path(".")),
+            mock.patch.dict(sys.modules, {"supertonic": types.SimpleNamespace(TTS=FakeTTS)}),
+            mock.patch.object(voice_runtime, "_tts", None),
+        ):
+            self.assertIsNotNone(voice_runtime.speak_wav_bytes("hello there", 1.0, "en-IN", "F3"))
+            self.assertIsNotNone(voice_runtime.speak_wav_bytes("hello there", 1.0, "en-IN", "F5"))
+            self.assertIsNotNone(voice_runtime.speak_wav_bytes("hello there", 1.0, "en-IN", "bad"))
+        self.assertEqual(asked, ["F3", "F5", voice_runtime.SUPERTONIC_VOICE, voice_runtime.SUPERTONIC_VOICE])
+
+
 if __name__ == "__main__":
     unittest.main()

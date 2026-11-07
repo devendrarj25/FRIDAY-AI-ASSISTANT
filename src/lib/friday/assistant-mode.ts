@@ -67,6 +67,9 @@ import {
 } from "./voice-turn-trace";
 import { registerVoiceHealth } from "./voice-health";
 import { preferences } from "./preferences";
+import { speakWithCloud } from "./voice-engine/voice-cloud-client";
+import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
+import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
@@ -74,6 +77,7 @@ import { preferSpoken } from "./conversation-style";
 import {
   activeVoiceSettings,
   lastSpeechRoute,
+  prefetchSpeech,
   speakText,
   spokenSummary,
   statusWithVoice,
@@ -2879,6 +2883,7 @@ class AssistantModeStore {
       return;
     }
     this.speechQueue.push(prepared);
+    if (this.speechQueue.length === 1 && this.state.speaking) this.prefetchNext(this.speechGen);
     void this.drainSpeech();
   }
 
@@ -2905,21 +2910,8 @@ class AssistantModeStore {
     }
   }
 
-  /**
-   * Play one clip. A barge-in bumps speechGen, and a late neural buffer from
-   * the old clip must not start. The microphone stays open so the owner can
-   * interrupt; isSelfEcho drops FRIDAY's own voice.
-   */
-  private playSpoken(spoken: string, gen: number): Promise<void> {
-    if (gen !== this.speechGen) return Promise.resolve();
-    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
-    if (this.turnClock.audioAt == null) {
-      this.turnClock = { ...this.turnClock, audioAt: Date.now() };
-      const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
-      if (latency != null) {
-        voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
-      }
-    }
+  /** How a reply will be spoken: the engine, the owner's voice settings, the mood of the moment. */
+  private speakPlan(spoken: string) {
     const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
     const engine = chooseTtsEngine({
       network: online,
@@ -2932,7 +2924,6 @@ class AssistantModeStore {
       current: engine,
       supertonicReady: this.offlineVoiceReady,
     });
-    this.state.tts = { ...this.state.tts, engine: fallen };
     const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
     const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
@@ -2955,59 +2946,147 @@ class AssistantModeStore {
     });
     const privacy = voicePrefs.privacyMode === true;
     const localVoice = fallen !== "neural" || privacy;
+    const cloudClip = privacy ? undefined : this.cloudClipFor();
+    const argTuning = {
+      ...tuning,
+      lang: spokenLang.lang || tuning.lang || "hi-IN",
+      rate: tone.rate,
+      pitch: tone.pitch,
+      volume: tone.volume,
+      allowCloud: fallen === "neural" && !privacy,
+      expressive: voicePrefs.expressiveSpeech !== false,
+      ...(localVoice
+        ? {
+            voiceName: "",
+            kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
+          }
+        : {}),
+      ...(cloudClip ? { cloudClip } : {}),
+    };
+    return { fallen, tuning, privacy, tone, argTuning };
+  }
+
+  /** Start making the audio of the next waiting sentence so the gap between two sentences stays short. */
+  private prefetchNext(gen: number) {
+    const next = this.speechQueue[0];
+    if (!next || gen !== this.speechGen) return;
+    try {
+      const plan = this.speakPlan(next);
+      if (plan.argTuning.kind !== "system") prefetchSpeech(next, plan.argTuning);
+    } catch {
+      /* the sentence is simply made when its turn comes */
+    }
+  }
+
+  private cloudSpeechKeys: Record<string, boolean> = {};
+  private cloudSpeechKeysAt = 0;
+  private cloudSpeechBlockedUntil = 0;
+  private cloudLedger: ReturnType<typeof loadLedger> | null = null;
+
+  /**
+   * The owner's chosen cloud voice (Sarvam or Azure), or nothing. It is asked once per clause; a refusal (quota,
+   * privacy, no key, an error) hands the clause to the normal ladder and pauses the cloud for a minute so one
+   * failure never adds delay to every clause. Text that looks sensitive is never sent.
+   */
+  private cloudClipFor():
+    | ((
+        text: string,
+        lang: string,
+        tone: { rate: number; pitch: number; volume: number },
+      ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>)
+    | undefined {
+    const cloud = sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice);
+    const provider = cloud.speakWith;
+    if (!provider || !cloud.cloudEnabled || !cloud.allowedProviders.includes(provider))
+      return undefined;
+    return async (text, lang, tone) => {
+      if (Date.now() < this.cloudSpeechBlockedUntil || looksSensitive(text)) return null;
+      const api = desktopApi();
+      if (Date.now() - this.cloudSpeechKeysAt > 60_000) {
+        this.cloudSpeechKeysAt = Date.now();
+        this.cloudSpeechKeys = (await api?.voiceCloudKeyStatus?.().catch(() => null)) ?? {};
+      }
+      const store = typeof localStorage === "undefined" ? null : localStorage;
+      this.cloudLedger ??= loadLedger(store);
+      const ledger = this.cloudLedger;
+      const out = await speakWithCloud(
+        provider,
+        {
+          text,
+          language: lang,
+          pace: tone.rate,
+          prefs: cloud,
+          keys: this.cloudSpeechKeys,
+          privacyMode: preferences.getSnapshot().voice.privacyMode === true,
+          online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+        },
+        { ledger, persistLedger: () => saveLedger(store, ledger) },
+      );
+      if (!out.ok) {
+        this.cloudSpeechBlockedUntil = Date.now() + 60_000;
+        this.trace("segment", `cloud voice skipped — ${out.error}`);
+        return null;
+      }
+      return { audioBase64: out.audioBase64, mime: out.mime, engine: provider };
+    };
+  }
+
+  /**
+   * Play one clip. A barge-in bumps speechGen, and a late neural buffer from
+   * the old clip must not start. The microphone stays open so the owner can
+   * interrupt; isSelfEcho drops FRIDAY's own voice.
+   */
+  private playSpoken(spoken: string, gen: number): Promise<void> {
+    if (gen !== this.speechGen) return Promise.resolve();
+    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
+    if (this.turnClock.audioAt == null) {
+      this.turnClock = { ...this.turnClock, audioAt: Date.now() };
+      const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
+      if (latency != null) {
+        voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
+      }
+    }
+    const plan = this.speakPlan(spoken);
+    const { fallen, tuning, privacy, tone } = plan;
+    this.state.tts = { ...this.state.tts, engine: fallen };
     const out = outputReachable({ deviceId: "default", volume: tone.volume });
     if (!out.ok) this.state.status = out.reason;
     this.spokenText = spoken;
     this.openFollowUp();
-    return speakText(
-      spoken,
-      {
-        ...tuning,
-        lang: spokenLang.lang || tuning.lang || "hi-IN",
-        rate: tone.rate,
-        pitch: tone.pitch,
-        volume: tone.volume,
-        allowCloud: fallen === "neural" && !privacy,
-        ...(localVoice
-          ? {
-              voiceName: "",
-              kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
-            }
-          : {}),
+    // The next sentence, if it is already waiting, is made while this one plays.
+    this.prefetchNext(gen);
+    return speakText(spoken, plan.argTuning, {
+      onStart: () => {
+        if (gen !== this.speechGen) return;
+        this.echoUntil = Date.now() + 120_000;
+        if (this.to("tts-start")) this.pauseForSpeech();
+        this.emit();
       },
-      {
-        onStart: () => {
-          if (gen !== this.speechGen) return;
-          this.echoUntil = Date.now() + 120_000;
-          if (this.to("tts-start")) this.pauseForSpeech();
-          this.emit();
-        },
-        onEnd: () => {
-          if (gen !== this.speechGen) return;
-          this.echoUntil = Date.now() + 1500;
-          // The follow-up window counts from the end of her reply, not its start,
-          // so a long answer does not use up the owner's turn.
-          this.openFollowUp();
-          if (this.state.handsFree) this.setAwake();
-          this.to("tts-end");
-          if (this.state.pending && this.state.voiceState !== "WAITING_CONFIRMATION") {
-            this.to("confirm-required");
-          }
-          // Stay honest: tts-end is ignored in ERROR/PAUSED, so do not
-          // overwrite the failure/paused status with "Listening…".
-          if (
-            this.state.mode === "auto" &&
-            this.state.voiceState !== "ERROR" &&
-            this.state.voiceState !== "PAUSED" &&
-            this.state.voiceState !== "OFF" &&
-            this.state.voiceState !== "STOPPING"
-          ) {
-            this.resumeAfterSpeech();
-          }
-          this.emit();
-        },
+      onEnd: () => {
+        if (gen !== this.speechGen) return;
+        this.echoUntil = Date.now() + 1500;
+        // The follow-up window counts from the end of her reply, not its start,
+        // so a long answer does not use up the owner's turn.
+        this.openFollowUp();
+        if (this.state.handsFree) this.setAwake();
+        this.to("tts-end");
+        if (this.state.pending && this.state.voiceState !== "WAITING_CONFIRMATION") {
+          this.to("confirm-required");
+        }
+        // Stay honest: tts-end is ignored in ERROR/PAUSED, so do not
+        // overwrite the failure/paused status with "Listening…".
+        if (
+          this.state.mode === "auto" &&
+          this.state.voiceState !== "ERROR" &&
+          this.state.voiceState !== "PAUSED" &&
+          this.state.voiceState !== "OFF" &&
+          this.state.voiceState !== "STOPPING"
+        ) {
+          this.resumeAfterSpeech();
+        }
+        this.emit();
       },
-    )
+    })
       .then((how) => {
         if (gen !== this.speechGen) return;
         const route = lastSpeechRoute();

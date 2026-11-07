@@ -29,6 +29,8 @@ export type VoiceCloudPrefs = {
   azureVoice: string;
   /** Sarvam voice name; empty keeps the provider's default. */
   sarvamSpeaker: string;
+  /** Speak replies with this cloud voice (a female Indian voice). Empty keeps the local and Neural ladder. */
+  speakWith: "" | "sarvam" | "azure-speech";
 };
 
 export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
@@ -44,6 +46,7 @@ export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
   azureRegion: "",
   azureVoice: "",
   sarvamSpeaker: "",
+  speakWith: "",
 };
 
 const whole = (value: unknown, max: number): number => {
@@ -87,6 +90,7 @@ export function sanitizeCloudPrefs(
       typeof src.sarvamSpeaker === "string" && /^[a-z0-9_]{2,40}$/.test(src.sarvamSpeaker)
         ? src.sarvamSpeaker
         : "",
+    speakWith: src.speakWith === "sarvam" || src.speakWith === "azure-speech" ? src.speakWith : "",
   };
 }
 
@@ -95,7 +99,7 @@ export function toRouterSettings(
   keyPresent: Record<string, boolean>,
 ): VoiceCloudSettings {
   const clean = sanitizeCloudPrefs(prefs);
-  const { azureRegion: _r, azureVoice: _v, sarvamSpeaker: _s, ...router } = clean;
+  const { azureRegion: _r, azureVoice: _v, sarvamSpeaker: _s, speakWith: _w, ...router } = clean;
   return { ...DEFAULT_CLOUD_SETTINGS, ...router, keyPresent };
 }
 
