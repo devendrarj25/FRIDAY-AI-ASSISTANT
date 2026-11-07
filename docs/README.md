@@ -36,6 +36,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | [docs/research/FRIDAY_BRAIN_BENCHMARK.md](research/FRIDAY_BRAIN_BENCHMARK.md) | How the Brain is measured, what a result may claim, the security gates, and what is not built | owner, developers |
 | [docs/research/FRIDAY_BRAIN_GAP_ANALYSIS.md](research/FRIDAY_BRAIN_GAP_ANALYSIS.md) | What is partial, missing, outdated or duplicated in the Brain, what to integrate or not, and what each gap needs | owner, developers |
 | [docs/research/FRIDAY_BRAIN_IMPLEMENTATION_ROADMAP.md](research/FRIDAY_BRAIN_IMPLEMENTATION_ROADMAP.md) | The phased plan for the Brain evolution with owners, dependencies, benchmark plan, risks and the recommended first phase | owner, developers |
+| [docs/FRIDAY_VOICE_ENGINE.md](FRIDAY_VOICE_ENGINE.md) | What the voice upgrade adds, what it fixed, the provider and hardware rules, the cloud realtime pipe, and what is still unbuilt or unverified | owner, developers |
 | [docs/FRIDAY_MCP.md](FRIDAY_MCP.md) | How FRIDAY speaks MCP as a local server and as a client, including pairing, scopes, and the exposed tools | owner, developers |
 
 ## 3. Build, version, release and update
