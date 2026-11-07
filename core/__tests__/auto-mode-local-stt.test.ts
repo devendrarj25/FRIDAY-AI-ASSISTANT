@@ -38,7 +38,8 @@ describe("Auto Mode local speech recognition contract", () => {
 
     expect(dictation).toContain("voiceGate.subscribe");
     expect(dictation).toContain("onSpeechStart?.()");
-    expect(assistant).toContain("barge-in — stopping playback");
+    expect(assistant).toContain("barge-in — pausing playback, listening to what is said");
+    expect(assistant).toContain("this.holdForInterruption();");
     expect(assistant).toContain("this.cancelSpeech();");
     expect(assistant).toContain("if (this.recentlySpeaking() && this.isSelfEcho(text))");
 

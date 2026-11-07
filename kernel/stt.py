@@ -150,7 +150,8 @@ def expose_cuda_dirs(folders: list[Path]) -> None:
 
 
 def cuda_runtime_ready() -> bool:
-    """CUDA only when the GPU flag is set (the app sets it on a usable NVIDIA card) and both CUDA 12 libraries are visible.
+    """CUDA only when the GPU flag is set (the app sets it on a usable NVIDIA card) and both CUDA 12
+    libraries are visible.
 
     faster-whisper's GPU path needs cuBLAS for CUDA 12 and cuDNN 9 on PATH.
     A missing library stays on CPU int8. That is not a dead microphone.

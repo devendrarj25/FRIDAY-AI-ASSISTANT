@@ -59,7 +59,8 @@ describe("the whole pipeline is observable", () => {
   });
 
   it("keeps barge-in and shows it in the trace", () => {
-    expect(assistant).toContain("barge-in — stopping playback");
+    expect(assistant).toContain("barge-in — pausing playback, listening to what is said");
+    expect(assistant).toContain("this.holdForInterruption();");
     expect(assistant).toContain("if (this.state.speaking) {");
     expect(assistant).toContain("this.cancelSpeech();");
     expect(assistant).toContain("brain.stop()");
