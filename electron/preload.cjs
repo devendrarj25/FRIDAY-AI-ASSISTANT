@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld("friday", {
 
   // A speech-to-speech engine on this PC (loopback only; the main process refuses any other address).
   realtimeOpen: (id, url) => ipcRenderer.invoke("realtime:open", id, url),
+  realtimeOpenCloud: (id, providerId, model, consent) =>
+    ipcRenderer.invoke("realtime:open-cloud", id, providerId, model, consent === true),
   realtimeSend: (id, event) => ipcRenderer.invoke("realtime:send", id, event),
   realtimeClose: (id) => ipcRenderer.invoke("realtime:close", id),
   onRealtimeOpened: on("realtime:opened"),

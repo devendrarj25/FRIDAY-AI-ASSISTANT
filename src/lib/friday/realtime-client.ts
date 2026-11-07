@@ -6,6 +6,8 @@
  * when it does not. Once open, the engine's events move the session state, assistant audio and text are handed to
  * the caller, and a barge-in sends the cancel and truncate events. This file attaches no microphone and no speaker:
  * the caller feeds PCM16 chunks in with `sendAudio` and plays what `onAudio` hands back.
+ * A cloud session goes through `realtimeOpenCloud`: the main process builds the address from a fixed provider
+ * table, reads the key itself and re-checks paid access, privacy mode and consent. The renderer never holds a key.
  */
 import {
   applyServerEvent,
@@ -21,6 +23,13 @@ import {
 
 type Bridge = {
   realtimeOpen?: (id: string, url: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Cloud: the main process builds the address from the provider id and reads the key itself. */
+  realtimeOpenCloud?: (
+    id: string,
+    provider: string,
+    model: string,
+    consent: boolean,
+  ) => Promise<{ ok: boolean; error?: string }>;
   realtimeSend?: (id: string, event: unknown) => Promise<{ ok: boolean; error?: string }>;
   realtimeClose?: (id: string) => Promise<{ ok: boolean }>;
   onRealtimeOpened?: (cb: (payload: { id: string }) => void) => () => void;
@@ -37,8 +46,12 @@ export type RealtimeHandle = {
 
 export type StartResult = { ok: true; handle: RealtimeHandle } | { ok: false; reasons: string[] };
 
+export type CloudTarget = { provider: string; model: string };
+
 export async function startRealtime(input: {
   gate: GateInput;
+  /** Required for the cloud engine: which provider and which (owner-named) model. */
+  cloud?: CloudTarget;
   settings: SessionSettings;
   onAudio?: (base64: string) => void;
   onText?: (assistant: string, heard: string) => void;
@@ -48,14 +61,22 @@ export async function startRealtime(input: {
 }): Promise<StartResult> {
   const verdict = realtimeGate(input.gate);
   if (!verdict.allowed) return { ok: false, reasons: verdict.reasons };
-  if (input.gate.engine === "cloud-realtime") {
-    // The pipe in the main process is loopback only. A cloud session is a separate transport that is not built.
-    return { ok: false, reasons: ["a cloud realtime connection is not available in this version"] };
-  }
+  const isCloud = input.gate.engine === "cloud-realtime";
+  if (isCloud && !input.cloud?.provider.trim())
+    return { ok: false, reasons: ["name the cloud provider for a cloud realtime session"] };
+  if (isCloud && !input.cloud?.model.trim())
+    return {
+      ok: false,
+      reasons: ["name the realtime model; none is chosen for you because it costs money"],
+    };
   const bridge =
     input.bridge ??
     (typeof window === "undefined" ? undefined : (window.friday as unknown as Bridge));
-  if (!bridge?.realtimeOpen || !bridge.realtimeSend || !bridge.onRealtimeEvent) {
+  if (
+    !bridge?.realtimeSend ||
+    !bridge.onRealtimeEvent ||
+    !(isCloud ? bridge.realtimeOpenCloud : bridge.realtimeOpen)
+  ) {
     return { ok: false, reasons: ["realtime speech runs in the installed desktop app"] };
   }
   const id = input.id ?? `rt-${Date.now().toString(36)}`;
@@ -93,7 +114,15 @@ export async function startRealtime(input: {
     );
   }
 
-  const opened = await bridge.realtimeOpen(id, input.gate.url);
+  const opened =
+    isCloud && input.cloud
+      ? await bridge.realtimeOpenCloud!(
+          id,
+          input.cloud.provider,
+          input.cloud.model,
+          input.gate.sessionConsent,
+        )
+      : await bridge.realtimeOpen!(id, input.gate.url);
   if (!opened.ok) {
     cleanup();
     return { ok: false, reasons: [opened.error ?? "the engine could not be reached"] };

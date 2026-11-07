@@ -59,8 +59,38 @@ describe("realtime client", () => {
     expect(fake.sent).toEqual([]);
   });
 
-  it("does not open a cloud connection, even when every condition holds", async () => {
+  it("asks for a provider and a model before a cloud session, and chooses neither", async () => {
     const fake = fakeBridge();
+    const gate = {
+      ...local,
+      engine: "cloud-realtime" as const,
+      url: "wss://api.example.com/v1/realtime",
+      paidAccess: true,
+      cloudKey: true,
+      privacyMode: false,
+      sessionConsent: true,
+    };
+    const base = { gate, settings: { instructions: "x" }, bridge: fake.bridge, id: "t1" };
+    expect(await startRealtime(base)).toMatchObject({
+      ok: false,
+      reasons: [expect.stringMatching(/name the cloud provider/)],
+    });
+    expect(
+      await startRealtime({ ...base, cloud: { provider: "openai", model: " " } }),
+    ).toMatchObject({
+      ok: false,
+      reasons: [expect.stringMatching(/name the realtime model/)],
+    });
+    expect(fake.sent).toEqual([]);
+  });
+
+  it("opens a cloud session through the main process with the consent flag, and never a key", async () => {
+    const fake = fakeBridge();
+    const calls: unknown[][] = [];
+    const bridge = {
+      ...fake.bridge,
+      realtimeOpenCloud: async (...args: unknown[]) => (calls.push(args), { ok: true }),
+    };
     const out = await startRealtime({
       gate: {
         ...local,
@@ -71,14 +101,32 @@ describe("realtime client", () => {
         privacyMode: false,
         sessionConsent: true,
       },
+      cloud: { provider: "openai", model: "some-realtime-model" },
       settings: { instructions: "x" },
-      bridge: fake.bridge,
-      id: "t1",
+      bridge,
+      id: "t2",
     });
-    expect(out).toMatchObject({
-      ok: false,
-      reasons: [expect.stringMatching(/not available in this version/)],
+    expect(out.ok).toBe(true);
+    expect(calls).toEqual([["t2", "openai", "some-realtime-model", true]]);
+    expect(fake.sent[0]?.type).toBe("session.update");
+  });
+
+  it("does not open a cloud connection when the gate refuses, even with a provider named", async () => {
+    const fake = fakeBridge();
+    let opened = false;
+    const out = await startRealtime({
+      gate: {
+        ...local,
+        engine: "cloud-realtime",
+        url: "wss://api.example.com/x",
+        sessionConsent: false,
+      },
+      cloud: { provider: "openai", model: "m" },
+      settings: { instructions: "x" },
+      bridge: { ...fake.bridge, realtimeOpenCloud: async () => ((opened = true), { ok: true }) },
     });
+    expect(out.ok).toBe(false);
+    expect(opened).toBe(false);
   });
 
   it("runs a turn: settings first, audio out to the caller, then a barge-in cuts the item where it was heard", async () => {

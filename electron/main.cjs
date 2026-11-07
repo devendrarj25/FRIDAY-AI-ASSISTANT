@@ -8956,6 +8956,23 @@ ipcMain.handle("realtime:open", (e, id, url) =>
     onClose: (reason) => e.sender.send("realtime:closed", { id, reason }),
   }),
 );
+// A cloud session is paid and sends microphone audio off this PC. The renderer gate decides first; these
+// conditions are checked again here, and the key is read here, so the renderer never holds it.
+ipcMain.handle("realtime:open-cloud", (e, id, providerId, model, consent) => {
+  const provider = String(providerId || "");
+  if (consent !== true)
+    return { ok: false, error: "you have not said yes to sending audio for this session" };
+  if (voicePrivacyOn()) return { ok: false, error: "Keep speech on this PC is on" };
+  const paid = billingPolicy.paidUnlocked(billingState());
+  if (!paid.allowed) return { ok: false, error: paid.reason };
+  const key = modelsApi.readKeys(keyStoreRoot())?.[provider] || null;
+  if (!key) return { ok: false, error: "no provider key is saved" };
+  return realtimeSessions.startCloud(String(id || ""), provider, String(model || ""), key, {
+    onOpen: () => e.sender.send("realtime:opened", { id }),
+    onEvent: (event) => e.sender.send("realtime:event", { id, event }),
+    onClose: (reason) => e.sender.send("realtime:closed", { id, reason }),
+  });
+});
 ipcMain.handle("realtime:send", (_e, id, event) => realtimeSessions.send(String(id || ""), event));
 ipcMain.handle("realtime:close", (_e, id) => realtimeSessions.close(String(id || "")));
 

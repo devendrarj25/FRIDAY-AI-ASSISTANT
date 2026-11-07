@@ -399,6 +399,7 @@ const CHANNEL_CLASS = Object.freeze({
   "startup:set": "quick",
   "startup:state": "quick",
   "realtime:open": "quick",
+  "realtime:open-cloud": "quick",
   "realtime:send": "quick",
   "realtime:close": "quick",
   "state:get": "quick",
