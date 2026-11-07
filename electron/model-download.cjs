@@ -54,10 +54,10 @@ function withHfAuth(url, init = {}) {
 // stuck connection only delays its own chunk, and the pool grows while more connections still add speed.
 const SEGMENT_THRESHOLD = 24 * 1024 * 1024; // below this, one connection is as fast
 const MAX_SEGMENTS = 16; // most connections one file may use
-const START_CONNECTIONS = 4; // where the pool starts before it measures
-const GLOBAL_CONNECTIONS = 24; // most connections all files together may hold
+const START_CONNECTIONS = 8; // where the pool starts before it measures (a fast line is not left idle)
+const GLOBAL_CONNECTIONS = 32; // most connections all files together may hold
 const CHUNK_BYTES = 8 * 1024 * 1024;
-const RAMP_MS = 2500; // how often the pool checks whether another connection still helps
+const RAMP_MS = 1500; // how often the pool checks whether more connections still help
 const STALL_MS = 20_000; // no byte for this long ends the connection and asks again
 const HEADERS_MS = 20_000; // no response headers for this long ends the request
 const PARALLEL_FILES = 3; // files of one repo fetched at the same time
@@ -490,7 +490,7 @@ async function requestWithin(url, init, ctx) {
 }
 
 /**
- * Pull the chunks with a pool of connections. It starts small, then adds two connections at a
+ * Pull the chunks with a pool of connections. It starts at eight, then adds four connections at a
  * time while the speed still rises, so each PC and line finds its own best number instead of a
  * fixed guess, and stops adding the moment more connections stop helping or the global cap is hit.
  */
@@ -543,7 +543,7 @@ async function runSegments(segments, ctx, maxConnections, startConnections = STA
     if (best > 0 && rate < best * 1.12) return;
     best = Math.max(best, rate);
     if (waiting() <= ctx.stats.connections || liveConnections >= GLOBAL_CONNECTIONS) return;
-    for (let i = 0; i < 2 && ctx.stats.connections < maxConnections; i += 1) spawn();
+    for (let i = 0; i < 4 && ctx.stats.connections < maxConnections; i += 1) spawn();
   }, ctx.rampMs || RAMP_MS);
   try {
     // Connections added later are appended while this waits, so loop until none is left.

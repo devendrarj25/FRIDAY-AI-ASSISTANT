@@ -108,8 +108,50 @@ def owner_model(size: str, requested: str) -> str:
     return resolve_model_name(requested)
 
 
+_CUDA_DLL_HANDLES: list = []
+
+
+def nvidia_pip_dirs() -> list[Path]:
+    """Folders of the CUDA 12 libraries that pip installs (nvidia-cublas-cu12, nvidia-cudnn-cu12).
+
+    Windows has no system cuBLAS 12 / cuDNN 9 unless the owner installed them by hand, and a CUDA 13 toolkit
+    provides neither, so speech stayed on the CPU. Setup installs these two wheels on an NVIDIA PC; this finds them.
+    """
+    found: list[Path] = []
+    sub = "bin" if os.name == "nt" else "lib"
+    try:
+        import importlib.util
+
+        for module in ("nvidia.cublas", "nvidia.cudnn"):
+            try:
+                spec = importlib.util.find_spec(module)
+            except (ImportError, ValueError):
+                spec = None
+            for location in (spec.submodule_search_locations or []) if spec else []:
+                folder = Path(location) / sub
+                if folder.is_dir():
+                    found.append(folder)
+    except Exception:  # noqa: BLE001 - a missing wheel only means the CPU path
+        return []
+    return found
+
+
+def expose_cuda_dirs(folders: list[Path]) -> None:
+    """Let the loader find those libraries: the DLL search path on Windows, PATH for the rest."""
+    for folder in folders:
+        text = str(folder)
+        if os.name == "nt" and hasattr(os, "add_dll_directory"):
+            try:
+                _CUDA_DLL_HANDLES.append(os.add_dll_directory(text))
+            except OSError:
+                pass
+        if text not in os.environ.get("PATH", "").split(os.pathsep):
+            os.environ["PATH"] = text + os.pathsep + os.environ.get("PATH", "")
+
+
 def cuda_runtime_ready() -> bool:
-    """CUDA only when the owner GPU flag is set and both CUDA 12 libraries are visible.
+    """CUDA only when the GPU flag is set (the app sets it on a usable NVIDIA card) and both CUDA 12
+    libraries are visible.
 
     faster-whisper's GPU path needs cuBLAS for CUDA 12 and cuDNN 9 on PATH.
     A missing library stays on CPU int8. That is not a dead microphone.
@@ -128,6 +170,8 @@ def cuda_runtime_ready() -> bool:
     if cuda:
         roots.append(Path(cuda) / "bin")
         roots.append(Path(cuda) / "lib64")
+    pip_dirs = nvidia_pip_dirs()
+    roots.extend(pip_dirs)
     found: set[str] = set()
     for root in roots:
         for name in names:
@@ -136,7 +180,10 @@ def cuda_runtime_ready() -> bool:
                     found.add(name)
             except OSError:
                 continue
-    return len(found) == len(names)
+    ready = len(found) == len(names)
+    if ready and pip_dirs:
+        expose_cuda_dirs(pip_dirs)
+    return ready
 
 
 def choose_stt_device(cuda_ready: bool) -> dict:

@@ -93,6 +93,7 @@ import {
   createNarrator,
   whileBusy,
   isHoldSound,
+  judgeInterruption,
   microphoneAllowed,
   pushVoiceAudit,
   speakerDecision,
@@ -419,6 +420,13 @@ class AssistantModeStore {
   /** Barge-in and a mode change drop every queued clip from an older turn. */
   private speechGen = 0;
   private unfinished = "";
+  /**
+   * Set while the owner has started to talk over FRIDAY. Playback is paused, but the answer is NOT cancelled until
+   * the words show it is a real interruption: a "haan" or "hmm" just carries on, like ChatGPT's voice and Gemini Live.
+   */
+  private interruptHold: { at: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  /** The newest piece of the answer that arrived while it was paused, replayed on resume. */
+  private deferredStream: { runId: string; text: string; final: boolean } | null = null;
   private backchannelUsed = false;
   private speechQueue: string[] = [];
   private draining = false;
@@ -1669,8 +1677,8 @@ class AssistantModeStore {
         };
         // Barge-in: FRIDAY stops talking the moment the owner starts.
         if (this.state.speaking) {
-          this.trace("speech", "barge-in — stopping playback");
-          this.cancelSpeech();
+          this.trace("speech", "barge-in — pausing playback, listening to what is said");
+          this.holdForInterruption();
         }
         this.to("vad-speech");
         this.emit();
@@ -1965,6 +1973,11 @@ class AssistantModeStore {
     // VAD never classified as speech is dropped instead of acted on.
     const words = text.trim().split(/\s+/).filter(Boolean).length;
     this.trace("transcript", text.slice(0, 160));
+    if (this.settleInterruption(text)) {
+      this.state.interim = "";
+      this.emit();
+      return;
+    }
     // Whisper transcription takes real time (often 1-3s for a short clip), so
     // the old 1.5s window had usually already expired by the time the text
     // arrived — which silently ate short commands, "friday" included.
@@ -2595,6 +2608,74 @@ class AssistantModeStore {
     }
   }
 
+  /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
+  private holdForInterruption() {
+    if (this.interruptHold) return;
+    this.clearHoldLines();
+    this.dropPlayback();
+    this.to("barge-in");
+    this.interruptHold = { at: Date.now(), timer: null };
+    this.armInterruptTimer(4000);
+  }
+
+  private armInterruptTimer(ms: number) {
+    const hold = this.interruptHold;
+    if (!hold) return;
+    if (hold.timer) clearTimeout(hold.timer);
+    hold.timer = setTimeout(() => {
+      if (this.interruptHold !== hold) return;
+      // Still hearing speech: the words have not been recognised yet. Wait, up to twenty seconds in all.
+      if (Date.now() - hold.at < 20000 && voiceGate.heardSpeechWithin(2000)) {
+        this.armInterruptTimer(2000);
+        return;
+      }
+      this.trace("speech", "nothing was said that needs an answer — carrying on");
+      this.resumeAfterInterruption();
+    }, ms);
+  }
+
+  /** The owner only nodded along, or it was noise: say what was paused, then keep following the answer. */
+  private resumeAfterInterruption() {
+    const hold = this.interruptHold;
+    if (!hold) return;
+    if (hold.timer) clearTimeout(hold.timer);
+    this.interruptHold = null;
+    const rest = this.unfinished;
+    this.unfinished = "";
+    const later = this.deferredStream;
+    this.deferredStream = null;
+    if (rest) this.speak(rest);
+    if (later) this.speakStreamed(later.runId, later.text, later.final);
+    this.emit();
+  }
+
+  /** The words were a real interruption: now the answer in progress is stopped for good. */
+  private confirmInterruption() {
+    const hold = this.interruptHold;
+    if (!hold) return;
+    if (hold.timer) clearTimeout(hold.timer);
+    this.interruptHold = null;
+    this.deferredStream = null;
+    brain.stop();
+  }
+
+  /** True when this line only resumed the paused reply and needs no further handling. */
+  private settleInterruption(text: string): boolean {
+    if (!this.interruptHold) return false;
+    const verdict = judgeInterruption(text, {
+      waitingForAnswer: Boolean(this.state.pending || this.pendingHeard),
+      selfEcho: this.isSelfEcho(text),
+    });
+    if (verdict === "resume") {
+      this.trace("speech", `"${text.trim().slice(0, 40)}" is not an interruption — carrying on`);
+      this.remember("following-along", text, "resumed");
+      this.resumeAfterInterruption();
+      return true;
+    }
+    this.confirmInterruption();
+    return false;
+  }
+
   /** Stop playback without touching the brain. A newer clip must not start. */
   private dropPlayback(hold = true) {
     if (hold && (this.state.speaking || this.speechQueue.length)) {
@@ -2851,6 +2932,11 @@ class AssistantModeStore {
 
   private speakStreamed(runId: string, text: string, final: boolean) {
     if (!text.trim()) return;
+    if (this.interruptHold) {
+      // Paused for a possible interruption: keep the newest text and say it if the owner only nodded along.
+      this.deferredStream = { runId, text, final };
+      return;
+    }
     if (this.voicedRunId !== runId) {
       this.voicedRunId = runId;
       this.voicedChars = 0;

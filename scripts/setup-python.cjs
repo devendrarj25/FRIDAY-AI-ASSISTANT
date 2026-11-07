@@ -547,6 +547,46 @@ if (capture(python, ["-c", "import chromadb"]).status !== 0) {
   log("chromadb ok (semantic memory enabled)");
 }
 
+/**
+ * An NVIDIA card makes speech several times faster, but faster-whisper needs the CUDA 12 math libraries
+ * (cuBLAS and cuDNN 9) next to it, and a Windows PC with only a newer CUDA toolkit has neither: speech
+ * silently stayed on the CPU. pip ships both as ordinary wheels, so they are installed on an NVIDIA PC.
+ * Best effort: without them speech works on the CPU as before.
+ */
+function installGpuSpeechLibraries() {
+  if (!win || process.env.FRIDAY_GPU_SPEECH_LIBS === "0") return;
+  const smi = capture("nvidia-smi", ["-L"]);
+  if (smi.status !== 0 || !/GPU/i.test(String(smi.stdout || ""))) return;
+  const probe = [
+    "-c",
+    [
+      "import importlib.util as u, pathlib",
+      "def ok(m, d):",
+      "    s = u.find_spec(m)",
+      "    return bool(s and s.submodule_search_locations and any((pathlib.Path(p) / 'bin' / d).is_file() for p in s.submodule_search_locations))",
+      "raise SystemExit(0 if ok('nvidia.cublas', 'cublas64_12.dll') and ok('nvidia.cudnn', 'cudnn64_9.dll') else 1)",
+    ].join("\n"),
+  ];
+  if (capture(python, probe).status === 0) {
+    log("GPU speech libraries ok (cuBLAS 12, cuDNN 9)");
+    return;
+  }
+  log(
+    "NVIDIA GPU found: installing the CUDA 12 libraries speech needs on the card (cuBLAS and cuDNN, about 1 GB, once)",
+  );
+  const ok = installWithMethods(["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"], {
+    preferBinaryFirst: true,
+    noUpgrade: true,
+  });
+  log(
+    ok
+      ? "GPU speech libraries installed"
+      : "NOTE the GPU speech libraries did not install; speech runs on the CPU (npm run doctor tries again)",
+  );
+}
+
+installGpuSpeechLibraries();
+
 if (win && voiceImportable()) {
   fetchModelsAndProbe();
 }

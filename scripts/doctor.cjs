@@ -14,9 +14,11 @@
  *   2. environment     scripts/check-environment.cjs --fix: the toolchain, Electron,
  *                      the Python environment, the local chat engine and the agent
  *                      toolkit are installed or repaired, then checked again
- *   3. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
- *   4. main process    scripts/verify-deps.cjs: every module the app requires ships
- *   5. registry        scripts/env-registry.cjs repair: the persistent component list
+ *   3. models          scripts/prefetch-models.cjs: the speech, voice and chat weights, fetched again
+ *                      (retrying a network drop) when any is missing
+ *   4. runtime         scripts/init-runtime.cjs: the FRIDAY folders and the database
+ *   5. main process    scripts/verify-deps.cjs: every module the app requires ships
+ *   6. registry        scripts/env-registry.cjs repair: the persistent component list
  *
  * Exit 0 only when every step passed.
  */
@@ -57,9 +59,27 @@ function dependencies() {
   });
 }
 
+/** The speech, voice and chat weights: Doctor used to pass without ever looking for them. */
+function models() {
+  let python = process.env.FRIDAY_PYTHON || "";
+  if (!python) {
+    try {
+      python = require("./python-runtime.cjs").resolveVenvPython() || "";
+    } catch {
+      python = "";
+    }
+  }
+  return spawnSync(process.execPath, [path.join(ROOT, "scripts", "prefetch-models.cjs")], {
+    cwd: ROOT,
+    stdio: "inherit",
+    env: { ...process.env, ...(python ? { FRIDAY_PYTHON: python } : {}) },
+  });
+}
+
 const STEPS = [
   { name: "dependencies", run: dependencies },
   { name: "environment check and repair", run: node("check-environment.cjs", ["--fix"]) },
+  { name: "speech, voice and chat models", run: models },
   { name: "runtime folders and database", run: node("init-runtime.cjs") },
   { name: "main-process dependencies", run: node("verify-deps.cjs") },
   { name: "environment registry", run: node("env-registry.cjs", ["repair"]) },
@@ -107,5 +127,6 @@ function runDoctor(steps = STEPS, log = console.log) {
 module.exports = { STEPS, runDoctor };
 
 if (require.main === module) {
-  process.exit(runDoctor().ok ? 0 : 1);
+  // exitCode, not process.exit(): ending the process while child pipes are closing can abort Node on Windows.
+  process.exitCode = runDoctor().ok ? 0 : 1;
 }

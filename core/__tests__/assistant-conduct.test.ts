@@ -411,7 +411,7 @@ describe("hands-free conversation and the show-how offer", () => {
       "utf8",
     );
     const streamed = mode.slice(mode.indexOf("private speakStreamed("));
-    expect(streamed.slice(0, 1200)).toMatch(
+    expect(streamed.slice(0, 1600)).toMatch(
       /offersShowHow\([\s\S]*?\)\s*\)\s*\{[\s\S]*armChartOffer/,
     );
   });

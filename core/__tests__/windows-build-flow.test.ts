@@ -90,6 +90,7 @@ describe("npm run doctor checks, repairs and checks again", () => {
     expect(order).toEqual([
       "dependencies",
       "environment check and repair",
+      "speech, voice and chat models",
       "runtime folders and database",
       "main-process dependencies",
       "environment registry",
@@ -97,6 +98,9 @@ describe("npm run doctor checks, repairs and checks again", () => {
     const source = read("scripts/doctor.cjs");
     expect(source).toContain('node("check-environment.cjs", ["--fix"])');
     expect(source).toContain('node("env-registry.cjs", ["repair"])');
+    // The models step is the same script the build runs, with the venv Python so Moonshine can be fetched.
+    expect(source).toContain('"prefetch-models.cjs"');
+    expect(source).toContain("FRIDAY_PYTHON");
   });
 });
 
@@ -197,8 +201,9 @@ describe("the build starts with the PC and ends with a verdict", () => {
     expect(read("scripts/prefetch-toolkit.cjs")).toContain(
       "process.exit(lines.length && strict() ? 1 : 0)",
     );
+    // The models step leaves through exitCode (see prefetch-models.test.ts), with the same strict verdict.
     expect(read("scripts/prefetch-models.cjs")).toContain(
-      "process.exit(lines.length && strict() ? 1 : 0)",
+      "finish(lines.length && strict() ? 1 : 0)",
     );
   });
 
