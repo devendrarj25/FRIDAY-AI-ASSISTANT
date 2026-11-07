@@ -14,6 +14,8 @@
  * conditions that allow it (paid access, a saved key, privacy mode off, this session's consent) are re-checked in
  * `main.cjs` before this file is called.
  */
+const { createGeminiAdapter } = require("./realtime-adapters.cjs");
+
 const LOOPBACK = /^wss?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i;
 const MAX_MESSAGE = 4 * 1024 * 1024;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
@@ -31,6 +33,26 @@ const CLOUD_REALTIME = {
   },
 };
 
+CLOUD_REALTIME.xai = {
+  label: "xAI Grok Voice",
+  host: "api.x.ai",
+  // Same event vocabulary as the OpenAI style. The default audio is 24 kHz PCM16 according to secondary sources
+  // only (the xAI pages read do not state a format), so this entry is unverified.
+  url: (model) => `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(model)}`,
+  headers: (key) => ({ Authorization: `Bearer ${key}` }),
+};
+
+CLOUD_REALTIME.gemini = {
+  label: "Google Gemini Live",
+  host: "generativelanguage.googleapis.com",
+  // The key travels in the query string here (Google's SDK does the same). It is never logged and is scrubbed
+  // from every error text.
+  url: (_model, key) =>
+    `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(key)}`,
+  headers: () => ({}),
+  adapter: (model) => createGeminiAdapter({ model }),
+};
+
 const scrub = (text, key) => {
   const raw = String(text ?? "");
   return key ? raw.split(key).join("[key]") : raw;
@@ -39,21 +61,46 @@ const scrub = (text, key) => {
 function createRealtimeSessions({ WebSocketImpl = globalThis.WebSocket } = {}) {
   /** @type {Map<string, any>} */
   const open = new Map();
+  /** @type {Map<string, any>} */
+  const adapters = new Map();
 
-  function attach(id, socket, handlers) {
+  /** Binary frames carry JSON for some providers (Gemini). Text and binary are read the same way, in order. */
+  async function frameText(data) {
+    if (typeof data === "string") return data;
+    if (data && typeof data.text === "function") return data.size > MAX_MESSAGE ? "" : data.text();
+    if (data instanceof ArrayBuffer)
+      return data.byteLength > MAX_MESSAGE ? "" : Buffer.from(data).toString("utf8");
+    return "";
+  }
+
+  function attach(id, socket, handlers, adapter = null) {
     open.set(id, socket);
+    if (adapter) adapters.set(id, adapter);
+    let chain = Promise.resolve();
     socket.addEventListener("open", () => handlers.onOpen?.());
     socket.addEventListener("message", (event) => {
-      const data = event.data;
-      if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
-      try {
-        handlers.onEvent?.(JSON.parse(data));
-      } catch {
-        /* a frame that is not JSON is ignored */
-      }
+      chain = chain
+        .then(async () => {
+          const text = await frameText(event.data);
+          if (!text || text.length > MAX_MESSAGE) return;
+          let parsed;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            return; // a frame that is not JSON is ignored
+          }
+          if (!adapter) return handlers.onEvent?.(parsed);
+          const { events, replies } = adapter.decode(parsed);
+          for (const reply of replies) {
+            if (socket.readyState === 1) socket.send(JSON.stringify(reply));
+          }
+          for (const next of events) handlers.onEvent?.(next);
+        })
+        .catch(() => undefined);
     });
     socket.addEventListener("close", () => {
       open.delete(id);
+      adapters.delete(id);
       handlers.onClose?.("closed");
     });
     socket.addEventListener("error", () => handlers.onClose?.("error"));
@@ -92,23 +139,29 @@ function createRealtimeSessions({ WebSocketImpl = globalThis.WebSocket } = {}) {
     if (open.size >= 1) return { ok: false, error: "a realtime session is already open" };
     let socket;
     try {
-      socket = new WebSocketImpl(provider.url(model), { headers: provider.headers(apiKey) });
+      socket = new WebSocketImpl(provider.url(model, apiKey), {
+        headers: provider.headers(apiKey),
+      });
     } catch (error) {
       return {
         ok: false,
         error: `could not open the connection (${scrub(error?.message || error, apiKey)})`,
       };
     }
-    attach(id, socket, handlers);
+    attach(id, socket, handlers, provider.adapter ? provider.adapter(model) : null);
     return { ok: true, provider: providerId, host: provider.host };
   }
 
   function send(id, event) {
     const socket = open.get(id);
     if (!socket || socket.readyState !== 1) return { ok: false, error: "the session is not open" };
-    const text = JSON.stringify(event);
-    if (text.length > MAX_MESSAGE) return { ok: false, error: "that message is too large" };
-    socket.send(text);
+    const adapter = adapters.get(id);
+    const messages = adapter ? adapter.encode(event) : [event];
+    for (const message of messages) {
+      const text = JSON.stringify(message);
+      if (text.length > MAX_MESSAGE) return { ok: false, error: "that message is too large" };
+      socket.send(text);
+    }
     return { ok: true };
   }
 
@@ -116,6 +169,7 @@ function createRealtimeSessions({ WebSocketImpl = globalThis.WebSocket } = {}) {
     const socket = open.get(id);
     if (!socket) return { ok: true };
     open.delete(id);
+    adapters.delete(id);
     try {
       socket.close();
     } catch {

@@ -17,7 +17,7 @@ import {
   base64ToPcm16,
   floatToPcm16,
   pcm16ToBase64,
-  REALTIME_RATE,
+  realtimeFormat,
   StreamResampler,
 } from "./audio-format";
 import type { PcmPlayback, PlaybackStats } from "./playback-scheduler";
@@ -203,7 +203,7 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
           return;
         }
         if (!resampler || resamplerRate !== fromRate) {
-          resampler = new StreamResampler(fromRate, REALTIME_RATE);
+          resampler = new StreamResampler(fromRate, realtimeFormat(provider).inputRate);
           resamplerRate = fromRate;
         }
         const pcm = floatToPcm16(resampler.push(samples));

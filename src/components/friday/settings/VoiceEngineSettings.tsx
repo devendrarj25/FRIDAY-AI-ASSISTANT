@@ -34,6 +34,12 @@ const NEEDS: { need: Need; label: string }[] = [
   { need: "realtime-audio", label: "Realtime audio" },
 ];
 
+const REALTIME_HOSTS = {
+  openai: "api.openai.com",
+  xai: "api.x.ai",
+  gemini: "generativelanguage.googleapis.com",
+} as const;
+
 const inputClass =
   "h-8 w-24 rounded-md border border-border bg-transparent px-2 text-meta-sm text-foreground";
 
@@ -60,6 +66,7 @@ function RealtimeCloudSession({
   const prefs = usePreferences();
   const billing = useBilling();
   const mode = useAssistantMode();
+  const [provider, setProvider] = useState<"openai" | "xai" | "gemini">("openai");
   const [model, setModel] = useState("");
   const [consent, setConsent] = useState(false);
   const [status, setStatus] = useState("Not running.");
@@ -85,13 +92,12 @@ function RealtimeCloudSession({
   );
 
   const autoOn = mode.mode === "auto" && !mode.paused;
-  const provider = "openai";
   const start = async () => {
     const { voice } = realtimeVoiceSession();
     const out = await voice.start({
       gate: {
         engine: "cloud-realtime",
-        url: "wss://api.openai.com/v1/realtime",
+        url: `wss://${REALTIME_HOSTS[provider]}`,
         surface: autoOn ? "auto" : "manual",
         paused: mode.paused,
         paidAccess: billing.billing.paidAccess,
@@ -131,6 +137,19 @@ function RealtimeCloudSession({
         OpenAI key ({keys[provider] ? "saved" : "none"}), and privacy mode off. Microphone audio
         leaves this PC while it runs.
       </p>
+      <label className="flex items-center gap-2">
+        <span>Provider</span>
+        <select
+          className={`${inputClass} w-44`}
+          value={provider}
+          disabled={running}
+          onChange={(e) => setProvider(e.target.value as typeof provider)}
+        >
+          <option value="openai">OpenAI Realtime</option>
+          <option value="xai">xAI Grok Voice</option>
+          <option value="gemini">Google Gemini Live</option>
+        </select>
+      </label>
       <label className="flex items-center gap-2">
         <span>Realtime model (you name it; none is chosen for you)</span>
         <input

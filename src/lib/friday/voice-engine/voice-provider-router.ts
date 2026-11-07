@@ -112,7 +112,7 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: true,
     freeTier: "limited",
     verified: false,
-    note: "Live API documented as a stateful WebSocket: audio in is PCM16 16 kHz, audio out PCM16 24 kHz. Its address, key handling and setup message were not on the page read, and its events differ from the OpenAI style, so it is not connected. The free allowance is the owner's setting.",
+    note: "Live API connected 2026-11-07 from Google's SDK source: wss address with the key in the query, setup message, audio in 16 kHz and out 24 kHz. The audio mime string and speechConfig shape are not confirmed by those sources. Never run on a live account. The free allowance is the owner's setting.",
   },
   {
     id: "anthropic",
@@ -131,14 +131,14 @@ export const PROVIDERS: ProviderCaps[] = [
     id: "xai",
     label: "xAI Grok",
     kind: "cloud",
-    needs: ["text", "stream-text"],
+    needs: ["text", "stream-text", "realtime-audio"],
     hindi: true,
     hinglish: true,
     functionCalling: true,
     interruption: true,
     freeTier: "unknown",
     verified: false,
-    note: "Text here. A realtime voice WebSocket (wss://api.x.ai/v1/realtime) is documented, but its audio format is not stated on the page read, so it is not connected.",
+    note: "Voice WebSocket connected (OpenAI-style events, Bearer key). The 24 kHz PCM16 default comes from secondary sources only; the xAI pages read state no format. Text is also available. Never run on a live account.",
   },
   {
     id: "sarvam",
@@ -276,7 +276,7 @@ export type RouteDecision = {
   refused: { id: string; why: string }[];
 };
 
-const PAID_BY_DEFAULT = new Set(["openai"]);
+const PAID_BY_DEFAULT = new Set(["openai", "xai"]);
 
 export function routeVoice(
   request: RouteRequest,

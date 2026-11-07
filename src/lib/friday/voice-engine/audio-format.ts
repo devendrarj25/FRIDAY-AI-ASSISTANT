@@ -8,6 +8,19 @@
 
 export const REALTIME_RATE = 24_000;
 
+/**
+ * Audio rates per realtime provider, mono PCM16. OpenAI style and xAI: 24 kHz both ways (xAI from secondary
+ * sources only). Gemini Live: 16 kHz in and 24 kHz out, from Google's Live API reference.
+ */
+export const REALTIME_FORMATS: Record<string, { inputRate: number; outputRate: number }> = {
+  openai: { inputRate: 24_000, outputRate: 24_000 },
+  xai: { inputRate: 24_000, outputRate: 24_000 },
+  gemini: { inputRate: 16_000, outputRate: 24_000 },
+};
+
+export const realtimeFormat = (provider: string): { inputRate: number; outputRate: number } =>
+  REALTIME_FORMATS[provider] ?? { inputRate: REALTIME_RATE, outputRate: REALTIME_RATE };
+
 export function floatToPcm16(input: ArrayLike<number>): Int16Array {
   const out = new Int16Array(input.length);
   for (let i = 0; i < input.length; i += 1) {
