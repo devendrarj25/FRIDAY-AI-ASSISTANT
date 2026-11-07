@@ -12,6 +12,14 @@ const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "ut
 describe("Skills page customization", () => {
   const source = read("src/routes/skills.tsx");
 
+  it("lists 243 skills a page at a time, with Show more, Show all, and a reset when a filter changes", () => {
+    expect(source).toContain("const SKILLS_PAGE = 60");
+    expect(source).toContain("rows.slice(0, shown)");
+    expect(source).toMatch(/Showing \{shown\} of \{rows\.length\} skills/);
+    expect(source).toContain("Show all");
+    expect(source).toContain("pageState.key === filterKey ? pageState.shown : SKILLS_PAGE");
+  });
+
   it("wires the existing capability toggle and uninstall paths", () => {
     expect(source).toContain('useCapabilities("skills")');
     expect(source).toContain("toggle");

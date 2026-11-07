@@ -17,7 +17,7 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": true,
+  "enabled": false,
   "permissions": [
     "fs.read",
     "web.access"

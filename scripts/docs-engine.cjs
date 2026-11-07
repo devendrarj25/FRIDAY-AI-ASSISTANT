@@ -474,7 +474,7 @@ function skillsCatalogBlock() {
   const lines = [
     SKILLS_START,
     "",
-    `${core.length + custom.length} skills ship enabled: ${core.length} tool-rich skills in \`skills/core/\` and ${custom.length} template skills in \`skills/custom/\`; ${agents.length} system agents in \`agents/system/\` use them.`,
+    `${core.length + custom.length} skills ship: ${core.length} tool-rich skills in \`skills/core/\` and ${custom.length} template skills in \`skills/custom/\`; ${agents.length} system agents in \`agents/system/\` use them.`,
     "",
     "### Tool-rich skills (`skills/core/`)",
     "",

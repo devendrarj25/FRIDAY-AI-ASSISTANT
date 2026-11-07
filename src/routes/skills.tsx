@@ -95,12 +95,15 @@ function listField(values: string[]): string {
   return values.length ? values.join(", ") : "—";
 }
 
+const SKILLS_PAGE = 60;
+
 function SkillsPage() {
   const [tab, setTab] = useState("all");
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
   // Filtering a long list follows typing at low priority, so the field never lags.
   const deferredQuery = useDeferredValue(query);
+  // 243 built-in skills are listed 60 at a time so the page stays light; Show all opens the rest.
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -303,6 +306,12 @@ function SkillsPage() {
     if (!needle) return true;
     return [s.name, s.category, s.summary].some((field) => field.toLowerCase().includes(needle));
   });
+
+  // A new filter starts again from the first page: the page size is remembered together with the filter it was for.
+  const filterKey = `${deferredQuery}|${category}|${source}|${tab}`;
+  const [pageState, setPageState] = useState({ key: filterKey, shown: SKILLS_PAGE });
+  const shown = pageState.key === filterKey ? pageState.shown : SKILLS_PAGE;
+  const setShown = (next: number) => setPageState({ key: filterKey, shown: next });
 
   const openRow = openId
     ? (rows.find((s) => s.id === openId) ?? skills.find((s) => s.id === openId))
@@ -596,7 +605,7 @@ function SkillsPage() {
               <DataTable
                 pinLast
                 columns={["Skill Name", "Category", "Status", "Level", "Last Used", "Actions"]}
-                rows={rows.map((s) => [
+                rows={rows.slice(0, shown).map((s) => [
                   <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Puzzle className="size-3.5 text-primary" />
                     {s.name}
@@ -676,6 +685,29 @@ function SkillsPage() {
                   </span>,
                 ])}
               />
+              {rows.length > shown ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-meta text-muted-foreground">
+                  <span>
+                    Showing {shown} of {rows.length} skills
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-note"
+                    onClick={() => setShown(shown + SKILLS_PAGE)}
+                  >
+                    Show {Math.min(SKILLS_PAGE, rows.length - shown)} more
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-note"
+                    onClick={() => setShown(rows.length)}
+                  >
+                    Show all
+                  </Button>
+                </div>
+              ) : null}
               {openRow ? (
                 <div className="mt-3 space-y-2 border-t border-primary/15 pt-3 text-meta">
                   <p className="label-xs text-primary">{openRow.name}</p>

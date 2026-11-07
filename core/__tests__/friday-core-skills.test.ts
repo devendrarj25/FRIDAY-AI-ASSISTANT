@@ -221,11 +221,17 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
     for (const id of ids) expect(byId.get(id)?.enabled, id).toBe(true);
   });
 
-  it("the 214 catalog skills ship on too, so FRIDAY has the whole built-in set from the first launch", () => {
+  it("the 210 catalog skills that need no permission ship on too; the four that read files or the web stay off", () => {
     const listed = fridaySkills.list(ROOT);
     const custom = listed.skills.filter((s) => !ids.includes(s.id) && !s.id.includes("."));
     expect(custom.length).toBeGreaterThan(200);
     expect(custom.every((s) => s.enabled === true)).toBe(true);
+    for (const id of ["docs.extract", "tender.read", "web.read", "web.search"]) {
+      expect(
+        listed.skills.find((s) => s.id === id && !(s as { builtin?: boolean }).builtin)?.enabled,
+        id,
+      ).toBe(false);
+    }
   });
 
   it("each runs in the real sandbox harness and returns ok", async () => {

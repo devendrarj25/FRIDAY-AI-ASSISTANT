@@ -251,13 +251,18 @@ describe("build pipeline", () => {
     const big = Buffer.alloc(boundsSafe(data), 2);
     fs.writeFileSync(path.join(release, "FRIDAY-Setup-1.0.1.2.exe"), big);
     fs.writeFileSync(path.join(release, "FRIDAY-Portable-1.0.1.2.exe"), big);
-    expect(
-      pipeline.assertPackagedLayout({
-        releaseDir: release,
-        manifest: data,
-        targets: ["nsis", "portable"],
-      }).ok,
-    ).toBe(true);
+    try {
+      expect(
+        pipeline.assertPackagedLayout({
+          releaseDir: release,
+          manifest: data,
+          targets: ["nsis", "portable"],
+        }).ok,
+      ).toBe(true);
+    } finally {
+      // The two fake installers are over 140 MB each: never leave them in the temp folder.
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("names the clean-runner probes for Python, whisper.cpp, and the sandbox", () => {

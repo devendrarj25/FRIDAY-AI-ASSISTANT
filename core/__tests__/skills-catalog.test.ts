@@ -30,6 +30,9 @@ const fridaySkills = require("../../electron/skills.cjs") as {
   list: (root: string) => { ok: boolean; skills: { id: string; name: string; enabled: boolean }[] };
 };
 
+/** A skill that asks for a permission (web access, reading files) is never switched on by shipping. */
+const wantsNoPermission = (data: { permissions: unknown[] }) => data.permissions.length === 0;
+
 const REQUIRED = [
   "id",
   "name",
@@ -86,13 +89,13 @@ describe("custom skill catalog", () => {
     expect(ids).toContain("sec-password-hygiene");
   });
 
-  it("every manifest matches the existing skill.json shape and ships enabled (built-in and safe)", () => {
+  it("every manifest matches the existing skill.json shape; skills that need no permission ship enabled, the four that read files or the web stay off", () => {
     for (const { slug, data } of manifests) {
       for (const key of REQUIRED) {
         expect(data, `${slug} missing ${key}`).toHaveProperty(key);
       }
       expect(data.id, slug).toBe(slug);
-      expect(data.enabled, slug).toBe(true);
+      expect(data.enabled, slug).toBe(wantsNoPermission(data));
       expect(data.risk, slug).toBe("safe");
       expect(data.risk, slug).toBe("safe");
       expect(String(data.summary).length, `${slug} summary`).toBeGreaterThan(20);
@@ -112,7 +115,7 @@ describe("custom skill catalog", () => {
       expect(item?.name).toBe(data.name);
       expect(item?.summary).toBe(data.summary);
       expect(item?.inputs).toEqual(data.inputs);
-      expect(item?.enabled).toBe(true);
+      expect(item?.enabled).toBe(wantsNoPermission(data));
     }
   });
 
@@ -126,7 +129,7 @@ describe("custom skill catalog", () => {
       const skill = byId.get(slug);
       expect(skill, `skills.cjs missing ${slug}`).toBeDefined();
       expect(skill?.name).toBe(data.name);
-      expect(skill?.enabled).toBe(true);
+      expect(skill?.enabled).toBe(wantsNoPermission(data));
     }
   });
 

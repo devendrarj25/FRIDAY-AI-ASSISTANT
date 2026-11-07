@@ -102,7 +102,11 @@ describe("combined capability ids and fresh-install listing", () => {
     const ids = items.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
     // The safe skill catalog ships on (it is FRIDAY's built-in skill set); tools and background agents stay off.
-    for (const item of skills) expect(item.enabled, item.id).toBe(true);
+    // The four that need web access or file reading (docs.extract, tender.read, web.read, web.search) stay off.
+    const needPermission = new Set(["docs.extract", "tender.read", "web.read", "web.search"]);
+    for (const item of skills) {
+      expect(item.enabled, item.id).toBe(!needPermission.has(item.id.split("/").pop()!));
+    }
     for (const item of [...tools, ...agents]) {
       expect(item.enabled, item.id).toBe(false);
     }

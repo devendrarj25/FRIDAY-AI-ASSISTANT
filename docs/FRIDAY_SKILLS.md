@@ -4,7 +4,7 @@ This is the one place that lists every skill and system agent FRIDAY ships, and 
 
 ## How skills work
 
-- A skill is a small pure function that runs in the sandbox: offline, no files, no processes, `safe`, no permission. Every skill listed here ships enabled.
+- A skill is a small pure function that runs in the sandbox: offline, no files, no processes, `safe`, no permission (the four exceptions below ask for one). Every skill listed here ships enabled, except the four that ask for web access or file reading (`web.read`, `web.search`, `docs.extract`, `tender.read`); those stay off until you enable them.
 - A **tool-rich skill** (`skills/core/`) holds several related tools. A request that names one tool runs it. Otherwise every tool whose topic fits the words runs, the first answer leads and the others are listed under `also`. `part` picks one tool. A tool with nothing to do answers "not for this request" and is left out of the answer.
 - A **template skill** (`skills/custom/`) is a ready outline for a job (a cover letter, a meal plan, a code review). The 94 saved workflows call them by id, so they stay separate.
 - Manifests carry optional `triggers`, the phrases that should reach the skill.
@@ -31,7 +31,7 @@ On the Skills page: install (Marketplace, GitHub, zip, folder, git URL), enable,
 
 <!-- docs-engine: generated skill list. Edit scripts/docs-engine.cjs, not this. -->
 
-243 skills ship enabled: 29 tool-rich skills in `skills/core/` and 214 template skills in `skills/custom/`; 24 system agents in `agents/system/` use them.
+243 skills ship: 29 tool-rich skills in `skills/core/` and 214 template skills in `skills/custom/`; 24 system agents in `agents/system/` use them.
 
 ### Tool-rich skills (`skills/core/`)
 
