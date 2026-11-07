@@ -172,3 +172,132 @@ describe("TaskAnnouncer", () => {
     expect(a.pending()).toBe(3);
   });
 });
+
+import {
+  isBackchannel,
+  judgeInterruption,
+} from "../../src/lib/friday/voice-engine/interruption-controller";
+import {
+  DEFAULT_VOICE_CLOUD_PREFS,
+  factsFromSample,
+  loadLedger,
+  sanitizeCloudPrefs,
+  saveLedger,
+  toRouterSettings,
+} from "../../src/lib/friday/voice-engine/voice-cloud-settings";
+import { DEFAULT_PREFERENCES } from "../../src/lib/friday/preferences";
+import { routeVoice, UsageLedger } from "../../src/lib/friday/voice-engine/voice-provider-router";
+
+describe("false interruption", () => {
+  it("treats agreement sounds as backchannel", () => {
+    expect(isBackchannel("haan")).toBe(true);
+    expect(isBackchannel("hmm, ok")).toBe(true);
+    expect(isBackchannel("हाँ")).toBe(true);
+    expect(isBackchannel("haan ruko ek minute")).toBe(false);
+  });
+
+  it("waits for words, resumes on silence or a backchannel, interrupts on a real sentence or control word", () => {
+    expect(judgeInterruption(null, 300)).toBe("wait");
+    expect(judgeInterruption(null, 1600)).toBe("resume");
+    expect(judgeInterruption("haan", 400)).toBe("resume");
+    expect(judgeInterruption("kya", 400)).toBe("resume");
+    expect(judgeInterruption("pehle meri baat suno", 400)).toBe("interrupt");
+    expect(judgeInterruption("ruk jao", 400)).toBe("interrupt");
+  });
+});
+
+describe("cloud voice settings", () => {
+  it("starts with everything off and at zero", () => {
+    expect(DEFAULT_PREFERENCES.voice.cloudVoice).toEqual(DEFAULT_VOICE_CLOUD_PREFS);
+    expect(DEFAULT_VOICE_CLOUD_PREFS).toMatchObject({
+      cloudEnabled: false,
+      allowedProviders: [],
+      dailyRequests: 0,
+      spendLimitUsd: 0,
+      paidAllowed: false,
+      paidApproved: false,
+    });
+  });
+
+  it("clamps numbers, drops odd provider ids, and needs allowance before approval or a spend limit", () => {
+    const clean = sanitizeCloudPrefs({
+      cloudEnabled: true,
+      allowedProviders: ["gemini", "gemini", "../x", 5 as never],
+      dailyRequests: -4,
+      monthlyRequests: 12.9,
+      spendLimitUsd: 50,
+      paidApproved: true,
+    });
+    expect(clean.allowedProviders).toEqual(["gemini"]);
+    expect(clean.dailyRequests).toBe(0);
+    expect(clean.monthlyRequests).toBe(12);
+    expect(clean.spendLimitUsd).toBe(0);
+    expect(clean.paidApproved).toBe(false);
+    expect(
+      sanitizeCloudPrefs({ paidAllowed: true, paidApproved: true, spendLimitUsd: 5 }),
+    ).toMatchObject({
+      paidApproved: true,
+      spendLimitUsd: 5,
+    });
+  });
+
+  it("keeps the router on local with the stored defaults", () => {
+    const d = routeVoice(
+      { need: "tts", sensitive: false, privacyMode: false, billingAllowsPaid: true, online: true },
+      toRouterSettings(DEFAULT_VOICE_CLOUD_PREFS, { openai: true }),
+      new UsageLedger(),
+    );
+    expect(d.active).toBe("local");
+  });
+
+  it("restores usage after a restart and survives broken or missing storage", () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const now = () => Date.parse("2026-03-10T08:00:00Z");
+    const ledger = new UsageLedger(now);
+    ledger.record("gemini", 1.5);
+    saveLedger(storage, ledger);
+    expect(loadLedger(storage, now).usage("gemini")).toMatchObject({
+      day: 1,
+      month: 1,
+      audioMinutes: 1.5,
+    });
+    store.set("friday.voice.cloudUsage.v1", "{broken");
+    expect(loadLedger(storage, now).usage("gemini").day).toBe(0);
+    expect(loadLedger(null, now).usage("gemini").day).toBe(0);
+    expect(() =>
+      saveLedger(
+        {
+          getItem: () => null,
+          setItem: () => {
+            throw new Error("full");
+          },
+        },
+        ledger,
+      ),
+    ).not.toThrow();
+  });
+
+  it("builds hardware facts from the live sample, with CUDA only for an NVIDIA GPU", () => {
+    const sample = {
+      cpu: { cores: 12, model: "Intel i7" },
+      ram: { freeGb: 9, totalGb: 16 },
+      gpu: { available: true, name: "NVIDIA GeForce GTX", vramTotalMb: 4096 },
+      disks: [{ freeGb: 40 }, { freeGb: 120 }],
+    };
+    expect(factsFromSample(sample)).toMatchObject({
+      cpuThreads: 12,
+      vramGb: 4,
+      cuda: true,
+      diskFreeGb: 120,
+    });
+    expect(
+      factsFromSample({ ...sample, gpu: { available: true, name: "Intel UHD", vramTotalMb: null } })
+        ?.cuda,
+    ).toBe(false);
+    expect(factsFromSample(null)).toBeNull();
+  });
+});

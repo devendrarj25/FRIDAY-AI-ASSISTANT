@@ -298,6 +298,7 @@ export const FLOW_REGISTRY = {
     "voice.addressName",
     "voice.addressWindowSec",
     "voice.allowAmbientCloud",
+    "voice.cloudVoice",
     "voice.duckOthers",
     "voice.heardKeepMin",
     "voice.heardKeepRows",
@@ -9308,8 +9309,8 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 125,
-      total: 125,
+      mapped: 126,
+      total: 126,
     },
     capabilities: {
       mapped: 1102,

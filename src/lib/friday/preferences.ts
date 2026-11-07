@@ -8,6 +8,10 @@
  *
  * Writes are merged and debounced: flipping ten toggles costs one disk write.
  */
+import {
+  DEFAULT_VOICE_CLOUD_PREFS,
+  type VoiceCloudPrefs,
+} from "./voice-engine/voice-cloud-settings";
 import { registerFlush } from "./persist";
 
 /** One selectable, individually tuned FRIDAY voice. */
@@ -57,6 +61,11 @@ export type VoicePreferences = {
   pauseDuringCalls: boolean;
   /** Opt-in: overlap listening, thinking and speaking tighter (Auto mode only). */
   realtimeExperiment: boolean;
+  /**
+   * Cloud voice limits. Everything starts off: no cloud request, no spend. The numbers are the owner's; a free
+   * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
+   */
+  cloudVoice: VoiceCloudPrefs;
   /** faster-whisper size. auto keeps the measured tier. */
   sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
@@ -212,6 +221,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     privacyMode: false,
     pauseDuringCalls: true,
     realtimeExperiment: false,
+    cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",

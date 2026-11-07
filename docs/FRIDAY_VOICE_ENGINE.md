@@ -89,12 +89,12 @@ The owner may ask for a lighter profile any time; a heavier one only when the ma
 
 ## Research log
 
-| Date       | Source                                                                  | Decision                                                                                                                                        |
-| ---------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-11-07 | Node WebSocket `headers` option, run against a local server             | ADOPT: no new dependency for the cloud pipe                                                                                                     |
-| 2026-11-07 | OpenAI Realtime WebSocket guide (unreadable; third-party examples only) | ADAPT, unverified                                                                                                                               |
-| 2026-11-07 | Sarvam API introduction                                                 | ADAPT: listed, no streaming claimed                                                                                                             |
-| 2026-11-07 | WebRTC Audio Processing Module                                          | Not added: needs a native Windows build and a licence review; the Windows speaker reference path is the open work. Recorded in Next priorities. |
+| Date       | Source                                                                  | Decision                                                                                                                                                                                                                                     |
+| ---------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-07 | Node WebSocket `headers` option, run against a local server             | ADOPT: no new dependency for the cloud pipe                                                                                                                                                                                                  |
+| 2026-11-07 | OpenAI Realtime WebSocket guide (unreadable; third-party examples only) | ADAPT, unverified                                                                                                                                                                                                                            |
+| 2026-11-07 | Sarvam API introduction                                                 | ADAPT: listed, no streaming claimed                                                                                                                                                                                                          |
+| 2026-11-07 | WebRTC Audio Processing Module                                          | REJECT for now: the search found no maintained Node or Electron binding (only JVM and Rust ones), so it needs a native Windows build and a licence review; the Windows speaker reference path is the open work. Recorded in Next priorities. |
 
 ## Tests
 
@@ -108,3 +108,11 @@ The owner may ask for a lighter profile any time; a heavier one only when the ma
 | `kernel/tests/test_language_segmenter.py`                            | spans and per-span synthesis                        |
 
 These are unit and local-socket tests. None uses a real microphone, speaker or cloud account.
+
+## Echo cancellation: what is and is not known
+
+FRIDAY's local neural voice (Supertonic) is played as an `Audio` element in the renderer (`voice-library.ts`), and the microphone is opened with the browser's echo, noise and gain flags (`voice-audio.ts`). Chromium's own canceller can use audio that the same renderer plays as its reference, so that path may already cancel most of FRIDAY's own voice; this was **not measured** here. System voices (`speechSynthesis`) and Windows SAPI play outside that path, so a reference signal for them is unknown. On top of the flags, the stack has a speaking guard, a louder-than-echo barge-in test and a self-echo transcript filter. A measured test (play a known sentence, record, count leaked words) needs the owner's PC.
+
+## Task words and the voice state
+
+`classifyVoiceControl` separates what a sentence controls. "Ruk jao", "stop", "chup" end speech only. A sentence that also names a task ("background task cancel karo", "task pause karo", "task resume karo") acts on the newest unfinished voice task and nothing else. The existing stop branch in `assistant-mode.ts` is unchanged and does not touch tasks.

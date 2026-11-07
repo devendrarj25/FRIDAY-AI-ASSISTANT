@@ -107,7 +107,13 @@ import {
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import { classifyVoiceControl } from "./voice-engine/interruption-controller";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import {
+  attachVoiceTaskSpeaker,
+  releaseTaskUpdates,
+  runTaskControl,
+} from "./voice-engine/voice-tasks";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
@@ -1923,7 +1929,28 @@ class AssistantModeStore {
     this.state.speaking = stateIsSpeaking(next);
     this.state.status = statusWithVoice(stateLabel(next));
     if (next !== from && detail) this.trace("segment", `${from} → ${next} (${event}) · ${detail}`);
+    if (next === "LISTENING" && from !== "LISTENING") releaseTaskUpdates();
     return true;
+  }
+
+  /** A background task update, said in Auto mode (Chat and Manual stay silent) and shown in the captions. */
+  announceTask(text: string) {
+    this.caption("friday", text);
+    this.speak(text);
+  }
+
+  /** Whether a task update may be spoken now: not while the owner talks or FRIDAY answers. */
+  taskBusy(): "listening-to-owner" | "speaking" | "idle" {
+    const v = this.state.voiceState;
+    if (
+      v === "SPEECH_DETECTED" ||
+      v === "TRANSCRIBING" ||
+      v === "WAKE_DETECTED" ||
+      v === "COMMAND_LISTENING"
+    )
+      return "listening-to-owner";
+    if (v === "THINKING" || v === "SPEAKING" || v === "WAITING_CONFIRMATION") return "speaking";
+    return "idle";
   }
 
   /** Record one pipeline step. Never throws, never blocks the audio path. */
@@ -2193,6 +2220,22 @@ class AssistantModeStore {
     if (wake.matched) this.lastWakeAt = Date.now();
     this.turnClock = { ...this.turnClock, finalAt: Date.now() };
     this.to("wake-matched");
+    // Task words ("cancel the task", "pause the task", "resume the task") act on background work only.
+    // A plain stop below ends speech and never touches a task.
+    const control = classifyVoiceControl(command || text);
+    if (
+      control.kind === "cancel-task" ||
+      control.kind === "pause-task" ||
+      control.kind === "resume-task"
+    ) {
+      this.trace("wake", `task control — ${control.kind}`);
+      markTurnStage("routed", true, "", "task control");
+      const said = runTaskControl(control);
+      if (said) this.speak(said);
+      this.state.status = "Listening";
+      this.emit();
+      return;
+    }
     // "FRIDAY, stop" is an interruption, never a task: cut the reply short and
     // go straight back to listening instead of sending "stop" to the brain.
     if (isStopCommand(text)) {
@@ -3046,6 +3089,10 @@ class AssistantModeStore {
 }
 
 export const assistantMode = new AssistantModeStore();
+attachVoiceTaskSpeaker(
+  (text) => assistantMode.announceTask(text),
+  () => assistantMode.taskBusy(),
+);
 
 // The self-check and a chat question about her voice read the live session.
 registerVoiceHealth(() => {

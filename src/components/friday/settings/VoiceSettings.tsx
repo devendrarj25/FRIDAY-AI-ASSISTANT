@@ -4,6 +4,7 @@ import { HardDriveDownload, Mic, Save, ShieldCheck, Settings2, Trash2 } from "lu
 import { Button } from "@/components/ui/button";
 import { HudPanel, StatusPill, ToggleRow } from "@/components/friday/ui";
 import { EditField, TuneRow } from "@/components/friday/settings/fields";
+import { VoiceEngineSettings } from "@/components/friday/settings/VoiceEngineSettings";
 import { desktopApi } from "@/lib/friday/desktop";
 import {
   ownerAcceptanceSteps,
@@ -280,6 +281,7 @@ export function VoiceSettings() {
             }
           />
           <RealtimeEngineNotes />
+          <VoiceEngineSettings />
           <SpeechModelCheck />
           <ToggleRow
             label="Realtime voice (experimental)"
@@ -796,7 +798,7 @@ function RealtimeEngineNotes() {
           not on — {row.why}.{" "}
           {row.engine === "local-speech-to-speech"
             ? "The session protocol, its safety gate and the connection to an engine on this PC are built; no microphone or speaker is attached to it yet."
-            : "The session protocol and its safety gate are built; a cloud connection is not available in this version."}
+            : "The session protocol, its safety gate and the connection to a named cloud provider are built; no microphone or speaker is attached to it yet, and it has not been tried against the live provider."}
         </p>
       ))}
     </div>

@@ -189,3 +189,36 @@ export function classifyVoiceControl(heard: string): VoiceControl {
     return { kind: "stop-listening" };
   return { kind: "none" };
 }
+
+const BACKCHANNEL = new Set(
+  (
+    "hmm hm haan han ha ji accha acha theek thik ok okay yes yeah yep right sure oh uh um achha hanji haanji " +
+    "हाँ हां जी अच्छा ठीक हम्म"
+  ).split(" "),
+);
+
+/** A short sound of agreement ("haan", "hmm", "ok") is not an interruption. */
+export function isBackchannel(heard: string): boolean {
+  const words = norm(heard).split(" ").filter(Boolean);
+  return words.length > 0 && words.length <= 2 && words.every((w) => BACKCHANNEL.has(w));
+}
+
+export type InterruptionVerdict = "interrupt" | "resume" | "wait";
+
+/**
+ * After a possible barge-in, speech that turns out to be a backchannel or fewer than `minWords` words lets the
+ * reply resume. A control word ("ruk jao") always interrupts. Until a transcript exists the verdict is "wait",
+ * and after `timeoutMs` without words the interruption is judged false (noise, a cough).
+ */
+export function judgeInterruption(
+  heard: string | null,
+  waitedMs: number,
+  options: { minWords?: number; timeoutMs?: number } = {},
+): InterruptionVerdict {
+  const minWords = options.minWords ?? 2;
+  const timeoutMs = options.timeoutMs ?? 1500;
+  if (heard === null || !norm(heard)) return waitedMs >= timeoutMs ? "resume" : "wait";
+  if (classifyVoiceControl(heard).kind !== "none") return "interrupt";
+  if (isBackchannel(heard)) return "resume";
+  return norm(heard).split(" ").length < minWords ? "resume" : "interrupt";
+}
