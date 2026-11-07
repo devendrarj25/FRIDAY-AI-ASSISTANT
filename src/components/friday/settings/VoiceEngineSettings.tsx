@@ -150,12 +150,12 @@ function RealtimeCloudSession({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => void realtimeVoiceSession().voice.stop("owner stopped")}
+            onClick={() => realtimeVoiceSession().voice.stop("owner stopped")}
           >
             Stop session
           </Button>
         ) : (
-          <Button size="sm" disabled={!autoOn || !model || !consent} onClick={() => void start()}>
+          <Button size="sm" disabled={!autoOn || !model || !consent} onClick={() => start()}>
             Start session
           </Button>
         )}
@@ -253,11 +253,11 @@ function CloudSpeechTest({
             size="sm"
             variant="outline"
             disabled={!(draft[p.id] ?? "").trim()}
-            onClick={() => void saveKey(p.id)}
+            onClick={() => saveKey(p.id)}
           >
             Save key
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void sample(p.id)}>
+          <Button size="sm" variant="outline" onClick={() => sample(p.id)}>
             Speak a sample
           </Button>
         </div>
