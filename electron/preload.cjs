@@ -65,6 +65,12 @@ contextBridge.exposeInMainWorld("friday", {
   realtimeOpen: (id, url) => ipcRenderer.invoke("realtime:open", id, url),
   realtimeOpenCloud: (id, providerId, model, consent) =>
     ipcRenderer.invoke("realtime:open-cloud", id, providerId, model, consent === true),
+  voiceCloudSpeak: (provider, request) =>
+    ipcRenderer.invoke("voice-cloud:speak", provider, request),
+  voiceCloudTranscribe: (provider, request) =>
+    ipcRenderer.invoke("voice-cloud:transcribe", provider, request),
+  voiceCloudKeyStatus: () => ipcRenderer.invoke("voice-cloud:key-status"),
+  voiceCloudSaveKey: (provider, key) => ipcRenderer.invoke("voice-cloud:save-key", provider, key),
   realtimeSend: (id, event) => ipcRenderer.invoke("realtime:send", id, event),
   realtimeClose: (id) => ipcRenderer.invoke("realtime:close", id),
   onRealtimeOpened: on("realtime:opened"),

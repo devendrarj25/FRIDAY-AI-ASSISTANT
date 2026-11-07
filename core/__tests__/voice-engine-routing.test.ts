@@ -132,8 +132,14 @@ describe("voice provider router", () => {
     expect(ledger.usage("gemini")).toMatchObject({ day: 0, month: 0, audioMinutes: 0 });
   });
 
-  it("never claims a provider's documentation was read", () => {
-    expect(PROVIDERS.every((p) => p.verified === false)).toBe(true);
+  it("marks only the providers whose speech pages were read, and says what was not", () => {
+    expect(PROVIDERS.filter((p) => p.verified).map((p) => p.id)).toEqual([
+      "sarvam",
+      "azure-speech",
+    ]);
+    expect(PROVIDERS.find((p) => p.id === "sarvam")?.note).toMatch(/No streaming is documented/);
+    expect(PROVIDERS.find((p) => p.id === "azure-speech")?.note).toMatch(/not read/);
+    expect(PROVIDERS.find((p) => p.id === "gemini")?.needs).toContain("realtime-audio");
   });
 });
 

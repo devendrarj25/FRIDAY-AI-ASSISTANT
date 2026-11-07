@@ -24,6 +24,11 @@ export type VoiceCloudPrefs = {
   spendLimitUsd: number;
   paidAllowed: boolean;
   paidApproved: boolean;
+  /** Azure Speech region (for example centralindia) and voice name; empty until the owner sets them. */
+  azureRegion: string;
+  azureVoice: string;
+  /** Sarvam voice name; empty keeps the provider's default. */
+  sarvamSpeaker: string;
 };
 
 export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
@@ -36,6 +41,9 @@ export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
   spendLimitUsd: 0,
   paidAllowed: false,
   paidApproved: false,
+  azureRegion: "",
+  azureVoice: "",
+  sarvamSpeaker: "",
 };
 
 const whole = (value: unknown, max: number): number => {
@@ -67,6 +75,18 @@ export function sanitizeCloudPrefs(
     spendLimitUsd: paidAllowed ? whole(src.spendLimitUsd, 100_000) : 0,
     paidAllowed,
     paidApproved: paidAllowed && src.paidApproved === true,
+    azureRegion:
+      typeof src.azureRegion === "string" && /^[a-z0-9]{3,30}$/.test(src.azureRegion)
+        ? src.azureRegion
+        : "",
+    azureVoice:
+      typeof src.azureVoice === "string" && /^[A-Za-z0-9-]{3,64}$/.test(src.azureVoice)
+        ? src.azureVoice
+        : "",
+    sarvamSpeaker:
+      typeof src.sarvamSpeaker === "string" && /^[a-z0-9_]{2,40}$/.test(src.sarvamSpeaker)
+        ? src.sarvamSpeaker
+        : "",
   };
 }
 
@@ -75,7 +95,8 @@ export function toRouterSettings(
   keyPresent: Record<string, boolean>,
 ): VoiceCloudSettings {
   const clean = sanitizeCloudPrefs(prefs);
-  return { ...DEFAULT_CLOUD_SETTINGS, ...clean, keyPresent };
+  const { azureRegion: _r, azureVoice: _v, sarvamSpeaker: _s, ...router } = clean;
+  return { ...DEFAULT_CLOUD_SETTINGS, ...router, keyPresent };
 }
 
 const LEDGER_KEY = "friday.voice.cloudUsage.v1";

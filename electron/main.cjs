@@ -8976,6 +8976,39 @@ ipcMain.handle("realtime:open-cloud", (e, id, providerId, model, consent) => {
 ipcMain.handle("realtime:send", (_e, id, event) => realtimeSessions.send(String(id || ""), event));
 ipcMain.handle("realtime:close", (_e, id) => realtimeSessions.close(String(id || "")));
 
+// ---- Cloud speech (Sarvam, Azure Speech): requests are made here so a key never reaches the renderer ----
+const voiceCloud = require("./voice-cloud.cjs");
+const voiceCloudApi = voiceCloud.createVoiceCloud({
+  getSecret: (id) => require("./credentials.cjs").getSecret(keyStoreRoot(), id),
+  prefs: () => {
+    try {
+      return JSON.parse(fs.readFileSync(paths.preferencesFile(), "utf8"))?.voice || {};
+    } catch {
+      return {};
+    }
+  },
+});
+ipcMain.handle("voice-cloud:speak", (_e, provider, request) =>
+  voiceCloudApi.speak(String(provider || ""), request),
+);
+ipcMain.handle("voice-cloud:transcribe", (_e, provider, request) =>
+  voiceCloudApi.transcribe(String(provider || ""), request),
+);
+ipcMain.handle("voice-cloud:key-status", () => {
+  const credentials = require("./credentials.cjs");
+  return Object.fromEntries(
+    Object.entries(voiceCloud.SECRET_IDS).map(([provider, id]) => [provider, credentials.hasSecret(keyStoreRoot(), id)]),
+  );
+});
+ipcMain.handle("voice-cloud:save-key", (_e, provider, key) => {
+  const id = voiceCloud.SECRET_IDS[String(provider || "")];
+  if (!id) return { ok: false, error: "that provider has no speech connection here" };
+  const value = String(key ?? "").trim();
+  if (value.length > 512) return { ok: false, error: "that key is too long" };
+  const saved = require("./credentials.cjs").setSecret(keyStoreRoot(), id, value);
+  return saved?.ok === false ? { ok: false, error: saved.error } : { ok: true, stored: value.length > 0 };
+});
+
 ipcMain.handle("startup:state", () => lastStartup);
 ipcMain.handle("startup:run", () => runStartup());
 

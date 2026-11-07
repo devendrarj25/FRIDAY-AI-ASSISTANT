@@ -402,6 +402,20 @@ type DesktopApi = {
     apiKey: string | null,
   ) => Promise<{ ok: boolean; stored: boolean; encrypted: boolean }>;
   providerKeys?: () => Promise<Record<string, boolean>>;
+  /** Cloud speech (Sarvam, Azure Speech). The main process makes the request; no key reaches the renderer. */
+  voiceCloudSpeak?: (
+    provider: string,
+    request: { text: string; language: string; speaker?: string },
+  ) => Promise<{ ok: boolean; error?: string; audioBase64?: string; mime?: string }>;
+  voiceCloudTranscribe?: (
+    provider: string,
+    request: { audioBase64: string; language?: string; hinglish?: boolean },
+  ) => Promise<{ ok: boolean; error?: string; text?: string; language?: string | null }>;
+  voiceCloudKeyStatus?: () => Promise<Record<string, boolean>>;
+  voiceCloudSaveKey?: (
+    provider: string,
+    key: string,
+  ) => Promise<{ ok: boolean; error?: string; stored?: boolean }>;
   /** Custom base URL for a provider — replaces the built-in default for real. */
   setProviderEndpoint?: (
     id: string,

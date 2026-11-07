@@ -112,7 +112,7 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: true,
     freeTier: "limited",
     verified: false,
-    note: "Has a limited free tier on some models; the limit is the owner's setting.",
+    note: "Live API documented as a stateful WebSocket: audio in is PCM16 16 kHz, audio out PCM16 24 kHz. Its address, key handling and setup message were not on the page read, and its events differ from the OpenAI style, so it is not connected. The free allowance is the owner's setting.",
   },
   {
     id: "anthropic",
@@ -138,7 +138,7 @@ export const PROVIDERS: ProviderCaps[] = [
     interruption: true,
     freeTier: "unknown",
     verified: false,
-    note: "Text only here. A voice API is not claimed until its documentation is read.",
+    note: "Text here. A realtime voice WebSocket (wss://api.x.ai/v1/realtime) is documented, but its audio format is not stated on the page read, so it is not connected.",
   },
   {
     id: "sarvam",
@@ -150,8 +150,8 @@ export const PROVIDERS: ProviderCaps[] = [
     functionCalling: false,
     interruption: false,
     freeTier: "unknown",
-    verified: false,
-    note: "Built for Indian languages. Streaming support is not claimed here.",
+    verified: true,
+    note: "Docs read 2026-11-07: text-to-speech and speech-to-text (hi-IN, en-IN; codemix mode for Hinglish), key in the api-subscription-key header, short audio only. No streaming is documented on the pages read, so none is claimed.",
   },
   {
     id: "azure-speech",
@@ -163,8 +163,8 @@ export const PROVIDERS: ProviderCaps[] = [
     functionCalling: false,
     interruption: false,
     freeTier: "limited",
-    verified: false,
-    note: "Hindi neural voices exist; the free monthly allowance is the owner's setting.",
+    verified: true,
+    note: "Docs read 2026-11-07: text-to-speech REST with SSML and a regional address. The speech-to-text page and a Hindi voice name were not read; the owner sets the voice. The free allowance is the owner's setting.",
   },
 ];
 
