@@ -8997,7 +8997,10 @@ ipcMain.handle("voice-cloud:transcribe", (_e, provider, request) =>
 ipcMain.handle("voice-cloud:key-status", () => {
   const credentials = require("./credentials.cjs");
   return Object.fromEntries(
-    Object.entries(voiceCloud.SECRET_IDS).map(([provider, id]) => [provider, credentials.hasSecret(keyStoreRoot(), id)]),
+    Object.entries(voiceCloud.SECRET_IDS).map(([provider, id]) => [
+      provider,
+      credentials.hasSecret(keyStoreRoot(), id),
+    ]),
   );
 });
 ipcMain.handle("voice-cloud:save-key", (_e, provider, key) => {
@@ -9006,7 +9009,9 @@ ipcMain.handle("voice-cloud:save-key", (_e, provider, key) => {
   const value = String(key ?? "").trim();
   if (value.length > 512) return { ok: false, error: "that key is too long" };
   const saved = require("./credentials.cjs").setSecret(keyStoreRoot(), id, value);
-  return saved?.ok === false ? { ok: false, error: saved.error } : { ok: true, stored: value.length > 0 };
+  return saved?.ok === false
+    ? { ok: false, error: saved.error }
+    : { ok: true, stored: value.length > 0 };
 });
 
 ipcMain.handle("startup:state", () => lastStartup);

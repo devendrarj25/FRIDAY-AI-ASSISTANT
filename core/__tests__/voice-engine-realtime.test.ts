@@ -66,7 +66,7 @@ function rig(over: { ok?: boolean; maxInflight?: number; settings?: Partial<type
   let tap: (s: ArrayLike<number>, rate: number, at: number) => void = () => undefined;
   let unsubscribed = false;
   const sentAudio: string[] = [];
-  let release: (() => void)[] = [];
+  const release: (() => void)[] = [];
   let startInput: Parameters<RealtimeVoiceDeps["start"]>[0] | null = null;
   let stopped = false;
   let clock = 0;

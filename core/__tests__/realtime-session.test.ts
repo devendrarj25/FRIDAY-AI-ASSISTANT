@@ -191,7 +191,7 @@ describe("cloud realtime connection (provider table, key stays in the main proce
       "utf8",
     );
     const at2 = preload.indexOf("realtimeOpenCloud");
-    const bridge = preload.slice(at2, preload.indexOf("realtimeSend", at2));
+    const bridge = preload.slice(at2, preload.indexOf("voiceCloudSpeak", at2));
     expect(bridge).toContain("realtime:open-cloud");
     expect(bridge).not.toMatch(/key/i);
   });
