@@ -5,11 +5,9 @@
   "category": "data",
   "role": "data-desk",
   "skills": [
-    "dat-csv-profile",
-    "dat-table-convert",
-    "doc-text-clean",
-    "lang-hinglish-detect",
-    "dat-stats"
+    "dat-table-tools",
+    "doc-text-tools",
+    "lang-hinglish-detect"
   ],
   "workflows": [],
   "inputs": [

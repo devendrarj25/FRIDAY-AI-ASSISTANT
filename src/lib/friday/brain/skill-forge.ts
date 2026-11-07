@@ -34,6 +34,8 @@ export type SkillManifest = {
   runs: number;
   failures: number;
   dir?: string | null;
+  /** Phrases that should reach this skill (a built-in skill with many tools lists its topics here). */
+  triggers?: string[];
 };
 
 export type ForgeStage = "planning" | "writing" | "verifying" | "installing" | "done" | "failed";

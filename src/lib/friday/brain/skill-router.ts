@@ -81,7 +81,9 @@ function signatureOf(skills: SkillManifest[]): string {
 function buildIndex(skills: SkillManifest[]): SkillIndex {
   const byToken = new Map<string, number[]>();
   skills.forEach((skill, index) => {
-    const tokens = words(`${skill.id} ${skill.name} ${skill.summary} ${skill.category}`);
+    const tokens = words(
+      `${skill.id} ${skill.name} ${skill.summary} ${skill.category} ${(skill.triggers ?? []).join(" ")}`,
+    );
     for (const token of tokens) {
       const list = byToken.get(token);
       if (list) {
@@ -125,6 +127,14 @@ export function candidateSkills(prompt: string, skills: SkillManifest[]): SkillM
   return [...hits].map((i) => index.skills[i]!);
 }
 
+/** True when the phrase appears as whole words (so "fd" does not match "fdisk"). */
+function hasPhrase(text: string, phrase: string): boolean {
+  const p = phrase.toLowerCase().trim();
+  if (p.length < 2) return false;
+  const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?:e?s)?(?![a-z0-9])`).test(text);
+}
+
 /**
  * Score one skill against the prompt. A direct name match wins outright;
  * otherwise the skill needs at least two of its distinctive words present.
@@ -134,6 +144,7 @@ export function scoreSkill(prompt: string, skill: SkillManifest): number {
   const name = skill.name.toLowerCase().trim();
   if (name.length >= 4 && text.includes(name)) return 1;
   if (text.includes(skill.id.toLowerCase())) return 1;
+  if ((skill.triggers ?? []).some((phrase) => hasPhrase(text, phrase))) return 0.95;
 
   const hay = new Set(words(text));
   const needles = words(`${skill.name} ${skill.summary}`);

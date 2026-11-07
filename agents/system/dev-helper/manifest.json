@@ -5,20 +5,11 @@
   "category": "coding",
   "role": "dev-helper",
   "skills": [
-    "dev-json-repair",
-    "dev-token-decode",
-    "dev-regex-test",
-    "dev-text-diff",
-    "ops-version-compare",
-    "ops-cron-explain",
-    "dev-color-contrast",
-    "ops-cidr-calc",
-    "ops-hash-check",
-    "dev-uuid-inspect",
-    "dev-base-convert",
-    "dev-json-query",
-    "dev-env-audit",
-    "dev-commit-lint"
+    "dev-json-tools",
+    "dev-text-tools",
+    "dev-decode-tools",
+    "dev-project-checks",
+    "dev-color-contrast"
   ],
   "workflows": [],
   "inputs": [

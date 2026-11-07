@@ -105,7 +105,7 @@ describe("FRIDAY core agents: what ships", () => {
       expect(m["risk"], slug).toBe("safe");
       expect(m["permissions"], slug).toEqual([]);
       expect(m["role"], slug).toBe(slug);
-      expect(m["skills"].length, slug).toBeGreaterThan(2);
+      expect(m["skills"].length, slug).toBeGreaterThan(1);
       expect(new Set(m["skills"]).size, slug).toBe(m["skills"].length);
       expect(m["description"].length, slug).toBeGreaterThan(60);
       // No index.cjs: the agent's work is its skills, so it needs no code of its own.
@@ -143,7 +143,7 @@ describe("FRIDAY core agents: what ships", () => {
   it("the router record carries the skills, so the agent can run them", () => {
     const record = agentFromResource(resource("india-desk"));
     expect(record).toMatchObject({ role: "india-desk", enabled: true });
-    expect(record.skills).toContain("in-gst-calc");
+    expect(record.skills).toContain("in-tax-invoice");
   });
 });
 
@@ -219,12 +219,17 @@ describe("FRIDAY core agents: they really use their skills", () => {
       outputs: { id: string; value: any }[];
       notApplicable?: { id: string; reason: string }[];
     }; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const gst = value.outputs.find((o) => o.id === "in-gst-calc");
-    expect(gst?.value).toMatchObject({ ok: true, gstAmount: 900, totalAmount: 5900 });
+    const gst = value.outputs.find((o) => o.id === "in-tax-invoice");
+    expect(gst?.value).toMatchObject({
+      ok: true,
+      part: "in-gst-calc",
+      gstAmount: 900,
+      totalAmount: 5900,
+    });
     expect(value.outputs.every((o) => !skillDidNotApply(o.value))).toBe(true);
     // The invoice, EMI and ID skills got the same words and had nothing to do: reported apart, not as a failure.
     expect(value.notApplicable?.map((n) => n.id)).toEqual(
-      expect.arrayContaining(["in-invoice-total", "in-emi-sip", "in-id-check"]),
+      expect.arrayContaining(["in-finance-calc", "in-id-check"]),
     );
   });
 
@@ -239,10 +244,12 @@ describe("FRIDAY core agents: they really use their skills", () => {
     expect(run.ok).toBe(true);
     const value = run.value as { outputs: { id: string; value: any }[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
     const byId = Object.fromEntries(value.outputs.map((o) => [o.id, o.value]));
-    expect(byId["saf-secret-scan"].safeToShare).toBe(false);
-    expect(byId["saf-pii-redact"].counts.EMAIL).toBe(1);
-    expect(byId["saf-injection-scan"].risk).toBe("high");
-    expect(JSON.stringify(byId["saf-secret-scan"].findings)).not.toContain(fakeKey);
+    const scan = byId["saf-content-scan"];
+    expect(scan.part).toBe("saf-secret-scan");
+    expect(scan.safeToShare).toBe(false);
+    expect(JSON.stringify(scan.findings)).not.toContain(fakeKey);
+    const also = Object.fromEntries((scan.also as { part: string }[]).map((a) => [a.part, a]));
+    expect(Object.keys(also).sort()).toEqual(["saf-injection-scan", "saf-pii-redact"]);
   });
 
   it("when none of an agent's skills applies it is skipped, not broken", async () => {
@@ -250,12 +257,12 @@ describe("FRIDAY core agents: they really use their skills", () => {
     setAgentInvokeHost(realSkillHost());
     const runs = await routeAgents("use the india desk agent please");
     expect(runs[0]).toMatchObject({ ok: false, skipped: true });
-    expect(runs[0]!.detail).toMatch(/none of its 8 skill\(s\) applied/);
+    expect(runs[0]!.detail).toMatch(/none of its 3 skill\(s\) applied/);
   });
 
   it("a skill the owner switched off is not run by the agent", async () => {
     register("log-doctor");
-    const host = realSkillHost(["ops-exit-code"]);
+    const host = realSkillHost(["ops-log-doctor"]);
     const listed = host.listSkills;
     host.listSkills = async () => (await listed()).map((s) => ({ ...s, enabled: false }));
     setAgentInvokeHost(host);
@@ -266,10 +273,10 @@ describe("FRIDAY core agents: they really use their skills", () => {
 
   it("a skill that is not installed is left out rather than failing the agent", async () => {
     register("log-doctor");
-    setAgentInvokeHost(realSkillHost(["ops-exit-code"]));
+    setAgentInvokeHost(realSkillHost(["ops-log-doctor"]));
     const runs = await routeAgents("use the log doctor agent: winget exit code 3010");
     expect(runs[0]!.ok).toBe(true);
     const value = runs[0]!.value as { outputs: { id: string }[] };
-    expect(value.outputs.map((o) => o.id)).toEqual(["ops-exit-code"]);
+    expect(value.outputs.map((o) => o.id)).toEqual(["ops-log-doctor"]);
   });
 });

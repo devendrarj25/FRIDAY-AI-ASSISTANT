@@ -5,12 +5,9 @@
   "category": "security",
   "role": "privacy-guard",
   "skills": [
-    "saf-secret-scan",
-    "saf-pii-redact",
-    "saf-injection-scan",
-    "web-url-clean",
-    "saf-password-check",
-    "saf-url-risk"
+    "saf-content-scan",
+    "saf-link-check",
+    "saf-password-check"
   ],
   "workflows": [],
   "inputs": [

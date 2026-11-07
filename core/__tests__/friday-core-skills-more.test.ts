@@ -9,12 +9,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chooseSkills } from "../../src/lib/friday/brain/skill-router";
 import type { SkillManifest } from "../../src/lib/friday/brain/skill-forge";
+import { MERGED } from "./helpers/core-skills-map";
 
 const CORE = path.resolve(__dirname, "../../skills/core");
 type Out = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
-  const mod = await import(/* @vite-ignore */ pathToFileURL(path.join(CORE, id, "skill.mjs")).href);
-  return mod.run(input);
+  const target = MERGED[id] ?? id;
+  const mod = await import(
+    /* @vite-ignore */ pathToFileURL(path.join(CORE, target, "skill.mjs")).href
+  );
+  return mod.run(MERGED[id] ? { ...input, part: id } : input);
 }
 
 describe("India desk additions", () => {
@@ -379,7 +383,7 @@ describe("the router reaches the new skills from natural requests", () => {
   ];
   it.each(cases)("%s -> %s", (prompt, id) => {
     const picked = chooseSkills(prompt, all, { limit: 3 }).map((s) => s.id);
-    expect(picked, prompt).toContain(id);
+    expect(picked, prompt).toContain(MERGED[id] ?? id);
   });
 
   it("small talk reaches none of them", () => {

@@ -5,11 +5,9 @@
   "category": "ops",
   "role": "system-desk",
   "skills": [
-    "ops-size-convert",
-    "ops-unit-convert",
-    "ops-port-lookup",
-    "ops-ip-inspect",
-    "ops-file-type"
+    "ops-convert",
+    "ops-network-tools",
+    "ops-file-path-check"
   ],
   "workflows": [],
   "inputs": [

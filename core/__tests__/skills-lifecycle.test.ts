@@ -137,20 +137,20 @@ describe("skill life cycle on the real modules", () => {
   it("a shipped built-in skill can be switched off and on, and stays in the app", async () => {
     const ws = tmp("friday-ws-");
     const roots = { appRoot: ROOT, workspaceRoot: ws };
-    const id = "skills/core/ops-exit-code";
+    const id = "skills/core/ops-log-doctor";
     const row = () => caps.list(roots).items.find((i: Any) => i.id === id);
     expect(row().enabled).toBe(true);
     caps.setEnabled(roots, id, false);
-    skills.setEnabled(roots, "ops-exit-code", false);
+    skills.setEnabled(roots, "ops-log-doctor", false);
     expect(row().enabled).toBe(false);
-    expect((await skills.invoke(roots, "ops-exit-code", { code: 3010 }, {})).ok).toBe(false);
+    expect((await skills.invoke(roots, "ops-log-doctor", { code: 3010 }, {})).ok).toBe(false);
     caps.setEnabled(roots, id, true);
-    skills.setEnabled(roots, "ops-exit-code", true);
+    skills.setEnabled(roots, "ops-log-doctor", true);
     expect(row().enabled).toBe(true);
-    expect((await skills.invoke(roots, "ops-exit-code", { code: 3010 }, {})).ok).toBe(true);
+    expect((await skills.invoke(roots, "ops-log-doctor", { code: 3010 }, {})).ok).toBe(true);
     caps.uninstallPack(roots, id);
     expect(row()).toBeDefined(); // the app copy cannot be removed
-    expect(fs.existsSync(path.join(ROOT, "skills", "core", "ops-exit-code", "skill.mjs"))).toBe(
+    expect(fs.existsSync(path.join(ROOT, "skills", "core", "ops-log-doctor", "skill.mjs"))).toBe(
       true,
     );
   }, 60000);

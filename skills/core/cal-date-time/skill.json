@@ -1,0 +1,71 @@
+{
+  "id": "cal-date-time",
+  "name": "Date and time tools",
+  "summary": "Days between dates, working days, age, timestamps and time zones",
+  "category": "calendar",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "part",
+    "start",
+    "end",
+    "add",
+    "unit",
+    "today",
+    "holidays",
+    "weekend",
+    "prompt",
+    "dob",
+    "asOf",
+    "value",
+    "utcOffset",
+    "time",
+    "from",
+    "to",
+    "date"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "days between",
+    "working days",
+    "workdays",
+    "business days",
+    "date of birth",
+    "birthday",
+    "born on",
+    "unix timestamp",
+    "epoch",
+    "time zone",
+    "timezone",
+    "date calculator",
+    "age calculator",
+    "timestamp converter",
+    "time zone converter"
+  ],
+  "parts": [
+    {
+      "id": "ops-date-calc",
+      "name": "Date calculator"
+    },
+    {
+      "id": "ops-workdays",
+      "name": "Working days"
+    },
+    {
+      "id": "cal-age-calc",
+      "name": "Age calculator"
+    },
+    {
+      "id": "ops-timestamp",
+      "name": "Timestamp converter"
+    },
+    {
+      "id": "ops-time-zone",
+      "name": "Time zone converter"
+    }
+  ],
+  "description": "Every date and clock question in one skill. It holds 5 tools and picks the right one from what you ask. Date calculator: Counts the days (and years, months, weeks) between two dates, adds or subtracts days, weeks, months or years (31 January plus one month is 28 February), works out an age from a birth date and counts down to a date. Dates are read as year-month-day or day-month-year. Working days and the Indian financial year are in the Working days skill. Working days: Counts working days between two dates (both included), finds the date N working days away, and reports the weekday, ISO week, Indian financial year (1 April to 31 March), quarter and assessment year. Weekend can be Saturday-Sunday, Friday-Saturday, Sunday only or none. Public holidays are never guessed: pass them as a list of dates. Dates are read as year-month-day or day-month-year. Age calculator: Works out an exact age in years, months and days from a date of birth (day first, as in India), the total days lived, the weekday of birth and how many days remain until the next birthday, including the 29 February case. Timestamp converter: Turns a Unix timestamp (seconds, milliseconds or microseconds, detected by length) into an ISO date in UTC and in a zone offset (default India, UTC+5:30) with the weekday, and turns an ISO date or the word now into Unix seconds and milliseconds. A date without a zone is read in the offset you give. Time zone converter: Converts a clock time between time zones using the daylight-saving rules of the date you give (today if none): 3pm IST in New York and London. Understands IANA names (Asia/Kolkata) and common names and abbreviations (IST, PST, EST, CET, JST, Dubai, Singapore, Sydney). Ambiguous abbreviations (CST, BST, IST) state which meaning was used."
+}

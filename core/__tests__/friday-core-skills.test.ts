@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { chooseSkills, scoreSkill } from "../../src/lib/friday/brain/skill-router";
 import type { SkillManifest } from "../../src/lib/friday/brain/skill-forge";
+import { MERGED } from "./helpers/core-skills-map";
 
 const ROOT = path.resolve(__dirname, "../..");
 const CORE = path.join(ROOT, "skills", "core");
@@ -59,70 +60,55 @@ const manifests = ids.map(
 
 // The skills return plain JSON of many shapes; the tests read it freely.
 type Out = any;
+// Each tool of a merged skill is still addressed by its first-round id: the dispatcher's `part` picks it.
 async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
-  const mod = await import(/* @vite-ignore */ pathToFileURL(path.join(CORE, id, "skill.mjs")).href);
-  return (await mod.run(input)) as Out;
+  const target = MERGED[id] ?? id;
+  const mod = await import(
+    /* @vite-ignore */ pathToFileURL(path.join(CORE, target, "skill.mjs")).href
+  );
+  return (await mod.run(MERGED[id] ? { ...input, part: id } : input)) as Out;
 }
 
 describe("FRIDAY core skills: what ships", () => {
-  it("ships the fifty-three skills, one folder each", () => {
-    expect(ids).toEqual(
-      [
-        "cal-ics-event",
-        "dat-csv-profile",
-        "dat-table-convert",
-        "dev-color-contrast",
-        "doc-text-clean",
-        "dev-json-repair",
-        "dev-regex-test",
-        "dev-text-diff",
-        "dev-token-decode",
-        "in-emi-sip",
-        "in-gst-calc",
-        "in-id-check",
-        "in-inr-words",
-        "in-invoice-total",
-        "in-percent-calc",
-        "lang-hinglish-detect",
-        "ops-cidr-calc",
-        "ops-cron-explain",
-        "ops-date-calc",
-        "ops-download-time",
-        "ops-exit-code",
-        "ops-hash-check",
-        "ops-log-triage",
-        "ops-time-zone",
-        "ops-timestamp",
-        "ops-version-compare",
-        "ops-win-path",
-        "ops-workdays",
-        "saf-injection-scan",
-        "saf-pii-redact",
-        "saf-secret-scan",
-        "web-http-status",
-        "web-url-clean",
-        "cal-age-calc",
-        "cal-time-blocks",
-        "dat-stats",
-        "dev-base-convert",
-        "dev-commit-lint",
-        "dev-env-audit",
-        "dev-json-query",
-        "dev-uuid-inspect",
-        "doc-case-convert",
-        "doc-markdown-toc",
-        "doc-word-stats",
-        "in-fd-compound",
-        "in-split-bill",
-        "ops-file-type",
-        "ops-ip-inspect",
-        "ops-port-lookup",
-        "ops-size-convert",
-        "ops-unit-convert",
-        "saf-password-check",
-        "saf-url-risk",
-      ].sort(),
-    );
+  it("ships the twenty skills, one folder each", () => {
+    expect(ids).toEqual([
+      "cal-date-time",
+      "cal-planner",
+      "dat-table-tools",
+      "dev-color-contrast",
+      "dev-decode-tools",
+      "dev-json-tools",
+      "dev-project-checks",
+      "dev-text-tools",
+      "doc-text-tools",
+      "in-finance-calc",
+      "in-id-check",
+      "in-tax-invoice",
+      "lang-hinglish-detect",
+      "ops-convert",
+      "ops-file-path-check",
+      "ops-log-doctor",
+      "ops-network-tools",
+      "saf-content-scan",
+      "saf-link-check",
+      "saf-password-check",
+    ]);
+  });
+
+  it("every first-round skill lives on as a tool of exactly one merged skill, and its part is real", () => {
+    const parts = new Map<string, string>();
+    for (const m of manifests as Array<Manifest & { parts?: { id: string; name: string }[] }>) {
+      for (const part of m.parts ?? []) parts.set(part.id, m.id);
+      const source = fs.readFileSync(path.join(CORE, m.id, "skill.mjs"), "utf8");
+      for (const part of m.parts ?? [])
+        expect(source, `${m.id} lacks ${part.id}`).toContain(`id: "${part.id}"`);
+      expect(
+        (m as { triggers?: string[] }).triggers?.length ?? 0,
+        `${m.id} triggers`,
+      ).toBeGreaterThan(2);
+    }
+    expect(Object.fromEntries(parts)).toEqual(MERGED);
+    expect(Object.keys(MERGED).length + 4).toBe(53);
   });
 
   it("every manifest has the shipped shape, is enabled and needs no permission", () => {
@@ -287,16 +273,18 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
     };
     // A run records its stats next to the skill, so the app folder stays untouched: the workspace is a temp folder.
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "friday-core-skills-"));
-    for (const id of ids) {
+    for (const [sampleId, sample] of Object.entries(samples)) {
+      const target = MERGED[sampleId] ?? sampleId;
       const result = await fridaySkills.invoke(
         { appRoot: ROOT, workspaceRoot: workspace },
-        id,
-        samples[id]!,
+        target,
+        MERGED[sampleId] ? { ...sample, part: sampleId } : sample,
         {},
       );
-      expect(result.ok, `${id}: ${result.error ?? ""}`).toBe(true);
-      expect((result.value as Out)?.ok, `${id} value`).toBe(true);
+      expect(result.ok, `${sampleId}: ${result.error ?? ""}`).toBe(true);
+      expect((result.value as Out)?.ok, `${sampleId} value`).toBe(true);
     }
+    expect(new Set(Object.keys(samples).map((k) => MERGED[k] ?? k))).toEqual(new Set(ids));
   }, 180_000);
 });
 
@@ -1144,7 +1132,7 @@ describe("FRIDAY core skills: the router runs them when they are named or clearl
   it("ordinary phrasing runs the right skill too", () => {
     for (const [id, prompt] of natural) {
       const chosen = chooseSkills(prompt, everyone, { limit: 1 })[0];
-      expect(chosen?.id, prompt).toBe(id);
+      expect(chosen?.id, prompt).toBe(MERGED[id] ?? id);
     }
   });
 

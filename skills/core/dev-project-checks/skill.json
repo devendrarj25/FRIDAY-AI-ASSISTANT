@@ -1,0 +1,41 @@
+{
+  "id": "dev-project-checks",
+  "name": "Project file checks",
+  "summary": "Env file audit, commit message lint and version compare",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "text", "prompt", "message", "versions", "minimum"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    ".env",
+    "dotenv",
+    "env file",
+    "commit message",
+    "conventional commit",
+    "compare version",
+    "semver",
+    "version number",
+    "env file audit",
+    "commit message lint",
+    "version compare"
+  ],
+  "parts": [
+    {
+      "id": "dev-env-audit",
+      "name": "Env file audit"
+    },
+    {
+      "id": "dev-commit-lint",
+      "name": "Commit message lint"
+    },
+    {
+      "id": "ops-version-compare",
+      "name": "Version compare"
+    }
+  ],
+  "description": "Quality checks for the files and messages of a code project. It holds 3 tools and picks the right one from what you ask. Env file audit: Reads the text of a .env file and reports duplicate keys, malformed lines, empty values, unclosed quotes, placeholder values and keys that hold real-looking secrets. It never repeats a value, only the key name and its length, so the file stays private. Commit message lint: Checks a commit message against the Conventional Commit form this project uses: a known type, a one-word scope, a short summary without a full stop, a blank line before the body, and no attribution trailers or session links. Version compare: Compares version numbers (semver, four-part FRIDAY versions such as 1.1.5.7, Python and Node versions), says which is newer and where they first differ, sorts a list from oldest to newest and checks each against a minimum. Parts are compared as numbers (1.10 is newer than 1.9), missing parts count as 0 and a pre-release (-rc.1) is older than its release."
+}

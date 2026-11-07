@@ -1,0 +1,43 @@
+{
+  "id": "ops-log-doctor",
+  "name": "Log and error doctor",
+  "summary": "Triage logs and decode Windows, winget and MSI exit codes",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt", "log", "code"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "exit code",
+    "error code",
+    "errorlevel",
+    "return code",
+    "log triage",
+    "analyze log",
+    "analyse log",
+    "setup log",
+    "build log",
+    "winget",
+    "msi error",
+    "exit code decoder",
+    "errors in this log",
+    "this log",
+    "log file",
+    "find errors",
+    "error log"
+  ],
+  "parts": [
+    {
+      "id": "ops-log-triage",
+      "name": "Log triage"
+    },
+    {
+      "id": "ops-exit-code",
+      "name": "Exit code decoder"
+    }
+  ],
+  "description": "Finds what went wrong in a log or an exit code. It holds 2 tools and picks the right one from what you ask. Log triage: Reads a pasted setup, build, npm, pip, winget or app log and says what went wrong: the first error, the distinct error patterns with counts, non-zero exit codes, failure markers, a likely class (network, permission, disk, missing file, version, installer) and what to try. Numbers, paths and ids are normalised so the same failure printed twice counts once. Runs offline on the text you paste; it never opens files or runs commands. Exit code decoder: Looks up exit codes and HRESULTs: winget (0x8A150014 no packages found, 0x8A15002B no applicable update), MSI (1603 fatal error, 3010 restart required, 1618 another install running), common Win32 and NTSTATUS codes, curl, git, Node and signals, and robocopy bit flags. Signed numbers are converted to hex. Only documented codes are listed: an unknown number is reported as unknown, never guessed."
+}

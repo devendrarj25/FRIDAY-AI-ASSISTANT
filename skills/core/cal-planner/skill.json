@@ -1,0 +1,63 @@
+{
+  "id": "cal-planner",
+  "name": "Calendar and planner",
+  "summary": "Calendar event files, cron schedules and day plans",
+  "category": "calendar",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "part",
+    "title",
+    "start",
+    "end",
+    "durationMinutes",
+    "location",
+    "description",
+    "reminderMinutes",
+    "repeat",
+    "count",
+    "utcOffset",
+    "prompt",
+    "buffer",
+    "cron",
+    "from"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "ics file",
+    "calendar file",
+    "calendar event",
+    "cron",
+    "crontab",
+    "cron schedule",
+    "day plan",
+    "time blocks",
+    "plan my day",
+    "schedule my tasks",
+    "timetable",
+    "calendar event file",
+    "day planner blocks",
+    "cron explainer",
+    "day planner",
+    "planner blocks",
+    "time block"
+  ],
+  "parts": [
+    {
+      "id": "cal-ics-event",
+      "name": "Calendar event file"
+    },
+    {
+      "id": "cal-time-blocks",
+      "name": "Day planner blocks"
+    },
+    {
+      "id": "ops-cron-explain",
+      "name": "Cron explainer"
+    }
+  ],
+  "description": "Turns plans into calendar files, schedules and timed day plans. It holds 3 tools and picks the right one from what you ask. Calendar event file: Creates a standards-correct iCalendar (.ics) event that Outlook, Google Calendar and phones can import, with title, start, end or duration, location, notes, a reminder before the event and a daily, weekly, monthly or yearly repeat. Text is escaped and long lines are folded as RFC 5545 requires. Local times are read in the offset you give (default India, UTC+5:30) and written as UTC. No calendar account is used. Day planner blocks: Turns a list of tasks with durations into a timed schedule from a start time with a short break between them, and says when the day finishes. Reads plain requests like: plan 9:00 report 45m, email 20m, gym 30m. Cron explainer: Parses a five-field cron expression (minute, hour, day of month, month, day of week, with ranges, steps, lists, names and @daily style macros), says in plain words when it runs and lists the next runs in a time zone offset you choose (default UTC). Follows standard cron: when both day fields are set, either one matches. Rejects an invalid expression with the reason."
+}

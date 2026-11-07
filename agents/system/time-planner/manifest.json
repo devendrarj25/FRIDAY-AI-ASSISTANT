@@ -5,14 +5,8 @@
   "category": "office",
   "role": "time-planner",
   "skills": [
-    "ops-workdays",
-    "ops-date-calc",
-    "ops-time-zone",
-    "ops-timestamp",
-    "cal-ics-event",
-    "ops-download-time",
-    "cal-age-calc",
-    "cal-time-blocks"
+    "cal-date-time",
+    "cal-planner"
   ],
   "workflows": [],
   "inputs": [

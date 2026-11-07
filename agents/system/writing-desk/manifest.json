@@ -5,9 +5,8 @@
   "category": "writing",
   "role": "writing-desk",
   "skills": [
-    "doc-word-stats",
-    "doc-case-convert",
-    "doc-markdown-toc"
+    "doc-text-tools",
+    "lang-hinglish-detect"
   ],
   "workflows": [],
   "inputs": [

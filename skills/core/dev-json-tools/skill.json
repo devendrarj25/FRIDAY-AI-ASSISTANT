@@ -1,0 +1,33 @@
+{
+  "id": "dev-json-tools",
+  "name": "JSON tools",
+  "summary": "Repair broken JSON and read values by path",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "json", "indent", "prompt", "path"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "json",
+    "repair json",
+    "fix json",
+    "json path",
+    "jq",
+    "json repair",
+    "json path query"
+  ],
+  "parts": [
+    {
+      "id": "dev-json-repair",
+      "name": "JSON repair"
+    },
+    {
+      "id": "dev-json-query",
+      "name": "JSON path query"
+    }
+  ],
+  "description": "Repairs damaged JSON and reads or describes JSON documents. It holds 2 tools and picks the right one from what you ask. JSON repair: Turns almost-JSON into valid, formatted JSON: strips code fences, comments and trailing commas, quotes bare keys, converts single quotes and smart quotes, replaces True, None, NaN and undefined, escapes raw line breaks in strings and closes missing brackets. Lists every fix it made and refuses, with the parser's reason, when it cannot repair the text. JSON path query: Pulls one value out of a JSON document with a simple path such as user.items[0].name, or describes the document (type, keys, array length) when no path is given. When a step is missing it names what is available there instead of failing silently."
+}

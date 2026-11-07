@@ -1,0 +1,45 @@
+{
+  "id": "dat-table-tools",
+  "name": "Table and statistics",
+  "summary": "Profile and convert CSV tables and compute statistics",
+  "category": "data",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "csv", "delimiter", "table", "from", "to", "prompt", "numbers"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "csv",
+    "tsv",
+    "markdown table",
+    "convert table",
+    "column types",
+    "statistics",
+    "mean",
+    "median",
+    "average of",
+    "standard deviation",
+    "std dev",
+    "outliers",
+    "csv profile",
+    "table converter",
+    "number statistics"
+  ],
+  "parts": [
+    {
+      "id": "dat-csv-profile",
+      "name": "CSV profile"
+    },
+    {
+      "id": "dat-table-convert",
+      "name": "Table converter"
+    },
+    {
+      "id": "dat-stats",
+      "name": "Number statistics"
+    }
+  ],
+  "description": "Tables and numbers: profile, convert and summarise. It holds 3 tools and picks the right one from what you ask. CSV profile: Profiles pasted CSV or TSV: detects the delimiter, then reports each column's type (integer, decimal, date, boolean, text, mixed), blank and unique counts, top values and the minimum, maximum and mean of number columns, and flags damaged rows (wrong number of fields), duplicate rows, empty columns, mixed kinds, repeated header names and padded cells. Quoted fields with commas and line breaks are read correctly. Table converter: Converts a table between CSV (or TSV), a Markdown table and JSON (a list of objects). The source format is detected; say the target (csv, tsv, markdown, json). Quotes and commas in CSV cells and pipes in Markdown cells are escaped, number-looking JSON values stay numbers and a leading zero (007) stays text. Number statistics: Computes descriptive statistics for a list of numbers: count, sum, mean, median, mode, minimum, maximum, range, quartiles, population and sample standard deviation, and the outliers by the 1.5 times IQR rule."
+}

@@ -5,14 +5,9 @@
   "category": "finance",
   "role": "india-desk",
   "skills": [
-    "in-gst-calc",
-    "in-invoice-total",
-    "in-inr-words",
-    "in-emi-sip",
-    "in-percent-calc",
-    "in-id-check",
-    "in-fd-compound",
-    "in-split-bill"
+    "in-tax-invoice",
+    "in-finance-calc",
+    "in-id-check"
   ],
   "workflows": [],
   "inputs": [
