@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "assumption audit"
+  ],
   "description": "Linguistic flags for assume/always/never/must wording. It lists claims that need evidence; it is not a truth oracle and does not verify facts."
 }

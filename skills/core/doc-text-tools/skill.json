@@ -1,0 +1,54 @@
+{
+  "id": "doc-text-tools",
+  "name": "Text tools",
+  "summary": "Clean lists, count words, change naming case, build a Markdown contents list",
+  "category": "doc",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "text", "ops", "instruction", "prompt", "to", "maxLevel"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "word count",
+    "reading time",
+    "character count",
+    "snake case",
+    "camel case",
+    "kebab case",
+    "title case",
+    "slug",
+    "table of contents",
+    "markdown toc",
+    "remove duplicate lines",
+    "sort lines",
+    "clean text",
+    "strip bullets",
+    "text cleaner",
+    "word count and reading time",
+    "naming case converter",
+    "markdown contents list",
+    "contents list",
+    "markdown contents"
+  ],
+  "parts": [
+    {
+      "id": "doc-text-clean",
+      "name": "Text cleaner"
+    },
+    {
+      "id": "doc-word-stats",
+      "name": "Word count and reading time"
+    },
+    {
+      "id": "doc-case-convert",
+      "name": "Naming case converter"
+    },
+    {
+      "id": "doc-markdown-toc",
+      "name": "Markdown contents list"
+    }
+  ],
+  "description": "Everyday text jobs in one skill. It holds 4 tools and picks the right one from what you ask. Text cleaner: Cleans pasted text and lists exactly, which a model does unreliably on long input: trim, collapse spaces, remove blank or duplicate lines (case-insensitive, first kept), sort A-Z or Z-A, strip bullets and numbering, straighten curly quotes and dashes, number the lines, change case, reverse the order or join lines. Say what to do on the first line and paste the text below it. Word count and reading time: Counts the words, characters, sentences and paragraphs of a text, estimates reading and speaking time, and lists the most common meaningful words. Handles Hindi in Devanagari and Hinglish text as well as English. Naming case converter: Changes the naming style of a phrase or identifier between snake_case, camelCase, PascalCase, kebab-case, CONSTANT_CASE, Title Case, Sentence case, dotted names and URL slugs, splitting camelCase and accented words correctly. Markdown contents list: Builds a table of contents from the headings of a Markdown document with GitHub-style anchors, ignoring headings inside code fences, numbering repeated titles the way GitHub does, and warning when a heading level is skipped."
+}

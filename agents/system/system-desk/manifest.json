@@ -1,0 +1,20 @@
+{
+  "name": "System desk",
+  "version": "1.0.0",
+  "description": "Answers PC and network questions offline: converts data sizes and units, looks up what runs on a port, classifies IP addresses and says whether a file type can run code.",
+  "category": "ops",
+  "role": "system-desk",
+  "skills": [
+    "ops-convert",
+    "ops-network-tools",
+    "ops-file-path-check"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY checked this with her System desk agent (size and unit conversion, port lookup, IP and file-type checks)."
+}

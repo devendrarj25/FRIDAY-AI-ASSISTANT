@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "climate packing extras"
+  ],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
 }

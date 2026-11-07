@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "environment variable audit"
+  ],
   "description": "Does not print values — only names referenced in source."
 }

@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "faq from notes",
+    "faq from"
+  ],
   "description": "Draft FAQ from your notes. It does not publish a help centre."
 }

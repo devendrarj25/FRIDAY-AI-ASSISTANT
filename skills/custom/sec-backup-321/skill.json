@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "3 2 1 backup plan",
+    "3 2 1 backup"
+  ],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }

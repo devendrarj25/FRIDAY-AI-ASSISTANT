@@ -1,0 +1,42 @@
+{
+  "id": "dev-decode-tools",
+  "name": "Decode and hash",
+  "summary": "Decode JWT and base64, inspect UUIDs, check hashes",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "token", "format", "uuid", "prompt", "text", "algorithm", "expected"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "jwt",
+    "base64",
+    "decode token",
+    "uuid",
+    "guid",
+    "sha256",
+    "sha-256",
+    "checksum",
+    "hash of",
+    "token decoder",
+    "uuid inspector",
+    "hash check"
+  ],
+  "parts": [
+    {
+      "id": "dev-token-decode",
+      "name": "Token decoder"
+    },
+    {
+      "id": "dev-uuid-inspect",
+      "name": "UUID inspector"
+    },
+    {
+      "id": "ops-hash-check",
+      "name": "Hash check"
+    }
+  ],
+  "description": "Reads encoded values and checks hashes. It holds 3 tools and picks the right one from what you ask. Token decoder: Decodes a JWT (header, payload, issued and expiry times) and base64, base64url, hex, percent-encoded and \\u-escaped text. A JWT is only decoded: the signature is never verified, so the result does not prove the token is genuine, and an unsigned alg none or an expired token is called out. Runs locally; the token is not stored or sent. UUID inspector: Reads one or more UUIDs from text and says what they are: nil or max, the version (random v4, name-based v3 and v5, time-based v1, v6 and v7), the variant, and for time-based versions the exact moment the identifier was made. Hash check: Computes the SHA-1, SHA-256, SHA-384 or SHA-512 hash of pasted text (UTF-8) with the platform's own crypto and compares it with a hash someone published, naming a length mismatch (64 hex characters is SHA-256). It never reads a file; for a download it says how to hash the file in PowerShell (Get-FileHash). MD5 is not offered."
+}

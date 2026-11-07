@@ -12,7 +12,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "intro blurb"
+  ],
   "description": "Bio draft. It does not post to social networks."
 }

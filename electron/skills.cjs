@@ -447,6 +447,12 @@ function readManifest(dir) {
       failures: Number(manifest.failures || 0),
       enabled: manifest.enabled !== false,
       builtin: false,
+      triggers: Array.isArray(manifest.triggers)
+        ? manifest.triggers
+            .filter((x) => typeof x === "string" && x.trim().length >= 2)
+            .map((x) => x.trim().slice(0, 60))
+            .slice(0, 80)
+        : [],
       dir,
     };
   } catch {

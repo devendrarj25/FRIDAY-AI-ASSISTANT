@@ -23,6 +23,8 @@ export type SkillRun = {
   ok: boolean;
   detail: string;
   value: unknown;
+  /** The skill ran and answered "this request is not for me" ({ ok: false, error }); it is left out of the turn. */
+  notApplicable?: boolean;
 };
 
 const STOP = new Set([
@@ -57,7 +59,8 @@ const STOP = new Set([
   "are",
 ]);
 
-const SEQUENCE = /\b(then|after that|and then|also|plus|followed by|next)\b/i;
+const SEQUENCE =
+  /\b(then|after that|and then|also|plus|followed by|next|along with|as well as|both)\b/i;
 const MAX_SEQUENCE = 3;
 
 /** Meaningful, lowercase words of a phrase. */
@@ -81,7 +84,9 @@ function signatureOf(skills: SkillManifest[]): string {
 function buildIndex(skills: SkillManifest[]): SkillIndex {
   const byToken = new Map<string, number[]>();
   skills.forEach((skill, index) => {
-    const tokens = words(`${skill.id} ${skill.name} ${skill.summary} ${skill.category}`);
+    const tokens = words(
+      `${skill.id} ${skill.name} ${skill.summary} ${skill.category} ${(skill.triggers ?? []).join(" ")}`,
+    );
     for (const token of tokens) {
       const list = byToken.get(token);
       if (list) {
@@ -125,6 +130,23 @@ export function candidateSkills(prompt: string, skills: SkillManifest[]): SkillM
   return [...hits].map((i) => index.skills[i]!);
 }
 
+const CONJUNCTION = /(?:\s(?:and|&|aur|plus)\s|\s*[,;]\s*)/i;
+
+/** The prompt words a skill's own name, summary and trigger phrases picked up. */
+function matchedWords(prompt: string, skill: SkillManifest): string[] {
+  const hay = new Set(words(prompt.toLowerCase()));
+  const own = new Set(words(`${skill.name} ${skill.summary} ${(skill.triggers ?? []).join(" ")}`));
+  return [...own].filter((w) => hay.has(w));
+}
+
+/** True when the phrase appears as whole words (so "fd" does not match "fdisk"). */
+function hasPhrase(text: string, phrase: string): boolean {
+  const p = phrase.toLowerCase().trim();
+  if (p.length < 2) return false;
+  const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?:e?s)?(?![a-z0-9])`).test(text);
+}
+
 /**
  * Score one skill against the prompt. A direct name match wins outright;
  * otherwise the skill needs at least two of its distinctive words present.
@@ -134,6 +156,7 @@ export function scoreSkill(prompt: string, skill: SkillManifest): number {
   const name = skill.name.toLowerCase().trim();
   if (name.length >= 4 && text.includes(name)) return 1;
   if (text.includes(skill.id.toLowerCase())) return 1;
+  if ((skill.triggers ?? []).some((phrase) => hasPhrase(text, phrase))) return 0.95;
 
   const hay = new Set(words(text));
   const needles = words(`${skill.name} ${skill.summary}`);
@@ -180,6 +203,24 @@ export function chooseSkills(
   if (!scored.length) return [];
   const named = scored.filter((item) => item.score === 1);
   if (named.length >= 2) return named.slice(0, limit).map((item) => item.skill);
+  // Several skills that each clearly fit (a trigger phrase or a name) all run, best first: "check this link and
+  // count the words" needs two skills, and asking for "then" is not required.
+  const strong = scored.filter((item) => item.score >= 0.9);
+  if (strong.length >= 2) return strong.slice(0, limit).map((item) => item.skill);
+  // "x and y": a second skill that matches different words of the prompt than the first is a second request.
+  if (CONJUNCTION.test(prompt) && scored.length >= 2) {
+    const picked = [scored[0]!];
+    const covered = new Set(matchedWords(prompt, scored[0]!.skill));
+    for (const item of scored.slice(1)) {
+      if (picked.length >= limit) break;
+      const words = matchedWords(prompt, item.skill);
+      if (words.length && words.every((w) => !covered.has(w))) {
+        picked.push(item);
+        words.forEach((w) => covered.add(w));
+      }
+    }
+    if (picked.length >= 2) return picked.map((item) => item.skill);
+  }
   if (SEQUENCE.test(prompt)) {
     const picked: SkillManifest[] = [];
     const used = new Set<string>();
@@ -205,6 +246,11 @@ export function describeSkillValue(value: unknown): string {
   }
 }
 
+/** A skill that ran but returned { ok: false, error }: it looked at the words and had nothing to do. */
+function skillSaysNotForThis(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && (value as { ok?: unknown }).ok === false);
+}
+
 async function invokeOne(
   skill: SkillManifest,
   prompt: string,
@@ -217,13 +263,16 @@ async function invokeOne(
       previous: previous.map((run) => ({ id: run.id, ok: run.ok, value: run.value })),
     });
     const ok = Boolean(result?.ok);
-    turnDone("skill", "invoke", ok ? "ok" : "failed");
+    const value = ok ? (result as { value?: unknown }).value : null;
+    const notApplicable = ok && skillSaysNotForThis(value);
+    turnDone("skill", "invoke", notApplicable ? "not applicable" : ok ? "ok" : "failed");
     return {
       id: skill.id,
       name: skill.name,
       ok,
       detail: ok ? `ran in ${result?.ms ?? 0}ms` : String(result?.error ?? "skill failed"),
-      value: ok ? (result as { value?: unknown }).value : null,
+      value,
+      ...(notApplicable ? { notApplicable: true } : {}),
     };
   } catch (error) {
     turnDone("skill", "invoke", "threw");
@@ -254,7 +303,8 @@ export async function routeSkills(prompt: string): Promise<SkillRun[]> {
   for (const skill of chosen) {
     runs.push(await invokeOne(skill, prompt, runs));
   }
-  return runs;
+  // A skill that had nothing to do with the request must not reach the answer as if it had produced something.
+  return runs.filter((run) => !run.notApplicable);
 }
 
 /**

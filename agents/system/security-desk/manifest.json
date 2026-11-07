@@ -1,0 +1,19 @@
+{
+  "name": "Security desk",
+  "version": "1.0.0",
+  "description": "Security and privacy help from the built-in security and safety skills: secret and personal-data scans, link checks, password strength, account hygiene checklists. Picks the best skills and can combine them.",
+  "category": "security",
+  "role": "security-desk",
+  "skills": [
+    "category:security-hygiene",
+    "category:safety"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY checked this with her Security desk agent."
+}

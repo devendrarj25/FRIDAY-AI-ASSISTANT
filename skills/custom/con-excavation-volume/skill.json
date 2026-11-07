@@ -13,7 +13,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "excavation volume"
+  ],
   "description": "bank = L×W×D; hauled = bank × (1+bulkingPct/100). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Soil classification and shoring are not inferred."
 }

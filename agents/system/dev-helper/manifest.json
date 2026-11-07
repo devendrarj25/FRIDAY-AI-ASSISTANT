@@ -1,0 +1,24 @@
+{
+  "name": "Dev helper",
+  "version": "1.0.0",
+  "description": "Small developer chores done exactly: repairs JSON, decodes tokens, tests regexes, compares texts and versions, explains cron and colours.",
+  "category": "coding",
+  "role": "dev-helper",
+  "skills": [
+    "dev-json-tools",
+    "dev-text-tools",
+    "dev-decode-tools",
+    "dev-project-checks",
+    "dev-color-contrast",
+    "dev-encode-tools",
+    "dev-command-help"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY did this with her Dev helper agent (JSON, tokens, regex, diffs, versions, cron, colours, subnets, hashes)."
+}

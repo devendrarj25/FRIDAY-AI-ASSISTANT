@@ -1,0 +1,18 @@
+{
+  "name": "Legal desk",
+  "version": "1.0.0",
+  "description": "Plain-language templates from the built-in legal skills: notices, agreements outlines, checklists and clause reminders. They are templates, not legal advice; a lawyer should review anything that matters.",
+  "category": "legal",
+  "role": "legal-desk",
+  "skills": [
+    "category:legal-templates"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this template with her Legal desk agent. It is not legal advice."
+}

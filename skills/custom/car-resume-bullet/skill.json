@@ -14,7 +14,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "star resume bullet"
+  ],
   "description": "Writing aid. It does not apply to jobs for you."
 }

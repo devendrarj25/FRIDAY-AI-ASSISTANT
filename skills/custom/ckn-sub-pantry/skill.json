@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "pantry substitution notes",
+    "pantry substitution"
+  ],
   "description": "Kitchen folklore, not food-science certification."
 }

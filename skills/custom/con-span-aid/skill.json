@@ -12,7 +12,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "simple span educational aid"
+  ],
   "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Rule of thumb only (e.g. timber floor joists often cited around L/15–L/20). Never use this output as a member design."
 }

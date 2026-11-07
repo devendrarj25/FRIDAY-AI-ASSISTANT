@@ -1,0 +1,52 @@
+{
+  "id": "health-calc",
+  "name": "Health and fitness",
+  "summary": "BMI, calories, heart-rate zones, running pace and water intake",
+  "category": "health",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "bmi",
+    "body mass index",
+    "calorie",
+    "calories",
+    "bmr",
+    "tdee",
+    "heart rate zones",
+    "max heart rate",
+    "running pace",
+    "race time",
+    "marathon",
+    "water intake",
+    "how much water",
+    "heart-rate zones"
+  ],
+  "parts": [
+    {
+      "id": "bmi",
+      "name": "BMI"
+    },
+    {
+      "id": "calories",
+      "name": "Calories"
+    },
+    {
+      "id": "hr-zones",
+      "name": "Heart-rate zones"
+    },
+    {
+      "id": "pace-calc",
+      "name": "Running pace"
+    },
+    {
+      "id": "water-intake",
+      "name": "Water intake"
+    }
+  ],
+  "description": "Fitness arithmetic with the formulas shown, as guidance and never as medical advice. It holds 5 tools and picks the right one from what you ask. BMI: Body mass index with WHO and Asia-Pacific bands and the healthy weight range. Calories: Basal rate (Mifflin-St Jeor), daily needs by activity and a protein range. Heart-rate zones: Zones from age (Tanaka) or from a measured maximum, with Karvonen when resting pulse is given. Running pace: Pace and speed from distance and time, and race-time predictions (Riegel). Water intake: A daily water guide from weight, exercise and heat."
+}

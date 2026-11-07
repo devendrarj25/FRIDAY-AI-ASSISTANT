@@ -1,0 +1,69 @@
+{
+  "id": "in-finance-calc",
+  "name": "Finance calculator",
+  "summary": "Loan EMI, SIP, fixed deposit, percent and bill split",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "part",
+    "principal",
+    "monthly",
+    "rate",
+    "years",
+    "months",
+    "kind",
+    "prompt",
+    "compounding",
+    "total",
+    "people",
+    "tip",
+    "tax",
+    "mode"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "emi",
+    "sip",
+    "loan",
+    "lumpsum",
+    "fixed deposit",
+    "fd",
+    "compound interest",
+    "maturity",
+    "percentage",
+    "percent of",
+    "discount",
+    "markup",
+    "margin",
+    "split the bill",
+    "split bill",
+    "bill split",
+    "emi calculator",
+    "fixed deposit calculator",
+    "bill splitter",
+    "percentage calculator"
+  ],
+  "parts": [
+    {
+      "id": "in-emi-sip",
+      "name": "EMI calculator"
+    },
+    {
+      "id": "in-fd-compound",
+      "name": "Fixed deposit calculator"
+    },
+    {
+      "id": "in-split-bill",
+      "name": "Bill splitter"
+    },
+    {
+      "id": "in-percent-calc",
+      "name": "Percentage calculator"
+    }
+  ],
+  "description": "Money maths in one skill: loans, investments, deposits, percentages and shared bills. It holds 4 tools and picks the right one from what you ask. EMI calculator: Computes a reducing-balance loan EMI with total interest, total payable and the first months of the schedule, and estimates a SIP (monthly compounding, instalment at the start or end of the month) or a lumpsum at a yearly return you give. An estimate from your numbers: a lender's schedule can differ by a few rupees, and an investment return is never guaranteed. Fixed deposit calculator: Works out what a fixed deposit or any compound-interest saving grows to: maturity amount, interest earned and the effective yearly rate. Understands lakh and crore, months or years, and quarterly (the Indian bank default), monthly, half-yearly, yearly or simple interest. Bill splitter: Splits a restaurant or trip bill between a number of people, adds GST or tax and a tip percentage when you give them, and tells who pays the extra paisa so the total adds up exactly. Reads plain requests like: split 2400 among 4 people with 10% tip. Percentage calculator: Answers percentage questions exactly: X percent of Y, A is what percent of B, change from A to B (increase or decrease), add or take off a percent, a discount (20% off 1500) and markup versus margin from a cost and a selling price. Understands Indian number grouping (1,50,000) and a few Hinglish words (ka, pe, chhoot)."
+}

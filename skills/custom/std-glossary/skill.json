@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "glossary builder"
+  ],
   "description": "Term harvest. Definitions stay as '[add]' unless the line already has one."
 }

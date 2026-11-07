@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "electrical isolation checklist",
+    "electrical isolation"
+  ],
   "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Not a licensed electrician's method statement and not a live-work authorisation."
 }

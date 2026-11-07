@@ -1,0 +1,15 @@
+{
+  "id": "lang-hinglish-detect",
+  "name": "Hinglish detector",
+  "summary": "Detect Hindi, Hinglish or English language",
+  "category": "language",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["text"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": ["hinglish", "which language", "detect language"],
+  "description": "Classifies text as English, Hindi in Devanagari, Hinglish (Hindi in Latin letters) or mixed, and lists the everyday Hindi words it recognised with their English meaning (kal, aaj, baje, yaad dilana, bhejo, kholo). Flags words that are ambiguous, such as kal (tomorrow or yesterday). A word list, not a translator: unknown words are left out instead of guessed."
+}

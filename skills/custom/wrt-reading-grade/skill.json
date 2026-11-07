@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "reading ease estimate"
+  ],
   "description": "A rough local estimate, not a certified readability audit."
 }

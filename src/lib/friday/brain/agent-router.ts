@@ -17,6 +17,7 @@
 import { capabilityRegistry, type CapabilityResource } from "./capability-registry";
 import { considerCollaboration } from "./multi-model";
 import { invokeSkill, listSkills } from "./skill-forge";
+import { chooseSkills } from "./skill-router";
 import { planAgent, runAgent, type AgentInvokeResult } from "../agent-runtime";
 import { runWorkflowPack, type WorkflowRunResult } from "./workflow-forge";
 import { learning } from "../self/learning-engine";
@@ -456,8 +457,11 @@ async function invokeOne(
 
     const listFn = invokeHost.listSkills ?? listSkills;
     const skillFn = invokeHost.invokeSkill ?? invokeSkill;
-    const installed = new Set((await listFn()).map((skill) => skill.id));
-    const skillIds = agent.skills.filter((id) => installed.has(id));
+    const installed = new Set(
+      (await listFn()).filter((skill) => skill.enabled !== false).map((skill) => skill.id),
+    );
+    const everySkill = (await listFn()).filter((skill) => skill.enabled !== false);
+    const skillIds = pickAgentSkills(agent.skills, everySkill, installed, prompt);
     const outputs: { id: string; ok: boolean; value: unknown; error?: string }[] = [];
     for (const skillId of skillIds) {
       const result = await skillFn(skillId, {
@@ -475,6 +479,11 @@ async function invokeOne(
     }
     const flowRuns = await runDeclaredWorkflows(agent, prompt, previous);
     const ms = Date.now() - started;
+    // A skill that ran but answered "this request is not for me" ({ ok: false, error }) did not apply. An agent
+    // with several skills (a team of small tools) offers every one of them the same words, so most of them
+    // will not apply: that is expected and must not make the agent look broken.
+    const unused = outputs.filter((item) => item.ok && skillDidNotApply(item.value));
+    const applied = outputs.filter((item) => !unused.includes(item));
     if (!outputs.length && !flowRuns.length) {
       const detail = `selected ${agent.name} (${ms}ms) — no plan()/run() and no installed skills or workflows to invoke`;
       // The selection stays in the experience ledger; the chat turn treats it
@@ -490,13 +499,30 @@ async function invokeOne(
         value: { role: agent.role, skills: agent.skills, workflows: agent.workflows, outputs },
       };
     }
-    const ok = outputs.every((item) => item.ok) && flowRuns.every((item) => item.ok);
+    if (outputs.length && !applied.length && !flowRuns.length) {
+      const detail = `selected ${agent.name} (${ms}ms) — none of its ${outputs.length} skill(s) applied to this request`;
+      turnDone("agent", "invoke", "skipped");
+      recordOutcome(agent, false, ms, detail);
+      return {
+        id: agent.id,
+        name: agent.name,
+        ok: false,
+        skipped: true,
+        detail,
+        value: {
+          role: agent.role,
+          skills: agent.skills,
+          notApplicable: unused.map(describeUnused),
+        },
+      };
+    }
+    const ok = applied.every((item) => item.ok) && flowRuns.every((item) => item.ok);
     const detail = ok
       ? flowRuns.length
-        ? `ran ${outputs.length} skill(s) and ${flowRuns.length} workflow(s) in ${ms}ms`
-        : `ran ${outputs.length} skill(s) in ${ms}ms`
+        ? `ran ${applied.length} skill(s) and ${flowRuns.length} workflow(s) in ${ms}ms`
+        : `ran ${applied.length} skill(s) in ${ms}ms${unused.length ? ` (${unused.length} did not apply)` : ""}`
       : [
-          ...outputs.filter((item) => !item.ok).map((item) => item.error ?? item.id),
+          ...applied.filter((item) => !item.ok).map((item) => item.error ?? item.id),
           ...flowRuns.filter((item) => !item.ok).map((item) => item.error ?? item.id),
         ].join("; ");
     turnDone("agent", "invoke", ok ? "ok" : "failed");
@@ -509,13 +535,57 @@ async function invokeOne(
       value: {
         role: agent.role,
         skills: agent.skills,
-        outputs,
+        outputs: applied,
+        ...(unused.length ? { notApplicable: unused.map(describeUnused) } : {}),
         workflows: flowRuns,
       },
     };
   } catch (error) {
     return fail(String((error as Error)?.message ?? error));
   }
+}
+
+const BROAD_SKILL_LIMIT = 3;
+
+/**
+ * Which skills an agent runs for a prompt. A plain list of ids runs every enabled skill in it (a small team of
+ * tools). A selector widens the pool: "*" is every enabled skill and "category:career" is every enabled skill of
+ * that category. A pool picked by selector is too big to run whole, so the skill router chooses the best few for
+ * the words of this prompt, which lets an agent own a whole shelf of skills and use several at once.
+ */
+export function pickAgentSkills(
+  declared: string[],
+  enabled: { id: string; category?: string }[],
+  installed: Set<string>,
+  prompt: string,
+): string[] {
+  const ids = declared.filter(
+    (entry) => !entry.includes(":") && entry !== "*" && installed.has(entry),
+  );
+  const broad = declared.filter((entry) => entry === "*" || entry.startsWith("category:"));
+  if (!broad.length) return ids;
+  const pool = new Map<string, { id: string; category?: string }>();
+  for (const skill of enabled) {
+    if (broad.includes("*") || broad.includes(`category:${skill.category ?? ""}`))
+      pool.set(skill.id, skill);
+  }
+  const chosen = chooseSkills(prompt, [...pool.values()] as never, {
+    limit: BROAD_SKILL_LIMIT,
+  }).map((skill) => skill.id);
+  return [...new Set([...ids, ...chosen])];
+}
+
+/** A skill's own "not for this request" answer: it ran, and returned { ok: false, error }. */
+export function skillDidNotApply(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && (value as { ok?: unknown }).ok === false);
+}
+
+function describeUnused(item: { id: string; value: unknown }): { id: string; reason: string } {
+  const reason = (item.value as { error?: unknown } | null)?.error;
+  return {
+    id: item.id,
+    reason: typeof reason === "string" ? reason.slice(0, 160) : "did not apply",
+  };
 }
 
 /** Run every matching agent in sequence. Empty when nothing matched. */

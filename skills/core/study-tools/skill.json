@@ -1,0 +1,46 @@
+{
+  "id": "study-tools",
+  "name": "Study planner",
+  "summary": "Spaced repetition, grade conversion, exam plan and pomodoro",
+  "category": "study",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "spaced repetition",
+    "flashcard",
+    "sm-2",
+    "cgpa",
+    "gpa",
+    "percentage to cgpa",
+    "exam plan",
+    "study plan",
+    "revision plan",
+    "pomodoro",
+    "grade converter",
+    "pomodoro plan"
+  ],
+  "parts": [
+    {
+      "id": "spaced-repetition",
+      "name": "Spaced repetition"
+    },
+    {
+      "id": "grade-convert",
+      "name": "Grade converter"
+    },
+    {
+      "id": "exam-plan",
+      "name": "Exam plan"
+    },
+    {
+      "id": "pomodoro-plan",
+      "name": "Pomodoro plan"
+    }
+  ],
+  "description": "Planning and arithmetic for students. It holds 4 tools and picks the right one from what you ask. Spaced repetition: When to review a card next (SM-2), or the review schedule for a new topic. Grade converter: Marks to percentage, CGPA to percentage (x9.5) and back, division by percentage. Exam plan: Learning, revision and mock-test days from the exam date and subject count. Pomodoro plan: Focus blocks with short and long breaks for the time you have."
+}

@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "action tracker table"
+  ],
   "description": "Tabulates tasks you paste. It does not assign work in an external tracker."
 }

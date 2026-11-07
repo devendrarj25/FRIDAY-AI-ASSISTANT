@@ -1,0 +1,37 @@
+{
+  "id": "life-calc",
+  "name": "Trip and home cost",
+  "summary": "Fuel and trip cost, electricity cost of appliances",
+  "category": "life",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "trip cost",
+    "fuel cost",
+    "petrol cost",
+    "mileage",
+    "road trip",
+    "electricity bill",
+    "power cost",
+    "kwh",
+    "ac cost",
+    "units consumed",
+    "electricity cost"
+  ],
+  "parts": [
+    {
+      "id": "fuel-trip",
+      "name": "Trip cost"
+    },
+    {
+      "id": "power-cost",
+      "name": "Electricity cost"
+    }
+  ],
+  "description": "Everyday running costs worked out exactly. It holds 2 tools and picks the right one from what you ask. Trip cost: Fuel needed and its price for a distance, tolls, and the share per traveller. Electricity cost: Units (kWh) and rupees for an appliance by rating or typical wattage."
+}

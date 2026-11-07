@@ -11,7 +11,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "polite chase email"
+  ],
   "description": "Draft only. FRIDAY does not send the chase email or open your inbox."
 }

@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "swot from notes",
+    "swot from"
+  ],
   "description": "S/W/O/T headings or words like risk/competitor/asset. A worksheet, not a strategy."
 }

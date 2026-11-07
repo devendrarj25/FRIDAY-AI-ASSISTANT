@@ -1,0 +1,20 @@
+{
+  "name": "Life desk",
+  "version": "1.0.0",
+  "description": "Everyday planning and health arithmetic: BMI, calories, running pace, study and exam plans, trip fuel cost and electricity cost.",
+  "category": "life",
+  "role": "life-desk",
+  "skills": [
+    "health-calc",
+    "study-tools",
+    "life-calc"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Life desk agent (health, study and running-cost calculators)."
+}

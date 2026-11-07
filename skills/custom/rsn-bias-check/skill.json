@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cognitive bias checklist",
+    "cognitive bias"
+  ],
   "description": "Phrase heuristics, not a diagnosis of a person."
 }

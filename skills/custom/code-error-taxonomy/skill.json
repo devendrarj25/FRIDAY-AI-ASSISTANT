@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "error handling taxonomy"
+  ],
   "description": "Static scan of throw, catch, retry, and empty catch blocks. Same sandbox limits as code-review."
 }

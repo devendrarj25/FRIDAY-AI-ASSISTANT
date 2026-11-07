@@ -1,0 +1,66 @@
+{
+  "id": "math-tools",
+  "name": "Math tools",
+  "summary": "Calculator, primes, combinations, equations, geometry and fractions",
+  "category": "math",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "calculator",
+    "square root",
+    "gcd",
+    "hcf",
+    "lcm",
+    "prime number",
+    "is prime",
+    "fibonacci",
+    "factorial",
+    "ncr",
+    "combinations",
+    "permutations",
+    "quadratic",
+    "solve equation",
+    "area of",
+    "volume of",
+    "hypotenuse",
+    "simplify fraction",
+    "ratio",
+    "number theory",
+    "combinatorics",
+    "equation solver",
+    "geometry",
+    "fractions and ratios"
+  ],
+  "parts": [
+    {
+      "id": "calc",
+      "name": "Calculator"
+    },
+    {
+      "id": "number-theory",
+      "name": "Number theory"
+    },
+    {
+      "id": "combinatorics",
+      "name": "Combinatorics"
+    },
+    {
+      "id": "equation",
+      "name": "Equation solver"
+    },
+    {
+      "id": "geometry",
+      "name": "Geometry"
+    },
+    {
+      "id": "fraction-ratio",
+      "name": "Fractions and ratios"
+    }
+  ],
+  "description": "Exact maths that a language model would otherwise guess. It holds 6 tools and picks the right one from what you ask. Calculator: Evaluates an arithmetic expression with its own parser: powers, roots, logs, trig, factorials. Number theory: GCD and LCM, primality, prime factors, divisors, Fibonacci and primes up to N. Combinatorics: Factorials, nCr, nPr and distinct arrangements of a word, exact for any size. Equation solver: Linear and quadratic equations (complex roots included) and two linear equations. Geometry: Area, perimeter, volume and surface of common shapes and right-triangle sides. Fractions and ratios: Simplify and combine fractions, decimal to fraction, and split an amount by a ratio."
+}

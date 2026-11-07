@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "habit tracker grid"
+  ],
   "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
 }

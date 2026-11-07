@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "rfp clarifying questions"
+  ],
   "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
 }

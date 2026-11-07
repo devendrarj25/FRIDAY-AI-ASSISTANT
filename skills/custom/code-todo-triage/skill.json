@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "todo triage"
+  ],
   "description": "Keyword triage of comment markers. Does not create issues."
 }

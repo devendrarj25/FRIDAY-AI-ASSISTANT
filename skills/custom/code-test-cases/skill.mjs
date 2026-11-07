@@ -25,7 +25,7 @@ function numbers(input, key) {
 export async function run(input = {}) {
   const src = text(input);
   if (!src.trim()) return { ok: false, error: "Paste a spec or function." };
-  const params = Array.from(src.matchAll(/\(([^)]*)\)/))
+  const params = Array.from(src.matchAll(/\(([^)]*)\)/g))
     .flatMap((m) =>
       m[1]
         .split(",")

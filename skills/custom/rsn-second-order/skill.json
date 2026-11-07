@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "second order effects"
+  ],
   "description": "If lines look like `action => effect => then`, they are parsed; otherwise empty slots are returned."
 }

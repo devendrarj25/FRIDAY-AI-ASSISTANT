@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "portfolio outline"
+  ],
   "description": "Outline only. It does not publish a site."
 }

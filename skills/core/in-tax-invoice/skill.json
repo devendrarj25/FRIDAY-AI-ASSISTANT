@@ -1,0 +1,40 @@
+{
+  "id": "in-tax-invoice",
+  "name": "GST and invoice",
+  "summary": "GST, invoice totals and rupees in words",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt", "amount", "rate", "mode", "interstate", "items", "lines", "gst"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "gst",
+    "cgst",
+    "sgst",
+    "igst",
+    "invoice",
+    "rupees in words",
+    "amount in words",
+    "in words",
+    "gst calculator",
+    "invoice total"
+  ],
+  "parts": [
+    {
+      "id": "in-gst-calc",
+      "name": "GST calculator"
+    },
+    {
+      "id": "in-invoice-total",
+      "name": "Invoice total"
+    },
+    {
+      "id": "in-inr-words",
+      "name": "Rupees in words"
+    }
+  ],
+  "description": "Everything about GST bills in one skill. It holds 3 tools and picks the right one from what you ask. GST calculator: Adds GST to a price or extracts it from a GST-inclusive price, and splits it into CGST and SGST (same state) or IGST (other state). Money is kept in paise so the parts add up. Common rates since 22 September 2025 are 0, 5, 18 and 40 percent; the right rate depends on the item's HSN or SAC code and is never guessed from a product name. If no rate is given, 18 percent is used and flagged. Invoice total: Totals an invoice from lines such as Laptop 2 x 45000 18% (description, quantity x rate, GST percent, optional discount percent). Returns line totals, taxable value, GST grouped by rate with the CGST and SGST or IGST split, round-off to the nearest rupee and the grand total in words. Rates are taken from each line; check them against the HSN or SAC code before issuing. Rupees in words: Writes an amount as ₹12,34,567.89 and as words (Rupees Twelve Lakh Thirty Four Thousand Five Hundred Sixty Seven and Paise Eighty Nine Only), as cheques and invoices need. Understands 1.5 crore, 2 lakh 50 thousand and plain numbers. Rounds to the nearest paisa."
+}

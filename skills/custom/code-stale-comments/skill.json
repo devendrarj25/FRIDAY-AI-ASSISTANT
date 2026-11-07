@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "stale comment finder"
+  ],
   "description": "Line scan only. Does not delete comments."
 }

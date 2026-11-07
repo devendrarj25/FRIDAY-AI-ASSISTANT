@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "seven day meal slots"
+  ],
   "description": "A slot plan for dishes you already named. Not nutrition advice and not a shopping order."
 }

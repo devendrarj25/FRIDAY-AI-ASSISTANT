@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "forty word blurb"
+  ],
   "description": "Length-targeted trim. It does not write marketing that claims untrue facts."
 }

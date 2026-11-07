@@ -1,0 +1,35 @@
+{
+  "id": "ops-file-path-check",
+  "name": "File and path check",
+  "summary": "File type risk and Windows path problems",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "file", "prompt", "path"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "file extension",
+    "double extension",
+    "windows path",
+    "path too long",
+    "reserved name",
+    "is this file safe",
+    "file type",
+    "file type check",
+    "windows path check"
+  ],
+  "parts": [
+    {
+      "id": "ops-file-type",
+      "name": "File type check"
+    },
+    {
+      "id": "ops-win-path",
+      "name": "Windows path check"
+    }
+  ],
+  "description": "Checks a file name or a Windows path before you trust or use it. It holds 2 tools and picks the right one from what you ask. File type check: Says what a file name or extension is and whether opening it can run code on Windows (exe, msi, bat, ps1, js, lnk and more), rates the risk, and catches the double-extension disguise such as invoice.pdf.exe. Windows path check: Checks one or more Windows paths for the problems that break installs and file tools: forbidden characters, reserved device names (CON, NUL, COM1), trailing dots or spaces, names over 255 characters, paths near the 260-character limit, protected folders (Program Files, Windows) and cloud-synced folders. Converts between C:\\ and /mnt/c/ forms and suggests a fixed name. Text only: it never touches the disk."
+}

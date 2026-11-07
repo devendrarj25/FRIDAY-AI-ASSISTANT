@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "flashcards from pairs"
+  ],
   "description": "Local study cards. It does not sync Anki."
 }

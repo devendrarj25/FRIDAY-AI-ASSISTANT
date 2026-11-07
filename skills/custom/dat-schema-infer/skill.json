@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "csv schema guess"
+  ],
   "description": "Heuristic types from a sample. It does not migrate a database."
 }

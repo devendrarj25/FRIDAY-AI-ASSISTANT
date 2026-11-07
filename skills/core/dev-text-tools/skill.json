@@ -1,0 +1,32 @@
+{
+  "id": "dev-text-tools",
+  "name": "Regex and diff",
+  "summary": "Test regular expressions and compare two texts",
+  "category": "dev",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt", "pattern", "flags", "sample", "before", "after", "ignoreWhitespace"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "regex",
+    "regular expression",
+    "text diff",
+    "compare two texts",
+    "diff",
+    "regex tester"
+  ],
+  "parts": [
+    {
+      "id": "dev-regex-test",
+      "name": "Regex tester"
+    },
+    {
+      "id": "dev-text-diff",
+      "name": "Text diff"
+    }
+  ],
+  "description": "Regular expression testing and text comparison. It holds 2 tools and picks the right one from what you ask. Regex tester: Runs a JavaScript regular expression against sample text and returns each match with its position, numbered and named groups and a count, so a pattern is proven rather than guessed. Accepts /pattern/flags on text in one sentence. Stops a pattern that backtracks for too long. Other engines (Python, .NET, PCRE) differ in lookbehind, named groups and flags. Text diff: Compares two texts line by line with a longest-common-subsequence diff and returns a unified-style listing with context lines, counts of added, removed and unchanged lines and a similarity percentage. Can ignore whitespace differences. Takes before and after, or one text split by a line of dashes. Text only, no files."
+}

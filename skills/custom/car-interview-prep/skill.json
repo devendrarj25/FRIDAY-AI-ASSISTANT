@@ -11,7 +11,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "interview question list",
+    "interview question"
+  ],
   "description": "Prep list. Not insider questions from a real employer."
 }

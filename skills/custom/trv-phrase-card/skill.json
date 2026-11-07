@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "traveller phrase card"
+  ],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas. Not a translator for complex speech."
 }

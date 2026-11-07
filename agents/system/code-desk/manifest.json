@@ -1,0 +1,21 @@
+{
+  "name": "Code desk",
+  "version": "1.0.0",
+  "description": "Programming help from the built-in coding skills: code review, commit messages, changelogs, refactor plans, SQL review, regex explanation, API contracts and dependency audits. Picks the best skills and can combine them.",
+  "category": "coding",
+  "role": "code-desk",
+  "skills": [
+    "category:coding",
+    "category:developer",
+    "category:web",
+    "category:dev"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Code desk agent."
+}

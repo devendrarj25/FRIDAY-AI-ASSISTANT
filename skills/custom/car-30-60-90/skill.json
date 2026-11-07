@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "30 60 90 outline",
+    "30 60 90"
+  ],
   "description": "Planning template for a role you already have or are discussing."
 }

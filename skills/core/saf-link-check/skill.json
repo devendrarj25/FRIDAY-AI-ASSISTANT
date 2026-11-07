@@ -1,0 +1,41 @@
+{
+  "id": "saf-link-check",
+  "name": "Link safety check",
+  "summary": "Phishing signals and tracking clean-up for a link",
+  "category": "safety",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "url", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "phishing",
+    "suspicious link",
+    "is this link safe",
+    "clean url",
+    "tracking parameters",
+    "utm",
+    "shortened link",
+    "link risk check",
+    "url cleaner",
+    "clean a url",
+    "strip tracking",
+    "link risk",
+    "link check",
+    "url risk",
+    "check this link"
+  ],
+  "parts": [
+    {
+      "id": "saf-url-risk",
+      "name": "Link risk check"
+    },
+    {
+      "id": "web-url-clean",
+      "name": "URL cleaner"
+    }
+  ],
+  "description": "Reads a link and judges it; never opens it. It holds 2 tools and picks the right one from what you ask. Link risk check: Reads a link and looks for phishing signals: name@host tricks, bare IP hosts, punycode look-alikes, link shorteners, odd domain endings, famous brand names on someone else's domain and login or verify wording. It never opens the link. URL cleaner: Rewrites links for sharing and checking: removes tracking parameters (utm, fbclid, gclid and similar), unwraps known redirect wrappers (Google, Facebook, Outlook safelinks, Reddit, YouTube) and flags look-alike tricks: user@ in the address, punycode hosts, bare IP addresses, link shorteners, plain http. It only rewrites text; it never opens the link."
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Privacy guard",
+  "version": "1.0.0",
+  "description": "Checks text before it is shared or trusted: finds secrets, masks personal data, flags injected instructions and risky links.",
+  "category": "security",
+  "role": "privacy-guard",
+  "skills": [
+    "saf-content-scan",
+    "saf-link-check",
+    "saf-password-check"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY checked the text with its Privacy guard agent (secrets, personal data, injected instructions, links). Nothing was sent anywhere."
+}

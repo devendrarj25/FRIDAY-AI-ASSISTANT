@@ -2678,6 +2678,7 @@ const GOVERNED_DOCS = [
   "docs/FRIDAY_USER_GUIDE.md",
   "docs/FRIDAY_IMPORT_FORMAT.md",
   "docs/FRIDAY_MCP.md",
+  "docs/FRIDAY_SKILLS.md",
 ];
 
 /** Statements that declare the shipping version inside a governed document. */

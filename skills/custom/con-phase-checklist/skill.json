@@ -11,7 +11,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "project phase checklist",
+    "project phase"
+  ],
   "description": "Phases are a generic sequence you can tick against pasted notes. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Not a critical-path schedule engine."
 }

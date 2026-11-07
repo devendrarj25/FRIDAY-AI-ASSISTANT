@@ -11,7 +11,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "memo outline"
+  ],
   "description": "Office drafting helper. Builds a memo skeleton from pasted notes so you can fill facts — it does not send mail or file a document outside FRIDAY."
 }

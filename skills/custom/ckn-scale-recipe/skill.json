@@ -12,7 +12,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "recipe scaler"
+  ],
   "description": "Kitchen math. Taste and food safety still need your judgement."
 }

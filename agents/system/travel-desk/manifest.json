@@ -1,0 +1,18 @@
+{
+  "name": "Travel desk",
+  "version": "1.0.0",
+  "description": "Trip help from the built-in travel skills: itineraries, packing lists, budgets, document checklists and day plans. Picks the best skills for the request and can combine them.",
+  "category": "travel",
+  "role": "travel-desk",
+  "skills": [
+    "category:travel"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Travel desk agent."
+}

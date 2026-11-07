@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "feedback draft observation feeling request",
+    "feedback draft (observation/feeling/request)"
+  ],
   "description": "NVC-inspired buckets. Not HR policy and not a send action."
 }

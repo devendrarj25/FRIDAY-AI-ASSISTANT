@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "socratic question set"
+  ],
   "description": "Questions are templated from the claim text. They are prompts for you, not answers."
 }

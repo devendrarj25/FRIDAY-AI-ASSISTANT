@@ -11,7 +11,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "branch complexity hotspots"
+  ],
   "description": "Per-function keyword counts, not a full CFG. Use it to pick where to simplify first."
 }

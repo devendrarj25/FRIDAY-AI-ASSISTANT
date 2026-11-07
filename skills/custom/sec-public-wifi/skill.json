@@ -8,7 +8,11 @@
   "inputs": [],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "public wi fi checklist",
+    "public wi fi"
+  ],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }

@@ -1,0 +1,15 @@
+{
+  "id": "saf-password-check",
+  "name": "Password strength check",
+  "summary": "Rate a password without ever repeating it",
+  "category": "safety",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["password", "prompt"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": ["password strength", "strong password", "is my password", "password safe"],
+  "description": "Estimates how strong a password is from its length, character kinds, common-password list and easy patterns such as 123, aaa and qwerty, gives an entropy figure and an offline cracking time, and never echoes the password back."
+}

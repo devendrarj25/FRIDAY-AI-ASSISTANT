@@ -1,0 +1,64 @@
+{
+  "id": "ops-convert",
+  "name": "Unit and size converter",
+  "summary": "Convert units, data sizes, download time and number bases",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "part",
+    "prompt",
+    "value",
+    "from",
+    "to",
+    "unit",
+    "size",
+    "speed",
+    "time",
+    "efficiency",
+    "base"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "unit converter",
+    "unit conversion",
+    "convert units",
+    "data size",
+    "gib",
+    "download time",
+    "how long to download",
+    "to miles",
+    "to km",
+    "to binary",
+    "to hex",
+    "hexadecimal",
+    "fahrenheit",
+    "celsius",
+    "kilometers",
+    "miles to",
+    "data size converter",
+    "number base converter"
+  ],
+  "parts": [
+    {
+      "id": "ops-unit-convert",
+      "name": "Unit converter"
+    },
+    {
+      "id": "ops-size-convert",
+      "name": "Data size converter"
+    },
+    {
+      "id": "ops-download-time",
+      "name": "Download time"
+    },
+    {
+      "id": "dev-base-convert",
+      "name": "Number base converter"
+    }
+  ],
+  "description": "One converter for every kind of number. It holds 4 tools and picks the right one from what you ask. Unit converter: Converts everyday units offline: kilometres and miles, kilograms and pounds, litres and gallons, square feet and acres, km/h and mph, and Celsius, Fahrenheit and Kelvin. Refuses mixed kinds such as length to weight instead of guessing. Data size converter: Converts data sizes between bytes, decimal units (KB, MB, GB, TB, in thousands) and binary units (KiB, MiB, GiB, TiB, in 1024s), and explains why a 500 GB drive shows about 465 GB in Windows. Download time: Works out how long a download takes from its size (KB, MB, GB, TB, or KiB, MiB, GiB) and the line speed (Mbps in megabits or MB/s in megabytes), or the speed needed to finish in a given time, or how much arrives in a given time. Shows the full-line-speed time and a realistic one (85% by default for overhead). Mbps is megabits: divide by 8 for megabytes per second. Number base converter: Converts whole numbers of any size between decimal, hexadecimal, binary and octal. Understands 0x, 0b and 0o prefixes and phrases like 1010 binary to decimal, and shows the character for printable ASCII codes."
+}

@@ -1,0 +1,51 @@
+{
+  "id": "ops-network-tools",
+  "name": "Network lookup",
+  "summary": "Ports, IP addresses, subnets and HTTP status codes",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["part", "prompt", "port", "ip", "cidr", "contains", "code"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": [
+    "port number",
+    "what port",
+    "which port",
+    "ip address",
+    "private ip",
+    "subnet",
+    "cidr",
+    "http status",
+    "status code",
+    "http error",
+    "bad gateway",
+    "localhost",
+    "port lookup",
+    "ip address inspector",
+    "cidr calculator",
+    "http status explainer",
+    "open port"
+  ],
+  "parts": [
+    {
+      "id": "ops-port-lookup",
+      "name": "Port lookup"
+    },
+    {
+      "id": "ops-ip-inspect",
+      "name": "IP address inspector"
+    },
+    {
+      "id": "ops-cidr-calc",
+      "name": "CIDR calculator"
+    },
+    {
+      "id": "web-http-status",
+      "name": "HTTP status explainer"
+    }
+  ],
+  "description": "Network facts without a network call. It holds 4 tools and picks the right one from what you ask. Port lookup: Looks up well-known TCP and UDP ports (SSH 22, HTTPS 443, RDP 3389, SMB 445 and more) with a safety note, and the ports FRIDAY and its tools use: the kernel on 8765, Ollama on 11434 and the Vite dev server. IP address inspector: Reads IPv4 and IPv6 addresses from text and classifies each one: private LAN, loopback, link-local, carrier-grade shared, documentation, multicast, reserved or public. Also shows the integer and hex form of an IPv4 address and expands IPv6. CIDR calculator: IPv4 subnet maths from a CIDR such as 192.168.1.0/24 or an address with a mask: network, broadcast, mask, wildcard, first and last usable host, host count and the kind of range (private, loopback, link-local, carrier-grade NAT, multicast, public). Also tells whether given addresses are inside the network. /31 and /32 are handled as the special cases they are. HTTP status explainer: Explains the common HTTP status codes (200 to 511, with the Cloudflare 52x family) and the error names that appear in logs (ENOTFOUND, ECONNRESET, ETIMEDOUT, ECONNREFUSED, EADDRINUSE, CERT_HAS_EXPIRED, UNABLE_TO_VERIFY_LEAF_SIGNATURE and more) with what to try. A status outside the list is reported as not covered, never guessed."
+}

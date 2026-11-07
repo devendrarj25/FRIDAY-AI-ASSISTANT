@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "negotiation prep checklist",
+    "negotiation prep"
+  ],
   "description": "Fills those five slots from keyworded notes. Not legal advice."
 }

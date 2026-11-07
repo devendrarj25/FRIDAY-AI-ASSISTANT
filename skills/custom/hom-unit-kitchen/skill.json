@@ -12,7 +12,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "kitchen unit convert"
+  ],
   "description": "Approximate cooking math. Grams assume water density unless you say otherwise."
 }

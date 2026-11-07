@@ -10,7 +10,11 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "symptom log template",
+    "symptom log"
+  ],
   "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
 }

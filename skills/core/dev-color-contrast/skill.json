@@ -1,0 +1,15 @@
+{
+  "id": "dev-color-contrast",
+  "name": "Color contrast",
+  "summary": "WCAG contrast ratio of two colors",
+  "category": "developer",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["foreground", "background"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "triggers": ["contrast", "wcag", "color contrast", "colour contrast"],
+  "description": "Computes the WCAG 2.x contrast ratio of two colours (hex, rgb, hsl or a colour name), the AA and AAA verdicts for normal text, large text and interface parts, and, when normal-text AA fails, the nearest lightness of the same hue that passes. With one colour it converts between hex, rgb and hsl."
+}

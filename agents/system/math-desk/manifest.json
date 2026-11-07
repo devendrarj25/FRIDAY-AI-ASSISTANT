@@ -1,0 +1,19 @@
+{
+  "name": "Math desk",
+  "version": "1.0.0",
+  "description": "Exact arithmetic and money maths offline: calculator, primes, combinations, equations, geometry, CAGR, break-even, inflation and Indian income tax.",
+  "category": "math",
+  "role": "math-desk",
+  "skills": [
+    "math-tools",
+    "fin-invest-tax"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY worked this out with her Math desk agent (calculator, number theory, equations, geometry, returns and tax)."
+}

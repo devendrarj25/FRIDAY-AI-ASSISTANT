@@ -10,7 +10,10 @@
   ],
   "version": 1,
   "author": "friday-core",
-  "enabled": false,
+  "enabled": true,
   "permissions": [],
+  "triggers": [
+    "typescript any finder"
+  ],
   "description": "Line matches only. Does not infer better types."
 }
