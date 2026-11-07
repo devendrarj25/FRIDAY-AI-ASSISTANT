@@ -45,6 +45,8 @@ export type RealtimeVoiceDeps = {
   now?: () => number;
   /** Frames sent but not yet acknowledged; more than this are dropped, never queued. */
   maxInflight?: number;
+  /** Reconnect after a drop that was not the owner's doing: at most `max` tries, doubling the wait each time. */
+  recovery?: { max: number; baseMs: number; sleep?: (ms: number) => Promise<void> };
 };
 
 export type RealtimeVoiceRequest = {
@@ -95,8 +97,38 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
   let provider = "";
   let running = false;
 
+  const OWNER_STOPS = new Set(["owner stopped", "stopped", "settings closed"]);
+  let reconnecting = false;
+  let attemptsMade = 0;
+
   const finish = async (reason: string, request?: RealtimeVoiceRequest) => {
     if (!running) return;
+    const recovery = deps.recovery;
+    if (
+      recovery &&
+      request &&
+      !OWNER_STOPS.has(reason) &&
+      attemptsMade < recovery.max &&
+      !reconnecting
+    ) {
+      reconnecting = true;
+      attemptsMade += 1;
+      unsubscribe?.();
+      unsubscribe = null;
+      deps.playback.flush();
+      const old = handle;
+      handle = null;
+      if (old) await old.stop();
+      deps.ledger.addAudio(provider, (now() - startedAt) / 60_000);
+      const sleep = recovery.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+      await sleep(recovery.baseMs * 2 ** (attemptsMade - 1));
+      running = false;
+      reconnecting = false;
+      // The router and the quota are asked again; a refusal ends the session with that reason.
+      const again = await api.start(request, true);
+      if (!again.ok) request.onStop?.(`reconnect refused: ${again.reasons.join("; ")}`);
+      return;
+    }
     running = false;
     unsubscribe?.();
     unsubscribe = null;
@@ -106,14 +138,19 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
     if (current) await current.stop();
     const minutes = (now() - startedAt) / 60_000;
     if (provider) {
-      deps.ledger.record(provider, minutes);
+      deps.ledger.addAudio(provider, minutes);
       deps.persistLedger?.();
     }
     request?.onStop?.(reason);
   };
 
-  return {
-    async start(request) {
+  const api: RealtimeVoice & {
+    start: (
+      request: RealtimeVoiceRequest,
+      retry?: boolean,
+    ) => Promise<{ ok: true } | { ok: false; reasons: string[] }>;
+  } = {
+    async start(request, retry = false) {
       if (running) return { ok: false, reasons: ["a realtime voice session is already running"] };
       const decision = routeVoice(
         {
@@ -134,6 +171,7 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
       running = true;
       startedAt = now();
       provider = request.cloud.provider;
+      if (!retry) attemptsMade = 0;
       sent = dropped = barge = inflight = 0;
       resampler = null;
       resamplerRate = 0;
@@ -196,4 +234,5 @@ export function createRealtimeVoice(deps: RealtimeVoiceDeps): RealtimeVoice {
       };
     },
   };
+  return api;
 }

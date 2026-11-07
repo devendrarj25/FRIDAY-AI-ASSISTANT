@@ -107,3 +107,51 @@ export function missingModels(profile: VoiceProfile, onDisk: ModelOnDisk): strin
   if (!(onDisk.llm ?? []).includes(profile.llm.model)) out.push(`ollama ${profile.llm.model}`);
   return out;
 }
+
+export type ModelNeeds = { name: string; ramGb: number; vramGb?: number; diskGb: number };
+
+export type ModelFit = { ok: boolean; level: "fits" | "tight" | "too-big"; reasons: string[] };
+
+/**
+ * Whether a model fits this machine, with the reason. RAM and video memory are compared with what is free now,
+ * keeping a margin for the system and for the other voice parts. "tight" runs but will be slow or may swap.
+ */
+export function checkModelFits(
+  model: ModelNeeds,
+  facts: HardwareFacts,
+  target: "cpu" | "gpu" = "cpu",
+): ModelFit {
+  const reasons: string[] = [];
+  const marginGb = 2;
+  const rank: Record<ModelFit["level"], number> = { fits: 0, tight: 1, "too-big": 2 };
+  const found: ModelFit["level"][] = [];
+  const raise = (to: ModelFit["level"]) => void found.push(to);
+  if (facts.diskFreeGb !== undefined && facts.diskFreeGb < model.diskGb * 1.2) {
+    reasons.push(`needs about ${model.diskGb} GB of disk, ${facts.diskFreeGb} GB free`);
+    raise("too-big");
+  }
+  if (model.ramGb + marginGb > facts.ramAvailableGb) {
+    reasons.push(`needs about ${model.ramGb} GB of RAM, ${facts.ramAvailableGb} GB free`);
+    raise(model.ramGb > facts.ramAvailableGb ? "too-big" : "tight");
+  }
+  if (target === "gpu") {
+    const vram = facts.cuda && facts.vramGb ? facts.vramGb : 0;
+    if (!vram) {
+      reasons.push("no usable GPU; it would run on the CPU");
+      raise("tight");
+    } else if ((model.vramGb ?? model.ramGb) > vram) {
+      reasons.push(
+        `needs about ${model.vramGb ?? model.ramGb} GB of video memory, ${vram} GB present`,
+      );
+      raise("too-big");
+    } else if ((model.vramGb ?? model.ramGb) + 0.5 > vram) {
+      reasons.push("almost fills the video memory");
+      raise("tight");
+    }
+  }
+  const level = found.reduce<ModelFit["level"]>(
+    (worst, next) => (rank[next] > rank[worst] ? next : worst),
+    "fits",
+  );
+  return { ok: level !== "too-big", level, reasons };
+}

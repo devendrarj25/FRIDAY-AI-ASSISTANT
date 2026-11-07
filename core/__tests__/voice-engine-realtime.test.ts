@@ -223,3 +223,106 @@ describe("realtime voice session", () => {
     expect((await r.voice.start(r.request())).ok).toBe(false);
   });
 });
+
+describe("realtime voice recovery", () => {
+  function recoverable(starts: ("ok" | "fail")[]) {
+    const stops: string[] = [];
+    const waits: number[] = [];
+    const handles: { stopped: boolean }[] = [];
+    const ledger = new UsageLedger(() => Date.parse("2026-05-05T10:00:00Z"));
+    let i = 0;
+    let lastStop: ((reason: string) => void) | undefined;
+    const ctx = {
+      currentTime: 0,
+      destination: {},
+      createBuffer: () => ({ copyToChannel: () => undefined }),
+      createBufferSource: () => ({
+        buffer: null,
+        connect: () => undefined,
+        start: () => undefined,
+        stop: () => undefined,
+        onended: null,
+      }),
+    } as unknown as ContextLike;
+    const voice = createRealtimeVoice({
+      start: async (input) => {
+        lastStop = input.onStop;
+        const mode = starts[i++] ?? "fail";
+        if (mode === "fail") return { ok: false, reasons: ["offline"] };
+        const h = { stopped: false };
+        handles.push(h);
+        return {
+          ok: true,
+          handle: {
+            session: () => ({}) as never,
+            sendAudio: async () => undefined,
+            bargeIn: async () => undefined,
+            stop: async () => void (h.stopped = true),
+          },
+        };
+      },
+      subscribe: () => () => undefined,
+      playback: new PcmPlayback(ctx, { rate: 24_000 }),
+      ledger,
+      now: () => 0,
+      recovery: { max: 2, baseMs: 100, sleep: async (ms) => void waits.push(ms) },
+    });
+    const request: RealtimeVoiceRequest = {
+      gate,
+      cloud: { provider: "openai", model: "m" },
+      settings: { instructions: "x" },
+      router: { cloud, privacyMode: false, billingAllowsPaid: true, online: true },
+      onStop: (why) => stops.push(why),
+    };
+    return {
+      voice,
+      request,
+      stops,
+      waits,
+      handles,
+      ledger,
+      drop: (why: string) => lastStop?.(why),
+    };
+  }
+
+  it("reconnects after a drop with a doubling wait, counting each connection as a request", async () => {
+    const r = recoverable(["ok", "ok"]);
+    await r.voice.start(r.request);
+    r.drop("the connection closed");
+    await new Promise((res) => setTimeout(res, 5));
+    expect(r.waits).toEqual([100]);
+    expect(r.handles.map((h) => h.stopped)).toEqual([true, false]);
+    expect(r.voice.stats().running).toBe(true);
+    expect(r.ledger.usage("openai").day).toBe(2);
+    expect(r.stops).toEqual([]);
+  });
+
+  it("gives up after the bounded number of tries and says why", async () => {
+    const r = recoverable(["ok", "fail", "fail"]);
+    await r.voice.start(r.request);
+    r.drop("the connection closed");
+    await new Promise((res) => setTimeout(res, 5));
+    expect(r.stops.at(-1)).toMatch(/reconnect refused: offline/);
+    expect(r.voice.stats().running).toBe(false);
+  });
+
+  it("does not reconnect when the owner stopped it", async () => {
+    const r = recoverable(["ok", "ok"]);
+    await r.voice.start(r.request);
+    await r.voice.stop("owner stopped");
+    expect(r.waits).toEqual([]);
+    expect(r.handles).toHaveLength(1);
+  });
+
+  it("does not reconnect when the router now refuses (quota used up)", async () => {
+    const r = recoverable(["ok", "ok"]);
+    await r.voice.start({
+      ...r.request,
+      router: { ...r.request.router, cloud: { ...cloud, dailyRequests: 1 } },
+    });
+    r.drop("the connection closed");
+    await new Promise((res) => setTimeout(res, 5));
+    expect(r.stops.at(-1)).toMatch(/reconnect refused: daily quota/);
+    expect(r.handles).toHaveLength(1);
+  });
+});

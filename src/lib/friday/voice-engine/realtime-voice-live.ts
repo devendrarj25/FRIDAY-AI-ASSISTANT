@@ -36,6 +36,7 @@ export function realtimeVoiceSession(): {
       playback: new PcmPlayback(context as unknown as ContextLike, { rate: REALTIME_RATE }),
       ledger,
       persistLedger: () => saveLedger(storage(), ledger),
+      recovery: { max: 3, baseMs: 1000 },
     });
     live = { voice, close: () => void context.close().catch(() => undefined) };
     sessionLedger = ledger;

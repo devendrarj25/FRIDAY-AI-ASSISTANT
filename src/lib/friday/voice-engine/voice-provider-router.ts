@@ -239,6 +239,11 @@ export class UsageLedger {
     row.audioMinutes += Math.max(0, audioMinutes);
   }
 
+  /** Add audio minutes to a provider without counting another request. */
+  addAudio(provider: string, minutes: number): void {
+    this.row(provider).audioMinutes += Math.max(0, minutes);
+  }
+
   snapshot(): Record<string, Usage> {
     return Object.fromEntries([...this.rows.keys()].map((id) => [id, this.usage(id)]));
   }

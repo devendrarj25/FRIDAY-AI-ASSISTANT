@@ -7,7 +7,11 @@ import {
   type RouteRequest,
   type VoiceCloudSettings,
 } from "../../src/lib/friday/voice-engine/voice-provider-router";
-import { missingModels, selectProfile } from "../../src/lib/friday/voice-engine/hardware-profile";
+import {
+  checkModelFits,
+  missingModels,
+  selectProfile,
+} from "../../src/lib/friday/voice-engine/hardware-profile";
 
 const request = (over: Partial<RouteRequest> = {}): RouteRequest => ({
   need: "text",
@@ -185,5 +189,48 @@ describe("performance profile", () => {
     const p = selectProfile(target);
     expect(p.downloadsNeedApproval).toBe(true);
     expect(missingModels(p, { stt: ["small"], llm: [] })).toEqual([`ollama ${p.llm.model}`]);
+  });
+});
+
+describe("model fit", () => {
+  const facts = {
+    cpuThreads: 12,
+    ramTotalGb: 16,
+    ramAvailableGb: 10,
+    cuda: true,
+    vramGb: 4,
+    diskFreeGb: 50,
+  };
+
+  it("fits a small model, flags a tight one, refuses one that is too big", () => {
+    expect(checkModelFits({ name: "small", ramGb: 1, diskGb: 0.5 }, facts)).toMatchObject({
+      ok: true,
+      level: "fits",
+    });
+    expect(checkModelFits({ name: "mid", ramGb: 8.5, diskGb: 5 }, facts)).toMatchObject({
+      ok: true,
+      level: "tight",
+    });
+    expect(checkModelFits({ name: "big", ramGb: 14, diskGb: 9 }, facts)).toMatchObject({
+      ok: false,
+      level: "too-big",
+    });
+  });
+
+  it("checks the disk and the video memory when it would run on the GPU", () => {
+    expect(checkModelFits({ name: "x", ramGb: 1, diskGb: 80 }, facts).ok).toBe(false);
+    expect(checkModelFits({ name: "g", ramGb: 1, vramGb: 3, diskGb: 1 }, facts, "gpu").level).toBe(
+      "fits",
+    );
+    expect(
+      checkModelFits({ name: "g", ramGb: 1, vramGb: 3.8, diskGb: 1 }, facts, "gpu").level,
+    ).toBe("tight");
+    expect(checkModelFits({ name: "g", ramGb: 1, vramGb: 6, diskGb: 1 }, facts, "gpu").ok).toBe(
+      false,
+    );
+    expect(
+      checkModelFits({ name: "g", ramGb: 1, diskGb: 1 }, { ...facts, cuda: false }, "gpu")
+        .reasons[0],
+    ).toMatch(/CPU/);
   });
 });

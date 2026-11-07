@@ -15,6 +15,7 @@ import { heardQualityLine, speechModelHint } from "@/lib/friday/asr-bias";
 import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
+import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
 import { turnTraceLine, voiceTurn, whereItStopped } from "@/lib/friday/voice-turn-trace";
 import {
   formatVoiceProbeReport,
@@ -139,6 +140,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
         whereItStopped(voiceTurn())?.reason &&
         whereItStopped(voiceTurn())?.reason !== "never reached",
       ),
+    },
+    {
+      label: "turn latency (heard to spoken)",
+      value: voiceLatency.line(),
     },
     {
       label: "voice tone",

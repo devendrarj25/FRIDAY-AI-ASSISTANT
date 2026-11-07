@@ -197,3 +197,81 @@ describe("capture tap on the one microphone", () => {
     expect(captureTapCount()).toBe(0);
   });
 });
+
+import { LatencyMonitor, turnDurations } from "../../src/lib/friday/voice-engine/latency-monitor";
+import {
+  beginVoiceTurn,
+  markTurnStage,
+  resetVoiceTurns,
+} from "../../src/lib/friday/voice-turn-trace";
+import { voiceLatency } from "../../src/lib/friday/voice-engine/latency-monitor";
+
+describe("latency monitor", () => {
+  it("reports nothing when nothing was measured and never invents a value", () => {
+    const m = new LatencyMonitor();
+    expect(m.summary("heardToSpoken")).toBeNull();
+    expect(m.line()).toBe("no finished turn measured yet");
+    m.record("x", Number.NaN);
+    m.record("x", -5);
+    expect(m.summary("x")).toBeNull();
+  });
+
+  it("computes nearest-rank percentiles and keeps a bounded window", () => {
+    const m = new LatencyMonitor();
+    for (let i = 1; i <= 100; i += 1) m.record("t", i * 10);
+    expect(m.summary("t")).toMatchObject({ count: 100, p50: 500, p95: 950, last: 1000, max: 1000 });
+    for (let i = 0; i < 50; i += 1) m.record("t", 5);
+    expect(m.summary("t")?.count).toBe(100);
+  });
+
+  it("measures only stages that really ran", () => {
+    const rows = (spec: [string, number, boolean][]) => ({
+      startedAt: 0,
+      rows: spec.map(([stage, at, ok]) => ({
+        stage: stage as never,
+        at,
+        ok,
+        reason: "",
+        detail: "",
+      })),
+    });
+    expect(
+      turnDurations(
+        rows([
+          ["heard", 100, true],
+          ["routed", 150, true],
+          ["model", 400, true],
+          ["reply", 900, true],
+          ["spoken", 1200, true],
+        ]),
+      ),
+    ).toEqual({
+      heardToRouted: 50,
+      routedToModel: 250,
+      modelToReply: 500,
+      replyToSpoken: 300,
+      heardToSpoken: 1100,
+    });
+    expect(
+      turnDurations(
+        rows([
+          ["heard", 100, true],
+          ["routed", 150, false],
+        ]),
+      ),
+    ).toEqual({});
+  });
+
+  it("learns from finished turns of the real turn trace", () => {
+    resetVoiceTurns();
+    voiceLatency.reset();
+    beginVoiceTurn(1000);
+    markTurnStage("heard", true, "", "", 1000);
+    markTurnStage("routed", true, "", "", 1040);
+    markTurnStage("spoken", true, "", "", 2100);
+    beginVoiceTurn(5000);
+    expect(voiceLatency.summary("heardToSpoken")).toMatchObject({ count: 1, last: 1100 });
+    resetVoiceTurns();
+    voiceLatency.reset();
+  });
+});

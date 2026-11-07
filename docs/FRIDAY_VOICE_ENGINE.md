@@ -58,7 +58,7 @@ Unverified: a live session. The official OpenAI Realtime page could not be read 
 
 ## Provider matrix
 
-Every row is `verified: false` in code. Rules: capability decides, never the name; quotas are the owner's numbers; nothing is assumed free.
+Only Sarvam and Azure Speech are `verified: true` in code, and only for the facts listed in their rows. Rules: capability decides, never the name; quotas are the owner's numbers; nothing is assumed free.
 
 | Provider                 | Needs it offers here                        | Notes                                                                                                                                                                                               |
 | ------------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -116,3 +116,21 @@ FRIDAY's local neural voice (Supertonic) is played as an `Audio` element in the 
 ## Task words and the voice state
 
 `classifyVoiceControl` separates what a sentence controls. "Ruk jao", "stop", "chup" end speech only. A sentence that also names a task ("background task cancel karo", "task pause karo", "task resume karo") acts on the newest unfinished voice task and nothing else. The existing stop branch in `assistant-mode.ts` is unchanged and does not touch tasks.
+
+## Hardware guide (for the owner's PC)
+
+1. Open Settings → Voice. The card shows the profile chosen from the live reading of this PC (CPU threads, free RAM, video memory) and the models it would use. Nothing is applied or downloaded from there.
+2. For a 4 GB NVIDIA GPU the rule is: speech recognition stays on the CPU (small, int8, beam 1, at most 4 threads); the GPU is kept for the language model; one background worker. If the card says Lite, free memory or CPU threads are low.
+3. Larger models are never fetched without your yes. `checkModelFits` explains why a model is too big (RAM, disk, video memory).
+4. To measure instead of trust: Settings → Voice → Speech model check (your own recordings), then watch "turn latency" in Voice diagnostics over a day.
+
+## How to run the voice upgrade
+
+1. `npm ci`, then `npm run setup:python` (see [INSTALL.md](../INSTALL.md)); on Windows the CMD build is unchanged.
+2. Mixed Hindi and English speech needs the Supertonic files on disk like before; there is no new download.
+3. Cloud is off by default. To try a cloud sample: Settings → Voice → turn on cloud AI, tick the provider, set a daily and monthly quota and audio minutes, save the key, set the Azure region and voice if you use Azure, press Speak a sample.
+4. To try the realtime session: turn on Auto mode, allow and approve paid use (and the billing firewall), save an OpenAI key, name a realtime model, tick the consent box, Start session. Stop with Stop session or Stop everything.
+
+## Test report (Linux build machine, 2026-11-07)
+
+Unit and local-socket tests only; no microphone, speaker, GPU, Windows or live provider was used. Counts are in the pull request. Hardware acceptance (speak while she speaks, echo not taken for a command, Hindi quality, a 30-minute session, device unplug, offline mode, quota fallback on a real account) is **not run**.

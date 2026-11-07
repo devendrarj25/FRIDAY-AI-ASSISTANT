@@ -2074,6 +2074,22 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice-cloud:key-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:save-key",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:speak",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:transcribe",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:duck",
       file: "electron/main.cjs",
     },
@@ -9317,8 +9333,8 @@ export const FLOW_REGISTRY = {
       total: 1102,
     },
     ipc: {
-      mapped: 478,
-      total: 478,
+      mapped: 482,
+      total: 482,
     },
     kernel: {
       mapped: 14,
