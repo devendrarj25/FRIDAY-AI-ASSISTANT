@@ -242,6 +242,42 @@ const pipMethods = (extra) => [
   },
 ];
 
+// A newest-release install that breaks the kernel must not be the state the owner is left in: the
+// package list is saved once before the first upgrade, and restored when the kernel no longer loads.
+const upgradeSnapshot = path.join(root, "temporary", "downloads", "pip-before-upgrade.txt");
+let snapshotTaken = false;
+function takeUpgradeSnapshot() {
+  if (snapshotTaken) return;
+  snapshotTaken = true;
+  const frozen = capture(python, ["-m", "pip", "freeze", "--disable-pip-version-check"]);
+  if (frozen.status !== 0 || !String(frozen.stdout || "").trim()) return;
+  fs.mkdirSync(path.dirname(upgradeSnapshot), { recursive: true });
+  fs.writeFileSync(upgradeSnapshot, String(frozen.stdout));
+}
+const kernelLoads = () =>
+  capture(python, [
+    "-c",
+    "import fastapi, uvicorn, httpx, pydantic, yaml, numpy; print('kernel loads')",
+  ]).status === 0;
+/** Put the packages back as they were before the newest-release install, when that install broke the kernel. */
+function rollbackUpgrade() {
+  if (!upgradeTried || !fs.existsSync(upgradeSnapshot)) return false;
+  console.error(
+    "[friday] the newest package releases broke the kernel imports - restoring the packages saved before the upgrade",
+  );
+  const back = run(python, [
+    "-m",
+    "pip",
+    "install",
+    "--disable-pip-version-check",
+    "--no-deps",
+    "-r",
+    upgradeSnapshot,
+  ]);
+  upgradeTried = false; // not recorded as checked: the next run asks again
+  return back.status === 0 && kernelLoads();
+}
+
 function installWithMethods(extra, options = {}) {
   const methods = options.preferBinaryFirst
     ? pipMethods(extra).filter((method) => !method.args.includes("--only-binary=:all:"))
@@ -257,6 +293,7 @@ function installWithMethods(extra, options = {}) {
         ...extra,
       ],
     });
+    takeUpgradeSnapshot();
     upgradeTried = true;
   }
   for (const method of methods) {
@@ -323,8 +360,10 @@ if (
     "import fastapi, uvicorn, httpx, pydantic, yaml; print('core kernel packages ok')",
   ]).status !== 0
 ) {
-  console.error("[friday] core kernel packages are still not importable.");
-  process.exit(1);
+  if (!(rollbackUpgrade() && kernelLoads())) {
+    console.error("[friday] core kernel packages are still not importable.");
+    process.exit(1);
+  }
 }
 // The FRIDAY database needs a working sqlite3 module, verified by a real query.
 if (
@@ -459,13 +498,19 @@ if (!voiceImportable()) {
 const capReq = path.join(kernelDir, "requirements-capabilities.txt");
 if (fs.existsSync(capReq)) {
   log(`installing capability extras from ${capReq}`);
-  if (!installWithMethods(["-r", capReq], { preferBinaryFirst: true })) {
-    log("some capability extras were not installed");
-    incomplete.push("some packages of requirements-capabilities.txt did not install");
-  }
   const capPins = parsePins(capReq).filter(
     (pin) => win || !/sys_platform\s*==\s*"win32"/.test(pin.spec),
   );
+  if (!installWithMethods(["-r", capReq], { preferBinaryFirst: true })) {
+    // pip -r is all or nothing: one package without a wheel must not leave the other sixteen uninstalled.
+    log("the capability list did not install as one set - installing each package on its own");
+    for (const pin of capPins) {
+      if (!installWithMethods([pin.spec], { preferBinaryFirst: true, noUpgrade: true })) {
+        log(`${pin.name} did not install`);
+        incomplete.push(`${pin.name} did not install`);
+      }
+    }
+  }
   for (const pin of capPins) {
     if (pin.name === "chromadb") continue;
     const mod =
@@ -488,6 +533,12 @@ if (fs.existsSync(capReq)) {
       incomplete.push(`${pin.name} is not importable`);
     }
   }
+}
+
+if (upgradeTried && !kernelLoads() && !rollbackUpgrade()) {
+  incomplete.push(
+    "the newest package releases broke the kernel and the earlier set could not be restored",
+  );
 }
 
 if (capture(python, ["-c", "import chromadb"]).status !== 0) {

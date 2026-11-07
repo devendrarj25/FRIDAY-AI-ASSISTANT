@@ -203,7 +203,8 @@ function Install-PythonDirect {
     $candidates = [regex]::Matches($listing.Content, 'href="(\d+\.\d+\.\d+)/"') |
       ForEach-Object { $_.Groups[1].Value } |
       Sort-Object { [version]$_ } -Descending |
-      Where-Object { [version]$_ -ge [version]$Versions.pythonMinimum }
+      Where-Object { [version]$_ -ge [version]$Versions.pythonMinimum } |
+      Where-Object { $v = [version]$_; ([version]('{0}.{1}' -f $v.Major, $v.Minor)) -le [version]$Versions.pythonWheelProven }
   } catch {
     Write-MethodFailure 'python.org FTP listing' $_.Exception.Message
   }

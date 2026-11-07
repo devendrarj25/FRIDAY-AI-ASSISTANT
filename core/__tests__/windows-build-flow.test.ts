@@ -46,6 +46,8 @@ describe("npm run setup installs everything and nothing is optional", () => {
     expect(setup).toContain("Show-NodeAndNpmLatest");
     expect(setup).toContain("$UpdateIds");
     expect(setup).toContain("Set-UpdateChecked");
+    // The python.org fallback stops at the series whose kernel wheels are proven.
+    expect(setup).toContain("$Versions.pythonWheelProven");
     expect(setup).toContain("installing the latest stable release");
     expect(setup).toContain("never downgrade");
   });

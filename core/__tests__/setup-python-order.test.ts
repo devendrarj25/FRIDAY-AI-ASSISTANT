@@ -31,4 +31,21 @@ describe("setup-python order", () => {
     expect(setup).toContain("if (incomplete.length) {");
     expect(setup.slice(setup.indexOf("if (incomplete.length) {"))).toContain("process.exit(1)");
   });
+
+  it("installs the capability packages one by one when the set fails as a whole", () => {
+    const block = setup.slice(setup.indexOf("installing capability extras from"));
+    expect(block).toContain("installing each package on its own");
+    expect(block).toContain("noUpgrade: true");
+    expect(block).toContain("did not install");
+  });
+
+  it("saves the package list before a newest-release install and restores it when the kernel stops loading", () => {
+    expect(setup).toContain("takeUpgradeSnapshot();");
+    expect(setup).toContain("function rollbackUpgrade()");
+    expect(setup).toContain("pip-before-upgrade.txt");
+    // Both the early import check and the check after the capability packages can roll back.
+    expect(setup.match(/rollbackUpgrade\(\)/g)?.length).toBeGreaterThanOrEqual(3);
+    // A rolled-back run is never recorded as checked, so the next run asks again.
+    expect(setup).toContain("upgradeTried = false;");
+  });
 });
