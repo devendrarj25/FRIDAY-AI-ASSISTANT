@@ -263,6 +263,7 @@ export class TaskOrchestrator {
       try {
         const result = await this.options.run({ ...task }, context, this.payloads.get(task.id));
         if (!TERMINAL.includes(task.state)) {
+          this.unpause(task);
           task.result = result.slice(0, 2000);
           this.move(
             task,
@@ -273,6 +274,7 @@ export class TaskOrchestrator {
         }
       } catch (error) {
         if (!TERMINAL.includes(task.state)) {
+          this.unpause(task);
           task.error = error instanceof Error ? error.message : String(error);
           this.move(task, "FAILED", "failed", `${task.label} failed: ${task.error}`);
         }
@@ -284,6 +286,11 @@ export class TaskOrchestrator {
         this.trim();
       }
     })();
+  }
+
+  /** A runner that never checkpoints can finish while the task is marked paused; it is running again for good. */
+  private unpause(task: VoiceTask): void {
+    if (task.state === "PAUSED") task.state = "RUNNING";
   }
 
   private trim(): void {

@@ -156,6 +156,30 @@ describe("TaskOrchestrator", () => {
     expect(o.list().length).toBeLessThanOrEqual(2);
   });
 
+  it("lets a runner that never checkpoints finish while marked paused, and fail while paused", async () => {
+    const g = gateway();
+    const h = gateway();
+    const o = new TaskOrchestrator({
+      run: async (t) => {
+        await (t.label === "ok" ? g.wait : h.wait);
+        if (t.label === "bad") throw new Error("late failure");
+        return "fine";
+      },
+    });
+    const ok = o.create({ label: "ok" });
+    if (!ok.ok) throw new Error("create failed");
+    expect(o.pause(ok.task.id)).toBe(true);
+    g.open();
+    await tick();
+    expect(o.get(ok.task.id)?.state).toBe("COMPLETED");
+    const bad = o.create({ label: "bad" });
+    if (!bad.ok) throw new Error("create failed");
+    expect(o.pause(bad.task.id)).toBe(true);
+    h.open();
+    await tick();
+    expect(o.get(bad.task.id)).toMatchObject({ state: "FAILED", error: "late failure" });
+  });
+
   it("only allows the listed moves", () => {
     expect(canMoveTask("COMPLETED", "RUNNING")).toBe(false);
     expect(canMoveTask("PAUSED", "COMPLETED")).toBe(false);

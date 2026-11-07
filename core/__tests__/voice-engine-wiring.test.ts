@@ -100,3 +100,62 @@ describe("live wiring", () => {
     );
   });
 });
+
+import {
+  subscribeVoiceTasks,
+  voiceTaskActions,
+  voiceTaskSnapshot,
+} from "../../src/lib/friday/voice-engine/voice-tasks";
+
+describe("voice task panel store", () => {
+  it("notifies subscribers on every change and keeps a stable snapshot between changes", async () => {
+    attachVoiceTaskSpeaker(
+      () => undefined,
+      () => "idle",
+    );
+    let calls = 0;
+    const off = subscribeVoiceTasks(() => (calls += 1));
+    const before = voiceTaskSnapshot();
+    expect(voiceTaskSnapshot()).toBe(before);
+    let finish!: () => void;
+    const made = startVoiceTask(
+      "Panel job",
+      () => new Promise<string>((r) => (finish = () => r("ok"))),
+      "needs-approval",
+    );
+    if (!made.ok) throw new Error("create failed");
+    expect(calls).toBeGreaterThan(0);
+    expect(voiceTaskSnapshot().find((t) => t.id === made.task.id)?.state).toBe(
+      "WAITING_FOR_APPROVAL",
+    );
+    expect(voiceTaskActions.approve(made.task.id, true)).toBe(true);
+    await tick();
+    expect(voiceTaskSnapshot().find((t) => t.id === made.task.id)?.state).toBe("RUNNING");
+    // A runner that never checkpoints can be marked paused and still finish; it must settle, not throw.
+    expect(voiceTaskActions.pause(made.task.id)).toBe(true);
+    finish();
+    await tick();
+    expect(voiceTaskSnapshot().find((t) => t.id === made.task.id)?.state).toBe("COMPLETED");
+    expect(voiceTaskActions.cancel(made.task.id)).toBe(false);
+    off();
+    const seen = calls;
+    startVoiceTask("After unsubscribe", async () => "x");
+    expect(calls).toBe(seen);
+  });
+
+  it("the Auto page shows the panel and it offers cancel, pause, resume and a yes or no", () => {
+    expect(readFileSync("src/components/friday/AutoMode.tsx", "utf8")).toContain(
+      "<VoiceTaskPanel />",
+    );
+    const panel = readFileSync("src/components/friday/VoiceTaskPanel.tsx", "utf8");
+    for (const action of [
+      "approve(task.id, true)",
+      "approve(task.id, false)",
+      "pause(task.id)",
+      "resume(task.id)",
+      "cancel(task.id)",
+    ]) {
+      expect(panel).toContain(action);
+    }
+  });
+});

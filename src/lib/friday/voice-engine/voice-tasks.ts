@@ -20,12 +20,20 @@ const announcer = new TaskAnnouncer();
 let speaker: ((text: string) => void) | null = null;
 let busyNow: () => VoiceBusy = () => "idle";
 
-const orchestrator = new TaskOrchestrator({
+const listeners = new Set<() => void>();
+let snapshot: VoiceTask[] = [];
+const refresh = () => {
+  snapshot = orchestrator.list();
+  for (const listener of listeners) listener();
+};
+
+const orchestrator: TaskOrchestrator = new TaskOrchestrator({
   run: (task, context, payload) =>
     typeof payload === "function"
       ? (payload as TaskWork)(task, context)
       : Promise.reject(new Error("no work was given for this task")),
   onUpdate: (_task, update) => {
+    refresh();
     for (const line of announcer.offer(update, busyNow())) speaker?.(line.text);
   },
 });
@@ -46,7 +54,9 @@ export function startVoiceTask(
   job: TaskWork,
   risk: TaskRisk = "safe",
 ): { ok: true; task: VoiceTask } | { ok: false; error: string } {
-  return orchestrator.create({ label, risk, payload: job });
+  const made = orchestrator.create({ label, risk, payload: job });
+  refresh();
+  return made;
 }
 
 /** The owner's yes or no to a task that asked for approval. */
@@ -61,6 +71,25 @@ export function answerTaskApproval(yes: boolean): string | null {
 export function listVoiceTasks(): VoiceTask[] {
   return orchestrator.list();
 }
+
+/** For the Tasks panel: a stable snapshot that changes only when a task changes. */
+export function voiceTaskSnapshot(): VoiceTask[] {
+  return snapshot;
+}
+
+export function subscribeVoiceTasks(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+
+/** Buttons of the Tasks panel. Each returns whether it changed anything. */
+export const voiceTaskActions = {
+  cancel: (id: string): boolean => orchestrator.cancel(id) && (refresh(), true),
+  pause: (id: string): boolean => orchestrator.pause(id) && (refresh(), true),
+  resume: (id: string): boolean => orchestrator.resume(id) && (refresh(), true),
+  approve: (id: string, yes: boolean): boolean =>
+    orchestrator.approve(id, yes) && (refresh(), true),
+};
 
 /** Apply a spoken task word. Returns the line to say, or null when the words were not about a task. */
 export function runTaskControl(control: VoiceControl): string | null {

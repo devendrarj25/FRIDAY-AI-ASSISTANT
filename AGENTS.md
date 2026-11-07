@@ -21,7 +21,8 @@ Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/elec
 - Edit the file that already owns the thing. Keep code and files clean, arranged, and free of duplicates.
 - Work on the open draft pull request branch, or on one new `upgrade/`, `fix/`, `change/`, or `modify/` branch.
 - Sign everything as `devendrarj25` and nothing else (see Identity).
-- Land the tests, the owning document, and `FRIDAY_STATE.md` in the same change. Run the full checks once at the end.
+- Land the tests, the owning document, and `FRIDAY_STATE.md` in the same change.
+- Finish every part of the owner's request without stopping between parts (see "Finish everything that was asked"). Run the full checks once, at the end, fix every failure, then commit.
 
 **Ask the owner first**
 
@@ -138,9 +139,13 @@ This is the whole path for a fix, an upgrade, or a later public revision.
 3. **Keep the repository clean.** No stray files, dead or commented-out code, debug output, build output, caches, logs, or screenshots committed. Every folder and file stays arranged, indexed, and registered where the project declares it (`npm run arrange:check`).
 4. **Keep everything connected and live.** The UI, every button, the Electron main process, the kernel, the stores, and the docs describe one product. A control is wired to a real handler. A page shows real data, a loading state, an empty state, an error with Retry, and an offline state. A stored setting is honoured. Lists and counts refresh from their source of truth after every change, through shared pollers and stores, not new always-on timers.
 5. **Use the best current method.** For anything non-trivial, search the web, read the official source, and pick what is fastest, smoothest, and safest for a local-first single-owner Windows app. Prefer the latest stable version that fits the floors in `package.json`, `kernel/requirements.txt`, and `config/toolchain-versions.json`. Prefer what FRIDAY already has, and build it ourselves when that fits better than adopting something. Make it future-proof: migrate old stored shapes, use registries and config instead of hard-coded lists, keep defaults safe, and keep updates flowing through the existing update channel.
-6. **Check each area right after changing it,** and only what the change can affect: `npm run test:fast`, the module's own test, `npm run typecheck`, or `npm run test:kernel`. Fix a failure before the next edit.
+6. **Do not run suites between edits.** While building, a single quick `npm run typecheck` or the one test of the file just written is enough to keep going. Running test suites again and again in the middle wastes the time that belongs to the build.
 7. **Write tests and documents with the code.** New behaviour gets its own test. The owning document and `FRIDAY_STATE.md` change in the same change.
-8. **At the end, run the full checks once** (see Checks). Collect every failure, fix them together in the owner code, and rerun until every suite is green. Then commit and push.
+8. **At the end, run the full checks once** (see Checks), after every part of the request is built and before the commit. Collect every failure, bug and error they show, fix them together in the owner code (never by weakening a test), and rerun until every suite is green and the work is fully working. Then commit and push.
+
+### Finish everything that was asked
+
+Read the owner's message to the end, list every part of it, and understand each part before building it. Then keep building, part after part, until every part is done. Do not stop in the middle to report, to ask what to do next, or to wait for a go-ahead; a short progress note is fine, a pause is not. Do not hand back a list of things left undone that the repository, the web or the tools could have finished. Stop only for the items under "Ask the owner first", for a secret or file that exists nowhere, and for what truly needs hardware or an account this machine does not have; name those once, at the end, as unverified or not possible here. When every part is built, run the full checks (step 8), fix everything they show, make the whole thing green and working, and only then commit and push.
 
 ## Checks
 

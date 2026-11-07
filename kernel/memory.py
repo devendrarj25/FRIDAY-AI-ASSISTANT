@@ -270,10 +270,10 @@ class VectorMemory:
             return self.fallback.search(query, k=k) if self.fallback else []
         col = self._ensure()
         res = col.query(query_texts=[query], n_results=k)
-        docs = res.get("documents", [[]])[0]
-        metas = res.get("metadatas", [[]])[0]
-        dists = res.get("distances", [[]])[0]
-        ids = res.get("ids", [[]])[0] if res.get("ids") else []
+        docs = (res.get("documents") or [[]])[0]
+        metas = (res.get("metadatas") or [[]])[0]
+        dists = (res.get("distances") or [[]])[0]
+        ids = (res.get("ids") or [[]])[0]
         out: list[dict] = []
         for index, (doc, meta, dist) in enumerate(zip(docs, metas, dists, strict=False)):
             rid = (meta or {}).get("id") or (ids[index] if index < len(ids) else None)

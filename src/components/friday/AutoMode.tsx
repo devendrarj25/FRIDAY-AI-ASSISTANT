@@ -48,6 +48,7 @@ import {
   type ChatLevel,
 } from "@/lib/friday/chat-level";
 import { VoiceDiagnostics } from "@/components/friday/VoiceDiagnostics";
+import { VoiceTaskPanel } from "@/components/friday/VoiceTaskPanel";
 import {
   HudButton,
   HudDivider,
@@ -653,6 +654,7 @@ export function AutoMode() {
                   full && "px-4 py-3",
                 )}
               >
+                <VoiceTaskPanel />
                 <VoiceTranscript
                   captions={visible}
                   interim={voice.interim}
