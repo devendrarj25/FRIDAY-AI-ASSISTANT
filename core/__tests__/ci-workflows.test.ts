@@ -238,6 +238,22 @@ describe("workflow inventory", () => {
     expect(action).not.toContain('cp "$bin"');
   });
 
+  it("finds Python 3.12 in the runner tool cache, then installs it with uv, when the image has dropped it from PATH", () => {
+    const action = fs.readFileSync(path.resolve(DIR, "../actions/python/action.yml"), "utf8");
+    // The order matters: PATH names first, then the tool cache, then uv, and only then the error.
+    const pathNames = action.indexOf("command -v python3.12");
+    const toolCache = action.indexOf("RUNNER_TOOL_CACHE");
+    const uv = action.indexOf("python install 3.12");
+    const failure = action.indexOf("uv could not install it");
+    expect(pathNames).toBeGreaterThan(-1);
+    expect(toolCache).toBeGreaterThan(pathNames);
+    expect(uv).toBeGreaterThan(toolCache);
+    expect(failure).toBeGreaterThan(uv);
+    // Never a third-party action: the allow-list permits only devendrarj25 actions.
+    expect(action).not.toContain("actions/setup-python@");
+    expect(action).not.toMatch(/uses:\s*(?!\.\/)/);
+  });
+
   it("does not call actions outside this repository", () => {
     // Settings allow only actions owned by devendrarj25. actions/checkout and
     // github/codeql-action fail the run before any job starts.
