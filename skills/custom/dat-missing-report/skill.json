@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "missing field report"
+  ],
   "description": "Counts blanks in pasted text. It does not impute or overwrite source files."
 }

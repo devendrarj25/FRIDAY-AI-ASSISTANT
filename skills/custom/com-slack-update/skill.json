@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "short async update"
+  ],
   "description": "Draft only. Slack send still uses the connector and approval gate."
 }

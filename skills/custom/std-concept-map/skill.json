@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "text concept map"
+  ],
   "description": "Text diagram only. It does not draw an image file."
 }

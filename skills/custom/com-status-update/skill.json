@@ -15,5 +15,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "stand up status"
+  ],
   "description": "Draft only. It does not post to Slack — use the Slack connector if you need send."
 }

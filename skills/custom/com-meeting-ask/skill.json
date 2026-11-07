@@ -14,5 +14,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "meeting request draft",
+    "meeting request"
+  ],
   "description": "Draft only. It does not create a calendar event."
 }

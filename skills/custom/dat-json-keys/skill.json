@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "json key paths"
+  ],
   "description": "Reads JSON text you paste. It does not call an API."
 }

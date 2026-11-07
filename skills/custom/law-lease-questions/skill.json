@@ -10,5 +10,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "rental question list",
+    "rental question"
+  ],
   "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
 }

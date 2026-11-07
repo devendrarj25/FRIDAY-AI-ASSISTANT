@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "apology draft"
+  ],
   "description": "Draft only. Honesty still depends on you."
 }

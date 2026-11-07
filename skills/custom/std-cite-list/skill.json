@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "citation list stub"
+  ],
   "description": "Formatting aid, not a citation-style authority (APA/MLA)."
 }

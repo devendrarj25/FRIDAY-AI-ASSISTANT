@@ -1,0 +1,18 @@
+{
+  "name": "Career desk",
+  "version": "1.0.0",
+  "description": "Career help from the built-in career skills: resume bullets, cover letters, interview prep, STAR stories, offer questions, job comparison and 30-60-90 plans. Picks the best skills for what you ask and can use several at once.",
+  "category": "career",
+  "role": "career-desk",
+  "skills": [
+    "category:career"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Career desk agent."
+}

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "glossary builder"
+  ],
   "description": "Term harvest. Definitions stay as '[add]' unless the line already has one."
 }

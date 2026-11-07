@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "dedupe key list",
+    "dedupe key"
+  ],
   "description": "In-memory uniqueness. It does not rewrite the source file."
 }

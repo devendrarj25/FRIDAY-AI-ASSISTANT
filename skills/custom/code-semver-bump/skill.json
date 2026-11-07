@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "semver bump suggestion"
+  ],
   "description": "breaking → major, feat → minor, fix → patch. Does not write config/friday-version.json."
 }

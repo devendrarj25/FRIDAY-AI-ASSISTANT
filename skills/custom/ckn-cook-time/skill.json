@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cook time sketch"
+  ],
   "description": "Not a substitute for a thermometer or the recipe's own time."
 }

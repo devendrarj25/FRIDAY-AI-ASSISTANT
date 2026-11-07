@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "difficult conversation outline",
+    "difficult conversation"
+  ],
   "description": "A talking scaffold. It does not speak for you."
 }

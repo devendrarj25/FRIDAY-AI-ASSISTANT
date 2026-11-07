@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "recipe grocery merge"
+  ],
   "description": "Merges pasted ingredient lines into one list. It does not place a grocery order."
 }

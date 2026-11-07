@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "environment variable audit"
+  ],
   "description": "Does not print values — only names referenced in source."
 }

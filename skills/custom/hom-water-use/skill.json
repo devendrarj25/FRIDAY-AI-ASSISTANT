@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "water use sketch"
+  ],
   "description": "Educational sketch using round numbers, not a utility meter."
 }

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "diff stats summarizer"
+  ],
   "description": "Understands ---/+++ and +/- lines. Does not apply the patch."
 }

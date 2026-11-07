@@ -13,5 +13,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "formal letter skeleton",
+    "formal letter"
+  ],
   "description": "A writing template. It does not print, post, or sign a letter."
 }

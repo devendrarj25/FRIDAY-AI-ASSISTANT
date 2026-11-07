@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cornell notes split"
+  ],
   "description": "Layout helper. It does not grade the notes."
 }

@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "histogram bins"
+  ],
   "description": "Equal-width counts only. It does not plot a chart file."
 }

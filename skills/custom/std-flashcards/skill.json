@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "flashcards from pairs"
+  ],
   "description": "Local study cards. It does not sync Anki."
 }

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "hydration reminder math"
+  ],
   "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
 }

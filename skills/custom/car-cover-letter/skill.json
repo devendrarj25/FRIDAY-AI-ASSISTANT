@@ -13,5 +13,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cover letter skeleton",
+    "cover letter"
+  ],
   "description": "Draft only. Does not submit an application."
 }

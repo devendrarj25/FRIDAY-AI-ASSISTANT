@@ -1,0 +1,19 @@
+{
+  "name": "Communication desk",
+  "version": "1.0.0",
+  "description": "Writing and messaging help from the built-in communication and writing skills: emails, replies, announcements, outlines, tone and structure. Picks the best skills for the request and can combine them.",
+  "category": "communication",
+  "role": "comms-desk",
+  "skills": [
+    "category:communication",
+    "category:writing"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Communication desk agent."
+}

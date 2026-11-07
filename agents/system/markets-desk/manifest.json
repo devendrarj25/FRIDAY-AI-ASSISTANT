@@ -1,0 +1,19 @@
+{
+  "name": "Markets desk",
+  "version": "1.0.0",
+  "description": "Money and markets help from the built-in markets and finance skills: ratios, returns, position sizing, budgets and what-if arithmetic. Educational arithmetic only, never investment advice.",
+  "category": "finance",
+  "role": "markets-desk",
+  "skills": [
+    "category:markets",
+    "category:finance"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY worked this out with her Markets desk agent. It is arithmetic, not investment advice."
+}

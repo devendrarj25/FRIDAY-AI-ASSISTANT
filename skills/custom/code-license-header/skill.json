@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "license header check"
+  ],
   "description": "Default needle is Copyright. Does not relicense files."
 }

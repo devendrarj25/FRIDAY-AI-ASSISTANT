@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "dependency list summarizer"
+  ],
   "description": "Reads the text you paste (JSON keys or pip-style lines). Does not query npm or PyPI."
 }

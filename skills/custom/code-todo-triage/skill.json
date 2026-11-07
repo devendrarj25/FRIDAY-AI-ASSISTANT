@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "todo triage"
+  ],
   "description": "Keyword triage of comment markers. Does not create issues."
 }

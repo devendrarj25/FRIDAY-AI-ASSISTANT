@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "sql review checklist",
+    "sql review"
+  ],
   "description": "Static pattern checks. Does not connect to a database."
 }

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "priority and urgency triage"
+  ],
   "description": "Recognises `u+ i+`, `urgent`, `important`, `later`, `delegate`. A triage board, not an auto-scheduler."
 }

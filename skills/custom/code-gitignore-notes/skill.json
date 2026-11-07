@@ -13,5 +13,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "gitignore coverage notes",
+    "gitignore coverage"
+  ],
   "description": "Glob-lite: * → .*, prefix match. Not a git check-ignore clone."
 }

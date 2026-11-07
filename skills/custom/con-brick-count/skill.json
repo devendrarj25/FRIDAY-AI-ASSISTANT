@@ -16,5 +16,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "brick and block count"
+  ],
   "description": "units = wallArea / ((L+gap)×(H+gap)) × (1+waste). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Openings should be subtracted in the area you pass in."
 }

@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "working at height checklist",
+    "working at height"
+  ],
   "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Does not issue a working-at-height permit or certify scaffold."
 }

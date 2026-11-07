@@ -10,5 +10,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "device lock checklist",
+    "device lock"
+  ],
   "description": "Hygiene checklist only. Not a penetration test, not a security audit, and not a guarantee."
 }

@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "agenda builder"
+  ],
   "description": "Splits a topic list across a meeting length so each item has a suggested slot. Does not create a calendar event."
 }

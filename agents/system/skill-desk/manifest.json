@@ -1,0 +1,18 @@
+{
+  "name": "Skill desk",
+  "version": "1.0.0",
+  "description": "The agent that can use any enabled skill. It picks the best few skills for what you ask from the whole built-in and installed set, runs them together and answers from all of their results.",
+  "category": "skills",
+  "role": "skill-desk",
+  "skills": [
+    "*"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY used several of her skills for this through her Skill desk agent."
+}

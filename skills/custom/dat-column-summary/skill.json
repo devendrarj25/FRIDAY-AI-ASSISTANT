@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "number column summary"
+  ],
   "description": "Local arithmetic on numbers you type. It does not connect to a database."
 }

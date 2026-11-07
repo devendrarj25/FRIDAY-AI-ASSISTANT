@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "z score outlier flags"
+  ],
   "description": "Descriptive flags on your numbers. Not a statistical test of causation."
 }

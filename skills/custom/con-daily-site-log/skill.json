@@ -14,5 +14,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "daily site log template",
+    "daily site log"
+  ],
   "description": "Buckets lines into workforce/work/delay/safety using keywords. This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification."
 }

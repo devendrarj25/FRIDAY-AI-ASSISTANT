@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cliche hunt"
+  ],
   "description": "A phrase list check. It does not grade writing quality overall."
 }

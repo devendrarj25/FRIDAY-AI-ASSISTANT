@@ -1,0 +1,18 @@
+{
+  "name": "Builder desk",
+  "version": "1.0.0",
+  "description": "Construction and site help from the built-in construction skills: quantities, estimates, schedules, checklists and site notes. Picks the best skills for the request and can combine them.",
+  "category": "construction",
+  "role": "builder-desk",
+  "skills": [
+    "category:construction"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Builder desk agent."
+}

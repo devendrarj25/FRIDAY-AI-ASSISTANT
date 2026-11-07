@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "csv to markdown table"
+  ],
   "description": "Text conversion only. It does not open Excel or write a spreadsheet file."
 }

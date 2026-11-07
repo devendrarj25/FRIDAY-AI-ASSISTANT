@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "weighted option scoring"
+  ],
   "description": "You supply the numbers. Highest total wins the worksheet, not the decision."
 }

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "star story expander"
+  ],
   "description": "Interview prep. Not a guarantee of an offer."
 }

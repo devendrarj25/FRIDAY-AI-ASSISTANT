@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "max drawdown from a curve"
+  ],
   "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Drawdown_t = (trough − peak) / peak on the running high. Historical statistic only."
 }

@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "owasp inspired static checklist",
+    "owasp inspired static"
+  ],
   "description": "Pattern list inspired by common web flaws. Not a certified audit and not an exploit."
 }

@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "spaced repeat dates"
+  ],
   "description": "A simple schedule, not a full SM-2 implementation."
 }

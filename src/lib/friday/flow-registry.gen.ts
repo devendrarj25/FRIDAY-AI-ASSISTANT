@@ -3148,6 +3148,30 @@ export const FLOW_REGISTRY = {
       file: "agents/core/zip-archive-inventory/manifest.json",
     },
     {
+      id: "agents/system/builder-desk/manifest",
+      kind: "agent",
+      name: "Builder desk",
+      file: "agents/system/builder-desk/manifest.json",
+    },
+    {
+      id: "agents/system/career-desk/manifest",
+      kind: "agent",
+      name: "Career desk",
+      file: "agents/system/career-desk/manifest.json",
+    },
+    {
+      id: "agents/system/code-desk/manifest",
+      kind: "agent",
+      name: "Code desk",
+      file: "agents/system/code-desk/manifest.json",
+    },
+    {
+      id: "agents/system/comms-desk/manifest",
+      kind: "agent",
+      name: "Communication desk",
+      file: "agents/system/comms-desk/manifest.json",
+    },
+    {
       id: "agents/system/data-desk/manifest",
       kind: "agent",
       name: "Data desk",
@@ -3160,10 +3184,28 @@ export const FLOW_REGISTRY = {
       file: "agents/system/dev-helper/manifest.json",
     },
     {
+      id: "agents/system/home-desk/manifest",
+      kind: "agent",
+      name: "Home desk",
+      file: "agents/system/home-desk/manifest.json",
+    },
+    {
       id: "agents/system/india-desk/manifest",
       kind: "agent",
       name: "India desk",
       file: "agents/system/india-desk/manifest.json",
+    },
+    {
+      id: "agents/system/kitchen-desk/manifest",
+      kind: "agent",
+      name: "Kitchen desk",
+      file: "agents/system/kitchen-desk/manifest.json",
+    },
+    {
+      id: "agents/system/legal-desk/manifest",
+      kind: "agent",
+      name: "Legal desk",
+      file: "agents/system/legal-desk/manifest.json",
     },
     {
       id: "agents/system/life-desk/manifest",
@@ -3178,16 +3220,52 @@ export const FLOW_REGISTRY = {
       file: "agents/system/log-doctor/manifest.json",
     },
     {
+      id: "agents/system/logic-desk/manifest",
+      kind: "agent",
+      name: "Logic desk",
+      file: "agents/system/logic-desk/manifest.json",
+    },
+    {
+      id: "agents/system/markets-desk/manifest",
+      kind: "agent",
+      name: "Markets desk",
+      file: "agents/system/markets-desk/manifest.json",
+    },
+    {
       id: "agents/system/math-desk/manifest",
       kind: "agent",
       name: "Math desk",
       file: "agents/system/math-desk/manifest.json",
     },
     {
+      id: "agents/system/office-desk/manifest",
+      kind: "agent",
+      name: "Office desk",
+      file: "agents/system/office-desk/manifest.json",
+    },
+    {
       id: "agents/system/privacy-guard/manifest",
       kind: "agent",
       name: "Privacy guard",
       file: "agents/system/privacy-guard/manifest.json",
+    },
+    {
+      id: "agents/system/security-desk/manifest",
+      kind: "agent",
+      name: "Security desk",
+      file: "agents/system/security-desk/manifest.json",
+    },
+    {
+      id: "agents/system/skill-desk/manifest",
+      kind: "agent",
+      name: "Skill desk",
+      file: "agents/system/skill-desk/manifest.json",
+    },
+    {
+      id: "agents/system/study-desk/manifest",
+      kind: "agent",
+      name: "Study desk",
+      file: "agents/system/study-desk/manifest.json",
     },
     {
       id: "agents/system/system-desk/manifest",
@@ -3200,6 +3278,12 @@ export const FLOW_REGISTRY = {
       kind: "agent",
       name: "Time planner",
       file: "agents/system/time-planner/manifest.json",
+    },
+    {
+      id: "agents/system/travel-desk/manifest",
+      kind: "agent",
+      name: "Travel desk",
+      file: "agents/system/travel-desk/manifest.json",
     },
     {
       id: "agents/system/writing-desk/manifest",
@@ -9046,8 +9130,8 @@ export const FLOW_REGISTRY = {
       total: 125,
     },
     capabilities: {
-      mapped: 1059,
-      total: 1059,
+      mapped: 1073,
+      total: 1073,
     },
     ipc: {
       mapped: 476,

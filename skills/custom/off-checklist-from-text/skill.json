@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "checklist from text"
+  ],
   "description": "Formats a list. It does not store tasks on the personal desk."
 }

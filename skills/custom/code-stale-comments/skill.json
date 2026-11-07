@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "stale comment finder"
+  ],
   "description": "Line scan only. Does not delete comments."
 }

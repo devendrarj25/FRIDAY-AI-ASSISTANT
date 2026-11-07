@@ -124,6 +124,7 @@ Each topic has exactly one document. Open it for the detail and follow its links
 | Install, local CMD pack, first-launch, upgrade, uninstall | [INSTALL.md](INSTALL.md) |
 | Using Chat, Voice, Models, and every sidebar section | [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) |
 | Feature catalog with implementation and test map | [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md) |
+| Complete skill and agent list, routing and management | [docs/FRIDAY_SKILLS.md](docs/FRIDAY_SKILLS.md) |
 | Capability import JSON format | [docs/FRIDAY_IMPORT_FORMAT.md](docs/FRIDAY_IMPORT_FORMAT.md) |
 | Architecture layers and IPC | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Architecture baseline and drift detectors | [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md) |

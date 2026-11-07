@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "decision focused agenda"
+  ],
   "description": "Each line becomes one item. Total minutes (default 45) split evenly."
 }

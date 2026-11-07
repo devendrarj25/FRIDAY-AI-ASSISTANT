@@ -33,6 +33,8 @@ export type ManagedSkill = {
   /** The capability id (`skills/core/<id>`) the Skills page toggles, when the skill is a folder pack. */
   capabilityId: string | null;
   risk: string;
+  /** Other names people use for it: the trigger phrases and the names of the tools inside a merged skill. */
+  aliases?: string[] | undefined;
 };
 
 export type GateOutcome = { state: "done" | "waiting" | "rejected" | "failed"; detail: string };
@@ -186,6 +188,10 @@ export function resolveSkill(target: string, skills: ManagedSkill[]): Match {
   );
   if (partial.length === 1) return { skill: partial[0]! };
   if (partial.length > 1) return { candidates: partial.slice(0, 6) };
+  // "the secret scan skill" is a tool inside Content safety scan: its trigger phrases and tool names count.
+  const byAlias = skills.filter((s) => (s.aliases ?? []).some((a) => norm(a) === want));
+  if (byAlias.length === 1) return { skill: byAlias[0]! };
+  if (byAlias.length > 1) return { candidates: byAlias.slice(0, 6) };
   return { none: true };
 }
 
@@ -361,8 +367,10 @@ export const defaultHost: SkillManagerHost = {
     for (const item of caps?.items ?? []) {
       if (item.tree !== "skills") continue;
       const id = slug(item.id);
+      const runtimeSkill = runtime.find((r) => r.id === id);
       byId.set(id, {
         id,
+        aliases: (runtimeSkill as { triggers?: string[] } | undefined)?.triggers,
         name: item.name,
         category: item.category || item.segment,
         enabled: item.enabled,
@@ -376,6 +384,7 @@ export const defaultHost: SkillManagerHost = {
       if (byId.has(skill.id)) continue;
       byId.set(skill.id, {
         id: skill.id,
+        aliases: (skill as { triggers?: string[] }).triggers,
         name: skill.name,
         category: skill.category,
         enabled: skill.enabled,

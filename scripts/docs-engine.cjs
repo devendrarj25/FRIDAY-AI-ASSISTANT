@@ -100,6 +100,15 @@ const DOCUMENTS = [
     topic: "Feature catalog with implementation and test map",
   },
   {
+    file: "docs/FRIDAY_SKILLS.md",
+    title: "FRIDAY — Skills and Agents",
+    section: "start",
+    audience: "owner, contributors",
+    answers:
+      "Every built-in skill and system agent, how FRIDAY and her agents pick and combine skills, and how to manage them",
+    topic: "Complete skill and agent list, routing and management",
+  },
+  {
     file: "docs/FRIDAY_IMPORT_FORMAT.md",
     title: "FRIDAY — Capability Import Format",
     section: "start",
@@ -418,6 +427,9 @@ const ROUTE_END = "<!-- docs-engine: end generated kernel routes -->";
 const MCP_START =
   "<!-- docs-engine: generated mcp surface. Edit scripts/docs-engine.cjs, not this. -->";
 const MCP_END = "<!-- docs-engine: end generated mcp surface -->";
+const SKILLS_START =
+  "<!-- docs-engine: generated skill list. Edit scripts/docs-engine.cjs, not this. -->";
+const SKILLS_END = "<!-- docs-engine: end generated skill list -->";
 const PROVIDER_STATUS_START =
   "<!-- docs-engine: generated provider status. Edit scripts/docs-engine.cjs, not this. -->";
 const PROVIDER_STATUS_END = "<!-- docs-engine: end generated provider status -->";
@@ -437,6 +449,76 @@ function providerStatusBlock() {
   }
   lines.push("", PROVIDER_STATUS_END);
   return `${lines.join("\n")}\n`;
+}
+
+/** Every shipped skill and system agent, read from the manifests on disk. */
+function skillsCatalogBlock() {
+  const readJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
+  const folders = (rel, manifest) => {
+    const dir = path.join(ROOT, rel);
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, manifest)))
+      .map((e) => readJson(path.join(dir, e.name, manifest)))
+      .sort((a, b) => String(a.id || a.role).localeCompare(String(b.id || b.role)));
+  };
+  const cell = (s) =>
+    String(s ?? "")
+      .replace(/\|/g, "/")
+      .replace(/\s+/g, " ")
+      .trim();
+  const core = folders("skills/core", "skill.json");
+  const custom = folders("skills/custom", "skill.json");
+  const agents = folders("agents/system", "manifest.json");
+  const lines = [
+    SKILLS_START,
+    "",
+    `${core.length + custom.length} skills ship enabled: ${core.length} tool-rich skills in \`skills/core/\` and ${custom.length} template skills in \`skills/custom/\`; ${agents.length} system agents in \`agents/system/\` use them.`,
+    "",
+    "### Tool-rich skills (`skills/core/`)",
+    "",
+    "| Skill | Id | Category | Tools inside | Phrases that reach it |",
+    "| --- | --- | --- | --- | --- |",
+  ];
+  for (const s of core) {
+    const tools = (s.parts || []).map((p) => p.name).join(", ") || "—";
+    const say = (s.triggers || []).slice(0, 6).join(", ") || "—";
+    lines.push(
+      `| ${cell(s.name)} | \`${s.id}\` | ${cell(s.category)} | ${cell(tools)} | ${cell(say)} |`,
+    );
+  }
+  const byCat = new Map();
+  for (const s of custom) byCat.set(s.category, [...(byCat.get(s.category) || []), s]);
+  lines.push("", "### Template skills (`skills/custom/`)", "");
+  for (const [cat, list] of [...byCat.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    lines.push(
+      `#### ${cat} (${list.length})`,
+      "",
+      "| Skill | Id | What it does |",
+      "| --- | --- | --- |",
+    );
+    for (const s of list) lines.push(`| ${cell(s.name)} | \`${s.id}\` | ${cell(s.summary)} |`);
+    lines.push("");
+  }
+  lines.push(
+    "### System agents (`agents/system/`)",
+    "",
+    "| Agent | Id | Skills it uses |",
+    "| --- | --- | --- |",
+  );
+  for (const a of agents) {
+    const uses = (a.skills || []).map((x) => `\`${x}\``).join(", ");
+    lines.push(`| ${cell(a.name)} | \`${a.role}\` | ${uses} |`);
+  }
+  lines.push("", SKILLS_END);
+  return `${lines.join("\n")}\n`;
+}
+
+function skillsCatalogStale() {
+  const file = "docs/FRIDAY_SKILLS.md";
+  if (!exists(file)) return true;
+  return !read(file).includes(skillsCatalogBlock().trimEnd());
 }
 
 function providerStatusStale() {
@@ -772,6 +854,7 @@ function inspect() {
     flowStale,
     mcpSurfaceStale: mcpSurfaceStale(),
     providerStatusStale: providerStatusStale(),
+    skillsCatalogStale: skillsCatalogStale(),
     countDrift: countDrift(),
     get ok() {
       return (
@@ -786,6 +869,7 @@ function inspect() {
         !this.flowStale &&
         !this.mcpSurfaceStale &&
         !this.providerStatusStale &&
+        !this.skillsCatalogStale &&
         !this.countDrift.length
       );
     },
@@ -832,6 +916,13 @@ function sync({ root = ROOT } = {}) {
       touched.push("docs/FRIDAY_PROVIDERS_AND_SECRETS.md");
     }
   }
+  if (exists("docs/FRIDAY_SKILLS.md")) {
+    if (
+      writeBlock("docs/FRIDAY_SKILLS.md", SKILLS_START, SKILLS_END, skillsCatalogBlock().trimEnd())
+    ) {
+      touched.push("docs/FRIDAY_SKILLS.md");
+    }
+  }
   if (exists("docs/FRIDAY_MCP.md")) {
     if (writeBlock("docs/FRIDAY_MCP.md", MCP_START, MCP_END, mcpSurfaceBlock().trimEnd())) {
       touched.push("docs/FRIDAY_MCP.md");
@@ -868,6 +959,7 @@ function main() {
   console.log(`capability counts off: ${report.countDrift.length}`);
   console.log(`mcp surface stale    : ${report.mcpSurfaceStale}`);
   console.log(`provider status stale: ${report.providerStatusStale}`);
+  console.log(`skill list stale     : ${report.skillsCatalogStale}`);
   for (const rel of report.missing) console.log(`  missing        ${rel}`);
   for (const rel of report.unregistered)
     console.log(`  unregistered   ${rel} -> add it to scripts/docs-engine.cjs`);

@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "seven day meal slots"
+  ],
   "description": "A slot plan for dishes you already named. Not nutrition advice and not a shopping order."
 }

@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "about section blurb"
+  ],
   "description": "Draft for a profile. It does not post to LinkedIn (no connector)."
 }

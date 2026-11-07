@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "stakeholder map"
+  ],
   "description": "influence/interest may be high|low or 1–5. Mapping aid only."
 }

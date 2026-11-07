@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "percent change series"
+  ],
   "description": "Backward-looking math on a list you paste. Not a forecast."
 }

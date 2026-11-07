@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "join key compare"
+  ],
   "description": "Set comparison on pasted lists. It does not run SQL."
 }

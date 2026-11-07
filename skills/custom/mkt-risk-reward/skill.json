@@ -14,5 +14,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "risk reward ratio",
+    "risk/reward ratio"
+  ],
   "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. reward/risk = |target − entry| / |entry − stop|. Does not submit brackets or OCO orders."
 }

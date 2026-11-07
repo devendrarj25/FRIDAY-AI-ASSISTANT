@@ -13,5 +13,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "reference request draft",
+    "reference request"
+  ],
   "description": "Draft only. FRIDAY does not send the request or contact the referee for you."
 }

@@ -15,5 +15,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "formwork area takeoff"
+  ],
   "description": "sides = openSides × length_or_width × height (simplified box). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Ties, pour rate, and pressure design stay with temporary-works engineering."
 }

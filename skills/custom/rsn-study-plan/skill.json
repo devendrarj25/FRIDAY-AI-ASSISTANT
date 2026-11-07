@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "study plan builder"
+  ],
   "description": "Equal slices plus a recap day if days > topics. A plan on paper, not a tutor session."
 }

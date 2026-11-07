@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "portfolio outline"
+  ],
   "description": "Outline only. It does not publish a site."
 }

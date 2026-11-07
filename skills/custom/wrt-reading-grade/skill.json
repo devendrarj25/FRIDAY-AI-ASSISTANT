@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "reading ease estimate"
+  ],
   "description": "A rough local estimate, not a certified readability audit."
 }

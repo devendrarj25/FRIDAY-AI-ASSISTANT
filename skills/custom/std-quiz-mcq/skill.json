@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "quiz stubs from bullets"
+  ],
   "description": "Study stubs. You must fill wrong answers; nothing is auto-graded against a bank."
 }

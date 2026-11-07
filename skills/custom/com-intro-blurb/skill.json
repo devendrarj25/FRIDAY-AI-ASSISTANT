@@ -14,5 +14,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "intro blurb"
+  ],
   "description": "Bio draft. It does not post to social networks."
 }

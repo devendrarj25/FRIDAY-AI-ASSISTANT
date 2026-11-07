@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "offer review questions"
+  ],
   "description": "Questions only. FRIDAY does not negotiate with an employer."
 }

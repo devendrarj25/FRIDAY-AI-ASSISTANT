@@ -5,10 +5,16 @@
   "category": "productivity",
   "capabilities": [],
   "risk": "safe",
-  "inputs": ["text", "title"],
+  "inputs": [
+    "text",
+    "title"
+  ],
   "version": 1,
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "meeting notes summariser"
+  ],
   "description": "Structures a meeting transcript into decisions, owners and action items. Runs entirely inside FRIDAY's sandbox; nothing leaves the machine."
 }

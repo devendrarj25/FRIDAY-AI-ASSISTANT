@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "minutes heading set"
+  ],
   "description": "Heading template only. For a full transcript summary use the meeting-notes skill."
 }

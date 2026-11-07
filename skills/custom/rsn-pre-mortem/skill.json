@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "pre mortem"
+  ],
   "description": "Prompts why-it-failed / early-signal / mitigation columns. Imagination aid, not a prediction."
 }

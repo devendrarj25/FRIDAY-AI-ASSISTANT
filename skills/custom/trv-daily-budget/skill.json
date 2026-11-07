@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "trip daily budget"
+  ],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas."
 }

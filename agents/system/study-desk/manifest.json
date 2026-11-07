@@ -1,0 +1,19 @@
+{
+  "name": "Study desk",
+  "version": "1.0.0",
+  "description": "Learning help from the built-in study and health-education skills: study plans, notes, quizzes, summaries and explanations. Picks the best skills for the request and can combine them.",
+  "category": "study",
+  "role": "study-desk",
+  "skills": [
+    "category:study",
+    "category:health-education"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Study desk agent."
+}

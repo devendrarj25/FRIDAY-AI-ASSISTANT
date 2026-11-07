@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "tip percent table"
+  ],
   "description": "Arithmetic only. Customs vary; this is not a rule."
 }

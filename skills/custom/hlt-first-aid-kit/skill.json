@@ -10,5 +10,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "first aid kit checklist",
+    "first aid"
+  ],
   "description": "Education and templates only — not medical advice, diagnosis, or treatment. Ask a clinician for personal health decisions."
 }

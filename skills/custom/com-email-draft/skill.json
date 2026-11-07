@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "email draft from bullets"
+  ],
   "description": "Draft only. FRIDAY does not send email; copy it out if you want it sent."
 }

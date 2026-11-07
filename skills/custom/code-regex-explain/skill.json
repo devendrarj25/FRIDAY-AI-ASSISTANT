@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "regex explainer"
+  ],
   "description": "Token walk plus RegExp.test on the sample. Invalid patterns fail honestly."
 }

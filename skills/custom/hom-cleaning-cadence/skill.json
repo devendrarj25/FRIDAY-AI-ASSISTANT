@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "cleaning cadence"
+  ],
   "description": "Household planning helper. It does not control devices or place orders."
 }

@@ -17,6 +17,7 @@
 import { capabilityRegistry, type CapabilityResource } from "./capability-registry";
 import { considerCollaboration } from "./multi-model";
 import { invokeSkill, listSkills } from "./skill-forge";
+import { chooseSkills } from "./skill-router";
 import { planAgent, runAgent, type AgentInvokeResult } from "../agent-runtime";
 import { runWorkflowPack, type WorkflowRunResult } from "./workflow-forge";
 import { learning } from "../self/learning-engine";
@@ -459,7 +460,8 @@ async function invokeOne(
     const installed = new Set(
       (await listFn()).filter((skill) => skill.enabled !== false).map((skill) => skill.id),
     );
-    const skillIds = agent.skills.filter((id) => installed.has(id));
+    const everySkill = (await listFn()).filter((skill) => skill.enabled !== false);
+    const skillIds = pickAgentSkills(agent.skills, everySkill, installed, prompt);
     const outputs: { id: string; ok: boolean; value: unknown; error?: string }[] = [];
     for (const skillId of skillIds) {
       const result = await skillFn(skillId, {
@@ -541,6 +543,36 @@ async function invokeOne(
   } catch (error) {
     return fail(String((error as Error)?.message ?? error));
   }
+}
+
+const BROAD_SKILL_LIMIT = 3;
+
+/**
+ * Which skills an agent runs for a prompt. A plain list of ids runs every enabled skill in it (a small team of
+ * tools). A selector widens the pool: "*" is every enabled skill and "category:career" is every enabled skill of
+ * that category. A pool picked by selector is too big to run whole, so the skill router chooses the best few for
+ * the words of this prompt, which lets an agent own a whole shelf of skills and use several at once.
+ */
+export function pickAgentSkills(
+  declared: string[],
+  enabled: { id: string; category?: string }[],
+  installed: Set<string>,
+  prompt: string,
+): string[] {
+  const ids = declared.filter(
+    (entry) => !entry.includes(":") && entry !== "*" && installed.has(entry),
+  );
+  const broad = declared.filter((entry) => entry === "*" || entry.startsWith("category:"));
+  if (!broad.length) return ids;
+  const pool = new Map<string, { id: string; category?: string }>();
+  for (const skill of enabled) {
+    if (broad.includes("*") || broad.includes(`category:${skill.category ?? ""}`))
+      pool.set(skill.id, skill);
+  }
+  const chosen = chooseSkills(prompt, [...pool.values()] as never, {
+    limit: BROAD_SKILL_LIMIT,
+  }).map((skill) => skill.id);
+  return [...new Set([...ids, ...chosen])];
 }
 
 /** A skill's own "not for this request" answer: it ran, and returned { ok: false, error }. */

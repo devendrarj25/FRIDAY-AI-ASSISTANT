@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "timezone hour offsets"
+  ],
   "description": "Planning helper only. FRIDAY does not book tickets, hotels, or visas. Offsets ignore DST; confirm before a call."
 }

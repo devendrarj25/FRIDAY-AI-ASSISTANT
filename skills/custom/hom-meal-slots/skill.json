@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "leftover meal slots"
+  ],
   "description": "Household planning helper. It does not control devices or place orders."
 }

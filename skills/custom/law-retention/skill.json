@@ -10,5 +10,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "records retention table"
+  ],
   "description": "Template / education only — not legal advice. Have a licensed lawyer review anything you will sign."
 }

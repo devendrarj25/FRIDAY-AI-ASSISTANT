@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "thesis split"
+  ],
   "description": "A thinking scaffold. It does not fact-check the claim."
 }

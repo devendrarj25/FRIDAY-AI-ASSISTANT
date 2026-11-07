@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "support and resistance from highs lows",
+    "support and resistance from highs/lows"
+  ],
   "description": "Informational analysis, education, or calculation only. FRIDAY has no brokerage or exchange connection and cannot place, execute, or automate a real trade. Sorts unique prices and groups those within 0.5% of each other. A sketch, not a level-trading bot."
 }

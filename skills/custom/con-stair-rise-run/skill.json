@@ -14,5 +14,10 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "stair rise run helper",
+    "stair rise run",
+    "stair rise/run helper"
+  ],
   "description": "This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Local building codes set legal riser/going limits. This only does arithmetic on the numbers you type."
 }

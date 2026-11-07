@@ -18,6 +18,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | [INSTALL.md](../INSTALL.md) | Published Setup and Portable, every owner-facing CMD/npm command, toolchain download fallbacks, isolated runtime layout, first-launch so Chat Manual/Auto/voice/local engines work, then upgrade and uninstall | owner |
 | [docs/FRIDAY_USER_GUIDE.md](FRIDAY_USER_GUIDE.md) | How to use the running desktop app, section by section, plus troubleshooting | owner |
 | [docs/FRIDAY_FEATURES.md](FRIDAY_FEATURES.md) | Every shipped capability, the file that implements it, and the test that covers it | owner, contributors |
+| [docs/FRIDAY_SKILLS.md](FRIDAY_SKILLS.md) | Every built-in skill and system agent, how FRIDAY and her agents pick and combine skills, and how to manage them | owner, contributors |
 | [docs/FRIDAY_IMPORT_FORMAT.md](FRIDAY_IMPORT_FORMAT.md) | JSON manifests for importing a skill, tool, module, plugin, workflow or agent, and what Import & Build does next | owner, contributors |
 
 ## 2. Architecture and data

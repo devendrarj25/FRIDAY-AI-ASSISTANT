@@ -12,5 +12,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "follow up email"
+  ],
   "description": "Draft only. FRIDAY does not send the follow-up or create a calendar reminder."
 }

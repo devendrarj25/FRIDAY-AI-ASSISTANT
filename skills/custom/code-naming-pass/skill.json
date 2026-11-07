@@ -12,5 +12,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "naming consistency notes",
+    "naming consistency"
+  ],
   "description": "Tokenises likely identifiers. Style notes only; it does not rename symbols on disk."
 }

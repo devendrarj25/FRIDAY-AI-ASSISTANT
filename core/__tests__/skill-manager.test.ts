@@ -347,3 +347,38 @@ describe("wired into the chat turn", () => {
     expect(source).toContain("It has NOT been done yet");
   });
 });
+
+describe("skills found by the other names people use", () => {
+  it("a tool name or trigger phrase resolves to the skill that holds it", () => {
+    const skills = [
+      {
+        id: "saf-content-scan",
+        name: "Content safety scan",
+        category: "safety",
+        enabled: true,
+        summary: "Find secrets",
+        shipped: true,
+        capabilityId: "skills/core/saf-content-scan",
+        risk: "safe",
+        aliases: ["secret scan", "pii redactor"],
+      },
+      {
+        id: "dev-json-tools",
+        name: "JSON tools",
+        category: "dev",
+        enabled: true,
+        summary: "Repair JSON",
+        shipped: true,
+        capabilityId: "skills/core/dev-json-tools",
+        risk: "safe",
+      },
+    ];
+    expect(resolveSkill("secret scan", skills)).toMatchObject({
+      skill: { id: "saf-content-scan" },
+    });
+    expect(resolveSkill("pii redactor", skills)).toMatchObject({
+      skill: { id: "saf-content-scan" },
+    });
+    expect(resolveSkill("nonsense thing", skills)).toEqual({ none: true });
+  });
+});

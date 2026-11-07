@@ -13,5 +13,9 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "refactor planning notes",
+    "refactor planning"
+  ],
   "description": "Flags functions over ~40 lines and repeated 8+ character tokens. Planning only; it does not rewrite the tree."
 }

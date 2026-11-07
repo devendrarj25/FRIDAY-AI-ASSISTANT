@@ -13,5 +13,8 @@
   "author": "friday-core",
   "enabled": true,
   "permissions": [],
+  "triggers": [
+    "slope and grade calculator"
+  ],
   "description": "grade% = rise/run × 100; angle = atan(rise/run). This is a planning aid, not a substitute for a licensed engineer's calculations or sign-off, and it is not professional certification. Drainage design still needs a civil layout."
 }
