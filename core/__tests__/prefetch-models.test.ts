@@ -881,14 +881,14 @@ describe("prefetch resilience and the English streaming speech", () => {
     expect(tail).not.toMatch(/^\s*process\.exit\((?!code)/m);
   });
 
-  it("fetches the English streaming weights once, with the venv Python, and is quiet when they are there", () => {
+  it("fetches the English streaming weights once, with the venv Python, and is quiet when they are there", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "friday-moon-"));
     try {
       const lines: string[] = [];
       const log = (line: string) => void lines.push(line);
       const target = path.join(dir, "models", "moonshine-en");
       // No Python yet: skipped, not failed.
-      expect(prefetch.fetchMoonshine(dir, { env: {}, log })).toMatchObject({
+      expect(await prefetch.fetchMoonshine(dir, { env: {}, log })).toMatchObject({
         ok: true,
         skipped: true,
       });
@@ -904,19 +904,19 @@ describe("prefetch resilience and the English streaming speech", () => {
         );
         return { status: 0, stdout: "MOONSHINE_OK x", stderr: "" };
       };
-      const first = prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      const first = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
       expect(first).toMatchObject({ id: "moonshine-en", ok: true, downloaded: true });
       expect(calls[0]![0]).toBe("py");
       expect(calls[0]![2]).toContain("TINY_STREAMING");
       expect(calls[0]![3]).toBe(target);
       expect(prefetch.moonshineReady(target)).toBe(true);
 
-      const again = prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      const again = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
       expect(again).toMatchObject({ ok: true, downloaded: false });
       expect(calls.length).toBe(1);
 
       rmSync(target, { recursive: true, force: true });
-      const failed = prefetch.fetchMoonshine(dir, {
+      const failed = await prefetch.fetchMoonshine(dir, {
         env: { FRIDAY_PYTHON: "py" },
         log,
         run: () => ({ status: 1, stdout: "", stderr: "ConnectionError: offline" }),
@@ -932,5 +932,36 @@ describe("prefetch resilience and the English streaming speech", () => {
     const stt = readFileSync(path.join(root, "kernel/stt.py"), "utf8");
     expect(stt).toContain('base / "models" / "moonshine-en"');
     expect(stt).toContain("ModelArch.TINY_STREAMING");
+  });
+});
+
+describe("download speed", () => {
+  it("the Hugging Face client gets more time to move its first byte on a big model", () => {
+    const hub = require_(path.join(root, "electron/hf-hub-download.cjs"));
+    expect(hub.startWindowMs(0)).toBe(25_000);
+    expect(hub.startWindowMs(141 * 1024 ** 2)).toBe(27_000);
+    expect(hub.startWindowMs(1457 * 1024 ** 2)).toBe(25_000 + 14 * 2000);
+    expect(hub.startWindowMs(50 * 1024 ** 3)).toBe(120_000);
+  });
+
+  it("the 1.6 GB Ollama update waits until every speech, voice and chat file is in place", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const run = source.slice(source.indexOf("async function prefetch("));
+    expect(run.indexOf("const updateOllamaLast = async")).toBeGreaterThan(0);
+    expect(run.indexOf("await updateOllamaLast();")).toBeGreaterThan(run.indexOf("mapPool(jobs"));
+    expect(run.indexOf("await updateOllamaLast();")).toBeGreaterThan(
+      run.indexOf("ensureOllama(root"),
+    );
+    // The update function is only defined before the downloads, never called there.
+    expect(run.slice(0, run.indexOf("mapPool(jobs")).includes("await updateOllamaLast()")).toBe(
+      false,
+    );
+  });
+
+  it("English streaming speech downloads beside the big files, not after them", () => {
+    const source = readFileSync(path.join(root, "scripts/prefetch-models.cjs"), "utf8");
+    const run = source.slice(source.indexOf("async function prefetch("));
+    expect(run.indexOf("const moonshineRun")).toBeLessThan(run.indexOf("mapPool(jobs"));
+    expect(run).toContain("rows.push(await moonshineRun)");
   });
 });

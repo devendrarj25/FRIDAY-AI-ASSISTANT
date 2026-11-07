@@ -145,10 +145,10 @@ describe("model downloads use several connections", () => {
     }
   });
 
-  it("can be turned down to one at a time", () => {
+  it("runs two lanes by default and can be turned down to one at a time", () => {
     expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "1" })).toBe(1);
-    expect(prefetch.prefetchParallelism({})).toBe(1);
+    expect(prefetch.prefetchParallelism({})).toBe(2);
     expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "99" })).toBe(4);
-    expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "nope" })).toBe(1);
+    expect(prefetch.prefetchParallelism({ FRIDAY_PREFETCH_PARALLEL: "nope" })).toBe(2);
   });
 });

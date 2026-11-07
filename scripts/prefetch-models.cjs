@@ -89,13 +89,14 @@ function enabled(env, key) {
 const findOllama = localLibrary.findInstalledOllama;
 
 /**
- * How many models download at once (FRIDAY_PREFETCH_PARALLEL, default 1). One model already
- * uses a pool of connections that grows while it still adds speed, so a second model only
- * splits the same line and scrambles the progress; it is there for owners who want it.
+ * How many models download at once (FRIDAY_PREFETCH_PARALLEL, default 2, at most 4). One big model already
+ * uses a pool of connections, but the many small files (turn detector, speech detector, the base speech
+ * size) spend most of their time waiting for a connection to open, so a second lane keeps the line busy.
+ * FRIDAY_PREFETCH_PARALLEL=1 gives the old one-at-a-time order.
  */
 function prefetchParallelism(env = process.env) {
   const wanted = Math.floor(Number(env.FRIDAY_PREFETCH_PARALLEL));
-  return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 1;
+  return Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, 4) : 2;
 }
 
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
@@ -675,7 +676,7 @@ function moonshineReady(dir) {
 }
 
 /** Fetch the English streaming weights with the venv Python. Returns one result row; never throws. */
-function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}) {
+async function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}) {
   const dir = path.join(root, ...MOONSHINE_DIR);
   if (moonshineReady(dir)) {
     log("[friday] ok       moonshine-en verified on disk; not downloaded again");
@@ -689,8 +690,29 @@ function fetchMoonshine(root, { env = process.env, log = console.log, run } = {}
     return { id: "moonshine-en", ok: true, downloaded: false, skipped: true };
   }
   log("[friday] fetching moonshine-en (English streaming speech)");
-  const spawn = run || require("node:child_process").spawnSync;
-  const ran = spawn(python, ["-c", MOONSHINE_SCRIPT, dir], {
+  const runIt =
+    run ||
+    ((exe, args, options) =>
+      new Promise((resolve) => {
+        const child = require("node:child_process").spawn(exe, args, {
+          env: options.env,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let out = "";
+        child.stdout.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
+        child.stderr.on("data", (chunk) => (out = (out + chunk).slice(-4000)));
+        const timer = setTimeout(() => child.kill(), options.timeout);
+        child.on("error", (error) => {
+          clearTimeout(timer);
+          resolve({ status: -1, stdout: out, stderr: "", error });
+        });
+        child.on("close", (status) => {
+          clearTimeout(timer);
+          resolve({ status, stdout: out, stderr: "" });
+        });
+      }));
+  const ran = await runIt(python, ["-c", MOONSHINE_SCRIPT, dir], {
     encoding: "utf8",
     timeout: 20 * 60 * 1000,
     env: { ...env, PYTHONIOENCODING: "utf-8" },
@@ -752,6 +774,9 @@ async function prefetch(
     log(
       `[friday] ok       ollama ${existing.version || "(version unknown)"} already installed${existing.exe ? ` at ${existing.exe}` : " and running"}; using it, nothing to download`,
     );
+  }
+  const updateOllamaLast = async () => {
+    if (!existing.installed) return;
     try {
       const newest = await latest("ollama");
       const newer =
@@ -791,8 +816,12 @@ async function prefetch(
     } catch {
       /* the version note is optional */
     }
-  }
+  };
   const fetchModel = download || require("../electron/model-download.cjs").downloadModel;
+  // The English streaming speech is small and comes from its own host, so it downloads beside the big files.
+  const moonshineRun = enabled(env, "FRIDAY_PREFETCH_MOONSHINE")
+    ? fetchMoonshine(root, { env, log, ...(moonshine ? { run: moonshine } : {}) })
+    : null;
   const ramGb = totalGb ?? os.totalmem() / 1024 ** 3;
   // The speech, voice and chat files are independent, so several download at once: one
   // connection per file rarely fills a fast line. Rows keep their order in the result.
@@ -930,9 +959,10 @@ async function prefetch(
     }
   }
   rows.push(...ollamaRows.filter((row) => !(row.id === small && !row.ok && provided)), ...extra);
-  if (enabled(env, "FRIDAY_PREFETCH_MOONSHINE")) {
-    rows.push(fetchMoonshine(root, { env, log, ...(moonshine ? { run: moonshine } : {}) }));
-  }
+  if (moonshineRun) rows.push(await moonshineRun);
+  // Last of all: a newer Ollama is a 1.6 GB installer and nothing waits on it, so every speech, voice and
+  // chat file is already in place when it starts (it used to download first and hold everything else back).
+  await updateOllamaLast();
   return rows;
 }
 
