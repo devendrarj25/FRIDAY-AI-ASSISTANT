@@ -1,0 +1,14 @@
+{
+  "id": "in-emi-sip",
+  "name": "EMI calculator",
+  "summary": "EMI, SIP and loan calculator",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["principal", "monthly", "rate", "years", "months", "kind"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Computes a reducing-balance loan EMI with total interest, total payable and the first months of the schedule, and estimates a SIP (monthly compounding, instalment at the start or end of the month) or a lumpsum at a yearly return you give. An estimate from your numbers: a lender's schedule can differ by a few rupees, and an investment return is never guaranteed."
+}

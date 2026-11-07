@@ -1,0 +1,14 @@
+{
+  "id": "saf-secret-scan",
+  "name": "Secret scan",
+  "summary": "Scan text for secrets, API keys, passwords",
+  "category": "privacy-safety",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["text"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Scans pasted text, config or code for private keys, cloud and AI provider keys, GitHub and Slack tokens, bearer tokens, JWTs, passwords in URLs and credential assignments, plus long random-looking strings. Shows line numbers and a masked preview, never the full secret, and returns a redacted copy. A pattern check, not a guarantee: a real exposed key must still be revoked and rotated."
+}

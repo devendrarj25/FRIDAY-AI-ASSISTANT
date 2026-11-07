@@ -54,4 +54,55 @@ describe("Skills page customization", () => {
     expect(source).toContain("Test selected");
     expect(source).not.toContain("hub.inspectFolder");
   });
+
+  it("keeps every install route in one panel, apart from the list", () => {
+    const install = source.indexOf('title="Install a skill"');
+    const list = source.indexOf('title="All Skills"');
+    const forge = source.indexOf('title="Create and test"');
+    expect(install).toBeGreaterThan(-1);
+    expect(list).toBeGreaterThan(install);
+    expect(forge).toBeGreaterThan(list);
+    const panel = source.slice(install, list);
+    for (const route of [
+      "CapabilityMarket",
+      "CapabilityImport",
+      'addFrom("zip")',
+      'addFrom("folder")',
+      "Git clone",
+    ]) {
+      expect(panel).toContain(route);
+    }
+    // The page header holds only Refresh, no longer a crowd of install controls.
+    const header = source.slice(
+      source.indexOf("actions={"),
+      source.indexOf('<div className="space-y-4">'),
+    );
+    expect(header).toContain("Refresh");
+    expect(header).not.toContain("addFrom(");
+  });
+
+  it("tells built-in skills from installed ones and never offers to remove a shipped skill", () => {
+    expect(source).toContain('s.origin === "app"');
+    expect(source).toContain("Built-in");
+    expect(source).toContain("Installed");
+    expect(source).toContain('source === "builtin"');
+    expect(source).toContain('source === "installed"');
+    expect(source).toContain('disabled={Boolean(busyId) || !s.id || s.origin === "app"}');
+  });
+
+  it("has a one-click Test, a Refresh with a Retry, and loading and desktop-only states", () => {
+    expect(source).toContain("onTestShortcut");
+    expect(source).toContain('id="skill-test-input"');
+    expect(source).toContain("onRefresh");
+    expect(source).toContain('label: "Retry"');
+    expect(source).toContain("<LoadingState");
+    expect(source).toContain("Skills are listed by the FRIDAY desktop app");
+  });
+
+  it("shows version, source, folder and approval prompt from the real manifest", () => {
+    expect(source).toContain("openRow.approvalPrompt");
+    expect(source).toContain("openRow.version");
+    expect(source).toContain("openRow.path");
+    expect(source).toContain("item.approvalPrompt");
+  });
 });

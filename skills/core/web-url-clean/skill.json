@@ -1,0 +1,14 @@
+{
+  "id": "web-url-clean",
+  "name": "URL cleaner",
+  "summary": "Clean a URL: strip tracking from links",
+  "category": "web",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["url"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Rewrites links for sharing and checking: removes tracking parameters (utm, fbclid, gclid and similar), unwraps known redirect wrappers (Google, Facebook, Outlook safelinks, Reddit, YouTube) and flags look-alike tricks: user@ in the address, punycode hosts, bare IP addresses, link shorteners, plain http. It only rewrites text; it never opens the link."
+}

@@ -1,0 +1,14 @@
+{
+  "id": "in-invoice-total",
+  "name": "Invoice total",
+  "summary": "Total an invoice with GST",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["items", "lines", "gst", "interstate"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Totals an invoice from lines such as Laptop 2 x 45000 18% (description, quantity x rate, GST percent, optional discount percent). Returns line totals, taxable value, GST grouped by rate with the CGST and SGST or IGST split, round-off to the nearest rupee and the grand total in words. Rates are taken from each line; check them against the HSN or SAC code before issuing."
+}

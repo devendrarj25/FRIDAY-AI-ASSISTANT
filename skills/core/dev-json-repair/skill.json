@@ -1,0 +1,14 @@
+{
+  "id": "dev-json-repair",
+  "name": "JSON repair",
+  "summary": "Repair broken JSON",
+  "category": "developer",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["json", "indent"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Turns almost-JSON into valid, formatted JSON: strips code fences, comments and trailing commas, quotes bare keys, converts single quotes and smart quotes, replaces True, None, NaN and undefined, escapes raw line breaks in strings and closes missing brackets. Lists every fix it made and refuses, with the parser's reason, when it cannot repair the text."
+}

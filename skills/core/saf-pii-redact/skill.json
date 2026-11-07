@@ -1,0 +1,14 @@
+{
+  "id": "saf-pii-redact",
+  "name": "PII redactor",
+  "summary": "Redact personal data in text",
+  "category": "privacy-safety",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["text", "mode"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Replaces personal data in text with labels (or a partly visible form) before it goes to a cloud model or into a document: emails, Indian and international phone numbers, PAN, Aadhaar, UPI ids, IP addresses and payment card numbers. Card and Aadhaar numbers are masked only when their checksum is valid, which avoids hiding ordinary numbers. Names and addresses are not detected."
+}
