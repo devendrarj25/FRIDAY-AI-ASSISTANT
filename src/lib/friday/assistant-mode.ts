@@ -107,12 +107,15 @@ import {
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
-import { classifyVoiceControl } from "./voice-engine/interruption-controller";
+import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
+import { classifyVoiceControl, isBackchannel } from "./voice-engine/interruption-controller";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import { askBrain } from "./self/ask-brain";
 import {
   attachVoiceTaskSpeaker,
   releaseTaskUpdates,
   runTaskControl,
+  startVoiceTask,
 } from "./voice-engine/voice-tasks";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
@@ -426,6 +429,8 @@ class AssistantModeStore {
   /** Barge-in and a mode change drop every queued clip from an older turn. */
   private speechGen = 0;
   private unfinished = "";
+  /** When the last reply was cut off, so a quick "haan" can resume it. */
+  private interruptedAt = 0;
   private backchannelUsed = false;
   private speechQueue: string[] = [];
   private draining = false;
@@ -2236,6 +2241,29 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // "Do this in the background": the work becomes a voice task that runs the real Brain turn; the answer is
+    // announced when it finishes. The Brain takes one turn at a time, so a new question during the task waits.
+    const background = parseBackgroundRequest(command || text);
+    if (background && this.state.mode === "auto") {
+      this.trace("wake", "background request — started as a voice task");
+      markTurnStage("routed", true, "", "background task");
+      const made = startVoiceTask(background.label, async (_task, context) => {
+        await context.checkpoint();
+        const stopOnCancel = () => brain.stop();
+        context.signal.addEventListener("abort", stopOnCancel, { once: true });
+        try {
+          const done = await askBrain(background.request, { brain, timeoutMs: 300_000 });
+          await context.checkpoint();
+          return completionLine(done.answer) || "Finished.";
+        } finally {
+          context.signal.removeEventListener("abort", stopOnCancel);
+        }
+      });
+      if (!made.ok) this.speak(made.error);
+      this.state.status = "Listening";
+      this.emit();
+      return;
+    }
     // "FRIDAY, stop" is an interruption, never a task: cut the reply short and
     // go straight back to listening instead of sending "stop" to the brain.
     if (isStopCommand(text)) {
@@ -2286,7 +2314,10 @@ class AssistantModeStore {
       return;
     }
 
-    if (wantsContinue(command) && this.unfinished) {
+    // A short "haan" right after she was cut off is agreement, not a new request: pick up where she stopped.
+    const backchannelResume =
+      isBackchannel(command) && this.unfinished !== "" && Date.now() - this.interruptedAt < 8000;
+    if ((wantsContinue(command) || backchannelResume) && this.unfinished) {
       const rest = this.unfinished;
       this.unfinished = "";
       this.remember("continue", command, "resumed");
@@ -2643,7 +2674,10 @@ class AssistantModeStore {
   private dropPlayback(hold = true) {
     if (hold && (this.state.speaking || this.speechQueue.length)) {
       const held = holdInterrupted([this.spokenText, ...this.speechQueue]);
-      if (held) this.unfinished = held;
+      if (held) {
+        this.unfinished = held;
+        this.interruptedAt = Date.now();
+      }
     }
     this.speechGen += 1;
     this.speechQueue = [];
