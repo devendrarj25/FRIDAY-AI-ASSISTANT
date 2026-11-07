@@ -20,6 +20,10 @@ import {
   type VoiceCloudPrefs,
 } from "@/lib/friday/voice-engine/voice-cloud-settings";
 import { PROVIDERS, routeVoice, type Need } from "@/lib/friday/voice-engine/voice-provider-router";
+import {
+  prepareForSpeech,
+  sanitizePronunciations,
+} from "@/lib/friday/voice-engine/text-normalizer";
 import { speakWithCloud } from "@/lib/friday/voice-engine/voice-cloud-client";
 import { saveLedger } from "@/lib/friday/voice-engine/voice-cloud-settings";
 
@@ -296,6 +300,81 @@ function CloudSpeechTest({
   );
 }
 
+/** Words the voice should say differently, and a preview of how a sentence is prepared for speech. */
+function PronunciationSettings() {
+  const prefs = usePreferences();
+  const entries = sanitizePronunciations(prefs.voice.pronunciations);
+  const [written, setWritten] = useState("");
+  const [said, setSaid] = useState("");
+  const [sample, setSample] = useState(
+    "आपका बिल ₹1,200 है, pay by 25/01/2026 at 5:30 pm. GST 18%.",
+  );
+  const save = (next: Record<string, string>) =>
+    preferences.setVoice({ pronunciations: sanitizePronunciations(next) });
+  return (
+    <div className="grid gap-1">
+      <p className="text-foreground">How words are said</p>
+      <p>
+        Numbers, money, dates and times are said as words in each language. Add a word below to
+        change how it is said (a name, a brand). Your entries win over the built-in ones.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className={inputClass}
+          placeholder="written"
+          value={written}
+          onChange={(e) => setWritten(e.target.value)}
+        />
+        <span>→</span>
+        <input
+          className={`${inputClass} w-44`}
+          placeholder="said as"
+          value={said}
+          onChange={(e) => setSaid(e.target.value)}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!written.trim() || !said.trim()}
+          onClick={() => {
+            save({ ...entries, [written.trim()]: said.trim() });
+            setWritten("");
+            setSaid("");
+          }}
+        >
+          Add
+        </Button>
+      </div>
+      {Object.entries(entries).map(([key, value]) => (
+        <p key={key} className="flex items-center gap-2">
+          <span className="text-foreground">{key}</span> → {value}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              save(Object.fromEntries(Object.entries(entries).filter(([k]) => k !== key)))
+            }
+          >
+            Remove
+          </Button>
+        </p>
+      ))}
+      <label className="grid gap-1">
+        <span>Try a sentence</span>
+        <input
+          className={`${inputClass} w-full`}
+          value={sample}
+          onChange={(e) => setSample(e.target.value)}
+        />
+      </label>
+      <p>
+        <span className="text-foreground">Said as:</span>{" "}
+        {prepareForSpeech(sample, entries) || "nothing speakable"}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Cloud voice limits and the machine profile, in plain words. Everything here starts off and at zero. The
  * decision rows show what the router would pick right now; they change nothing by themselves.
@@ -439,6 +518,7 @@ export function VoiceEngineSettings() {
           );
         })}
       </div>
+      <PronunciationSettings />
       <CloudSpeechTest cloud={cloud} keys={keys} ledger={ledger} setKeys={setKeys} set={set} />
       <RealtimeCloudSession prefs={cloud} keys={keys} />
       <div className="grid gap-1">

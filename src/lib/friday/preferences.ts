@@ -66,6 +66,8 @@ export type VoicePreferences = {
    * allowance is never assumed. See `voice-engine/voice-cloud-settings.ts`.
    */
   cloudVoice: VoiceCloudPrefs;
+  /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
+  pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
   sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
@@ -222,6 +224,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pauseDuringCalls: true,
     realtimeExperiment: false,
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
+    pronunciations: {},
     sttSize: "auto",
     addressName: "",
     addressMode: "conversation",

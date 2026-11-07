@@ -110,6 +110,7 @@ import {
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
 import { classifyVoiceControl, isBackchannel } from "./voice-engine/interruption-controller";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
 import {
   attachVoiceTaskSpeaker,
@@ -2732,7 +2733,14 @@ class AssistantModeStore {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
-    this.speechQueue.push(spoken);
+    // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
+    // pronunciation entries win. The echo filter then compares against what is really spoken.
+    const prepared = prepareForSpeech(spoken, preferences.getSnapshot().voice.pronunciations);
+    if (!prepared) {
+      markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
+      return;
+    }
+    this.speechQueue.push(prepared);
     void this.drainSpeech();
   }
 
