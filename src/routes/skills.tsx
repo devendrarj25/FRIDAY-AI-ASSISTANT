@@ -1,8 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useDeferredValue } from "react";
-import { FileArchive, FolderUp, Loader2, Plus, Puzzle, Search, Sparkles } from "lucide-react";
+import {
+  FileArchive,
+  FlaskConical,
+  FolderUp,
+  GitBranch,
+  Loader2,
+  Puzzle,
+  RefreshCw,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { AppShell } from "@/components/friday/AppShell";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   DataTable,
@@ -13,6 +24,7 @@ import {
   StatusPill,
   toneForStatus,
   EmptyState,
+  LoadingState,
 } from "@/components/friday/ui";
 import { useCapabilities, type CapabilityItem } from "@/lib/friday/capability-trees";
 import { useLedger } from "@/lib/friday/self/use-self";
@@ -65,6 +77,11 @@ type SkillRow = {
   risk: string;
   permissions: string[];
   inputs: string[];
+  /** "app" ships with FRIDAY; "workspace" was installed into the FRIDAY folder. */
+  origin: "app" | "workspace";
+  version: string;
+  path: string;
+  approvalPrompt: string;
 };
 
 const DESKTOP_ONLY = "This change needs the FRIDAY desktop app.";
@@ -90,12 +107,13 @@ function SkillsPage() {
   const [importBusy, setImportBusy] = useState<"zip" | "folder" | "git" | "forge" | "test" | null>(
     null,
   );
-  const [gitOpen, setGitOpen] = useState(false);
+  const [source, setSource] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
   const [forgeGoal, setForgeGoal] = useState("");
   const [testInput, setTestInput] = useState("");
   const [forgeLog, setForgeLog] = useState("");
-  const { supported, items, refresh, toggle } = useCapabilities("skills");
+  const { supported, loading, items, refresh, toggle } = useCapabilities("skills");
   const { tasks } = useLedger();
 
   // Real skills come from the skill manifests on disk. Mastery/level are
@@ -125,6 +143,10 @@ function SkillsPage() {
         risk: item.risk || "",
         permissions: item.permissions || [],
         inputs: item.inputs || [],
+        origin: item.origin,
+        version: item.version || "",
+        path: item.path || "",
+        approvalPrompt: item.approvalPrompt || "",
       };
     });
   }, [supported, items, tasks]);
@@ -144,10 +166,7 @@ function SkillsPage() {
             ? await installSkillFolder()
             : await installSkillGit(gitUrl.trim());
       if (result?.ok) {
-        if (kind === "git") {
-          setGitUrl("");
-          setGitOpen(false);
-        }
+        if (kind === "git") setGitUrl("");
         await refresh();
         const list = (result as { verification?: CapabilityVerification[] }).verification ?? [];
         if (!list.length) toast.success("Imported skill pack(s).");
@@ -176,6 +195,26 @@ function SkillsPage() {
     } finally {
       setImportBusy(null);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refresh();
+      toast.success("Skill list refreshed.");
+    } catch {
+      toast.error("Could not read the skill folders.", {
+        action: { label: "Retry", onClick: () => void onRefresh() },
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  /** Open a skill's details and put the cursor in the test box, so "Test" is one click. */
+  const onTestShortcut = (row: SkillRow) => {
+    setOpenId(row.id);
+    requestAnimationFrame(() => document.getElementById("skill-test-input")?.focus());
   };
 
   const onForge = async () => {
@@ -242,6 +281,8 @@ function SkillsPage() {
       ready: skills.filter((s) => s.status === "Ready").length,
       learning: skills.filter((s) => s.status === "Learning").length,
       idle: skills.filter((s) => s.status === "Idle").length,
+      builtin: skills.filter((s) => s.origin === "app").length,
+      installed: skills.filter((s) => s.origin === "workspace").length,
     }),
     [skills],
   );
@@ -256,6 +297,8 @@ function SkillsPage() {
   const rows = skills.filter((s) => {
     if (tab !== "all" && s.status.toLowerCase() !== tab) return false;
     if (category !== "all" && s.category !== category) return false;
+    if (source === "builtin" && s.origin !== "app") return false;
+    if (source === "installed" && s.origin !== "workspace") return false;
     const needle = deferredQuery.trim().toLowerCase();
     if (!needle) return true;
     return [s.name, s.category, s.summary].some((field) => field.toLowerCase().includes(needle));
@@ -365,82 +408,131 @@ function SkillsPage() {
       subtitle="What FRIDAY can already do — and what it is still learning"
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <CapabilityMarket
-            tree="skills"
-            installedIds={items.map((item) => item.id)}
-            onChanged={refresh}
-          />
-          <CapabilityImport
-            tree="skills"
-            installedIds={items.map((item) => item.id)}
-            onChanged={refresh}
-          />
-          {gitOpen ? (
-            <Input
-              value={gitUrl}
-              onChange={(event) => setGitUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void addFrom("git");
-              }}
-              placeholder="https://github.com/owner/repo.git"
-              className="h-8 w-56 font-mono text-xs"
-              disabled={importBusy !== null}
-            />
-          ) : null}
           <Button
             size="sm"
             variant="outline"
-            disabled={!supported || importBusy !== null}
-            onClick={() => (gitOpen ? void addFrom("git") : setGitOpen(true))}
+            disabled={!supported || refreshing}
+            onClick={() => onRefresh()}
           >
-            {importBusy === "git" ? (
+            {refreshing ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Plus className="size-4" />
+              <RefreshCw className="size-4" />
             )}
-            {gitOpen ? "Clone repo" : "Git clone"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!supported || importBusy !== null}
-            onClick={() => addFrom("zip")}
-          >
-            {importBusy === "zip" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <FileArchive className="size-4" />
-            )}
-            Zip
-          </Button>
-          <Button
-            size="sm"
-            disabled={!supported || importBusy !== null}
-            onClick={() => addFrom("folder")}
-          >
-            {importBusy === "folder" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <FolderUp className="size-4" />
-            )}
-            Folder
+            Refresh
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           <StatTile
             icon={<Puzzle className="size-4" />}
             label="Total"
             value={counts.all}
             state="skills"
           />
+          <StatTile
+            label="Built-in"
+            value={counts.builtin}
+            state="ships with FRIDAY"
+            tone="muted"
+          />
+          <StatTile label="Installed" value={counts.installed} state="added by you" tone="accent" />
           <StatTile label="Active" value={counts.active} state="in use" tone="accent" />
           <StatTile label="Ready" value={counts.ready} state="standby" tone="primary" />
           <StatTile label="Learning" value={counts.learning} state="training" tone="warning" />
           <StatTile label="Idle" value={counts.idle} state="unused" tone="muted" />
         </div>
+
+        <HudPanel
+          title="Install a skill"
+          hint="every pack is checked and sandbox-tested before it is enabled"
+        >
+          <div className="space-y-3">
+            {!supported ? (
+              <p className="text-note text-muted-foreground">
+                Installing writes into your FRIDAY folder, so it needs the FRIDAY desktop app.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label-xs w-28 shrink-0 text-muted-foreground">From a catalogue</span>
+              <CapabilityMarket
+                tree="skills"
+                installedIds={items.map((item) => item.id)}
+                onChanged={refresh}
+              />
+              <CapabilityImport
+                tree="skills"
+                installedIds={items.map((item) => item.id)}
+                onChanged={refresh}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label-xs w-28 shrink-0 text-muted-foreground">From this PC</span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!supported || importBusy !== null}
+                onClick={() => addFrom("zip")}
+              >
+                {importBusy === "zip" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <FileArchive className="size-4" />
+                )}
+                Zip
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!supported || importBusy !== null}
+                onClick={() => addFrom("folder")}
+              >
+                {importBusy === "folder" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <FolderUp className="size-4" />
+                )}
+                Folder
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label-xs w-28 shrink-0 text-muted-foreground">From a git repo</span>
+              <Input
+                value={gitUrl}
+                onChange={(event) => setGitUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void addFrom("git");
+                }}
+                placeholder="https://github.com/owner/repo.git"
+                aria-label="Git repository URL"
+                className="h-8 min-w-[16rem] flex-1 font-mono text-xs"
+                disabled={!supported || importBusy !== null}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!supported || importBusy !== null || !gitUrl.trim()}
+                onClick={() => addFrom("git")}
+              >
+                {importBusy === "git" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <GitBranch className="size-4" />
+                )}
+                Git clone
+              </Button>
+            </div>
+            <p className="text-note text-muted-foreground">
+              Zip, folder, and git clone accept only skill.json / skill.mjs packs. Incomplete packs
+              are healed into a loadable run(), then sandbox-tested before enable. A skill FRIDAY
+              writes herself is under “Create and test” below. The “Import into Skills” strip at the
+              top of the page is the general importer (any file, folder or GitHub repo, for FRIDAY
+              to read and build from); it does not install a skill pack by itself.
+            </p>
+          </div>
+        </HudPanel>
 
         <HudPanel
           title="All Skills"
@@ -470,6 +562,15 @@ function SkillsPage() {
               />
             </div>
             <FilterTabs
+              value={source}
+              onChange={setSource}
+              tabs={[
+                { key: "all", label: "Any source" },
+                { key: "builtin", label: `Built-in (${counts.builtin})` },
+                { key: "installed", label: `Installed (${counts.installed})` },
+              ]}
+            />
+            <FilterTabs
               value={category}
               onChange={setCategory}
               tabs={[
@@ -482,22 +583,38 @@ function SkillsPage() {
             />
           </div>
 
-          {rows.length ? (
+          {!supported ? (
+            <EmptyState
+              icon={Puzzle}
+              title="Skills are listed by the FRIDAY desktop app"
+              hint="Open FRIDAY on your PC to see, enable and install skills."
+            />
+          ) : loading ? (
+            <LoadingState label="Reading your skill folders…" rows={4} />
+          ) : rows.length ? (
             <>
               <DataTable
                 pinLast
                 columns={["Skill Name", "Category", "Status", "Level", "Last Used", "Actions"]}
                 rows={rows.map((s) => [
-                  <span key="n" className="flex items-center gap-2 text-foreground">
+                  <span key="n" className="flex flex-wrap items-center gap-2 text-foreground">
                     <Puzzle className="size-3.5 text-primary" />
                     {s.name}
+                    <Badge variant="outline" className="text-note">
+                      {s.origin === "app" ? "Built-in" : "Installed"}
+                    </Badge>
+                    {s.version ? (
+                      <span className="font-mono text-note text-muted-foreground">
+                        v{s.version}
+                      </span>
+                    ) : null}
                   </span>,
                   <span key="c" className="text-muted-foreground">
                     {s.category}
                   </span>,
                   <StatusPill key="s" label={s.status} tone={toneForStatus(s.status)} />,
                   <span key="l" className="font-mono text-xs text-primary">
-                    {s.level}
+                    {s.level} · {Math.round(s.mastery)}%
                   </span>,
                   <span key="u" className="font-mono text-xs text-muted-foreground">
                     {s.lastUsed}
@@ -523,9 +640,25 @@ function SkillsPage() {
                     </Button>
                     <Button
                       size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-note"
+                      disabled={Boolean(busyId) || importBusy !== null || !s.id}
+                      title="Open the details and try this skill with a sample input"
+                      onClick={() => onTestShortcut(s)}
+                    >
+                      <FlaskConical className="size-3" />
+                      Test
+                    </Button>
+                    <Button
+                      size="sm"
                       variant={confirmId === s.id ? "destructive" : "outline"}
                       className="h-7 px-2 text-note"
-                      disabled={Boolean(busyId) || !s.id}
+                      disabled={Boolean(busyId) || !s.id || s.origin === "app"}
+                      title={
+                        s.origin === "app"
+                          ? "Ships with FRIDAY and cannot be removed; Disable it instead"
+                          : "Delete this installed skill from your FRIDAY folder"
+                      }
                       onClick={() => onRemove(s)}
                     >
                       {confirmId === s.id ? "Confirm remove" : "Remove"}
@@ -566,6 +699,19 @@ function SkillsPage() {
                     <span className="text-muted-foreground">Inputs — </span>
                     {listField(openRow.inputs)}
                   </p>
+                  <p>
+                    <span className="text-muted-foreground">Approval prompt — </span>
+                    {openRow.approvalPrompt || "—"}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Source — </span>
+                    {openRow.origin === "app" ? "Ships with FRIDAY" : "Installed by you"}
+                    {openRow.version ? ` · v${openRow.version}` : ""}
+                  </p>
+                  <p className="break-all font-mono text-note">
+                    <span className="font-sans text-muted-foreground">Folder — </span>
+                    {openRow.path || "—"}
+                  </p>
                 </div>
               ) : null}
             </>
@@ -576,7 +722,7 @@ function SkillsPage() {
               {...(skills.length
                 ? {}
                 : {
-                    hint: "Import a skill zip or folder, clone a skill repo, or forge one below.",
+                    hint: "Use “Install a skill” above: marketplace, zip, folder or git clone, or forge one below.",
                   })}
             />
           )}
@@ -613,6 +759,7 @@ function SkillsPage() {
               <Input
                 value={testInput}
                 onChange={(event) => setTestInput(event.target.value)}
+                id="skill-test-input"
                 placeholder="Test input (text or JSON) for the selected skill…"
                 className="h-8 min-w-[16rem] flex-1 font-mono text-xs"
                 disabled={importBusy !== null || !openRow?.id}
@@ -634,9 +781,8 @@ function SkillsPage() {
               </pre>
             ) : (
               <p className="text-note text-muted-foreground">
-                Zip, folder, and git clone accept only skill.json / skill.mjs packs. Incomplete
-                packs are healed into a loadable run(), then sandbox-tested before enable. Forge
-                uses the same skill-forge path as Self-management.
+                Forge writes a new skill with the same skill-forge path as Self-management,
+                sandbox-tests it, and leaves it disabled until you approve it.
               </p>
             )}
           </div>

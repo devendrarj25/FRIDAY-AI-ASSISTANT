@@ -6,13 +6,13 @@ FRIDAY - AI ASSISTANT: A Private, Autonomous and Self Learning OS Based on Local
 
 How to use FRIDAY after the window is open. Install and pack: [INSTALL.md](../INSTALL.md). The implementation map: [FRIDAY_FEATURES.md](FRIDAY_FEATURES.md). This page is the click-path only.
 
-| You want to… | Start here |
-| --- | --- |
-| Talk by typing | Friday (Main Window), Manual |
-| Talk by voice | Auto mode, after the microphone is allowed |
-| See how a task ran | Flow on that page |
-| Choose a model | Models, then the picker in chat |
-| Change a setting | The footer Settings button |
+| You want to…       | Start here                                 |
+| ------------------ | ------------------------------------------ |
+| Talk by typing     | Friday (Main Window), Manual               |
+| Talk by voice      | Auto mode, after the microphone is allowed |
+| See how a task ran | Flow on that page                          |
+| Choose a model     | Models, then the picker in chat            |
+| Change a setting   | The footer Settings button                 |
 
 Sidebar labels come from `src/lib/friday/navigation.ts`. Settings is the shell footer, not a sidebar row.
 
@@ -83,6 +83,7 @@ Neon glow only removes glow shadows; Blur effect is the switch that turns blur o
 - **Add your own model** (Import & Connect): drop files on the box, **Choose model files** (a real file picker for .gguf, .safetensors, .onnx, .pt, .bin), **Choose a model folder**, or paste a path. FRIDAY checks the file (a GGUF must really be one), keeps it under your FRIDAY folder `models\imported` (a link when the drive allows, otherwise a copy with progress), registers a GGUF with the local engine (starting Ollama if it is not running) and sends one test prompt. It says **ready** only when the model answers, and then it is in the model list. A Safetensors or PyTorch folder is linked into the **Hugging Face runner** (FRIDAY queues its install in the Install Manager when it is missing; it is a large download, PyTorch included) and is ready only after it answers the same test prompt. ONNX and other formats are stored for the runtime that reads them. A failed import shows why, with a retry; importing the same file again keeps one row.
 - **Hugging Face**: with your Hugging Face key connected, gated and private repositories download with your account, Safetensors models run on the Hugging Face runner (offline, from your FRIDAY folder), and its cloud models show what they are. Every cloud model is labelled Chat, Vision, Coding, Reasoning, Research, Image, Video, Speech to Text, Text to Speech or Embedding, and **Show** in the Cloud models list filters by it.
 - **Drawing**: say "draw a red car", "generate an image of a sunset over the sea" or "image banao: ek sher jungle me". FRIDAY asks a connected image model (OpenAI, Together AI, xAI, Gemini, DeepInfra or Hugging Face), free ones first, only where your privacy and cost settings allow, shows the picture in the chat and keeps it in `assets\images` in your FRIDAY folder.
+
 ### Install Manager
 
 - **Sections.** Software (the catalog, with a details panel when you click a package), Queue & Updates, Services, Health & Maintenance, Activity, and Ask FRIDAY. The counts stay above them. The tab shows how many jobs are running and how many services are on.
@@ -139,7 +140,7 @@ On any page that has a title, **Flow** opens Flow Studio for that page. **Full m
 - **FRIDAY Status:** the live wiring overlay (read-only for permission, privacy, and billing).
 - **Hardware:** measured CPU, RAM, and adapters.
 
-**Capabilities.** Skills, Plugins, Modules, Agents, Workflows, Models, and Tools each list disk packs plus health. Workflows has a Visual Builder tab (`src/routes/workflow-visual.tsx`) that draws a pack's real steps and saves through the same install path. Import JSON format: [FRIDAY_IMPORT_FORMAT.md](FRIDAY_IMPORT_FORMAT.md). On the Models page you connect Ollama, LM Studio, llama.cpp, vLLM, and paste cloud keys (stored encrypted).
+**Capabilities.** Skills, Plugins, Modules, Agents, Workflows, Models, and Tools each list disk packs plus health. Workflows has a Visual Builder tab (`src/routes/workflow-visual.tsx`) that draws a pack's real steps and saves through the same install path. **Skills page order:** the totals (Total, Built-in, Installed, Active, Ready, Learning, Idle), then **Install a skill** (Marketplace, Install defaults, From GitHub, Add from file; Zip and Folder from this PC; a git URL with Git clone), then **All Skills** (search, status, source and category filters; each row shows Built-in or Installed, the version and the level, with Disable or Enable, Details, Test and Remove), then **Create and test** (Forge, and a test input for the selected skill), then the learning progress. A skill that ships with FRIDAY cannot be removed, only disabled; an installed one can be removed after a confirm and your approval. Refresh re-reads the skill folders. The strip at the top of the page (Import into Skills) is the general importer, not a skill installer. Import JSON format: [FRIDAY_IMPORT_FORMAT.md](FRIDAY_IMPORT_FORMAT.md). On the Models page you connect Ollama, LM Studio, llama.cpp, vLLM, and paste cloud keys (stored encrypted).
 
 **Connectivity.** **FRIDAY Browser** is the in-app browser (a submit, login, or purchase click still asks). **Connectors** connect a service; "connected" means a live verify call succeeded. **Devices** finds Android, Bluetooth, and LAN devices. **n8n Automation** talks to an n8n instance you already host.
 
@@ -147,26 +148,26 @@ On any page that has a title, **Flow** opens Flow Studio for that page. **Full m
 
 ## 7. Troubleshooting
 
-| Symptom | Where to look |
-| --- | --- |
-| Kernel not ready | Doctor and `runtime\.venv`; Setup may have set `PythonSetupPending` |
-| No voice | Install Manager rows `faster-whisper` and `edge-tts`; Doctor and Voice diagnostics (dependency, loaded model, worker) |
-| Custom wake word silent | Drop `{word}.onnx` into `<FRIDAY_ROOT>/models/wake`; `friday.onnx` is not used for other names |
-| Neural TTS robotic or missing | edge-tts needs the network; system speech is the fallback |
-| Chat empty, no models | Models page; local engine ports 11434, 1234, 8080, 8000 |
-| Update not offered | Settings, Updates channel versus GitHub Latest; a SHA-256 mismatch refuses the install |
-| TEST EXE versus Official | Different Windows appId; both can be installed |
-| Doctor: Recent errors in log | Counts real errors only (kernel `INFO:` lines are logged at their own level); the scan reads the last 512 KB |
+| Symptom                                           | Where to look                                                                                                                                                                                                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kernel not ready                                  | Doctor and `runtime\.venv`; Setup may have set `PythonSetupPending`                                                                                                                                                                                  |
+| No voice                                          | Install Manager rows `faster-whisper` and `edge-tts`; Doctor and Voice diagnostics (dependency, loaded model, worker)                                                                                                                                |
+| Custom wake word silent                           | Drop `{word}.onnx` into `<FRIDAY_ROOT>/models/wake`; `friday.onnx` is not used for other names                                                                                                                                                       |
+| Neural TTS robotic or missing                     | edge-tts needs the network; system speech is the fallback                                                                                                                                                                                            |
+| Chat empty, no models                             | Models page; local engine ports 11434, 1234, 8080, 8000                                                                                                                                                                                              |
+| Update not offered                                | Settings, Updates channel versus GitHub Latest; a SHA-256 mismatch refuses the install                                                                                                                                                               |
+| TEST EXE versus Official                          | Different Windows appId; both can be installed                                                                                                                                                                                                       |
+| Doctor: Recent errors in log                      | Counts real errors only (kernel `INFO:` lines are logged at their own level); the scan reads the last 512 KB                                                                                                                                         |
 | Doctor: Internet or Cloud AI red while chat works | The checks use the same Chromium network stack as provider calls, with the Windows proxy and certificates. The internet check tries three hosts for 6 s each; a failing provider is re-probed once, and one that answered this session shows Warning |
-| Doctor: Bundled runtime rows | A pack inside the install is extracted the first time no installed Python or Node is found. Missing means the pack file itself is absent |
-| Doctor: Voice layers | PASS or FAIL from the last voice check and the live Auto session; unchecked layers are one row with the steps |
-| Doctor: Window and kernel watchdog | Warning only for a stall in the last 10 minutes |
-| Doctor: Content Security Policy | The network meter's three hosts are allowed in `connect-src`; any other violation shows |
-| Self-Management issue count | An optional add-on that is not installed (Graphviz, D2, comtypes, llama.cpp, a toolchain pack, the speaker file) is one fact line, not a critical issue |
-| Status: environment rows | Node.js is the Node built into FRIDAY.exe; the registry never spawns FRIDAY.exe to read a version |
-| Status: local provider "no answer within N s" | That engine is not running or is still loading |
-| Kernel log | Routine loopback and `/health` lines are left out; `FRIDAY_KERNEL_VERBOSE_LOG=1` keeps every line |
-| Routing sync row | The planner leads with a pinned model only when it can answer on this PC |
+| Doctor: Bundled runtime rows                      | A pack inside the install is extracted the first time no installed Python or Node is found. Missing means the pack file itself is absent                                                                                                             |
+| Doctor: Voice layers                              | PASS or FAIL from the last voice check and the live Auto session; unchecked layers are one row with the steps                                                                                                                                        |
+| Doctor: Window and kernel watchdog                | Warning only for a stall in the last 10 minutes                                                                                                                                                                                                      |
+| Doctor: Content Security Policy                   | The network meter's three hosts are allowed in `connect-src`; any other violation shows                                                                                                                                                              |
+| Self-Management issue count                       | An optional add-on that is not installed (Graphviz, D2, comtypes, llama.cpp, a toolchain pack, the speaker file) is one fact line, not a critical issue                                                                                              |
+| Status: environment rows                          | Node.js is the Node built into FRIDAY.exe; the registry never spawns FRIDAY.exe to read a version                                                                                                                                                    |
+| Status: local provider "no answer within N s"     | That engine is not running or is still loading                                                                                                                                                                                                       |
+| Kernel log                                        | Routine loopback and `/health` lines are left out; `FRIDAY_KERNEL_VERBOSE_LOG=1` keeps every line                                                                                                                                                    |
+| Routing sync row                                  | The planner leads with a pinned model only when it can answer on this PC                                                                                                                                                                             |
 
 ## 8. Checking a Windows install
 
