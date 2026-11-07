@@ -1,0 +1,14 @@
+{
+  "id": "dev-token-decode",
+  "name": "Token decoder",
+  "summary": "Decode JWT, base64",
+  "category": "developer",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["token", "format"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Decodes a JWT (header, payload, issued and expiry times) and base64, base64url, hex, percent-encoded and \\u-escaped text. A JWT is only decoded: the signature is never verified, so the result does not prove the token is genuine, and an unsigned alg none or an expired token is called out. Runs locally; the token is not stored or sent."
+}

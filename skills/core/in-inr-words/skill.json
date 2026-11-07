@@ -1,0 +1,14 @@
+{
+  "id": "in-inr-words",
+  "name": "Rupees in words",
+  "summary": "Write rupees amount in words",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["amount"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Writes an amount as ₹12,34,567.89 and as words (Rupees Twelve Lakh Thirty Four Thousand Five Hundred Sixty Seven and Paise Eighty Nine Only), as cheques and invoices need. Understands 1.5 crore, 2 lakh 50 thousand and plain numbers. Rounds to the nearest paisa."
+}

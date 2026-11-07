@@ -1,0 +1,14 @@
+{
+  "id": "ops-workdays",
+  "name": "Working days",
+  "summary": "Count working days, Indian financial year",
+  "category": "friday-ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["start", "end", "add", "holidays", "weekend"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Counts working days between two dates (both included), finds the date N working days away, and reports the weekday, ISO week, Indian financial year (1 April to 31 March), quarter and assessment year. Weekend can be Saturday-Sunday, Friday-Saturday, Sunday only or none. Public holidays are never guessed: pass them as a list of dates. Dates are read as year-month-day or day-month-year."
+}

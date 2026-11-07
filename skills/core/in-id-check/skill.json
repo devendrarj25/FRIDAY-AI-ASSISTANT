@@ -1,0 +1,14 @@
+{
+  "id": "in-id-check",
+  "name": "Indian ID check",
+  "summary": "Check PAN, GSTIN, IFSC, UPI, Aadhaar numbers",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["value", "type"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Validates the format and check digit of Indian identifiers: PAN (holder type), GSTIN (state code, embedded PAN, entity number, Z and the mod-36 check character), IFSC, PIN code, UPI id, mobile number and Aadhaar (Verhoeff checksum, never stored). A pass means the number is well formed, not that the person or firm exists or is active; verify on the official portal."
+}

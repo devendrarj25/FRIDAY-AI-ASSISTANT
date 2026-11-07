@@ -1,0 +1,14 @@
+{
+  "id": "dev-text-diff",
+  "name": "Text diff",
+  "summary": "Compare two texts, show the difference",
+  "category": "developer",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": ["before", "after", "ignoreWhitespace"],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Compares two texts line by line with a longest-common-subsequence diff and returns a unified-style listing with context lines, counts of added, removed and unchanged lines and a similarity percentage. Can ignore whitespace differences. Takes before and after, or one text split by a line of dashes. Text only, no files."
+}
