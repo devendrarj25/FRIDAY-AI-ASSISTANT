@@ -89,7 +89,8 @@ describe("markup", () => {
     const text =
       "## Result\n- **Total**: `42`\n[docs](https://x.y/z) 🎉 https://example.com/a\n```\nrm -rf /\n```";
     const out = stripMarkup(text);
-    expect(out).not.toMatch(/[#*`\[\]🎉]|rm -rf|https/);
+    expect(out).not.toMatch(/[#*`[\]]|rm -rf|https/u);
+    expect(out).not.toContain("🎉");
     expect(out).toContain("Result");
     expect(out).toContain("Total");
     expect(out).toContain("docs");
