@@ -725,7 +725,7 @@ type DesktopApi = {
   dispatchPluginHooks?: (
     hook: string,
     payload?: Record<string, unknown>,
-    options?: { allowDisabled?: boolean; pluginId?: string },
+    options?: { allowDisabled?: boolean; pluginId?: string; test?: boolean },
   ) => Promise<Record<string, unknown>>;
   /** Register the routable catalogue with the AI kernel (idempotent). */
   syncKernelModels?: (force?: boolean) => Promise<{

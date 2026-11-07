@@ -58,7 +58,7 @@ import { describeLiveSelf, looksLikeSelfStatusQuestion } from "./app-guide";
 import { answerSelf, selfTopic } from "./self-questions";
 import { describeSkillValue, routeSkills } from "./skill-router";
 import { manageSkillsFromPrompt } from "./skill-manager";
-import { managePluginsFromPrompt } from "./plugin-manager";
+import { managePluginsFromPrompt, pluginWarnings } from "./plugin-manager";
 import { describeAgentValue, routeAgents } from "./agent-router";
 import { describeToolValue, routeTools } from "./tool-router";
 import { describeModuleValue, routeModules } from "./module-router";
@@ -1351,7 +1351,13 @@ class CoreBrain {
     if (SELF_HINTS.test(prompt) || looksLikeSelfStatusQuestion(prompt) || selfTopic(prompt)) {
       const topic = selfTopic(prompt);
       const direct = topic ? answerSelf(topic, prompt) : null;
-      const facts = [describeLiveSelf(prompt), direct && "text" in direct ? direct.text : ""]
+      // What the owner's plugins noticed (warnings only) is part of FRIDAY's own status.
+      const noticed = await pluginWarnings().catch(() => "");
+      const facts = [
+        describeLiveSelf(prompt),
+        direct && "text" in direct ? direct.text : "",
+        noticed,
+      ]
         .filter((part) => part.trim())
         .join("\n\n");
       if (facts.trim()) {

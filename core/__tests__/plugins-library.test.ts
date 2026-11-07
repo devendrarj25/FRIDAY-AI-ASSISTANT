@@ -126,4 +126,45 @@ describe("insight plugins", () => {
       .map((p) => p.id);
     expect(ids).toEqual(expected);
   }, 120000);
+
+  it("Test runs keep their files apart, report the note, and never change the real counters", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pl-test-"));
+    temps.push(ws);
+    const roots = { appRoot: ROOT, workspaceRoot: ws };
+    const id = "plugins/installed/daily-turn-log";
+    const r = await plugins.dispatch(roots, "on-turn-complete", PAYLOAD["on-turn-complete"], {
+      allowDisabled: true,
+      pluginId: id,
+      test: true,
+    });
+    expect(r.fired[0].ok).toBe(true);
+    expect(r.fired[0].insight.title).toBe("Today");
+    const dir = path.join(ws, "plugins", "data", "daily-turn-log");
+    expect(fs.existsSync(path.join(dir, "days.json"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "insight.json"))).toBe(false);
+    expect(plugins.insights(roots).some((row: Any) => row.id === id)).toBe(false);
+  }, 60000);
+
+  it("a warning nobody refreshed for a day is shown as info", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "friday-pl-ttl-"));
+    temps.push(ws);
+    const dir = path.join(ws, "plugins", "data", "break-reminder");
+    fs.mkdirSync(dir, { recursive: true });
+    const note = {
+      level: "warn",
+      title: "Take a break",
+      text: "x",
+      at: Date.now() - 30 * 3600_000,
+    };
+    fs.writeFileSync(path.join(dir, "insight.json"), JSON.stringify(note));
+    const row = (plugins.insights({ appRoot: ROOT, workspaceRoot: ws }) as Any[]).find((r) =>
+      r.id.endsWith("break-reminder"),
+    );
+    expect(row.level).toBe("info");
+    fs.writeFileSync(path.join(dir, "insight.json"), JSON.stringify({ ...note, at: Date.now() }));
+    const fresh = (plugins.insights({ appRoot: ROOT, workspaceRoot: ws }) as Any[]).find((r) =>
+      r.id.endsWith("break-reminder"),
+    );
+    expect(fresh.level).toBe("warn");
+  });
 });

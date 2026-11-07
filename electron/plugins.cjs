@@ -1034,6 +1034,7 @@ const HOOKS = [
 const HOOK_SET = new Set(HOOKS);
 /** How many plugin sandboxes may start at once for one hook. */
 const HOOK_CONCURRENCY = 4;
+const INSIGHT_WARN_TTL_MS = 24 * 60 * 60 * 1000;
 
 function canonicalHook(name) {
   const raw = String(name || "")
@@ -1220,7 +1221,7 @@ function buildHookContext(item, services) {
   return ctx;
 }
 
-async function fireOneHook(item, hook, payload, services, roots) {
+async function fireOneHook(item, hook, payload, services, roots, testRun = false) {
   const entryFile = entryFileOf(item);
   if (!entryFile) {
     return { ok: false, id: item.id, error: `Plugin "${item.id}" entry is missing.` };
@@ -1242,7 +1243,9 @@ async function fireOneHook(item, hook, payload, services, roots) {
     }
   }
   const workspaceRoot = roots.workspaceRoot || roots.appRoot;
-  const dataDir = dataDirFor(item.path, item.id, roots.workspaceRoot);
+  // A test run keeps its files in a sub-folder, so pressing Test never changes a plugin's real counters.
+  const realDir = dataDirFor(item.path, item.id, roots.workspaceRoot);
+  const dataDir = testRun ? path.join(realDir, "__test__") : realDir;
   const run = await runSandboxed(item.path, manifest, item.id, services, null, null, {
     hook,
     payload: payload || {},
@@ -1250,7 +1253,9 @@ async function fireOneHook(item, hook, payload, services, roots) {
     dataDir,
   });
   if (!run.ok) return { ok: false, id: item.id, error: run.error, sandboxed: true };
-  return { ok: true, id: item.id, result: run.result ?? null, sandboxed: true };
+  const done = { ok: true, id: item.id, result: run.result ?? null, sandboxed: true };
+  if (testRun) done.insight = readJson(path.join(dataDir, "insight.json")) || null;
+  return done;
 }
 
 /**
@@ -1338,7 +1343,10 @@ async function dispatch(rootOrRoots, hook, payload, options = {}) {
         };
       }
     }
-    return { ...(await fireOneHook(item, wanted, payload || {}, services, roots)), risk };
+    return {
+      ...(await fireOneHook(item, wanted, payload || {}, services, roots, Boolean(options.test))),
+      risk,
+    };
   };
   // Plugins start in small batches, not one after another: each one is its own sandbox process, and a
   // library of useful plugins must not make every turn wait for the sum of their start-up times.
@@ -1379,7 +1387,10 @@ function insights(rootOrRoots) {
       continue;
     }
     if (!raw || typeof raw !== "object") continue;
-    const level = ["info", "good", "warn"].includes(raw.level) ? raw.level : "info";
+    let level = ["info", "good", "warn"].includes(raw.level) ? raw.level : "info";
+    // A warning nobody refreshed for a day is history, not news: show it as plain info.
+    if (level === "warn" && Date.now() - (Number(raw.at) || 0) > INSIGHT_WARN_TTL_MS)
+      level = "info";
     out.push({
       id: item.id,
       name: item.name,

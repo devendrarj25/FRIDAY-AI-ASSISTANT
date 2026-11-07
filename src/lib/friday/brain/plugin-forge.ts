@@ -87,7 +87,7 @@ type PluginBridge = {
   dispatchPluginHooks?: (
     hook: string,
     payload?: Record<string, unknown>,
-    options?: { allowDisabled?: boolean; pluginId?: string },
+    options?: { allowDisabled?: boolean; pluginId?: string; test?: boolean },
   ) => Promise<{ ok?: boolean; hook?: string; fired?: unknown[]; error?: string }>;
 };
 
@@ -530,7 +530,7 @@ export function filePluginGapDraft(goal: string): PluginForgeRun {
 export async function dispatchPluginHooks(
   hook: string,
   payload: Record<string, unknown> = {},
-  options?: { allowDisabled?: boolean; pluginId?: string },
+  options?: { allowDisabled?: boolean; pluginId?: string; test?: boolean },
 ): Promise<{ ok?: boolean; hook?: string; fired?: unknown[]; error?: string }> {
   const api = bridge();
   if (!api?.dispatchPluginHooks) return { ok: false, error: DESKTOP_ONLY };

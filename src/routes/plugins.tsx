@@ -97,6 +97,18 @@ function describePermissions(permissions: string[]): string {
     : "none: it only touches its own data folder";
 }
 
+/** Sample data for Test, shaped like what FRIDAY really sends for each hook. */
+const TEST_PAYLOAD: Record<string, Record<string, unknown>> = {
+  "on-app-start": {},
+  "on-app-quit": {},
+  "on-turn-start": { runId: "test", intent: "chat" },
+  "on-turn-complete": { runId: "test", ms: 1200, ok: true },
+  "on-error": { runId: "test", error: "Test error", ms: 10 },
+  "on-idle": { at: 0, discovered: 0, researched: 0, note: "test" },
+  "on-skill-run": { skillId: "test-skill", name: "Test skill", ok: true },
+  "on-file-change": { component: "skills", file: "test.json", relative: "skills/test.json", at: 0 },
+};
+
 function listField(values: string[]): string {
   return values.length ? values.join(", ") : "—";
 }
@@ -189,6 +201,7 @@ function PluginsPage() {
   // What the plugins noticed: each one leaves a short insight in its own data folder.
   const [insights, setInsights] = useState<PluginInsight[]>([]);
   const insightKey = `${pluginPacks.length}|${pluginPacks.filter((item) => item.enabled).length}`;
+  const [insightTick, setInsightTick] = useState(0);
   useEffect(() => {
     let live = true;
     void pluginInsights().then((rows) => {
@@ -197,13 +210,14 @@ function PluginsPage() {
     return () => {
       live = false;
     };
-  }, [insightKey]);
+  }, [insightKey, insightTick]);
   const openInsight = openRow ? insights.find((row) => row.id === openRow.id) : undefined;
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
       await refreshPlugins();
+      setInsightTick((n) => n + 1);
       toast.success("Plugin list refreshed.");
     } catch {
       toast.error("Could not read the plugin folders.", {
@@ -255,7 +269,11 @@ function PluginsPage() {
         return;
       }
       const runtime = await setPluginEnabled(row.id, next);
-      if (!runtime?.ok) toast.error(runtime?.error || "Could not update the plugin runtime.");
+      if (!runtime?.ok) {
+        // The index and the runtime must agree: put the switch back rather than leave them split.
+        await toggle(row.id, !next);
+        toast.error(runtime?.error || "Could not update the plugin runtime.");
+      }
     } finally {
       setBusyId(null);
     }
@@ -324,19 +342,30 @@ function PluginsPage() {
     }
     setImportBusy("test");
     try {
+      // A test run keeps its files apart, so it never changes the plugin's real counters.
       const result = await dispatchPluginHooks(
         hook,
-        { prompt: "test", source: "plugins-page" },
-        { allowDisabled: true, pluginId: row.id },
+        TEST_PAYLOAD[hook] ?? { source: "plugins-page" },
+        { allowDisabled: true, pluginId: row.id, test: true },
       );
-      if (result?.ok) {
-        const preview = JSON.stringify(result.fired ?? result)?.slice(0, 400);
-        setForgeLog(`${row.name} · ${hook}\n${preview || "(no output)"}`);
-        toast.success(`${row.name} dispatched ${hook}.`);
+      const run = (
+        result?.fired as {
+          ok?: boolean;
+          error?: string;
+          denied?: boolean;
+          insight?: PluginInsight;
+        }[]
+      )?.[0];
+      if (result && run?.ok) {
+        const said = run.insight
+          ? `${run.insight.title}: ${run.insight.text}`
+          : "ran without a note";
+        setForgeLog(`${row.name} · ${hook}\n${said}`);
+        toast.success(`${row.name} ran ${hook}.`);
       } else {
-        const error = String(result?.error || "Plugin test failed.");
-        setForgeLog(error);
-        toast.error(error);
+        const error = String(run?.error || result?.error || "Plugin test failed.");
+        setForgeLog(`${row.name} · ${hook}\n${error}`);
+        toast.error(error.slice(0, 200));
       }
     } finally {
       setImportBusy(null);

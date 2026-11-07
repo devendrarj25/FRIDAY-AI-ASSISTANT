@@ -4804,6 +4804,7 @@ ipcMain.handle("plugins:tools", () => plugins.tools());
 ipcMain.handle("plugins:dispatch", (_e, hook, payload, options) =>
   plugins.dispatch(capabilityRoots(), hook, payload && typeof payload === "object" ? payload : {}, {
     allowDisabled: Boolean(options && options.allowDisabled),
+    test: Boolean(options && options.test),
     pluginId:
       options && (options.pluginId || options.id) ? String(options.pluginId || options.id) : "",
     services: {

@@ -280,3 +280,13 @@ export async function managePluginsFromPrompt(
     };
   }
 }
+
+/** Warning-level plugin notes as plain lines, or "" when there are none: FRIDAY's status answers include them. */
+export async function pluginWarnings(host: PluginManagerHost = defaultHost): Promise<string> {
+  const warn = (await host.insights()).filter((row) => row.enabled && row.level === "warn");
+  if (!warn.length) return "";
+  return `Plugin warnings (from the owner's plugins, newest data):\n${warn
+    .slice(0, 5)
+    .map((row) => `- ${row.name}: ${row.title}. ${row.text}`)
+    .join("\n")}`;
+}
