@@ -54,8 +54,32 @@ describe("Plugins page customization", () => {
     expect(source).toContain("forgePlugin");
     expect(source).toContain("dispatchPluginHooks");
     expect(source).toContain("allowDisabled: true");
-    expect(source).toContain("pluginId: openRow.id");
+    expect(source).toContain("pluginId: row.id");
+    expect(source).toContain("testRow(openRow)");
     expect(source).toContain("Create and test");
     expect(source).toContain("Test selected");
+  });
+
+  it("is arranged like the Skills page: refresh with retry, install panel, source filter, states, paging", () => {
+    expect(source).toContain("Install a plugin");
+    expect(source).toContain("Any source");
+    expect(source).toContain('p.origin === "app" ? "Built-in" : "Installed"');
+    expect(source).toContain("LoadingState");
+    expect(source).toContain("No plugin matches these filters");
+    expect(source).toContain("Plugins are listed by the FRIDAY desktop app");
+    expect(source).toContain("Could not read the plugin folders.");
+    expect(source).toContain("const PLUGINS_PAGE = 60");
+    expect(source).toContain("rows.slice(0, shown)");
+    expect(source).toContain("pageState.key === filterKey ? pageState.shown : PLUGINS_PAGE");
+    expect(source).toContain("Show all");
+  });
+
+  it("has a one-click Test on every row, a disabled Remove for built-in plugins, and plain-words Details", () => {
+    expect(source).toContain("void testRow(p)");
+    expect(source).toMatch(/p\.origin === "app"\s*\? "Ships with FRIDAY and cannot be removed/);
+    expect(source).toContain('p.origin === "app"');
+    expect(source).toContain("describeHooks(openRow.hooks)");
+    expect(source).toContain("describePermissions(openRow.permissions)");
+    expect(source).toContain('"on-turn-complete": "after FRIDAY finishes answering"');
   });
 });
