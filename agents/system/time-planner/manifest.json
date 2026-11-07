@@ -10,10 +10,14 @@
     "ops-time-zone",
     "ops-timestamp",
     "cal-ics-event",
-    "ops-download-time"
+    "ops-download-time",
+    "cal-age-calc",
+    "cal-time-blocks"
   ],
   "workflows": [],
-  "inputs": ["prompt"],
+  "inputs": [
+    "prompt"
+  ],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

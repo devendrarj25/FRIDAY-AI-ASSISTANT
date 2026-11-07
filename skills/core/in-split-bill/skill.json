@@ -1,0 +1,20 @@
+{
+  "id": "in-split-bill",
+  "name": "Bill splitter",
+  "summary": "Split a bill between people with tip",
+  "category": "india",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "prompt",
+    "total",
+    "people",
+    "tip",
+    "tax"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Splits a restaurant or trip bill between a number of people, adds GST or tax and a tip percentage when you give them, and tells who pays the extra paisa so the total adds up exactly. Reads plain requests like: split 2400 among 4 people with 10% tip."
+}

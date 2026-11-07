@@ -456,7 +456,9 @@ async function invokeOne(
 
     const listFn = invokeHost.listSkills ?? listSkills;
     const skillFn = invokeHost.invokeSkill ?? invokeSkill;
-    const installed = new Set((await listFn()).map((skill) => skill.id));
+    const installed = new Set(
+      (await listFn()).filter((skill) => skill.enabled !== false).map((skill) => skill.id),
+    );
     const skillIds = agent.skills.filter((id) => installed.has(id));
     const outputs: { id: string; ok: boolean; value: unknown; error?: string }[] = [];
     for (const skillId of skillIds) {

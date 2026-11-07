@@ -4,9 +4,17 @@
   "description": "Prepares tables and text: profiles a CSV, converts tables between CSV, Markdown and JSON, cleans lists and detects the language of a command.",
   "category": "data",
   "role": "data-desk",
-  "skills": ["dat-csv-profile", "dat-table-convert", "doc-text-clean", "lang-hinglish-detect"],
+  "skills": [
+    "dat-csv-profile",
+    "dat-table-convert",
+    "doc-text-clean",
+    "lang-hinglish-detect",
+    "dat-stats"
+  ],
   "workflows": [],
-  "inputs": ["prompt"],
+  "inputs": [
+    "prompt"
+  ],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

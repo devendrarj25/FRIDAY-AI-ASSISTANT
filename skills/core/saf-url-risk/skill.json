@@ -1,0 +1,17 @@
+{
+  "id": "saf-url-risk",
+  "name": "Link risk check",
+  "summary": "Spot phishing signals in a link without opening it",
+  "category": "safety",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "url",
+    "prompt"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Reads a link and looks for phishing signals: name@host tricks, bare IP hosts, punycode look-alikes, link shorteners, odd domain endings, famous brand names on someone else's domain and login or verify wording. It never opens the link."
+}

@@ -48,7 +48,9 @@ const SLUGS = [
   "india-desk",
   "log-doctor",
   "privacy-guard",
+  "system-desk",
   "time-planner",
+  "writing-desk",
 ];
 const manifest = (slug: string) =>
   JSON.parse(fs.readFileSync(path.join(SYSTEM_AGENTS, slug, "manifest.json"), "utf8")) as Record<
@@ -90,7 +92,7 @@ function resource(slug: string): CapabilityResource {
 }
 
 describe("FRIDAY core agents: what ships", () => {
-  it("six agents, enabled, safe, permission-free, each with a role and skills", () => {
+  it("eight agents, enabled, safe, permission-free, each with a role and skills", () => {
     const folders = fs
       .readdirSync(SYSTEM_AGENTS, { withFileTypes: true })
       .filter((e) => e.isDirectory() && SLUGS.includes(e.name))
@@ -248,7 +250,18 @@ describe("FRIDAY core agents: they really use their skills", () => {
     setAgentInvokeHost(realSkillHost());
     const runs = await routeAgents("use the india desk agent please");
     expect(runs[0]).toMatchObject({ ok: false, skipped: true });
-    expect(runs[0]!.detail).toMatch(/none of its 6 skill\(s\) applied/);
+    expect(runs[0]!.detail).toMatch(/none of its 8 skill\(s\) applied/);
+  });
+
+  it("a skill the owner switched off is not run by the agent", async () => {
+    register("log-doctor");
+    const host = realSkillHost(["ops-exit-code"]);
+    const listed = host.listSkills;
+    host.listSkills = async () => (await listed()).map((s) => ({ ...s, enabled: false }));
+    setAgentInvokeHost(host);
+    const runs = await routeAgents("use the log doctor agent: winget exit code 3010");
+    expect(runs[0]!.ok).not.toBe(true);
+    expect((runs[0]!.value as { outputs?: unknown[] } | undefined)?.outputs ?? []).toEqual([]);
   });
 
   it("a skill that is not installed is left out rather than failing the agent", async () => {

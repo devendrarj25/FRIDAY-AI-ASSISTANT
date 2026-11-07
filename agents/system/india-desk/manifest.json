@@ -10,10 +10,14 @@
     "in-inr-words",
     "in-emi-sip",
     "in-percent-calc",
-    "in-id-check"
+    "in-id-check",
+    "in-fd-compound",
+    "in-split-bill"
   ],
   "workflows": [],
-  "inputs": ["prompt"],
+  "inputs": [
+    "prompt"
+  ],
   "permissions": [],
   "risk": "safe",
   "enabled": true,

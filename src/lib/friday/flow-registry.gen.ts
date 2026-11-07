@@ -3178,10 +3178,22 @@ export const FLOW_REGISTRY = {
       file: "agents/system/privacy-guard/manifest.json",
     },
     {
+      id: "agents/system/system-desk/manifest",
+      kind: "agent",
+      name: "System desk",
+      file: "agents/system/system-desk/manifest.json",
+    },
+    {
       id: "agents/system/time-planner/manifest",
       kind: "agent",
       name: "Time planner",
       file: "agents/system/time-planner/manifest.json",
+    },
+    {
+      id: "agents/system/writing-desk/manifest",
+      kind: "agent",
+      name: "Writing desk",
+      file: "agents/system/writing-desk/manifest.json",
     },
     {
       id: "all-minilm",
@@ -5548,10 +5560,22 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "skills/core/cal-age-calc/skill",
+      kind: "skill",
+      name: "Age calculator",
+      file: "skills/core/cal-age-calc/skill.json",
+    },
+    {
       id: "skills/core/cal-ics-event/skill",
       kind: "skill",
       name: "Calendar event file",
       file: "skills/core/cal-ics-event/skill.json",
+    },
+    {
+      id: "skills/core/cal-time-blocks/skill",
+      kind: "skill",
+      name: "Day planner blocks",
+      file: "skills/core/cal-time-blocks/skill.json",
     },
     {
       id: "skills/core/dat-csv-profile/skill",
@@ -5560,16 +5584,46 @@ export const FLOW_REGISTRY = {
       file: "skills/core/dat-csv-profile/skill.json",
     },
     {
+      id: "skills/core/dat-stats/skill",
+      kind: "skill",
+      name: "Number statistics",
+      file: "skills/core/dat-stats/skill.json",
+    },
+    {
       id: "skills/core/dat-table-convert/skill",
       kind: "skill",
       name: "Table converter",
       file: "skills/core/dat-table-convert/skill.json",
     },
     {
+      id: "skills/core/dev-base-convert/skill",
+      kind: "skill",
+      name: "Number base converter",
+      file: "skills/core/dev-base-convert/skill.json",
+    },
+    {
       id: "skills/core/dev-color-contrast/skill",
       kind: "skill",
       name: "Color contrast",
       file: "skills/core/dev-color-contrast/skill.json",
+    },
+    {
+      id: "skills/core/dev-commit-lint/skill",
+      kind: "skill",
+      name: "Commit message lint",
+      file: "skills/core/dev-commit-lint/skill.json",
+    },
+    {
+      id: "skills/core/dev-env-audit/skill",
+      kind: "skill",
+      name: "Env file audit",
+      file: "skills/core/dev-env-audit/skill.json",
+    },
+    {
+      id: "skills/core/dev-json-query/skill",
+      kind: "skill",
+      name: "JSON path query",
+      file: "skills/core/dev-json-query/skill.json",
     },
     {
       id: "skills/core/dev-json-repair/skill",
@@ -5596,16 +5650,46 @@ export const FLOW_REGISTRY = {
       file: "skills/core/dev-token-decode/skill.json",
     },
     {
+      id: "skills/core/dev-uuid-inspect/skill",
+      kind: "skill",
+      name: "UUID inspector",
+      file: "skills/core/dev-uuid-inspect/skill.json",
+    },
+    {
+      id: "skills/core/doc-case-convert/skill",
+      kind: "skill",
+      name: "Naming case converter",
+      file: "skills/core/doc-case-convert/skill.json",
+    },
+    {
+      id: "skills/core/doc-markdown-toc/skill",
+      kind: "skill",
+      name: "Markdown contents list",
+      file: "skills/core/doc-markdown-toc/skill.json",
+    },
+    {
       id: "skills/core/doc-text-clean/skill",
       kind: "skill",
       name: "Text cleaner",
       file: "skills/core/doc-text-clean/skill.json",
     },
     {
+      id: "skills/core/doc-word-stats/skill",
+      kind: "skill",
+      name: "Word count and reading time",
+      file: "skills/core/doc-word-stats/skill.json",
+    },
+    {
       id: "skills/core/in-emi-sip/skill",
       kind: "skill",
       name: "EMI calculator",
       file: "skills/core/in-emi-sip/skill.json",
+    },
+    {
+      id: "skills/core/in-fd-compound/skill",
+      kind: "skill",
+      name: "Fixed deposit calculator",
+      file: "skills/core/in-fd-compound/skill.json",
     },
     {
       id: "skills/core/in-gst-calc/skill",
@@ -5636,6 +5720,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Percentage calculator",
       file: "skills/core/in-percent-calc/skill.json",
+    },
+    {
+      id: "skills/core/in-split-bill/skill",
+      kind: "skill",
+      name: "Bill splitter",
+      file: "skills/core/in-split-bill/skill.json",
     },
     {
       id: "skills/core/lang-hinglish-detect/skill",
@@ -5674,16 +5764,40 @@ export const FLOW_REGISTRY = {
       file: "skills/core/ops-exit-code/skill.json",
     },
     {
+      id: "skills/core/ops-file-type/skill",
+      kind: "skill",
+      name: "File type check",
+      file: "skills/core/ops-file-type/skill.json",
+    },
+    {
       id: "skills/core/ops-hash-check/skill",
       kind: "skill",
       name: "Hash check",
       file: "skills/core/ops-hash-check/skill.json",
     },
     {
+      id: "skills/core/ops-ip-inspect/skill",
+      kind: "skill",
+      name: "IP address inspector",
+      file: "skills/core/ops-ip-inspect/skill.json",
+    },
+    {
       id: "skills/core/ops-log-triage/skill",
       kind: "skill",
       name: "Log triage",
       file: "skills/core/ops-log-triage/skill.json",
+    },
+    {
+      id: "skills/core/ops-port-lookup/skill",
+      kind: "skill",
+      name: "Port lookup",
+      file: "skills/core/ops-port-lookup/skill.json",
+    },
+    {
+      id: "skills/core/ops-size-convert/skill",
+      kind: "skill",
+      name: "Data size converter",
+      file: "skills/core/ops-size-convert/skill.json",
     },
     {
       id: "skills/core/ops-time-zone/skill",
@@ -5696,6 +5810,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Timestamp converter",
       file: "skills/core/ops-timestamp/skill.json",
+    },
+    {
+      id: "skills/core/ops-unit-convert/skill",
+      kind: "skill",
+      name: "Unit converter",
+      file: "skills/core/ops-unit-convert/skill.json",
     },
     {
       id: "skills/core/ops-version-compare/skill",
@@ -5722,6 +5842,12 @@ export const FLOW_REGISTRY = {
       file: "skills/core/saf-injection-scan/skill.json",
     },
     {
+      id: "skills/core/saf-password-check/skill",
+      kind: "skill",
+      name: "Password strength check",
+      file: "skills/core/saf-password-check/skill.json",
+    },
+    {
       id: "skills/core/saf-pii-redact/skill",
       kind: "skill",
       name: "PII redactor",
@@ -5732,6 +5858,12 @@ export const FLOW_REGISTRY = {
       kind: "skill",
       name: "Secret scan",
       file: "skills/core/saf-secret-scan/skill.json",
+    },
+    {
+      id: "skills/core/saf-url-risk/skill",
+      kind: "skill",
+      name: "Link risk check",
+      file: "skills/core/saf-url-risk/skill.json",
     },
     {
       id: "skills/core/web-http-status/skill",
@@ -9046,8 +9178,8 @@ export const FLOW_REGISTRY = {
       total: 125,
     },
     capabilities: {
-      mapped: 1059,
-      total: 1059,
+      mapped: 1081,
+      total: 1081,
     },
     ipc: {
       mapped: 476,

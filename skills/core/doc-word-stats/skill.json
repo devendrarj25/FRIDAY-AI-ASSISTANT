@@ -1,0 +1,17 @@
+{
+  "id": "doc-word-stats",
+  "name": "Word count and reading time",
+  "summary": "Count words, sentences and estimate reading time",
+  "category": "doc",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "text",
+    "prompt"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Counts the words, characters, sentences and paragraphs of a text, estimates reading and speaking time, and lists the most common meaningful words. Handles Hindi in Devanagari and Hinglish text as well as English."
+}

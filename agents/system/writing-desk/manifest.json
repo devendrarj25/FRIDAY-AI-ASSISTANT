@@ -1,0 +1,20 @@
+{
+  "name": "Writing desk",
+  "version": "1.0.0",
+  "description": "Measures and reshapes text offline: counts words and reading time, converts names between snake, camel, kebab and title case, and builds a Markdown contents list.",
+  "category": "writing",
+  "role": "writing-desk",
+  "skills": [
+    "doc-word-stats",
+    "doc-case-convert",
+    "doc-markdown-toc"
+  ],
+  "workflows": [],
+  "inputs": [
+    "prompt"
+  ],
+  "permissions": [],
+  "risk": "safe",
+  "enabled": true,
+  "approvalPrompt": "FRIDAY prepared this with her Writing desk agent (word statistics, case conversion, Markdown contents)."
+}

@@ -65,7 +65,7 @@ async function skill(id: string, input: Record<string, unknown>): Promise<Out> {
 }
 
 describe("FRIDAY core skills: what ships", () => {
-  it("ships the thirty-three skills, one folder each", () => {
+  it("ships the fifty-three skills, one folder each", () => {
     expect(ids).toEqual(
       [
         "cal-ics-event",
@@ -101,6 +101,26 @@ describe("FRIDAY core skills: what ships", () => {
         "saf-secret-scan",
         "web-http-status",
         "web-url-clean",
+        "cal-age-calc",
+        "cal-time-blocks",
+        "dat-stats",
+        "dev-base-convert",
+        "dev-commit-lint",
+        "dev-env-audit",
+        "dev-json-query",
+        "dev-uuid-inspect",
+        "doc-case-convert",
+        "doc-markdown-toc",
+        "doc-word-stats",
+        "in-fd-compound",
+        "in-split-bill",
+        "ops-file-type",
+        "ops-ip-inspect",
+        "ops-port-lookup",
+        "ops-size-convert",
+        "ops-unit-convert",
+        "saf-password-check",
+        "saf-url-risk",
       ].sort(),
     );
   });
@@ -244,6 +264,26 @@ describe("FRIDAY core skills: discovered and enabled by the real runtime", () =>
       "ops-timestamp": { prompt: "1700000000" },
       "ops-version-compare": { versions: ["1.9", "1.10"] },
       "web-http-status": { code: "502" },
+      "cal-age-calc": { prompt: "born 15-08-1995 on 2026-11-07" },
+      "cal-time-blocks": { prompt: "plan 9:00: report 45m, email 20m" },
+      "dat-stats": { prompt: "stats of 12, 15, 9, 22" },
+      "dev-base-convert": { prompt: "255 to binary" },
+      "dev-commit-lint": { message: "fix(ui): repair the skills page" },
+      "dev-env-audit": { text: "A=1\nB=2" },
+      "dev-json-query": { json: { a: { b: 1 } }, path: "a.b" },
+      "dev-uuid-inspect": { uuid: "550e8400-e29b-41d4-a716-446655440000" },
+      "doc-case-convert": { text: "user profile", to: "snake" },
+      "doc-markdown-toc": { text: "# A\n## B" },
+      "doc-word-stats": { text: "one two three" },
+      "in-fd-compound": { principal: 100000, rate: 7, years: 2 },
+      "in-split-bill": { total: 1000, people: 4 },
+      "ops-file-type": { file: "report.pdf.exe" },
+      "ops-ip-inspect": { ip: "192.168.1.5" },
+      "ops-port-lookup": { port: "443" },
+      "ops-size-convert": { prompt: "1.5 GB" },
+      "ops-unit-convert": { prompt: "5 km to miles" },
+      "saf-password-check": { password: "Tr0ub4dor&3xyz" },
+      "saf-url-risk": { url: "http://192.168.0.1/login" },
     };
     // A run records its stats next to the skill, so the app folder stays untouched: the workspace is a temp folder.
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "friday-core-skills-"));

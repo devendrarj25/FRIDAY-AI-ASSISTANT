@@ -11,7 +11,7 @@ const money = (n) =>
 export async function run(input = {}) {
   const text = String(input?.prompt ?? input?.text ?? "")
     .toLowerCase()
-    .replace(/₹|rs\.?|inr/g, " ");
+    .replace(/₹|\brs\b\.?|\binr\b/g, " ");
   const mode = String(input?.mode ?? "");
   let m;
   if (

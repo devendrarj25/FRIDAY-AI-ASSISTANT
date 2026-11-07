@@ -1,0 +1,18 @@
+{
+  "id": "doc-case-convert",
+  "name": "Naming case converter",
+  "summary": "Convert text to snake, camel, kebab and title case",
+  "category": "doc",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "prompt",
+    "text",
+    "to"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Changes the naming style of a phrase or identifier between snake_case, camelCase, PascalCase, kebab-case, CONSTANT_CASE, Title Case, Sentence case, dotted names and URL slugs, splitting camelCase and accented words correctly."
+}

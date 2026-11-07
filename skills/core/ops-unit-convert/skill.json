@@ -1,0 +1,19 @@
+{
+  "id": "ops-unit-convert",
+  "name": "Unit converter",
+  "summary": "Convert length, weight, volume, area, speed and temperature",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "prompt",
+    "value",
+    "from",
+    "to"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Converts everyday units offline: kilometres and miles, kilograms and pounds, litres and gallons, square feet and acres, km/h and mph, and Celsius, Fahrenheit and Kelvin. Refuses mixed kinds such as length to weight instead of guessing."
+}

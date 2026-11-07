@@ -1,0 +1,17 @@
+{
+  "id": "ops-ip-inspect",
+  "name": "IP address inspector",
+  "summary": "Tell if an IP address is private, loopback, public",
+  "category": "ops",
+  "capabilities": [],
+  "risk": "safe",
+  "inputs": [
+    "ip",
+    "prompt"
+  ],
+  "version": 1,
+  "author": "friday-core",
+  "enabled": true,
+  "permissions": [],
+  "description": "Reads IPv4 and IPv6 addresses from text and classifies each one: private LAN, loopback, link-local, carrier-grade shared, documentation, multicast, reserved or public. Also shows the integer and hex form of an IPv4 address and expands IPv6."
+}

@@ -13,10 +13,17 @@
     "ops-cron-explain",
     "dev-color-contrast",
     "ops-cidr-calc",
-    "ops-hash-check"
+    "ops-hash-check",
+    "dev-uuid-inspect",
+    "dev-base-convert",
+    "dev-json-query",
+    "dev-env-audit",
+    "dev-commit-lint"
   ],
   "workflows": [],
-  "inputs": ["prompt"],
+  "inputs": [
+    "prompt"
+  ],
   "permissions": [],
   "risk": "safe",
   "enabled": true,
