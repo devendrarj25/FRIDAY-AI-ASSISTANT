@@ -304,17 +304,23 @@ function speakerRequest(py, payload, timeoutMs = 120000) {
   });
 }
 
-async function speakLocal({ text, rate = 1, lang = "" } = {}) {
+const LOCAL_STYLE = /^[FM][1-5]$/i;
+
+async function speakLocal({ text, rate = 1, lang = "", style = "" } = {}) {
   const spoken = String(text || "").trim();
   if (!spoken) return { ok: false, engine: "local", cloud: false, reason: "Nothing to speak." };
-  const key = crypto.createHash("sha1").update(`local|${rate}|${lang}|${spoken}`).digest("hex");
+  const voiceStyle = LOCAL_STYLE.test(String(style || "")) ? String(style).toUpperCase() : "";
+  const key = crypto
+    .createHash("sha1")
+    .update(`local|${rate}|${lang}|${voiceStyle}|${spoken}`)
+    .digest("hex");
   const file = path.join(cacheDir(), `${key}.wav`);
   if (fs.existsSync(file) && fs.statSync(file).size > 44) {
     return {
       ok: true,
       engine: "supertonic-3",
       cloud: false,
-      voice: "F2",
+      voice: voiceStyle || "F2",
       mime: "audio/wav",
       audioBase64: fs.readFileSync(file).toString("base64"),
       path: file,
@@ -328,6 +334,7 @@ async function speakLocal({ text, rate = 1, lang = "" } = {}) {
     text: spoken,
     speed: Number(rate) || 1,
     lang: String(lang || ""),
+    style: voiceStyle,
     out: file,
   });
   if (!answered?.ok || !fs.existsSync(file) || fs.statSync(file).size === 0) {
@@ -347,7 +354,7 @@ async function speakLocal({ text, rate = 1, lang = "" } = {}) {
     ok: true,
     engine: "supertonic-3",
     cloud: false,
-    voice: "F2",
+    voice: voiceStyle || "F2",
     mime: "audio/wav",
     audioBase64: fs.readFileSync(file).toString("base64"),
     path: file,
@@ -469,7 +476,7 @@ async function speakSystem(text, options = {}) {
   };
 }
 
-async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" } = {}) {
+async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "", style = "" } = {}) {
   const spoken = String(text || "").trim();
   if (!spoken) throw new Error("Nothing to speak.");
   const voiceId = String(voice || "");
@@ -479,7 +486,7 @@ async function speak({ text, voice, rate = 1, volume = 1, pitch = 1, lang = "" }
     const cloud = await speakCloud({ text: spoken, voice: voiceId, rate, volume, pitch });
     if (cloud.ok) return cloud;
   }
-  const local = await speakLocal({ text: spoken, rate, lang });
+  const local = await speakLocal({ text: spoken, rate, lang, style });
   if (local.ok) return local;
   const system = await speakSystem(spoken, { rate, volume });
   if (system.ok) return system;

@@ -123,7 +123,10 @@ class VoiceRuntimeTests(unittest.TestCase):
                 missing = voice_runtime.score_turn([0.0] * 1600)
                 self.assertIsNone(missing["probability"])
                 self.assertIsNone(voice_runtime.speak_wav_bytes("hello"))
-                self.assertEqual(voice_runtime.speech_lang("open Chrome करो", "hi-IN"), "na")
+                # Mixed scripts are never "unsupported": the script with more letters decides,
+                # and speak_wav_bytes reads each span in its own language.
+                self.assertEqual(voice_runtime.speech_lang("open Chrome करो", "hi-IN"), "en")
+                self.assertEqual(voice_runtime.speech_lang("क्रोम खोलो और open करो", "en-IN"), "hi")
                 self.assertEqual(voice_runtime.speech_lang("hello", "en-IN"), "en")
                 self.assertEqual(voice_runtime.speech_lang("नमस्ते", "hi-IN"), "hi")
                 self.assertIn("SpeechRecognizer", stt.WINDOWS_SPEECH_PROBE)

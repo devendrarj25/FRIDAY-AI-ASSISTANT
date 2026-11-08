@@ -82,3 +82,117 @@ describe("realtime session pipe (this PC only)", () => {
     });
   });
 });
+
+describe("cloud realtime connection (provider table, key stays in the main process)", () => {
+  const handlers = {};
+
+  it("sends the key as an Authorization header to the fixed provider address, checked on a real socket", async () => {
+    const http = await import("node:http");
+    const crypto = await import("node:crypto");
+    const seen: { auth: string | undefined; beta: string; path: string | undefined }[] = [];
+    const srv = http.createServer();
+    srv.on("upgrade", (req, sock) => {
+      seen.push({
+        auth: req.headers.authorization,
+        beta: String(req.headers["openai-beta"] ?? ""),
+        path: req.url,
+      });
+      const accept = crypto
+        .createHash("sha1")
+        .update(String(req.headers["sec-websocket-key"]) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+        .digest("base64");
+      sock.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as { port: number }).port;
+    const requested: string[] = [];
+    // Only the address is redirected to this PC; the headers and the protocol are the real client's.
+    class Redirect extends WebSocket {
+      constructor(url: string, options?: unknown) {
+        requested.push(url);
+        super(
+          `ws://127.0.0.1:${port}${new URL(url).pathname}${new URL(url).search}`,
+          options as never,
+        );
+      }
+    }
+    const sessions = createRealtimeSessions({ WebSocketImpl: Redirect });
+    let opened = false;
+    const out = sessions.startCloud("c1", "openai", "my-model", "sk-test-KEY", {
+      onOpen: () => (opened = true),
+    });
+    expect(out).toMatchObject({ ok: true, provider: "openai", host: "api.openai.com" });
+    await until(() => opened);
+    sessions.close("c1");
+    srv.close();
+    expect(requested).toEqual(["wss://api.openai.com/v1/realtime?model=my-model"]);
+    expect(seen[0]?.auth).toBe("Bearer sk-test-KEY");
+    expect(seen[0]?.path).toBe("/v1/realtime?model=my-model");
+  });
+
+  it("refuses an unknown provider, an unnamed model, a missing key and a second session", () => {
+    const made: unknown[] = [];
+    class Fake {
+      constructor(...args: unknown[]) {
+        made.push(args);
+      }
+      addEventListener() {}
+      close() {}
+    }
+    const sessions = createRealtimeSessions({ WebSocketImpl: Fake });
+    expect(sessions.startCloud("a", "evil", "m", "k", handlers).ok).toBe(false);
+    expect(sessions.startCloud("a", "__proto__", "m", "k", handlers).ok).toBe(false);
+    expect(sessions.startCloud("a", "openai", "", "k", handlers).ok).toBe(false);
+    expect(sessions.startCloud("a", "openai", "m/../x", "k", handlers).ok).toBe(false);
+    expect(sessions.startCloud("a", "openai", "m", "", handlers).ok).toBe(false);
+    expect(made).toEqual([]);
+    expect(sessions.startCloud("a", "openai", "m", "k", handlers).ok).toBe(true);
+    expect(sessions.startCloud("b", "openai", "m", "k", handlers)).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/already open/),
+    });
+  });
+
+  it("scrubs the key from a connection error", () => {
+    class Boom {
+      constructor() {
+        throw new Error("bad header Bearer sk-secret-123");
+      }
+    }
+    const out = createRealtimeSessions({ WebSocketImpl: Boom as never }).startCloud(
+      "a",
+      "openai",
+      "m",
+      "sk-secret-123",
+      handlers,
+    );
+    expect(out.ok).toBe(false);
+    expect(JSON.stringify(out)).not.toContain("sk-secret-123");
+  });
+
+  it("keeps the loopback-only rule for the plain start", () => {
+    const sessions = createRealtimeSessions();
+    expect(sessions.start("s", "wss://api.openai.com/v1/realtime", {}).ok).toBe(false);
+  });
+
+  it("the main process re-checks consent, privacy and paid access and reads the key itself", async () => {
+    const { readFileSync } = await import("node:fs");
+    const main = readFileSync(path.resolve(import.meta.dirname, "../../electron/main.cjs"), "utf8");
+    const at = main.indexOf('ipcMain.handle("realtime:open-cloud"');
+    const body = main.slice(at, main.indexOf('ipcMain.handle("realtime:send"', at));
+    expect(body).toContain("consent !== true");
+    expect(body).toContain("voicePrivacyOn()");
+    expect(body).toContain("paidUnlocked");
+    expect(body).toContain("modelsApi.readKeys");
+    const preload = readFileSync(
+      path.resolve(import.meta.dirname, "../../electron/preload.cjs"),
+      "utf8",
+    );
+    const at2 = preload.indexOf("realtimeOpenCloud");
+    const bridge = preload.slice(at2, preload.indexOf("voiceCloudSpeak", at2));
+    expect(bridge).toContain("realtime:open-cloud");
+    expect(bridge).not.toMatch(/key/i);
+  });
+});

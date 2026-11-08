@@ -244,6 +244,7 @@ const SOURCE_LAYOUT = {
         "src/lib/friday",
         "src/lib/friday/brain",
         "src/lib/friday/self",
+        "src/lib/friday/voice-engine",
         "src/renderer",
         "core",
         "electron",

@@ -138,7 +138,8 @@ def ollama_calls_from_message(message: dict) -> list[dict]:
     for n, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        fn = item.get("function") if isinstance(item.get("function"), dict) else item
+        inner = item.get("function")
+        fn = inner if isinstance(inner, dict) else item
         name = str(fn.get("name") or item.get("name") or "").strip()
         if not name:
             continue
@@ -544,7 +545,8 @@ def quota_meter(headers) -> dict | None:
 def capability_tags(model: Model) -> list[str]:
     """Tags the router already understands. A name alone does not add one."""
     options = model.options if isinstance(model.options, dict) else {}
-    caps = options.get("capabilities") if isinstance(options.get("capabilities"), dict) else {}
+    declared = options.get("capabilities")
+    caps = declared if isinstance(declared, dict) else {}
     tags: list[str] = []
     if caps.get("vision"):
         tags.append("vision")
@@ -570,8 +572,10 @@ def free_now_entry(model: Model, now_ms: int) -> dict | None:
     access = str(options.get("access") or "").lower()
     if not local and access != "free":
         return None
-    record = options.get("accessRecord") if isinstance(options.get("accessRecord"), dict) else {}
-    evidence = record.get("evidence") if isinstance(record.get("evidence"), dict) else {}
+    declared_record = options.get("accessRecord")
+    record = declared_record if isinstance(declared_record, dict) else {}
+    declared_evidence = record.get("evidence")
+    evidence = declared_evidence if isinstance(declared_evidence, dict) else {}
     checked = evidence.get("checkedAt")
     checked_at = int(checked) if isinstance(checked, (int, float)) else None
     cooldown = int(options.get("cooldownUntil") or 0)

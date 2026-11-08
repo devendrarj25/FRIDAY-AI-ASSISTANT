@@ -34,7 +34,9 @@ import {
   heardSummary,
   noteHeard,
 } from "./heard-log";
-import { allowRestart, encodeWav, preRollFrom } from "./pcm-capture";
+import { allowRestart, encodeWav, preRollFrom, TARGET_RATE } from "./pcm-capture";
+import { LiveWords } from "./voice-engine/live-words";
+import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi } from "./desktop";
 import {
   dropLine,
@@ -65,6 +67,9 @@ import {
 } from "./voice-turn-trace";
 import { registerVoiceHealth } from "./voice-health";
 import { preferences } from "./preferences";
+import { speakWithCloud } from "./voice-engine/voice-cloud-client";
+import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
+import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
 import { conversationDigest } from "./brain/conversation-state";
 import { attentionWindowMs } from "./attention-window";
@@ -72,6 +77,7 @@ import { preferSpoken } from "./conversation-style";
 import {
   activeVoiceSettings,
   lastSpeechRoute,
+  prefetchSpeech,
   speakText,
   spokenSummary,
   statusWithVoice,
@@ -108,6 +114,17 @@ import {
   wantsContinue,
   type VoiceAudit,
 } from "./voice-session";
+import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
+import { classifyVoiceControl } from "./voice-engine/interruption-controller";
+import { splitLongSpeech } from "./voice-engine/language-segmenter";
+import { prepareForSpeech } from "./voice-engine/text-normalizer";
+import { askBrain } from "./self/ask-brain";
+import {
+  attachVoiceTaskSpeaker,
+  releaseTaskUpdates,
+  runTaskControl,
+  startVoiceTask,
+} from "./voice-engine/voice-tasks";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
   applyCorrections,
@@ -428,6 +445,9 @@ class AssistantModeStore {
   /** The newest piece of the answer that arrived while it was paused, replayed on resume. */
   private deferredStream: { runId: string; text: string; final: boolean } | null = null;
   private backchannelUsed = false;
+  /** Shows the words while the owner is still speaking (opt-in, `voice.liveWords`). */
+  private liveWords: LiveWords | null = null;
+  private liveWordsTimer: ReturnType<typeof setInterval> | null = null;
   private speechQueue: string[] = [];
   private draining = false;
   /** How much of the live answer has already been handed to speech. */
@@ -1681,6 +1701,14 @@ class AssistantModeStore {
           this.holdForInterruption();
         }
         this.to("vad-speech");
+        if (
+          preferences.getSnapshot().voice.liveWords === true &&
+          this.state.mode === "auto" &&
+          !this.state.paused &&
+          !this.state.speaking
+        ) {
+          this.startLiveWords();
+        }
         this.emit();
       },
       // Low-latency wake scoring on the RAW audio when openWakeWord is really
@@ -1925,12 +1953,35 @@ class AssistantModeStore {
         this.trace("dropped", `${event} ignored in ${from}${detail ? ` · ${detail}` : ""}`);
       return false;
     }
+    if (event === "transcribe-start" || event === "transcript" || event === "session-stop")
+      this.stopLiveWords();
     this.state.voiceState = next;
     this.state.listening = stateIsListening(next);
     this.state.speaking = stateIsSpeaking(next);
     this.state.status = statusWithVoice(stateLabel(next));
     if (next !== from && detail) this.trace("segment", `${from} → ${next} (${event}) · ${detail}`);
+    if (next === "LISTENING" && from !== "LISTENING") releaseTaskUpdates();
     return true;
+  }
+
+  /** A background task update, said in Auto mode (Chat and Manual stay silent) and shown in the captions. */
+  announceTask(text: string) {
+    this.caption("friday", text);
+    this.speak(text);
+  }
+
+  /** Whether a task update may be spoken now: not while the owner talks or FRIDAY answers. */
+  taskBusy(): "listening-to-owner" | "speaking" | "idle" {
+    const v = this.state.voiceState;
+    if (
+      v === "SPEECH_DETECTED" ||
+      v === "TRANSCRIBING" ||
+      v === "WAKE_DETECTED" ||
+      v === "COMMAND_LISTENING"
+    )
+      return "listening-to-owner";
+    if (v === "THINKING" || v === "SPEAKING" || v === "WAITING_CONFIRMATION") return "speaking";
+    return "idle";
   }
 
   /** Record one pipeline step. Never throws, never blocks the audio path. */
@@ -2205,6 +2256,45 @@ class AssistantModeStore {
     if (wake.matched) this.lastWakeAt = Date.now();
     this.turnClock = { ...this.turnClock, finalAt: Date.now() };
     this.to("wake-matched");
+    // Task words ("cancel the task", "pause the task", "resume the task") act on background work only.
+    // A plain stop below ends speech and never touches a task.
+    const control = classifyVoiceControl(command || text);
+    if (
+      control.kind === "cancel-task" ||
+      control.kind === "pause-task" ||
+      control.kind === "resume-task"
+    ) {
+      this.trace("wake", `task control — ${control.kind}`);
+      markTurnStage("routed", true, "", "task control");
+      const said = runTaskControl(control);
+      if (said) this.speak(said);
+      this.state.status = "Listening";
+      this.emit();
+      return;
+    }
+    // "Do this in the background": the work becomes a voice task that runs the real Brain turn; the answer is
+    // announced when it finishes. The Brain takes one turn at a time, so a new question during the task waits.
+    const background = parseBackgroundRequest(command || text);
+    if (background && this.state.mode === "auto") {
+      this.trace("wake", "background request — started as a voice task");
+      markTurnStage("routed", true, "", "background task");
+      const made = startVoiceTask(background.label, async (_task, context) => {
+        await context.checkpoint();
+        const stopOnCancel = () => brain.stop();
+        context.signal.addEventListener("abort", stopOnCancel, { once: true });
+        try {
+          const done = await askBrain(background.request, { brain, timeoutMs: 300_000 });
+          await context.checkpoint();
+          return completionLine(done.answer) || "Finished.";
+        } finally {
+          context.signal.removeEventListener("abort", stopOnCancel);
+        }
+      });
+      if (!made.ok) this.speak(made.error);
+      this.state.status = "Listening";
+      this.emit();
+      return;
+    }
     // "FRIDAY, stop" is an interruption, never a task: cut the reply short and
     // go straight back to listening instead of sending "stop" to the brain.
     if (isStopCommand(text)) {
@@ -2608,6 +2698,56 @@ class AssistantModeStore {
     }
   }
 
+  /** Follow the utterance that just began, showing its words as they settle. Never starts an action. */
+  private startLiveWords() {
+    const api = desktopApi();
+    if (!api?.transcribe) return;
+    this.liveWords ??= new LiveWords({
+      audioSince: (from, maxMs) => {
+        const all = preRollFrom(from, 0);
+        const keep = Math.round((maxMs / 1000) * TARGET_RATE);
+        return {
+          samples: all.length > keep ? all.subarray(all.length - keep) : all,
+          rate: TARGET_RATE,
+        };
+      },
+      encodeWav,
+      transcribe: async (wav) => {
+        const voice = preferences.getSnapshot().voice;
+        const language = whisperLanguageArg(voice.recognitionLang) || undefined;
+        const out = await api.transcribe!({
+          audioBytes: wav,
+          mime: "audio/wav",
+          language,
+          localOnly: true,
+          ...(voice.sttSize && voice.sttSize !== "auto"
+            ? { model: voice.sttSize, sttSize: voice.sttSize }
+            : {}),
+        });
+        return out?.ok ? { ok: true, text: out.text ?? "" } : { ok: false };
+      },
+      speaking: () => voiceGate.heardSpeechWithin(1200),
+      onUpdate: (update) => {
+        if (this.state.mode !== "auto" || this.state.paused || this.state.speaking) return;
+        this.state.interim = update.shown;
+        this.emit();
+      },
+    });
+    this.liveWords.start(performance.now() - 400);
+    if (this.liveWordsTimer) return;
+    this.liveWordsTimer = setInterval(() => {
+      const follower = this.liveWords;
+      if (!follower?.isActive()) return this.stopLiveWords(false);
+      void follower.tick();
+    }, 400);
+  }
+
+  private stopLiveWords(stopFollower = true) {
+    if (stopFollower) this.liveWords?.stop();
+    if (this.liveWordsTimer) clearInterval(this.liveWordsTimer);
+    this.liveWordsTimer = null;
+  }
+
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
   private holdForInterruption() {
     if (this.interruptHold) return;
@@ -2735,7 +2875,15 @@ class AssistantModeStore {
       markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
       return;
     }
-    this.speechQueue.push(spoken);
+    // Numbers, money, dates and acronyms are said as words in the language of each span; the owner's
+    // pronunciation entries win. The echo filter then compares against what is really spoken.
+    const prepared = prepareForSpeech(spoken, preferences.getSnapshot().voice.pronunciations);
+    if (!prepared) {
+      markTurnStage("spoken", false, "the reply had nothing speakable (code or markdown only)");
+      return;
+    }
+    this.speechQueue.push(prepared);
+    if (this.speechQueue.length === 1 && this.state.speaking) this.prefetchNext(this.speechGen);
     void this.drainSpeech();
   }
 
@@ -2762,21 +2910,8 @@ class AssistantModeStore {
     }
   }
 
-  /**
-   * Play one clip. A barge-in bumps speechGen, and a late neural buffer from
-   * the old clip must not start. The microphone stays open so the owner can
-   * interrupt; isSelfEcho drops FRIDAY's own voice.
-   */
-  private playSpoken(spoken: string, gen: number): Promise<void> {
-    if (gen !== this.speechGen) return Promise.resolve();
-    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
-    if (this.turnClock.audioAt == null) {
-      this.turnClock = { ...this.turnClock, audioAt: Date.now() };
-      const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
-      if (latency != null) {
-        voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
-      }
-    }
+  /** How a reply will be spoken: the engine, the owner's voice settings, the mood of the moment. */
+  private speakPlan(spoken: string) {
     const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
     const engine = chooseTtsEngine({
       network: online,
@@ -2789,7 +2924,6 @@ class AssistantModeStore {
       current: engine,
       supertonicReady: this.offlineVoiceReady,
     });
-    this.state.tts = { ...this.state.tts, engine: fallen };
     const tuning = activeVoiceSettings();
     const voicePrefs = preferences.getSnapshot().voice;
     const spokenLang = voiceForLanguage(voicePrefs.speechLang || voicePrefs.recognitionLang);
@@ -2812,59 +2946,147 @@ class AssistantModeStore {
     });
     const privacy = voicePrefs.privacyMode === true;
     const localVoice = fallen !== "neural" || privacy;
+    const cloudClip = privacy ? undefined : this.cloudClipFor();
+    const argTuning = {
+      ...tuning,
+      lang: spokenLang.lang || tuning.lang || "hi-IN",
+      rate: tone.rate,
+      pitch: tone.pitch,
+      volume: tone.volume,
+      allowCloud: fallen === "neural" && !privacy,
+      expressive: voicePrefs.expressiveSpeech !== false,
+      ...(localVoice
+        ? {
+            voiceName: "",
+            kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
+          }
+        : {}),
+      ...(cloudClip ? { cloudClip } : {}),
+    };
+    return { fallen, tuning, privacy, tone, argTuning };
+  }
+
+  /** Start making the audio of the next waiting sentence so the gap between two sentences stays short. */
+  private prefetchNext(gen: number) {
+    const next = this.speechQueue[0];
+    if (!next || gen !== this.speechGen) return;
+    try {
+      const plan = this.speakPlan(next);
+      if (plan.argTuning.kind !== "system") prefetchSpeech(next, plan.argTuning);
+    } catch {
+      /* the sentence is simply made when its turn comes */
+    }
+  }
+
+  private cloudSpeechKeys: Record<string, boolean> = {};
+  private cloudSpeechKeysAt = 0;
+  private cloudSpeechBlockedUntil = 0;
+  private cloudLedger: ReturnType<typeof loadLedger> | null = null;
+
+  /**
+   * The owner's chosen cloud voice (Sarvam or Azure), or nothing. It is asked once per clause; a refusal (quota,
+   * privacy, no key, an error) hands the clause to the normal ladder and pauses the cloud for a minute so one
+   * failure never adds delay to every clause. Text that looks sensitive is never sent.
+   */
+  private cloudClipFor():
+    | ((
+        text: string,
+        lang: string,
+        tone: { rate: number; pitch: number; volume: number },
+      ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>)
+    | undefined {
+    const cloud = sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice);
+    const provider = cloud.speakWith;
+    if (!provider || !cloud.cloudEnabled || !cloud.allowedProviders.includes(provider))
+      return undefined;
+    return async (text, lang, tone) => {
+      if (Date.now() < this.cloudSpeechBlockedUntil || looksSensitive(text)) return null;
+      const api = desktopApi();
+      if (Date.now() - this.cloudSpeechKeysAt > 60_000) {
+        this.cloudSpeechKeysAt = Date.now();
+        this.cloudSpeechKeys = (await api?.voiceCloudKeyStatus?.().catch(() => null)) ?? {};
+      }
+      const store = typeof localStorage === "undefined" ? null : localStorage;
+      this.cloudLedger ??= loadLedger(store);
+      const ledger = this.cloudLedger;
+      const out = await speakWithCloud(
+        provider,
+        {
+          text,
+          language: lang,
+          pace: tone.rate,
+          prefs: cloud,
+          keys: this.cloudSpeechKeys,
+          privacyMode: preferences.getSnapshot().voice.privacyMode === true,
+          online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+        },
+        { ledger, persistLedger: () => saveLedger(store, ledger) },
+      );
+      if (!out.ok) {
+        this.cloudSpeechBlockedUntil = Date.now() + 60_000;
+        this.trace("segment", `cloud voice skipped — ${out.error}`);
+        return null;
+      }
+      return { audioBase64: out.audioBase64, mime: out.mime, engine: provider };
+    };
+  }
+
+  /**
+   * Play one clip. A barge-in bumps speechGen, and a late neural buffer from
+   * the old clip must not start. The microphone stays open so the owner can
+   * interrupt; isSelfEcho drops FRIDAY's own voice.
+   */
+  private playSpoken(spoken: string, gen: number): Promise<void> {
+    if (gen !== this.speechGen) return Promise.resolve();
+    if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
+    if (this.turnClock.audioAt == null) {
+      this.turnClock = { ...this.turnClock, audioAt: Date.now() };
+      const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
+      if (latency != null) {
+        voiceBudgets({ listenMs: 1000, audioMs: latency, idleCpu: [0.2], memoryMb: [100, 100] });
+      }
+    }
+    const plan = this.speakPlan(spoken);
+    const { fallen, tuning, privacy, tone } = plan;
+    this.state.tts = { ...this.state.tts, engine: fallen };
     const out = outputReachable({ deviceId: "default", volume: tone.volume });
     if (!out.ok) this.state.status = out.reason;
     this.spokenText = spoken;
     this.openFollowUp();
-    return speakText(
-      spoken,
-      {
-        ...tuning,
-        lang: spokenLang.lang || tuning.lang || "hi-IN",
-        rate: tone.rate,
-        pitch: tone.pitch,
-        volume: tone.volume,
-        allowCloud: fallen === "neural" && !privacy,
-        ...(localVoice
-          ? {
-              voiceName: "",
-              kind: (fallen === "sapi" || privacy ? "system" : "neural") as "system" | "neural",
-            }
-          : {}),
+    // The next sentence, if it is already waiting, is made while this one plays.
+    this.prefetchNext(gen);
+    return speakText(spoken, plan.argTuning, {
+      onStart: () => {
+        if (gen !== this.speechGen) return;
+        this.echoUntil = Date.now() + 120_000;
+        if (this.to("tts-start")) this.pauseForSpeech();
+        this.emit();
       },
-      {
-        onStart: () => {
-          if (gen !== this.speechGen) return;
-          this.echoUntil = Date.now() + 120_000;
-          if (this.to("tts-start")) this.pauseForSpeech();
-          this.emit();
-        },
-        onEnd: () => {
-          if (gen !== this.speechGen) return;
-          this.echoUntil = Date.now() + 1500;
-          // The follow-up window counts from the end of her reply, not its start,
-          // so a long answer does not use up the owner's turn.
-          this.openFollowUp();
-          if (this.state.handsFree) this.setAwake();
-          this.to("tts-end");
-          if (this.state.pending && this.state.voiceState !== "WAITING_CONFIRMATION") {
-            this.to("confirm-required");
-          }
-          // Stay honest: tts-end is ignored in ERROR/PAUSED, so do not
-          // overwrite the failure/paused status with "Listening…".
-          if (
-            this.state.mode === "auto" &&
-            this.state.voiceState !== "ERROR" &&
-            this.state.voiceState !== "PAUSED" &&
-            this.state.voiceState !== "OFF" &&
-            this.state.voiceState !== "STOPPING"
-          ) {
-            this.resumeAfterSpeech();
-          }
-          this.emit();
-        },
+      onEnd: () => {
+        if (gen !== this.speechGen) return;
+        this.echoUntil = Date.now() + 1500;
+        // The follow-up window counts from the end of her reply, not its start,
+        // so a long answer does not use up the owner's turn.
+        this.openFollowUp();
+        if (this.state.handsFree) this.setAwake();
+        this.to("tts-end");
+        if (this.state.pending && this.state.voiceState !== "WAITING_CONFIRMATION") {
+          this.to("confirm-required");
+        }
+        // Stay honest: tts-end is ignored in ERROR/PAUSED, so do not
+        // overwrite the failure/paused status with "Listening…".
+        if (
+          this.state.mode === "auto" &&
+          this.state.voiceState !== "ERROR" &&
+          this.state.voiceState !== "PAUSED" &&
+          this.state.voiceState !== "OFF" &&
+          this.state.voiceState !== "STOPPING"
+        ) {
+          this.resumeAfterSpeech();
+        }
+        this.emit();
       },
-    )
+    })
       .then((how) => {
         if (gen !== this.speechGen) return;
         const route = lastSpeechRoute();
@@ -2954,7 +3176,7 @@ class AssistantModeStore {
       chunk = earlyClause(pending);
     if (!chunk.spoken) return;
     this.voicedChars += chunk.consumed;
-    this.speak(chunk.spoken);
+    for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
     if (
       final &&
       this.state.mode === "auto" &&
@@ -3131,6 +3353,10 @@ class AssistantModeStore {
 }
 
 export const assistantMode = new AssistantModeStore();
+attachVoiceTaskSpeaker(
+  (text) => assistantMode.announceTask(text),
+  () => assistantMode.taskBusy(),
+);
 
 // The self-check and a chat question about her voice read the live session.
 registerVoiceHealth(() => {

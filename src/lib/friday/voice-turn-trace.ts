@@ -6,6 +6,8 @@
  * Counts and reasons only: no transcript text is stored here.
  */
 
+import { voiceLatency } from "./voice-engine/latency-monitor";
+
 export const TURN_STAGES = ["heard", "routed", "model", "reply", "spoken"] as const;
 export type TurnStage = (typeof TURN_STAGES)[number];
 
@@ -26,7 +28,10 @@ let last: VoiceTurn | null = null;
 
 /** A new heard transcript starts a new turn. The previous one is kept as `last`. */
 export function beginVoiceTurn(now = Date.now()): void {
-  if (current) last = current;
+  if (current) {
+    last = current;
+    voiceLatency.recordTurn(current);
+  }
   current = { startedAt: now, rows: [] };
 }
 

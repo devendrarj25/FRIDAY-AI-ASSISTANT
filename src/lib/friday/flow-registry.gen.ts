@@ -298,16 +298,21 @@ export const FLOW_REGISTRY = {
     "voice.addressName",
     "voice.addressWindowSec",
     "voice.allowAmbientCloud",
+    "voice.cloudVoice",
     "voice.duckOthers",
+    "voice.expressiveSpeech",
     "voice.heardKeepMin",
     "voice.heardKeepRows",
     "voice.hinglish",
     "voice.inputDeviceId",
     "voice.listenStyle",
+    "voice.liveWords",
+    "voice.localVoiceStyle",
     "voice.models",
     "voice.pauseDuringCalls",
     "voice.pitch",
     "voice.privacyMode",
+    "voice.pronunciations",
     "voice.rate",
     "voice.realtimeExperiment",
     "voice.recognitionLang",
@@ -1677,6 +1682,10 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "realtime:open-cloud",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "realtime:send",
       file: "electron/main.cjs",
     },
@@ -2066,6 +2075,22 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "updates:rollback",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:key-status",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:save-key",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:speak",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-cloud:transcribe",
       file: "electron/main.cjs",
     },
     {
@@ -9304,16 +9329,16 @@ export const FLOW_REGISTRY = {
       total: 31,
     },
     options: {
-      mapped: 125,
-      total: 125,
+      mapped: 130,
+      total: 130,
     },
     capabilities: {
       mapped: 1102,
       total: 1102,
     },
     ipc: {
-      mapped: 477,
-      total: 477,
+      mapped: 482,
+      total: 482,
     },
     kernel: {
       mapped: 14,

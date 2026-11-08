@@ -81,6 +81,10 @@ describe("conversation style", () => {
 
   it("puts the style contract on the model prompt", () => {
     expect(styleContract()).toMatch(/one short sentence/i);
+    // The voice is a woman's: Hindi and Hinglish self-reference is feminine, and the owner is addressed as aap.
+    expect(styleContract()).toMatch(/feminine \(kar rahi hoon/);
+    expect(styleContract()).toMatch(/address the owner as aap/);
+    expect(styleContract()).toMatch(/same mix/);
     expect(identity.compile()).toMatch(/one short sentence/i);
     expect(identity.compile()).toMatch(/Never claim to be human/i);
   });

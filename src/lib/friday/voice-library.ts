@@ -11,6 +11,8 @@
  * preferences store, which already persists to
  * <workspace>/config/friday-preferences.json — so it survives restarts.
  */
+import { applyExpression, expressionFor, pauseAfter } from "./voice-engine/expression";
+import { runSpeechPipeline } from "./voice-engine/speech-pipeline";
 import { attachSpeechAudio, pulseSpeechAudio, stopSpeechAudio } from "./character/speech-audio";
 import { preferences, type VoiceModel } from "./preferences";
 import { alertsAudible } from "./settings-runtime";
@@ -31,6 +33,8 @@ type VoiceBridge = {
     volume: number;
     pitch: number;
     lang?: string;
+    /** The local voice style (F1 to F5). Ignored by cloud voices. */
+    style?: string;
   }) => Promise<{
     ok: boolean;
     reason?: string;
@@ -539,17 +543,188 @@ function duckOthers(speaking: boolean) {
  * Local audio plays through the page audio element so the one capture graph
  * can cancel its echo.
  */
+type SpeechTuning = {
+  voiceName: string;
+  lang: string;
+  rate: number;
+  pitch: number;
+  volume: number;
+  kind?: VoiceModel["kind"] | undefined;
+  allowCloud?: boolean;
+  /** Per-clause expression. Off keeps the owner's settings exactly (the pauses stay). */
+  expressive?: boolean;
+  /**
+   * An owner-chosen cloud speech provider (a Sarvam or Azure female Indian voice). Asked first for each clause;
+   * null means "not this time" and the normal ladder takes over.
+   */
+  cloudClip?: (
+    text: string,
+    lang: string,
+    tone: { rate: number; pitch: number; volume: number },
+  ) => Promise<{ audioBase64: string; mime: string; engine: string; voice?: string } | null>;
+};
+
+type SpeechClip = { audioBase64: string; mime: string; route: SpeechRoute };
+
+type SegmentPlan = {
+  text: string;
+  lang: string;
+  cloudVoice: string;
+  rate: number;
+  pitch: number;
+  volume: number;
+  pauseAfterMs: number;
+  key: string;
+};
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+/** What each clause of a reply will sound like: its language, its voice and its small expression. */
+function planSegments(
+  segments: Array<{ text: string; lang: string }>,
+  tuning: SpeechTuning,
+  allowCloud: boolean,
+): SegmentPlan[] {
+  return segments.map((segment) => {
+    const expression =
+      tuning.expressive === false
+        ? {
+            kind: "plain" as const,
+            rate: 1,
+            pitch: 1,
+            volume: 1,
+            pauseAfterMs: pauseAfter(segment.text),
+          }
+        : expressionFor(segment.text);
+    const tone = applyExpression(tuning, expression);
+    const cloudVoice = cloudVoiceFor(tuning, segment.lang, allowCloud);
+    return {
+      text: segment.text,
+      lang: segment.lang,
+      cloudVoice,
+      rate: tone.rate,
+      pitch: tone.pitch,
+      volume: tone.volume,
+      pauseAfterMs: expression.pauseAfterMs,
+      key: JSON.stringify([
+        segment.text,
+        segment.lang,
+        cloudVoice,
+        round2(tone.rate),
+        round2(tone.pitch),
+        round2(tone.volume),
+        Boolean(tuning.cloudClip),
+        preferences.getSnapshot().voice.localVoiceStyle || "",
+      ]),
+    };
+  });
+}
+
+/** Make the audio for one clause. Null when no engine could make it. */
+async function makeClip(
+  plan: SegmentPlan,
+  tuning: SpeechTuning,
+  api: VoiceBridge | null,
+): Promise<SpeechClip | null> {
+  if (tuning.cloudClip) {
+    const cloud = await tuning
+      .cloudClip(plan.text, plan.lang, { rate: plan.rate, pitch: plan.pitch, volume: plan.volume })
+      .catch(() => null);
+    if (cloud?.audioBase64) {
+      return {
+        audioBase64: cloud.audioBase64,
+        mime: cloud.mime,
+        route: {
+          engine: cloud.engine,
+          voiceId: cloud.voice ?? "",
+          lang: plan.lang,
+          cloud: true,
+          note: "",
+        },
+      };
+    }
+  }
+  if (!api?.speakNeural) return null;
+  const result = await api
+    .speakNeural({
+      text: plan.text,
+      voice: plan.cloudVoice,
+      rate: plan.rate,
+      volume: plan.volume,
+      pitch: plan.pitch,
+      lang: plan.lang,
+      style: preferences.getSnapshot().voice.localVoiceStyle || "",
+    })
+    .catch(() => null);
+  if (!result?.ok || !result.audioBase64) return null;
+  return {
+    audioBase64: result.audioBase64,
+    mime: result.mime ?? "audio/mpeg",
+    route: {
+      engine: String(result.engine || (plan.cloudVoice ? "edge-tts" : "local")),
+      voiceId: String(result.voice || plan.cloudVoice || ""),
+      lang: plan.lang,
+      cloud: Boolean(result.cloud),
+      note: String(result.note || ""),
+    },
+  };
+}
+
+/** Clips being made ahead of time for the next sentence of a reply. Each is used once, then forgotten. */
+const clipAhead = new Map<string, Promise<SpeechClip | null>>();
+const AHEAD_LIMIT = 12;
+const AHEAD_LIFETIME_MS = 60_000;
+
+function remember(key: string, promise: Promise<SpeechClip | null>) {
+  if (clipAhead.size >= AHEAD_LIMIT) {
+    const oldest = clipAhead.keys().next().value;
+    if (oldest !== undefined) clipAhead.delete(oldest);
+  }
+  clipAhead.set(key, promise);
+  setTimeout(() => {
+    if (clipAhead.get(key) === promise) clipAhead.delete(key);
+  }, AHEAD_LIFETIME_MS);
+}
+
+async function clipFor(plan: SegmentPlan, tuning: SpeechTuning, api: VoiceBridge | null) {
+  const ready = clipAhead.get(plan.key);
+  if (ready) {
+    clipAhead.delete(plan.key);
+    const clip = await ready;
+    if (clip) return clip;
+  }
+  return makeClip(plan, tuning, api);
+}
+
+/**
+ * Start making the audio for a sentence that will be spoken next, while the current one is still playing, so the
+ * gap between two sentences is the end of one clip and the start of the next, not a fresh synthesis. Uses the same
+ * tuning as the later `speakText` call; if that differs, the prepared clips are simply not used.
+ */
+export function prefetchSpeech(text: string, tuning: SpeechTuning): void {
+  const spoken = text.trim();
+  const api = bridge();
+  if (!spoken || !api?.speakNeural || tuning.kind === "file") return;
+  const plans = planSegments(spokenClauses(spoken), tuning, tuning.allowCloud !== false);
+  for (const plan of plans.slice(0, 3)) {
+    if (!clipAhead.has(plan.key)) remember(plan.key, makeClip(plan, tuning, api));
+  }
+}
+
+export function resetPrefetchedSpeech(): void {
+  clipAhead.clear();
+}
+
+/**
+ * Speak with the best available voice: an owner-chosen cloud voice, local Supertonic or a selected cloud Neural
+ * voice, then the installed SAPI/browser voices. A reply is spoken clause by clause: the next clauses are being
+ * made while the current one plays, so the first sound does not wait for the last clause, and each clause carries
+ * a little expression (a question rises, an apology softens). Returns the source that actually produced sound.
+ * Local audio plays through the page audio element so the one capture graph can cancel its echo.
+ */
 export async function speakText(
   text: string,
-  tuning: {
-    voiceName: string;
-    lang: string;
-    rate: number;
-    pitch: number;
-    volume: number;
-    kind?: VoiceModel["kind"] | undefined;
-    allowCloud?: boolean;
-  },
+  tuning: SpeechTuning,
   hooks: { onStart?: () => void; onEnd?: () => void } = {},
 ): Promise<"neural" | "system" | "none"> {
   const spoken = text.trim();
@@ -571,44 +746,44 @@ export async function speakText(
   const allowCloud = tuning.allowCloud !== false;
   const segments = spokenClauses(spoken);
   try {
-    if (api?.speakNeural && neuralAllowed) {
-      const clips: Array<{ audioBase64: string; mime: string }> = [];
-      const langs: string[] = [];
-      let route: SpeechRoute = EMPTY_ROUTE;
-      for (const segment of segments) {
-        if (stale()) return "none";
-        const cloudVoice = cloudVoiceFor(tuning, segment.lang, allowCloud);
-        const result = await api.speakNeural({
-          text: segment.text,
-          voice: cloudVoice,
-          rate: tuning.rate,
-          volume: tuning.volume,
-          pitch: tuning.pitch,
-          lang: segment.lang,
-        });
-        if (!result?.ok || !result.audioBase64) {
-          clips.length = 0;
-          break;
-        }
-        langs.push(segment.lang);
-        route = {
-          engine: String(result.engine || (cloudVoice ? "edge-tts" : "local")),
-          voiceId: String(result.voice || cloudVoice || ""),
-          lang: langs.join("+"),
-          cloud: Boolean(result.cloud),
-          note: String(result.note || ""),
-        };
-        clips.push({ audioBase64: result.audioBase64, mime: result.mime ?? "audio/mpeg" });
+    if ((api?.speakNeural || tuning.cloudClip) && neuralAllowed) {
+      const plans = planSegments(segments, tuning, allowCloud);
+      const routes: SpeechRoute[] = [];
+      const outcome = await runSpeechPipeline<SegmentPlan, SpeechClip>({
+        items: plans,
+        synthesize: async (plan) => {
+          const clip = await clipFor(plan, tuning, api);
+          if (clip) routes.push(clip.route);
+          return clip;
+        },
+        play: (clip, plan) =>
+          stale() ? Promise.resolve() : playBase64(clip.audioBase64, clip.mime, plan.volume),
+        stale,
+        ahead: 2,
+        onFirstClip: (clip) => {
+          rememberSpeechRoute(clip.route);
+          playback.onStart();
+        },
+        gapAfter: (plan) => plan.pauseAfterMs,
+      });
+      if (outcome.stale) return "none";
+      const last = routes[routes.length - 1];
+      if (last) {
+        rememberSpeechRoute({ ...last, lang: [...new Set(routes.map((r) => r.lang))].join("+") });
       }
-      if (clips.length && !stale()) {
-        rememberSpeechRoute(route);
-        playback.onStart();
-        for (const clip of clips) {
-          if (stale()) break;
-          await playBase64(clip.audioBase64, clip.mime, tuning.volume);
-        }
-        if (!stale()) playback.onEnd();
-        return stale() ? "none" : route.engine === "sapi" ? "system" : "neural";
+      if (outcome.failedAt === null) {
+        playback.onEnd();
+        return last?.engine === "sapi" ? "system" : "neural";
+      }
+      if (outcome.failedAt > 0) {
+        // Part of the reply was already spoken: finish the rest with the system voice, once, without a second start.
+        const rest = plans
+          .slice(outcome.failedAt)
+          .map((plan) => plan.text)
+          .join(" ");
+        const finished = await speakWithSystemVoice(rest, tuning, { onEnd: playback.onEnd }, stale);
+        if (!finished && !stale()) playback.onEnd();
+        return "neural";
       }
     }
     if (stale()) return "none";

@@ -291,7 +291,9 @@ describe("voice screen render budget", () => {
     const stt = readFileSync("electron/stt.cjs", "utf8");
     expect(stt).toContain("Downloading speech model, first time only");
     const neural = readFileSync("electron/neural-voice.cjs", "utf8");
-    expect(neural).toContain('voice: "F2"');
+    // F2 stays the default local voice; a chosen style (F1 to F5) replaces it only when it is valid.
+    expect(neural).toContain('voice: voiceStyle || "F2"');
+    expect(neural).toContain("LOCAL_STYLE");
     expect(neural).not.toContain('audioBase64: ""');
   });
 });

@@ -219,6 +219,15 @@ const DOCUMENTS = [
     inMap: false,
   },
   {
+    file: "docs/FRIDAY_VOICE_ENGINE.md",
+    title: "FRIDAY — Voice Engine",
+    section: "architecture",
+    audience: "owner, developers",
+    answers:
+      "What the voice upgrade adds, what it fixed, the provider and hardware rules, the cloud realtime pipe, and what is still unbuilt or unverified",
+    topic: "Voice engine modules, mixed Hindi and English speech, provider routing, cloud realtime",
+  },
+  {
     file: "docs/FRIDAY_MCP.md",
     title: "FRIDAY — Model Context Protocol",
     section: "architecture",

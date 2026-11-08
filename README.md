@@ -131,6 +131,7 @@ Each topic has exactly one document. Open it for the detail and follow its links
 | Master operating flow | [docs/FRIDAY_MASTER_FLOW.md](docs/FRIDAY_MASTER_FLOW.md) |
 | Storage root, install, update, uninstall | [docs/FRIDAY_STORAGE_CONTRACT.md](docs/FRIDAY_STORAGE_CONTRACT.md) |
 | Providers, credentials, billing and privacy firewalls | [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](docs/FRIDAY_PROVIDERS_AND_SECRETS.md) |
+| Voice engine modules, mixed Hindi and English speech, provider routing, cloud realtime | [docs/FRIDAY_VOICE_ENGINE.md](docs/FRIDAY_VOICE_ENGINE.md) |
 | MCP server, MCP client, pairing, and scopes | [docs/FRIDAY_MCP.md](docs/FRIDAY_MCP.md) |
 | Build paths, TEST identity, and Stable versus Test updates | [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md) |
 | Version scheme and bump rules | [VERSIONING.md](VERSIONING.md) |
