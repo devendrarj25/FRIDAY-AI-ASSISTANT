@@ -190,6 +190,23 @@ describe("notes in Auto mode", () => {
     );
   });
 
+  it("leaving Auto clears what must not outlive the session: queue, wake, translation, a running note", () => {
+    const body = mode.slice(
+      mode.indexOf("private leaveAuto"),
+      mode.indexOf("private startRecognition"),
+    );
+    for (const needle of [
+      "this.queuedCommands = [];",
+      "this.stopQueueTimer();",
+      "this.liveWakeAt = 0;",
+      "this.translateTo = null;",
+      "this.deferredStream = null;",
+      "this.interruptHold = null;",
+      "voiceNotes.stop();",
+    ])
+      expect(body).toContain(needle);
+  });
+
   it("keeps the recording state visible on the Auto page and the retention in settings", () => {
     expect(readFileSync("src/components/friday/AutoMode.tsx", "utf8")).toContain(
       "<VoiceNoteBanner />",

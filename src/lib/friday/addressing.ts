@@ -155,6 +155,11 @@ export function decideAddressing(input: {
   mode?: AddressMode;
   wakeWord?: string;
   followUpOpen?: boolean;
+  /**
+   * The wake word was just heard by the live wake scorer (the name was said, even if the transcript lacks it). The
+   * line then counts as addressed to her, whatever the address mode, unless it is her own echo or a dismissal.
+   */
+  wakeHeard?: boolean;
   lastSpoken?: string;
   recentlySpeaking?: boolean;
   /** What FRIDAY just answered or worked on, for "meant for me" without her name. */
@@ -192,6 +197,16 @@ export function decideAddressing(input: {
       confidence: 0.9,
       tools: false,
       closeFollowUp: true,
+    };
+  }
+  if (input.wakeHeard) {
+    return {
+      tag: "addressed",
+      answer: true,
+      reason: "wake-word-heard",
+      confidence: 0.9,
+      tools: true,
+      closeFollowUp: false,
     };
   }
   if (OTHER_PERSON.test(norm) && !named(text, wakeWord)) {

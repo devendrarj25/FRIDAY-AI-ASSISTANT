@@ -127,21 +127,28 @@ export function createWakeFrameFeed(deps: WakeFrameFeedDeps) {
   return {
     start() {
       if (off) return;
-      off = subscribe((samples, fromRate, atMono) => {
-        const ok = deps.allowed();
-        if (!ok) {
-          if (wasAllowed) {
-            assembler.reset();
-            void api()?.scoreWakeFrames?.({ session: deps.sessionId, reset: true });
-            deps.onStatus?.("blocked");
+      try {
+        off = subscribe((samples, fromRate, atMono) => {
+          const ok = deps.allowed();
+          if (!ok) {
+            if (wasAllowed) {
+              assembler.reset();
+              void api()?.scoreWakeFrames?.({ session: deps.sessionId, reset: true });
+              deps.onStatus?.("blocked");
+            }
+            wasAllowed = false;
+            return;
           }
-          wasAllowed = false;
-          return;
-        }
-        if (!wasAllowed) deps.onStatus?.("listening");
-        wasAllowed = true;
-        for (const chunk of assembler.push(samples, fromRate)) send(chunk, atMono);
-      });
+          if (!wasAllowed) deps.onStatus?.("listening");
+          wasAllowed = true;
+          for (const chunk of assembler.push(samples, fromRate)) send(chunk, atMono);
+        });
+      } catch {
+        // No free capture listener: say so instead of breaking the session that asked for it.
+        off = null;
+        unavailable = true;
+        deps.onStatus?.("unavailable", "the capture has no free listener");
+      }
     },
     stop() {
       off?.();

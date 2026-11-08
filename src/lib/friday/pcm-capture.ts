@@ -284,7 +284,7 @@ export type CaptureTap = (
   meta: CaptureFrameMeta,
 ) => void;
 
-const MAX_TAPS = 4;
+const MAX_TAPS = 6;
 const taps = new Set<CaptureTap>();
 
 /**

@@ -347,6 +347,8 @@ export type AssistantModeState = {
 
 /** How many pipeline steps the Auto Mode screen keeps. */
 const MAX_VOICE_LOG = 30;
+/** After the live wake scorer hears the name, the next line is addressed to her for this long (ms). */
+const LIVE_WAKE_MS = 8_000;
 /** Live captions send audio only while speech was heard this recently (ms). */
 const CAPTION_TAIL_MS = 1_500;
 
@@ -1365,6 +1367,17 @@ class AssistantModeStore {
     void this.stopCloudCaptions();
     this.stopLiveWake();
     this.stopBargeShadow();
+    // Nothing from this Auto session may survive into the next one: queued requests, a paused reply, a spent wake.
+    this.queuedCommands = [];
+    this.stopQueueTimer();
+    this.liveWakeAt = 0;
+    this.translateTo = null;
+    this.deferredStream = null;
+    this.unfinished = "";
+    if (this.interruptHold?.timer) clearTimeout(this.interruptHold.timer);
+    this.interruptHold = null;
+    // A note that was running stops with the microphone: the banner must never show a recording that is not heard.
+    voiceNotes.stop();
     this.cancelVoiceRecoveryTimer();
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
@@ -2227,6 +2240,7 @@ class AssistantModeStore {
       wakeWord: wakeWord(),
       // Hands-free keeps the conversation open for the attention window after
       // FRIDAY last woke or answered, so a follow-up needs no name.
+      wakeHeard: Date.now() - this.liveWakeAt < LIVE_WAKE_MS,
       followUpOpen:
         Date.now() < this.followUpUntil ||
         (this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil),
@@ -2265,6 +2279,7 @@ class AssistantModeStore {
             : "hands-free — treated as a request"
           : "no wake word, not awake, not a hands-free turn",
     );
+    if (accepted) this.liveWakeAt = 0; // a live wake covers one line, then it is spent
     if (!accepted) {
       markTurnStage(
         "routed",
@@ -3033,6 +3048,7 @@ class AssistantModeStore {
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private liveWakeAt = 0;
   private translateTo: "en" | "hi" | null = null;
 
   /** The target language while live translation is on, or null. */
@@ -3102,12 +3118,14 @@ class AssistantModeStore {
     if (this.translateTo) {
       const to = this.translateTo;
       markTurnStage("routed", true, "", "translation");
-      startVoiceTask("Translation", async (_task, context) => {
+      const made = startVoiceTask("Translation", async (_task, context) => {
         await context.checkpoint();
         const done = await askBrain(translationPrompt(heard, to), { brain, timeoutMs: 60_000 });
         await context.checkpoint();
         return completionLine(done.answer, 400) || "I could not translate that.";
       });
+      // A full queue is said, not swallowed: the line was heard but cannot be translated yet.
+      if (!made.ok) this.speak(made.error);
       this.emit();
       return true;
     }
@@ -3137,22 +3155,27 @@ class AssistantModeStore {
    */
   private startBargeShadow() {
     if (this.bargeShadowOff) return;
-    this.bargeShadowOff = subscribeCaptureFrames((samples, _rate, atMono) => {
-      if (this.state.mode !== "auto" || !this.state.speaking) return;
-      let sum = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        const v = Number(samples[i]) || 0;
-        sum += v * v;
-      }
-      const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
-      const fired = this.bargeDetector.push({
-        t: atMono,
-        speech: voiceGate.heardSpeechWithin(250),
-        micLevel,
-        playbackLevel: speechRms(),
+    // The shadow is a measurement: when the capture has no free listener it is simply not run.
+    try {
+      this.bargeShadowOff = subscribeCaptureFrames((samples, _rate, atMono) => {
+        if (this.state.mode !== "auto" || !this.state.speaking) return;
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const v = Number(samples[i]) || 0;
+          sum += v * v;
+        }
+        const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+        const fired = this.bargeDetector.push({
+          t: atMono,
+          speech: voiceGate.heardSpeechWithin(250),
+          micLevel,
+          playbackLevel: speechRms(),
+        });
+        if (fired) this.bargeShadow.detectorFired(performance.now());
       });
-      if (fired) this.bargeShadow.detectorFired(performance.now());
-    });
+    } catch {
+      this.bargeShadowOff = null;
+    }
   }
 
   private stopBargeShadow() {
@@ -3190,6 +3213,7 @@ class AssistantModeStore {
         preferences.getSnapshot().voice.liveWake === true,
       onWake: ({ score }) => {
         this.lastWakeAt = Date.now();
+        this.liveWakeAt = Date.now();
         this.setAwake();
         this.trace("segment", `wake word heard live (score ${score.toFixed(2)})`);
         this.emit();
@@ -3278,12 +3302,28 @@ class AssistantModeStore {
       ledger.record("sarvam", 0.01); // one request counted when the stream opens
       saveLedger(store, ledger);
       this.captionStt = stt;
-      this.captionOff = subscribeCaptureFrames((samples, rate) => {
-        if (!this.captionStt || this.state.mode !== "auto") return;
-        if (this.state.paused || this.state.muted || this.state.speaking) return;
-        if (!voiceGate.heardSpeechWithin(CAPTION_TAIL_MS)) return;
-        this.captionStt.pushFrame(samples, rate);
-      });
+      try {
+        this.captionOff = subscribeCaptureFrames((samples, rate) => {
+          if (!this.captionStt || this.state.mode !== "auto") return;
+          // Privacy mode, the cloud switch or the caption switch turned off mid-session ends the stream at once.
+          const live = preferences.getSnapshot().voice;
+          if (
+            live.privacyMode === true ||
+            !live.cloudVoice.cloudEnabled ||
+            !live.cloudVoice.streamCaptions
+          ) {
+            void this.stopCloudCaptions();
+            return;
+          }
+          if (this.state.paused || this.state.muted || this.state.speaking) return;
+          if (!voiceGate.heardSpeechWithin(CAPTION_TAIL_MS)) return;
+          this.captionStt.pushFrame(samples, rate);
+        });
+      } catch {
+        // No free capture listener: the stream is closed again instead of running with nothing to send.
+        this.captionOff = null;
+        void this.stopCloudCaptions();
+      }
     } finally {
       this.captionStarting = false;
     }
