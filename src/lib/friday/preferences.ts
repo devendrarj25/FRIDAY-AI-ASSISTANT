@@ -72,6 +72,8 @@ export type VoicePreferences = {
   expressiveSpeech: boolean;
   /** Show the words while the owner is still speaking (a recognition every second or so: uses more CPU). */
   liveWords: boolean;
+  /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
+  liveWake: boolean;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
@@ -232,6 +234,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     cloudVoice: { ...DEFAULT_VOICE_CLOUD_PREFS },
     pronunciations: {},
     liveWords: false,
+    liveWake: false,
     expressiveSpeech: true,
     localVoiceStyle: "",
     sttSize: "auto",

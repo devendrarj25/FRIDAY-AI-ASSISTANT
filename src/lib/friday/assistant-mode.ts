@@ -77,6 +77,7 @@ import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-clou
 import { createStreamingSpeak } from "./voice-engine/streaming-speak";
 import { StageClock } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
+import { createWakeFrameFeed } from "./voice-engine/voice-frame-assembler";
 import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
 import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -1219,6 +1220,7 @@ class AssistantModeStore {
 
   private enterAuto() {
     this.armPushToTalk();
+    this.ensureLiveWake();
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
@@ -1354,6 +1356,7 @@ class AssistantModeStore {
     void this.streamSpeaker?.stop();
     this.streamSpeaker = null;
     void this.stopCloudCaptions();
+    this.stopLiveWake();
     this.cancelVoiceRecoveryTimer();
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
@@ -1730,6 +1733,7 @@ class AssistantModeStore {
           this.startLiveWords();
         }
         void this.ensureCloudCaptions();
+        this.ensureLiveWake();
         this.emit();
       },
       // Low-latency wake scoring on the RAW audio when openWakeWord is really
@@ -3017,6 +3021,48 @@ class AssistantModeStore {
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private wakeFeed: ReturnType<typeof createWakeFrameFeed> | null = null;
+
+  /**
+   * Live wake scoring (opt-in, `voice.liveWake`): the one shared capture is cut into 80 ms frames and scored on this
+   * PC by the wake worker. It runs only in Auto mode with the wake word required (hands-free off), not paused,
+   * not muted and not while FRIDAY speaks. A hit opens the same awake window a matched wake phrase opens. Without
+   * an openWakeWord model the feed says so once and stops; the normal wake matching is unchanged.
+   */
+  private ensureLiveWake() {
+    if (this.wakeFeed || this.state.mode !== "auto") return;
+    const voice = preferences.getSnapshot().voice;
+    if (voice.liveWake !== true) return;
+    this.wakeFeed = createWakeFrameFeed({
+      sessionId: "auto",
+      wakeWord: voice.wakeWord || "friday",
+      allowed: () =>
+        this.state.mode === "auto" &&
+        !this.state.paused &&
+        !this.state.muted &&
+        !this.state.speaking &&
+        !this.state.handsFree &&
+        preferences.getSnapshot().voice.liveWake === true,
+      onWake: ({ score }) => {
+        this.lastWakeAt = Date.now();
+        this.setAwake();
+        this.trace("segment", `wake word heard live (score ${score.toFixed(2)})`);
+        this.emit();
+      },
+      onStatus: (status, detail) => {
+        if (status === "unavailable") {
+          this.trace("segment", `live wake unavailable — ${detail ?? "no model"}`);
+        }
+      },
+    });
+    this.wakeFeed.start();
+  }
+
+  private stopLiveWake() {
+    this.wakeFeed?.stop();
+    this.wakeFeed = null;
+  }
+
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
   private captionOff: (() => void) | null = null;
   private captionStarting = false;

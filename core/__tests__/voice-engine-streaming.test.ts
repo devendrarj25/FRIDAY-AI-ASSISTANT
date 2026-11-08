@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { CaptureTap } from "../../src/lib/friday/pcm-capture";
 import { StageClock, LatencyMonitor } from "../../src/lib/friday/voice-engine/latency-monitor";
 import { createRealtimeStt } from "../../src/lib/friday/voice-engine/sarvam-realtime-stt";
 import { createStreamingTts } from "../../src/lib/friday/voice-engine/sarvam-streaming-tts";
@@ -69,6 +71,7 @@ function fakeApi(openResult: { ok: boolean; error?: string } = { ok: true }) {
   };
 }
 
+const META = { sequence: 1, sampleStart: 0 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("turn and generation guards", () => {
@@ -365,7 +368,7 @@ describe("wake frame feed", () => {
     reply: { ok: boolean; detected?: boolean; score?: number; reason?: string },
   ) {
     const sent: Array<Record<string, unknown>> = [];
-    const taps: Array<(s: ArrayLike<number>, r: number, at: number) => void> = [];
+    const taps: CaptureTap[] = [];
     const woke: Array<{ score: number; atMono: number }> = [];
     const status: string[] = [];
     const f = createWakeFrameFeed({
@@ -392,12 +395,12 @@ describe("wake frame feed", () => {
     const allowed = { on: true };
     const { f, sent, taps, status } = feed(allowed, { ok: true, detected: false, score: 0.1 });
     f.start();
-    taps[0]!(new Float32Array(2560), 16000, 1);
+    taps[0]!(new Float32Array(2560), 16000, 1, META);
     await tick();
     expect(sent.some((p) => p["pcmBase64"])).toBe(true);
     allowed.on = false; // muted or tray paused
     const before = sent.length;
-    taps[0]!(new Float32Array(2560), 16000, 2);
+    taps[0]!(new Float32Array(2560), 16000, 2, META);
     await tick();
     expect(sent.slice(before).every((p) => p["reset"] === true)).toBe(true);
     expect(status).toEqual(["listening", "blocked"]);
@@ -407,7 +410,7 @@ describe("wake frame feed", () => {
     const allowed = { on: true };
     const { f, taps, woke } = feed(allowed, { ok: true, detected: true, score: 0.91 });
     f.start();
-    taps[0]!(new Float32Array(2560), 16000, 777);
+    taps[0]!(new Float32Array(2560), 16000, 777, META);
     await tick();
     expect(woke).toEqual([{ score: 0.91, atMono: 777 }]);
   });
@@ -419,9 +422,9 @@ describe("wake frame feed", () => {
       reason: "needs an openWakeWord model",
     });
     f.start();
-    taps[0]!(new Float32Array(2560), 16000, 1);
+    taps[0]!(new Float32Array(2560), 16000, 1, META);
     await tick();
-    taps[0]!(new Float32Array(2560), 16000, 2);
+    taps[0]!(new Float32Array(2560), 16000, 2, META);
     await tick();
     expect(status).toContain("unavailable");
     expect(sent.filter((p) => p["pcmBase64"])).toHaveLength(1);
@@ -524,3 +527,43 @@ describe("streaming speak (clip source)", () => {
     ).toBe("REST");
   });
 });
+
+describe("live wake wiring keeps the single microphone and the saved policy", () => {
+  it("never opens a microphone and obeys mute, pause, speaking and the hands-free setting", async () => {
+    const feed = readFileSync("src/lib/friday/voice-engine/voice-frame-assembler.ts", "utf8");
+    expect(feed).not.toMatch(/getUserMedia/);
+    expect(feed).toMatch(/subscribeCaptureFrames/);
+    const assistant = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const gate = assistant.slice(
+      assistant.indexOf("private ensureLiveWake"),
+      assistant.indexOf("private stopLiveWake"),
+    );
+    for (const needle of [
+      "state.paused",
+      "state.muted",
+      "state.speaking",
+      "state.handsFree",
+      "voice.liveWake",
+    ])
+      expect(gate).toContain(needle);
+    expect(assistant).toMatch(
+      /private enterAuto\(\) \{\s*this\.armPushToTalk\(\);\s*this\.ensureLiveWake\(\);/,
+    );
+    expect(assistant).toMatch(/this\.stopLiveWake\(\);/);
+  });
+
+  it("keeps live wake and the cloud paths off by default", async () => {
+    const { DEFAULT_VOICE_CLOUD_PREFS } =
+      await import("../../src/lib/friday/voice-engine/voice-cloud-settings");
+    expect(DEFAULT_VOICE_CLOUD_PREFS.streaming).toBe(false);
+    expect(DEFAULT_VOICE_CLOUD_PREFS.streamCaptions).toBe(false);
+    const prefs = readDefaultVoice();
+    expect(prefs.liveWake).toBe(false);
+  });
+});
+
+function readDefaultVoice(): { liveWake: boolean } {
+  // The default preference object is the source of truth; read its text so this stays a pure check.
+  const text = readFileSync("src/lib/friday/preferences.ts", "utf8");
+  return { liveWake: /liveWake: true/.test(text) ? true : !/liveWake: false/.test(text) };
+}

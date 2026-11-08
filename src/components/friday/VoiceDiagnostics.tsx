@@ -16,11 +16,16 @@ import { preferences } from "@/lib/friday/preferences";
 import { models } from "@/lib/friday/models-engine";
 import { hearingCounters, hearingCountersLine } from "@/lib/friday/voice-hearing";
 import { voiceLatency } from "@/lib/friday/voice-engine/latency-monitor";
+import { captureCounters, captureTapCount } from "@/lib/friday/pcm-capture";
+import { desktopApi } from "@/lib/friday/desktop";
 import { turnTraceLine, voiceTurn, whereItStopped } from "@/lib/friday/voice-turn-trace";
 import {
   formatVoiceProbeReport,
   liveVoiceRuntimeLine,
   redactDiagnostics,
+  selfTestSummary,
+  voiceDoctorMarks,
+  voiceSelfTestMatrix,
 } from "@/lib/friday/voice-doctor";
 import type { AssistantModeState } from "@/lib/friday/assistant-mode";
 import { gateSpeechKey, voiceGate } from "@/lib/friday/voice-audio";
@@ -146,6 +151,16 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: voiceLatency.line(),
     },
     {
+      label: "self-test (16 checks)",
+      value: selfTestSummary(
+        voiceSelfTestMatrix({
+          marks: voiceDoctorMarks(),
+          measured: new Set(voiceLatency.metrics()),
+          desktop: Boolean(desktopApi()?.voiceStreamOpen),
+        }),
+      ),
+    },
+    {
       label: "first sound (request to first sample)",
       value: voiceLatency.line("firstAudible"),
     },
@@ -162,6 +177,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: assistantMode.voiceTone()?.line ?? "no voiced utterance yet",
     },
     { label: "heard / dropped", value: hearingCountersLine(hearingCounters()) },
+    {
+      label: "capture frames (numbered / listeners dropped)",
+      value: `${captureCounters().frames} frames · ${captureCounters().samples} samples · ${captureCounters().tapsDropped} listener(s) dropped · ${captureTapCount()} listening`,
+    },
     { label: "route", value: liveVoiceRuntimeLine(voice) },
     {
       label: "tts",

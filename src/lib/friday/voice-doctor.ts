@@ -173,6 +173,95 @@ export function voiceSelfTestPlan(): string[] {
   ];
 }
 
+export type SelfTestState = "PASS" | "FAIL" | "NOT AVAILABLE" | "NOT TESTED";
+export type SelfTestRow = { id: string; label: string; state: SelfTestState; why: string };
+
+/**
+ * The sixteen checks of the voice self-test, each with an honest state. A pass needs a real measurement in this
+ * session: a module import, a mock or a local-socket test is never a pass here. A check nobody has run is NOT
+ * TESTED, and one this build or machine cannot run is NOT AVAILABLE. Inputs are injected so nothing here opens a
+ * device or a network connection.
+ */
+export function voiceSelfTestMatrix(input: {
+  marks: Partial<Record<VoiceLayer, LayerMark>>;
+  /** Latency metrics that have at least one real sample (see `voiceLatency.metrics()`). */
+  measured: ReadonlySet<string>;
+  /** The desktop app (with its streaming and cloud speech connection) is present. */
+  desktop: boolean;
+}): SelfTestRow[] {
+  const mark = (layer: VoiceLayer): SelfTestState => {
+    const m = input.marks[layer];
+    return m === "pass" ? "PASS" : m === "fail" ? "FAIL" : "NOT TESTED";
+  };
+  const layerRow = (id: string, label: string, layer: VoiceLayer, why: string): SelfTestRow => {
+    const state = mark(layer);
+    return {
+      id,
+      label,
+      state,
+      why: state === "NOT TESTED" ? "not checked in this session — run the voice check" : why,
+    };
+  };
+  const cloud = (id: string, label: string, metric: string): SelfTestRow =>
+    !input.desktop
+      ? { id, label, state: "NOT AVAILABLE", why: "cloud speech runs in the installed desktop app" }
+      : input.measured.has(metric)
+        ? { id, label, state: "PASS", why: `a real ${metric} sample was measured` }
+        : {
+            id,
+            label,
+            state: "NOT TESTED",
+            why: "needs the owner's consent, a saved key and a live account",
+          };
+  const manual = (id: string, label: string, why: string): SelfTestRow => ({
+    id,
+    label,
+    state: "NOT TESTED",
+    why,
+  });
+  return [
+    layerRow(
+      "mic-permission",
+      "Microphone permission",
+      "permission",
+      "the system granted the microphone",
+    ),
+    layerRow("capture", "Capture", "device", "frames arrive from the microphone"),
+    manual("input-meter", "Input meter", "needs a person speaking at the real microphone"),
+    manual("noise-floor", "Silence and noise floor", "needs a quiet moment on the real microphone"),
+    manual("vad", "Voice activity detection", "needs live speech; no frame has been judged here"),
+    layerRow("wake", "Wake detector", "wake", "the wake engine answered"),
+    layerRow(
+      "local-stt",
+      "Local speech recognition",
+      "inference",
+      "the local recogniser transcribed a clip",
+    ),
+    cloud("cloud-stt", "Cloud speech recognition", "sttFirstPartial"),
+    layerRow("local-tts", "Local speech", "tts", "a local voice made audio"),
+    cloud("cloud-tts", "Cloud speech output", "ttsFirstChunk"),
+    layerRow("playback", "Playback", "output", "an output device is reachable"),
+    input.measured.has("audibleStop")
+      ? {
+          id: "barge-in",
+          label: "Barge-in",
+          state: "PASS",
+          why: "an interruption stop was stamped this session",
+        }
+      : manual("barge-in", "Barge-in", "interrupt her mid-sentence on the real speakers"),
+    manual("backchannel", "Backchannel", "say hmm or haan during a long reply"),
+    manual("echo", "Echo leakage", "needs a real room; her own words must not become commands"),
+    manual("reconnect", "Device reconnect", "unplug and replug the microphone"),
+    manual("offline", "Offline fallback", "disconnect the network during a reply"),
+  ];
+}
+
+/** One line for a screen: counts per state. */
+export function selfTestSummary(rows: readonly SelfTestRow[]): string {
+  const count = (state: SelfTestState) => rows.filter((r) => r.state === state).length;
+  return `${count("PASS")} pass · ${count("FAIL")} fail · ${count("NOT AVAILABLE")} not available · ${count("NOT TESTED")} not tested`;
+}
+
 export function ownerAcceptanceSteps(): string[] {
   return [
     "1. Open Doctor and run the voice self-test. Each layer should say pass or the failing cause.",

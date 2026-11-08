@@ -128,3 +128,33 @@ describe("Setup & Doctor voice layers", () => {
     noteVoiceCheck([]);
   });
 });
+
+describe("voice self-test matrix (honest states)", () => {
+  it("never passes what nobody measured, and says what this build cannot run", async () => {
+    const { voiceSelfTestMatrix, selfTestSummary } =
+      await import("../../src/lib/friday/voice-doctor");
+    const none = voiceSelfTestMatrix({ marks: {}, measured: new Set(), desktop: false });
+    expect(none).toHaveLength(16);
+    expect(none.filter((r) => r.state === "PASS")).toEqual([]);
+    expect(none.find((r) => r.id === "cloud-tts")?.state).toBe("NOT AVAILABLE");
+    expect(none.find((r) => r.id === "echo")?.state).toBe("NOT TESTED");
+    expect(selfTestSummary(none)).toBe("0 pass · 0 fail · 2 not available · 14 not tested");
+  });
+
+  it("takes a pass only from a real mark or a real measured sample, and a failure stays a failure", async () => {
+    const { voiceSelfTestMatrix } = await import("../../src/lib/friday/voice-doctor");
+    const rows = voiceSelfTestMatrix({
+      marks: { permission: "pass", wake: "fail", inference: "pass" },
+      measured: new Set(["ttsFirstChunk", "audibleStop"]),
+      desktop: true,
+    });
+    const state = (id: string) => rows.find((r) => r.id === id)?.state;
+    expect(state("mic-permission")).toBe("PASS");
+    expect(state("wake")).toBe("FAIL");
+    expect(state("local-stt")).toBe("PASS");
+    expect(state("cloud-tts")).toBe("PASS");
+    expect(state("cloud-stt")).toBe("NOT TESTED");
+    expect(state("barge-in")).toBe("PASS");
+    expect(state("capture")).toBe("NOT TESTED");
+  });
+});

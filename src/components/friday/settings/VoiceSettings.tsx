@@ -317,6 +317,12 @@ export function VoiceSettings() {
             on={prefs.voice.liveWords === true}
             onToggle={() => preferences.setVoice({ liveWords: prefs.voice.liveWords !== true })}
           />
+          <ToggleRow
+            label="Listen for the wake word live (needs a wake model)"
+            hint="Auto mode, wake word required. Scores the microphone on this PC as you talk; nothing is sent anywhere. It needs an openWakeWord model for your wake word in the wake folder; without one it says so in Voice diagnostics and the normal wake matching carries on. Off by default and not yet tried on a real microphone."
+            on={prefs.voice.liveWake === true}
+            onToggle={() => preferences.setVoice({ liveWake: prefs.voice.liveWake !== true })}
+          />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
           <SpeechModelCheck />
