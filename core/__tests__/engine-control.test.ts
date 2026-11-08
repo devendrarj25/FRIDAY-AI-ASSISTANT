@@ -88,8 +88,33 @@ describe("llama.cpp / vLLM conditional start", () => {
     const resolved = models.resolveEngineStart("llamacpp", [{ path: file, format: "gguf" }]);
     expect(resolved.start).toEqual([
       "llama-server",
-      ["-m", file, "--host", "127.0.0.1", "--port", "8080"],
+      ["-m", file, "--host", "127.0.0.1", "--port", "8080", "-c", "4096"],
     ]);
+  });
+
+  it("uses the chat model setup downloaded when several GGUFs are present and none is selected", () => {
+    const mine = "/friday/models/qwen2.5-1.5b-instruct/qwen2.5-1.5b-instruct-q4_k_m.gguf";
+    const resolved = models.resolveEngineStart("llamacpp", [
+      { path: "/m/other.gguf", format: "gguf" },
+      { path: mine, format: "gguf" },
+    ]);
+    expect(resolved.start?.[1].slice(0, 2)).toEqual(["-m", mine]);
+    // a selection that does not resolve is still refused, never replaced by the default
+    expect(
+      models.resolveEngineStart(
+        "llamacpp",
+        [
+          { path: mine, format: "gguf" },
+          { path: "/m/a.gguf", format: "gguf" },
+        ],
+        "file:/nope.gguf",
+      ).start,
+    ).toBeNull();
+  });
+
+  it("is a process FRIDAY started, so it can be stopped again", () => {
+    const spec = models.ENGINE_CONTROL["llamacpp"] as { modelStart?: { managed?: boolean } };
+    expect(spec.modelStart?.managed).toBe(true);
   });
 
   it("refuses llama.cpp start when several GGUFs make the pick ambiguous", () => {
@@ -109,7 +134,7 @@ describe("llama.cpp / vLLM conditional start", () => {
     const resolved = models.resolveEngineStart("llamacpp", files, "file:/m/b.gguf");
     expect(resolved.start).toEqual([
       "llama-server",
-      ["-m", "/m/b.gguf", "--host", "127.0.0.1", "--port", "8080"],
+      ["-m", "/m/b.gguf", "--host", "127.0.0.1", "--port", "8080", "-c", "4096"],
     ]);
   });
 

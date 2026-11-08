@@ -20,6 +20,8 @@ const quiet = {
   GITHUB_ACTIONS: "",
   FRIDAY_SETUP_UPDATE: "0",
   FRIDAY_PREFETCH_MOONSHINE: "0",
+  // The older plan (Ollama alone serves chat) is what most of these tests describe; llama.cpp has its own tests below.
+  FRIDAY_PREFETCH_LLAMACPP: "0",
 };
 
 describe("build-time model prefetch", () => {
@@ -298,6 +300,7 @@ describe("an Ollama that is already on this PC", () => {
         FRIDAY_AUTO_INSTALL: "1",
         FRIDAY_PREFETCH_CHAT: "0",
         FRIDAY_PREFETCH_TTS: "0",
+        FRIDAY_PREFETCH_LLAMACPP: "0",
       },
       platform: win,
       log: (line: string) => lines.push(line),
@@ -339,6 +342,7 @@ describe("an Ollama that is already on this PC", () => {
         FRIDAY_AUTO_INSTALL: "0",
         FRIDAY_PREFETCH_CHAT: "0",
         FRIDAY_PREFETCH_TTS: "0",
+        FRIDAY_PREFETCH_LLAMACPP: "0",
       },
       platform: win,
       log: () => {},
@@ -596,6 +600,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
             FRIDAY_AUTO_INSTALL: "1",
             FRIDAY_PREFETCH_CHAT: "0",
             FRIDAY_PREFETCH_TTS: "0",
+            FRIDAY_PREFETCH_LLAMACPP: "0",
             FRIDAY_SETUP_UPDATE: "1",
             ...env,
           },
@@ -663,6 +668,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
             FRIDAY_AUTO_INSTALL: "1",
             FRIDAY_PREFETCH_CHAT: "0",
             FRIDAY_PREFETCH_TTS: "0",
+            FRIDAY_PREFETCH_LLAMACPP: "0",
             FRIDAY_SETUP_UPDATE: "1",
           },
           platform: win,
@@ -784,7 +790,13 @@ describe("speech sizes", () => {
       const dir = mkdtempSync(path.join(tmpdir(), "friday-prefetch-"));
       try {
         await prefetch.prefetch(dir, {
-          env: { ...quiet, FRIDAY_PREFETCH_CHAT: "0", FRIDAY_PREFETCH_TTS: "0", ...env },
+          env: {
+            ...quiet,
+            FRIDAY_PREFETCH_CHAT: "0",
+            FRIDAY_PREFETCH_TTS: "0",
+            FRIDAY_PREFETCH_LLAMACPP: "0",
+            ...env,
+          },
           platform: "linux",
           totalGb,
           log: (l: string) => lines.push(l),

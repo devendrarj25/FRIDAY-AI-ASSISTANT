@@ -1902,6 +1902,8 @@ function stopOwnedProcesses() {
   }
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* worker may already be gone */
   }
@@ -4462,6 +4464,8 @@ lifeSteps.microphone = () => {
   }
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* wake worker may already be gone */
   }
@@ -4553,6 +4557,8 @@ lifeSteps.tts = () => {
 lifeSteps.wake = () => {
   try {
     wakeEngine.shutdown();
+    // llama.cpp is started by FRIDAY, so it ends with her.
+    void modelsApi.stopManagedEngines?.().catch(() => undefined);
   } catch {
     /* worker may already be gone */
   }

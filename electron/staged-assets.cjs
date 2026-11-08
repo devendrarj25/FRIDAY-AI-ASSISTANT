@@ -28,7 +28,13 @@ const STAGING_NAME = ".friday-dev";
 const POINTER_FILE = "staged-assets.json";
 
 /** Parents whose children are downloads. Each child moves as one item. */
-const ADOPTED = [["cache", "stt"], ["models"], ["runtime", "installers"]];
+const ADOPTED = [
+  ["cache", "stt"],
+  ["models"],
+  ["runtime", "installers"],
+  // llama.cpp, unpacked by setup, moves with its zip so the chosen folder has the engine too.
+  ["runtime", "engines"],
+];
 
 let running = null;
 

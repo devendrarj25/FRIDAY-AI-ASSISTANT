@@ -644,14 +644,19 @@ if (win) {
       "silero-vad": "Voice model: speech detector",
       "supertonic-3": "Voice model: offline voice (Supertonic 3)",
       "qwen2.5-1.5b-instruct": "Chat model file: Qwen 2.5 1.5B",
+      "llamacpp-runtime": "Local engine: llama.cpp (llama-server)",
     };
+    // llama.cpp serves the chat model from its GGUF file, so on Windows the file is needed as well as Ollama's copy.
+    const llamaPlanned = require("./prefetch-models.cjs")
+      .prefetchPlan(pickedRoot, process.env, process.platform, { ollama: true })
+      .some((job) => job.id === "llamacpp-runtime");
     for (const job of prefetchModels.prefetchPlan(pickedRoot, process.env, process.platform, {
       ollama: true,
     })) {
       if (!labels[job.id]) continue;
       if (job.minRamGb && ramGb < job.minRamGb) continue;
       // Ollama provides the small chat model on Windows; its file copy is only a fallback.
-      if (job.id === "qwen2.5-1.5b-instruct" && win) continue;
+      if (job.id === "qwen2.5-1.5b-instruct" && win && !llamaPlanned) continue;
       const here = prefetchModels.alreadyThere(job);
       add({
         name: labels[job.id],
@@ -659,7 +664,10 @@ if (win) {
         group: "local-models",
         ok: here,
         found: here ? "on disk" : "missing",
-        want: "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
+        want:
+          job.id === "llamacpp-runtime"
+            ? "unpacked by npm run setup under the FRIDAY folder; FRIDAY starts it with the chat model"
+            : "downloaded by npm run setup, so FRIDAY listens, talks and answers offline",
         fix: "npm run doctor",
         url: "https://huggingface.co",
       });

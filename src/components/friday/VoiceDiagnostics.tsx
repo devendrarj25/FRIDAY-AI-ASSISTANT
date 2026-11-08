@@ -150,6 +150,7 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       label: "turn latency (heard to spoken)",
       value: voiceLatency.line(),
     },
+    { label: "live wake word", value: assistantMode.liveWakeLine() },
     {
       label: "barge-in shadow (acoustic detector vs the live pause)",
       value: assistantMode.bargeShadowLine(),

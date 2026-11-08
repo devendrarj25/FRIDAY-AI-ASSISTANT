@@ -200,6 +200,18 @@ def choose_stt_device(cuda_ready: bool) -> dict:
     }
 
 
+def cpu_threads() -> int:
+    """Threads for the CPU engine. CTranslate2 uses 4 unless told otherwise, which leaves most of a modern PC idle.
+
+    `FRIDAY_STT_THREADS` sets it; otherwise about half the logical processors (the physical cores on most PCs),
+    never fewer than 4 or more than 8, since a larger count stops helping one short utterance.
+    """
+    raw = os.environ.get("FRIDAY_STT_THREADS", "").strip()
+    if raw.isdigit() and 1 <= int(raw) <= 64:
+        return int(raw)
+    return max(4, min(8, (os.cpu_count() or 4) // 2))
+
+
 def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
     """The worker opens a local folder. It does not download weights."""
     target = (model_path or "").strip() or (name or DEFAULT_MODEL)
@@ -211,6 +223,7 @@ def model_load_kwargs(name: str, model_path: str | None = None) -> dict:
         "reason": device["reason"],
         "download_root": cache_dir(),
         "local_files_only": True,
+        "cpu_threads": cpu_threads(),
     }
 
 
@@ -223,6 +236,8 @@ def open_whisper(cls, wanted: str, spec: dict):
             compute_type=spec["compute_type"],
             download_root=spec["download_root"],
             local_files_only=spec["local_files_only"],
+            # Only the CPU engine takes the thread count; the GPU path keeps its defaults.
+            **({"cpu_threads": spec.get("cpu_threads", 0)} if spec["device"] == "cpu" else {}),
         ), spec["device"]
     except Exception:  # noqa: BLE001 — a failed CUDA load must fall back to CPU
         if spec["device"] == "cpu":
@@ -233,6 +248,7 @@ def open_whisper(cls, wanted: str, spec: dict):
             compute_type="int8",
             download_root=spec["download_root"],
             local_files_only=spec["local_files_only"],
+            cpu_threads=spec.get("cpu_threads", 0),
         ), "cpu"
 
 

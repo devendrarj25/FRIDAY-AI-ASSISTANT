@@ -564,6 +564,23 @@ describe("live wake wiring keeps the single microphone and the saved policy", ()
     expect(tap.indexOf("stopCloudCaptions")).toBeLessThan(tap.indexOf("pushFrame"));
   });
 
+  it("gives the caption recogniser her name and the wake word as vocabulary", () => {
+    const text = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const start = text.slice(text.indexOf("const keyterms ="), text.indexOf("if (!opened.ok)"));
+    expect(start).toContain("voice.addressName");
+    expect(start).toContain("voice.wakeWord");
+    expect(start).toContain("keyterms");
+  });
+
+  it("stamps the caption stream on the turn clock so the self-test can pass on a real measurement", () => {
+    const text = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const make = text.slice(
+      text.indexOf("const stt = createRealtimeStt({"),
+      text.indexOf("const opened = await stt.start"),
+    );
+    expect(make).toContain("clock: this.turnStages");
+  });
+
   it("keeps live wake and the cloud paths off by default", async () => {
     const { DEFAULT_VOICE_CLOUD_PREFS } =
       await import("../../src/lib/friday/voice-engine/voice-cloud-settings");

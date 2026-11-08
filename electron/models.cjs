@@ -1928,8 +1928,12 @@ const ENGINE_CONTROL = {
     // exists in the FRIDAY models folder (see resolveEngineStart).
     modelStart: {
       kind: "gguf",
-      bin: "llama-server",
-      args: (file) => ["-m", file, "--host", "127.0.0.1", "--port", "8080"],
+      // The llama-server setup installed under the FRIDAY folder; the one on PATH is the fallback.
+      bin: () =>
+        require("./llama-runtime.cjs").findServer(paths.root() || paths.base()) || "llama-server",
+      args: (file) => ["-m", file, "--host", "127.0.0.1", "--port", "8080", "-c", "4096"],
+      // FRIDAY starts this one and so keeps its process id, to stop it again.
+      managed: true,
       timeoutMs: 45000,
       zeroHint:
         "llama.cpp needs a GGUF path (`llama-server -m <file>`). None is in the FRIDAY models folder, so it must be started manually.",
@@ -2005,6 +2009,30 @@ if (process.platform === "darwin") {
 }
 
 const engineJobs = new Set(); // one start/stop per engine at a time
+/** Engines FRIDAY started herself and so may stop again: id -> process id. */
+const managedEngines = new Map();
+
+/** Stop a process FRIDAY started (the whole tree on Windows). True when the endpoint went down. */
+async function killManaged(id) {
+  const pid = managedEngines.get(id);
+  if (!pid) return false;
+  managedEngines.delete(id);
+  if (process.platform === "win32") {
+    await runCommand("taskkill", ["/PID", String(pid), "/T", "/F"], 8000);
+  } else {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+  return waitUntil(async () => !(await ENGINE_CONTROL[id].probe().catch(() => false)), 8000, 400);
+}
+
+/** Stop every engine FRIDAY started. Called when the app quits or on Stop everything. */
+async function stopManagedEngines() {
+  await Promise.all([...managedEngines.keys()].map((id) => killManaged(id).catch(() => false)));
+}
 
 const runCommand = (cmd, args, timeout = 20000) =>
   new Promise((resolve) => {
@@ -2025,6 +2053,8 @@ const runCommand = (cmd, args, timeout = 20000) =>
  * an ordinary unavailable result instead. */
 const commandAvailable = (cmd) =>
   new Promise((resolve) => {
+    // A full path (FRIDAY's own llama-server) is available when the file is there; no PATH lookup needed.
+    if (path.isAbsolute(String(cmd))) return resolve(fs.existsSync(cmd));
     const finder = process.platform === "win32" ? "where" : "which";
     execFile(finder, [cmd], { timeout: 4000, windowsHide: true }, (err, stdout) => {
       resolve(!err && Boolean(String(stdout || "").trim()));
@@ -2074,10 +2104,17 @@ function resolveEngineStart(id, files, selection = null) {
         ? download.uniqueGgufPaths(inventory)
         : download.uniqueSafetensorDirs(inventory);
     const selected = exactSelectedWeight(id, selection, picked, inventory);
-    if (selected || picked.length === 1) {
-      const target = selected || picked[0];
+    // Several GGUF files and no choice: the chat model setup downloaded is used rather than guessing.
+    const chosen =
+      selected ||
+      (picked.length === 1 ? picked[0] : null) ||
+      (!selection && id === "llamacpp" ? require("./llama-runtime.cjs").preferred(picked) : null);
+    if (chosen) {
+      const target = chosen;
+      const bin =
+        typeof spec.modelStart.bin === "function" ? spec.modelStart.bin() : spec.modelStart.bin;
       return {
-        start: [spec.modelStart.bin, spec.modelStart.args(target)],
+        start: [bin, spec.modelStart.args(target)],
         hint: null,
         timeoutMs: spec.modelStart.timeoutMs || 45000,
       };
@@ -2211,6 +2248,7 @@ async function startEngine(id, options = {}) {
       };
     }
     child.unref();
+    if (spec.modelStart?.managed && child.pid) managedEngines.set(id, child.pid);
     const up = await waitUntil(spec.probe, resolved.timeoutMs || 20000);
     return up
       ? { ok: true, id, running: true, detail: `${cmd} ${args.join(" ")} is answering` }
@@ -2226,6 +2264,12 @@ async function stopEngine(id) {
   if (!spec) return { ok: false, id, error: `unknown engine "${id}"` };
   if (!(await spec.probe())) return { ok: true, id, running: false, detail: "already stopped" };
   if (engineJobs.has(id)) return { ok: false, id, error: "a start/stop job is already running" };
+  if (!spec.stop && managedEngines.has(id)) {
+    const stopped = await killManaged(id);
+    return stopped
+      ? { ok: true, id, running: false, detail: "stopped the process FRIDAY started" }
+      : { ok: false, id, running: true, error: "the process FRIDAY started did not stop" };
+  }
   if (!spec.stop)
     return { ok: false, id, running: true, error: spec.stopHint || "no documented stop command" };
 
@@ -3099,6 +3143,7 @@ module.exports = {
   openAiChatUrl,
   startEngine,
   stopEngine,
+  stopManagedEngines,
   engineStatus,
   resolveEngineStart,
   ENGINE_CONTROL,

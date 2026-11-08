@@ -3219,6 +3219,7 @@ class AssistantModeStore {
         this.emit();
       },
       onStatus: (status, detail) => {
+        this.liveWakeNote = detail ? `${status} — ${detail}` : status;
         if (status === "unavailable") {
           this.trace("segment", `live wake unavailable — ${detail ?? "no model"}`);
         }
@@ -3230,6 +3231,20 @@ class AssistantModeStore {
   private stopLiveWake() {
     this.wakeFeed?.stop();
     this.wakeFeed = null;
+    this.liveWakeNote = "";
+  }
+
+  private liveWakeNote = "";
+
+  /** One line for Voice diagnostics: off, listening, blocked, or why it cannot run. */
+  liveWakeLine(): string {
+    if (preferences.getSnapshot().voice.liveWake !== true) return "off (Settings → Voice)";
+    if (!this.wakeFeed) return "on, waiting for Auto mode";
+    const stats = this.wakeFeed.stats();
+    const base = this.liveWakeNote || "starting";
+    return stats.unavailable
+      ? base
+      : `${base} · ${stats.chunks} chunks scored · last score ${stats.lastScore.toFixed(2)}`;
   }
 
   private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
@@ -3276,6 +3291,8 @@ class AssistantModeStore {
       const stt = createRealtimeStt({
         api,
         sessionId: "auto",
+        // First send and first partial are stamped on the turn clock, so the self-test can show a real measurement.
+        clock: this.turnStages,
         onTranscript: (event) => {
           if (event.type !== "partial") return;
           if (this.state.mode !== "auto" || this.state.paused || this.state.speaking) return;
@@ -3293,7 +3310,15 @@ class AssistantModeStore {
           void this.stopCloudCaptions();
         },
       });
-      const opened = await stt.start({ language: "auto", hinglish: true });
+      // The name she answers to and the wake word help the recogniser spell them (saaras:v4 takes up to 50 terms).
+      const keyterms = [voice.addressName, voice.wakeWord]
+        .map((t) => String(t || "").trim())
+        .filter(Boolean);
+      const opened = await stt.start({
+        language: "auto",
+        hinglish: true,
+        ...(keyterms.length ? { keyterms } : {}),
+      });
       if (!opened.ok) {
         this.captionBlockedUntil = Date.now() + 60_000;
         this.trace("segment", `live captions skipped — ${opened.error ?? "refused"}`);

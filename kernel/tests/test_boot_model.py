@@ -41,6 +41,28 @@ class ModelLoadTests(unittest.TestCase):
         self.assertEqual(used, "cpu")
         self.assertEqual(model.device, "cpu")
 
+    def test_the_cpu_engine_gets_a_thread_count_and_the_gpu_engine_does_not(self):
+        import os
+
+        seen = []
+
+        class Spy:
+            def __init__(self, *_args, **kwargs):
+                seen.append(kwargs)
+
+        cpu = stt.model_load_kwargs("base", "/models/base")
+        stt.open_whisper(Spy, "base", cpu)
+        self.assertGreaterEqual(seen[-1]["cpu_threads"], 4)
+        self.assertLessEqual(seen[-1]["cpu_threads"], 8)
+        with mock.patch.object(stt, "cuda_runtime_ready", return_value=True):
+            gpu = stt.model_load_kwargs("base", "/models/base")
+        stt.open_whisper(Spy, "base", gpu)
+        self.assertNotIn("cpu_threads", seen[-1])
+        with mock.patch.dict(os.environ, {"FRIDAY_STT_THREADS": "6"}):
+            self.assertEqual(stt.cpu_threads(), 6)
+        with mock.patch.dict(os.environ, {"FRIDAY_STT_THREADS": "999"}):
+            self.assertLessEqual(stt.cpu_threads(), 8)  # an out-of-range value is ignored
+
     def test_the_size_plan_is_not_copied_here(self):
         root = Path(__file__).resolve().parents[2]
         app = (root / "electron" / "voice-install.cjs").read_text(encoding="utf-8")

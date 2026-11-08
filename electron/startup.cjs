@@ -25,6 +25,8 @@ const path = require("node:path");
  * vLLM need a model path; they join auto-start only when `engineStatus().canStart`
  * is true (exactly one matching weight on disk). An explicit services.json wins. */
 const AUTOSTART_DEFAULT = ["ollama", "lmstudio", "localai"];
+/** RAM below which llama.cpp is not started automatically with the default settings. */
+const LLAMACPP_MIN_RAM_GB = 8;
 const SERVICE_FILE = "config/services.json";
 const MAX_ATTEMPTS = 2;
 
@@ -181,9 +183,16 @@ async function runStartupFlow(ctx) {
   // With no explicit owner config, every local engine this machine actually has
   // installed and can start is brought up, so models are warm and selectable
   // without the owner starting anything by hand.
+  // llama.cpp holds the chat model in memory while it runs, so on a small PC it is left for the owner to start.
+  const totalGb = ctx.totalGb ?? require("node:os").totalmem() / 1024 ** 3;
   const wanted =
     config.source === "default"
-      ? engines.filter((engine) => engine.canStart).map((engine) => engine.id)
+      ? engines
+          .filter(
+            (engine) =>
+              engine.canStart && !(engine.id === "llamacpp" && totalGb < LLAMACPP_MIN_RAM_GB),
+          )
+          .map((engine) => engine.id)
       : config.autoStart.filter((id) => engines.some((e) => e.id === id));
 
   const services = [];
