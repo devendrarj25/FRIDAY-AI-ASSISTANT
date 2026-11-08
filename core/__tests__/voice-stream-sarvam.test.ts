@@ -271,6 +271,31 @@ describe("Sarvam stream sessions", () => {
     expect(streams.count()).toBe(0);
   });
 
+  it("changes only the language and pace on the open text-to-speech socket", () => {
+    const tts = rig();
+    tts.open("t1", "tts", { speaker: "aparna_hi_customer", language: "hi-IN" }, handlers().h);
+    FakeSocket.last!.open();
+    expect(tts.send("t1", { type: "config", language: "en-IN", pace: 1.2 }).ok).toBe(true);
+    expect(tts.send("t1", { type: "config", language: "fr-FR" }).ok).toBe(false);
+    expect(tts.send("t1", { type: "config", language: "hi-IN" }).ok).toBe(true); // pace back to the default
+    const frames = FakeSocket.last!.sent.map((s) => JSON.parse(s));
+    expect(frames[1]).toEqual({
+      type: "config",
+      data: expect.objectContaining({
+        language_code: "en-IN",
+        pace: 1.2,
+        speaker: "aparna_hi_customer",
+        model: "bulbul:v4-flash",
+      }),
+    });
+    expect(frames[2].data).not.toHaveProperty("pace");
+    // a speech-to-text stream has no such message
+    const stt = rig();
+    stt.open("s1", "stt", {}, handlers().h);
+    FakeSocket.last!.open();
+    expect(stt.send("s1", { type: "config", language: "hi-IN" }).ok).toBe(false);
+  });
+
   it("is refused when the cloud gate refuses, and caps the open streams", () => {
     const refused = rig(() => ({ ok: false, error: "Keep speech on this PC is on" }));
     expect(refused.open("s1", "stt", {}, handlers().h)).toEqual({

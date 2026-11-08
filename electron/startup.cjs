@@ -195,10 +195,11 @@ async function runStartupFlow(ctx) {
           .map((engine) => engine.id)
       : config.autoStart.filter((id) => engines.some((e) => e.id === id));
 
-  const services = [];
-  for (const id of wanted) {
-    services.push(await ensureService(id, { engines, startEngine: ctx.startEngine, log }));
-  }
+  // The engines are separate processes, so they start together: a slow one (llama.cpp loading its model) does not
+  // hold the others, or the readiness check, behind it. The report keeps the order they were wanted in.
+  const services = await Promise.all(
+    wanted.map((id) => ensureService(id, { engines, startEngine: ctx.startEngine, log })),
+  );
   const up = services.filter((s) => s.state !== "unavailable" && s.state !== "unknown");
   if (services.length) {
     boot(

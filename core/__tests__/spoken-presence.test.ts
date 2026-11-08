@@ -300,6 +300,35 @@ describe("the persona is the same for every model", () => {
   });
 });
 
+describe("the day of the week is not her name", () => {
+  const not = (text: string) => decideAddressing({ text, wakeWord: "friday" });
+
+  it("lets a sentence about the day pass", () => {
+    for (const line of [
+      "thank god it's friday",
+      "today is friday",
+      "it is friday already",
+      "happy friday everyone",
+      "friday's report is ready",
+      "TGIF friday plans anyone",
+      "see you on friday",
+      "friday evening we are going out",
+    ])
+      expect(not(line), line).toMatchObject({ answer: false, reason: "weekday" });
+  });
+
+  it("still answers when she is called by name", () => {
+    for (const line of [
+      "Friday what is the weather",
+      "hey friday it's late, set an alarm",
+      "friday ji chrome kholo",
+      "ok friday open the calculator",
+      "friday, remind me about the invoice",
+    ])
+      expect(not(line), line).toMatchObject({ tag: "addressed", answer: true });
+  });
+});
+
 describe("a wake word heard live addresses the next line", () => {
   it("counts a line with no name as addressed to her, even when the owner wants the name every time", () => {
     const line = "weather kaisa hai aaj";

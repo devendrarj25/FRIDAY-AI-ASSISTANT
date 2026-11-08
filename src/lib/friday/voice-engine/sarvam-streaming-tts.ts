@@ -217,6 +217,18 @@ export function createStreamingTts(deps: StreamingTtsDeps) {
       return generationId;
     },
 
+    /** Change the language or pace on the open socket (the provider applies it from the next unit on). */
+    async configure(change: { language: string; pace?: number }): Promise<boolean> {
+      if (opened) await opened;
+      if (!ready || !streamId || !api?.voiceStreamSend) return false;
+      const out = await api.voiceStreamSend(streamId, {
+        type: "config",
+        language: change.language,
+        ...(typeof change.pace === "number" ? { pace: change.pace } : {}),
+      });
+      return out.ok;
+    },
+
     /** Stop what is being said now: later frames of this generation are dropped. Audible stop is the player's job. */
     cancel(turnId = ""): number {
       const old = guard.cancel();

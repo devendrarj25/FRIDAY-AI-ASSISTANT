@@ -2264,6 +2264,16 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // While a note or meeting is being written, or translation is on, every line counts: the owner started it, so
+    // the lines need no wake word, and a stop phrase ends it without her name.
+    if (
+      this.state.mode === "auto" &&
+      microphoneAllowed(this.state.mode, this.state.paused) &&
+      (voiceNotes.active() || this.translateTo)
+    ) {
+      const line = (wake.matched && wake.command ? wake.command : text).trim();
+      if (this.handleNoteSpeech(line)) return;
+    }
     const awake = Date.now() < this.awakeUntil;
     const stop = isStopCommand(text);
     const accepted =
@@ -3108,6 +3118,8 @@ class AssistantModeStore {
     }
     // A confirmation or another pending question is never swallowed into a note.
     if (this.state.pending) return false;
+    // A spoken stop ends her speech only; it is never written into the note or sent for translation.
+    if (isStopCommand(heard)) return false;
     if (active) {
       voiceNotes.append(heard);
       markTurnStage("routed", true, "", "note line");

@@ -50,7 +50,7 @@ const CORRECTION =
   /\b(?:no no|not that|wrong|actually|instead|i meant|i mean|galat|nahi nahi|maine kaha|mera matlab)\b/i;
 
 const WEEKDAY =
-  /\b(?:on|this|next|last|every|coming|until|by|before|after)\s+friday\b|\bfriday\s+(?:morning|evening|night|afternoon|week|ko|ke|ki|par|pe|tak)\b|\bsee you\b[^.?]{0,24}\bfriday\b|\bfriday ko\b/i;
+  /\b(?:on|this|next|last|every|coming|until|by|before|after)\s+friday\b|\bfriday\s+(?:morning|evening|night|afternoon|week|ko|ke|ki|par|pe|tak)\b|\bsee you\b[^.?]{0,24}\bfriday\b|\bfriday ko\b|\b(?:it s|its|it is|is|was|today|tomorrow|happy|thank god it s)\s+friday\b|\bfriday s\b|\btgif\b/i;
 
 const DIRECTED =
   /\b(open|close|set|remind|show|play|stop|start|turn|send|read|check|batao|bata|karo|kholo|band|sunao|yaad|schedule|kal|aaj|what|who|why|how|when|kya|kaun|kyun|kab)\b/i;

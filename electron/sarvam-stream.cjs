@@ -248,7 +248,7 @@ function createSarvamStreams({
       };
     }
     socket.binaryType = "arraybuffer";
-    const session = { socket, kind, key: allowed.key, timer: null };
+    const session = { socket, kind, key: allowed.key, timer: null, cfg: spec.config?.data };
     sessions.set(id, session);
     const parse = kind === "stt" ? parseSttEvent : parseTtsEvent;
     socket.addEventListener("open", () => {
@@ -308,6 +308,20 @@ function createSarvamStreams({
         return { ok: false, error: `send 1 to ${MAX_TEXT} characters at a time` };
       frame = { type: "text", data: { text } };
     } else if (m.type === "flush") frame = { type: "flush" };
+    else if (m.type === "config" && session.cfg) {
+      // A new language or pace on the open socket. The provider flushes buffered text first, so a clause already
+      // sent is made with the old setting. Only these two may change; the voice and model stay as opened.
+      const language = String(m.language ?? session.cfg.language_code);
+      if (!TTS_LANGS.test(language))
+        return { ok: false, error: "name the language as hi-IN or en-IN" };
+      const next = { ...session.cfg, language_code: language };
+      const pace = Number(m.pace);
+      if (Number.isFinite(pace) && Math.abs(pace - 1) > 0.01)
+        next.pace = Math.min(2, Math.max(0.5, Math.round(pace * 100) / 100));
+      else delete next.pace;
+      session.cfg = next;
+      frame = { type: "config", data: next };
+    }
     if (!frame) return { ok: false, error: "that message is not allowed on this stream" };
     session.socket.send(JSON.stringify(frame));
     return { ok: true };

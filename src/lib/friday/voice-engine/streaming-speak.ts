@@ -81,7 +81,6 @@ export function createStreamingSpeak(deps: {
   const pending = new Map<string, Slot>();
   const useStream = progressiveSupported(deps.media);
   let counter = 0;
-  let openKey = "";
 
   const tts = createStreamingTts({
     api: deps.api as never,
@@ -119,14 +118,34 @@ export function createStreamingSpeak(deps: {
     },
   });
 
+  /** One socket per voice. A change of language or pace goes down the open socket; only another voice reopens it. */
+  let current: { speaker: string; language: string; pace: number } | null = null;
+  /** Opening, configuring and sending are done one clause at a time, so two clauses asked at once share one socket. */
+  let sendChain: Promise<unknown> = Promise.resolve();
+  const inOrder = <T>(work: () => Promise<T>): Promise<T> => {
+    const run = sendChain.then(work, work);
+    sendChain = run.catch(() => undefined);
+    return run;
+  };
+
   async function ensureOpen(options: StreamingTtsOptions): Promise<boolean> {
-    const key = `${options.language}|${options.speaker}|${options.pace ?? 1}`;
-    if (key === openKey) return true;
-    if (openKey) await tts.stop();
-    const out = await tts.start(options);
-    openKey = out.ok ? key : "";
-    if (!out.ok) deps.note?.(`streaming voice not opened — ${out.error ?? "refused"}`);
-    return out.ok;
+    const pace = options.pace ?? 1;
+    if (current && current.speaker !== options.speaker) {
+      await tts.stop();
+      current = null;
+    }
+    if (!current) {
+      const out = await tts.start(options);
+      if (!out.ok) deps.note?.(`streaming voice not opened — ${out.error ?? "refused"}`);
+      else current = { speaker: options.speaker, language: options.language, pace };
+      return out.ok;
+    }
+    if (current.language !== options.language || current.pace !== pace) {
+      const done = await tts.configure({ language: options.language, pace });
+      if (done) current = { speaker: options.speaker, language: options.language, pace };
+      return done;
+    }
+    return true;
   }
 
   return {
@@ -141,7 +160,6 @@ export function createStreamingSpeak(deps: {
         codec: "mp3",
         ...(typeof request.pace === "number" ? { pace: request.pace } : {}),
       };
-      if (!(await ensureOpen(options))) return deps.rest(provider, request);
       const turnId = `u${(counter += 1)}`;
       const result = await new Promise<SpeakResult>((resolve) => {
         const timer = setTimer(
@@ -166,10 +184,16 @@ export function createStreamingSpeak(deps: {
           early: settle,
           stream: null,
         });
-        void tts.speak(turnId, request.text).then((generation) => {
-          if (generation === 0 && pending.has(turnId))
-            finish({ ok: false, error: "the text could not be sent" });
-        });
+        // The slot exists before anything is sent, so no reply frame can arrive for a clause nobody waits for.
+        void inOrder(async () => {
+          if (!(await ensureOpen(options))) return false;
+          return (await tts.speak(turnId, request.text)) !== 0;
+        })
+          .catch(() => false)
+          .then((sent) => {
+            if (!sent && pending.has(turnId))
+              finish({ ok: false, error: "the text could not be sent" });
+          });
       });
       if (result.ok) return result;
       deps.note?.(`streaming voice skipped — ${result.error}`);
@@ -183,7 +207,7 @@ export function createStreamingSpeak(deps: {
     },
 
     async stop() {
-      openKey = "";
+      current = null;
       for (const slot of [...pending.values()]) slot.done({ ok: false, error: "stopped" });
       await tts.stop();
     },

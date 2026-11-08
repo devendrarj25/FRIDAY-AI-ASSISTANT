@@ -480,6 +480,80 @@ describe("streaming speak (clip source)", () => {
     expect(rig.opens).toHaveLength(1); // no new socket for the second clause
   });
 
+  it("opens one stream for two clauses asked at once (the next clause is made while one plays)", async () => {
+    const { rig, speaker } = await rigStream();
+    const request = { text: "पहला।", language: "hi-IN", speaker: "aparna_hi_customer" };
+    const first = speaker.speak("sarvam", request);
+    const second = speaker.speak("sarvam", { ...request, text: "दूसरा।" });
+    await tick();
+    await tick();
+    expect(rig.opens).toHaveLength(1); // not two sockets, the second orphaning the first
+    rig.open(rig.opens[0]!.id);
+    await tick();
+    const id = rig.opens[0]!.id;
+    rig.emit(id, { type: "audio", audioBase64: b64("ONE"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    rig.emit(id, { type: "audio", audioBase64: b64("TWO"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    expect((await first).audioBase64).toBe(b64("ONE"));
+    expect((await second).audioBase64).toBe(b64("TWO"));
+  });
+
+  it("changes language on the open socket (Hindi then English in one reply) instead of reconnecting", async () => {
+    const { rig, speaker } = await rigStream();
+    const base = { speaker: "aparna_hi_customer", pace: 1 };
+    const first = speaker.speak("sarvam", { ...base, text: "नमस्ते।", language: "hi-IN" });
+    await tick();
+    const id = rig.opens[0]!.id;
+    rig.open(id);
+    await tick();
+    rig.emit(id, { type: "audio", audioBase64: b64("HI"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    await first;
+    const second = speaker.speak("sarvam", {
+      ...base,
+      text: "Your report is ready.",
+      language: "en-IN",
+    });
+    await tick();
+    await tick();
+    expect(rig.opens).toHaveLength(1); // the same socket
+    expect(rig.sent.map((m) => m.message["type"])).toEqual([
+      "text",
+      "flush",
+      "config",
+      "text",
+      "flush",
+    ]);
+    expect(rig.sent[2]!.message).toMatchObject({ type: "config", language: "en-IN" });
+    rig.emit(id, { type: "audio", audioBase64: b64("EN"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    expect((await second).audioBase64).toBe(b64("EN"));
+  });
+
+  it("reopens only for another voice", async () => {
+    const { rig, speaker } = await rigStream();
+    const run = (speakerName: string) =>
+      speaker.speak("sarvam", { text: "x", language: "hi-IN", speaker: speakerName });
+    const a = run("aparna_hi_customer");
+    await tick();
+    rig.open(rig.opens[0]!.id);
+    await tick();
+    rig.emit(rig.opens[0]!.id, { type: "audio", audioBase64: b64("A"), mime: "audio/mp3" });
+    rig.emit(rig.opens[0]!.id, { type: "complete" });
+    await a;
+    const b = run("ritu_hi_customer");
+    await tick();
+    await tick();
+    expect(rig.opens).toHaveLength(2);
+    expect(rig.closes).toHaveLength(1);
+    rig.open(rig.opens[1]!.id);
+    await tick();
+    rig.emit(rig.opens[1]!.id, { type: "audio", audioBase64: b64("B"), mime: "audio/mp3" });
+    rig.emit(rig.opens[1]!.id, { type: "complete" });
+    expect((await b).audioBase64).toBe(b64("B"));
+  });
+
   it("uses the one-shot call when the voice is not a v4 persona", async () => {
     const { rig, speaker } = await rigStream();
     const out = await speaker.speak("sarvam", {
