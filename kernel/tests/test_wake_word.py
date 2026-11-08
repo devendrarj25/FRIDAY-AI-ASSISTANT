@@ -278,7 +278,7 @@ class WakeFrameScorerTests(unittest.TestCase):
                 directory.mkdir(parents=True)
                 (directory / "friday.onnx").write_bytes(b"\0" * 100_000)
                 self.wake._frame_scorers.clear()
-                predictor = lambda _path: (lambda _frame: 0.9)  # noqa: E731
+                predictor = lambda _path: lambda _frame: 0.9  # noqa: E731
                 chunk = base64.b64encode(b"\0\0" * 1280).decode()
                 req = {"op": "frame", "session": "a", "pcm": chunk, "minFrames": 1}
                 first = self.wake.frame_op(req, "friday", None, 0.5, make_predictor=predictor)

@@ -9,6 +9,7 @@
  * execution.
  */
 
+import { endsInOpenDot } from "./voice-engine/language-segmenter";
 import { socialLine } from "./conversation-style";
 
 export type VoiceSurface = "auto" | "manual";
@@ -151,11 +152,18 @@ export function duplicateFinalUtterance(
  * When a live answer shrinks, the spoken cursor restarts on the replacement.
  * A longer answer keeps the characters already handed to speech.
  */
+/** The words only: spaces and markdown marks do not make two versions of a text different. */
+const squash = (text: string) => text.replace(/[\s*_`#>~-]+/g, "");
+
 export function nextSpokenCursor(
   voicedChars: number,
   nextLength: number,
+  /** What was already spoken and the text as it is now. When the spoken part is no longer its start, it was rewritten. */
+  spoken?: { prefix: string; text: string },
 ): { cursor: number; rewritten: boolean } {
   if (nextLength < voicedChars) return { cursor: 0, rewritten: true };
+  if (spoken && voicedChars > 0 && !squash(spoken.text).startsWith(squash(spoken.prefix)))
+    return { cursor: 0, rewritten: true };
   return { cursor: voicedChars, rewritten: false };
 }
 
@@ -444,7 +452,10 @@ export function takeSpeakable(
   const re = /[.!?।](?=\s)/g;
   let end = -1;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(pending))) end = match.index + 1;
+  while ((match = re.exec(pending))) {
+    if (match[0] === "." && endsInOpenDot(pending.slice(0, match.index + 1))) continue;
+    end = match.index + 1;
+  }
   if (end < 0) return { spoken: "", consumed: 0 };
   let consumed = end;
   while (consumed < pending.length && /\s/.test(pending[consumed] ?? "")) consumed += 1;
@@ -918,7 +929,10 @@ export function foreignAssistant(text: string): boolean {
 }
 
 /** A bare pronoun is a question, not a guess. A real question still goes through. */
-export function clarifyPrompt(text: string): string {
+export function clarifyPrompt(text: string, hasContext = false): string {
+  // Right after she spoke ("Do you want me to open it now?") "open it" has a referent: the conversation. Asking
+  // "Which one do you mean?" then would be absurd, and the Brain has the context to resolve it.
+  if (hasContext) return "";
   const trimmed = text.trim();
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (!words.length || words.length > 3) return "";

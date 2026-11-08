@@ -655,6 +655,17 @@ describe("live wake wiring keeps the single microphone and the saved policy", ()
     expect(make).toContain("clock: this.turnStages");
   });
 
+  it("closes the open cloud connections as soon as privacy mode or a cloud switch is turned off", () => {
+    const text = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const at = text.indexOf("preferences.subscribe(() => {");
+    const block = text.slice(at, at + 1800);
+    expect(block).toContain("voice.privacyMode === true");
+    expect(block).toContain("this.streamSpeaker?.stop()");
+    expect(block).toContain("this.stopCloudCaptions()");
+    expect(block).toContain("cloud.streaming");
+    expect(block).toContain("cloud.streamCaptions");
+  });
+
   it("keeps live wake and the cloud paths off by default", async () => {
     const { DEFAULT_VOICE_CLOUD_PREFS } =
       await import("../../src/lib/friday/voice-engine/voice-cloud-settings");

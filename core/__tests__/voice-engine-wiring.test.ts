@@ -84,7 +84,7 @@ describe("live wiring", () => {
   it("assistant mode sends task words to the task desk before the plain stop word and keeps stop to speech", () => {
     const mode = source("src/lib/friday/assistant-mode.ts");
     const control = mode.indexOf("classifyVoiceControl(command || text)");
-    const stop = mode.indexOf("if (isStopCommand(text))");
+    const stop = mode.indexOf("if (this.isStopHeard(text, wake.matched))");
     expect(control).toBeGreaterThan(0);
     expect(control).toBeLessThan(stop);
     expect(mode).toContain("attachVoiceTaskSpeaker(");

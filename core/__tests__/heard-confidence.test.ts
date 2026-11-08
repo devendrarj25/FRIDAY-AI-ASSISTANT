@@ -79,12 +79,12 @@ describe("the read-back is wired into the live voice path", () => {
   });
 
   it("an addressed command is held for a yes when the model was unsure, a stop is not, and a yes or no is answered", () => {
-    expect(mode).toContain(
-      "needsHeardConfirmation(command, this.lastHeardQuality, isStopCommand(command))",
+    expect(mode).toMatch(
+      /needsHeardConfirmation\(\s*command,\s*this\.lastHeardQuality,\s*this\.isStopHeard\(command, wake\.matched\),?\s*\)/,
     );
     expect(mode).toContain("this.pendingHeard = { command, at: Date.now() };");
     expect(mode).toContain('markTurnStage("routed", false, "read back — waiting for a yes");');
-    expect(mode).toContain("this.dispatch(readBack.command);");
+    expect(mode).toContain("this.routeCommand(readBack.command);");
     expect(mode).toContain("HEARD_CONFIRM_MS");
   });
 

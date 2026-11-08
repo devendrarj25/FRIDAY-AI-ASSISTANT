@@ -162,6 +162,8 @@ export function decideAddressing(input: {
   wakeHeard?: boolean;
   lastSpoken?: string;
   recentlySpeaking?: boolean;
+  /** She is speaking right now (not only in the short tail after she finished). */
+  speaking?: boolean;
   /** What FRIDAY just answered or worked on, for "meant for me" without her name. */
   recentWork?: string;
 }): AddressDecision {
@@ -169,7 +171,15 @@ export function decideAddressing(input: {
   const mode = input.mode ?? "conversation";
   const wakeWord = input.wakeWord || "friday";
   const norm = normalizeTranscript(text);
-  if (input.recentlySpeaking && input.lastSpoken && isSelfEchoTranscript(text, input.lastSpoken)) {
+  if (
+    input.recentlySpeaking &&
+    input.lastSpoken &&
+    isSelfEchoTranscript(
+      text,
+      input.lastSpoken,
+      input.speaking === undefined ? {} : { speaking: input.speaking },
+    )
+  ) {
     return {
       tag: "self",
       answer: false,

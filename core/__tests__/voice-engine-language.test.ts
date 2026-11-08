@@ -130,3 +130,34 @@ describe("splitLongSpeech", () => {
     expect(parts.join(" ")).toBe(text);
   });
 });
+
+describe("sentences are never cut inside a name, a time or a list", () => {
+  it("keeps an abbreviation with the word it belongs to", async () => {
+    const { splitSentences, endsInOpenDot, splitLongSpeech } =
+      await import("../../src/lib/friday/voice-engine/language-segmenter");
+    expect(splitSentences("Please ask Dr. Singh about it. Then call me back.")).toEqual([
+      "Please ask Dr. Singh about it.",
+      "Then call me back.",
+    ]);
+    expect(splitSentences("Call at 5 p.m. tomorrow. Then rest.")).toEqual([
+      "Call at 5 p.m. tomorrow.",
+      "Then rest.",
+    ]);
+    expect(splitSentences("J. K. Rowling wrote it. Yes.")).toEqual([
+      "J. K. Rowling wrote it.",
+      "Yes.",
+    ]);
+    expect(splitSentences("First point.\nSecond point.")).toEqual([
+      "First point.",
+      "Second point.",
+    ]);
+    expect(endsInOpenDot("Ask Dr.")).toBe(true);
+    expect(endsInOpenDot("I am done.")).toBe(false);
+    expect(endsInOpenDot("Item 3.")).toBe(false); // a number inside a line is a sentence end
+    expect(endsInOpenDot("\n3.")).toBe(true); // a list number at the start of a line is not
+    // a long reply that starts with an abbreviation does not speak "Dr." on its own
+    const long = splitLongSpeech(`Dr. Singh said that ${"word ".repeat(120)}end. Next one.`, 200);
+    expect(long[0]).not.toBe("Dr.");
+    expect(long[0]).toMatch(/^Dr\. Singh said/);
+  });
+});

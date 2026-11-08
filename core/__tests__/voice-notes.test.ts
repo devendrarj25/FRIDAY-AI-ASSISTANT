@@ -179,7 +179,7 @@ describe("notes in Auto mode", () => {
   it("is handled before the stop word and the Brain, only in Auto, and never swallows a pending confirmation", () => {
     const heard = mode.indexOf("this.handleNoteSpeech(command || text)");
     expect(heard).toBeGreaterThan(0);
-    expect(heard).toBeLessThan(mode.indexOf("if (isStopCommand(text))", heard));
+    expect(heard).toBeLessThan(mode.indexOf("if (this.isStopHeard(text, wake.matched))", heard));
     const body = mode.slice(
       mode.indexOf("private handleNoteSpeech"),
       mode.indexOf("private startMinutes"),

@@ -126,6 +126,45 @@ export type ChunkOptions = {
 };
 
 const SENTENCE_END = /(?<=[.!?।॥\n])\s+/u;
+
+/** Words that end in a dot without ending the sentence. A cut after one would be spoken as "Please ask Dr." */
+const ABBREVIATIONS = new Set(
+  "dr mr mrs ms prof sr jr st vs etc approx no fig eg ie am pm inc ltd co".split(" "),
+);
+
+/**
+ * Does this text end with a dot that is not the end of a sentence: an abbreviation (Dr., p.m., e.g.), an initial
+ * (the "J." of "J. K. Rowling") or a bare list number ("3.")? Used wherever a reply is cut into sentences, so a
+ * cut never lands inside a name, a time or a numbered list.
+ */
+export function endsInOpenDot(text: string): boolean {
+  const t = (text ?? "").replace(/\s+$/, "");
+  if (!t.endsWith(".")) return false;
+  const before = t.slice(0, -1);
+  const word = /([A-Za-z.]+)$/.exec(before)?.[1] ?? "";
+  const bare = word.replace(/\./g, "").toLowerCase();
+  if (bare && ABBREVIATIONS.has(bare)) return true;
+  if (/(?:^|[\s(])[A-Z]$/.test(before) && !/(?:^|[\s(])I$/.test(before)) return true;
+  if (/(?:^|\n)\s*\d{1,2}$/.test(before)) return true;
+  return false;
+}
+
+/** Cut text into sentences, putting a piece that ends in an open dot back with the one after it. */
+export function splitSentences(text: string): string[] {
+  const out: string[] = [];
+  let carry = "";
+  for (const raw of (text ?? "").split(SENTENCE_END)) {
+    const piece = carry ? `${carry} ${raw}` : raw;
+    if (endsInOpenDot(piece) && !raw.endsWith("\n")) {
+      carry = piece;
+      continue;
+    }
+    carry = "";
+    out.push(piece);
+  }
+  if (carry) out.push(carry);
+  return out;
+}
 const CLAUSE_BREAK = /(?<=[,;:—–])\s+/u;
 
 /**
@@ -136,7 +175,7 @@ export function chunkForSpeech(text: string, options: ChunkOptions = {}): Speech
   const maxChars = Math.max(40, options.maxChars ?? 220);
   const firstMin = Math.max(20, options.firstMinChars ?? 40);
   const pieces: string[] = [];
-  for (const sentence of (text ?? "").split(SENTENCE_END)) {
+  for (const sentence of splitSentences(text ?? "")) {
     const trimmed = sentence.trim();
     if (!trimmed) continue;
     if (trimmed.length <= maxChars) {

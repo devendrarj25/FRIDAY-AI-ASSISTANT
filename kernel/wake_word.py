@@ -487,10 +487,7 @@ def evaluate_wake(
             "worst": max(delays) if delays else None,
         },
         "meetsTargets": bool(
-            positives
-            and hours > 0
-            and missed / len(positives) < 0.05
-            and false_accepts / hours < 0.5
+            positives and hours > 0 and missed / len(positives) < 0.05 and false_accepts / hours < 0.5
         ),
     }
 

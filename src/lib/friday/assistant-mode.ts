@@ -175,7 +175,7 @@ import {
 import { rememberDevice } from "./mic-truth";
 import { affect, readFeeling } from "./brain/affect";
 import { DesktopDictation, reclaimUnowned, sttInitialPrompt, sttStatus } from "./voice-stt";
-import { isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
+import { isPlainStop, isSelfEchoTranscript, isStopCommand, matchWakeWord } from "./wake-word";
 import { alertsAudible } from "./settings-runtime";
 import {
   EMPTY_CONDUCT,
@@ -474,6 +474,8 @@ class AssistantModeStore {
   private voicedRunId = "";
   private holdTimers: ReturnType<typeof setTimeout>[] = [];
   private voicedChars = 0;
+  /** The start of the answer that has been spoken, to tell a rewrite from more text. */
+  private voicedPrefix = "";
   /** A failed turn speaks its short line once. The partial answer is not restarted. */
   private voicedFaultFor = "";
   /** User lines already shown before the brain echoes them into captions. */
@@ -658,7 +660,25 @@ class AssistantModeStore {
         pauseCalls = next;
         if (this.state.mode === "auto") void this.refreshMeeting();
       }
-      if (voiceChanged) this.noteVoiceTrigger("settings");
+      if (voiceChanged) {
+        this.noteVoiceTrigger("settings");
+        // Privacy mode, the cloud switch or a streaming switch turned off ends the open cloud connections now, not at
+        // the next clause: nothing may stay connected to a provider the owner just switched off.
+        const voice = preferences.getSnapshot().voice;
+        const cloud = voice.cloudVoice;
+        if (voice.privacyMode === true || !cloud.cloudEnabled || !cloud.streaming) {
+          void this.streamSpeaker?.stop();
+          this.streamSpeaker = null;
+        }
+        if (voice.privacyMode === true || !cloud.cloudEnabled || !cloud.streamCaptions) {
+          void this.stopCloudCaptions();
+        }
+        // Playing while it arrives is fixed when the stream is made, so changing it makes a new one.
+        if (this.streamSpeaker && this.streamSpeakerPlayback !== (cloud.streamPlayback === true)) {
+          void this.streamSpeaker.stop();
+          this.streamSpeaker = null;
+        }
+      }
     });
 
     // The window can be hidden in the tray while FRIDAY stays alive, so the
@@ -2083,7 +2103,12 @@ class AssistantModeStore {
     // about (clear audio, confident language) should not be eaten for want of a meter bar.
     const sure =
       this.lastHeardQuality !== null && heardConfidence(text, this.lastHeardQuality) >= 0.8;
-    if (words <= 2 && !isStopCommand(text) && !sure && !voiceGate.heardSpeechWithin(6000)) {
+    if (
+      words <= 2 &&
+      !this.isStopHeard(text, false) &&
+      !sure &&
+      !voiceGate.heardSpeechWithin(6000)
+    ) {
       this.trace(
         "dropped",
         dropLine("too-short", `"${text.trim()}" — too short and no verified speech signal`),
@@ -2104,7 +2129,7 @@ class AssistantModeStore {
       at: Date.now(),
       source: "voice",
     });
-    if (repeat && !isStopCommand(corrected)) {
+    if (repeat && !this.isStopHeard(corrected, false)) {
       markTurnStage("routed", false, "unclear transcript — asked to repeat");
       this.caption("friday", repeat);
       this.speak(repeat);
@@ -2122,7 +2147,8 @@ class AssistantModeStore {
       if (isBoundConfirmation(text, (value) => AFFIRM.test(value))) {
         this.caption("user", text);
         this.remember("heard-confirmed", readBack.command, "owner confirmed the read-back");
-        this.dispatch(readBack.command);
+        // A yes confirms what was HEARD. A consequential command still has to be approved as an action.
+        this.routeCommand(readBack.command);
         return;
       }
       if (isBoundConfirmation(text, (value) => DENY.test(value))) {
@@ -2246,6 +2272,7 @@ class AssistantModeStore {
         (this.state.handsFree && !this.wakeWordRequired && Date.now() < this.awakeUntil),
       lastSpoken: this.spokenText,
       recentlySpeaking: this.recentlySpeaking(),
+      speaking: this.state.speaking,
       recentWork: [this.spokenText, brain.getSnapshot().runs[0]?.prompt || ""].join(" "),
     });
     // A push-to-talk turn is addressed by the key press itself: no wake word.
@@ -2272,10 +2299,10 @@ class AssistantModeStore {
       (voiceNotes.active() || this.translateTo)
     ) {
       const line = (wake.matched && wake.command ? wake.command : text).trim();
-      if (this.handleNoteSpeech(line)) return;
+      if (this.handleNoteSpeech(line, wake.matched)) return;
     }
     const awake = Date.now() < this.awakeUntil;
-    const stop = isStopCommand(text);
+    const stop = this.isStopHeard(text, wake.matched);
     const accepted =
       microphoneAllowed(this.state.mode, this.state.paused) &&
       (stop || (decision.answer && decision.tools));
@@ -2359,7 +2386,7 @@ class AssistantModeStore {
     if (this.handleNoteSpeech(command || text)) return;
     // "FRIDAY, stop" is an interruption, never a task: cut the reply short and
     // go straight back to listening instead of sending "stop" to the brain.
-    if (isStopCommand(text)) {
+    if (this.isStopHeard(text, wake.matched)) {
       this.trace("wake", "stop word — cancelling speech and the in-flight turn");
       this.queuedCommands = [];
       this.stopQueueTimer();
@@ -2395,7 +2422,13 @@ class AssistantModeStore {
 
     // A fluent sentence is not proof it was said: when the speech model itself was unsure (a weak per-token score, or a
     // weak guess about the language), read the words back and act only on a yes. A stop command is never held up.
-    if (needsHeardConfirmation(command, this.lastHeardQuality, isStopCommand(command))) {
+    if (
+      needsHeardConfirmation(
+        command,
+        this.lastHeardQuality,
+        this.isStopHeard(command, wake.matched),
+      )
+    ) {
       const ask = heardReadBack(command);
       this.pendingHeard = { command, at: Date.now() };
       markTurnStage("routed", false, "read back — waiting for a yes");
@@ -2407,6 +2440,15 @@ class AssistantModeStore {
       return;
     }
 
+    this.routeCommand(command);
+  }
+
+  /**
+   * An addressed, understood command on its way to the Brain: continue a paused reply, held for a read-back, the
+   * conduct words, a backchannel, the approval a consequential command needs, a clarifying question, or dispatch.
+   * A read-back "yes" comes through here too, so confirming what was heard never approves the action itself.
+   */
+  private routeCommand(command: string) {
     if (wantsContinue(command) && this.unfinished) {
       const rest = this.unfinished;
       this.unfinished = "";
@@ -2495,7 +2537,10 @@ class AssistantModeStore {
       return;
     }
 
-    const clarify = clarifyPrompt(command);
+    const clarify = clarifyPrompt(
+      command,
+      Date.now() < this.followUpUntil && Boolean(this.spokenText.trim()),
+    );
     if (clarify) {
       this.remember("clarify", command, "asked");
       this.caption("friday", clarify);
@@ -2631,6 +2676,7 @@ class AssistantModeStore {
     this.dropPlayback();
     this.voicedRunId = "";
     this.voicedChars = 0;
+    this.voicedPrefix = "";
     this.to("command-accepted");
     this.state.status = "Thinking…";
     this.emit();
@@ -2917,7 +2963,7 @@ class AssistantModeStore {
 
   /** True when the recognised text is just FRIDAY's own voice coming back. */
   private isSelfEcho(heard: string): boolean {
-    return isSelfEchoTranscript(heard, this.spokenText);
+    return isSelfEchoTranscript(heard, this.spokenText, { speaking: this.state.speaking });
   }
 
   private remember(decision: string, heard: string, action: string) {
@@ -3058,6 +3104,7 @@ class AssistantModeStore {
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private streamSpeakerPlayback = false;
   private liveWakeAt = 0;
   private translateTo: "en" | "hi" | null = null;
 
@@ -3072,7 +3119,17 @@ class AssistantModeStore {
    * gets minutes from the Brain as a background task. Live translation answers each line with its translation.
    * Returns true when the line was handled here.
    */
-  private handleNoteSpeech(heard: string): boolean {
+  /**
+   * Is this line a stop? The short words always are. A longer phrase ("please stop", "bas karo", "ek minute") counts
+   * only when she is called by name, speaking, or awake, so a sentence between two other people cannot cancel her work.
+   */
+  private isStopHeard(text: string, named: boolean): boolean {
+    if (isPlainStop(text)) return true;
+    if (!isStopCommand(text)) return false;
+    return named || this.state.speaking || this.recentlySpeaking() || Date.now() < this.awakeUntil;
+  }
+
+  private handleNoteSpeech(heard: string, named = false): boolean {
     if (this.state.mode !== "auto") return false;
     const command = classifyNoteCommand(heard);
     const active = voiceNotes.active();
@@ -3119,7 +3176,7 @@ class AssistantModeStore {
     // A confirmation or another pending question is never swallowed into a note.
     if (this.state.pending) return false;
     // A spoken stop ends her speech only; it is never written into the note or sent for translation.
-    if (isStopCommand(heard)) return false;
+    if (this.isStopHeard(heard, named)) return false;
     if (active) {
       voiceNotes.append(heard);
       markTurnStage("routed", true, "", "note line");
@@ -3380,6 +3437,8 @@ class AssistantModeStore {
   /** One persistent Sarvam stream shared by the clauses of a reply; the REST call is its fallback. */
   private streamingSpeak() {
     const api = desktopApi();
+    this.streamSpeakerPlayback =
+      sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice).streamPlayback === true;
     this.streamSpeaker ??= createStreamingSpeak({
       api,
       rest: async (provider, request) =>
@@ -3600,12 +3659,17 @@ class AssistantModeStore {
     if (this.voicedRunId !== runId) {
       this.voicedRunId = runId;
       this.voicedChars = 0;
+      this.voicedPrefix = "";
     }
-    const rewind = nextSpokenCursor(this.voicedChars, text.length);
+    const rewind = nextSpokenCursor(this.voicedChars, text.length, {
+      prefix: this.voicedPrefix,
+      text,
+    });
     if (rewind.rewritten) {
       this.unfinished = "";
       this.dropPlayback(false);
       this.voicedChars = 0;
+      this.voicedPrefix = "";
     }
     if (text.length < this.voicedChars) return;
     const pending = text.slice(this.voicedChars);
@@ -3614,6 +3678,7 @@ class AssistantModeStore {
       chunk = earlyClause(pending);
     if (!chunk.spoken) return;
     this.voicedChars += chunk.consumed;
+    this.voicedPrefix = text.slice(0, this.voicedChars);
     for (const part of splitLongSpeech(chunk.spoken)) this.speak(part);
     if (
       final &&

@@ -235,6 +235,44 @@ describe("speakText pipeline in the real module", () => {
     if (question) expect(question.pitch).toBeGreaterThan(1);
   });
 
+  it("plays a clip that is still arriving through its own element, at the clause's volume", async () => {
+    const { speakText, resetPrefetchedSpeech } = await import("../../src/lib/friday/voice-library");
+    resetPrefetchedSpeech();
+    g.window = { friday: { speakNeural: async () => ({ ok: false }) } };
+    const element = {
+      volume: 1,
+      onended: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      plays: 0,
+      play() {
+        this.plays += 1;
+        setTimeout(() => this.onended?.(), 2);
+        return Promise.resolve();
+      },
+      pause() {},
+    };
+    const events: string[] = [];
+    const how = await speakText(
+      "Your report is ready.",
+      {
+        ...tuning,
+        volume: 0.6,
+        // the clip handed back before the clause is complete: no base64, a paused element fed by the stream
+        cloudClip: async () => ({
+          audioBase64: "",
+          mime: "audio/mp3",
+          engine: "sarvam",
+          audio: element,
+        }),
+      },
+      { onStart: () => events.push("start"), onEnd: () => events.push("end") },
+    );
+    expect(how).toBe("neural");
+    expect(element.plays).toBe(1);
+    expect(element.volume).toBeCloseTo(0.6, 1); // the per-clause expression moves it a little
+    expect(events).toEqual(["start", "end"]);
+  });
+
   it("falls back to the system voice for the whole reply when the first clip cannot be made", async () => {
     const { speakText, resetPrefetchedSpeech } = await import("../../src/lib/friday/voice-library");
     resetPrefetchedSpeech();

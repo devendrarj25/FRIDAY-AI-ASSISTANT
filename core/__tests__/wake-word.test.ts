@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isSelfEchoTranscript,
+  isPlainStop,
   isStopCommand,
   isWakeToken,
   matchWakeWord,
@@ -96,5 +97,93 @@ describe("auto mode voice session", () => {
     expect(dictation).toMatch(/private enqueue\(blob: Blob/);
     expect(dictation).toContain("private async pump()");
     expect(dictation).toContain("queued — still transcribing the previous utterance");
+  });
+});
+
+describe("the stop word understands natural phrases and nothing that is a request", () => {
+  it("stops on the phrases people really say, in English, Hindi and Hinglish", () => {
+    for (const text of [
+      "please stop",
+      "stop talking",
+      "stop speaking please",
+      "ok stop",
+      "bas karo",
+      "bas kar do",
+      "chup ho jao",
+      "band karo",
+      "that's enough",
+      "ek minute",
+      "thoda ruko",
+      "nahi ruko",
+      "ruko yaar",
+      "pause",
+      "बस करो",
+      "चुप हो जाओ",
+      "थोड़ा रुको",
+    ])
+      expect(isStopCommand(text), text).toBe(true);
+  });
+
+  it("leaves requests and ordinary sentences alone", () => {
+    for (const text of [
+      "stop the music",
+      "stop recording",
+      "pause the music",
+      "don't stop",
+      "stop by tomorrow",
+      "the bus stop is near",
+      "stopwatch lagao",
+      "wait for the build to finish",
+      "hold on to the rope",
+      "band karo darwaza",
+      "open chrome",
+      "no",
+      "ok",
+      "please",
+      "haan",
+    ])
+      expect(isStopCommand(text), text).toBe(false);
+  });
+
+  it("keeps the short words as the only ones that stop her from anyone", () => {
+    expect(isPlainStop("stop")).toBe(true);
+    expect(isPlainStop("ruko")).toBe(true);
+    expect(isPlainStop("bas karo")).toBe(false); // longer phrases need her name, her voice or her awake window
+    expect(isPlainStop("please stop")).toBe(false);
+  });
+});
+
+describe("her own voice coming back versus the owner's answer", () => {
+  const spoken =
+    "The report is ready and I have saved it to your desktop. Do you want me to open it now?";
+
+  it("takes a drifted copy of what she said as an echo while she speaks", () => {
+    for (const heard of [
+      "the report is ready and i have saved it to your desk top",
+      "saved it to your desktop do you want me to open it now",
+      "do you want me to open it",
+      "आपकी रिपोर्ट तैयार है और मैंने उसे सेव कर दिया",
+    ]) {
+      const said = heard.startsWith("आप")
+        ? "आपकी रिपोर्ट तैयार है और मैंने उसे सेव कर दिया है। क्या मैं इसे खोल दूं?"
+        : spoken;
+      expect(isSelfEchoTranscript(heard, said, { speaking: true }), heard).toBe(true);
+    }
+  });
+
+  it("after she finished, a few words are an echo only when they are her last words", () => {
+    expect(isSelfEchoTranscript("open it", spoken, { speaking: false })).toBe(false); // the owner's answer
+    expect(isSelfEchoTranscript("open it now", spoken, { speaking: false })).toBe(true); // her tail
+    expect(isSelfEchoTranscript("yes open it now", spoken, { speaking: false })).toBe(false);
+    // a long stretch of her sentence is still an echo, speaking or not
+    expect(
+      isSelfEchoTranscript("the report is ready and i have saved it to your desktop", spoken, {
+        speaking: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the older behaviour when it is not told whether she is speaking", () => {
+    expect(isSelfEchoTranscript("open it", spoken)).toBe(true);
   });
 });
