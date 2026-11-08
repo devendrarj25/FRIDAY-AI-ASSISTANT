@@ -125,7 +125,12 @@ import {
   type VoiceAudit,
 } from "./voice-session";
 import { completionLine, parseBackgroundRequest } from "./voice-engine/background-request";
-import { classifyVoiceControl } from "./voice-engine/interruption-controller";
+import {
+  BargeInDetector,
+  BargeShadow,
+  classifyVoiceControl,
+} from "./voice-engine/interruption-controller";
+import { speechRms } from "./character/speech-audio";
 import { splitLongSpeech } from "./voice-engine/language-segmenter";
 import { prepareForSpeech } from "./voice-engine/text-normalizer";
 import { askBrain } from "./self/ask-brain";
@@ -1221,6 +1226,7 @@ class AssistantModeStore {
   private enterAuto() {
     this.armPushToTalk();
     this.ensureLiveWake();
+    this.startBargeShadow();
     // Same runtime, different shape: the brain now knows replies are spoken.
     brain.setAutoMode(true);
     if (!this.wakeWordRequired) this.state.handsFree = true;
@@ -1357,6 +1363,7 @@ class AssistantModeStore {
     this.streamSpeaker = null;
     void this.stopCloudCaptions();
     this.stopLiveWake();
+    this.stopBargeShadow();
     this.cancelVoiceRecoveryTimer();
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
@@ -2778,6 +2785,7 @@ class AssistantModeStore {
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
   private holdForInterruption() {
     if (this.interruptHold) return;
+    this.bargeShadow.liveFired(performance.now());
     this.interruptStages.reset();
     this.interruptStages.mark("interruptCandidate");
     this.clearHoldLines();
@@ -2860,6 +2868,7 @@ class AssistantModeStore {
     }
     this.speechGen += 1;
     this.speechQueue = [];
+    this.bargeDetector.playbackEnded();
     this.streamSpeaker?.cancel();
     stopSpeaking();
     voiceGate.setSpeakingGuard(false);
@@ -3021,6 +3030,46 @@ class AssistantModeStore {
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private bargeDetector = new BargeInDetector();
+  private bargeShadow = new BargeShadow();
+  private bargeShadowOff: (() => void) | null = null;
+
+  /**
+   * Shadow barge-in: the acoustic detector (`BargeInDetector`) runs on the shared capture with the real speaker
+   * level, and is only compared with what the live path did. It changes nothing she does. The comparison shows,
+   * on the owner's own microphone and speakers, where the guard and the detector disagree.
+   */
+  private startBargeShadow() {
+    if (this.bargeShadowOff) return;
+    this.bargeShadowOff = subscribeCaptureFrames((samples, _rate, atMono) => {
+      if (this.state.mode !== "auto" || !this.state.speaking) return;
+      let sum = 0;
+      for (let i = 0; i < samples.length; i += 1) {
+        const v = Number(samples[i]) || 0;
+        sum += v * v;
+      }
+      const micLevel = samples.length ? Math.sqrt(sum / samples.length) : 0;
+      const fired = this.bargeDetector.push({
+        t: atMono,
+        speech: voiceGate.heardSpeechWithin(250),
+        micLevel,
+        playbackLevel: speechRms(),
+      });
+      if (fired) this.bargeShadow.detectorFired(performance.now());
+    });
+  }
+
+  private stopBargeShadow() {
+    this.bargeShadowOff?.();
+    this.bargeShadowOff = null;
+    this.bargeDetector.playbackEnded();
+  }
+
+  /** One line for Voice diagnostics. */
+  bargeShadowLine(): string {
+    return this.bargeShadow.line(performance.now());
+  }
+
   private wakeFeed: ReturnType<typeof createWakeFrameFeed> | null = null;
 
   /**
@@ -3261,12 +3310,14 @@ class AssistantModeStore {
       onStart: () => {
         if (gen !== this.speechGen) return;
         this.turnStages.mark("playbackFirstSample");
+        this.bargeDetector.playbackStarted(performance.now());
         this.echoUntil = Date.now() + 120_000;
         if (this.to("tts-start")) this.pauseForSpeech();
         this.emit();
       },
       onEnd: () => {
         if (gen !== this.speechGen) return;
+        this.bargeDetector.playbackEnded();
         this.echoUntil = Date.now() + 1500;
         // The follow-up window counts from the end of her reply, not its start,
         // so a long answer does not use up the owner's turn.

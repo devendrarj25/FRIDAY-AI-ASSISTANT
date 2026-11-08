@@ -301,3 +301,46 @@ describe("cloud voice settings", () => {
     expect(factsFromSample(null)).toBeNull();
   });
 });
+
+describe("barge-in shadow (detector compared with the live pause)", () => {
+  it("pairs a detector hit and a live pause that land close together", async () => {
+    const { BargeShadow } =
+      await import("../../src/lib/friday/voice-engine/interruption-controller");
+    const s = new BargeShadow(700);
+    s.detectorFired(1000);
+    s.liveFired(1300);
+    expect(s.line(5000)).toBe("1 agreed · 0 detector only · 0 live only");
+  });
+
+  it("counts one-sided events once their window has passed, and not before", async () => {
+    const { BargeShadow } =
+      await import("../../src/lib/friday/voice-engine/interruption-controller");
+    const s = new BargeShadow(700);
+    s.detectorFired(1000);
+    expect(s.line(1200)).toBe("no barge-in seen yet"); // still waiting for a partner
+    s.liveFired(5000); // too late to pair with the detector hit
+    expect(s.line(6000)).toBe("0 agreed · 1 detector only · 1 live only");
+  });
+
+  it("never counts the same event twice", async () => {
+    const { BargeShadow } =
+      await import("../../src/lib/friday/voice-engine/interruption-controller");
+    const s = new BargeShadow(700);
+    s.detectorFired(1000);
+    s.liveFired(1100);
+    s.liveFired(1200); // a second live pause has no second detector hit
+    expect(s.line(9000)).toBe("1 agreed · 0 detector only · 1 live only");
+  });
+
+  it("is wired as a comparison only: the live pause does not read the detector", async () => {
+    const { readFileSync } = await import("node:fs");
+    const text = readFileSync("src/lib/friday/assistant-mode.ts", "utf8");
+    const hold = text.slice(
+      text.indexOf("private holdForInterruption"),
+      text.indexOf("private armInterruptTimer"),
+    );
+    expect(hold).not.toContain("bargeDetector");
+    expect(text).toContain("this.bargeShadow.liveFired(");
+    expect(text).toContain("this.bargeShadow.detectorFired(");
+  });
+});

@@ -151,6 +151,10 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: voiceLatency.line(),
     },
     {
+      label: "barge-in shadow (acoustic detector vs the live pause)",
+      value: assistantMode.bargeShadowLine(),
+    },
+    {
       label: "self-test (16 checks)",
       value: selfTestSummary(
         voiceSelfTestMatrix({

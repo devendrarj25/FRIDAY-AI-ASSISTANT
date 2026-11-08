@@ -40,7 +40,8 @@ const SARVAM_DEFAULT_SPEAKER = "anushka";
 
 function sarvamModelFor(speaker) {
   if (SARVAM_V2_FEMALE.includes(speaker) || SARVAM_V2_MALE.includes(speaker)) return "bulbul:v2";
-  return /_(?:[a-z]{2})_/.test(speaker) ? "bulbul:v4-flash" : "bulbul:v3";
+  // A v4 flash persona is name_lang_style: the language part is two letters (hi) or a mix such as enhi.
+  return /^[a-z]+_[a-z]{2,5}_[a-z]+$/.test(speaker) ? "bulbul:v4-flash" : "bulbul:v3";
 }
 
 function buildSarvamTts({ text, language, speaker, model, rate, pace }) {

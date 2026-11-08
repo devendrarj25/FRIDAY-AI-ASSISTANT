@@ -114,3 +114,10 @@ export function onSpeechAmplitude(fn: Listener) {
 }
 
 export const speechAmplitude = () => amplitude;
+
+/**
+ * The speaker level as a plain RMS, 0..1: the lip-sync curve `(rms * 3.4) ^ 0.72` undone. It follows the clip the
+ * element plays (after the analyser tap), and is zero when nothing neural plays; the system voice exposes none.
+ */
+export const speechRms = (): number =>
+  Math.min(1, Math.pow(Math.max(0, amplitude), 1 / 0.72) / 3.4);

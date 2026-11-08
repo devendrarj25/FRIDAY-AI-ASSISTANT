@@ -83,6 +83,9 @@ describe("cloud speech request shapes (from the providers' pages)", () => {
     expect(sarvamModelFor("manisha")).toBe("bulbul:v2");
     expect(sarvamModelFor("priya")).toBe("bulbul:v3");
     expect(sarvamModelFor("shubh_hi_devotional")).toBe("bulbul:v4-flash");
+    // A mixed Hindi and English persona has a longer language part (enhi).
+    expect(sarvamModelFor("simran_enhi_customer")).toBe("bulbul:v4-flash");
+    expect(sarvamModelFor("aparna_hi_customer")).toBe("bulbul:v4-flash");
     expect(SARVAM_V2_FEMALE).toEqual(["anushka", "manisha", "vidya", "arya"]);
     const paced = JSON.parse(
       buildSarvamTts({ text: "a", language: "hi-IN", speaker: "priya", pace: 1.2 }).body,

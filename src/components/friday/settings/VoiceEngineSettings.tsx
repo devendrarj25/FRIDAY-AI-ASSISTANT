@@ -225,12 +225,31 @@ function CloudSpeechTest({
     if (status) setKeys({ ...keys, ...status });
   };
 
-  const sample = async (id: "sarvam" | "azure-speech") => {
+  const SAMPLES = {
+    hindi: {
+      label: "Hindi",
+      language: "hi-IN",
+      text: "नमस्ते, मैं फ्राइडे हूँ। आज मैं आपकी क्या मदद कर सकती हूँ?",
+    },
+    hinglish: {
+      label: "Hinglish",
+      language: "hi-IN",
+      text: "नमस्ते, मैं फ्राइडे हूँ। Aapka meeting reminder set हो गया है, and I will tell you ten minutes पहले.",
+    },
+    english: {
+      label: "Indian English",
+      language: "en-IN",
+      text: "Hello, I am Friday. Your report is ready, and I can read the summary whenever you like.",
+    },
+  } as const;
+
+  const sample = async (id: "sarvam" | "azure-speech", kind: keyof typeof SAMPLES = "hindi") => {
+    const chosen = SAMPLES[kind];
     const out = await speakWithCloud(
       id,
       {
-        text: "नमस्ते, मैं फ्राइडे हूँ। Main aapki madad ke liye taiyaar hoon.",
-        language: "hi-IN",
+        text: chosen.text,
+        language: chosen.language,
         prefs: cloud,
         keys,
         privacyMode: prefs.voice.privacyMode === true,
@@ -280,9 +299,11 @@ function CloudSpeechTest({
           >
             Save key
           </Button>
-          <Button size="sm" variant="outline" onClick={() => sample(p.id)}>
-            Speak a sample
-          </Button>
+          {(Object.keys(SAMPLES) as Array<keyof typeof SAMPLES>).map((kind) => (
+            <Button key={kind} size="sm" variant="outline" onClick={() => sample(p.id, kind)}>
+              {SAMPLES[kind].label} sample
+            </Button>
+          ))}
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-2">
@@ -370,6 +391,10 @@ function CloudSpeechTest({
           "suhani",
           "kavitha",
           "rupali",
+          "aparna_hi_customer",
+          "ritu_hi_customer",
+          "simran_enhi_customer",
+          "shubh_hi_devotional",
         ].map((name) => (
           <option key={name} value={name} />
         ))}
@@ -378,6 +403,12 @@ function CloudSpeechTest({
         Sarvam voices: anushka, manisha, vidya and arya are stated as female by Sarvam (bulbul:v2,
         the default is anushka). The other names listed are bulbul:v3 voices whose gender Sarvam
         does not state; listen and choose.
+      </p>
+      <p>
+        bulbul:v4-flash voices are named like aparna_hi_customer (name, language, style; enhi is
+        English mixed with Hindi). Those four names come from Sarvam's pages and an outside plan;
+        none is stated female, and not every voice is equally good in every language. Use the Hindi,
+        Hinglish and Indian English samples above to listen to each, then keep the one you like.
       </p>
       {line ? <p>{line}</p> : null}
     </div>
