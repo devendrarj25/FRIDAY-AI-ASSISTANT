@@ -76,3 +76,38 @@ export async function speakWithCloud(
     return { ok: false, error: out.error ?? "the provider returned no audio" };
   return { ok: true, audioBase64: out.audioBase64, mime: out.mime ?? "audio/wav", provider };
 }
+
+/**
+ * May a live speech-to-text stream to Sarvam start now? The same gates as every cloud speech call (cloud on,
+ * provider allowed, key saved, privacy off, inside the quota); nothing is counted here. The caller counts one
+ * request when it opens the stream and the billed audio when the provider reports it.
+ */
+export function canStreamSpeechToText(
+  input: {
+    prefs: VoiceCloudPrefs;
+    keys: Record<string, boolean>;
+    privacyMode: boolean;
+    online: boolean;
+  },
+  ledger: UsageLedger,
+): { ok: true } | { ok: false; error: string } {
+  const decision = routeVoice(
+    {
+      need: "stt",
+      needHindi: true,
+      sensitive: false,
+      privacyMode: input.privacyMode,
+      billingAllowsPaid: false,
+      online: input.online,
+      audioMinutes: 0.5,
+    },
+    {
+      ...toRouterSettings(input.prefs, input.keys),
+      allowedProviders: input.prefs.allowedProviders.filter((id) => id === "sarvam"),
+    },
+    ledger,
+  );
+  return decision.active === "cloud" && decision.provider?.id === "sarvam"
+    ? { ok: true }
+    : { ok: false, error: decision.refused.find((r) => r.id === "sarvam")?.why ?? decision.reason };
+}

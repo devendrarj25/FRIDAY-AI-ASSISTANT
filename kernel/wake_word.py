@@ -257,13 +257,181 @@ def score_openwakeword(pcm, model_path: str, threshold: float) -> dict:
     }
 
 
+LEGACY_LINEAR_MAX_BYTES = 16 * 1024  # the bundled linear scorer is a few hundred bytes; a real model is far larger
+
+
+def read_manifest(path: Path) -> dict | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def engine_for_path(model_path: str | None) -> str | None:
+    """Which scorer a model file belongs to, from what the model says it is, never from its name.
+
+    1. A `<stem>.wake.json` sidecar naming `"engine"` ("openwakeword" or "friday-linear") decides.
+    2. The bundled linear scorer: `friday-wake.json` of kind `friday-linear-v1` beside the file, and either the
+       manifest's `modelSha256` equals the file's hash, or (an older manifest with no hash) the file is tiny.
+    3. Anything else is an openWakeWord model, so a real model that happens to be called friday.onnx is scored as one.
+    """
     if not model_path:
         return None
-    stem = Path(model_path).stem.lower()
-    if "friday" in stem:
-        return "friday-linear"
+    path = Path(model_path)
+    sidecar = read_manifest(path.with_name(f"{path.stem}.wake.json"))
+    if sidecar and sidecar.get("engine") in {"openwakeword", "friday-linear"}:
+        return str(sidecar["engine"])
+    if path.suffix.lower() == ".json":
+        manifest = read_manifest(path)
+        return "friday-linear" if manifest and manifest.get("kind") == "friday-linear-v1" else None
+    manifest = read_manifest(path.with_name("friday-wake.json"))
+    if manifest and manifest.get("kind") == "friday-linear-v1" and path.is_file():
+        recorded = manifest.get("modelSha256")
+        if recorded:
+            import hashlib
+
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            return "friday-linear" if digest == recorded else "openwakeword"
+        return "friday-linear" if path.stat().st_size <= LEGACY_LINEAR_MAX_BYTES else "openwakeword"
     return "openwakeword"
+
+
+FRAME_SAMPLES = 1280  # 80 ms at 16 kHz, the frame openWakeWord scores
+FRAME_MS = 80
+
+
+class WakeFrameScorer:
+    """Continuous wake scoring over a stream of 16 kHz mono PCM16, fed in any chunk size.
+
+    The microphone is not opened here: the caller feeds frames from the one shared capture. Samples are cut into
+    80 ms frames and each is scored by `predict` (the model's own streaming state lives in the predictor).
+    A trigger needs `min_frames` consecutive frames at or above the threshold. After a trigger the scorer is
+    latched until the score falls below `release_ratio * threshold` for `release_frames` frames AND `cooldown_ms`
+    has passed, so one spoken phrase fires once.
+    """
+
+    def __init__(
+        self,
+        predict,
+        threshold: float = 0.5,
+        min_frames: int = 2,
+        release_ratio: float = 0.6,
+        release_frames: int = 2,
+        cooldown_ms: int = 1500,
+    ) -> None:
+        self.predict = predict
+        self.threshold = threshold
+        self.min_frames = max(1, min_frames)
+        self.release_level = threshold * release_ratio
+        self.release_frames = max(1, release_frames)
+        self.cooldown_frames = max(0, int(cooldown_ms / FRAME_MS))
+        self.pending: list[int] = []
+        self.hot = 0
+        self.cool = 0
+        self.latched = False
+        self.frames = 0
+        self.best = 0.0
+
+    def reset(self) -> None:
+        self.pending = []
+        self.hot = 0
+        self.cool = 0
+        self.latched = False
+        self.best = 0.0
+
+    def feed(self, samples) -> dict:
+        """Add samples; returns {detected, score, frames} for what was scored in this call."""
+        self.pending.extend(int(v) for v in samples)
+        detected = False
+        scored = 0
+        top = 0.0
+        while len(self.pending) >= FRAME_SAMPLES:
+            frame = self.pending[:FRAME_SAMPLES]
+            del self.pending[:FRAME_SAMPLES]
+            score = float(self.predict(frame))
+            scored += 1
+            self.frames += 1
+            top = max(top, score)
+            if self.latched:
+                self.cool = max(0, self.cool - 1)
+                self.hot = self.hot + 1 if score < self.release_level else 0
+                if self.hot >= self.release_frames and self.cool == 0:
+                    self.latched = False
+                    self.hot = 0
+                continue
+            self.hot = self.hot + 1 if score >= self.threshold else 0
+            if self.hot >= self.min_frames:
+                detected = True
+                self.latched = True
+                self.cool = self.cooldown_frames
+                self.hot = 0
+        self.best = max(self.best, top) if scored else self.best
+        return {"detected": detected, "score": round(top, 4), "frames": scored}
+
+
+_frame_scorers: dict[str, WakeFrameScorer] = {}
+MAX_FRAME_SESSIONS = 2
+
+
+def _oww_predictor(model_path: str):
+    from openwakeword.model import Model  # type: ignore
+
+    model = Model(wakeword_models=[model_path])
+    import numpy as np  # type: ignore
+
+    def predict(frame: list[int]) -> float:
+        scores = model.predict(np.asarray(frame, dtype=np.int16))
+        return max((float(v) for v in scores.values()), default=0.0)
+
+    return predict
+
+
+def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, make_predictor=None) -> dict:
+    """Score a chunk of live PCM16 (little endian, base64) for the session `session`. Resets with `reset: true`."""
+    import array
+    import base64
+
+    session = str(req.get("session") or "default")[:64]
+    if req.get("reset") is True:
+        _frame_scorers.pop(session, None)
+        if not req.get("pcm"):
+            return {"ok": True, "detected": False, "score": 0.0, "frames": 0}
+    scorer = _frame_scorers.get(session)
+    if scorer is None:
+        model_path = pick_model(wake_word, explicit)
+        if not model_path:
+            return {"ok": False, "reason": "no-model", "error": missing_model_error(wake_word)}
+        if engine_for_path(model_path) != "openwakeword":
+            return {
+                "ok": False,
+                "reason": "frame-unsupported",
+                "error": "the bundled linear scorer scores whole clips; live frames need an openWakeWord model",
+            }
+        if len(_frame_scorers) >= MAX_FRAME_SESSIONS:
+            return {"ok": False, "reason": "too-many-sessions", "error": "too many live wake sessions"}
+        try:
+            predict = (make_predictor or _oww_predictor)(model_path)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "reason": "missing-dependency", "error": str(exc)[-300:]}
+        scorer = _frame_scorers[session] = WakeFrameScorer(
+            predict,
+            threshold=threshold,
+            min_frames=int(req.get("minFrames") or 2),
+            cooldown_ms=int(req.get("cooldownMs") or 1500),
+        )
+    try:
+        raw = base64.b64decode(str(req.get("pcm") or ""), validate=True)
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "reason": "bad-request", "error": "the audio was not valid base64"}
+    if len(raw) > 64_000 or len(raw) % 2:
+        return {"ok": False, "reason": "bad-request", "error": "send whole 16-bit samples, at most 2 seconds"}
+    samples = array.array("h")
+    samples.frombytes(raw)
+    if sys.byteorder == "big":
+        samples.byteswap()
+    out = scorer.feed(samples)
+    return {"ok": True, **out, "threshold": scorer.threshold, "engine": "openwakeword"}
 
 
 def missing_model_error(wake_word: str) -> str:
@@ -310,10 +478,12 @@ def detect_audio(audio: str, wake_word: str, explicit: str | None, threshold: fl
     pcm = decode_pcm16(audio)
     if pcm is None or len(pcm) == 0:
         return {"ok": False, "reason": "decode-failed", "error": "the clip could not be decoded"}
-    linear = score_linear(pcm, model_path, threshold)
-    if linear is not None:
-        linear["loadCount"] = _load_count
-        return linear
+    if engine_for_path(model_path) == "friday-linear":
+        linear = score_linear(pcm, model_path, threshold)
+        if linear is not None:
+            linear["loadCount"] = _load_count
+            return linear
+        return {"ok": False, "reason": "detect-failed", "error": "the linear wake model could not be read"}
     try:
         result = score_openwakeword(pcm, model_path, threshold)
         result["loadCount"] = _load_count
@@ -331,6 +501,8 @@ def handle_request(req: dict) -> dict:
         return probe_payload(wake_word, explicit)
     if op == "detect":
         return detect_audio(str(req.get("audio") or ""), wake_word, explicit, threshold)
+    if op == "frame":
+        return frame_op(req, wake_word, explicit, threshold)
     if op == "shutdown":
         return {"ok": True, "op": "shutdown", "loadCount": _load_count}
     return {"ok": False, "reason": "unknown-op", "error": f"unknown op {op!r}"}

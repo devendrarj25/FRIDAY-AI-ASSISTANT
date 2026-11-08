@@ -146,6 +146,18 @@ export function VoiceDiagnostics({ voice }: { voice: AssistantModeState }) {
       value: voiceLatency.line(),
     },
     {
+      label: "first sound (request to first sample)",
+      value: voiceLatency.line("firstAudible"),
+    },
+    {
+      label: "speech stop after interruption (stop asked, not measured at the speaker)",
+      value: voiceLatency.line("audibleStop"),
+    },
+    {
+      label: "cloud speech first chunk",
+      value: voiceLatency.line("ttsFirstChunk"),
+    },
+    {
       label: "voice tone",
       value: assistantMode.voiceTone()?.line ?? "no voiced utterance yet",
     },

@@ -326,6 +326,22 @@ function CloudSpeechTest({
           <option value="azure-speech">Azure Speech (the voice named above, cloud)</option>
         </select>
       </label>
+      {cloud.speakWith === "sarvam" ? (
+        <ToggleRow
+          label="Stream Sarvam speech"
+          hint="One open connection for all clauses of a reply instead of a request each. Needs a Sarvam voice named like aparna_hi_customer (bulbul v4 flash); any clause the stream cannot make is spoken by the normal Sarvam request. Off by default and not yet run against a live account."
+          on={cloud.streaming}
+          onToggle={() => set({ streaming: !cloud.streaming })}
+        />
+      ) : null}
+      {cloud.allowedProviders.includes("sarvam") ? (
+        <ToggleRow
+          label="Live captions from Sarvam"
+          hint="Shows Hindi, English and Hinglish words as you speak. Sends the audio of what you say to Sarvam, only while you speak, and only with cloud voice on, a saved key, privacy mode off and quota left. It draws words only; the reply still comes from the normal listening path. Off by default and not yet run against a live account."
+          on={cloud.streamCaptions}
+          onToggle={() => set({ streamCaptions: !cloud.streamCaptions })}
+        />
+      ) : null}
       {cloud.speakWith ? (
         <p>
           Each clause of a reply is sent to {cloud.speakWith === "sarvam" ? "Sarvam" : "Azure"} and

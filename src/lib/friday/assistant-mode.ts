@@ -34,7 +34,13 @@ import {
   heardSummary,
   noteHeard,
 } from "./heard-log";
-import { allowRestart, encodeWav, preRollFrom, TARGET_RATE } from "./pcm-capture";
+import {
+  allowRestart,
+  encodeWav,
+  preRollFrom,
+  subscribeCaptureFrames,
+  TARGET_RATE,
+} from "./pcm-capture";
 import { LiveWords } from "./voice-engine/live-words";
 import { whisperLanguageArg } from "./voice-stt";
 import { desktopApi } from "./desktop";
@@ -67,7 +73,10 @@ import {
 } from "./voice-turn-trace";
 import { registerVoiceHealth } from "./voice-health";
 import { preferences } from "./preferences";
-import { speakWithCloud } from "./voice-engine/voice-cloud-client";
+import { canStreamSpeechToText, speakWithCloud } from "./voice-engine/voice-cloud-client";
+import { createStreamingSpeak } from "./voice-engine/streaming-speak";
+import { StageClock } from "./voice-engine/latency-monitor";
+import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
 import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -331,6 +340,8 @@ export type AssistantModeState = {
 
 /** How many pipeline steps the Auto Mode screen keeps. */
 const MAX_VOICE_LOG = 30;
+/** Live captions send audio only while speech was heard this recently (ms). */
+const CAPTION_TAIL_MS = 1_500;
 
 const STORAGE_KEY = "friday.assistant.mode";
 const CONDUCT_KEY = "friday.assistant.conduct.v1";
@@ -490,6 +501,9 @@ class AssistantModeStore {
   private partialAt = 0;
   /** What was heard and what was decided. Not spoken, and not a second log store. */
   private audit: VoiceAudit[] = [];
+  /** Named stamps of this turn (speech start, speech requested, first sound) and of an interruption. */
+  private turnStages = new StageClock();
+  private interruptStages = new StageClock();
   private turnClock = {
     heardAt: null as number | null,
     finalAt: null as number | null,
@@ -1337,6 +1351,9 @@ class AssistantModeStore {
     this.unBrain = null;
     this.stopRecognition();
     this.dropPlayback();
+    void this.streamSpeaker?.stop();
+    this.streamSpeaker = null;
+    void this.stopCloudCaptions();
     this.cancelVoiceRecoveryTimer();
     if (this.hotplugTimer) window.clearTimeout(this.hotplugTimer);
     this.hotplugTimer = null;
@@ -1689,6 +1706,9 @@ class AssistantModeStore {
       },
       admit: () => pttAdmits(this.listenStyle()),
       onSpeechStart: () => {
+        this.turnStages.finish();
+        this.turnStages.reset();
+        this.turnStages.mark("micSpeechStart");
         this.turnClock = {
           heardAt: Date.now(),
           finalAt: null,
@@ -1709,6 +1729,7 @@ class AssistantModeStore {
         ) {
           this.startLiveWords();
         }
+        void this.ensureCloudCaptions();
         this.emit();
       },
       // Low-latency wake scoring on the RAW audio when openWakeWord is really
@@ -2255,6 +2276,8 @@ class AssistantModeStore {
     }
     if (wake.matched) this.lastWakeAt = Date.now();
     this.turnClock = { ...this.turnClock, finalAt: Date.now() };
+    this.turnStages.mark("sttFinalReceived");
+    this.turnStages.mark("brainRequestStarted");
     this.to("wake-matched");
     // Task words ("cancel the task", "pause the task", "resume the task") act on background work only.
     // A plain stop below ends speech and never touches a task.
@@ -2751,8 +2774,12 @@ class AssistantModeStore {
   /** Pause the voice the moment the owner starts talking; the answer keeps being written. */
   private holdForInterruption() {
     if (this.interruptHold) return;
+    this.interruptStages.reset();
+    this.interruptStages.mark("interruptCandidate");
     this.clearHoldLines();
     this.dropPlayback();
+    // The stop was asked of the player here; the speaker itself was not measured.
+    this.interruptStages.mark("playbackLastAudibleSample");
     this.to("barge-in");
     this.interruptHold = { at: Date.now(), timer: null };
     this.armInterruptTimer(4000);
@@ -2780,6 +2807,8 @@ class AssistantModeStore {
     if (!hold) return;
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
+    this.interruptStages.finish();
+    this.interruptStages.reset();
     const rest = this.unfinished;
     this.unfinished = "";
     const later = this.deferredStream;
@@ -2796,6 +2825,9 @@ class AssistantModeStore {
     if (hold.timer) clearTimeout(hold.timer);
     this.interruptHold = null;
     this.deferredStream = null;
+    this.interruptStages.mark("interruptConfirmed");
+    this.interruptStages.finish();
+    this.interruptStages.reset();
     brain.stop();
   }
 
@@ -2824,6 +2856,7 @@ class AssistantModeStore {
     }
     this.speechGen += 1;
     this.speechQueue = [];
+    this.streamSpeaker?.cancel();
     stopSpeaking();
     voiceGate.setSpeakingGuard(false);
     this.state.speaking = false;
@@ -2857,6 +2890,7 @@ class AssistantModeStore {
 
   private speak(text: string) {
     if (this.turnClock.tokenAt == null) this.turnClock = { ...this.turnClock, tokenAt: Date.now() };
+    this.turnStages.mark("brainFirstToken");
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) {
       markTurnStage(
         "spoken",
@@ -2982,6 +3016,114 @@ class AssistantModeStore {
   private cloudSpeechKeysAt = 0;
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
+  private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private captionStt: ReturnType<typeof createRealtimeStt> | null = null;
+  private captionOff: (() => void) | null = null;
+  private captionStarting = false;
+  private captionBlockedUntil = 0;
+
+  /**
+   * Live partial words from Sarvam, shown as the caption while the owner speaks. Off by default; it sends the
+   * microphone audio of each utterance to Sarvam, so it needs the toggle, cloud voice on, the provider allowed, a
+   * saved key, privacy mode off and quota left. It only draws words: the one turn that reaches the Brain is still
+   * made by the existing recognition path, so a caption can never start a second turn.
+   */
+  private async ensureCloudCaptions() {
+    if (this.captionStt || this.captionStarting || Date.now() < this.captionBlockedUntil) return;
+    const voice = preferences.getSnapshot().voice;
+    const cloud = sanitizeCloudPrefs(voice.cloudVoice);
+    if (!cloud.streamCaptions || this.state.mode !== "auto" || voice.privacyMode === true) return;
+    const api = desktopApi();
+    if (!api?.voiceStreamOpen) return;
+    this.captionStarting = true;
+    try {
+      if (Date.now() - this.cloudSpeechKeysAt > 60_000) {
+        this.cloudSpeechKeysAt = Date.now();
+        this.cloudSpeechKeys = (await api.voiceCloudKeyStatus?.().catch(() => null)) ?? {};
+      }
+      const store = typeof localStorage === "undefined" ? null : localStorage;
+      this.cloudLedger ??= loadLedger(store);
+      const ledger = this.cloudLedger;
+      const gate = canStreamSpeechToText(
+        {
+          prefs: cloud,
+          keys: this.cloudSpeechKeys,
+          privacyMode: false, // privacy mode already returned above
+          online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
+        },
+        ledger,
+      );
+      if (!gate.ok) {
+        this.captionBlockedUntil = Date.now() + 60_000;
+        this.trace("segment", `live captions skipped — ${gate.error}`);
+        return;
+      }
+      const stt = createRealtimeStt({
+        api,
+        sessionId: "auto",
+        onTranscript: (event) => {
+          if (event.type !== "partial") return;
+          if (this.state.mode !== "auto" || this.state.paused || this.state.speaking) return;
+          this.state.interim = event.text;
+          this.emit();
+        },
+        onBilledSeconds: (seconds) => {
+          ledger.record("sarvam", seconds / 60);
+          saveLedger(store, ledger);
+        },
+        onStatus: (status, detail) => {
+          if (status !== "failed") return;
+          this.captionBlockedUntil = Date.now() + 60_000;
+          this.trace("segment", `live captions stopped — ${detail ?? "the stream failed"}`);
+          void this.stopCloudCaptions();
+        },
+      });
+      const opened = await stt.start({ language: "auto", hinglish: true });
+      if (!opened.ok) {
+        this.captionBlockedUntil = Date.now() + 60_000;
+        this.trace("segment", `live captions skipped — ${opened.error ?? "refused"}`);
+        return;
+      }
+      ledger.record("sarvam", 0.01); // one request counted when the stream opens
+      saveLedger(store, ledger);
+      this.captionStt = stt;
+      this.captionOff = subscribeCaptureFrames((samples, rate) => {
+        if (!this.captionStt || this.state.mode !== "auto") return;
+        if (this.state.paused || this.state.muted || this.state.speaking) return;
+        if (!voiceGate.heardSpeechWithin(CAPTION_TAIL_MS)) return;
+        this.captionStt.pushFrame(samples, rate);
+      });
+    } finally {
+      this.captionStarting = false;
+    }
+  }
+
+  private async stopCloudCaptions() {
+    this.captionOff?.();
+    this.captionOff = null;
+    const stt = this.captionStt;
+    this.captionStt = null;
+    if (stt) {
+      await stt.finish().catch(() => undefined);
+      await stt.stop().catch(() => undefined);
+    }
+  }
+
+  /** One persistent Sarvam stream shared by the clauses of a reply; the REST call is its fallback. */
+  private streamingSpeak() {
+    const api = desktopApi();
+    this.streamSpeaker ??= createStreamingSpeak({
+      api,
+      rest: async (provider, request) =>
+        (await api?.voiceCloudSpeak?.(provider, request)) ?? {
+          ok: false,
+          error: "cloud speech runs in the installed desktop app",
+        },
+      clock: this.turnStages,
+      note: (line) => this.trace("segment", line),
+    });
+    return this.streamSpeaker;
+  }
 
   /**
    * The owner's chosen cloud voice (Sarvam or Azure), or nothing. It is asked once per clause; a refusal (quota,
@@ -3020,7 +3162,18 @@ class AssistantModeStore {
           privacyMode: preferences.getSnapshot().voice.privacyMode === true,
           online: typeof navigator === "undefined" ? true : navigator.onLine !== false,
         },
-        { ledger, persistLedger: () => saveLedger(store, ledger) },
+        {
+          ledger,
+          persistLedger: () => saveLedger(store, ledger),
+          ...(provider === "sarvam" && cloud.streaming
+            ? {
+                speak: (
+                  p: string,
+                  r: { text: string; language: string; speaker?: string; pace?: number },
+                ) => this.streamingSpeak().speak(p, r),
+              }
+            : {}),
+        },
       );
       if (!out.ok) {
         this.cloudSpeechBlockedUntil = Date.now() + 60_000;
@@ -3039,6 +3192,9 @@ class AssistantModeStore {
   private playSpoken(spoken: string, gen: number): Promise<void> {
     if (gen !== this.speechGen) return Promise.resolve();
     if (!spokenReplyAllowed(this.state.mode, this.state.muted)) return Promise.resolve();
+    // "Requested" is not "heard": the first sound is stamped separately, when the player really starts.
+    this.turnStages.mark("firstSpeakableSentence");
+    this.turnStages.mark("ttsRequestStarted");
     if (this.turnClock.audioAt == null) {
       this.turnClock = { ...this.turnClock, audioAt: Date.now() };
       const latency = firstAudioLatency(this.turnClock.tokenAt, this.turnClock.audioAt);
@@ -3058,6 +3214,7 @@ class AssistantModeStore {
     return speakText(spoken, plan.argTuning, {
       onStart: () => {
         if (gen !== this.speechGen) return;
+        this.turnStages.mark("playbackFirstSample");
         this.echoUntil = Date.now() + 120_000;
         if (this.to("tts-start")) this.pauseForSpeech();
         this.emit();

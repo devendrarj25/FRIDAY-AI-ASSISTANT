@@ -412,6 +412,24 @@ type DesktopApi = {
     request: { audioBase64: string; language?: string; hinglish?: boolean },
   ) => Promise<{ ok: boolean; error?: string; text?: string; language?: string | null }>;
   voiceCloudKeyStatus?: () => Promise<Record<string, boolean>>;
+  /** Streaming speech (Sarvam realtime STT and TTS). The main process owns the socket and the key. */
+  voiceStreamOpen?: (
+    id: string,
+    kind: "stt" | "tts",
+    options: Record<string, unknown>,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  voiceStreamSend?: (
+    id: string,
+    message: Record<string, unknown>,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  voiceStreamClose?: (id: string) => Promise<{ ok: boolean }>;
+  onVoiceStreamOpened?: (cb: (payload: { id: string }) => void) => () => void;
+  onVoiceStreamEvent?: (
+    cb: (payload: { id: string; event: { type: string } }) => void,
+  ) => () => void;
+  onVoiceStreamClosed?: (
+    cb: (payload: { id: string; code: number; retry: boolean; reason: string }) => void,
+  ) => () => void;
   voiceCloudSaveKey?: (
     provider: string,
     key: string,
@@ -661,6 +679,23 @@ type DesktopApi = {
     detected?: boolean;
     score?: number;
     model?: string;
+    reason?: string;
+  }>;
+  /** Live wake scoring: a chunk of 16 kHz mono PCM16 from the one shared capture, scored by a streaming session. */
+  scoreWakeFrames?: (payload: {
+    session?: string;
+    pcmBase64?: string;
+    wakeWord?: string;
+    threshold?: number;
+    reset?: boolean;
+    minFrames?: number;
+    cooldownMs?: number;
+  }) => Promise<{
+    ok: boolean;
+    engine: string;
+    detected?: boolean;
+    score?: number;
+    frames?: number;
     reason?: string;
   }>;
   /** Real post-install probes for faster-whisper / edge-tts. */

@@ -141,7 +141,7 @@ describe("voice provider router", () => {
       "sarvam",
       "azure-speech",
     ]);
-    expect(PROVIDERS.find((p) => p.id === "sarvam")?.note).toMatch(/No streaming is documented/);
+    expect(PROVIDERS.find((p) => p.id === "sarvam")?.note).toMatch(/never run on a live account/);
     expect(PROVIDERS.find((p) => p.id === "azure-speech")?.note).toMatch(/not read/);
     expect(PROVIDERS.find((p) => p.id === "gemini")?.needs).toContain("realtime-audio");
   });

@@ -4793,6 +4793,7 @@ ipcMain.handle("voice:wake-status", (_e, payload) =>
 );
 ipcMain.handle("voice:wake-install", () => wakeEngine.install());
 ipcMain.handle("voice:wake-detect", (_e, payload) => wakeEngine.detect(payload || {}));
+ipcMain.handle("voice:wake-frames", (_e, payload) => wakeEngine.scoreFrames(payload || {}));
 
 // Real post-install verification of the voice runtime (imports + model load +
 // a real neural voice), used by first-run and Voice Diagnostics.
@@ -9067,6 +9068,27 @@ ipcMain.handle("voice-cloud:speak", (_e, provider, request) =>
 ipcMain.handle("voice-cloud:transcribe", (_e, provider, request) =>
   voiceCloudApi.transcribe(String(provider || ""), request),
 );
+// Streaming speech (Sarvam realtime speech-to-text and text-to-speech). The address is built in sarvam-stream.cjs
+// from a kind and a validated option set; the key is read here by the voice-cloud gate and never leaves this process.
+const sarvamStreams = require("./sarvam-stream.cjs").createSarvamStreams({
+  gate: (provider) => voiceCloudApi.gate(provider),
+});
+ipcMain.handle("voice-stream:open", (e, id, kind, options) =>
+  sarvamStreams.open(
+    String(id || ""),
+    String(kind || ""),
+    options && typeof options === "object" ? options : {},
+    {
+      onOpen: () => e.sender.send("voice-stream:opened", { id }),
+      onEvent: (event) => e.sender.send("voice-stream:event", { id, event }),
+      onClose: (info) => e.sender.send("voice-stream:closed", { id, ...info }),
+    },
+  ),
+);
+ipcMain.handle("voice-stream:send", (_e, id, message) =>
+  sarvamStreams.send(String(id || ""), message),
+);
+ipcMain.handle("voice-stream:close", (_e, id) => sarvamStreams.close(String(id || "")));
 ipcMain.handle("voice-cloud:key-status", () => {
   const credentials = require("./credentials.cjs");
   return Object.fromEntries(

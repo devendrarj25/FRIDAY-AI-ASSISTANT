@@ -2094,6 +2094,18 @@ export const FLOW_REGISTRY = {
       file: "electron/main.cjs",
     },
     {
+      channel: "voice-stream:close",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-stream:open",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice-stream:send",
+      file: "electron/main.cjs",
+    },
+    {
       channel: "voice:duck",
       file: "electron/main.cjs",
     },
@@ -2171,6 +2183,10 @@ export const FLOW_REGISTRY = {
     },
     {
       channel: "voice:wake-detect",
+      file: "electron/main.cjs",
+    },
+    {
+      channel: "voice:wake-frames",
       file: "electron/main.cjs",
     },
     {
@@ -9337,8 +9353,8 @@ export const FLOW_REGISTRY = {
       total: 1102,
     },
     ipc: {
-      mapped: 482,
-      total: 482,
+      mapped: 486,
+      total: 486,
     },
     kernel: {
       mapped: 14,
