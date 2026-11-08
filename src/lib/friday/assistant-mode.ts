@@ -78,6 +78,7 @@ import { createStreamingSpeak } from "./voice-engine/streaming-speak";
 import { StageClock } from "./voice-engine/latency-monitor";
 import { createRealtimeStt } from "./voice-engine/sarvam-realtime-stt";
 import { createWakeFrameFeed } from "./voice-engine/voice-frame-assembler";
+import { classifyNoteCommand, minutesPrompt, translationPrompt, voiceNotes } from "./voice-notes";
 import { loadLedger, sanitizeCloudPrefs, saveLedger } from "./voice-engine/voice-cloud-settings";
 import { looksSensitive } from "./brain/memory-policy";
 import { mergeTurnExtra, turnAwarenessExtra } from "./turn-awareness";
@@ -2329,6 +2330,8 @@ class AssistantModeStore {
       this.emit();
       return;
     }
+    // Voice notes, meeting notes and live translation: only on the owner's words, shown while they run.
+    if (this.handleNoteSpeech(command || text)) return;
     // "FRIDAY, stop" is an interruption, never a task: cut the reply short and
     // go straight back to listening instead of sending "stop" to the brain.
     if (isStopCommand(text)) {
@@ -3030,6 +3033,99 @@ class AssistantModeStore {
   private cloudSpeechBlockedUntil = 0;
   private cloudLedger: ReturnType<typeof loadLedger> | null = null;
   private streamSpeaker: ReturnType<typeof createStreamingSpeak> | null = null;
+  private translateTo: "en" | "hi" | null = null;
+
+  /** The target language while live translation is on, or null. */
+  translationTarget(): "en" | "hi" | null {
+    return this.translateTo;
+  }
+
+  /**
+   * Notes by voice. A start phrase begins a text-only note or meeting (nothing is recorded as audio), what is
+   * heard after it is written as lines instead of going to the Brain, and a stop phrase ends it; a meeting then
+   * gets minutes from the Brain as a background task. Live translation answers each line with its translation.
+   * Returns true when the line was handled here.
+   */
+  private handleNoteSpeech(heard: string): boolean {
+    if (this.state.mode !== "auto") return false;
+    const command = classifyNoteCommand(heard);
+    const active = voiceNotes.active();
+    if (command?.kind === "start") {
+      if (active) {
+        this.speak("A note is already running. Say stop note to finish it.");
+      } else {
+        voiceNotes.purge(preferences.getSnapshot().voice.notesRetentionDays);
+        voiceNotes.start(command.note);
+        this.trace("wake", `${command.note} started by voice`);
+        this.speak(
+          command.note === "meeting"
+            ? "Meeting notes shuru. I am writing down what I hear as text, no audio. Say stop meeting to finish."
+            : "Note shuru. I am writing down what I hear as text, no audio. Say stop note to finish.",
+        );
+      }
+      markTurnStage("routed", true, "", "note");
+      this.emit();
+      return true;
+    }
+    if (command?.kind === "stop") {
+      const done = active ? voiceNotes.stop() : null;
+      if (!done) {
+        this.speak("No note is running.");
+      } else {
+        this.speak(`Saved ${done.lines.length} line${done.lines.length === 1 ? "" : "s"}.`);
+        if (done.kind === "meeting" && done.lines.length >= 3) this.startMinutes(done.id);
+      }
+      markTurnStage("routed", true, "", "note");
+      this.emit();
+      return true;
+    }
+    if (command?.kind === "translate-on" || command?.kind === "translate-off") {
+      this.translateTo = command.kind === "translate-on" ? command.to : null;
+      this.speak(
+        this.translateTo
+          ? `Translating to ${this.translateTo === "en" ? "English" : "Hindi"}. Say stop translating to end.`
+          : "Translation off.",
+      );
+      markTurnStage("routed", true, "", "translation");
+      this.emit();
+      return true;
+    }
+    // A confirmation or another pending question is never swallowed into a note.
+    if (this.state.pending) return false;
+    if (active) {
+      voiceNotes.append(heard);
+      markTurnStage("routed", true, "", "note line");
+      this.state.status = "Writing the note";
+      this.emit();
+      return true;
+    }
+    if (this.translateTo) {
+      const to = this.translateTo;
+      markTurnStage("routed", true, "", "translation");
+      startVoiceTask("Translation", async (_task, context) => {
+        await context.checkpoint();
+        const done = await askBrain(translationPrompt(heard, to), { brain, timeoutMs: 60_000 });
+        await context.checkpoint();
+        return completionLine(done.answer, 400) || "I could not translate that.";
+      });
+      this.emit();
+      return true;
+    }
+    return false;
+  }
+
+  private startMinutes(id: string) {
+    const note = voiceNotes.getSnapshot().notes.find((n) => n.id === id);
+    if (!note) return;
+    startVoiceTask("Meeting minutes", async (_task, context) => {
+      await context.checkpoint();
+      const done = await askBrain(minutesPrompt(note), { brain, timeoutMs: 300_000 });
+      await context.checkpoint();
+      voiceNotes.setSummary(id, done.answer);
+      return "The meeting minutes are saved with the note.";
+    });
+  }
+
   private bargeDetector = new BargeInDetector();
   private bargeShadow = new BargeShadow();
   private bargeShadowOff: (() => void) | null = null;
@@ -3215,6 +3311,12 @@ class AssistantModeStore {
           error: "cloud speech runs in the installed desktop app",
         },
       clock: this.turnStages,
+      // Play while it arrives only when the owner switched it on and the browser can do it.
+      media:
+        sanitizeCloudPrefs(preferences.getSnapshot().voice.cloudVoice).streamPlayback &&
+        typeof MediaSource !== "undefined"
+          ? (globalThis as unknown as { MediaSource: never; Audio: never; URL: never })
+          : null,
       note: (line) => this.trace("segment", line),
     });
     return this.streamSpeaker;
@@ -3275,7 +3377,12 @@ class AssistantModeStore {
         this.trace("segment", `cloud voice skipped — ${out.error}`);
         return null;
       }
-      return { audioBase64: out.audioBase64, mime: out.mime, engine: provider };
+      return {
+        audioBase64: out.audioBase64,
+        mime: out.mime,
+        engine: provider,
+        ...(out.audio ? { audio: out.audio } : {}),
+      };
     };
   }
 

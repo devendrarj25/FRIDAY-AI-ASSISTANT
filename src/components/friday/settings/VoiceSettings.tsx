@@ -21,6 +21,7 @@ import { assistantMode } from "@/lib/friday/assistant-mode";
 import { useAssistantMode } from "@/lib/friday/use-assistant-mode";
 import { attentionWindowSeconds, clampAttentionSeconds } from "@/lib/friday/attention-window";
 import { Slider } from "@/components/ui/slider";
+import { VoiceNotesList } from "@/components/friday/VoiceNotesPanel";
 import { cn } from "@/lib/utils";
 import {
   activeVoiceSettings,
@@ -323,6 +324,7 @@ export function VoiceSettings() {
             on={prefs.voice.liveWake === true}
             onToggle={() => preferences.setVoice({ liveWake: prefs.voice.liveWake !== true })}
           />
+          <VoiceNotesList />
           <RealtimeEngineNotes />
           <VoiceEngineSettings />
           <SpeechModelCheck />

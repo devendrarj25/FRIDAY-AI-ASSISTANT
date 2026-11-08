@@ -35,6 +35,8 @@ export type VoiceCloudPrefs = {
   streaming: boolean;
   /** Show Sarvam's live partial words while the owner speaks. Sends the microphone audio of each utterance to Sarvam. */
   streamCaptions: boolean;
+  /** Play a streamed Sarvam clause while it is still arriving (needs Stream Sarvam speech; mp3 through a media source). */
+  streamPlayback: boolean;
 };
 
 export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
@@ -53,6 +55,7 @@ export const DEFAULT_VOICE_CLOUD_PREFS: VoiceCloudPrefs = {
   speakWith: "",
   streaming: false,
   streamCaptions: false,
+  streamPlayback: false,
 };
 
 const whole = (value: unknown, max: number): number => {
@@ -99,6 +102,7 @@ export function sanitizeCloudPrefs(
     speakWith: src.speakWith === "sarvam" || src.speakWith === "azure-speech" ? src.speakWith : "",
     streaming: src.streaming === true,
     streamCaptions: src.streamCaptions === true,
+    streamPlayback: src.streamPlayback === true,
   };
 }
 
@@ -114,6 +118,7 @@ export function toRouterSettings(
     speakWith: _w,
     streaming: _st,
     streamCaptions: _sc,
+    streamPlayback: _sp,
     ...router
   } = clean;
   return { ...DEFAULT_CLOUD_SETTINGS, ...router, keyPresent };

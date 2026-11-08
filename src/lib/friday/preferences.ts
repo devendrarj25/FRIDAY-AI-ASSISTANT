@@ -74,6 +74,8 @@ export type VoicePreferences = {
   liveWords: boolean;
   /** Score the shared microphone for the wake word as it arrives (needs an openWakeWord model; local only). */
   liveWake: boolean;
+  /** Days to keep finished voice notes and meeting notes; 0 keeps them until deleted. */
+  notesRetentionDays: number;
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
@@ -235,6 +237,7 @@ export const DEFAULT_PREFERENCES: FridayPreferences = {
     pronunciations: {},
     liveWords: false,
     liveWake: false,
+    notesRetentionDays: 30,
     expressiveSpeech: true,
     localVoiceStyle: "",
     sttSize: "auto",

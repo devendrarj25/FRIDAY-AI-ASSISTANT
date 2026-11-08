@@ -10,7 +10,8 @@ import { routeVoice, type UsageLedger } from "./voice-provider-router";
 import { toRouterSettings, type VoiceCloudPrefs } from "./voice-cloud-settings";
 
 export type CloudSpeakResult =
-  { ok: true; audioBase64: string; mime: string; provider: string } | { ok: false; error: string };
+  | { ok: true; audioBase64: string; mime: string; provider: string; audio?: unknown }
+  | { ok: false; error: string };
 
 export type CloudSpeakDeps = {
   speak?: NonNullable<ReturnType<typeof desktopApi>>["voiceCloudSpeak"];
@@ -72,9 +73,16 @@ export async function speakWithCloud(
       ? { speaker: input.prefs.sarvamSpeaker }
       : {}),
   });
-  if (!out.ok || !out.audioBase64)
+  const audio = (out as { audio?: unknown }).audio;
+  if (!out.ok || (!out.audioBase64 && !audio))
     return { ok: false, error: out.error ?? "the provider returned no audio" };
-  return { ok: true, audioBase64: out.audioBase64, mime: out.mime ?? "audio/wav", provider };
+  return {
+    ok: true,
+    audioBase64: out.audioBase64 ?? "",
+    mime: out.mime ?? "audio/wav",
+    provider,
+    ...(audio ? { audio } : {}),
+  };
 }
 
 /**

@@ -14,12 +14,20 @@
  */
 import type { desktopApi } from "../desktop";
 import { StageClock } from "./latency-monitor";
+import { ProgressiveAudio, progressiveSupported, type MediaImpl } from "./progressive-audio";
 import { createStreamingTts, type StreamingTtsOptions } from "./sarvam-streaming-tts";
 import type { VoiceTtsEvent } from "./voice-contracts";
 
 type Api = NonNullable<ReturnType<typeof desktopApi>>;
 export type SpeakRequest = { text: string; language: string; speaker?: string; pace?: number };
-export type SpeakResult = { ok: boolean; error?: string; audioBase64?: string; mime?: string };
+export type SpeakResult = {
+  ok: boolean;
+  error?: string;
+  audioBase64?: string;
+  mime?: string;
+  /** Set when the clip is playing as it arrives: a paused audio element the player starts. */
+  audio?: unknown;
+};
 type RestSpeak = (provider: string, request: SpeakRequest) => Promise<SpeakResult>;
 
 /** A bulbul:v4-flash persona id looks like name_lang_style (aparna_hi_customer); older short names do not. */
@@ -49,6 +57,11 @@ export function createStreamingSpeak(deps: {
   timeoutMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (h: unknown) => void;
+  /**
+   * The browser's media pieces. When given and `audio/mpeg` is supported, a clause is handed back as soon as its
+   * first piece arrives and plays while the rest streams in; without it the pieces are joined into one clip.
+   */
+  media?: MediaImpl | null;
   /** A one-line note for the voice trace when the stream is skipped. */
   note?: (line: string) => void;
 }) {
@@ -56,10 +69,17 @@ export function createStreamingSpeak(deps: {
   const timeoutMs = deps.timeoutMs ?? 8000;
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
-  const pending = new Map<
-    string,
-    { parts: Uint8Array[]; mime: string; done: (r: SpeakResult) => void }
-  >();
+  type Slot = {
+    parts: Uint8Array[];
+    mime: string;
+    /** Settle the caller (once) and stop collecting. Used for failure, cancel and the end of a joined clip. */
+    done: (r: SpeakResult) => void;
+    /** Hand the caller a playing clip before the clause is complete (once). */
+    early: (r: SpeakResult) => void;
+    stream: ProgressiveAudio | null;
+  };
+  const pending = new Map<string, Slot>();
+  const useStream = progressiveSupported(deps.media);
   let counter = 0;
   let openKey = "";
 
@@ -71,15 +91,29 @@ export function createStreamingSpeak(deps: {
       const slot = "turnId" in event ? pending.get(event.turnId) : undefined;
       if (!slot) return;
       if (event.type === "audio-chunk") {
-        slot.parts.push(bytesOf(event.audioBase64));
+        const bytes = bytesOf(event.audioBase64);
+        slot.parts.push(bytes);
         slot.mime = event.mime;
+        if (slot.stream) slot.stream.append(bytes);
+        else if (useStream && deps.media && /mp(3|eg)/i.test(event.mime)) {
+          // The first piece: start the element, give the caller the clip now, and keep feeding it.
+          const stream = new ProgressiveAudio(deps.media);
+          slot.stream = stream;
+          for (const part of slot.parts) stream.append(part);
+          slot.early({ ok: true, audio: stream.audio, mime: slot.mime, audioBase64: "" });
+        }
       } else if (event.type === "utterance-complete") {
-        slot.done(
-          slot.parts.length
-            ? { ok: true, audioBase64: toBase64(slot.parts), mime: slot.mime }
-            : { ok: false, error: "the stream returned no audio" },
-        );
+        if (slot.stream) {
+          slot.stream.end();
+          slot.done({ ok: true });
+        } else
+          slot.done(
+            slot.parts.length
+              ? { ok: true, audioBase64: toBase64(slot.parts), mime: slot.mime }
+              : { ok: false, error: "the stream returned no audio" },
+          );
       } else if (event.type === "error") {
+        slot.stream?.end(); // what arrived plays out; the rest of this clause is lost
         slot.done({ ok: false, error: event.message });
       }
     },
@@ -114,12 +148,24 @@ export function createStreamingSpeak(deps: {
           () => finish({ ok: false, error: "the stream did not answer in time" }),
           timeoutMs,
         );
-        const finish = (r: SpeakResult) => {
+        let settled = false;
+        const settle = (r: SpeakResult) => {
+          if (settled) return;
+          settled = true;
           clearTimer(timer);
-          pending.delete(turnId);
           resolve(r);
         };
-        pending.set(turnId, { parts: [], mime: "audio/mp3", done: finish });
+        const finish = (r: SpeakResult) => {
+          pending.delete(turnId);
+          settle(r);
+        };
+        pending.set(turnId, {
+          parts: [],
+          mime: "audio/mp3",
+          done: finish,
+          early: settle,
+          stream: null,
+        });
         void tts.speak(turnId, request.text).then((generation) => {
           if (generation === 0 && pending.has(turnId))
             finish({ ok: false, error: "the text could not be sent" });

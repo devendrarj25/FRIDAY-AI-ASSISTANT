@@ -58,7 +58,19 @@ export type SessionSettings = {
   serverVad?: boolean;
 };
 
+/**
+ * Which `session.update` shape a server takes. `ga` is the current OpenAI Realtime interface (a `type: "realtime"`
+ * session with nested `audio.input` and `audio.output`, from the official openai-node source read 2026-11-08);
+ * `beta` is the older flat shape that preview models and the other providers here still use.
+ */
+export type SessionDialect = "beta" | "ga";
+
+/** A preview model is on the older interface; any other OpenAI realtime model is on the current one. */
+export const openaiDialect = (model: string): SessionDialect =>
+  /preview/i.test(model) ? "beta" : "ga";
+
 export const clientEvents = {
+  /** The older flat shape (preview models, xAI, Gemini through its adapter, a local engine). */
   start: (settings: SessionSettings) => ({
     type: "session.update",
     session: {
@@ -69,6 +81,26 @@ export const clientEvents = {
       output_audio_format: "pcm16",
       input_audio_transcription: { model: "whisper-1" },
       turn_detection: settings.serverVad ? { type: "server_vad" } : null,
+    },
+  }),
+  /** The current OpenAI shape: a `realtime` session with nested audio input and output (24 kHz PCM). */
+  startGa: (settings: SessionSettings) => ({
+    type: "session.update",
+    session: {
+      type: "realtime",
+      output_modalities: ["audio"],
+      instructions: settings.instructions.slice(0, 4000),
+      audio: {
+        input: {
+          format: { type: "audio/pcm", rate: 24000 },
+          transcription: { model: "whisper-1" },
+          turn_detection: settings.serverVad ? { type: "server_vad" } : null,
+        },
+        output: {
+          format: { type: "audio/pcm", rate: 24000 },
+          ...(settings.voice ? { voice: settings.voice } : {}),
+        },
+      },
     },
   }),
   audio: (base64: string) => ({ type: "input_audio_buffer.append", audio: base64 }),

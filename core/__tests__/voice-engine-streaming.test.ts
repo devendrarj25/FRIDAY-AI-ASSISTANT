@@ -567,3 +567,150 @@ function readDefaultVoice(): { liveWake: boolean } {
   const text = readFileSync("src/lib/friday/preferences.ts", "utf8");
   return { liveWake: /liveWake: true/.test(text) ? true : !/liveWake: false/.test(text) };
 }
+
+describe("progressive playback (a clause plays while it arrives)", () => {
+  function fakeMedia(supported = true) {
+    const log: string[] = [];
+    class FakeBuffer {
+      updating = false;
+      listeners: Array<() => void> = [];
+      appended: Uint8Array[] = [];
+      appendBuffer(data: Uint8Array) {
+        this.appended.push(data);
+        this.updating = true;
+        queueMicrotask(() => {
+          this.updating = false;
+          this.listeners.forEach((fn) => fn());
+        });
+      }
+      addEventListener(name: string, fn: () => void) {
+        if (name === "updateend") this.listeners.push(fn); // only the write-finished event is simulated
+      }
+    }
+    class FakeSource {
+      static isTypeSupported = () => supported;
+      readyState = "closed";
+      buffer = new FakeBuffer();
+      opened: Array<() => void> = [];
+      constructor() {
+        FakeSource.last = this;
+      }
+      static last: FakeSource | null = null;
+      addSourceBuffer(type: string) {
+        log.push(`buffer ${type}`);
+        return this.buffer;
+      }
+      endOfStream() {
+        this.readyState = "ended";
+        log.push("end");
+      }
+      addEventListener(_n: string, fn: () => void) {
+        this.opened.push(fn);
+      }
+      open() {
+        this.readyState = "open";
+        this.opened.forEach((fn) => fn());
+      }
+    }
+    class FakeAudio {
+      src = "";
+      preload = "";
+      addEventListener() {}
+    }
+    const impl = {
+      MediaSource: FakeSource,
+      Audio: FakeAudio,
+      URL: {
+        createObjectURL: () => "blob:fake",
+        revokeObjectURL: (u: string) => void log.push(`revoke ${u}`),
+      },
+    };
+    return { impl: impl as never, FakeSource, log };
+  }
+
+  it("appends pieces in order, waits for each write, and ends the stream after the last", async () => {
+    const { ProgressiveAudio } =
+      await import("../../src/lib/friday/voice-engine/progressive-audio");
+    const m = fakeMedia();
+    const p = new ProgressiveAudio(m.impl);
+    p.append(new Uint8Array([1]));
+    p.append(new Uint8Array([2])); // arrives before the source is open
+    m.FakeSource.last!.open();
+    p.append(new Uint8Array([3]));
+    p.end();
+    await tick();
+    await tick();
+    expect(m.FakeSource.last!.buffer.appended.map((b) => b[0])).toEqual([1, 2, 3]);
+    expect(m.log).toContain("buffer audio/mpeg");
+    expect(m.log).toContain("end");
+    expect(p.isFailed).toBe(false);
+  });
+
+  it("is only used when the browser says it can play mp3 through a media source", async () => {
+    const { progressiveSupported } =
+      await import("../../src/lib/friday/voice-engine/progressive-audio");
+    expect(progressiveSupported(fakeMedia(true).impl)).toBe(true);
+    expect(progressiveSupported(fakeMedia(false).impl)).toBe(false);
+    expect(progressiveSupported(null)).toBe(false);
+  });
+
+  it("hands the player a clip at the first piece and keeps feeding it until the clause completes", async () => {
+    const { createStreamingSpeak } =
+      await import("../../src/lib/friday/voice-engine/streaming-speak");
+    const m = fakeMedia();
+    const rig = fakeApi();
+    const speaker = createStreamingSpeak({
+      api: rig.api as never,
+      rest: async () => ({ ok: true, audioBase64: "REST", mime: "audio/wav" }),
+      media: m.impl,
+      timeoutMs: 50,
+    });
+    const run = speaker.speak("sarvam", {
+      text: "नमस्ते।",
+      language: "hi-IN",
+      speaker: "aparna_hi_customer",
+    });
+    await tick();
+    const id = rig.opens[0]!.id;
+    rig.open(id);
+    await tick();
+    rig.emit(id, { type: "audio", audioBase64: btoa("AB"), mime: "audio/mp3" });
+    const early = await run; // resolved at the first piece, before the clause is complete
+    expect(early).toMatchObject({ ok: true, audioBase64: "", mime: "audio/mp3" });
+    expect(early.audio).toBeTruthy();
+    m.FakeSource.last!.open();
+    rig.emit(id, { type: "audio", audioBase64: btoa("CD"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    await tick();
+    await tick();
+    expect(m.FakeSource.last!.buffer.appended.map((b) => String.fromCharCode(...b))).toEqual([
+      "AB",
+      "CD",
+    ]);
+    expect(m.log).toContain("end");
+  });
+
+  it("joins the pieces as before when progressive playback is not available", async () => {
+    const { createStreamingSpeak } =
+      await import("../../src/lib/friday/voice-engine/streaming-speak");
+    const rig = fakeApi();
+    const speaker = createStreamingSpeak({
+      api: rig.api as never,
+      rest: async () => ({ ok: true, audioBase64: "REST", mime: "audio/wav" }),
+      media: fakeMedia(false).impl,
+      timeoutMs: 50,
+    });
+    const run = speaker.speak("sarvam", {
+      text: "hi",
+      language: "hi-IN",
+      speaker: "aparna_hi_customer",
+    });
+    await tick();
+    const id = rig.opens[0]!.id;
+    rig.open(id);
+    await tick();
+    rig.emit(id, { type: "audio", audioBase64: btoa("AB"), mime: "audio/mp3" });
+    rig.emit(id, { type: "complete" });
+    expect(await run).toEqual({ ok: true, audioBase64: btoa("AB"), mime: "audio/mp3" });
+  });
+});

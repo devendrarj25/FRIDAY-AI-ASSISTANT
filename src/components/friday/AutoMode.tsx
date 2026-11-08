@@ -49,6 +49,7 @@ import {
 } from "@/lib/friday/chat-level";
 import { VoiceDiagnostics } from "@/components/friday/VoiceDiagnostics";
 import { VoiceTaskPanel } from "@/components/friday/VoiceTaskPanel";
+import { VoiceNoteBanner } from "@/components/friday/VoiceNotesPanel";
 import {
   HudButton,
   HudDivider,
@@ -654,6 +655,7 @@ export function AutoMode() {
                   full && "px-4 py-3",
                 )}
               >
+                <VoiceNoteBanner />
                 <VoiceTaskPanel />
                 <VoiceTranscript
                   captions={visible}

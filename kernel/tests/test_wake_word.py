@@ -300,5 +300,64 @@ class WakeFrameScorerTests(unittest.TestCase):
                 self.wake._frame_scorers.clear()
 
 
+class WakeEvaluationTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(KERNEL))
+        import importlib
+
+        import wake_word
+
+        self.wake = importlib.reload(wake_word)
+
+    def predictor(self):
+        # A stand-in model: a frame that starts with 1000 is "the wake phrase", anything else is not.
+        return lambda frame: 0.9 if frame[0] == 1000 else 0.05
+
+    def clip(self, hot_frames, total_frames):
+        n = self.wake.FRAME_SAMPLES
+        out = []
+        for i in range(total_frames):
+            out.extend([1000 if i in hot_frames else 0] * n)
+        return out
+
+    def test_reports_rejections_accepts_per_hour_and_delay(self):
+        positives = [self.clip({3, 4, 5}, 8), self.clip({2, 3, 4}, 8), self.clip(set(), 8)]  # the last is missed
+        negatives = [self.clip(set(), 2250), self.clip({100, 101}, 2250)]  # two clips of three minutes each
+        report = self.wake.evaluate_wake(positives, negatives, self.predictor, cooldown_ms=0)
+        self.assertEqual(report["positives"], 3)
+        self.assertAlmostEqual(report["falseRejectionRate"], 0.3333, places=3)
+        self.assertEqual(report["negativeHours"], 0.1)
+        self.assertEqual(report["falseAcceptsPerHour"], 10.0)  # one trigger in six minutes
+        self.assertIsNotNone(report["triggerDelaySeconds"]["median"])
+        self.assertFalse(report["meetsTargets"])  # 33 % rejection is far over the 5 % target
+
+    def test_meets_targets_only_when_both_rates_are_under_the_limit(self):
+        positives = [self.clip({2, 3}, 6) for _ in range(30)]
+        negatives = [self.clip(set(), 2250)]
+        report = self.wake.evaluate_wake(positives, negatives, self.predictor, cooldown_ms=0)
+        self.assertEqual(report["falseRejectionRate"], 0.0)
+        self.assertEqual(report["falseAcceptsPerHour"], 0.0)
+        self.assertTrue(report["meetsTargets"])
+
+    def test_no_clips_never_claims_the_targets_are_met(self):
+        report = self.wake.evaluate_wake([], [], self.predictor)
+        self.assertIsNone(report["falseRejectionRate"])
+        self.assertIsNone(report["falseAcceptsPerHour"])
+        self.assertFalse(report["meetsTargets"])
+
+    def test_the_folder_run_refuses_without_an_openwakeword_model(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["FRIDAY_ROOT"] = tmp
+            try:
+                out = self.wake.evaluate_directories(tmp, tmp, "friday", None, 0.5)
+                self.assertFalse(out["ok"])
+                self.assertEqual(out["reason"], "no-model")
+            finally:
+                os.environ.pop("FRIDAY_ROOT", None)
+
+
 if __name__ == "__main__":
     unittest.main()

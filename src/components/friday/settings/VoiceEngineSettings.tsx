@@ -355,6 +355,14 @@ function CloudSpeechTest({
           onToggle={() => set({ streaming: !cloud.streaming })}
         />
       ) : null}
+      {cloud.speakWith === "sarvam" && cloud.streaming ? (
+        <ToggleRow
+          label="Play Sarvam speech while it arrives"
+          hint="Starts a clause as soon as its first audio piece lands instead of waiting for the whole clause. Uses the browser's media source for mp3. Off by default and not yet heard on a real speaker; if a clause cuts off, turn it off."
+          on={cloud.streamPlayback}
+          onToggle={() => set({ streamPlayback: !cloud.streamPlayback })}
+        />
+      ) : null}
       {cloud.allowedProviders.includes("sarvam") ? (
         <ToggleRow
           label="Live captions from Sarvam"

@@ -434,6 +434,94 @@ def frame_op(req: dict, wake_word: str, explicit: str | None, threshold: float, 
     return {"ok": True, **out, "threshold": scorer.threshold, "engine": "openwakeword"}
 
 
+def evaluate_wake(
+    positives: list,
+    negatives: list,
+    make_predict,
+    threshold: float = 0.5,
+    min_frames: int = 2,
+    cooldown_ms: int = 1500,
+) -> dict:
+    """Held-out evaluation of a wake model on recorded clips (16 kHz mono int16 lists).
+
+    `positives` are clips of the wake phrase, `negatives` are clips without it (speech, music, noise). Every clip
+    gets a fresh scorer from `make_predict()`. Reports the false rejection rate on the positives, the false accepts
+    per hour on the negatives, and for each detected positive the delay between the end of the clip and the
+    trigger. These numbers are field numbers only for audio the model was not trained on; the caller must keep a
+    held-out set apart from any training audio.
+    """
+
+    def run(clip):
+        scorer = WakeFrameScorer(make_predict(), threshold=threshold, min_frames=min_frames, cooldown_ms=cooldown_ms)
+        hits: list[int] = []
+        for start in range(0, len(clip), FRAME_SAMPLES):
+            out = scorer.feed(clip[start : start + FRAME_SAMPLES])
+            if out["detected"]:
+                hits.append(scorer.frames)
+        return hits, scorer.frames
+
+    missed = 0
+    delays: list[float] = []
+    for clip in positives:
+        hits, frames = run(list(clip))
+        if not hits:
+            missed += 1
+        else:
+            # frames are 80 ms; the clip ends at `frames`, the trigger came at hits[0]
+            delays.append(round((hits[0] - frames) * FRAME_MS / 1000.0, 3))
+    false_accepts = 0
+    negative_seconds = 0.0
+    for clip in negatives:
+        hits, frames = run(list(clip))
+        false_accepts += len(hits)
+        negative_seconds += frames * FRAME_MS / 1000.0
+    hours = negative_seconds / 3600.0
+    return {
+        "positives": len(positives),
+        "negatives": len(negatives),
+        "falseRejectionRate": round(missed / len(positives), 4) if positives else None,
+        "falseAcceptsPerHour": round(false_accepts / hours, 3) if hours > 0 else None,
+        "negativeHours": round(hours, 4),
+        "triggerDelaySeconds": {
+            "median": sorted(delays)[len(delays) // 2] if delays else None,
+            "worst": max(delays) if delays else None,
+        },
+        "meetsTargets": bool(
+            positives
+            and hours > 0
+            and missed / len(positives) < 0.05
+            and false_accepts / hours < 0.5
+        ),
+    }
+
+
+def evaluate_directories(pos_dir: str, neg_dir: str, wake_word: str, explicit: str | None, threshold: float) -> dict:
+    """Score every audio file in two folders with the configured openWakeWord model."""
+    model_path = pick_model(wake_word, explicit)
+    if not model_path:
+        return {"ok": False, "reason": "no-model", "error": missing_model_error(wake_word)}
+    if engine_for_path(model_path) != "openwakeword":
+        return {"ok": False, "reason": "frame-unsupported", "error": "evaluation needs an openWakeWord model"}
+    exts = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".webm"}
+
+    def load(folder: str) -> list:
+        clips = []
+        for entry in sorted(Path(folder).iterdir()):
+            if entry.suffix.lower() in exts:
+                pcm = decode_pcm16(str(entry))
+                if pcm is not None and len(pcm) > 0:
+                    clips.append([int(v) for v in pcm])
+        return clips
+
+    try:
+        positives = load(pos_dir)
+        negatives = load(neg_dir)
+        report = evaluate_wake(positives, negatives, lambda: _oww_predictor(model_path), threshold)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": "eval-failed", "error": str(exc)[-400:]}
+    return {"ok": True, "model": Path(model_path).name, "threshold": threshold, **report}
+
+
 def missing_model_error(wake_word: str) -> str:
     wanted = normalise(wake_word or "friday")
     extra = " or let FRIDAY copy the bundled friday.onnx there" if wanted == "friday" else ""
@@ -541,6 +629,7 @@ def main() -> int:
     ap.add_argument("--audio")
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--serve", action="store_true")
+    ap.add_argument("--eval", nargs=2, metavar=("POSITIVES_DIR", "NEGATIVES_DIR"))
     ap.add_argument("--wake-word", default="friday")
     ap.add_argument("--model", default="")
     ap.add_argument("--threshold", type=float, default=0.5)
@@ -548,6 +637,10 @@ def main() -> int:
 
     if args.serve:
         return serve()
+
+    if args.eval:
+        emit(evaluate_directories(args.eval[0], args.eval[1], args.wake_word, args.model or None, args.threshold))
+        return 0
 
     if args.probe:
         emit(probe_payload(args.wake_word, args.model or None))
