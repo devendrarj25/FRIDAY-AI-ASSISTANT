@@ -67,7 +67,7 @@ const OPTIONAL_INSTALL = {
   "smart-turn": "smart-turn",
 };
 
-const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3"];
+const STT_SIZES = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 
 /**
  * The model folder the live worker uses. The load probe, the transcription

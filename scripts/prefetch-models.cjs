@@ -35,7 +35,7 @@
  *
  * Opt out: FRIDAY_PREFETCH=0 skips all of it, FRIDAY_PREFETCH_CHAT=0 skips the
  * local chat model only, FRIDAY_PREFETCH_TTS=0 the offline voice,
- * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
+ * FRIDAY_PREFETCH_STT_LARGE=0 the larger speech sizes, FRIDAY_PREFETCH_STT_BIG=0 only the big turbo size, FRIDAY_PREFETCH_MOONSHINE=0 the English streaming speech, FRIDAY_PREFETCH_OLLAMA=0 the Ollama
  * install and pulls. Hosted CI skips it
  * unless FRIDAY_PREFETCH=1, so a workflow run does not pull gigabytes on every build.
  */
@@ -59,6 +59,7 @@ const APPROX_BYTES = {
   "stt-base": 141 * 1024 ** 2,
   "stt-small": 464 * 1024 ** 2,
   "stt-medium": 1457 * 1024 ** 2,
+  "stt-large-v3-turbo": 1620 * 1024 ** 2,
   "supertonic-3": 383 * 1024 ** 2,
   "qwen2.5-1.5b-instruct": 1100 * 1024 ** 2,
   "ollama-setup": 1.6 * 1024 ** 3,
@@ -77,6 +78,8 @@ const STT_SIZES = ["base", "small"];
  * it needs a PC with the RAM to hold it and can be skipped.
  */
 const STT_LARGE = { size: "medium", minRamGb: 8 };
+/** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. */
+const STT_BIG = { size: "large-v3-turbo", minRamGb: 16 };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
@@ -249,6 +252,17 @@ function prefetchPlan(root, env = process.env, platform = process.platform, have
       kind: "stt",
       ready: plan.dir,
       minRamGb: STT_LARGE.minRamGb,
+      job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
+    });
+  }
+  // The big size comes after everything else, only on a PC with the memory, and the owner can leave it out.
+  if (enabled(env, "FRIDAY_PREFETCH_STT_BIG") && enabled(env, "FRIDAY_PREFETCH_STT_LARGE")) {
+    const plan = voiceWeights.sttPlan(STT_BIG.size, root);
+    jobs.push({
+      id: plan.id,
+      kind: "stt",
+      ready: plan.dir,
+      minRamGb: STT_BIG.minRamGb,
       job: { modelId: plan.size, sources: plan.sources, dir: path.dirname(plan.dir) },
     });
   }

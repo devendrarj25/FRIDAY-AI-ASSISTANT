@@ -231,9 +231,22 @@ describe("a larger speech size, suggested only on repeated doubt", () => {
   it("respects the PC's ceiling, the largest size and the battery", () => {
     const three = (m: string) => [doubtful(m), doubtful(m), doubtful(m)];
     expect(suggestLargerSpeech({ recent: three("medium") }).suggest).toBeNull();
+    // the ladder now has the big turbo size between medium and large-v3: one step at a time
     expect(suggestLargerSpeech({ recent: three("medium"), maxSize: "large-v3" }).suggest).toBe(
-      "large-v3",
+      "large-v3-turbo",
     );
+    expect(
+      suggestLargerSpeech({ recent: three("medium"), maxSize: "large-v3-turbo" }).suggest,
+    ).toBe("large-v3-turbo");
+    expect(
+      suggestLargerSpeech({ recent: three("large-v3-turbo"), maxSize: "large-v3" }).suggest,
+    ).toBe("large-v3");
+    expect(
+      suggestLargerSpeech({ recent: three("large-v3-turbo"), maxSize: "large-v3-turbo" }).suggest,
+    ).toBeNull();
+    expect(
+      suggestLargerSpeech({ recent: three("medium"), battery: true, maxSize: "large-v3" }).suggest,
+    ).toBeNull();
     expect(suggestLargerSpeech({ recent: three("large-v3"), maxSize: "large-v3" }).reason).toMatch(
       /largest/,
     );

@@ -1414,6 +1414,21 @@ export const modelCatalog: ModelSpec[] = [
     { format: "ONNX", quant: "INT8", ramGb: 3 },
   ),
   M(
+    "faster-whisper-large-v3-turbo",
+    "Faster Whisper large v3 turbo",
+    "onnx",
+    "Speech to Text",
+    "809M",
+    1.6,
+    0,
+    0,
+    "MIT",
+    HF("mobiuslabsgmbh/faster-whisper-large-v3-turbo"),
+    "large-v3-turbo",
+    ["audio"],
+    { format: "ONNX", quant: "INT8", ramGb: 4 },
+  ),
+  M(
     "vosk-en",
     "Vosk English small",
     "onnx",
@@ -2606,6 +2621,7 @@ export const STT_SIZE_MODEL: Record<string, string> = {
   base: "faster-whisper-base",
   small: "faster-whisper-small",
   medium: "faster-whisper-medium",
+  "large-v3-turbo": "faster-whisper-large-v3-turbo",
   "large-v3": "faster-whisper",
 };
 

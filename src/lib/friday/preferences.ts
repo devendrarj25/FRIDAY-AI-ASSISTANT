@@ -79,7 +79,7 @@ export type VoicePreferences = {
   /** Words the voice should say differently: { written: "said as" }. Wins over the built-in dictionary. */
   pronunciations: Record<string, string>;
   /** faster-whisper size. auto keeps the measured tier. */
-  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3";
+  sttSize: "auto" | "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
   /** Short name used in status lines. Empty keeps the line unnamed. */
   addressName: string;
   /** When a heard line is a turn. Conversation is the fresh-install default. */

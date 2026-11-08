@@ -26,7 +26,7 @@ export type VoiceProfile = {
   name: ProfileName;
   stt: {
     engine: "faster-whisper";
-    model: "base" | "small" | "medium";
+    model: "base" | "small" | "medium" | "large-v3-turbo";
     device: "cpu" | "cuda";
     computeType: "int8" | "float16";
     threads: number;
@@ -67,7 +67,9 @@ export function selectProfile(facts: HardwareFacts, requested?: ProfileName): Vo
     } else reasons.push(`${requested} was asked for but this machine fits ${name}`);
   }
 
-  const sttThreads = Math.min(4, Math.max(1, threads - 2));
+  // The same rule as the CPU speech engine (`cpu_threads` in kernel/stt.py): about half the logical processors,
+  // 4 to 8, and never more than the PC has.
+  const sttThreads = Math.min(threads, Math.max(4, Math.min(8, Math.floor(threads / 2))));
   const llmOnGpu = gpuUsable && name !== "lite";
   const sttOnGpu = name === "quality" && vram >= 12;
   if (!gpuUsable) reasons.push("no usable GPU: everything runs on the CPU");
@@ -76,7 +78,15 @@ export function selectProfile(facts: HardwareFacts, requested?: ProfileName): Vo
 
   const stt: VoiceProfile["stt"] = {
     engine: "faster-whisper",
-    model: name === "lite" ? "base" : name === "quality" && ram >= 16 ? "medium" : "small",
+    // The big turbo size only where the video memory carries it; a quality PC without that keeps medium.
+    model:
+      name === "lite"
+        ? "base"
+        : name === "quality" && ram >= 16
+          ? vram >= 8
+            ? "large-v3-turbo"
+            : "medium"
+          : "small",
     device: sttOnGpu ? "cuda" : "cpu",
     computeType: sttOnGpu ? "float16" : "int8",
     threads: sttThreads,

@@ -557,7 +557,7 @@ export function applySttTier(input: {
   return tier;
 }
 
-const SPEECH_LADDER = ["tiny", "base", "small", "medium", "large-v3"] as const;
+const SPEECH_LADDER = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"] as const;
 
 /** An average log-probability below this is a transcript the recogniser itself was unsure of. */
 export const LOW_HEARING_LOGPROB = -0.8;
@@ -588,7 +588,7 @@ export function suggestLargerSpeech(input: {
   if (at < 0 || !next) return { suggest: null, reason: "already the largest size" };
   if (at + 1 > cap)
     return { suggest: null, reason: "this PC is already at its largest sensible size" };
-  if (input.battery && (next === "medium" || next === "large-v3")) {
+  if (input.battery && (next === "medium" || next === "large-v3-turbo" || next === "large-v3")) {
     return { suggest: null, reason: "on battery a larger size would drain it" };
   }
   return {

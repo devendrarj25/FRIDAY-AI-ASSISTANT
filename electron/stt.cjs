@@ -42,7 +42,7 @@ function whisperLanguage(raw) {
 }
 
 const SCRIPT = path.join(__dirname, "..", "kernel", "stt.py");
-const MODELS = ["tiny", "base", "small", "medium", "large-v3"];
+const MODELS = ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"];
 const DEFAULT_MODEL = "small";
 const crashTimes = [];
 const CRASH_WINDOW_MS = 60000;

@@ -102,7 +102,7 @@ def select_model(ram_gb: float, gpu: bool, battery: bool, auto: bool, requested:
 def owner_model(size: str, requested: str) -> str:
     """An owner-chosen size wins. Auto tiering stays for the auto setting."""
     locked = (size or "").strip().lower()
-    known = {"tiny", "base", "small", "medium", "large-v3"}
+    known = {"tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"}
     if locked in known:
         return select_model(0.0, False, False, False, locked)
     return resolve_model_name(requested)

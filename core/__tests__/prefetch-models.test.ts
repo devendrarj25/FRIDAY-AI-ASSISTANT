@@ -35,9 +35,15 @@ describe("build-time model prefetch", () => {
       "supertonic-3",
       "qwen2.5-1.5b-instruct",
       "stt-medium", // the optional larger size is the biggest piece, so it goes last
+      "stt-large-v3-turbo", // the big size, only for a PC with the memory, after everything else
     ]);
     const small = jobs[3];
     expect(jobs[6]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
+    expect(jobs[7]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 16 });
+    expect(jobs[7].job.sources[0]).toMatchObject({
+      kind: "hf-repo",
+      repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    });
     expect(small.job.dir).toBe(path.join("/friday", "cache", "stt"));
     expect(small.job.sources[0]).toMatchObject({
       kind: "hf-repo",
@@ -64,7 +70,15 @@ describe("build-time model prefetch", () => {
     expect(prefetch.prefetchPlan("/friday", { GITHUB_ACTIONS: "true" })).toEqual([]);
     expect(
       prefetch.prefetchPlan("/friday", { CI: "1", FRIDAY_PREFETCH: "1" }, "linux").length,
-    ).toBe(7);
+    ).toBe(8);
+    // the big size can be left out on its own, and by the switch that leaves out every larger size
+    const ids = (env: Record<string, string>) =>
+      prefetch
+        .prefetchPlan("/friday", { ...quiet, ...env }, "linux")
+        .map((row: { id: string }) => row.id);
+    expect(ids({ FRIDAY_PREFETCH_STT_BIG: "0" })).not.toContain("stt-large-v3-turbo");
+    expect(ids({ FRIDAY_PREFETCH_STT_BIG: "0" })).toContain("stt-medium");
+    expect(ids({ FRIDAY_PREFETCH_STT_LARGE: "0" })).not.toContain("stt-large-v3-turbo");
     expect(
       prefetch
         .prefetchPlan("/friday", { ...quiet, FRIDAY_PREFETCH_TTS: "0" }, "linux")
@@ -751,7 +765,8 @@ describe("one local chat model, and nothing downloaded twice", () => {
       });
       // Only the two pinned voice files (their digests do not match this stand-in) are fetched.
       expect(fetched.sort()).toEqual(["silero-vad", "smart-turn"]);
-      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(5);
+      // base, small, the voice, the chat model, and the two larger sizes skipped for lack of memory.
+      expect(rows.filter((r: { downloaded?: boolean }) => r.downloaded === false)).toHaveLength(6);
       expect(lines.join("\n")).toContain("verified on disk; not downloaded again");
     } finally {
       rmSync(dir, { recursive: true, force: true });

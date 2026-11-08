@@ -362,6 +362,9 @@ export function VoiceSettings() {
               <option value="medium" className="bg-background">
                 Medium
               </option>
+              <option value="large-v3-turbo" className="bg-background">
+                Large turbo (fast, big)
+              </option>
               <option value="large-v3" className="bg-background">
                 Large
               </option>

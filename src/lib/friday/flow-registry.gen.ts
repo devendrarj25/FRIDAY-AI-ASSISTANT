@@ -4149,6 +4149,12 @@ export const FLOW_REGISTRY = {
       file: "src/lib/friday/model-catalog.ts",
     },
     {
+      id: "faster-whisper-large-v3-turbo",
+      kind: "model",
+      name: "Faster Whisper large v3 turbo",
+      file: "src/lib/friday/model-catalog.ts",
+    },
+    {
       id: "faster-whisper-medium",
       kind: "model",
       name: "Faster Whisper medium",
@@ -9351,8 +9357,8 @@ export const FLOW_REGISTRY = {
       total: 132,
     },
     capabilities: {
-      mapped: 1102,
-      total: 1102,
+      mapped: 1103,
+      total: 1103,
     },
     ipc: {
       mapped: 486,

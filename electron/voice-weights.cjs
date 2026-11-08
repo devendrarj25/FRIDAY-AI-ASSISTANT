@@ -10,6 +10,9 @@ const STT_REPOS = {
   small: "Systran/faster-whisper-small",
   medium: "Systran/faster-whisper-medium",
   "large-v3": "Systran/faster-whisper-large-v3",
+  // The MIT conversion of openai/whisper-large-v3-turbo that faster-whisper itself names `large-v3-turbo`
+  // (its model table, read 2026-11-08). Close to large-v3 in size of vocabulary with far less decoding work.
+  "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 };
 
 const STT_FILES = ["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"];
@@ -98,6 +101,7 @@ const STT_CATALOG = {
   small: "faster-whisper-small",
   medium: "faster-whisper-medium",
   "large-v3": "faster-whisper",
+  "large-v3-turbo": "faster-whisper-large-v3-turbo",
 };
 
 /**

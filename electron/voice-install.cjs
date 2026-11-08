@@ -124,7 +124,7 @@ function blockedPip(manual) {
   return /does not install/i.test(String(manual || ""));
 }
 
-const MODEL_ORDER = ["large-v3", "medium", "small", "base", "tiny"];
+const MODEL_ORDER = ["large-v3", "large-v3-turbo", "medium", "small", "base", "tiny"];
 
 function smallerModel(name) {
   const index = MODEL_ORDER.indexOf(name);
