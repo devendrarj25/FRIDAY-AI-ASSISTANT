@@ -94,7 +94,7 @@ These look like bugs. They are not. Do not "fix" them.
 
 ## Verification status
 
-Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux only. Not run, therefore unverified until the owner runs them on the Windows PC:
+Evidence and counts are in [AUDIT.md](AUDIT.md). This tree was checked on Linux here. Hosted PR Validation of pull request 34 (2026-11-08) was green on the head before this line was added, on GitHub's runners: kernel, static, audit, CodeQL, secrets, and the three Windows jobs (tests, package, update on windows-latest). That is a hosted Windows runner, not the owner's PC, and it does not run a microphone, a speaker or a live provider. Not run, therefore unverified until the owner runs them on the Windows PC:
 
 - The CMD pack (`scripts\build-windows.cmd`), Setup and Portable EXE, install, uninstall, reinstall, in-app update apply, rollback, Shutdown and Restart on the packaged EXE, SmartScreen.
 - The new look and page states in the packaged app, in Dark and Daylight, Glass and Classic.
