@@ -2,13 +2,45 @@
 
 from __future__ import annotations
 
+import struct
 import sys
+import types
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import language_segmenter as seg  # noqa: E402
+
+try:
+    # numpy must already be loaded before a test patches sys.modules: a package first imported inside
+    # mock.patch.dict is dropped again when the block ends, and a compiled package cannot be loaded twice.
+    import numpy  # noqa: F401
+
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+NEEDS_NUMPY = unittest.skipUnless(HAS_NUMPY, "numpy is not installed here")
+
+
+def fake_soundfile() -> types.ModuleType:
+    """A stand-in for the soundfile package, so these tests do not depend on it being installed.
+
+    It writes the sample count and the rate as eight bytes; ``read_fake_wav`` reads them back.
+    """
+    module = types.ModuleType("soundfile")
+
+    def write(buffer, audio, rate, format="WAV"):  # noqa: A002 - mirrors soundfile.write
+        buffer.write(struct.pack("<II", len(audio), int(rate)))
+
+    module.write = write  # type: ignore[attr-defined]
+    return module
+
+
+def read_fake_wav(data: bytes) -> tuple[int, int]:
+    count, rate = struct.unpack("<II", data[:8])
+    return count, rate
 
 
 class SegmentTests(unittest.TestCase):
@@ -66,15 +98,13 @@ class SegmentTests(unittest.TestCase):
         self.assertEqual(seg.roman_hindi_ratio("नमस्ते"), 0.0)
 
 
+@NEEDS_NUMPY
 class SpeakSpansTests(unittest.TestCase):
     """speak_wav_bytes reads each language span in its own language, in order."""
 
     def test_mixed_text_is_read_span_by_span_with_one_voice(self) -> None:
-        import io
-        import types
         from unittest import mock
 
-        import soundfile as sf  # type: ignore
         import voice_runtime
 
         calls: list[tuple[str, str, str]] = []
@@ -95,7 +125,7 @@ class SpeakSpansTests(unittest.TestCase):
         fake = types.SimpleNamespace(TTS=FakeTTS)
         with (
             mock.patch.object(voice_runtime, "supertonic_dir", return_value=Path(".")),
-            mock.patch.dict(sys.modules, {"supertonic": fake}),
+            mock.patch.dict(sys.modules, {"supertonic": fake, "soundfile": fake_soundfile()}),
             mock.patch.object(voice_runtime, "_tts", None),
         ):
             data = voice_runtime.speak_wav_bytes("Please open Chrome now और फिर रिपोर्ट का सारांश बनाओ")
@@ -103,13 +133,12 @@ class SpeakSpansTests(unittest.TestCase):
         self.assertEqual([c[1] for c in calls], ["en", "hi"])
         self.assertEqual({c[2] for c in calls}, {voice_runtime.SUPERTONIC_VOICE})
         self.assertNotIn("na", [c[1] for c in calls])
-        audio, rate = sf.read(io.BytesIO(data or b""))
+        count, rate = read_fake_wav(data or b"")
         self.assertEqual(rate, 8000)
         gap = int(8000 * voice_runtime.SPAN_GAP_SECONDS)
-        self.assertEqual(len(audio), 800 * 2 + gap)
+        self.assertEqual(count, 800 * 2 + gap)
 
     def test_single_script_is_one_call(self) -> None:
-        import types
         from unittest import mock
 
         import voice_runtime
@@ -131,7 +160,10 @@ class SpeakSpansTests(unittest.TestCase):
 
         with (
             mock.patch.object(voice_runtime, "supertonic_dir", return_value=Path(".")),
-            mock.patch.dict(sys.modules, {"supertonic": types.SimpleNamespace(TTS=FakeTTS)}),
+            mock.patch.dict(
+                sys.modules,
+                {"supertonic": types.SimpleNamespace(TTS=FakeTTS), "soundfile": fake_soundfile()},
+            ),
             mock.patch.object(voice_runtime, "_tts", None),
         ):
             self.assertIsNotNone(voice_runtime.speak_wav_bytes("मुझे आज का मौसम बताओ"))
@@ -149,8 +181,8 @@ class VoiceStyleTests(unittest.TestCase):
         for bad in ("", "F6", "F0", "../x", "F22", "x1", None):
             self.assertEqual(voice_runtime.voice_style_name(bad or ""), voice_runtime.SUPERTONIC_VOICE)
 
+    @NEEDS_NUMPY
     def test_style_reaches_the_model_and_a_missing_style_falls_back(self) -> None:
-        import types
         from unittest import mock
 
         import voice_runtime
@@ -174,7 +206,10 @@ class VoiceStyleTests(unittest.TestCase):
 
         with (
             mock.patch.object(voice_runtime, "supertonic_dir", return_value=Path(".")),
-            mock.patch.dict(sys.modules, {"supertonic": types.SimpleNamespace(TTS=FakeTTS)}),
+            mock.patch.dict(
+                sys.modules,
+                {"supertonic": types.SimpleNamespace(TTS=FakeTTS), "soundfile": fake_soundfile()},
+            ),
             mock.patch.object(voice_runtime, "_tts", None),
         ):
             self.assertIsNotNone(voice_runtime.speak_wav_bytes("hello there", 1.0, "en-IN", "F3"))
