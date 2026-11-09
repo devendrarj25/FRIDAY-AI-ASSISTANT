@@ -258,15 +258,17 @@ const ComponentBox = memo(function ComponentBox({
  * only when a box with no readout lines still cannot fit does the whole
  * graphic scale down as one piece. Same wires, same current, same mark.
  */
+type NeuralCircuitProps = {
+  large?: boolean;
+  fit?: boolean;
+  onSelectNode?: (node: LiveComponent) => void;
+};
+
 export const NeuralCircuit = memo(function NeuralCircuit({
   large = false,
   fit = false,
   onSelectNode,
-}: {
-  large?: boolean;
-  fit?: boolean;
-  onSelectNode?: (node: LiveComponent) => void;
-} = {}) {
+}: NeuralCircuitProps) {
   const gid = useId();
   const liveRaw = useFridayLive();
   const [heldLines, setHeldLines] = useState(large ? 0 : 3);
