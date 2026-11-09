@@ -43,6 +43,8 @@ describe("the installer smoke test explains a folder left behind", () => {
   it("names every process that mentions the folder, not only the ones started from it", () => {
     const smoke = read("scripts/windows-installer-smoke.ps1");
     expect(smoke).toContain("mentions the folder:");
+    expect(smoke).toContain("by hand: removing");
+    expect(smoke).toContain("    process: $($proc.Name) pid");
     expect(smoke).toContain("Erase-all uninstall left the FRIDAY folder behind");
   });
 });
