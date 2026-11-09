@@ -56,6 +56,7 @@ const GGUF: Record<string, { repo: string; match?: string[] }[]> = {
     { repo: "bartowski/Llama-3.3-70B-Instruct-GGUF" },
     { repo: "lmstudio-community/Llama-3.3-70B-Instruct-GGUF" },
   ],
+  "qwen3-4b": [{ repo: "Qwen/Qwen3-4B-GGUF" }, { repo: "bartowski/Qwen_Qwen3-4B-GGUF" }],
   "qwen3-8b": [{ repo: "Qwen/Qwen3-8B-GGUF" }, { repo: "bartowski/Qwen_Qwen3-8B-GGUF" }],
   "qwen3-14b": [{ repo: "Qwen/Qwen3-14B-GGUF" }, { repo: "bartowski/Qwen_Qwen3-14B-GGUF" }],
   "qwen3-32b": [{ repo: "Qwen/Qwen3-32B-GGUF" }, { repo: "bartowski/Qwen_Qwen3-32B-GGUF" }],

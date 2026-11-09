@@ -41,8 +41,8 @@ describe("build-time model prefetch", () => {
     ]);
     const small = jobs[3];
     expect(jobs[7]).toMatchObject({ id: "stt-medium", minRamGb: 8 });
-    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 24, optional: true });
-    expect(jobs[9]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 16 });
+    expect(jobs[8]).toMatchObject({ id: "stt-large-v3", minRamGb: 15, optional: true });
+    expect(jobs[9]).toMatchObject({ id: "stt-large-v3-turbo", minRamGb: 15 });
     expect(jobs[9].job.sources[0]).toMatchObject({
       kind: "hf-repo",
       repo: "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
@@ -200,7 +200,7 @@ describe("Ollama install and lite models on Windows", () => {
       },
     });
     expect(installs).toEqual([row.ready]);
-    expect(pulled).toEqual(["qwen2.5:1.5b", "llama3.2:3b", "qwen2.5:7b", "qwen3:14b"]);
+    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
     expect(rows.every((r: { ok: boolean }) => r.ok)).toBe(true);
   });
 
@@ -344,7 +344,7 @@ describe("an Ollama that is already on this PC", () => {
       },
     });
     expect(fetched).not.toContain("ollama");
-    expect(pulled).toEqual(["qwen2.5:1.5b", "llama3.2:3b", "qwen2.5:7b", "qwen3:14b"]);
+    expect(pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
     expect(rows.find((r: { id: string }) => r.id === "ollama")).toMatchObject({ ok: true });
     const log = lines.join("\n");
     expect(log).toContain("ollama 0.40.4 already installed");
@@ -395,12 +395,12 @@ describe("one local chat model, and nothing downloaded twice", () => {
   it("keeps one light model first and the bigger tiers optional, gated by memory", () => {
     const models = library.ollamaModels();
     const tags = models.map((m: { tag: string }) => m.tag);
-    expect(tags).toEqual(["qwen2.5:1.5b", "llama3.2:3b", "qwen2.5:7b", "qwen3:14b"]);
+    expect(tags).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
     expect(prefetch.OLLAMA_MODELS.map((m: { tag: string }) => m.tag)).toEqual(tags);
     expect(models[0]).toMatchObject({ minRamGb: 0, optional: false });
     for (const bigger of models.slice(1)) {
       expect(bigger.optional).toBe(true);
-      expect(bigger.minRamGb).toBeGreaterThanOrEqual(8);
+      expect(bigger.minRamGb).toBe(7);
     }
   });
 
@@ -425,7 +425,7 @@ describe("one local chat model, and nothing downloaded twice", () => {
         fetch: async () => ({
           ok: true,
           json: async () => ({
-            models: ["qwen2.5:1.5b", "llama3.2:3b", "qwen2.5:7b", "qwen3:14b"].map((name) => ({
+            models: ["qwen2.5:1.5b", "qwen3:4b"].map((name) => ({
               name,
             })),
           }),
@@ -1143,7 +1143,8 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
     const tiny = jobs.find((j: { id: string }) => j.id === "stt-tiny");
     expect(tiny.minRamGb).toBeUndefined();
     const max = jobs.find((j: { id: string }) => j.id === "stt-large-v3");
-    expect(max).toMatchObject({ minRamGb: 24, optional: true });
+    expect(max).toMatchObject({ minRamGb: 15, optional: true });
+    expect(jobs.find((j: { id: string }) => j.id === "stt-large-v3-turbo").minRamGb).toBe(15);
   });
 
   it("lets the owner leave the lite and max sizes out", () => {
@@ -1152,31 +1153,40 @@ describe("voice model tiers in setup: lite, large and the bigger chat models", (
     expect(plan({ FRIDAY_PREFETCH_STT_LARGE: "0" })).not.toContain("stt-large-v3");
   });
 
-  it("skips Ollama tiers that need more memory than the PC has, and never fails on an optional one", async () => {
-    const pulled: string[] = [];
-    const rows = await prefetch.ensureOllama("/friday", null, {
-      log: () => {},
-      deps: {
-        fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
-        ramGb: 12,
-        pull: async (tag: string) => {
-          pulled.push(tag);
-          return tag === "llama3.2:3b" ? { ok: false, error: "no route" } : { ok: true };
+  it("skips the smart model below 7 GB and never fails on it, since it is optional", async () => {
+    const run = async (ramGb: number, ok: boolean) => {
+      const pulled: string[] = [];
+      const rows = await prefetch.ensureOllama("/friday", null, {
+        log: () => {},
+        deps: {
+          fetch: async () => ({ ok: true, json: async () => ({ models: [] }) }),
+          ramGb,
+          pull: async (tag: string) => {
+            pulled.push(tag);
+            return tag === "qwen3:4b" && !ok ? { ok: false, error: "no route" } : { ok: true };
+          },
         },
-      },
-    });
-    expect(pulled).toEqual(["qwen2.5:1.5b", "llama3.2:3b"]);
-    expect(rows.find((r: { id: string }) => r.id === "qwen2.5:7b")).toMatchObject({
+      });
+      return { pulled, rows };
+    };
+    const small = await run(6, true);
+    expect(small.pulled).toEqual(["qwen2.5:1.5b"]);
+    expect(small.rows.find((r: { id: string }) => r.id === "qwen3:4b")).toMatchObject({
       ok: true,
       skipped: true,
     });
-    const failed = rows.find((r: { id: string }) => r.id === "llama3.2:3b");
-    expect(failed).toMatchObject({ ok: false, optional: true });
-    expect(prefetch.failureReport(rows)).toEqual([]);
+    const sixteen = await run(15.8, true);
+    expect(sixteen.pulled).toEqual(["qwen2.5:1.5b", "qwen3:4b"]);
+    const failing = await run(16, false);
+    expect(failing.rows.find((r: { id: string }) => r.id === "qwen3:4b")).toMatchObject({
+      ok: false,
+      optional: true,
+    });
+    expect(prefetch.failureReport(failing.rows)).toEqual([]);
     expect(prefetch.failureReport([{ id: "qwen2.5:1.5b", ok: false, error: "x" }])).not.toEqual([]);
   });
 
-  it("leaves the bigger chat models out when FRIDAY_PREFETCH_CHAT_SMART is 0", async () => {
+  it("leaves the smart chat model out when FRIDAY_PREFETCH_CHAT_SMART is 0", async () => {
     const pulled: string[] = [];
     await prefetch.ensureOllama("/friday", null, {
       log: () => {},

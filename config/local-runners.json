@@ -29,21 +29,9 @@
           "role": "fast replies and voice turns"
         },
         {
-          "tag": "llama3.2:3b",
-          "role": "better understanding while she talks",
-          "minRamGb": 8,
-          "optional": true
-        },
-        {
-          "tag": "qwen2.5:7b",
-          "role": "smart worker for tasks while the fast model keeps talking",
-          "minRamGb": 16,
-          "optional": true
-        },
-        {
-          "tag": "qwen3:14b",
-          "role": "largest local brain for hard work",
-          "minRamGb": 32,
+          "tag": "qwen3:4b",
+          "role": "the one smart model: fast, tools, thinking, Hindi and translation",
+          "minRamGb": 7,
           "optional": true
         }
       ]

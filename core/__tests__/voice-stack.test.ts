@@ -35,7 +35,8 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     expect(has("faster-whisper")).toBe(true);
     expect(has("llamacpp release pin")).toBe(true);
     expect(has("ollama release pin")).toBe(true);
-    expect(has("llamacpp-runtime")).toBe(true);
+    // llama.cpp is added later from Install Manager, so setup must not plan it.
+    expect(has("llamacpp-runtime")).toBe(false);
     expect(rows.find((r) => r.name === "big speech sizes in the plan")?.detail).toContain(
       "stt-medium",
     );

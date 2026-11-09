@@ -81,12 +81,13 @@ const STT_SIZES = ["base", "small"];
  */
 const STT_LARGE = { size: "medium", minRamGb: 8 };
 /** The big speech size for a strong PC: near large-v3, far less decoding work. About 1.6 GB. */
-const STT_BIG = { size: "large-v3-turbo", minRamGb: 16 };
+// 15, not 16: Windows reports a 16 GB PC as about 15.8 GB.
+const STT_BIG = { size: "large-v3-turbo", minRamGb: 15 };
 
 /** The lite fallback: the smallest size, so a weak or busy PC can still hear. About 75 MB, every PC. */
 const STT_LITE = { size: "tiny" };
-/** The most accurate size, for a PC with the memory and the disk. About 3 GB; optional. */
-const STT_MAX = { size: "large-v3", minRamGb: 24 };
+/** The most accurate size, for a PC with the memory and the disk. About 3 GB; optional, so a failed download never fails setup. */
+const STT_MAX = { size: "large-v3", minRamGb: 15 };
 
 /** The offline neural voice the kernel opens from `<root>/models/supertonic-3` (voice F2). */
 const TTS_MODEL = {
@@ -127,11 +128,11 @@ function prefetchParallelism(env = process.env) {
 const { mapPool, registerGguf } = require("../electron/model-download.cjs");
 
 /** Ollama serves the small chat model on Windows, so the separate GGUF copy is not fetched there. */
-/** llama.cpp's Windows release is installed by setup unless FRIDAY_PREFETCH_LLAMACPP=0 or it is a hosted run. */
+/** llama.cpp is not part of setup: it is added later from Install Manager. FRIDAY_PREFETCH_LLAMACPP=1 opts it in. */
 function llamaCppWanted(env, platform) {
   return (
     platform === "win32" &&
-    enabled(env, "FRIDAY_PREFETCH_LLAMACPP") &&
+    String(env.FRIDAY_PREFETCH_LLAMACPP ?? "0").trim() === "1" &&
     enabled(env, "FRIDAY_AUTO_INSTALL")
   );
 }

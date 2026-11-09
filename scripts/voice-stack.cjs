@@ -135,7 +135,6 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     GITHUB_ACTIONS: "",
     FRIDAY_PREFETCH: "1",
     FRIDAY_AUTO_INSTALL: "1",
-    FRIDAY_PREFETCH_LLAMACPP: "1",
   };
   const plan = prefetch.prefetchPlan(root || "/friday", winEnv, "win32", {});
   const planned = new Set(plan.map((job) => job.id));
@@ -146,8 +145,6 @@ function inventory({ root = "", platform = process.platform, env = process.env }
     ["stt-tiny", "lite listening fallback"],
     ["stt-small", "Hindi and Hinglish listening"],
     ["supertonic-3", "offline voice"],
-    ["qwen2.5-1.5b-instruct", "the small chat model file"],
-    ["llamacpp-runtime", "llama.cpp"],
     ["ollama-setup", "Ollama"],
   ])
     check(

@@ -16,6 +16,8 @@ const quiet = {
   GITHUB_ACTIONS: "",
   FRIDAY_SETUP_UPDATE: "0",
   FRIDAY_PREFETCH_MOONSHINE: "0",
+  // llama.cpp is not part of setup by default; these tests describe the opted-in case.
+  FRIDAY_PREFETCH_LLAMACPP: "1",
 };
 const win = "win32";
 const tmp = () => mkdtempSync(path.join(tmpdir(), "friday-llama-"));
@@ -53,6 +55,15 @@ describe("llama.cpp is planned, downloaded and installed by setup", () => {
     });
     expect(release.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(jobs.some((j: { kind: string }) => j.kind === "chat")).toBe(true);
+  });
+
+  it("is not part of setup unless opted in; it is added later from Install Manager", () => {
+    const { FRIDAY_PREFETCH_LLAMACPP: _on, ...bare } = quiet;
+    const ids = prefetch
+      .prefetchPlan("C:/friday", { ...bare, FRIDAY_AUTO_INSTALL: "1" }, win, { ollama: true })
+      .map((j: { id: string }) => j.id);
+    expect(ids).not.toContain("llamacpp-runtime");
+    expect(ids).toContain("stt-small");
   });
 
   it("is off on another platform, on an opt-out and when automatic install is off", () => {
